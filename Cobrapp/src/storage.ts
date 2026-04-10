@@ -1,6 +1,8 @@
-import type { Client } from "./types";
+import type { Client, ClientStatus, OtherCharge, Payment, PaymentMethod } from "./types";
 
 const CLIENTS_KEY = "cobrapp.module1.clients.v1";
+const PAYMENTS_KEY = "cobrapp.module2.payments.v1";
+const SEQ_KEY = "cobrapp.payments.seq.v1";
 
 const WEEKLY_DAYS = new Set([
   "monday",
@@ -10,6 +12,62 @@ const WEEKLY_DAYS = new Set([
   "friday",
   "saturday"
 ]);
+
+const PAYMENT_METHODS = new Set<PaymentMethod>([
+  "Efectivo",
+  "ACH Express",
+  "Deposito Bancario",
+  "Transferencia Bancaria",
+  "Tarjeta"
+]);
+
+function parseFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function parseNonNegativeNumber(value: unknown): number {
+  const parsed = parseFiniteNumber(value);
+  if (parsed === null || parsed < 0) return 0;
+  return parsed;
+}
+
+function parseNonNegativeInteger(value: unknown): number {
+  const parsed = parseFiniteNumber(value);
+  if (parsed === null || !Number.isInteger(parsed) || parsed < 0) return 0;
+  return parsed;
+}
+
+function normalizeOtherCharges(raw: Record<string, unknown>): OtherCharge[] {
+  // Formato nuevo: array de { label, amount }
+  if (Array.isArray(raw.otherCharges)) {
+    return (raw.otherCharges as unknown[])
+      .filter(
+        (c): c is { label: string; amount: number } =>
+          typeof (c as Record<string, unknown>).label === "string" &&
+          typeof (c as Record<string, unknown>).amount === "number" &&
+          ((c as Record<string, unknown>).label as string).trim().length > 0 &&
+          Number.isFinite((c as Record<string, unknown>).amount as number)
+      )
+      .map((c) => ({
+        label: (c.label as string).trim(),
+        amount: c.amount as number
+      }));
+  }
+
+  // Formato viejo: otherChargeLabel + otherChargeAmount → migrar a array
+  const label = raw.otherChargeLabel;
+  const amount = Number(raw.otherChargeAmount);
+  if (typeof label === "string" && label.trim() && Number.isFinite(amount) && amount !== 0) {
+    return [{ label: label.trim(), amount }];
+  }
+
+  return [];
+}
 
 function normalizeClient(item: unknown): Client | null {
   if (!item || typeof item !== "object") {
@@ -30,11 +88,15 @@ function normalizeClient(item: unknown): Client | null {
   const base =
     typeof raw.id === "string" &&
     typeof raw.name === "string" &&
-    typeof raw.rentAmount === "number" &&
-    typeof raw.balance === "number" &&
     typeof raw.createdAt === "string";
 
   if (!base) {
+    return null;
+  }
+
+  const rentAmount = parseFiniteNumber(raw.rentAmount);
+  const balance = parseFiniteNumber(raw.balance);
+  if (rentAmount === null || balance === null || rentAmount < 0 || balance < 0) {
     return null;
   }
 
@@ -45,21 +107,32 @@ function normalizeClient(item: unknown): Client | null {
         ? raw.unitId
         : `LEG-${raw.id.slice(0, 6)}`,
     name: raw.name,
-    rentAmount: raw.rentAmount,
+    cedula:
+      typeof raw.cedula === "string" && raw.cedula.trim()
+        ? raw.cedula.trim()
+        : undefined,
+    rentAmount,
     frequency,
-    balance: raw.balance,
-    installmentsAgreed: Number(raw.installmentsAgreed) || 0,
-    installmentsRemaining: Number(raw.installmentsRemaining) || 0,
-    installmentsPaid: Number(raw.installmentsPaid) || 0,
-    otherChargeLabel:
-      typeof raw.otherChargeLabel === "string" && raw.otherChargeLabel.trim()
-        ? raw.otherChargeLabel
+    balance,
+    savings: parseNonNegativeNumber(raw.savings),
+    installmentsAgreed: parseNonNegativeInteger(raw.installmentsAgreed),
+    installmentsRemaining: parseNonNegativeInteger(raw.installmentsRemaining),
+    installmentsPaid: parseNonNegativeInteger(raw.installmentsPaid),
+    otherCharges: normalizeOtherCharges(raw),
+    createdAt: raw.createdAt,
+    lastChargeDate:
+      typeof raw.lastChargeDate === "string" && raw.lastChargeDate.trim()
+        ? raw.lastChargeDate
         : undefined,
-    otherChargeAmount:
-      Number.isFinite(Number(raw.otherChargeAmount)) && Number(raw.otherChargeAmount) !== 0
-        ? Number(raw.otherChargeAmount)
+    archivedAt:
+      typeof raw.archivedAt === "string" && raw.archivedAt.trim()
+        ? raw.archivedAt
         : undefined,
-    createdAt: raw.createdAt
+    status: (raw.status === "inactive" ? "inactive" : "active") as ClientStatus,
+    statusComment:
+      typeof raw.statusComment === "string" && raw.statusComment.trim()
+        ? raw.statusComment
+        : undefined
   };
 
   if (frequency === "weekly") {
@@ -79,19 +152,22 @@ function normalizeClient(item: unknown): Client | null {
 
 export function loadClients(): Client[] {
   const raw = localStorage.getItem(CLIENTS_KEY);
-  if (!raw) {
-    return [];
-  }
+  if (!raw) return [];
 
   try {
     const parsed = JSON.parse(raw) as unknown[];
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
+    if (!Array.isArray(parsed)) return [];
 
-    return parsed
+    const normalized = parsed
       .map((item) => normalizeClient(item))
       .filter((item): item is Client => item !== null);
+
+    const discarded = parsed.length - normalized.length;
+    if (discarded > 0) {
+      console.warn(`[Cobrapp] ${discarded} registro(s) invalido(s) fueron omitidos al cargar clientes.`);
+    }
+
+    return normalized;
   } catch {
     return [];
   }
@@ -99,4 +175,107 @@ export function loadClients(): Client[] {
 
 export function saveClients(clients: Client[]): void {
   localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
+}
+
+// ── Payments ──
+
+export function nextReceiptNumber(): string {
+  const current = parseInt(localStorage.getItem(SEQ_KEY) ?? "0", 10);
+  const next = Number.isFinite(current) ? current + 1 : 1;
+  localStorage.setItem(SEQ_KEY, String(next));
+  return `REC-${String(next).padStart(4, "0")}`;
+}
+
+function normalizePayment(item: unknown): Payment | null {
+  if (!item || typeof item !== "object") return null;
+  const raw = item as Record<string, unknown>;
+
+  if (
+    typeof raw.id !== "string" ||
+    typeof raw.receiptNumber !== "string" ||
+    typeof raw.clientId !== "string" ||
+    typeof raw.clientName !== "string" ||
+    typeof raw.clientUnit !== "string" ||
+    typeof raw.dateApplied !== "string" ||
+    typeof raw.createdAt !== "string"
+  ) return null;
+
+  if (!PAYMENT_METHODS.has(raw.paymentMethod as PaymentMethod)) return null;
+
+  const amountReceived = parseFiniteNumber(raw.amountReceived);
+  const appliedToRent = parseFiniteNumber(raw.appliedToRent);
+  const centavosAhorro = parseFiniteNumber(raw.centavosAhorro);
+  const balanceBefore = parseFiniteNumber(raw.balanceBefore);
+  const balanceAfter = parseFiniteNumber(raw.balanceAfter);
+  const savingsBefore = parseFiniteNumber(raw.savingsBefore);
+  const savingsAfter = parseFiniteNumber(raw.savingsAfter);
+
+  if (
+    amountReceived === null || amountReceived < 0 ||
+    appliedToRent === null || appliedToRent < 0 ||
+    centavosAhorro === null || centavosAhorro < 0 ||
+    balanceBefore === null || balanceBefore < 0 ||
+    balanceAfter === null || balanceAfter < 0 ||
+    savingsBefore === null || savingsBefore < 0 ||
+    savingsAfter === null || savingsAfter < 0
+  ) return null;
+
+  return {
+    id: raw.id,
+    receiptNumber: raw.receiptNumber,
+    clientId: raw.clientId,
+    clientName: raw.clientName,
+    clientUnit: raw.clientUnit,
+    clientCedula:
+      typeof raw.clientCedula === "string" && raw.clientCedula.trim()
+        ? raw.clientCedula.trim()
+        : undefined,
+    dateApplied: raw.dateApplied,
+    paymentMethod: raw.paymentMethod as PaymentMethod,
+    reference:
+      typeof raw.reference === "string" && raw.reference.trim()
+        ? raw.reference.trim()
+        : undefined,
+    amountReceived,
+    appliedToRent,
+    centavosAhorro,
+    installmentsDeducted: parseNonNegativeInteger(raw.installmentsDeducted),
+    balanceBefore,
+    balanceAfter,
+    savingsBefore,
+    savingsAfter,
+    installmentsPaidAfter: parseNonNegativeInteger(raw.installmentsPaidAfter),
+    installmentsRemainingAfter: parseNonNegativeInteger(raw.installmentsRemainingAfter),
+    rentAmount: parseNonNegativeNumber(raw.rentAmount),
+    frequency: (raw.frequency === "daily" || raw.frequency === "weekly" || raw.frequency === "biweekly" || raw.frequency === "monthly")
+      ? raw.frequency
+      : "monthly",
+    weeklyChargeDay: (["monday","tuesday","wednesday","thursday","friday","saturday"].includes(raw.weeklyChargeDay as string))
+      ? raw.weeklyChargeDay as import("./types").WeeklyChargeDay
+      : undefined,
+    monthlyChargeDay: (typeof raw.monthlyChargeDay === "number" && raw.monthlyChargeDay >= 1 && raw.monthlyChargeDay <= 31)
+      ? raw.monthlyChargeDay
+      : undefined,
+    createdAt: raw.createdAt
+  };
+}
+
+export function loadPayments(): Payment[] {
+  const raw = localStorage.getItem(PAYMENTS_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map((item) => normalizePayment(item))
+      .filter((item): item is Payment => item !== null);
+  } catch {
+    return [];
+  }
+}
+
+export function savePayments(payments: Payment[]): void {
+  localStorage.setItem(PAYMENTS_KEY, JSON.stringify(payments));
 }
