@@ -3,11 +3,14 @@ import PaymentReceipt from "../components/PaymentReceipt";
 import { formatCurrency, formatDate } from "../format";
 import { nextReceiptNumber } from "../storage";
 import type { Client, Payment, PaymentMethod } from "../types";
-import { toDateKey } from "../billing";
+import { isChargeDay, parseDateKey, toDateKey } from "../billing";
 
 const PAYMENT_METHODS: PaymentMethod[] = ["Efectivo", "ACH Express", "Deposito Bancario", "Transferencia Bancaria", "Tarjeta"];
 const BANK_PAYMENT_METHODS = new Set<PaymentMethod>(["ACH Express", "Deposito Bancario", "Transferencia Bancaria"]);
 const NOTIFIED_PAYMENTS_KEY = "cobrapp.module2.notified.v1";
+const CASH_CLOSINGS_KEY = "cobrapp.module2.cash_closings.v1";
+const CASH_CLOSING_AUDIT_KEY = "cobrapp.module2.cash_closing_audit.v1";
+const CHARGE_RUNS_KEY = "cobrapp.module2.charge_runs.v1";
 
 const FREQUENCY_LABEL: Record<string, string> = {
   daily: "Diaria",
@@ -34,6 +37,31 @@ type NotifiedPayment = {
 type NotifiedPaymentForm = {
   unitId: string;
   amount: string;
+};
+
+type CashClosing = {
+  date: string;
+  closedAt: string;
+};
+
+type CashClosingAuditAction = "close" | "reopen";
+
+type CashClosingAuditEvent = {
+  id: string;
+  date: string;
+  action: CashClosingAuditAction;
+  actor: string;
+  reason: string;
+  createdAt: string;
+};
+
+type ChargeRun = {
+  id: string;
+  closingDate: string;
+  targetDate: string;
+  chargedClients: number;
+  chargedTotal: number;
+  createdAt: string;
 };
 
 type Props = {
@@ -74,6 +102,80 @@ function saveNotifiedPayments(rows: NotifiedPayment[]): void {
   localStorage.setItem(NOTIFIED_PAYMENTS_KEY, JSON.stringify(rows));
 }
 
+function loadCashClosings(): CashClosing[] {
+  const raw = localStorage.getItem(CASH_CLOSINGS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is CashClosing => {
+      if (!item || typeof item !== "object") return false;
+      const rec = item as Record<string, unknown>;
+      return typeof rec.date === "string" && typeof rec.closedAt === "string";
+    });
+  } catch {
+    return [];
+  }
+}
+
+function saveCashClosings(rows: CashClosing[]): void {
+  localStorage.setItem(CASH_CLOSINGS_KEY, JSON.stringify(rows));
+}
+
+function loadCashClosingAudit(): CashClosingAuditEvent[] {
+  const raw = localStorage.getItem(CASH_CLOSING_AUDIT_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is CashClosingAuditEvent => {
+      if (!item || typeof item !== "object") return false;
+      const rec = item as Record<string, unknown>;
+      return (
+        typeof rec.id === "string" &&
+        typeof rec.date === "string" &&
+        (rec.action === "close" || rec.action === "reopen") &&
+        typeof rec.actor === "string" &&
+        typeof rec.reason === "string" &&
+        typeof rec.createdAt === "string"
+      );
+    });
+  } catch {
+    return [];
+  }
+}
+
+function saveCashClosingAudit(rows: CashClosingAuditEvent[]): void {
+  localStorage.setItem(CASH_CLOSING_AUDIT_KEY, JSON.stringify(rows));
+}
+
+function loadChargeRuns(): ChargeRun[] {
+  const raw = localStorage.getItem(CHARGE_RUNS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is ChargeRun => {
+      if (!item || typeof item !== "object") return false;
+      const rec = item as Record<string, unknown>;
+      return (
+        typeof rec.id === "string" &&
+        typeof rec.closingDate === "string" &&
+        typeof rec.targetDate === "string" &&
+        typeof rec.chargedClients === "number" &&
+        typeof rec.chargedTotal === "number" &&
+        typeof rec.createdAt === "string"
+      );
+    });
+  } catch {
+    return [];
+  }
+}
+
+function saveChargeRuns(rows: ChargeRun[]): void {
+  localStorage.setItem(CHARGE_RUNS_KEY, JSON.stringify(rows));
+}
+
 export default function PaymentsPage({ clients, onClientsChange, payments, onPaymentsChange }: Props) {
   const [form, setForm] = useState<PaymentForm>({
     clientId: "",
@@ -86,8 +188,10 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [confirmedPayment, setConfirmedPayment] = useState<Payment | null>(null);
-  const [isRegisterOpen, setIsRegisterOpen] = useState(true);
-  const [isNotifiedOpen, setIsNotifiedOpen] = useState(true);
+  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
+  const [isNotifiedOpen, setIsNotifiedOpen] = useState(false);
+  const [isCashClosingOpen, setIsCashClosingOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyClientId, setHistoryClientId] = useState<string>("all");
   const [historyPreviewPayment, setHistoryPreviewPayment] = useState<Payment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
@@ -97,6 +201,16 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
   });
   const [notifiedPayments, setNotifiedPayments] = useState<NotifiedPayment[]>(() => loadNotifiedPayments());
   const [notifiedErrors, setNotifiedErrors] = useState<string[]>([]);
+  const [cashClosings, setCashClosings] = useState<CashClosing[]>(() => loadCashClosings());
+  const [cashClosingDate, setCashClosingDate] = useState<string>(toDateKey(new Date()));
+  const [cashClosingActor, setCashClosingActor] = useState<string>("Operador");
+  const [cashClosingReason, setCashClosingReason] = useState<string>("");
+  const [cashClosingInfo, setCashClosingInfo] = useState<string>("");
+  const [cashClosingError, setCashClosingError] = useState<string>("");
+  const [cashClosingAudit, setCashClosingAudit] = useState<CashClosingAuditEvent[]>(() => loadCashClosingAudit());
+  const [chargeRuns, setChargeRuns] = useState<ChargeRun[]>(() => loadChargeRuns());
+  const [reopenTargetDate, setReopenTargetDate] = useState<string | null>(null);
+  const [reopenReason, setReopenReason] = useState<string>("");
   const searchRef = useRef<HTMLInputElement>(null);
 
   const activeClients = useMemo(
@@ -156,6 +270,72 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
     return activeClients.find((c) => c.unitId.trim().toLowerCase() === unit) ?? null;
   }, [activeClients, notifiedForm.unitId]);
 
+  const closedDateSet = useMemo(
+    () => new Set(cashClosings.map((c) => c.date)),
+    [cashClosings]
+  );
+
+  function isDateClosed(dateKey: string): boolean {
+    return closedDateSet.has(dateKey);
+  }
+
+  function applyNextDayChargesFromClosing(closingDateKey: string): {
+    targetDate: string;
+    alreadyProcessed: boolean;
+    chargedClients: number;
+    chargedTotal: number;
+  } {
+    const closingDate = parseDateKey(closingDateKey);
+    if (!closingDate) {
+      return { targetDate: closingDateKey, alreadyProcessed: true, chargedClients: 0, chargedTotal: 0 };
+    }
+    const targetDate = new Date(closingDate);
+    targetDate.setDate(targetDate.getDate() + 1);
+    const targetDateKey = toDateKey(targetDate);
+
+    if (chargeRuns.some((r) => r.targetDate === targetDateKey)) {
+      return { targetDate: targetDateKey, alreadyProcessed: true, chargedClients: 0, chargedTotal: 0 };
+    }
+
+    let chargedClients = 0;
+    let chargedTotal = 0;
+    const nextClients = clients.map((client) => {
+      if (client.archivedAt || client.status === "inactive") return client;
+      const shouldCharge = Number.isFinite(client.rentAmount) && client.rentAmount > 0 && isChargeDay(client, targetDate);
+      if (!shouldCharge) {
+        return { ...client, lastChargeDate: targetDateKey };
+      }
+      chargedClients += 1;
+      chargedTotal = roundMoney(chargedTotal + client.rentAmount);
+      return {
+        ...client,
+        balance: roundMoney(client.balance + client.rentAmount),
+        lastChargeDate: targetDateKey
+      };
+    });
+
+    onClientsChange(nextClients);
+
+    const run: ChargeRun = {
+      id: crypto.randomUUID(),
+      closingDate: closingDateKey,
+      targetDate: targetDateKey,
+      chargedClients,
+      chargedTotal,
+      createdAt: new Date().toISOString()
+    };
+    const nextRuns = [run, ...chargeRuns].slice(0, 400);
+    setChargeRuns(nextRuns);
+    saveChargeRuns(nextRuns);
+
+    return {
+      targetDate: targetDateKey,
+      alreadyProcessed: false,
+      chargedClients,
+      chargedTotal
+    };
+  }
+
   function handleSelectClient(client: Client): void {
     setForm((f) => ({ ...f, clientId: client.id }));
     setClientSearch("");
@@ -175,7 +355,99 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
     if (!Number.isFinite(amount) || amount <= 0) errs.push("El monto recibido debe ser mayor a 0.");
     if (!form.dateApplied) errs.push("La fecha aplicada es obligatoria.");
     if (isBankPayment && !form.reference.trim()) errs.push("Debes indicar el folio/referencia para pagos bancarios.");
+    if (form.dateApplied && isDateClosed(form.dateApplied)) errs.push(`La caja de ${form.dateApplied} ya esta cerrada.`);
     return errs;
+  }
+
+  function handleCloseCashForDate(): void {
+    const date = cashClosingDate.trim();
+    const actor = cashClosingActor.trim() || "Operador";
+    const reason = cashClosingReason.trim();
+    if (!date) {
+      setCashClosingError("Debes seleccionar una fecha para cerrar caja.");
+      setCashClosingInfo("");
+      return;
+    }
+    if (!reason) {
+      setCashClosingError("Debes indicar un motivo para cerrar caja.");
+      setCashClosingInfo("");
+      return;
+    }
+    if (isDateClosed(date)) {
+      setCashClosingError(`La caja de ${date} ya estaba cerrada.`);
+      setCashClosingInfo("");
+      return;
+    }
+
+    const closing: CashClosing = { date, closedAt: new Date().toISOString() };
+    const nextClosings = [...cashClosings, closing].sort((a, b) => b.date.localeCompare(a.date));
+    setCashClosings(nextClosings);
+    saveCashClosings(nextClosings);
+
+    const paymentsOfDay = payments.filter((p) => p.dateApplied === date);
+    const dayTotal = roundMoney(paymentsOfDay.reduce((acc, p) => acc + p.amountReceived, 0));
+    const event: CashClosingAuditEvent = {
+      id: crypto.randomUUID(),
+      date,
+      action: "close",
+      actor,
+      reason,
+      createdAt: new Date().toISOString()
+    };
+    const nextAudit = [event, ...cashClosingAudit].slice(0, 300);
+    setCashClosingAudit(nextAudit);
+    saveCashClosingAudit(nextAudit);
+    const chargeResult = applyNextDayChargesFromClosing(date);
+    const chargeInfo = chargeResult.alreadyProcessed
+      ? `Cobros de ${chargeResult.targetDate} ya estaban aplicados previamente.`
+      : `Cobros aplicados para ${chargeResult.targetDate}: ${chargeResult.chargedClients} cliente(s), total ${formatCurrency(chargeResult.chargedTotal)}.`;
+    setCashClosingError("");
+    setCashClosingReason("");
+    setCashClosingInfo(
+      `Caja cerrada para ${date}. Pagos del dia: ${paymentsOfDay.length}. Total del dia: ${formatCurrency(dayTotal)}. ${chargeInfo}`
+    );
+  }
+
+  function openReopenDialog(date: string): void {
+    setReopenTargetDate(date);
+    setReopenReason("");
+    setCashClosingError("");
+  }
+
+  function handleConfirmReopen(): void {
+    if (!reopenTargetDate) return;
+    const reason = reopenReason.trim();
+    const actor = cashClosingActor.trim() || "Operador";
+    if (!reason) {
+      setCashClosingError("Debes indicar un motivo para reabrir caja.");
+      return;
+    }
+    if (!isDateClosed(reopenTargetDate)) {
+      setCashClosingError(`La caja de ${reopenTargetDate} ya no esta cerrada.`);
+      setReopenTargetDate(null);
+      return;
+    }
+
+    const nextClosings = cashClosings.filter((c) => c.date !== reopenTargetDate);
+    setCashClosings(nextClosings);
+    saveCashClosings(nextClosings);
+
+    const event: CashClosingAuditEvent = {
+      id: crypto.randomUUID(),
+      date: reopenTargetDate,
+      action: "reopen",
+      actor,
+      reason,
+      createdAt: new Date().toISOString()
+    };
+    const nextAudit = [event, ...cashClosingAudit].slice(0, 300);
+    setCashClosingAudit(nextAudit);
+    saveCashClosingAudit(nextAudit);
+
+    setCashClosingInfo(`Caja reabierta para ${reopenTargetDate}.`);
+    setCashClosingError("");
+    setReopenTargetDate(null);
+    setReopenReason("");
   }
 
   function handleConfirmPayment(): void {
@@ -237,6 +509,11 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
   }
 
   function handleDeletePayment(payment: Payment): void {
+    if (isDateClosed(payment.dateApplied)) {
+      setErrors([`No se puede eliminar el recibo ${payment.receiptNumber}: la caja de ${payment.dateApplied} esta cerrada.`]);
+      setDeleteTarget(null);
+      return;
+    }
     const updatedClients = clients.map((c) => {
       if (c.id !== payment.clientId) return c;
       return {
@@ -312,7 +589,7 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
     return (
       <div className="page-inner">
         <header className="hero">
-          <h1>Modulo 2 — Pagos</h1>
+        <h1>Pagos</h1>
           <p>Recibo generado correctamente.</p>
         </header>
         <PaymentReceipt payment={confirmedPayment} onClose={() => setConfirmedPayment(null)} />
@@ -323,11 +600,141 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
   return (
     <div className="page-inner">
       <header className="hero">
-        <h1>Modulo 2 — Pagos</h1>
+        <h1>Pagos</h1>
         <p>Registra abonos y descarga recibos en imagen.</p>
       </header>
 
       {/* ── Payment form ── */}
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Cierre de caja</h2>
+          <button type="button" className="button ghost" onClick={() => setIsCashClosingOpen((v) => !v)}>
+            {isCashClosingOpen ? "Cerrar" : "+ Cierre de caja"}
+          </button>
+        </div>
+        {isCashClosingOpen && (
+        <>
+        <div className="payment-form-grid" style={{ marginTop: 12 }}>
+          <div className="payment-field-group">
+            <label className="payment-label">Usuario</label>
+            <input
+              type="text"
+              className="payment-input"
+              placeholder="Ej. Admin Turno A"
+              value={cashClosingActor}
+              onChange={(e) => setCashClosingActor(e.target.value)}
+            />
+          </div>
+          <div className="payment-field-group">
+            <label className="payment-label">Fecha a cerrar</label>
+            <input
+              type="date"
+              className="payment-input"
+              value={cashClosingDate}
+              onChange={(e) => setCashClosingDate(e.target.value)}
+            />
+          </div>
+          <div className="payment-field-group" style={{ gridColumn: "1 / -1" }}>
+            <label className="payment-label">Motivo de cierre</label>
+            <input
+              type="text"
+              className="payment-input"
+              placeholder="Ej. Cierre diario despues del corte bancario"
+              value={cashClosingReason}
+              onChange={(e) => setCashClosingReason(e.target.value)}
+            />
+          </div>
+          <div className="payment-field-group" style={{ display: "flex", alignItems: "flex-end" }}>
+            <button type="button" className="button primary" onClick={handleCloseCashForDate}>
+              Cerrar caja del dia
+            </button>
+          </div>
+        </div>
+        <p className="hint" style={{ marginTop: 8 }}>
+          Al cerrar caja, no se podran crear ni eliminar pagos con esa fecha.
+        </p>
+        {cashClosingInfo && <p className="hint recon-info">{cashClosingInfo}</p>}
+        {cashClosingError && <p className="hint error-text">{cashClosingError}</p>}
+        {cashClosings.length > 0 && (
+          <div className="table-scroll" style={{ marginTop: 10 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Fecha cerrada</th>
+                  <th>Cerrado en</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {cashClosings.slice(0, 12).map((c) => (
+                  <tr key={c.date}>
+                    <td>{c.date}</td>
+                    <td>{formatDate(new Date(c.closedAt))}</td>
+                    <td className="actions-cell">
+                      <button type="button" className="button danger small" onClick={() => openReopenDialog(c.date)}>
+                        Reabrir
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {cashClosingAudit.length > 0 && (
+          <div className="table-scroll" style={{ marginTop: 10 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Fecha caja</th>
+                  <th>Accion</th>
+                  <th>Usuario</th>
+                  <th>Motivo</th>
+                  <th>Registrado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cashClosingAudit.slice(0, 15).map((event) => (
+                  <tr key={event.id}>
+                    <td>{event.date}</td>
+                    <td>{event.action === "close" ? "Cierre" : "Reapertura"}</td>
+                    <td>{event.actor}</td>
+                    <td>{event.reason}</td>
+                    <td>{formatDate(new Date(event.createdAt))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {chargeRuns.length > 0 && (
+          <div className="table-scroll" style={{ marginTop: 10 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Cierre base</th>
+                  <th>Fecha cobrada</th>
+                  <th>Clientes cargados</th>
+                  <th>Total cargado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {chargeRuns.slice(0, 15).map((run) => (
+                  <tr key={run.id}>
+                    <td>{run.closingDate}</td>
+                    <td>{run.targetDate}</td>
+                    <td>{run.chargedClients}</td>
+                    <td>{formatCurrency(run.chargedTotal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        </>
+        )}
+      </section>
+
       <section className="panel">
         <div className="panel-head">
           <h2>Registrar pago</h2>
@@ -389,6 +796,9 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
               value={form.dateApplied}
               onChange={(e) => setForm((f) => ({ ...f, dateApplied: e.target.value }))}
             />
+            {form.dateApplied && isDateClosed(form.dateApplied) && (
+              <span className="payment-inline-hint">Caja cerrada para esta fecha.</span>
+            )}
           </div>
 
           {/* Method */}
@@ -481,7 +891,7 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
             type="button"
             className="button primary"
             onClick={handleConfirmPayment}
-            disabled={!form.clientId || !preview}
+            disabled={!form.clientId || !preview || isDateClosed(form.dateApplied)}
           >
             Confirmar pago y generar recibo
           </button>
@@ -598,6 +1008,13 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
       <section className="panel">
         <div className="panel-head">
           <h2>Historial de pagos</h2>
+          <button type="button" className="button ghost" onClick={() => setIsHistoryOpen((v) => !v)}>
+            {isHistoryOpen ? "Cerrar" : "+ Historial de pagos"}
+          </button>
+        </div>
+        {isHistoryOpen && (
+        <>
+        <div className="panel-head" style={{ marginTop: 10 }}>
           <select
             value={historyClientId}
             onChange={(e) => setHistoryClientId(e.target.value)}
@@ -651,7 +1068,8 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
                       <button
                         type="button"
                         className="action-btn action-btn--delete"
-                        title="Eliminar pago"
+                        title={isDateClosed(p.dateApplied) ? "Caja cerrada: no se puede eliminar" : "Eliminar pago"}
+                        disabled={isDateClosed(p.dateApplied)}
                         onClick={() => setDeleteTarget(p)}
                       >X</button>
                     </td>
@@ -663,6 +1081,8 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
         )}
         {historyRows.length > 0 && (
           <p className="hint">Mostrando los ultimos {historyRows.length} pagos.</p>
+        )}
+        </>
         )}
       </section>
 
@@ -678,6 +1098,31 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
         </div>
       )}
 
+      {reopenTargetDate && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3 className="modal-title">Reabrir caja</h3>
+            <div className="modal-body">
+              Vas a reabrir la caja de <strong>{reopenTargetDate}</strong>.<br /><br />
+              Indica el motivo de reapertura:
+              <div style={{ marginTop: 10 }}>
+                <input
+                  type="text"
+                  className="payment-input"
+                  placeholder="Ej. Correccion por pago omitido en corte"
+                  value={reopenReason}
+                  onChange={(e) => setReopenReason(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="button ghost" onClick={() => setReopenTargetDate(null)}>Cancelar</button>
+              <button type="button" className="button danger" onClick={handleConfirmReopen}>Confirmar reapertura</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {deleteTarget && (
         <div className="modal-overlay">
           <div className="modal">
@@ -687,10 +1132,23 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
               <strong>{deleteTarget.clientName}</strong> por{" "}
               <strong>{formatCurrency(deleteTarget.amountReceived)}</strong>?<br /><br />
               El saldo del cliente sera revertido automaticamente.
+              {isDateClosed(deleteTarget.dateApplied) && (
+                <>
+                  <br /><br />
+                  Esta fecha tiene caja cerrada. Debes gestionar un ajuste, no eliminar el pago.
+                </>
+              )}
             </p>
             <div className="modal-actions">
               <button type="button" className="button ghost" onClick={() => setDeleteTarget(null)}>Cancelar</button>
-              <button type="button" className="button danger" onClick={() => handleDeletePayment(deleteTarget)}>Eliminar</button>
+              <button
+                type="button"
+                className="button danger"
+                disabled={isDateClosed(deleteTarget.dateApplied)}
+                onClick={() => handleDeletePayment(deleteTarget)}
+              >
+                Eliminar
+              </button>
             </div>
           </div>
         </div>
@@ -698,4 +1156,3 @@ export default function PaymentsPage({ clients, onClientsChange, payments, onPay
     </div>
   );
 }
-

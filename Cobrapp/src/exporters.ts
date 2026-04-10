@@ -30,7 +30,7 @@ export async function exportClientsToPdf(
 
   const document = new JsPDF({ orientation: "landscape" });
   document.setFontSize(14);
-  document.text("Cobrapp - Modulo 1", 14, 16);
+  document.text("Cobrapp - Clientes", 14, 16);
   document.setFontSize(9);
   document.text(`Generado: ${now.toLocaleDateString("es-PA")}`, 14, 22);
 

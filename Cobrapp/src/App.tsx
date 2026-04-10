@@ -75,14 +75,14 @@ export default function App() {
               className={`nav-tab ${page === "clients" ? "nav-tab--active" : ""}`}
               onClick={() => setPage("clients")}
             >
-              Modulo 1 — Clientes
+              Clientes
             </button>
             <button
               type="button"
               className={`nav-tab ${page === "payments" ? "nav-tab--active" : ""}`}
               onClick={() => setPage("payments")}
             >
-              Modulo 2 — Pagos
+              Pagos
             </button>
           </div>
 
@@ -103,7 +103,7 @@ export default function App() {
                         ? "Respaldo guardado"
                         : backupStatus === "error"
                         ? "Error al respaldar"
-                        : "Respaldo automático activo"
+                        : "Respaldo automatico activo"
                     }
                   />
                   <button
@@ -112,7 +112,7 @@ export default function App() {
                     title="Quitar carpeta de respaldo"
                     onClick={handleRemoveBackup}
                   >
-                    Respaldo ✓
+                    Respaldo OK
                   </button>
                 </>
               ) : (
@@ -120,9 +120,9 @@ export default function App() {
                   type="button"
                   className="nav-backup-btn nav-backup-btn--setup"
                   onClick={handleConfigureBackup}
-                  title="Configura una carpeta para respaldo automático"
+                  title="Configura una carpeta para respaldo automatico"
                 >
-                  📂 Configurar respaldo
+                  Configurar respaldo
                 </button>
               )}
             </div>
@@ -145,3 +145,4 @@ export default function App() {
     </>
   );
 }
+

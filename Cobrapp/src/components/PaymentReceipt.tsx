@@ -17,6 +17,23 @@ function formatDateSpanish(dateStr: string): string {
   return `${parseInt(parts[2], 10)} ${months[month] ?? ""} ${parts[0]}`;
 }
 
+function sanitizeFileToken(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 60);
+}
+
+function formatFileDateParts(dateStr: string): string {
+  const parts = dateStr.split("-");
+  if (parts.length !== 3) return dateStr.replace(/-/g, "_");
+  const [yyyy, mm, dd] = parts;
+  return `${dd}_${mm}_${yyyy}`;
+}
+
 export default function PaymentReceipt({ payment, onClose, closeLabel = "Registrar otro pago" }: Props) {
   const receiptRef = useRef<HTMLDivElement>(null);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -34,7 +51,10 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
         height: receiptRef.current.scrollHeight
       });
       const link = document.createElement("a");
-      link.download = `recibo-${payment.receiptNumber}-${payment.dateApplied}.png`;
+      const unit = sanitizeFileToken(payment.clientUnit || "UNIDAD");
+      const client = sanitizeFileToken(payment.clientName || "CLIENTE");
+      const datePart = formatFileDateParts(payment.dateApplied);
+      link.download = `${unit}_${client}_${datePart}.png`;
       link.href = canvas.toDataURL("image/png");
       link.click();
     } catch {
@@ -94,7 +114,7 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
         {/* Status banner */}
         {isOverdue && (
           <div className="receipt-overdue-banner">
-            <span className="receipt-overdue-icon">⚠</span>
+            <span className="receipt-overdue-icon">!</span>
             <div>
               <div className="receipt-overdue-title">ATRASADO</div>
               <div className="receipt-overdue-sub">
@@ -148,7 +168,7 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
           </div>
           {payment.centavosAhorro > 0 && (
             <div className="receipt-row">
-              <span>Centavos a ahorro</span>
+              <span>Ahorro de siniestros</span>
               <span>{formatCurrency(payment.centavosAhorro)}</span>
             </div>
           )}
@@ -163,7 +183,7 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
           </div>
           <div className={`receipt-installment-box ${isOverdue ? "receipt-installment-box--debt" : "receipt-installment-box--good"}`}>
             <div className="receipt-installment-label">{isOverdue ? "Cuotas atrasadas" : "Al dia"}</div>
-            <div className="receipt-installment-value">{isOverdue ? overdueAfter : "✓"}</div>
+            <div className="receipt-installment-value">{isOverdue ? overdueAfter : "OK"}</div>
             {isOverdue && (
               <div className="receipt-installment-sub">
                 Saldo pendiente: {formatCurrency(payment.balanceAfter)}<br />
@@ -178,13 +198,42 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
           <div className={`receipt-covers-single ${isOverdue ? "receipt-covers-debt" : "receipt-covers-ok"}`}>
             {debtSinceLabel}
           </div>
-          {payment.savingsAfter > 0 && (
-            <div className="receipt-savings-box">
-              <div className="receipt-savings-label">Fondo de Viaje</div>
-              <div className="receipt-savings-sub">Saldo disponible</div>
-              <div className="receipt-savings-value">{formatCurrency(payment.savingsAfter)}</div>
-            </div>
-          )}
+        </div>
+
+        <div className="receipt-reminders-box">
+          <div className="receipt-reminders-title">Recordatorios importantes</div>
+          <ul className="receipt-reminders-list" aria-label="Recordatorios importantes">
+            <li className="receipt-reminder-item">
+              <span className="receipt-reminder-icon" aria-hidden="true">*</span>
+              <span>
+                Coloca <strong className="receipt-reminder-highlight">centavos</strong> para identificar tu unidad al pagar.
+              </span>
+            </li>
+            <li className="receipt-reminder-item">
+              <span className="receipt-reminder-icon" aria-hidden="true">*</span>
+              <span>
+                Escribe el <strong className="receipt-reminder-highlight">numero de tu unidad</strong> en los comentarios del banco.
+              </span>
+            </li>
+            <li className="receipt-reminder-item">
+              <span className="receipt-reminder-icon" aria-hidden="true">*</span>
+              <span>
+                Si pagas por transferencia, usa solo <strong className="receipt-reminder-highlight">ACH EXPRESS</strong>.
+              </span>
+            </li>
+            <li className="receipt-reminder-item">
+              <span className="receipt-reminder-icon" aria-hidden="true">*</span>
+              <span>
+                Manten <strong className="receipt-reminder-highlight">saldo positivo</strong> en tu Panapass.
+              </span>
+            </li>
+            <li className="receipt-reminder-item">
+              <span className="receipt-reminder-icon" aria-hidden="true">*</span>
+              <span>
+                Pagar <strong className="receipt-reminder-highlight">a tiempo</strong> evita multas y cargos adicionales.
+              </span>
+            </li>
+          </ul>
         </div>
 
         {/* Total */}

@@ -84,6 +84,29 @@ body {
   border-left-color: var(--color-debt);
 }
 
+.summary-card--interactive {
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.1s, border-color 0.15s;
+}
+
+.summary-card--interactive:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.summary-card--interactive:active {
+  transform: scale(0.99);
+}
+
+.summary-card--inactive {
+  border-left-color: var(--color-debt);
+}
+
+.summary-card--selected {
+  border-color: rgba(15, 118, 110, 0.45);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.16);
+}
+
 .summary-card span {
   display: block;
   color: var(--color-text-muted);
@@ -1131,6 +1154,36 @@ tbody tr:hover {
   padding: 22px;
 }
 
+.recon-panel {
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 32%);
+  border: 1px solid #dbeafe;
+}
+
+.recon-info {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  display: inline-block;
+}
+
+.recon-loading {
+  color: #0f766e;
+  font-weight: 600;
+}
+
+.recon-title {
+  font-size: 0.92rem;
+  color: #1e3a8a;
+  letter-spacing: 0.01em;
+}
+
+.button.primary.small {
+  padding: 6px 12px;
+  font-size: 0.82rem;
+}
+
 /* ══════════════════════════════════════════
    RECEIPT CARD
 ══════════════════════════════════════════ */
@@ -1337,6 +1390,54 @@ tbody tr:hover {
   font-weight: 800;
   color: #92400e;
   margin-top: 4px;
+}
+
+.receipt-reminders-box {
+  margin-top: 12px;
+  background: #f6f8ff;
+  border: 1.5px solid #c7d2fe;
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.receipt-reminders-title {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #1e40af;
+  margin-bottom: 10px;
+}
+
+.receipt-reminders-list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-size: 0.75rem;
+  line-height: 1.42;
+  list-style: none;
+}
+
+.receipt-reminder-item {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.receipt-reminder-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  font-size: 0.9rem;
+  line-height: 1;
+  margin-top: 1px;
+}
+
+.receipt-reminder-highlight {
+  color: #2563eb;
+  font-weight: 800;
 }
 
 /* Cubre hasta row */

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  applyAutomaticCharges,
   findNextChargeDay,
   getDebtStartDate,
   getPendingInstallments,
@@ -14,7 +13,7 @@ import type { BillingFrequency, Client, OtherCharge, WeeklyChargeDay } from "../
 type ExportFieldKey =
   | "unitId" | "cedula" | "name" | "rentAmount" | "frequency"
   | "installmentsAgreed" | "installmentsRemaining" | "installmentsPaid"
-  | "otherCharges" | "balance" | "debtSince";
+  | "otherCharges" | "balance" | "siniestrosSavings" | "debtSince";
 
 type ExportField = { key: ExportFieldKey; label: string; enabled: boolean };
 
@@ -29,6 +28,7 @@ const INITIAL_EXPORT_FIELDS: ExportField[] = [
   { key: "installmentsPaid",      label: "Cuotas pagadas",    enabled: true },
   { key: "otherCharges",          label: "Otros cargos",      enabled: true },
   { key: "balance",               label: "Monto a cobrar",    enabled: true },
+  { key: "siniestrosSavings",     label: "Ahorro de siniestros", enabled: true },
   { key: "debtSince",             label: "Debe desde",        enabled: true },
 ];
 
@@ -58,7 +58,8 @@ type ClientForm = {
 
 type SortField = "unitId" | "name" | "frequency" | "rentAmount" | "balance" | "debtDate" | "status";
 type SortDirection = "asc" | "desc";
-type StatusFilter = "all" | "active" | "archived";
+type StatusFilter = "all" | "active" | "inactive" | "archived";
+const STATUS_FILTER_STORAGE_KEY = "cobrapp.clients.status_filter.v1";
 
 const initialForm: ClientForm = {
   unitId: "",
@@ -145,7 +146,15 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
   const [searchTerm, setSearchTerm] = useState("");
   const [frequencyFilter, setFrequencyFilter] = useState<"all" | BillingFrequency>("all");
   const [debtFilter, setDebtFilter] = useState<"all" | "withDebt" | "withoutDebt">("all");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
+    try {
+      const saved = window.localStorage.getItem(STATUS_FILTER_STORAGE_KEY);
+      if (saved === "active" || saved === "inactive" || saved === "archived" || saved === "all") return saved;
+    } catch {
+      // Ignore storage errors and default to active.
+    }
+    return "active";
+  });
   const [sortField, setSortField] = useState<SortField>("unitId");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -166,12 +175,12 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const topScrollInnerRef = useRef<HTMLDivElement>(null);
 
-  const totalBalance = useMemo(
-    () => clients.filter((c) => !c.archivedAt).reduce((acc, client) => acc + client.balance, 0),
-    [clients]
-  );
   const activeClientsCount = useMemo(
     () => clients.filter((client) => !client.archivedAt && client.status === "active").length,
+    [clients]
+  );
+  const inactiveClientsCount = useMemo(
+    () => clients.filter((client) => !client.archivedAt && client.status === "inactive").length,
     [clients]
   );
   const today = startOfDay(now);
@@ -187,6 +196,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
 
     const filtered = baseRows.filter(({ client, debtStartDate }) => {
       if (statusFilter === "active" && (client.archivedAt || client.status !== "active")) return false;
+      if (statusFilter === "inactive" && (client.archivedAt || client.status !== "inactive")) return false;
       if (statusFilter === "archived" && !client.archivedAt) return false;
       if (frequencyFilter !== "all" && client.frequency !== frequencyFilter) return false;
       if (debtFilter === "withDebt" && debtStartDate === null) return false;
@@ -221,27 +231,25 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
   }
 
   useEffect(() => {
-    const applied = applyAutomaticCharges(clients, new Date());
-    if (applied.changed) onClientsChange(applied.clients);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
     const timerId = window.setInterval(() => {
-      const currentNow = new Date();
-      setNow(currentNow);
-      const applied = applyAutomaticCharges(clients, currentNow);
-      if (applied.changed) onClientsChange(applied.clients);
+      setNow(new Date());
     }, 60_000);
     return () => window.clearInterval(timerId);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clients]);
+  }, []);
 
   useEffect(() => {
     if (topScrollInnerRef.current && tableScrollRef.current) {
       topScrollInnerRef.current.style.width = `${tableScrollRef.current.scrollWidth}px`;
     }
   }, [rows]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(STATUS_FILTER_STORAGE_KEY, statusFilter);
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [statusFilter]);
 
   function handleTopScroll() {
     if (tableScrollRef.current && topScrollRef.current) {
@@ -486,6 +494,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
           ? client.otherCharges.map((c) => `${c.label}: ${formatCurrency(c.amount)}`).join(" | ")
           : "-";
       case "balance":               return client.balance;
+      case "siniestrosSavings":     return client.savings;
       case "debtSince":
         if (debtStartDate) return formatDate(debtStartDate);
         if (nextChargeDate) return `Al dia (prox. ${formatDate(nextChargeDate)})`;
@@ -535,19 +544,27 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
   return (
     <>
       <header className="hero">
-        <h1>Modulo 1 — Clientes</h1>
+        <h1>Clientes</h1>
         <p>Clientes y reglas automaticas de cobro en USD.</p>
       </header>
 
       <section className="summary-grid">
-        <article className="summary-card">
+        <button
+          type="button"
+          className={`summary-card summary-card--interactive${statusFilter === "active" ? " summary-card--selected" : ""}`}
+          onClick={() => setStatusFilter("active")}
+        >
           <span>Clientes activos</span>
           <strong>{activeClientsCount}</strong>
-        </article>
-        <article className="summary-card">
-          <span>Saldo total por cobrar</span>
-          <strong>{formatCurrency(totalBalance)}</strong>
-        </article>
+        </button>
+        <button
+          type="button"
+          className={`summary-card summary-card--interactive summary-card--inactive${statusFilter === "inactive" ? " summary-card--selected" : ""}`}
+          onClick={() => setStatusFilter("inactive")}
+        >
+          <span>Clientes inactivos</span>
+          <strong>{inactiveClientsCount}</strong>
+        </button>
       </section>
 
       {editingClientId !== null && (
@@ -810,6 +827,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
           </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
             <option value="active">Solo activos</option>
+            <option value="inactive">Solo inactivos</option>
             <option value="archived">Solo archivados</option>
             <option value="all">Activos y archivados</option>
           </select>
@@ -869,6 +887,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
                     <th>Cuotas pagadas</th>
                     <th>Otros cargos</th>
                     <th><button type="button" className="sort-button" onClick={() => handleSort("balance")}>MONTO A COBRAR {sortIcon("balance")}</button></th>
+                    <th>AHORRO DE SINIESTROS</th>
                     <th><button type="button" className="sort-button" onClick={() => handleSort("debtDate")}>DEBE DESDE {sortIcon("debtDate")}</button></th>
                     <th><button type="button" className="sort-button" onClick={() => handleSort("status")}>Estado {sortIcon("status")}</button></th>
                     <th>Acciones</th>
@@ -902,6 +921,11 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
                         <td>
                           <span className={client.balance <= 0 ? "amount-good" : "amount-debt"}>
                             {formatCurrency(client.balance)}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={client.savings > 0 ? "amount-good" : "amount-muted"}>
+                            {formatCurrency(client.savings)}
                           </span>
                         </td>
                         <td>
