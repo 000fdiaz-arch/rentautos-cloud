@@ -96,6 +96,11 @@ function hasBillingRuleChanged(existing: Client, form: ClientForm): boolean {
   return false;
 }
 
+function extractGroupCode(unitId: string): string {
+  const match = unitId.trim().match(/^([A-Za-z]+)/);
+  return match ? match[1].toUpperCase() : "";
+}
+
 function buildClient(form: ClientForm, existing?: Client): Client {
   const otherCharges: OtherCharge[] = form.otherCharges
     .filter((c) => c.label.trim() && parseNumberOrNull(c.amount) !== null)
@@ -145,6 +150,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
   const [isFormOpen, setIsFormOpen] = useState<boolean>(clients.length === 0);
   const [searchTerm, setSearchTerm] = useState("");
   const [frequencyFilter, setFrequencyFilter] = useState<"all" | BillingFrequency>("all");
+  const [groupFilter, setGroupFilter] = useState<string>("all");
   const [debtFilter, setDebtFilter] = useState<"all" | "withDebt" | "withoutDebt">("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
     try {
@@ -184,6 +190,9 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
     [clients]
   );
   const today = startOfDay(now);
+  const availableGroups = useMemo(() => {
+    return [...new Set(clients.map((c) => extractGroupCode(c.unitId)).filter((g) => g.length > 0))].sort((a, b) => a.localeCompare(b));
+  }, [clients]);
 
   const rows = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -199,6 +208,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
       if (statusFilter === "inactive" && (client.archivedAt || client.status !== "inactive")) return false;
       if (statusFilter === "archived" && !client.archivedAt) return false;
       if (frequencyFilter !== "all" && client.frequency !== frequencyFilter) return false;
+      if (groupFilter !== "all" && extractGroupCode(client.unitId) !== groupFilter) return false;
       if (debtFilter === "withDebt" && debtStartDate === null) return false;
       if (debtFilter === "withoutDebt" && debtStartDate !== null) return false;
       if (!normalizedSearch) return true;
@@ -224,7 +234,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
     });
 
     return filtered;
-  }, [clients, debtFilter, frequencyFilter, searchTerm, sortDirection, sortField, statusFilter, today]);
+  }, [clients, debtFilter, frequencyFilter, groupFilter, searchTerm, sortDirection, sortField, statusFilter, today]);
 
   function persist(next: Client[]): void {
     onClientsChange(next);
@@ -572,7 +582,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Editar cliente</h2>
-              <button type="button" className="modal-close" onClick={handleCancelEdit}>✕</button>
+              <button type="button" className="modal-close" onClick={handleCancelEdit}>X</button>
             </div>
             <div className="modal-body">
               <form className="form-grid" onSubmit={handleSubmitClient}>
@@ -640,7 +650,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
                         onChange={(e) => setForm((c) => ({ ...c, otherCharges: c.otherCharges.map((ch, idx) => idx === i ? { ...ch, amount: e.target.value } : ch) }))} />
                       <button type="button" className="other-charge-remove" onClick={() =>
                         setForm((c) => ({ ...c, otherCharges: c.otherCharges.filter((_, idx) => idx !== i) }))
-                      }>✕</button>
+                      }>X</button>
                     </div>
                   ))}
                 </div>
@@ -666,7 +676,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
           <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{confirmDialog.title}</h2>
-              <button type="button" className="modal-close" onClick={() => setConfirmDialog(null)}>✕</button>
+              <button type="button" className="modal-close" onClick={() => setConfirmDialog(null)}>X</button>
             </div>
             <div className="confirm-modal-body">
               <p>{confirmDialog.message}</p>
@@ -684,7 +694,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
           <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Pausar cliente</h2>
-              <button type="button" className="modal-close" onClick={() => setPauseDialog(null)}>✕</button>
+              <button type="button" className="modal-close" onClick={() => setPauseDialog(null)}>X</button>
             </div>
             <div className="confirm-modal-body">
               <p>El cliente quedara inactivo y no acumulara cobros hasta que lo reactives. Indica el motivo:</p>
@@ -789,7 +799,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
                     onChange={(e) => setForm((c) => ({ ...c, otherCharges: c.otherCharges.map((ch, idx) => idx === i ? { ...ch, amount: e.target.value } : ch) }))} />
                   <button type="button" className="other-charge-remove" onClick={() =>
                     setForm((c) => ({ ...c, otherCharges: c.otherCharges.filter((_, idx) => idx !== i) }))
-                  }>✕</button>
+                  }>X</button>
                 </div>
               ))}
             </div>
@@ -819,6 +829,12 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
             <option value="weekly">Semanal</option>
             <option value="biweekly">Quincenal</option>
             <option value="monthly">Mensual</option>
+          </select>
+          <select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
+            <option value="all">Todos los grupos</option>
+            {availableGroups.map((group) => (
+              <option key={group} value={group}>Grupo {group}</option>
+            ))}
           </select>
           <select value={debtFilter} onChange={(e) => setDebtFilter(e.target.value as "all" | "withDebt" | "withoutDebt")}>
             <option value="all">Con y sin deuda</option>

@@ -58,19 +58,18 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
       link.href = canvas.toDataURL("image/png");
       link.click();
     } catch {
-      // silently fail — user still sees the receipt on screen
+      // silently fail - user still sees the receipt on screen
     } finally {
       setIsDownloading(false);
     }
   }
 
-  // Cuotas vencidas reales después del pago
+  // Cuotas vencidas reales despues del pago
   const overdueAfter = payment.rentAmount > 0
     ? Math.max(0, Math.ceil(payment.balanceAfter / payment.rentAmount))
     : 0;
-  const isOverdue = overdueAfter > 0;
 
-  // "Debe desde" con la misma lógica de Módulo 1
+  // "Debe desde" con la misma logica de Modulo 1
   const paymentDate = startOfDay(new Date(payment.dateApplied + "T12:00:00"));
   const minimalClient = {
     balance: payment.balanceAfter,
@@ -78,14 +77,20 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
     frequency: payment.frequency,
     weeklyChargeDay: payment.weeklyChargeDay,
     monthlyChargeDay: payment.monthlyChargeDay,
-    // campos requeridos por la firma pero no usados en el cálculo
+    // campos requeridos por la firma pero no usados en el calculo
     id: "", unitId: "", name: "", installmentsAgreed: 0,
     installmentsRemaining: 0, installmentsPaid: 0,
     otherCharges: [], savings: 0, createdAt: ""
   } as Parameters<typeof getDebtStartDate>[0];
 
   const debtStartDate = getDebtStartDate(minimalClient, paymentDate);
-  const debtSinceLabel = debtStartDate ? "DEBE DESDE " + formatDate(debtStartDate) : "AL DIA";
+  const otherChargesApplied = payment.otherChargesApplied ?? [];
+  const otherChargesDueAfter = payment.otherChargesDueAfter ?? [];
+  const otherChargesAppliedTotal = otherChargesApplied.reduce((sum, charge) => sum + charge.amount, 0);
+  const otherChargesDueTotal = otherChargesDueAfter.reduce((sum, charge) => sum + charge.amount, 0);
+  const totalPending = Math.max(0, payment.balanceAfter + otherChargesDueTotal);
+  const hasPending = totalPending > 0;
+  const debtSinceLabel = debtStartDate ? formatDate(debtStartDate) : null;
 
   return (
     <div className="receipt-page">
@@ -99,11 +104,10 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
       </div>
 
       <div ref={receiptRef} className="receipt-card">
-        {/* Header */}
         <div className="receipt-header">
           <div>
             <div className="receipt-brand">COBRAPP</div>
-            <div className="receipt-brand-sub">Recibo de Pago</div>
+            <div className="receipt-brand-sub">Comprobante de pago</div>
           </div>
           <div style={{ textAlign: "right" }}>
             <div className="receipt-number">{payment.receiptNumber}</div>
@@ -111,21 +115,112 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
           </div>
         </div>
 
-        {/* Status banner */}
-        {isOverdue && (
-          <div className="receipt-overdue-banner">
-            <span className="receipt-overdue-icon">!</span>
-            <div>
-              <div className="receipt-overdue-title">ATRASADO</div>
-              <div className="receipt-overdue-sub">
-                Debe {formatCurrency(payment.balanceAfter)} ({overdueAfter} {overdueAfter === 1 ? "cuota" : "cuotas"})
-              </div>
+        <div className={`receipt-overdue-banner ${hasPending ? "" : "receipt-overdue-banner--ok"}`}>
+          <span className="receipt-overdue-icon">{hasPending ? "!" : "OK"}</span>
+          <div>
+            <div className="receipt-overdue-title">{hasPending ? "TIENES SALDO PENDIENTE" : "ESTAS AL DIA"}</div>
+            <div className="receipt-overdue-sub">
+              {hasPending
+                ? `Te falta pagar ${formatCurrency(totalPending)}${overdueAfter > 0 ? ` (${overdueAfter} ${overdueAfter === 1 ? "cuota atrasada" : "cuotas atrasadas"})` : ""}.`
+                : "No tienes saldo pendiente."}
             </div>
           </div>
-        )}
+        </div>
 
-        {/* Client info */}
         <div className="receipt-section">
+          <div className="receipt-simple-title">Resumen rapido</div>
+          <div className="receipt-row">
+            <span>Pagaste hoy</span>
+            <span>{formatCurrency(payment.amountReceived)}</span>
+          </div>
+          <div className="receipt-row">
+            <span>Se uso en cuota</span>
+            <span>{formatCurrency(payment.appliedToRent)}</span>
+          </div>
+          <div className="receipt-row">
+            <span>Cuotas pagadas hoy</span>
+            <span>{payment.installmentsDeducted > 0 ? payment.installmentsDeducted : 0}</span>
+          </div>
+          {otherChargesAppliedTotal > 0 && (
+            <div className="receipt-row">
+              <span>Se pago en cargos extra</span>
+              <span>{formatCurrency(otherChargesAppliedTotal)}</span>
+            </div>
+          )}
+          <div className="receipt-row">
+            <span>Debes en cargos extra</span>
+            <span className={otherChargesDueTotal > 0 ? "receipt-value-debt" : "receipt-value-good"}>{formatCurrency(otherChargesDueTotal)}</span>
+          </div>
+          <div className="receipt-row">
+            <span>Te falta por pagar</span>
+            <span className={hasPending ? "receipt-value-debt" : "receipt-value-good"}>{formatCurrency(totalPending)}</span>
+          </div>
+        </div>
+
+        <div className="receipt-section">
+          <div className="receipt-simple-title">Que pagaste hoy</div>
+          <div className="receipt-subrow">
+            <span>Cuota</span>
+            <span>{formatCurrency(payment.appliedToRent)}</span>
+          </div>
+          {otherChargesApplied.map((charge) => (
+            <div key={`paid-${charge.label}`} className="receipt-subrow">
+              <span>Cargo extra: {charge.label}</span>
+              <span>{formatCurrency(charge.amount)}</span>
+            </div>
+          ))}
+          {payment.centavosAhorro > 0 && (
+            <div className="receipt-subrow">
+              <span>Ahorro de siniestros</span>
+              <span>{formatCurrency(payment.centavosAhorro)}</span>
+            </div>
+          )}
+          {payment.appliedToRent <= 0 && otherChargesApplied.length === 0 && payment.centavosAhorro <= 0 && (
+            <div className="receipt-subrow">
+              <span>Sin aplicacion de pago</span>
+              <span>{formatCurrency(0)}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="receipt-section">
+          <div className="receipt-simple-title">Que te falta</div>
+          <div className="receipt-subrow">
+            <span>Cuotas pagadas en total</span>
+            <span>{payment.installmentsPaidAfter}</span>
+          </div>
+          <div className="receipt-subrow">
+            <span>Cuotas atrasadas</span>
+            <span className={overdueAfter > 0 ? "receipt-value-debt" : "receipt-value-good"}>{overdueAfter}</span>
+          </div>
+          <div className="receipt-subrow">
+            <span>Saldo de cuotas</span>
+            <span className={payment.balanceAfter > 0 ? "receipt-value-debt" : "receipt-value-good"}>{formatCurrency(payment.balanceAfter)}</span>
+          </div>
+          <div className="receipt-subrow">
+            <span>Total cargos extra pendientes</span>
+            <span className={otherChargesDueTotal > 0 ? "receipt-value-debt" : "receipt-value-good"}>{formatCurrency(otherChargesDueTotal)}</span>
+          </div>
+          {otherChargesDueAfter.map((charge) => (
+            <div key={`due-${charge.label}`} className="receipt-subrow receipt-subrow--debt">
+              <span>Debes por {charge.label}</span>
+              <span>{formatCurrency(charge.amount)}</span>
+            </div>
+          ))}
+          <div className="receipt-subrow">
+            <span>Total pendiente</span>
+            <span className={hasPending ? "receipt-value-debt" : "receipt-value-good"}>{formatCurrency(totalPending)}</span>
+          </div>
+          {hasPending && debtSinceLabel && (
+            <div className="receipt-subrow">
+              <span>Debe desde</span>
+              <span>{debtSinceLabel}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="receipt-section">
+          <div className="receipt-simple-title">Datos del pago</div>
           <div className="receipt-row">
             <span>Fecha aplicada</span>
             <span>{formatDateSpanish(payment.dateApplied)}</span>
@@ -150,58 +245,14 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
           </div>
           {payment.reference && (
             <div className="receipt-row">
-              <span>Referencia / Folio</span>
-              <span>{payment.reference}</span>
+              <span>Referencia</span>
+              <span className="receipt-reference">{payment.reference}</span>
             </div>
           )}
-        </div>
-
-        {/* Payment breakdown */}
-        <div className="receipt-section">
-          <div className="receipt-row">
-            <span>Monto recibido</span>
-            <span>{formatCurrency(payment.amountReceived)}</span>
-          </div>
-          <div className="receipt-row">
-            <span>Aplicado a renta</span>
-            <span>{formatCurrency(payment.appliedToRent)}</span>
-          </div>
-          {payment.centavosAhorro > 0 && (
-            <div className="receipt-row">
-              <span>Ahorro de siniestros</span>
-              <span>{formatCurrency(payment.centavosAhorro)}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Installments */}
-        <div className="receipt-installments-grid">
-          <div className="receipt-installment-box receipt-installment-box--good">
-            <div className="receipt-installment-label">Cuotas pagadas a la fecha</div>
-            <div className="receipt-installment-value">{payment.installmentsPaidAfter}</div>
-            <div className="receipt-installment-sub">{payment.installmentsPaidAfter} cuotas completadas en total.</div>
-          </div>
-          <div className={`receipt-installment-box ${isOverdue ? "receipt-installment-box--debt" : "receipt-installment-box--good"}`}>
-            <div className="receipt-installment-label">{isOverdue ? "Cuotas atrasadas" : "Al dia"}</div>
-            <div className="receipt-installment-value">{isOverdue ? overdueAfter : "OK"}</div>
-            {isOverdue && (
-              <div className="receipt-installment-sub">
-                Saldo pendiente: {formatCurrency(payment.balanceAfter)}<br />
-                ({overdueAfter} {overdueAfter === 1 ? "cuota" : "cuotas"} sin saldar)
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Debe desde */}
-        <div className="receipt-section" style={{ marginTop: 16 }}>
-          <div className={`receipt-covers-single ${isOverdue ? "receipt-covers-debt" : "receipt-covers-ok"}`}>
-            {debtSinceLabel}
-          </div>
         </div>
 
         <div className="receipt-reminders-box">
-          <div className="receipt-reminders-title">Recordatorios importantes</div>
+          <div className="receipt-reminders-title">Recordatorios rapidos</div>
           <ul className="receipt-reminders-list" aria-label="Recordatorios importantes">
             <li className="receipt-reminder-item">
               <span className="receipt-reminder-icon" aria-hidden="true">*</span>

@@ -1,4 +1,13 @@
-import type { Client, ClientStatus, OtherCharge, Payment, PaymentMethod } from "./types";
+import type {
+  BankRule,
+  Client,
+  ClientStatus,
+  ManualBankAssignmentAudit,
+  OtherCharge,
+  Payment,
+  PaymentMethod,
+  PendingBankItem
+} from "./types";
 
 const CLIENTS_KEY = "cobrapp.module1.clients.v1";
 const PAYMENTS_KEY = "cobrapp.module2.payments.v1";
@@ -42,6 +51,18 @@ function parseNonNegativeInteger(value: unknown): number {
   return parsed;
 }
 
+function parseChargeArray(value: unknown): OtherCharge[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const parsed = (value as unknown[])
+    .filter((c): c is { label: string; amount: number } =>
+      typeof (c as Record<string, unknown>).label === "string" &&
+      typeof (c as Record<string, unknown>).amount === "number" &&
+      Number.isFinite((c as Record<string, unknown>).amount as number)
+    )
+    .map((c) => ({ label: c.label, amount: c.amount }));
+  return parsed.length > 0 ? parsed : undefined;
+}
+
 function normalizeOtherCharges(raw: Record<string, unknown>): OtherCharge[] {
   // Formato nuevo: array de { label, amount }
   if (Array.isArray(raw.otherCharges)) {
@@ -59,7 +80,7 @@ function normalizeOtherCharges(raw: Record<string, unknown>): OtherCharge[] {
       }));
   }
 
-  // Formato viejo: otherChargeLabel + otherChargeAmount → migrar a array
+  // Formato viejo: otherChargeLabel + otherChargeAmount -> migrar a array
   const label = raw.otherChargeLabel;
   const amount = Number(raw.otherChargeAmount);
   if (typeof label === "string" && label.trim() && Number.isFinite(amount) && amount !== 0) {
@@ -177,7 +198,7 @@ export function saveClients(clients: Client[]): void {
   localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
 }
 
-// ── Payments ──
+// -- Payments --
 
 export function nextReceiptNumber(): string {
   const current = parseInt(localStorage.getItem(SEQ_KEY) ?? "0", 10);
@@ -256,7 +277,9 @@ function normalizePayment(item: unknown): Payment | null {
     monthlyChargeDay: (typeof raw.monthlyChargeDay === "number" && raw.monthlyChargeDay >= 1 && raw.monthlyChargeDay <= 31)
       ? raw.monthlyChargeDay
       : undefined,
-    createdAt: raw.createdAt
+    createdAt: raw.createdAt,
+    otherChargesApplied: parseChargeArray(raw.otherChargesApplied),
+    otherChargesDueAfter: parseChargeArray(raw.otherChargesDueAfter)
   };
 }
 
@@ -278,4 +301,106 @@ export function loadPayments(): Payment[] {
 
 export function savePayments(payments: Payment[]): void {
   localStorage.setItem(PAYMENTS_KEY, JSON.stringify(payments));
+}
+
+// -- Pending Bank Items --
+
+const PENDING_BANK_KEY = "cobrapp.module2.pending_bank.v1";
+const BANK_RULES_KEY = "cobrapp.settings.bank_rules.v1";
+const MANUAL_ASSIGNMENT_AUDIT_KEY = "cobrapp.module2.manual_assignment_audit.v1";
+
+export function loadPendingBankItems(): PendingBankItem[] {
+  const raw = localStorage.getItem(PENDING_BANK_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is PendingBankItem => {
+      if (!item || typeof item !== "object") return false;
+      const r = item as Record<string, unknown>;
+      return (
+        typeof r.folio === "string" &&
+        typeof r.dateApplied === "string" &&
+        typeof r.amountReceived === "number" &&
+        typeof r.importedAt === "string"
+      );
+    });
+  } catch {
+    return [];
+  }
+}
+
+export function savePendingBankItems(items: PendingBankItem[]): void {
+  localStorage.setItem(PENDING_BANK_KEY, JSON.stringify(items));
+}
+
+function normalizeBankRule(item: unknown): BankRule | null {
+  if (!item || typeof item !== "object") return null;
+  const raw = item as Record<string, unknown>;
+  const id = typeof raw.id === "string" && raw.id.trim() ? raw.id : crypto.randomUUID();
+  const accountNumber = typeof raw.accountNumber === "string" ? raw.accountNumber.replace(/\D+/g, "") : "";
+  const groupCode = typeof raw.groupCode === "string" ? raw.groupCode.trim().toUpperCase() : "";
+  const createdAt = typeof raw.createdAt === "string" && raw.createdAt.trim() ? raw.createdAt : new Date().toISOString();
+  const updatedAt = typeof raw.updatedAt === "string" && raw.updatedAt.trim() ? raw.updatedAt : createdAt;
+  const active = raw.active !== false;
+  if (!accountNumber || !groupCode) return null;
+  return { id, accountNumber, groupCode, active, createdAt, updatedAt };
+}
+
+export function loadBankRules(): BankRule[] {
+  const raw = localStorage.getItem(BANK_RULES_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => normalizeBankRule(item))
+      .filter((item): item is BankRule => item !== null);
+  } catch {
+    return [];
+  }
+}
+
+export function saveBankRules(items: BankRule[]): void {
+  localStorage.setItem(BANK_RULES_KEY, JSON.stringify(items));
+}
+
+function normalizeManualAssignmentAudit(item: unknown): ManualBankAssignmentAudit | null {
+  if (!item || typeof item !== "object") return null;
+  const raw = item as Record<string, unknown>;
+  if (typeof raw.id !== "string" || typeof raw.createdAt !== "string" || typeof raw.folio !== "string") {
+    return null;
+  }
+  return {
+    id: raw.id,
+    createdAt: raw.createdAt,
+    folio: raw.folio,
+    accountNumber: typeof raw.accountNumber === "string" ? raw.accountNumber : undefined,
+    mappedGroup: typeof raw.mappedGroup === "string" ? raw.mappedGroup : undefined,
+    previousClientId: typeof raw.previousClientId === "string" ? raw.previousClientId : undefined,
+    previousClientUnit: typeof raw.previousClientUnit === "string" ? raw.previousClientUnit : undefined,
+    previousClientName: typeof raw.previousClientName === "string" ? raw.previousClientName : undefined,
+    nextClientId: typeof raw.nextClientId === "string" ? raw.nextClientId : undefined,
+    nextClientUnit: typeof raw.nextClientUnit === "string" ? raw.nextClientUnit : undefined,
+    nextClientName: typeof raw.nextClientName === "string" ? raw.nextClientName : undefined,
+    reason: typeof raw.reason === "string" ? raw.reason : undefined
+  };
+}
+
+export function loadManualBankAssignmentAudit(): ManualBankAssignmentAudit[] {
+  const raw = localStorage.getItem(MANUAL_ASSIGNMENT_AUDIT_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => normalizeManualAssignmentAudit(item))
+      .filter((item): item is ManualBankAssignmentAudit => item !== null);
+  } catch {
+    return [];
+  }
+}
+
+export function saveManualBankAssignmentAudit(items: ManualBankAssignmentAudit[]): void {
+  localStorage.setItem(MANUAL_ASSIGNMENT_AUDIT_KEY, JSON.stringify(items));
 }

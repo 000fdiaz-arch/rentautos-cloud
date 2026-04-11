@@ -4,7 +4,7 @@ const DB_NAME = "cobrapp-autobackup";
 const STORE = "handles";
 const KEY = "backupDir";
 
-// ── IndexedDB helpers ──────────────────────────────────────────────────────
+// -- IndexedDB helpers ------------------------------------------------------
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -45,7 +45,7 @@ async function clearHandle(): Promise<void> {
   });
 }
 
-// ── Public API ─────────────────────────────────────────────────────────────
+// -- Public API -------------------------------------------------------------
 
 /** Returns true if browser supports the File System Access API */
 export function isAutoBackupSupported(): boolean {

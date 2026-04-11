@@ -38,9 +38,53 @@ export type Client = {
 
 export type PaymentMethod = "Efectivo" | "ACH Express" | "Deposito Bancario" | "Transferencia Bancaria" | "Tarjeta";
 
+export type PendingBankItem = {
+  folio: string;
+  dateApplied: string;
+  amountReceived: number;
+  capitalPart: number;
+  centsPart: number;
+  transactionCode?: string;
+  referenceId: string;
+  extractedName: string;
+  description: string;
+  importedAt: string;
+  accountNumber?: string;
+  mappedGroup?: string;
+  // Pre-matched client (e.g. auto-match blocked because client has otros cargos)
+  suggestedClientId?: string;
+  suggestedClientName?: string;
+};
+
+export type BankRule = {
+  id: string;
+  accountNumber: string;
+  groupCode: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ManualBankAssignmentAudit = {
+  id: string;
+  createdAt: string;
+  folio: string;
+  accountNumber?: string;
+  mappedGroup?: string;
+  previousClientId?: string;
+  previousClientUnit?: string;
+  previousClientName?: string;
+  nextClientId?: string;
+  nextClientUnit?: string;
+  nextClientName?: string;
+  reason?: string;
+};
+
 export type Payment = {
   id: string;
   receiptNumber: string;
+  otherChargesApplied?: OtherCharge[];
+  otherChargesDueAfter?: OtherCharge[];
   clientId: string;
   clientName: string;
   clientUnit: string;
@@ -58,7 +102,7 @@ export type Payment = {
   savingsAfter: number;
   installmentsPaidAfter: number;
   installmentsRemainingAfter: number;
-  // Datos de facturación del cliente al momento del pago
+  // Datos de facturacion del cliente al momento del pago
   rentAmount: number;
   frequency: BillingFrequency;
   weeklyChargeDay?: WeeklyChargeDay;

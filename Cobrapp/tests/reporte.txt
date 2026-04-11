@@ -1,0 +1,16 @@
+COBRAPP - REPORTE DE PRUEBAS
+Fecha: 04/11/2026, 2:40:45 p. m.
+Clientes activos: 0 | Pagos: 0
+
+ PRUEBA 1: App carga correctamente - titulo: "Cobrapp - Modulo 1"
+ PRUEBA 2: Modulo 1 - Tabla/lista de clientes visible - 0 clientes activos en BD
+ PRUEBA 3: Sin clientes activos - prueba omitida
+ PRUEBA 4: Modulo 2 - Pantalla de Pagos carga correctamente
+ PRUEBA 5: Sin clientes activos - prueba omitida
+ PRUEBA 6: Boton de confirmacion de pago presente
+ PRUEBA 7: Datos de cuotas consistentes en todos los clientes - 0 clientes verificados
+ PRUEBA 8: Sin saldos negativos en clientes activos
+ PRUEBA 9: Historial de pagos abre correctamente - 0 pagos en BD
+ PRUEBA 10: Sin errores de JavaScript en consola
+
+TOTAL: 8 pasadas, 0 fallidas de 8

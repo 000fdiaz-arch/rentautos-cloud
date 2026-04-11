@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "import:bank": "node scripts/import-bank-csv.mjs"
   },
   "dependencies": {
     "html2canvas": "^1.4.1",
