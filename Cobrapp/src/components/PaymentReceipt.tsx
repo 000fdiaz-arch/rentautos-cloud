@@ -88,7 +88,8 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
   const otherChargesDueAfter = payment.otherChargesDueAfter ?? [];
   const otherChargesAppliedTotal = otherChargesApplied.reduce((sum, charge) => sum + charge.amount, 0);
   const otherChargesDueTotal = otherChargesDueAfter.reduce((sum, charge) => sum + charge.amount, 0);
-  const totalPending = Math.max(0, payment.balanceAfter + otherChargesDueTotal);
+  const rentDueTotal = Math.max(0, payment.balanceAfter);
+  const totalPending = Math.max(0, rentDueTotal + otherChargesDueTotal);
   const hasPending = totalPending > 0;
   const debtSinceLabel = debtStartDate ? formatDate(debtStartDate) : null;
 
@@ -120,9 +121,17 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
           <div>
             <div className="receipt-overdue-title">{hasPending ? "TIENES SALDO PENDIENTE" : "ESTAS AL DIA"}</div>
             <div className="receipt-overdue-sub">
-              {hasPending
-                ? `Te falta pagar ${formatCurrency(totalPending)}${overdueAfter > 0 ? ` (${overdueAfter} ${overdueAfter === 1 ? "cuota atrasada" : "cuotas atrasadas"})` : ""}.`
-                : "No tienes saldo pendiente."}
+              {hasPending ? (
+                <>
+                  {overdueAfter > 0 && (
+                    <> Cuotas atrasadas: {formatCurrency(rentDueTotal)} ({overdueAfter} {overdueAfter === 1 ? "cuota" : "cuotas"}).</>
+                  )}
+                  {otherChargesDueTotal > 0 && (
+                    <> Otros cargos: {formatCurrency(otherChargesDueTotal)}.</>
+                  )}
+                  <> Total pendiente: {formatCurrency(totalPending)}.</>
+                </>
+              ) : "No tienes saldo pendiente."}
             </div>
           </div>
         </div>

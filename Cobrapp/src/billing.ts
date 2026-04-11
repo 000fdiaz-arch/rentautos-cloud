@@ -46,7 +46,11 @@ function getAdjustedMonthlyChargeDate(year: number, monthIndex: number, monthlyC
 
 export function isChargeDay(client: Client, date: Date): boolean {
   const weekDay = date.getDay();
-  if (client.frequency === "daily") return weekDay >= 1 && weekDay <= 6;
+  if (client.frequency === "daily") {
+    if (weekDay >= 1 && weekDay <= 6) return true;
+    if (weekDay === 0) return !!client.chargeFirstSunday && !client.firstSundayChargedAt;
+    return false;
+  }
 
   if (client.frequency === "weekly") {
     const dayMap: Record<WeeklyChargeDay, number> = {
@@ -100,8 +104,25 @@ export function applyAutomaticCharges(currentClients: Client[], now: Date): { cl
     }
 
     let pendingCharges = 0;
-    for (let cursor = addDays(lastChargeDate, 1); cursor <= today; cursor = addDays(cursor, 1)) {
-      if (isChargeDay(client, cursor)) pendingCharges += 1;
+    let firstSundayChargedAt = client.firstSundayChargedAt;
+    if (client.frequency === "daily") {
+      let sundayAlreadyCounted = !!firstSundayChargedAt;
+      for (let cursor = addDays(lastChargeDate, 1); cursor <= today; cursor = addDays(cursor, 1)) {
+        const day = cursor.getDay();
+        if (day >= 1 && day <= 6) {
+          pendingCharges += 1;
+          continue;
+        }
+        if (day === 0 && client.chargeFirstSunday && !sundayAlreadyCounted) {
+          pendingCharges += 1;
+          sundayAlreadyCounted = true;
+          firstSundayChargedAt = toDateKey(cursor);
+        }
+      }
+    } else {
+      for (let cursor = addDays(lastChargeDate, 1); cursor <= today; cursor = addDays(cursor, 1)) {
+        if (isChargeDay(client, cursor)) pendingCharges += 1;
+      }
     }
 
     changed = true;
@@ -110,6 +131,7 @@ export function applyAutomaticCharges(currentClients: Client[], now: Date): { cl
     return {
       ...client,
       balance: roundMoney(client.balance + roundMoney(client.rentAmount * pendingCharges)),
+      firstSundayChargedAt,
       lastChargeDate: todayKey
     };
   });

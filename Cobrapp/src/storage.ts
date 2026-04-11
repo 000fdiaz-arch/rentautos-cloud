@@ -134,6 +134,11 @@ function normalizeClient(item: unknown): Client | null {
         : undefined,
     rentAmount,
     frequency,
+    chargeFirstSunday: raw.chargeFirstSunday === true,
+    firstSundayChargedAt:
+      typeof raw.firstSundayChargedAt === "string" && raw.firstSundayChargedAt.trim()
+        ? raw.firstSundayChargedAt
+        : undefined,
     balance,
     savings: parseNonNegativeNumber(raw.savings),
     installmentsAgreed: parseNonNegativeInteger(raw.installmentsAgreed),

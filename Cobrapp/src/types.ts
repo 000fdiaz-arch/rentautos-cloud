@@ -21,6 +21,8 @@ export type Client = {
   cedula?: string;
   rentAmount: number;
   frequency: BillingFrequency;
+  chargeFirstSunday?: boolean;
+  firstSundayChargedAt?: string;
   weeklyChargeDay?: WeeklyChargeDay;
   monthlyChargeDay?: number;
   installmentsAgreed: number;

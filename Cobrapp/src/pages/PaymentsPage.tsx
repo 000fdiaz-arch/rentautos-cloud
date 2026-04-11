@@ -96,6 +96,64 @@ function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+type ManualPaymentAllocation = {
+  balanceBefore: number;
+  appliedToRent: number;
+  centavosAhorro: number;
+  balanceAfter: number;
+  installmentsDeducted: number;
+  pendingBefore: number;
+  pendingAfter: number;
+  totalOtherCharges: number;
+  otherChargesApplied: OtherCharge[];
+};
+
+function computeManualPaymentAllocation(
+  client: Client,
+  rawAmount: number,
+  manualOtherChargesInput: Record<string, string>
+): ManualPaymentAllocation {
+  const amount = roundMoney(Math.max(0, rawAmount));
+  const balanceBefore = roundMoney(client.balance);
+
+  const desiredOtherCharges = (client.otherCharges ?? [])
+    .map((ch) => {
+      const v = parseFloat(manualOtherChargesInput[ch.label] ?? "");
+      return { label: ch.label, amount: roundMoney(Number.isFinite(v) ? v : ch.amount) };
+    })
+    .filter((c) => c.amount > 0);
+
+  let remainingForOtherCharges = roundMoney(amount);
+  const otherChargesApplied = desiredOtherCharges
+    .map((charge) => {
+      const appliedAmount = roundMoney(Math.min(charge.amount, Math.max(0, remainingForOtherCharges)));
+      remainingForOtherCharges = roundMoney(Math.max(0, remainingForOtherCharges - appliedAmount));
+      return { label: charge.label, amount: appliedAmount };
+    })
+    .filter((c) => c.amount > 0);
+
+  const totalOtherCharges = roundMoney(otherChargesApplied.reduce((s, c) => s + c.amount, 0));
+  const appliedToRent = roundMoney(Math.min(Math.max(0, remainingForOtherCharges), balanceBefore));
+  const centavosAhorro = roundMoney(Math.max(0, amount - totalOtherCharges - appliedToRent));
+  const balanceAfter = roundMoney(balanceBefore - appliedToRent);
+  const rentAmount = client.rentAmount;
+  const pendingBefore = rentAmount > 0 ? Math.ceil(balanceBefore / rentAmount) : 0;
+  const pendingAfter = rentAmount > 0 && balanceAfter > 0 ? Math.ceil(balanceAfter / rentAmount) : 0;
+  const installmentsDeducted = Math.max(0, pendingBefore - pendingAfter);
+
+  return {
+    balanceBefore,
+    appliedToRent,
+    centavosAhorro,
+    balanceAfter,
+    installmentsDeducted,
+    pendingBefore,
+    pendingAfter,
+    totalOtherCharges,
+    otherChargesApplied
+  };
+}
+
 function computeOtherChargesDueAfter(configured: OtherCharge[] | undefined, applied: OtherCharge[] | undefined): OtherCharge[] | undefined {
   if (!configured || configured.length === 0) return undefined;
   const appliedByLabel = new Map<string, number>();
@@ -110,6 +168,21 @@ function computeOtherChargesDueAfter(configured: OtherCharge[] | undefined, appl
     }))
     .filter((charge) => charge.amount > 0);
   return due.length > 0 ? due : undefined;
+}
+
+function restoreOtherChargesAfterDelete(current: OtherCharge[] | undefined, applied: OtherCharge[] | undefined): OtherCharge[] {
+  if (!applied || applied.length === 0) return current ?? [];
+  const totals = new Map<string, number>();
+  for (const charge of current ?? []) {
+    totals.set(charge.label, roundMoney(Math.max(0, charge.amount)));
+  }
+  for (const charge of applied) {
+    const previous = totals.get(charge.label) ?? 0;
+    totals.set(charge.label, roundMoney(previous + charge.amount));
+  }
+  return [...totals.entries()]
+    .map(([label, amount]) => ({ label, amount }))
+    .filter((charge) => charge.amount > 0);
 }
 
 function loadNotifiedPayments(): NotifiedPayment[] {
@@ -294,43 +367,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const amount = parseFloat(form.amountReceived);
     if (!Number.isFinite(amount) || amount <= 0) return null;
 
-    const balanceBefore = selectedClient.balance;
-    const desiredOtherCharges = (selectedClient.otherCharges ?? [])
-      .map((ch) => {
-        const v = parseFloat(manualOtherChargesInput[ch.label] ?? "");
-        return { label: ch.label, amount: roundMoney(Number.isFinite(v) ? v : ch.amount) };
-      })
-      .filter((c) => c.amount > 0);
-
-    let remainingForOtherCharges = roundMoney(amount);
-    const otherChargesApplied = desiredOtherCharges
-      .map((charge) => {
-        const appliedAmount = roundMoney(Math.min(charge.amount, Math.max(0, remainingForOtherCharges)));
-        remainingForOtherCharges = roundMoney(Math.max(0, remainingForOtherCharges - appliedAmount));
-        return { label: charge.label, amount: appliedAmount };
-      })
-      .filter((c) => c.amount > 0);
-
-    const totalOtherCharges = roundMoney(otherChargesApplied.reduce((s, c) => s + c.amount, 0));
-    const appliedToRent = roundMoney(Math.min(Math.max(0, remainingForOtherCharges), balanceBefore));
-    const centavosAhorro = roundMoney(Math.max(0, amount - totalOtherCharges - appliedToRent));
-    const balanceAfter = roundMoney(balanceBefore - appliedToRent);
-    const rentAmount = selectedClient.rentAmount;
-    const pendingBefore = rentAmount > 0 ? Math.ceil(balanceBefore / rentAmount) : 0;
-    const pendingAfter = rentAmount > 0 && balanceAfter > 0 ? Math.ceil(balanceAfter / rentAmount) : 0;
-    const installmentsDeducted = Math.max(0, pendingBefore - pendingAfter);
-
-    return {
-      balanceBefore,
-      appliedToRent,
-      centavosAhorro,
-      balanceAfter,
-      installmentsDeducted,
-      pendingBefore,
-      pendingAfter,
-      totalOtherCharges,
-      otherChargesApplied
-    };
+    return computeManualPaymentAllocation(selectedClient, amount, manualOtherChargesInput);
   }, [form.amountReceived, selectedClient, manualOtherChargesInput]);
 
   const isZeroBalance = selectedClient !== null && selectedClient.balance === 0;
@@ -508,9 +545,11 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       }
       chargedClients += 1;
       chargedTotal = roundMoney(chargedTotal + client.rentAmount);
+      const isFirstSundayCharge = client.frequency === "daily" && targetDate.getDay() === 0 && !!client.chargeFirstSunday && !client.firstSundayChargedAt;
       return {
         ...client,
         balance: roundMoney(client.balance + client.rentAmount),
+        firstSundayChargedAt: isFirstSundayCharge ? targetDateKey : client.firstSundayChargedAt,
         lastChargeDate: targetDateKey
       };
     });
@@ -1029,7 +1068,15 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
 
     const updatedClients = clients.map((c) => {
       if (c.id !== client.id) return c;
-      return { ...c, balance: balanceAfter, savings: savingsAfter, installmentsPaid: installmentsPaidAfter, installmentsRemaining: installmentsRemainingAfter };
+      const otherChargesDueAfter = computeOtherChargesDueAfter(c.otherCharges, otherChargesApplied) ?? [];
+      return {
+        ...c,
+        balance: balanceAfter,
+        savings: savingsAfter,
+        installmentsPaid: installmentsPaidAfter,
+        installmentsRemaining: installmentsRemainingAfter,
+        otherCharges: otherChargesDueAfter
+      };
     });
 
     onClientsChange(updatedClients);
@@ -1275,6 +1322,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const errs = validate();
     if (errs.length > 0) { setErrors(errs); return; }
     if (!selectedClient || !preview) return;
+    const amountReceived = roundMoney(parseFloat(form.amountReceived));
+    const allocation = computeManualPaymentAllocation(selectedClient, amountReceived, manualOtherChargesInput);
 
     setErrors([]);
     const receiptNumber = nextReceiptNumber();
@@ -1289,18 +1338,18 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       dateApplied: operationalDateKey,
       paymentMethod: form.paymentMethod,
       reference: form.reference.trim() || undefined,
-      amountReceived: roundMoney(parseFloat(form.amountReceived)),
-      appliedToRent: preview.appliedToRent,
-      centavosAhorro: preview.centavosAhorro,
-      otherChargesApplied: preview.otherChargesApplied && preview.otherChargesApplied.length > 0 ? preview.otherChargesApplied : undefined,
-      otherChargesDueAfter: computeOtherChargesDueAfter(selectedClient.otherCharges, preview.otherChargesApplied),
-      installmentsDeducted: preview.installmentsDeducted,
-      balanceBefore: preview.balanceBefore,
-      balanceAfter: preview.balanceAfter,
+      amountReceived,
+      appliedToRent: allocation.appliedToRent,
+      centavosAhorro: allocation.centavosAhorro,
+      otherChargesApplied: allocation.otherChargesApplied.length > 0 ? allocation.otherChargesApplied : undefined,
+      otherChargesDueAfter: computeOtherChargesDueAfter(selectedClient.otherCharges, allocation.otherChargesApplied),
+      installmentsDeducted: allocation.installmentsDeducted,
+      balanceBefore: allocation.balanceBefore,
+      balanceAfter: allocation.balanceAfter,
       savingsBefore: selectedClient.savings,
-      savingsAfter: roundMoney(selectedClient.savings + preview.centavosAhorro),
-      installmentsPaidAfter: selectedClient.installmentsPaid + preview.installmentsDeducted,
-      installmentsRemainingAfter: Math.max(0, selectedClient.installmentsRemaining - preview.installmentsDeducted),
+      savingsAfter: roundMoney(selectedClient.savings + allocation.centavosAhorro),
+      installmentsPaidAfter: selectedClient.installmentsPaid + allocation.installmentsDeducted,
+      installmentsRemainingAfter: Math.max(0, selectedClient.installmentsRemaining - allocation.installmentsDeducted),
       rentAmount: selectedClient.rentAmount,
       frequency: selectedClient.frequency,
       weeklyChargeDay: selectedClient.weeklyChargeDay,
@@ -1310,12 +1359,14 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
 
     const updatedClients = clients.map((c) => {
       if (c.id !== selectedClient.id) return c;
+      const otherChargesDueAfter = computeOtherChargesDueAfter(c.otherCharges, allocation.otherChargesApplied) ?? [];
       return {
         ...c,
-        balance: preview.balanceAfter,
-        savings: roundMoney(c.savings + preview.centavosAhorro),
-        installmentsRemaining: Math.max(0, c.installmentsRemaining - preview.installmentsDeducted),
-        installmentsPaid: c.installmentsPaid + preview.installmentsDeducted
+        balance: allocation.balanceAfter,
+        savings: roundMoney(c.savings + allocation.centavosAhorro),
+        installmentsRemaining: Math.max(0, c.installmentsRemaining - allocation.installmentsDeducted),
+        installmentsPaid: c.installmentsPaid + allocation.installmentsDeducted,
+        otherCharges: otherChargesDueAfter
       };
     });
 
@@ -1344,7 +1395,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
         balance: roundMoney(c.balance + payment.appliedToRent),
         savings: roundMoney(Math.max(0, c.savings - payment.centavosAhorro)),
         installmentsRemaining: c.installmentsRemaining + payment.installmentsDeducted,
-        installmentsPaid: Math.max(0, c.installmentsPaid - payment.installmentsDeducted)
+        installmentsPaid: Math.max(0, c.installmentsPaid - payment.installmentsDeducted),
+        otherCharges: restoreOtherChargesAfterDelete(c.otherCharges, payment.otherChargesApplied)
       };
     });
     onClientsChange(updatedClients);

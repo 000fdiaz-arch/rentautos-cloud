@@ -47,6 +47,7 @@ type ClientForm = {
   name: string;
   rentAmount: string;
   frequency: BillingFrequency;
+  chargeFirstSunday: boolean;
   initialBalance: string;
   weeklyChargeDay: WeeklyChargeDay;
   monthlyChargeDay: string;
@@ -67,6 +68,7 @@ const initialForm: ClientForm = {
   name: "",
   rentAmount: "",
   frequency: "monthly",
+  chargeFirstSunday: false,
   initialBalance: "",
   weeklyChargeDay: "monday",
   monthlyChargeDay: "1",
@@ -116,6 +118,8 @@ function buildClient(form: ClientForm, existing?: Client): Client {
     name: form.name.trim(),
     rentAmount: Number(form.rentAmount),
     frequency: form.frequency,
+    chargeFirstSunday: form.frequency === "daily" ? form.chargeFirstSunday : false,
+    firstSundayChargedAt: existing?.firstSundayChargedAt,
     balance: Number(form.initialBalance),
     savings: existing?.savings ?? 0,
     installmentsAgreed: Number(form.installmentsAgreed),
@@ -389,6 +393,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
       name: client.name,
       rentAmount: String(client.rentAmount),
       frequency: client.frequency,
+      chargeFirstSunday: client.chargeFirstSunday ?? false,
       initialBalance: String(client.balance),
       weeklyChargeDay: client.weeklyChargeDay ?? "monday",
       monthlyChargeDay: String(client.monthlyChargeDay ?? 1),
@@ -606,6 +611,15 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
                     <option value="monthly">Mensual</option>
                   </select>
                 </label>
+                {form.frequency === "daily" && (
+                  <label>
+                    <span style={{ textTransform: "none", letterSpacing: "normal", fontWeight: 600 }}>Cobrar primer domingo</span>
+                    <select value={form.chargeFirstSunday ? "yes" : "no"} onChange={(e) => setForm((c) => ({ ...c, chargeFirstSunday: e.target.value === "yes" }))}>
+                      <option value="no">No</option>
+                      <option value="yes">Si</option>
+                    </select>
+                  </label>
+                )}
                 {form.frequency === "weekly" && (
                   <label>Dia de cobro semanal
                     <select value={form.weeklyChargeDay} onChange={(e) => setForm((c) => ({ ...c, weeklyChargeDay: e.target.value as WeeklyChargeDay }))}>
@@ -662,6 +676,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
                 </div>
               </form>
               {form.frequency === "daily" && <p className="hint">Regla diaria: cobro automatico de lunes a sabado.</p>}
+              {form.frequency === "daily" && form.chargeFirstSunday && <p className="hint">Incluye el primer domingo automaticamente una sola vez.</p>}
               {form.frequency === "biweekly" && <p className="hint">Regla quincenal: cobros fijos dia 15 y fin de mes.</p>}
               {form.frequency === "monthly" && <p className="hint">Regla mensual: si el dia configurado cae domingo, el cobro se mueve al lunes siguiente.</p>}
               {errors.length > 0 && <ul className="error-list">{errors.map((e) => <li key={e}>{e}</li>)}</ul>}
@@ -749,6 +764,15 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
                 <option value="monthly">Mensual</option>
               </select>
             </label>
+            {form.frequency === "daily" && (
+              <label>
+                <span style={{ textTransform: "none", letterSpacing: "normal", fontWeight: 600 }}>Cobrar primer domingo</span>
+                <select value={form.chargeFirstSunday ? "yes" : "no"} onChange={(e) => setForm((c) => ({ ...c, chargeFirstSunday: e.target.value === "yes" }))}>
+                  <option value="no">No</option>
+                  <option value="yes">Si</option>
+                </select>
+              </label>
+            )}
             {form.frequency === "weekly" && (
               <label>
                 Dia de cobro semanal
@@ -811,6 +835,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
         {isFormOpen && (
           <>
             {form.frequency === "daily" && <p className="hint">Regla diaria: cobro automatico de lunes a sabado.</p>}
+            {form.frequency === "daily" && form.chargeFirstSunday && <p className="hint">Incluye el primer domingo automaticamente una sola vez.</p>}
             {form.frequency === "biweekly" && <p className="hint">Regla quincenal: cobros fijos dia 15 y fin de mes.</p>}
             {form.frequency === "monthly" && <p className="hint">Regla mensual: si el dia configurado cae domingo, el cobro se mueve al lunes siguiente.</p>}
             {errors.length > 0 && <ul className="error-list">{errors.map((error) => <li key={error}>{error}</li>)}</ul>}
@@ -925,7 +950,18 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
                         </td>
                         <td><span className="amount-muted">{client.cedula ?? "-"}</span></td>
                         <td>{formatCurrency(client.rentAmount)}</td>
-                        <td>{FREQUENCY_LABEL[client.frequency]}</td>
+                        <td>
+                          {client.frequency === "daily"
+                            ? (
+                              <>
+                                {FREQUENCY_LABEL[client.frequency]}
+                                <div className="hint" style={{ marginTop: 4, fontSize: 11 }}>
+                                  1er domingo: {client.chargeFirstSunday ? "Si" : "No"}
+                                </div>
+                              </>
+                            )
+                            : FREQUENCY_LABEL[client.frequency]}
+                        </td>
                         <td>{client.installmentsAgreed}</td>
                         <td>{client.installmentsRemaining}</td>
                         <td>{client.installmentsPaid}</td>
