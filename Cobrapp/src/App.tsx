@@ -4,7 +4,8 @@ import PaymentsPage from "./pages/PaymentsPage";
 import SettingsPage from "./pages/SettingsPage";
 import { loadBankRules, loadClients, loadPayments, saveBankRules, saveClients, savePayments } from "./storage";
 import {
-  autoBackup,
+  autoBackupDetailed,
+  type BackupResult,
   configureBackupFolder,
   getBackupHandle,
   isAutoBackupSupported,
@@ -22,30 +23,50 @@ export default function App() {
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
   const [backupConfigured, setBackupConfigured] = useState<boolean>(false);
   const [backupStatus, setBackupStatus] = useState<"idle" | "ok" | "error">("idle");
+  const [backupMessage, setBackupMessage] = useState<string>("");
 
   // Check on load if a folder is already saved
   useEffect(() => {
-    getBackupHandle().then((h) => setBackupConfigured(!!h));
+    getBackupHandle().then(async (h) => {
+      setBackupConfigured(!!h);
+      if (!h) {
+        setBackupMessage("Sin carpeta de respaldo configurada.");
+        return;
+      }
+      try {
+        const perm = await h.queryPermission({ mode: "readwrite" });
+        if (perm === "granted") {
+          setBackupMessage("Respaldo automatico activo.");
+        } else {
+          setBackupMessage("Respaldo configurado, pero sin permiso de escritura. Usa Reconectar.");
+        }
+      } catch {
+        setBackupMessage("La carpeta de respaldo no esta disponible. Usa Reconectar.");
+      }
+    });
   }, []);
 
   // Flash the backup status indicator for 2 seconds
-  function flashStatus(ok: boolean) {
-    setBackupStatus(ok ? "ok" : "error");
+  function flashStatus(result: BackupResult) {
+    setBackupStatus(result.ok ? "ok" : "error");
+    setBackupMessage(result.message);
     setTimeout(() => setBackupStatus("idle"), 2000);
   }
 
   async function persistClients(next: Client[]): Promise<void> {
     setClients(next);
     saveClients(next);
-    const ok = await autoBackup(next, payments);
-    if (backupConfigured) flashStatus(ok);
+    const result = await autoBackupDetailed(next, payments);
+    if (!result.ok && result.code === "not_configured") setBackupConfigured(false);
+    if (backupConfigured) flashStatus(result);
   }
 
   async function persistPayments(next: Payment[]): Promise<void> {
     setPayments(next);
     savePayments(next);
-    const ok = await autoBackup(clients, next);
-    if (backupConfigured) flashStatus(ok);
+    const result = await autoBackupDetailed(clients, next);
+    if (!result.ok && result.code === "not_configured") setBackupConfigured(false);
+    if (backupConfigured) flashStatus(result);
   }
 
   function persistBankRules(next: BankRule[]): void {
@@ -58,8 +79,8 @@ export default function App() {
     if (handle) {
       setBackupConfigured(true);
       // Run an immediate backup with current data
-      const ok = await autoBackup(clients, payments);
-      flashStatus(ok);
+      const result = await autoBackupDetailed(clients, payments);
+      flashStatus(result);
     }
   }
 
@@ -67,6 +88,7 @@ export default function App() {
     await removeBackupFolder();
     setBackupConfigured(false);
     setBackupStatus("idle");
+    setBackupMessage("Respaldo removido.");
   }
 
   async function handleLoadBackup() {
@@ -168,6 +190,14 @@ export default function App() {
                   >
                     Respaldo OK
                   </button>
+                  <button
+                    type="button"
+                    className="nav-backup-btn nav-backup-btn--setup"
+                    title="Volver a elegir carpeta y renovar permisos de respaldo"
+                    onClick={handleConfigureBackup}
+                  >
+                    Reconectar
+                  </button>
                 </>
               ) : (
                 <button
@@ -178,6 +208,15 @@ export default function App() {
                 >
                   Configurar respaldo
                 </button>
+              )}
+              {backupMessage && (
+                <span
+                  className="hint"
+                  style={{ marginLeft: 8, maxWidth: 340, display: "inline-block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "middle" }}
+                  title={backupMessage}
+                >
+                  {backupMessage}
+                </span>
               )}
             </div>
           )}

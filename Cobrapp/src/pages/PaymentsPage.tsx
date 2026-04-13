@@ -79,9 +79,51 @@ type ChargeRun = {
   id: string;
   closingDate: string;
   targetDate: string;
+  expectedClients: number;
   chargedClients: number;
+  anomalyClients: number;
   chargedTotal: number;
   createdAt: string;
+};
+
+type CloseReportStatus = "ok" | "warning";
+
+type ChargeReportRow = {
+  clientId: string;
+  unitId: string;
+  name: string;
+  shouldCharge: boolean;
+  charged: boolean;
+  anomaly: boolean;
+  reason: string;
+  balanceBefore: number;
+  balanceAfter: number;
+  chargedAmount: number;
+  lastChargeDateBefore: string;
+  lastChargeDateAfter: string;
+};
+
+type ChargeCloseReport = {
+  closingDate: string;
+  targetDate: string;
+  status: CloseReportStatus;
+  expectedClients: number;
+  chargedClients: number;
+  anomalyClients: number;
+  chargedTotal: number;
+  generatedAt: string;
+  rows: ChargeReportRow[];
+};
+
+type ChargeApplyResult = {
+  targetDate: string;
+  alreadyProcessed: boolean;
+  expectedClients: number;
+  chargedClients: number;
+  anomalyClients: number;
+  chargedTotal: number;
+  rows: ChargeReportRow[];
+  blockingError?: string;
 };
 
 type Props = {
@@ -320,18 +362,34 @@ function loadChargeRuns(): ChargeRun[] {
   try {
     const parsed = JSON.parse(raw) as unknown[];
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is ChargeRun => {
-      if (!item || typeof item !== "object") return false;
-      const rec = item as Record<string, unknown>;
-      return (
-        typeof rec.id === "string" &&
-        typeof rec.closingDate === "string" &&
-        typeof rec.targetDate === "string" &&
-        typeof rec.chargedClients === "number" &&
-        typeof rec.chargedTotal === "number" &&
-        typeof rec.createdAt === "string"
-      );
-    });
+    return parsed
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const rec = item as Record<string, unknown>;
+        if (
+          typeof rec.id !== "string" ||
+          typeof rec.closingDate !== "string" ||
+          typeof rec.targetDate !== "string" ||
+          typeof rec.chargedClients !== "number" ||
+          typeof rec.chargedTotal !== "number" ||
+          typeof rec.createdAt !== "string"
+        ) return null;
+        const expectedClients = typeof rec.expectedClients === "number"
+          ? rec.expectedClients
+          : rec.chargedClients;
+        const anomalyClients = typeof rec.anomalyClients === "number" ? rec.anomalyClients : 0;
+        return {
+          id: rec.id,
+          closingDate: rec.closingDate,
+          targetDate: rec.targetDate,
+          expectedClients,
+          chargedClients: rec.chargedClients,
+          anomalyClients,
+          chargedTotal: rec.chargedTotal,
+          createdAt: rec.createdAt
+        } satisfies ChargeRun;
+      })
+      .filter((item): item is ChargeRun => item !== null);
   } catch {
     return [];
   }
@@ -339,6 +397,52 @@ function loadChargeRuns(): ChargeRun[] {
 
 function saveChargeRuns(rows: ChargeRun[]): void {
   localStorage.setItem(CHARGE_RUNS_KEY, JSON.stringify(rows));
+}
+
+function escapeCsvCell(value: string | number | boolean): string {
+  const raw = String(value ?? "");
+  if (/[",\n]/.test(raw)) return `"${raw.replace(/"/g, "\"\"")}"`;
+  return raw;
+}
+
+function downloadChargeCloseReportCsv(report: ChargeCloseReport): void {
+  const header = [
+    "unidad",
+    "cliente",
+    "debia_cobrar",
+    "cobrado",
+    "anomalia",
+    "motivo",
+    "saldo_antes",
+    "saldo_despues",
+    "monto_cargado",
+    "lastCharge_antes",
+    "lastCharge_despues"
+  ];
+  const rows = report.rows.map((row) => [
+    row.unitId,
+    row.name,
+    row.shouldCharge ? "si" : "no",
+    row.charged ? "si" : "no",
+    row.anomaly ? "si" : "no",
+    row.reason,
+    row.balanceBefore.toFixed(2),
+    row.balanceAfter.toFixed(2),
+    row.chargedAmount.toFixed(2),
+    row.lastChargeDateBefore,
+    row.lastChargeDateAfter
+  ]);
+  const csv = [header, ...rows].map((line) => line.map(escapeCsvCell).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = `cierre-${report.closingDate}-a-${report.targetDate}.csv`;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
 
 export default function PaymentsPage({ clients, bankRules, onClientsChange, payments, onPaymentsChange }: Props) {
@@ -386,6 +490,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
   const [cashClosingError, setCashClosingError] = useState<string>("");
   const [cashClosingAudit, setCashClosingAudit] = useState<CashClosingAuditEvent[]>(() => loadCashClosingAudit());
   const [chargeRuns, setChargeRuns] = useState<ChargeRun[]>(() => loadChargeRuns());
+  const [lastCloseReport, setLastCloseReport] = useState<ChargeCloseReport | null>(null);
   const [reopenTargetDate, setReopenTargetDate] = useState<string | null>(null);
   const [reopenReason, setReopenReason] = useState<string>("");
   const [pendingBankItems, setPendingBankItems] = useState<PendingBankItem[]>(() => loadPendingBankItems());
@@ -608,48 +713,129 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     return closedDateSet.has(dateKey);
   }
 
-  function applyNextDayChargesFromClosing(closingDateKey: string): {
-    targetDate: string;
-    alreadyProcessed: boolean;
-    chargedClients: number;
-    chargedTotal: number;
-  } {
+  function applyNextDayChargesFromClosing(closingDateKey: string): ChargeApplyResult {
     const closingDate = parseDateKey(closingDateKey);
     if (!closingDate) {
-      return { targetDate: closingDateKey, alreadyProcessed: true, chargedClients: 0, chargedTotal: 0 };
+      return {
+        targetDate: closingDateKey,
+        alreadyProcessed: true,
+        expectedClients: 0,
+        chargedClients: 0,
+        anomalyClients: 0,
+        chargedTotal: 0,
+        rows: []
+      };
     }
     const targetDate = new Date(closingDate);
     targetDate.setDate(targetDate.getDate() + 1);
     const targetDateKey = toDateKey(targetDate);
 
     if (chargeRuns.some((r) => r.targetDate === targetDateKey)) {
-      return { targetDate: targetDateKey, alreadyProcessed: true, chargedClients: 0, chargedTotal: 0 };
+      return {
+        targetDate: targetDateKey,
+        alreadyProcessed: true,
+        expectedClients: 0,
+        chargedClients: 0,
+        anomalyClients: 0,
+        chargedTotal: 0,
+        rows: []
+      };
     }
 
+    let expectedClients = 0;
     let chargedClients = 0;
+    let anomalyClients = 0;
     let chargedTotal = 0;
+    const rows: ChargeReportRow[] = [];
     const nextClients = clients.map((client) => {
       if (client.archivedAt || client.status === "inactive") return client;
       const clientLastCharge = client.lastChargeDate ? parseDateKey(client.lastChargeDate) : null;
       const alreadyChargedThruTarget = clientLastCharge !== null && clientLastCharge >= targetDate;
-      const shouldCharge = !alreadyChargedThruTarget && Number.isFinite(client.rentAmount) && client.rentAmount > 0 && isChargeDay(client, targetDate);
+      const canCharge = Number.isFinite(client.rentAmount) && client.rentAmount > 0;
+      const shouldChargeByRule = canCharge && isChargeDay(client, targetDate);
+      if (shouldChargeByRule) expectedClients += 1;
+      const balanceBefore = roundMoney(client.balance);
+      const lastBefore = client.lastChargeDate ?? "-";
+
+      if (shouldChargeByRule && alreadyChargedThruTarget) {
+        anomalyClients += 1;
+        rows.push({
+          clientId: client.id,
+          unitId: client.unitId,
+          name: client.name,
+          shouldCharge: true,
+          charged: false,
+          anomaly: true,
+          reason: "Marcado como cobrado antes del cierre",
+          balanceBefore,
+          balanceAfter: balanceBefore,
+          chargedAmount: 0,
+          lastChargeDateBefore: lastBefore,
+          lastChargeDateAfter: lastBefore
+        });
+        return client;
+      }
+
+      const shouldCharge = !alreadyChargedThruTarget && shouldChargeByRule;
       if (!shouldCharge) {
+        rows.push({
+          clientId: client.id,
+          unitId: client.unitId,
+          name: client.name,
+          shouldCharge: shouldChargeByRule,
+          charged: false,
+          anomaly: false,
+          reason: shouldChargeByRule ? "Sin cobro por estado de fecha" : "No corresponde por regla",
+          balanceBefore,
+          balanceAfter: balanceBefore,
+          chargedAmount: 0,
+          lastChargeDateBefore: lastBefore,
+          lastChargeDateAfter: targetDateKey
+        });
         return { ...client, lastChargeDate: targetDateKey };
       }
       chargedClients += 1;
-      chargedTotal = roundMoney(chargedTotal + client.rentAmount);
       const isFirstSundayCharge = client.frequency === "daily" && targetDate.getDay() === 0 && !!client.chargeFirstSunday && !client.firstSundayChargedAt;
       const currentAdvance = roundMoney(client.advanceBalance ?? 0);
       const consumedAdvance = roundMoney(Math.min(currentAdvance, client.rentAmount));
       const uncoveredRent = roundMoney(Math.max(0, client.rentAmount - consumedAdvance));
+      const balanceAfter = roundMoney(client.balance + uncoveredRent);
+      chargedTotal = roundMoney(chargedTotal + uncoveredRent);
+      rows.push({
+        clientId: client.id,
+        unitId: client.unitId,
+        name: client.name,
+        shouldCharge: true,
+        charged: true,
+        anomaly: false,
+        reason: consumedAdvance > 0 ? "Cobrado con consumo de adelanto" : "Cobrado",
+        balanceBefore,
+        balanceAfter,
+        chargedAmount: uncoveredRent,
+        lastChargeDateBefore: lastBefore,
+        lastChargeDateAfter: targetDateKey
+      });
       return {
         ...client,
-        balance: roundMoney(client.balance + uncoveredRent),
+        balance: balanceAfter,
         advanceBalance: roundMoney(Math.max(0, currentAdvance - consumedAdvance)),
         firstSundayChargedAt: isFirstSundayCharge ? targetDateKey : client.firstSundayChargedAt,
         lastChargeDate: targetDateKey
       };
     });
+
+    if (anomalyClients > 0) {
+      return {
+        targetDate: targetDateKey,
+        alreadyProcessed: false,
+        expectedClients,
+        chargedClients,
+        anomalyClients,
+        chargedTotal,
+        rows,
+        blockingError: `No se pudo cerrar: ${anomalyClients} cliente(s) tenian estado inconsistente para ${targetDateKey}.`
+      };
+    }
 
     onClientsChange(nextClients);
 
@@ -657,7 +843,9 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       id: crypto.randomUUID(),
       closingDate: closingDateKey,
       targetDate: targetDateKey,
+      expectedClients,
       chargedClients,
+      anomalyClients,
       chargedTotal,
       createdAt: new Date().toISOString()
     };
@@ -668,8 +856,11 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     return {
       targetDate: targetDateKey,
       alreadyProcessed: false,
+      expectedClients,
       chargedClients,
-      chargedTotal
+      anomalyClients,
+      chargedTotal,
+      rows
     };
   }
 
@@ -1374,6 +1565,26 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       return;
     }
 
+    const chargeResult = applyNextDayChargesFromClosing(date);
+    const closeReport: ChargeCloseReport = {
+      closingDate: date,
+      targetDate: chargeResult.targetDate,
+      status: chargeResult.blockingError ? "warning" : "ok",
+      expectedClients: chargeResult.expectedClients,
+      chargedClients: chargeResult.chargedClients,
+      anomalyClients: chargeResult.anomalyClients,
+      chargedTotal: chargeResult.chargedTotal,
+      generatedAt: new Date().toISOString(),
+      rows: chargeResult.rows
+    };
+    setLastCloseReport(closeReport);
+
+    if (chargeResult.blockingError) {
+      setCashClosingError(chargeResult.blockingError);
+      setCashClosingInfo("");
+      return;
+    }
+
     const closing: CashClosing = { date, closedAt: new Date().toISOString() };
     const nextClosings = [...cashClosings, closing].sort((a, b) => b.date.localeCompare(a.date));
     setCashClosings(nextClosings);
@@ -1392,10 +1603,9 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const nextAudit = [event, ...cashClosingAudit].slice(0, 300);
     setCashClosingAudit(nextAudit);
     saveCashClosingAudit(nextAudit);
-    const chargeResult = applyNextDayChargesFromClosing(date);
     const chargeInfo = chargeResult.alreadyProcessed
       ? `Cobros de ${chargeResult.targetDate} ya estaban aplicados previamente.`
-      : `Cobros aplicados para ${chargeResult.targetDate}: ${chargeResult.chargedClients} cliente(s), total ${formatCurrency(chargeResult.chargedTotal)}.`;
+      : `Cobros aplicados para ${chargeResult.targetDate}: esperados ${chargeResult.expectedClients}, cobrados ${chargeResult.chargedClients}, total ${formatCurrency(chargeResult.chargedTotal)}.`;
     setCashClosingError("");
     setCashClosingReason("");
     setCashClosingInfo(
@@ -1867,6 +2077,54 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
         </p>
         {cashClosingInfo && <p className="hint recon-info">{cashClosingInfo}</p>}
         {cashClosingError && <p className="hint error-text">{cashClosingError}</p>}
+        {lastCloseReport && (
+          <div className="panel" style={{ marginTop: 10, padding: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <strong>Reporte de cierre {lastCloseReport.closingDate} - cobro {lastCloseReport.targetDate}</strong>
+                <div className="hint">
+                  Esperados: {lastCloseReport.expectedClients}. Cobrados: {lastCloseReport.chargedClients}. Anomalias: {lastCloseReport.anomalyClients}. Total: {formatCurrency(lastCloseReport.chargedTotal)}.
+                </div>
+              </div>
+              <div>
+                <button
+                  type="button"
+                  className="button ghost small"
+                  onClick={() => downloadChargeCloseReportCsv(lastCloseReport)}
+                >
+                  Descargar reporte CSV
+                </button>
+              </div>
+            </div>
+            {lastCloseReport.anomalyClients > 0 && (
+              <div className="table-scroll" style={{ marginTop: 10 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Unidad</th>
+                      <th>Cliente</th>
+                      <th>Motivo</th>
+                      <th>LastCharge antes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lastCloseReport.rows
+                      .filter((row) => row.anomaly)
+                      .slice(0, 50)
+                      .map((row) => (
+                        <tr key={`anomaly-${row.clientId}`}>
+                          <td>{row.unitId}</td>
+                          <td>{row.name}</td>
+                          <td>{row.reason}</td>
+                          <td>{row.lastChargeDateBefore}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
         {cashClosings.length > 0 && (
           <div className="table-scroll" style={{ marginTop: 10 }}>
             <table>
@@ -1926,7 +2184,9 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                 <tr>
                   <th>Cierre base</th>
                   <th>Fecha cobrada</th>
+                  <th>Esperados</th>
                   <th>Clientes cargados</th>
+                  <th>Anomalias</th>
                   <th>Total cargado</th>
                 </tr>
               </thead>
@@ -1935,7 +2195,9 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                   <tr key={run.id}>
                     <td>{run.closingDate}</td>
                     <td>{run.targetDate}</td>
+                    <td>{run.expectedClients ?? run.chargedClients}</td>
                     <td>{run.chargedClients}</td>
+                    <td>{run.anomalyClients ?? 0}</td>
                     <td>{formatCurrency(run.chargedTotal)}</td>
                   </tr>
                 ))}

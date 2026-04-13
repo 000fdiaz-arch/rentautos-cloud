@@ -4,6 +4,17 @@ const DB_NAME = "cobrapp-autobackup";
 const STORE = "handles";
 const KEY = "backupDir";
 
+export type BackupFailureCode =
+  | "not_configured"
+  | "indexeddb_error"
+  | "permission_denied"
+  | "handle_unavailable"
+  | "write_failed";
+
+export type BackupResult =
+  | { ok: true; code: "ok"; message: string }
+  | { ok: false; code: BackupFailureCode; message: string };
+
 // -- IndexedDB helpers ------------------------------------------------------
 
 function openDB(): Promise<IDBDatabase> {
@@ -85,17 +96,53 @@ export async function removeBackupFolder(): Promise<void> {
 
 /** Writes the backup JSON to the configured folder. Returns true on success. */
 export async function autoBackup(clients: Client[], payments: Payment[]): Promise<boolean> {
-  try {
-    const handle = await loadHandle();
-    if (!handle) return false;
+  const result = await autoBackupDetailed(clients, payments);
+  return result.ok;
+}
 
+/** Writes the backup JSON and returns detailed status for UI/audit feedback. */
+export async function autoBackupDetailed(clients: Client[], payments: Payment[]): Promise<BackupResult> {
+  let handle: FileSystemDirectoryHandle | null = null;
+  try {
+    handle = await loadHandle();
+  } catch {
+    return {
+      ok: false,
+      code: "indexeddb_error",
+      message: "No se pudo leer la configuracion de respaldo (IndexedDB)."
+    };
+  }
+
+  if (!handle) {
+    return {
+      ok: false,
+      code: "not_configured",
+      message: "No hay carpeta de respaldo configurada."
+    };
+  }
+
+  try {
     // Verify we still have permission
     const perm = await handle.queryPermission({ mode: "readwrite" });
     if (perm !== "granted") {
       const req = await handle.requestPermission({ mode: "readwrite" });
-      if (req !== "granted") return false;
+      if (req !== "granted") {
+        return {
+          ok: false,
+          code: "permission_denied",
+          message: "Permiso denegado para escribir en la carpeta de respaldo."
+        };
+      }
     }
+  } catch {
+    return {
+      ok: false,
+      code: "handle_unavailable",
+      message: "La carpeta de respaldo ya no esta disponible. Reconecta la carpeta."
+    };
+  }
 
+  try {
     const data = {
       version: 1,
       exportedAt: new Date().toISOString(),
@@ -107,8 +154,16 @@ export async function autoBackup(clients: Client[], payments: Payment[]): Promis
     const writable = await fileHandle.createWritable();
     await writable.write(JSON.stringify(data, null, 2));
     await writable.close();
-    return true;
+    return {
+      ok: true,
+      code: "ok",
+      message: "Respaldo guardado correctamente."
+    };
   } catch {
-    return false;
+    return {
+      ok: false,
+      code: "write_failed",
+      message: "Error al escribir cobrapp-backup.json en la carpeta seleccionada."
+    };
   }
 }
