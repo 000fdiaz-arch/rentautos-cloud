@@ -3,6 +3,7 @@ import {
   findNextChargeDay,
   getDebtStartDate,
   getPendingInstallments,
+  parseDateKey,
   startOfDay,
   toDateKey
 } from "../billing";
@@ -61,6 +62,7 @@ type SortField = "unitId" | "name" | "frequency" | "rentAmount" | "balance" | "d
 type SortDirection = "asc" | "desc";
 type StatusFilter = "all" | "active" | "inactive" | "archived";
 const STATUS_FILTER_STORAGE_KEY = "cobrapp.clients.status_filter.v1";
+const CASH_CLOSINGS_KEY = "cobrapp.module2.cash_closings.v1";
 
 const initialForm: ClientForm = {
   unitId: "",
@@ -103,6 +105,36 @@ function extractGroupCode(unitId: string): string {
   return match ? match[1].toUpperCase() : "";
 }
 
+function getOperationalReferenceDate(now: Date): Date {
+  const today = startOfDay(now);
+  try {
+    const raw = window.localStorage.getItem(CASH_CLOSINGS_KEY);
+    if (!raw) return today;
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return today;
+
+    const candidates = parsed
+      .map((item) => {
+        if (!item || typeof item !== "object") return "";
+        const rec = item as Record<string, unknown>;
+        return typeof rec.date === "string" ? rec.date.trim() : "";
+      })
+      .filter((dateKey) => dateKey.length > 0);
+
+    if (candidates.length === 0) return today;
+
+    const latestClosed = [...new Set(candidates)].sort().at(-1);
+    if (!latestClosed) return today;
+    const latestClosedDate = parseDateKey(latestClosed);
+    if (!latestClosedDate) return today;
+    const nextOperational = new Date(latestClosedDate);
+    nextOperational.setDate(nextOperational.getDate() + 1);
+    return startOfDay(nextOperational);
+  } catch {
+    return today;
+  }
+}
+
 function buildClient(form: ClientForm, existing?: Client): Client {
   const otherCharges: OtherCharge[] = form.otherCharges
     .filter((c) => c.label.trim() && parseNumberOrNull(c.amount) !== null)
@@ -121,6 +153,7 @@ function buildClient(form: ClientForm, existing?: Client): Client {
     chargeFirstSunday: form.frequency === "daily" ? form.chargeFirstSunday : false,
     firstSundayChargedAt: existing?.firstSundayChargedAt,
     balance: Number(form.initialBalance),
+    advanceBalance: existing?.advanceBalance ?? 0,
     savings: existing?.savings ?? 0,
     installmentsAgreed: Number(form.installmentsAgreed),
     installmentsRemaining: Number(form.installmentsRemaining),
@@ -193,7 +226,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
     () => clients.filter((client) => !client.archivedAt && client.status === "inactive").length,
     [clients]
   );
-  const today = startOfDay(now);
+  const operationalReferenceDate = useMemo(() => getOperationalReferenceDate(now), [now]);
   const availableGroups = useMemo(() => {
     return [...new Set(clients.map((c) => extractGroupCode(c.unitId)).filter((g) => g.length > 0))].sort((a, b) => a.localeCompare(b));
   }, [clients]);
@@ -201,8 +234,8 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
   const rows = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
     const baseRows = clients.map((client) => {
-      const debtStartDate = getDebtStartDate(client, today);
-      const nextChargeDate = debtStartDate ? null : findNextChargeDay(client, today);
+      const debtStartDate = getDebtStartDate(client, operationalReferenceDate);
+      const nextChargeDate = debtStartDate ? null : findNextChargeDay(client, operationalReferenceDate);
       const pendingInstallments = getPendingInstallments(client);
       return { client, debtStartDate, nextChargeDate, pendingInstallments };
     });
@@ -238,7 +271,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
     });
 
     return filtered;
-  }, [clients, debtFilter, frequencyFilter, groupFilter, searchTerm, sortDirection, sortField, statusFilter, today]);
+  }, [clients, debtFilter, frequencyFilter, groupFilter, operationalReferenceDate, searchTerm, sortDirection, sortField, statusFilter]);
 
   function persist(next: Client[]): void {
     onClientsChange(next);

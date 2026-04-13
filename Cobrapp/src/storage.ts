@@ -140,6 +140,7 @@ function normalizeClient(item: unknown): Client | null {
         ? raw.firstSundayChargedAt
         : undefined,
     balance,
+    advanceBalance: parseNonNegativeNumber(raw.advanceBalance),
     savings: parseNonNegativeNumber(raw.savings),
     installmentsAgreed: parseNonNegativeInteger(raw.installmentsAgreed),
     installmentsRemaining: parseNonNegativeInteger(raw.installmentsRemaining),
@@ -235,6 +236,7 @@ function normalizePayment(item: unknown): Payment | null {
   const balanceAfter = parseFiniteNumber(raw.balanceAfter);
   const savingsBefore = parseFiniteNumber(raw.savingsBefore);
   const savingsAfter = parseFiniteNumber(raw.savingsAfter);
+  const advanceApplied = parseFiniteNumber(raw.advanceApplied);
 
   if (
     amountReceived === null || amountReceived < 0 ||
@@ -243,7 +245,8 @@ function normalizePayment(item: unknown): Payment | null {
     balanceBefore === null || balanceBefore < 0 ||
     balanceAfter === null || balanceAfter < 0 ||
     savingsBefore === null || savingsBefore < 0 ||
-    savingsAfter === null || savingsAfter < 0
+    savingsAfter === null || savingsAfter < 0 ||
+    (advanceApplied !== null && advanceApplied < 0)
   ) return null;
 
   return {
@@ -270,6 +273,7 @@ function normalizePayment(item: unknown): Payment | null {
     balanceAfter,
     savingsBefore,
     savingsAfter,
+    advanceApplied: advanceApplied ?? undefined,
     installmentsPaidAfter: parseNonNegativeInteger(raw.installmentsPaidAfter),
     installmentsRemainingAfter: parseNonNegativeInteger(raw.installmentsRemainingAfter),
     rentAmount: parseNonNegativeNumber(raw.rentAmount),

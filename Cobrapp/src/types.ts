@@ -30,6 +30,7 @@ export type Client = {
   installmentsPaid: number;
   otherCharges: OtherCharge[];
   balance: number;
+  advanceBalance: number;
   savings: number;
   createdAt: string;
   lastChargeDate?: string;
@@ -87,6 +88,7 @@ export type Payment = {
   receiptNumber: string;
   otherChargesApplied?: OtherCharge[];
   otherChargesDueAfter?: OtherCharge[];
+  advanceApplied?: number;
   clientId: string;
   clientName: string;
   clientUnit: string;

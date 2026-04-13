@@ -33,13 +33,66 @@ async function run() {
   await page.goto(BASE_URL);
   await page.waitForLoadState("networkidle");
 
-  const rawClients = await page.evaluate(() => localStorage.getItem("cobrapp.clients.v1"));
-  const rawPayments = await page.evaluate(() => localStorage.getItem("cobrapp.payments.v1"));
+  const rawClients = await page.evaluate(() => localStorage.getItem("cobrapp.module1.clients.v1"));
+  const rawPayments = await page.evaluate(() => localStorage.getItem("cobrapp.module2.payments.v1"));
 
   let clients = [];
   let payments = [];
   try { clients = JSON.parse(rawClients || "[]"); } catch {}
   try { payments = JSON.parse(rawPayments || "[]"); } catch {}
+
+  if (!Array.isArray(clients) || clients.length === 0) {
+    const fixtureClient = {
+      id: "test-client-1",
+      unitId: "A-101",
+      name: "Cliente Prueba",
+      cedula: "8-123-456",
+      rentAmount: 250,
+      frequency: "monthly",
+      monthlyChargeDay: 1,
+      installmentsAgreed: 1,
+      installmentsRemaining: 0,
+      installmentsPaid: 1,
+      otherCharges: [],
+      balance: 0,
+      advanceBalance: 0,
+      savings: 0,
+      createdAt: new Date().toISOString(),
+      status: "active"
+    };
+    const fixturePayment = {
+      id: "test-payment-1",
+      receiptNumber: "R-TEST-001",
+      clientId: fixtureClient.id,
+      clientName: fixtureClient.name,
+      clientUnit: fixtureClient.unitId,
+      clientCedula: fixtureClient.cedula,
+      dateApplied: "2026-04-11",
+      paymentMethod: "Efectivo",
+      amountReceived: 250,
+      appliedToRent: 250,
+      centavosAhorro: 0,
+      installmentsDeducted: 1,
+      balanceBefore: 250,
+      balanceAfter: 0,
+      savingsBefore: 0,
+      savingsAfter: 0,
+      installmentsPaidAfter: 1,
+      installmentsRemainingAfter: 0,
+      rentAmount: 250,
+      frequency: "monthly",
+      monthlyChargeDay: 1,
+      createdAt: new Date().toISOString()
+    };
+    clients = [fixtureClient];
+    payments = [fixturePayment];
+    await page.evaluate(({ fixtureClients, fixturePayments }) => {
+      localStorage.setItem("cobrapp.module1.clients.v1", JSON.stringify(fixtureClients));
+      localStorage.setItem("cobrapp.module2.payments.v1", JSON.stringify(fixturePayments));
+    }, { fixtureClients: clients, fixturePayments: payments });
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+  }
 
   const activeClients = clients.filter(c => !c.archivedAt && c.status === "active");
 
@@ -269,9 +322,31 @@ async function run() {
       await page.waitForTimeout(500);
       const bodyText = await page.locator("body").innerText();
       const hasHistory = /recibo|receipt|#\d+/i.test(bodyText) || payments.length === 0;
+      const fromDateInput = page.locator("input[type='date'][title='Filtrar desde fecha']").first();
+      const toDateInput = page.locator("input[type='date'][title='Filtrar hasta fecha']").first();
+      const hasNewHistoryControls =
+        await fromDateInput.isVisible() &&
+        await toDateInput.isVisible();
+      const hasBulkButtons =
+        await page.locator("button", { hasText: /Descargar seleccionados/i }).first().isVisible() &&
+        await page.locator("button", { hasText: /Descargar filtrados/i }).first().isVisible();
+      const hasSelectAllCheckbox = await page.locator("thead input[type='checkbox']").first().isVisible();
+      if (hasNewHistoryControls) {
+        await fromDateInput.fill("2026-04-12");
+        await toDateInput.fill("2026-04-01");
+        await page.waitForTimeout(200);
+      }
+      const rangeErrorVisible = hasNewHistoryControls
+        ? await page.locator("text=La fecha desde no puede ser mayor que la fecha hasta.").first().isVisible()
+        : false;
       if (hasHistory) {
-        log("", "PRUEBA 9: Historial de pagos abre correctamente", `${payments.length} pagos en BD`);
-        passed++;
+        if (hasNewHistoryControls && rangeErrorVisible && hasBulkButtons && hasSelectAllCheckbox) {
+          log("", "PRUEBA 9: Historial de pagos abre con filtros, seleccion multiple y acciones masivas", `${payments.length} pagos en BD`);
+          passed++;
+        } else {
+          log("", "PRUEBA 9: Historial abre pero faltan controles de filtros/rango/descarga masiva");
+          failed++;
+        }
       } else {
         log("", "PRUEBA 9: Historial abierto pero sin contenido esperado");
         passed++;

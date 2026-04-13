@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import PaymentReceipt from "../components/PaymentReceipt";
+import PaymentReceipt, { downloadPaymentsReceiptsZip } from "../components/PaymentReceipt";
 import { formatCurrency, formatDate } from "../format";
 import {
   loadManualBankAssignmentAudit,
@@ -17,7 +17,7 @@ import type {
   PaymentMethod,
   PendingBankItem
 } from "../types";
-import { isChargeDay, parseDateKey, toDateKey } from "../billing";
+import { findNextChargeDay, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../billing";
 
 const PAYMENT_METHODS: PaymentMethod[] = ["Efectivo", "ACH Express", "Deposito Bancario", "Transferencia Bancaria", "Tarjeta"];
 const BANK_PAYMENT_METHODS = new Set<PaymentMethod>(["ACH Express", "Deposito Bancario", "Transferencia Bancaria"]);
@@ -96,10 +96,73 @@ function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function toInputMoney(value: number): string {
+  const normalized = roundMoney(value);
+  return Number.isInteger(normalized) ? String(normalized) : normalized.toFixed(2);
+}
+
+function getMonthEndDate(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+function computeRequiredWholeAmountToReachDate(client: Client, fromDate: Date, targetDate: Date): { requiredWholeAmount: number; resultingNextDate: Date | null } {
+  const normalizedFrom = startOfDay(fromDate);
+  const normalizedTarget = startOfDay(targetDate);
+  const targetKey = toDateKey(normalizedTarget);
+  const rent = roundMoney(client.rentAmount);
+
+  let simulatedAdvance = roundMoney(client.advanceBalance ?? 0);
+  let requiredWholeAmount = 0;
+
+  for (let i = 0; i < 4000; i += 1) {
+    const simulatedClient: Client = { ...client, advanceBalance: simulatedAdvance };
+    const nextChargeDate = findNextChargeDay(simulatedClient, normalizedFrom);
+    if (!nextChargeDate) return { requiredWholeAmount: roundMoney(requiredWholeAmount), resultingNextDate: null };
+    if (toDateKey(nextChargeDate) >= targetKey) {
+      return { requiredWholeAmount: roundMoney(requiredWholeAmount), resultingNextDate: nextChargeDate };
+    }
+    if (!Number.isFinite(rent) || rent <= 0) {
+      return { requiredWholeAmount: roundMoney(requiredWholeAmount), resultingNextDate: nextChargeDate };
+    }
+    simulatedAdvance = roundMoney(simulatedAdvance + rent);
+    requiredWholeAmount = roundMoney(requiredWholeAmount + rent);
+  }
+
+  const fallbackClient: Client = { ...client, advanceBalance: simulatedAdvance };
+  return { requiredWholeAmount: roundMoney(requiredWholeAmount), resultingNextDate: findNextChargeDay(fallbackClient, normalizedFrom) };
+}
+
+function splitWholeAndCents(amount: number): { wholePart: number; centsPart: number } {
+  const normalized = roundMoney(Math.max(0, amount));
+  const wholePart = Math.floor(normalized + Number.EPSILON);
+  const centsPart = roundMoney(normalized - wholePart);
+  return { wholePart, centsPart };
+}
+
+function computeAppliedOtherCharges(
+  configured: OtherCharge[] | undefined,
+  manualInput: Record<string, string>,
+  maxAvailable: number
+): { otherChargesApplied: OtherCharge[]; totalOtherCharges: number } {
+  let remaining = roundMoney(Math.max(0, maxAvailable));
+  const otherChargesApplied = (configured ?? [])
+    .map((charge) => {
+      const inputVal = parseFloat(manualInput[charge.label] ?? "");
+      const desired = roundMoney(Number.isFinite(inputVal) ? Math.max(0, inputVal) : 0);
+      const appliedAmount = roundMoney(Math.min(desired, Math.max(0, remaining)));
+      remaining = roundMoney(Math.max(0, remaining - appliedAmount));
+      return { label: charge.label, amount: appliedAmount };
+    })
+    .filter((c) => c.amount > 0);
+  const totalOtherCharges = roundMoney(otherChargesApplied.reduce((sum, charge) => sum + charge.amount, 0));
+  return { otherChargesApplied, totalOtherCharges };
+}
+
 type ManualPaymentAllocation = {
   balanceBefore: number;
   appliedToRent: number;
   centavosAhorro: number;
+  advanceApplied: number;
   balanceAfter: number;
   installmentsDeducted: number;
   pendingBefore: number;
@@ -114,27 +177,18 @@ function computeManualPaymentAllocation(
   manualOtherChargesInput: Record<string, string>
 ): ManualPaymentAllocation {
   const amount = roundMoney(Math.max(0, rawAmount));
+  const { wholePart, centsPart } = splitWholeAndCents(amount);
   const balanceBefore = roundMoney(client.balance);
 
-  const desiredOtherCharges = (client.otherCharges ?? [])
-    .map((ch) => {
-      const v = parseFloat(manualOtherChargesInput[ch.label] ?? "");
-      return { label: ch.label, amount: roundMoney(Number.isFinite(v) ? v : ch.amount) };
-    })
-    .filter((c) => c.amount > 0);
-
-  let remainingForOtherCharges = roundMoney(amount);
-  const otherChargesApplied = desiredOtherCharges
-    .map((charge) => {
-      const appliedAmount = roundMoney(Math.min(charge.amount, Math.max(0, remainingForOtherCharges)));
-      remainingForOtherCharges = roundMoney(Math.max(0, remainingForOtherCharges - appliedAmount));
-      return { label: charge.label, amount: appliedAmount };
-    })
-    .filter((c) => c.amount > 0);
-
-  const totalOtherCharges = roundMoney(otherChargesApplied.reduce((s, c) => s + c.amount, 0));
-  const appliedToRent = roundMoney(Math.min(Math.max(0, remainingForOtherCharges), balanceBefore));
-  const centavosAhorro = roundMoney(Math.max(0, amount - totalOtherCharges - appliedToRent));
+  const { otherChargesApplied, totalOtherCharges } = computeAppliedOtherCharges(
+    client.otherCharges,
+    manualOtherChargesInput,
+    wholePart
+  );
+  const appliedToRent = roundMoney(Math.min(Math.max(0, wholePart - totalOtherCharges), balanceBefore));
+  const leftover = roundMoney(Math.max(0, wholePart - totalOtherCharges - appliedToRent));
+  const advanceApplied = leftover;
+  const centavosAhorro = centsPart;
   const balanceAfter = roundMoney(balanceBefore - appliedToRent);
   const rentAmount = client.rentAmount;
   const pendingBefore = rentAmount > 0 ? Math.ceil(balanceBefore / rentAmount) : 0;
@@ -145,6 +199,7 @@ function computeManualPaymentAllocation(
     balanceBefore,
     appliedToRent,
     centavosAhorro,
+    advanceApplied,
     balanceAfter,
     installmentsDeducted,
     pendingBefore,
@@ -304,9 +359,13 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyClientId, setHistoryClientId] = useState<string>("all");
   const [historyGroupFilter, setHistoryGroupFilter] = useState<string>("all");
-  const [historyDateFilter, setHistoryDateFilter] = useState<string>("");
+  const [historyDateFrom, setHistoryDateFrom] = useState<string>("");
+  const [historyDateTo, setHistoryDateTo] = useState<string>("");
   const [historySortField, setHistorySortField] = useState<HistorySortField>("date");
   const [historySortDirection, setHistorySortDirection] = useState<SortDirection>("desc");
+  const [historySelectedPaymentIds, setHistorySelectedPaymentIds] = useState<string[]>([]);
+  const [isHistoryBulkDownloading, setIsHistoryBulkDownloading] = useState(false);
+  const [historyBulkDownloadError, setHistoryBulkDownloadError] = useState("");
   const [historyPreviewPayment, setHistoryPreviewPayment] = useState<Payment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
   const [notifiedForm, setNotifiedForm] = useState<NotifiedPaymentForm>({
@@ -337,10 +396,14 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
   const [pendingImportError, setPendingImportError] = useState("");
   const [pendingOtherChargesInput, setPendingOtherChargesInput] = useState<Record<string, string>>({});
   const [manualAssignmentAudit, setManualAssignmentAudit] = useState<ManualBankAssignmentAudit[]>(() => loadManualBankAssignmentAudit());
+  const [autoAmountInfo, setAutoAmountInfo] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const pendingTopScrollRef = useRef<HTMLDivElement>(null);
   const pendingTopInnerRef = useRef<HTMLDivElement>(null);
   const pendingBottomScrollRef = useRef<HTMLDivElement>(null);
+  const historyTopScrollRef = useRef<HTMLDivElement>(null);
+  const historyTopInnerRef = useRef<HTMLDivElement>(null);
+  const historyBottomScrollRef = useRef<HTMLDivElement>(null);
 
   const activeClients = useMemo(
     () => clients.filter((c) => !c.archivedAt),
@@ -427,6 +490,36 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     nextOperational.setDate(nextOperational.getDate() + 1);
     return toDateKey(nextOperational);
   }, [cashClosings]);
+
+  const operationalDate = useMemo(() => {
+    const parsed = parseDateKey(operationalDateKey);
+    return parsed ? startOfDay(parsed) : startOfDay(new Date());
+  }, [operationalDateKey]);
+
+  const monthEndDate = useMemo(() => getMonthEndDate(operationalDate), [operationalDate]);
+
+  const projectedNextChargeDate = useMemo(() => {
+    if (!selectedClient || !preview || preview.balanceAfter > 0) return null;
+    const projectedClient: Client = {
+      ...selectedClient,
+      balance: preview.balanceAfter,
+      advanceBalance: roundMoney((selectedClient.advanceBalance ?? 0) + preview.advanceApplied),
+      savings: roundMoney(selectedClient.savings + preview.centavosAhorro)
+    };
+    return findNextChargeDay(projectedClient, operationalDate);
+  }, [operationalDate, preview, selectedClient]);
+
+  const monthEndSuggestion = useMemo(() => {
+    if (!selectedClient) return null;
+    if (selectedClient.balance > 0) return null;
+    if ((selectedClient.otherCharges ?? []).length > 0) return null;
+    const result = computeRequiredWholeAmountToReachDate(selectedClient, operationalDate, monthEndDate);
+    return {
+      requiredWholeAmount: result.requiredWholeAmount,
+      targetDate: monthEndDate,
+      resultingNextDate: result.resultingNextDate
+    };
+  }, [monthEndDate, operationalDate, selectedClient]);
 
   function normalizeToOperationalDate(dateKey: string): string {
     if (!dateKey) return operationalDateKey;
@@ -546,9 +639,13 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       chargedClients += 1;
       chargedTotal = roundMoney(chargedTotal + client.rentAmount);
       const isFirstSundayCharge = client.frequency === "daily" && targetDate.getDay() === 0 && !!client.chargeFirstSunday && !client.firstSundayChargedAt;
+      const currentAdvance = roundMoney(client.advanceBalance ?? 0);
+      const consumedAdvance = roundMoney(Math.min(currentAdvance, client.rentAmount));
+      const uncoveredRent = roundMoney(Math.max(0, client.rentAmount - consumedAdvance));
       return {
         ...client,
-        balance: roundMoney(client.balance + client.rentAmount),
+        balance: roundMoney(client.balance + uncoveredRent),
+        advanceBalance: roundMoney(Math.max(0, currentAdvance - consumedAdvance)),
         firstSundayChargedAt: isFirstSundayCharge ? targetDateKey : client.firstSundayChargedAt,
         lastChargeDate: targetDateKey
       };
@@ -1013,23 +1110,24 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const item = pendingClassifyTarget;
     const balanceBefore = roundMoney(client.balance);
     const savingsBefore = roundMoney(client.savings);
+    const advanceBefore = roundMoney(client.advanceBalance ?? 0);
+    const wholePart = roundMoney(item.capitalPart);
+    const centsPart = roundMoney(item.centsPart);
 
-    // Collect otros cargos amounts from inputs
-    const otherChargesApplied = (client.otherCharges ?? [])
-      .map((charge) => {
-        const inputVal = pendingOtherChargesInput[charge.label];
-        const amount = roundMoney(parseFloat(inputVal ?? "") || 0);
-        return { label: charge.label, amount };
-      })
-      .filter((c) => c.amount > 0);
-    const totalOtherCharges = roundMoney(otherChargesApplied.reduce((s, c) => s + c.amount, 0));
+    const { otherChargesApplied, totalOtherCharges } = computeAppliedOtherCharges(
+      client.otherCharges,
+      pendingOtherChargesInput,
+      wholePart
+    );
 
     // Capital after deducting otros cargos goes to rent
-    const capitalForRent = roundMoney(Math.max(0, item.capitalPart - totalOtherCharges));
+    const capitalForRent = roundMoney(Math.max(0, wholePart - totalOtherCharges));
     const appliedToRent = roundMoney(Math.min(capitalForRent, Math.max(0, balanceBefore)));
-    const centavosAhorro = roundMoney(Math.max(0, item.amountReceived - appliedToRent - totalOtherCharges));
+    const advanceApplied = roundMoney(Math.max(0, wholePart - appliedToRent - totalOtherCharges));
+    const centavosAhorro = centsPart;
     const balanceAfter = roundMoney(Math.max(0, balanceBefore - appliedToRent));
     const savingsAfter = roundMoney(savingsBefore + centavosAhorro);
+    const advanceAfter = roundMoney(advanceBefore + advanceApplied);
     const rentAmount = client.rentAmount;
     const pendingBefore = rentAmount > 0 ? Math.ceil(balanceBefore / rentAmount) : 0;
     const pendingAfter = rentAmount > 0 && balanceAfter > 0 ? Math.ceil(balanceAfter / rentAmount) : 0;
@@ -1050,6 +1148,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       amountReceived: item.amountReceived,
       appliedToRent,
       centavosAhorro,
+      advanceApplied: advanceApplied > 0 ? advanceApplied : undefined,
       otherChargesApplied: otherChargesApplied.length > 0 ? otherChargesApplied : undefined,
       otherChargesDueAfter: computeOtherChargesDueAfter(client.otherCharges, otherChargesApplied),
       installmentsDeducted,
@@ -1072,6 +1171,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       return {
         ...c,
         balance: balanceAfter,
+        advanceBalance: advanceAfter,
         savings: savingsAfter,
         installmentsPaid: installmentsPaidAfter,
         installmentsRemaining: installmentsRemainingAfter,
@@ -1104,10 +1204,15 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
   function applyPendingItem(item: PendingBankItem, client: Client): { updatedClient: Client; payment: Payment } {
     const balanceBefore = roundMoney(client.balance);
     const savingsBefore = roundMoney(client.savings);
-    const appliedToRent = roundMoney(Math.min(item.capitalPart, Math.max(0, balanceBefore)));
-    const centavosAhorro = roundMoney(Math.max(0, item.centsPart + Math.max(0, item.capitalPart - appliedToRent)));
+    const advanceBefore = roundMoney(client.advanceBalance ?? 0);
+    const wholePart = roundMoney(item.capitalPart);
+    const centsPart = roundMoney(item.centsPart);
+    const appliedToRent = roundMoney(Math.min(wholePart, Math.max(0, balanceBefore)));
+    const advanceApplied = roundMoney(Math.max(0, wholePart - appliedToRent));
+    const centavosAhorro = centsPart;
     const balanceAfter = roundMoney(Math.max(0, balanceBefore - appliedToRent));
     const savingsAfter = roundMoney(savingsBefore + centavosAhorro);
+    const advanceAfter = roundMoney(advanceBefore + advanceApplied);
     const rentAmount = client.rentAmount;
     const pendingBefore = rentAmount > 0 ? Math.ceil(balanceBefore / rentAmount) : 0;
     const pendingAfterN = rentAmount > 0 && balanceAfter > 0 ? Math.ceil(balanceAfter / rentAmount) : 0;
@@ -1128,6 +1233,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       amountReceived: item.amountReceived,
       appliedToRent,
       centavosAhorro,
+      advanceApplied: advanceApplied > 0 ? advanceApplied : undefined,
       installmentsDeducted,
       balanceBefore,
       balanceAfter,
@@ -1142,7 +1248,14 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       createdAt: new Date().toISOString()
     };
 
-    const updatedClient = { ...client, balance: balanceAfter, savings: savingsAfter, installmentsPaid: installmentsPaidAfter, installmentsRemaining: installmentsRemainingAfter };
+    const updatedClient = {
+      ...client,
+      balance: balanceAfter,
+      advanceBalance: advanceAfter,
+      savings: savingsAfter,
+      installmentsPaid: installmentsPaidAfter,
+      installmentsRemaining: installmentsRemainingAfter
+    };
     return { updatedClient, payment };
   }
 
@@ -1209,12 +1322,26 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     setClientSearch("");
     setDropdownOpen(false);
     setManualOtherChargesInput({});
+    setAutoAmountInfo("");
   }
 
   function handleClearClient(): void {
     setForm((f) => ({ ...f, clientId: "" }));
     setClientSearch("");
     setDropdownOpen(false);
+    setAutoAmountInfo("");
+  }
+
+  function handleAutoFillToMonthEnd(): void {
+    if (!selectedClient || !monthEndSuggestion) return;
+    const amount = monthEndSuggestion.requiredWholeAmount;
+    setForm((f) => ({ ...f, amountReceived: toInputMoney(amount) }));
+    const resultingLabel = monthEndSuggestion.resultingNextDate ? formatDate(monthEndSuggestion.resultingNextDate) : "sin fecha";
+    if (amount <= 0) {
+      setAutoAmountInfo(`Ya esta cubierto hasta ${resultingLabel}.`);
+      return;
+    }
+    setAutoAmountInfo(`Monto cargado: ${formatCurrency(amount)}. Quedara al dia hasta ${resultingLabel}.`);
   }
 
   function validate(): string[] {
@@ -1341,6 +1468,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       amountReceived,
       appliedToRent: allocation.appliedToRent,
       centavosAhorro: allocation.centavosAhorro,
+      advanceApplied: allocation.advanceApplied > 0 ? allocation.advanceApplied : undefined,
       otherChargesApplied: allocation.otherChargesApplied.length > 0 ? allocation.otherChargesApplied : undefined,
       otherChargesDueAfter: computeOtherChargesDueAfter(selectedClient.otherCharges, allocation.otherChargesApplied),
       installmentsDeducted: allocation.installmentsDeducted,
@@ -1363,6 +1491,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       return {
         ...c,
         balance: allocation.balanceAfter,
+        advanceBalance: roundMoney((c.advanceBalance ?? 0) + allocation.advanceApplied),
         savings: roundMoney(c.savings + allocation.centavosAhorro),
         installmentsRemaining: Math.max(0, c.installmentsRemaining - allocation.installmentsDeducted),
         installmentsPaid: c.installmentsPaid + allocation.installmentsDeducted,
@@ -1393,6 +1522,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       return {
         ...c,
         balance: roundMoney(c.balance + payment.appliedToRent),
+        advanceBalance: roundMoney(Math.max(0, (c.advanceBalance ?? 0) - (payment.advanceApplied ?? 0))),
         savings: roundMoney(Math.max(0, c.savings - payment.centavosAhorro)),
         installmentsRemaining: c.installmentsRemaining + payment.installmentsDeducted,
         installmentsPaid: Math.max(0, c.installmentsPaid - payment.installmentsDeducted),
@@ -1516,16 +1646,27 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     )].sort((a, b) => a.localeCompare(b));
   }, [payments]);
 
+  const historyDateRangeError = useMemo(() => {
+    if (historyDateFrom && historyDateTo && historyDateFrom > historyDateTo) {
+      return "La fecha desde no puede ser mayor que la fecha hasta.";
+    }
+    return "";
+  }, [historyDateFrom, historyDateTo]);
+
   const historyRows = useMemo(() => {
+    if (historyDateRangeError) return [];
+
     const byClient = historyClientId === "all"
       ? payments
       : payments.filter((p) => p.clientId === historyClientId);
     const byGroup = historyGroupFilter === "all"
       ? byClient
       : byClient.filter((p) => extractGroupCodeFromUnit(p.clientUnit) === historyGroupFilter);
-    const filtered = historyDateFilter
-      ? byGroup.filter((p) => p.dateApplied === historyDateFilter)
-      : byGroup;
+    const filtered = byGroup.filter((p) => {
+      if (historyDateFrom && p.dateApplied < historyDateFrom) return false;
+      if (historyDateTo && p.dateApplied > historyDateTo) return false;
+      return true;
+    });
     const dir = historySortDirection === "asc" ? 1 : -1;
     const sorted = [...filtered].sort((a, b) => {
       let comparison = 0;
@@ -1541,8 +1682,120 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       if (comparison !== 0) return comparison * dir;
       return b.createdAt.localeCompare(a.createdAt);
     });
-    return sorted.slice(0, 50);
-  }, [payments, historyClientId, historyGroupFilter, historyDateFilter, historySortDirection, historySortField]);
+    return sorted;
+  }, [payments, historyClientId, historyGroupFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError]);
+
+  useEffect(() => {
+    if (!isHistoryOpen) return;
+    const top = historyTopScrollRef.current;
+    const bottom = historyBottomScrollRef.current;
+    if (!top || !bottom) return;
+
+    let syncing = false;
+    const onTopScroll = () => {
+      if (syncing) return;
+      syncing = true;
+      bottom.scrollLeft = top.scrollLeft;
+      syncing = false;
+    };
+    const onBottomScroll = () => {
+      if (syncing) return;
+      syncing = true;
+      top.scrollLeft = bottom.scrollLeft;
+      syncing = false;
+    };
+
+    top.addEventListener("scroll", onTopScroll, { passive: true });
+    bottom.addEventListener("scroll", onBottomScroll, { passive: true });
+    return () => {
+      top.removeEventListener("scroll", onTopScroll);
+      bottom.removeEventListener("scroll", onBottomScroll);
+    };
+  }, [isHistoryOpen, historyRows.length]);
+
+  useEffect(() => {
+    if (!isHistoryOpen) return;
+    const top = historyTopScrollRef.current;
+    const topInner = historyTopInnerRef.current;
+    const bottom = historyBottomScrollRef.current;
+    if (!top || !topInner || !bottom) return;
+
+    const updateTopWidth = () => {
+      const table = bottom.querySelector("table");
+      const width = table ? table.scrollWidth : bottom.scrollWidth;
+      topInner.style.width = `${Math.max(width, bottom.clientWidth)}px`;
+      top.scrollLeft = bottom.scrollLeft;
+    };
+
+    updateTopWidth();
+    window.addEventListener("resize", updateTopWidth);
+    return () => {
+      window.removeEventListener("resize", updateTopWidth);
+    };
+  }, [isHistoryOpen, historyRows.length]);
+
+  const historyRowsById = useMemo(() => {
+    return new Map(historyRows.map((row) => [row.id, row]));
+  }, [historyRows]);
+  const historySelectedIdSet = useMemo(() => new Set(historySelectedPaymentIds), [historySelectedPaymentIds]);
+
+  const historySelectedRows = useMemo(() => {
+    return historySelectedPaymentIds
+      .map((id) => historyRowsById.get(id))
+      .filter((row): row is Payment => Boolean(row));
+  }, [historySelectedPaymentIds, historyRowsById]);
+
+  const isAllHistoryRowsSelected = historyRows.length > 0 && historySelectedRows.length === historyRows.length;
+
+  useEffect(() => {
+    setHistorySelectedPaymentIds((previous) => previous.filter((id) => historyRowsById.has(id)));
+  }, [historyRowsById]);
+
+  function toggleHistoryRowSelection(paymentId: string): void {
+    setHistorySelectedPaymentIds((previous) =>
+      previous.includes(paymentId)
+        ? previous.filter((id) => id !== paymentId)
+        : [...previous, paymentId]
+    );
+  }
+
+  function toggleSelectAllHistoryRows(): void {
+    if (historyRows.length === 0) {
+      setHistorySelectedPaymentIds([]);
+      return;
+    }
+    if (isAllHistoryRowsSelected) {
+      setHistorySelectedPaymentIds([]);
+      return;
+    }
+    setHistorySelectedPaymentIds(historyRows.map((row) => row.id));
+  }
+
+  async function handleDownloadHistorySelection(): Promise<void> {
+    if (historySelectedRows.length === 0 || isHistoryBulkDownloading) return;
+    setHistoryBulkDownloadError("");
+    setIsHistoryBulkDownloading(true);
+    try {
+      await downloadPaymentsReceiptsZip(historySelectedRows);
+    } catch {
+      setHistoryBulkDownloadError("No se pudo generar el ZIP de recibos. Intenta nuevamente.");
+    } finally {
+      setIsHistoryBulkDownloading(false);
+    }
+  }
+
+  async function handleDownloadFilteredHistory(): Promise<void> {
+    if (historyRows.length === 0 || isHistoryBulkDownloading) return;
+    setHistoryBulkDownloadError("");
+    setIsHistoryBulkDownloading(true);
+    try {
+      await downloadPaymentsReceiptsZip(historyRows);
+    } catch {
+      setHistoryBulkDownloadError("No se pudo generar el ZIP de recibos. Intenta nuevamente.");
+    } finally {
+      setIsHistoryBulkDownloading(false);
+    }
+  }
 
   if (confirmedPayment) {
     return (
@@ -1789,15 +2042,33 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
               min="0.01"
               placeholder="0.00"
               value={form.amountReceived}
-              onChange={(e) => setForm((f) => ({ ...f, amountReceived: e.target.value }))}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, amountReceived: e.target.value }));
+                setAutoAmountInfo("");
+              }}
             />
+            {monthEndSuggestion && (
+              <div style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="button ghost small"
+                  onClick={handleAutoFillToMonthEnd}
+                >
+                  Auto hasta fin de mes
+                </button>
+                <span className="payment-inline-hint" style={{ display: "inline-block", marginLeft: 8 }}>
+                  Objetivo: {formatDate(monthEndSuggestion.targetDate)}
+                </span>
+              </div>
+            )}
+            {autoAmountInfo && <span className="payment-inline-hint">{autoAmountInfo}</span>}
           </div>
         </div>
 
         {/* Zero balance notice */}
         {isZeroBalance && (
           <div className="payment-notice">
-            Este cliente no tiene saldo pendiente. El monto completo se registrara como fondo de viaje.
+            Este cliente no tiene saldo pendiente. El monto se aplicara como pago adelantado de renta.
           </div>
         )}
 
@@ -1844,8 +2115,14 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                 )}
                 {preview.centavosAhorro > 0 && (
                   <div className="payment-preview-row">
-                    <span>Fondo de viaje (ahorro)</span>
+                    <span>Ahorro (centavos)</span>
                     <strong>{formatCurrency(preview.centavosAhorro)}</strong>
+                  </div>
+                )}
+                {preview.advanceApplied > 0 && (
+                  <div className="payment-preview-row">
+                    <span>Pago adelantado</span>
+                    <strong>{formatCurrency(preview.advanceApplied)}</strong>
                   </div>
                 )}
               </div>
@@ -1862,6 +2139,12 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                   <span>Cuotas restantes</span>
                   <strong>{Math.max(0, selectedClient.installmentsRemaining - preview.installmentsDeducted)}</strong>
                 </div>
+                {projectedNextChargeDate && (
+                  <div className="payment-preview-row">
+                    <span>Prox. fecha de cobro</span>
+                    <strong>{formatDate(projectedNextChargeDate)}</strong>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -2233,25 +2516,91 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
           <input
             type="date"
             className="payment-input"
-            value={historyDateFilter}
-            onChange={(e) => setHistoryDateFilter(e.target.value)}
-            title="Filtrar por fecha"
+            value={historyDateFrom}
+            onChange={(e) => setHistoryDateFrom(e.target.value)}
+            title="Filtrar desde fecha"
             style={{ width: 180 }}
           />
-          {historyDateFilter && (
-            <button type="button" className="button ghost small" onClick={() => setHistoryDateFilter("")}>
-              Limpiar fecha
+          <input
+            type="date"
+            className="payment-input"
+            value={historyDateTo}
+            onChange={(e) => setHistoryDateTo(e.target.value)}
+            title="Filtrar hasta fecha"
+            style={{ width: 180 }}
+          />
+          {(historyDateFrom || historyDateTo) && (
+            <button
+              type="button"
+              className="button ghost small"
+              onClick={() => {
+                setHistoryDateFrom("");
+                setHistoryDateTo("");
+              }}
+            >
+              Limpiar fechas
             </button>
           )}
         </div>
 
+        {historyDateRangeError && <p className="hint error-text">{historyDateRangeError}</p>}
+
         {historyRows.length === 0 ? (
           <p className="empty">No hay pagos registrados aun.</p>
         ) : (
-          <div className="table-scroll">
+          <>
+          <div className="history-bulk-bar">
+            <div className="history-bulk-summary">
+              {historySelectedRows.length > 0
+                ? `${historySelectedRows.length} seleccionados de ${historyRows.length}`
+                : `${historyRows.length} recibos filtrados`}
+            </div>
+            <div className="history-bulk-actions">
+              <button
+                type="button"
+                className="button ghost small"
+                onClick={toggleSelectAllHistoryRows}
+                disabled={isHistoryBulkDownloading}
+              >
+                {isAllHistoryRowsSelected ? "Limpiar seleccion" : "Seleccionar todo"}
+              </button>
+              <button
+                type="button"
+                className="button primary small"
+                onClick={handleDownloadHistorySelection}
+                disabled={isHistoryBulkDownloading || historySelectedRows.length === 0}
+                title="Descarga los recibos seleccionados en un ZIP"
+              >
+                {isHistoryBulkDownloading ? "Generando ZIP..." : `Descargar seleccionados (${historySelectedRows.length})`}
+              </button>
+              <button
+                type="button"
+                className="button ghost small"
+                onClick={handleDownloadFilteredHistory}
+                disabled={isHistoryBulkDownloading}
+                title="Descarga todos los recibos del filtro actual en un ZIP"
+              >
+                Descargar filtrados ({historyRows.length})
+              </button>
+          </div>
+          </div>
+          {historyBulkDownloadError && <p className="hint error-text">{historyBulkDownloadError}</p>}
+          <div className="top-scroll" ref={historyTopScrollRef}>
+            <div ref={historyTopInnerRef} className="top-scroll-inner" />
+          </div>
+          <div className="table-scroll" ref={historyBottomScrollRef}>
             <table>
               <thead>
                 <tr>
+                  <th>
+                    <input
+                      type="checkbox"
+                      className="history-checkbox"
+                      checked={isAllHistoryRowsSelected}
+                      onChange={toggleSelectAllHistoryRows}
+                      aria-label={isAllHistoryRowsSelected ? "Deseleccionar todos los recibos" : "Seleccionar todos los recibos"}
+                    />
+                  </th>
                   <th><button type="button" className="sort-button" onClick={() => handleSortHistory("receipt")}>Recibo <span className={`sort-icon ${historySortField === "receipt" ? "active" : ""}`}>{renderHistorySortIcon("receipt")}</span></button></th>
                   <th><button type="button" className="sort-button" onClick={() => handleSortHistory("date")}>Fecha <span className={`sort-icon ${historySortField === "date" ? "active" : ""}`}>{renderHistorySortIcon("date")}</span></button></th>
                   <th><button type="button" className="sort-button" onClick={() => handleSortHistory("unit")}>Unidad <span className={`sort-icon ${historySortField === "unit" ? "active" : ""}`}>{renderHistorySortIcon("unit")}</span></button></th>
@@ -2266,7 +2615,16 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
               </thead>
               <tbody>
                 {historyRows.map((p) => (
-                  <tr key={p.id}>
+                  <tr key={p.id} className={historySelectedIdSet.has(p.id) ? "history-row--selected" : ""}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        className="history-checkbox"
+                        checked={historySelectedIdSet.has(p.id)}
+                        onChange={() => toggleHistoryRowSelection(p.id)}
+                        aria-label={`Seleccionar recibo ${p.receiptNumber}`}
+                      />
+                    </td>
                     <td><strong>{p.receiptNumber}</strong></td>
                     <td>{formatDate(new Date(`${p.dateApplied}T12:00:00`))}</td>
                     <td>{p.clientUnit}</td>
@@ -2296,9 +2654,10 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
               </tbody>
             </table>
           </div>
+          </>
         )}
         {historyRows.length > 0 && (
-          <p className="hint">Mostrando los ultimos {historyRows.length} pagos.</p>
+          <p className="hint">Mostrando {historyRows.length} pagos filtrados.</p>
         )}
         </>
         )}
@@ -2384,13 +2743,12 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
               {pendingClassifyClientId && (() => {
                 const c = clients.find((cl) => cl.id === pendingClassifyClientId);
                 if (!c) return null;
-                const totalOtherCharges = roundMoney((c.otherCharges ?? []).reduce((s, ch) => {
-                  const v = parseFloat(pendingOtherChargesInput[ch.label] ?? "");
-                  return s + (Number.isFinite(v) && v > 0 ? v : 0);
-                }, 0));
-                const capitalForRent = roundMoney(Math.max(0, pendingClassifyTarget.capitalPart - totalOtherCharges));
+                const wholePart = roundMoney(pendingClassifyTarget.capitalPart);
+                const centsPart = roundMoney(pendingClassifyTarget.centsPart);
+                const { totalOtherCharges } = computeAppliedOtherCharges(c.otherCharges, pendingOtherChargesInput, wholePart);
+                const capitalForRent = roundMoney(Math.max(0, wholePart - totalOtherCharges));
                 const applied = roundMoney(Math.min(capitalForRent, Math.max(0, c.balance)));
-                const extras = roundMoney(Math.max(0, pendingClassifyTarget.amountReceived - applied - totalOtherCharges));
+                const extras = roundMoney(Math.max(0, wholePart - applied - totalOtherCharges));
                 const balanceAfterPreview = roundMoney(Math.max(0, c.balance - applied));
                 return (
                   <>
@@ -2420,7 +2778,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                           <div className="payment-preview-row"><span>Saldo actual</span><strong className="amount-debt">{formatCurrency(c.balance)}</strong></div>
                           <div className="payment-preview-row"><span>Aplicado a renta</span><strong>{formatCurrency(applied)}</strong></div>
                           {totalOtherCharges > 0 && <div className="payment-preview-row"><span>Otros cargos</span><strong className="amount-warning">{formatCurrency(totalOtherCharges)}</strong></div>}
-                          {extras > 0 && <div className="payment-preview-row"><span>Ahorro de Siniestros</span><strong>{formatCurrency(extras)}</strong></div>}
+                          {centsPart > 0 && <div className="payment-preview-row"><span>Ahorro (centavos)</span><strong>{formatCurrency(centsPart)}</strong></div>}
+                          {extras > 0 && <div className="payment-preview-row"><span>Pago adelantado</span><strong>{formatCurrency(extras)}</strong></div>}
                         </div>
                         <div className="payment-preview-col">
                           <div className="payment-preview-row"><span>Nuevo saldo</span><strong className={balanceAfterPreview <= 0 ? "amount-good" : "amount-debt"}>{formatCurrency(balanceAfterPreview)}</strong></div>

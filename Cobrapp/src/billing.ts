@@ -128,9 +128,15 @@ export function applyAutomaticCharges(currentClients: Client[], now: Date): { cl
     changed = true;
     if (pendingCharges === 0) return { ...client, lastChargeDate: todayKey };
 
+    const chargeTotal = roundMoney(client.rentAmount * pendingCharges);
+    const currentAdvance = roundMoney(client.advanceBalance ?? 0);
+    const consumedAdvance = roundMoney(Math.min(currentAdvance, chargeTotal));
+    const remainingCharge = roundMoney(Math.max(0, chargeTotal - consumedAdvance));
+
     return {
       ...client,
-      balance: roundMoney(client.balance + roundMoney(client.rentAmount * pendingCharges)),
+      balance: roundMoney(client.balance + remainingCharge),
+      advanceBalance: roundMoney(Math.max(0, currentAdvance - consumedAdvance)),
       firstSundayChargedAt,
       lastChargeDate: todayKey
     };
@@ -140,9 +146,19 @@ export function applyAutomaticCharges(currentClients: Client[], now: Date): { cl
 }
 
 export function findNextChargeDay(client: Client, fromDate: Date): Date | null {
+  const coveredCharges = Number.isFinite(client.advanceBalance) && client.rentAmount > 0
+    ? Math.floor((client.advanceBalance ?? 0) / client.rentAmount)
+    : 0;
+  let remainingSkips = Math.max(0, coveredCharges);
   let cursor = addDays(startOfDay(fromDate), 1);
   for (let i = 0; i < 36600; i += 1) {
-    if (isChargeDay(client, cursor)) return cursor;
+    if (isChargeDay(client, cursor)) {
+      if (remainingSkips > 0) {
+        remainingSkips -= 1;
+      } else {
+        return cursor;
+      }
+    }
     cursor = addDays(cursor, 1);
   }
   return null;
