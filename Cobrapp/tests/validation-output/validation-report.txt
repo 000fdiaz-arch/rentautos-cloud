@@ -1,0 +1,13 @@
+COBRAPP VALIDATION E2E
+Fecha: 04/14/2026, 12:19:50 p. m.
+Base URL: http://127.0.0.1:5174
+
+[PASS] Carga inicial de app y navegacion principal
+[PASS] Crear cliente nuevo
+[PASS] Validacion evita unidad duplicada
+[PASS] Registrar pago y actualizar saldo
+[PASS] Historial de pagos muestra controles y filas
+[PASS] Persistencia en localStorage con cliente y pago nuevos
+
+TOTAL: 6 pasadas, 0 fallidas, 6 ejecutadas.
+Screenshots: C:\Users\Gedler3000\Documents\Playground\Cobrapp\tests\validation-output\screenshots

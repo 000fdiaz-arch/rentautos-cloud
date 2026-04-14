@@ -787,6 +787,33 @@ tbody tr:hover {
   border-color: #fcd34d;
 }
 
+.pending-preview-card {
+  min-width: 210px;
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.pending-preview-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.76rem;
+}
+
+.pending-preview-row span {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.pending-preview-row strong {
+  font-weight: 700;
+}
+
 .other-charges-section {
   border: 1px solid #fcd34d;
   border-radius: 8px;

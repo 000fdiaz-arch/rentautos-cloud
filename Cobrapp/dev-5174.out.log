@@ -3,39 +3,6 @@
 > vite --host 127.0.0.1 --port 5174
 
 
-  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m637[22m[2m[0m ms[22m
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m349[22m[2m[0m ms[22m
 
   [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5174[22m/[39m
-[2m3:02:25 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/pages/PaymentsPage.tsx[22m
-[2m3:02:44 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/ClientsPage.tsx, /src/pages/PaymentsPage.tsx, /src/components/PaymentReceipt.tsx[22m
-[2m3:02:50 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m3:03:08 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/ClientsPage.tsx[22m
-[2m3:06:59 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/ClientsPage.tsx[22m
-[2m3:07:12 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/ClientsPage.tsx[22m
-[2m3:09:24 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m3:16:01 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m3:16:06 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m3:16:17 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m4:45:32 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/PaymentReceipt.tsx[22m
-[2m4:46:19 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/PaymentReceipt.tsx[22m
-[2m6:02:58 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/pages/PaymentsPage.tsx[22m
-[2m6:03:06 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/ClientsPage.tsx, /src/pages/PaymentsPage.tsx, /src/components/PaymentReceipt.tsx[22m
-[2m6:03:13 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/ClientsPage.tsx[22m
-[2m6:03:53 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m6:03:58 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m6:04:09 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/PaymentReceipt.tsx[22m
-[2m6:04:17 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/PaymentReceipt.tsx[22m
-[2m6:12:47 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m6:12:55 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/ClientsPage.tsx, /src/pages/PaymentsPage.tsx, /src/components/PaymentReceipt.tsx[22m
-[2m6:18:17 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m6:18:24 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m6:22:26 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m6:22:39 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m6:22:46 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m6:37:45 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m6:37:58 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m6:38:07 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m6:38:20 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m6:44:22 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m6:44:31 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m
-[2m6:46:04 p.m.[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PaymentsPage.tsx[22m

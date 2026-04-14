@@ -3,6 +3,10 @@ import type { Client, Payment } from "./types";
 const DB_NAME = "cobrapp-autobackup";
 const STORE = "handles";
 const KEY = "backupDir";
+const LATEST_BACKUP_FILENAME = "cobrapp-backup.json";
+const VERSIONED_BACKUP_PREFIX = "cobrapp-backup";
+const MAX_VERSIONED_BACKUPS = 30;
+const VERSIONED_BACKUP_REGEX = /^cobrapp-backup-\d{8}-\d{6}\.json$/;
 
 export type BackupFailureCode =
   | "not_configured"
@@ -14,6 +18,49 @@ export type BackupFailureCode =
 export type BackupResult =
   | { ok: true; code: "ok"; message: string }
   | { ok: false; code: BackupFailureCode; message: string };
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function buildVersionedBackupFilename(date: Date): string {
+  const year = date.getFullYear();
+  const month = pad2(date.getMonth() + 1);
+  const day = pad2(date.getDate());
+  const hours = pad2(date.getHours());
+  const minutes = pad2(date.getMinutes());
+  const seconds = pad2(date.getSeconds());
+  return `${VERSIONED_BACKUP_PREFIX}-${year}${month}${day}-${hours}${minutes}${seconds}.json`;
+}
+
+async function writeBackupFile(
+  handle: FileSystemDirectoryHandle,
+  filename: string,
+  payload: string
+): Promise<void> {
+  const fileHandle = await handle.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(payload);
+  await writable.close();
+}
+
+async function pruneOldVersionedBackups(handle: FileSystemDirectoryHandle): Promise<void> {
+  const versionedFiles: string[] = [];
+  for await (const [name, entry] of handle.entries()) {
+    if (entry.kind !== "file") continue;
+    if (!VERSIONED_BACKUP_REGEX.test(name)) continue;
+    versionedFiles.push(name);
+  }
+
+  if (versionedFiles.length <= MAX_VERSIONED_BACKUPS) return;
+
+  // Names use YYYYMMDD-HHMMSS; lexicographic order is chronological.
+  versionedFiles.sort((a, b) => b.localeCompare(a));
+  const filesToDelete = versionedFiles.slice(MAX_VERSIONED_BACKUPS);
+  for (const file of filesToDelete) {
+    await handle.removeEntry(file);
+  }
+}
 
 // -- IndexedDB helpers ------------------------------------------------------
 
@@ -143,27 +190,33 @@ export async function autoBackupDetailed(clients: Client[], payments: Payment[])
   }
 
   try {
+    const now = new Date();
     const data = {
       version: 1,
-      exportedAt: new Date().toISOString(),
+      exportedAt: now.toISOString(),
       clients,
       payments,
     };
+    const payload = JSON.stringify(data, null, 2);
+    const versionedFilename = buildVersionedBackupFilename(now);
 
-    const fileHandle = await handle.getFileHandle("cobrapp-backup.json", { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(JSON.stringify(data, null, 2));
-    await writable.close();
+    // Keep the latest snapshot name for fast manual restore.
+    await writeBackupFile(handle, LATEST_BACKUP_FILENAME, payload);
+    // Also keep historical snapshots with timestamped filenames.
+    await writeBackupFile(handle, versionedFilename, payload);
+    // Keep storage under control by retaining only recent historical snapshots.
+    await pruneOldVersionedBackups(handle);
+
     return {
       ok: true,
       code: "ok",
-      message: "Respaldo guardado correctamente."
+      message: `Respaldo guardado: ${LATEST_BACKUP_FILENAME} y ${versionedFilename}.`
     };
   } catch {
     return {
       ok: false,
       code: "write_failed",
-      message: "Error al escribir cobrapp-backup.json en la carpeta seleccionada."
+      message: "Error al escribir archivos de respaldo en la carpeta seleccionada."
     };
   }
 }

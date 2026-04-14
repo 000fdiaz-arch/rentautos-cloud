@@ -126,6 +126,13 @@ type ChargeApplyResult = {
   blockingError?: string;
 };
 
+type PendingBankPreview = {
+  rentAmount: number;
+  frequencyLabel: string;
+  installmentsRemaining: number;
+  balanceAfter: number;
+};
+
 type Props = {
   clients: Client[];
   bankRules: BankRule[];
@@ -890,6 +897,41 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     return normalizeBankText(value).replace(/\D+/g, "");
   }
 
+  function normalizeFolioToken(value: string): string {
+    return normalizeBankText(value).toUpperCase().replace(/\s+/g, "");
+  }
+
+  function extractFoliosFromReference(reference: string): string[] {
+    const normalized = normalizeBankText(reference);
+    if (!normalized) return [];
+
+    const taggedFolios = Array.from(normalized.matchAll(/FOLIO\s*:\s*([^\s|]+)/gi))
+      .map((match) => normalizeFolioToken(match[1] ?? ""))
+      .filter((folio) => folio.length > 0);
+    if (taggedFolios.length > 0) {
+      return [...new Set(taggedFolios)];
+    }
+
+    const legacyFallback = normalizeFolioToken(
+      normalized
+        .replace(/^REFERENCIA\s*:\s*/i, "")
+        .replace(/^REF\s*:\s*/i, "")
+        .replace(/^FOLIO\s*:?/i, "")
+    );
+    return legacyFallback ? [legacyFallback] : [];
+  }
+
+  function buildExistingBankFolioSet(rows: Payment[]): Set<string> {
+    const set = new Set<string>();
+    for (const payment of rows) {
+      if (!BANK_PAYMENT_METHODS.has(payment.paymentMethod)) continue;
+      for (const folio of extractFoliosFromReference(payment.reference ?? "")) {
+        set.add(folio);
+      }
+    }
+    return set;
+  }
+
   function extractGroupCodeFromUnit(unitId: string): string {
     const match = normalizeBankText(unitId).match(/^([A-Za-z]+)/);
     return match ? match[1].toUpperCase() : "";
@@ -1102,13 +1144,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
         return;
       }
 
-      const existingFoliosInPayments = new Set(
-        payments.flatMap((p) => {
-          const m = (p.reference ?? "").match(/FOLIO:([^\s|]+)/i);
-          return m ? [m[1]] : [];
-        })
-      );
-      const existingFoliosInPending = new Set(pendingBankItems.map((i) => i.folio));
+      const existingFoliosInPayments = buildExistingBankFolioSet(payments);
+      const existingFoliosInPending = new Set(pendingBankItems.map((i) => normalizeFolioToken(i.folio)));
 
       const accountsInFile = new Set<string>();
       let invalidRows = 0;
@@ -1142,7 +1179,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
 
         const accountNumber = normalizeAccountNumber(cols[idxAccount] ?? "");
         const mappedGroup = findMappedGroupByAccount(accountNumber);
-        const folio = normalizeBankText(cols[idxFolio] ?? "");
+        const folio = normalizeFolioToken(cols[idxFolio] ?? "");
         const creditoRaw = normalizeBankText(cols[idxCredito] ?? "");
         const description = normalizeBankText(cols[idxDesc] ?? "");
         const transactionCode = idxTransactionCode >= 0 ? normalizeBankText(cols[idxTransactionCode] ?? "") : "";
@@ -1297,6 +1334,11 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     if (!pendingClassifyTarget || !pendingClassifyClientId) return;
     const client = clients.find((c) => c.id === pendingClassifyClientId);
     if (!client) return;
+    const normalizedFolio = normalizeFolioToken(pendingClassifyTarget.folio);
+    if (buildExistingBankFolioSet(payments).has(normalizedFolio)) {
+      setErrors([`No se puede registrar el folio ${normalizedFolio}: ya existe en pagos bancarios.`]);
+      return;
+    }
 
     const item = pendingClassifyTarget;
     const balanceBefore = roundMoney(client.balance);
@@ -1392,6 +1434,20 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     return { nombre, centavos, notificado, score };
   }
 
+  function getPendingBankPreview(item: PendingBankItem, client: Client | null): PendingBankPreview | null {
+    if (!client) return null;
+    const balanceBefore = roundMoney(Math.max(0, client.balance));
+    const wholePart = roundMoney(Math.max(0, item.capitalPart));
+    const appliedToRent = roundMoney(Math.min(wholePart, balanceBefore));
+    const balanceAfter = roundMoney(Math.max(0, balanceBefore - appliedToRent));
+    return {
+      rentAmount: roundMoney(Math.max(0, client.rentAmount)),
+      frequencyLabel: FREQUENCY_LABEL[client.frequency] ?? client.frequency,
+      installmentsRemaining: Math.max(0, client.installmentsRemaining ?? 0),
+      balanceAfter
+    };
+  }
+
   function applyPendingItem(item: PendingBankItem, client: Client): { updatedClient: Client; payment: Payment } {
     const balanceBefore = roundMoney(client.balance);
     const savingsBefore = roundMoney(client.savings);
@@ -1454,6 +1510,11 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     if (!item.suggestedClientId) return;
     const client = clients.find((c) => c.id === item.suggestedClientId);
     if (!client) return;
+    const normalizedFolio = normalizeFolioToken(item.folio);
+    if (buildExistingBankFolioSet(payments).has(normalizedFolio)) {
+      setErrors([`No se puede registrar el folio ${normalizedFolio}: ya existe en pagos bancarios.`]);
+      return;
+    }
     // If has otros cargos, open classify modal instead
     if (client.otherCharges && client.otherCharges.length > 0) {
       handleOpenClassify(item);
@@ -1484,21 +1545,42 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
 
     let updatedClientsMap = new Map(clients.map((c) => [c.id, { ...c }]));
     const newPayments: Payment[] = [];
+    const usedFolios = buildExistingBankFolioSet(payments);
+    let skippedDuplicates = 0;
 
     for (const item of highSim) {
+      const normalizedFolio = normalizeFolioToken(item.folio);
+      if (usedFolios.has(normalizedFolio)) {
+        skippedDuplicates += 1;
+        continue;
+      }
       const client = updatedClientsMap.get(item.suggestedClientId!)!;
       const { updatedClient, payment } = applyPendingItem(item, client);
       updatedClientsMap.set(updatedClient.id, updatedClient);
       newPayments.push(payment);
+      usedFolios.add(normalizedFolio);
     }
 
-    const appliedFolios = new Set(highSim.map((i) => i.folio));
-    const remainingPending = pendingBankItems.filter((i) => !appliedFolios.has(i.folio));
+    if (newPayments.length === 0) {
+      if (skippedDuplicates > 0) {
+        setErrors([`No se aplicaron pagos en lote: ${skippedDuplicates} folio(s) ya existian.`]);
+      }
+      return;
+    }
+
+    if (skippedDuplicates > 0) {
+      setErrors([`Se omitieron ${skippedDuplicates} pago(s) en lote porque su folio ya existia.`]);
+    }
+
+    const appliedFolios = new Set(newPayments.flatMap((p) => extractFoliosFromReference(p.reference ?? "")));
+    const remainingPending = pendingBankItems.filter((i) => !appliedFolios.has(normalizeFolioToken(i.folio)));
 
     onClientsChange([...updatedClientsMap.values()]);
     onPaymentsChange([...payments, ...newPayments]);
     let remainingNotified = [...notifiedPayments];
     for (const item of highSim) {
+      const normalizedFolio = normalizeFolioToken(item.folio);
+      if (!appliedFolios.has(normalizedFolio)) continue;
       if (!item.suggestedClientId) continue;
       remainingNotified = removeOneMatchingNotified(remainingNotified, item.suggestedClientId, item.amountReceived, item.dateApplied);
     }
@@ -1540,7 +1622,16 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     if (!form.clientId) errs.push("Debes seleccionar un cliente.");
     const amount = parseFloat(form.amountReceived);
     if (!Number.isFinite(amount) || amount <= 0) errs.push("El monto recibido debe ser mayor a 0.");
-    if (isBankPayment && !form.reference.trim()) errs.push("Debes indicar el folio/referencia para pagos bancarios.");
+    if (isBankPayment) {
+      const enteredFolios = extractFoliosFromReference(form.reference);
+      if (enteredFolios.length === 0) {
+        errs.push("Debes indicar el folio/referencia para pagos bancarios.");
+      } else {
+        const existingFolios = buildExistingBankFolioSet(payments);
+        const duplicate = enteredFolios.find((folio) => existingFolios.has(folio));
+        if (duplicate) errs.push(`El folio ${duplicate} ya existe en otro pago bancario.`);
+      }
+    }
     if (isDateClosed(operationalDateKey)) errs.push(`La caja de ${operationalDateKey} ya esta cerrada.`);
     return errs;
   }
@@ -2656,6 +2747,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                       <th>Nombre extraido</th>
                       <th>Similitud</th>
                       <th>Unidad</th>
+                      <th>Vista previa</th>
                       <th>Descripcion</th>
                       <th>Acciones</th>
                     </tr>
@@ -2669,6 +2761,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                       const isHighSim = score >= 2 && !hasOtherCharges && !!assignedClient;
                       const unitProbability = score >= 3 ? "Alta" : score === 2 ? "Media" : score === 1 ? "Baja" : "Sin datos";
                       const rowClass = hasOtherCharges ? "pending-row--other-charges" : isHighSim ? "pending-row--high-sim" : isPreMatched ? "pending-row--ready" : "";
+                      const pendingPreview = getPendingBankPreview(item, assignedClient);
                       return (
                         <tr key={item.folio} className={rowClass}>
                           <td><code>{item.folio}</code></td>
@@ -2714,6 +2807,18 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                             </select>
                             {!item.suggestedClientId && (
                               <div className="hint" style={{ marginTop: 4, fontSize: 11 }}>Asignar Cliente</div>
+                            )}
+                          </td>
+                          <td>
+                            {pendingPreview ? (
+                              <div className="pending-preview-card">
+                                <div className="pending-preview-row"><span>Renta</span><strong>{formatCurrency(pendingPreview.rentAmount)}</strong></div>
+                                <div className="pending-preview-row"><span>Frecuencia</span><strong>{pendingPreview.frequencyLabel}</strong></div>
+                                <div className="pending-preview-row"><span>Cuotas restantes</span><strong>{pendingPreview.installmentsRemaining}</strong></div>
+                                <div className="pending-preview-row"><span>Monto a cobrar</span><strong className={pendingPreview.balanceAfter > 0 ? "amount-debt" : "amount-good"}>{formatCurrency(pendingPreview.balanceAfter)}</strong></div>
+                              </div>
+                            ) : (
+                              <span className="amount-muted">Asigna cliente para ver vista previa</span>
                             )}
                           </td>
                           <td style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.description}>{item.description}</td>

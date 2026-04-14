@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "import:bank": "node scripts/import-bank-csv.mjs"
+    "import:bank": "node scripts/import-bank-csv.mjs",
+    "import:clients": "node scripts/import-clients-sheet.mjs",
+    "test:validation": "node tests/validation.e2e.cjs"
   },
   "dependencies": {
     "html2canvas": "^1.4.1",
