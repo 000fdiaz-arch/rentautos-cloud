@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": "2026-04-15T22:59:18.788Z",
+  "exportedAt": "2026-04-15T22:58:30.301Z",
   "clients": [
     {
       "id": "4dd9b32b-f507-45d0-9d03-c28248bb9153",
@@ -819,8 +819,8 @@
     {
       "id": "d87af29a-de08-429e-a6d1-0b5c81e0a45a",
       "unitId": "D02",
-      "cedula": "8-857-241",
       "name": "JESUS JAVIER RIVERA PIMENTEL",
+      "cedula": "8-857-241",
       "rentAmount": 36,
       "frequency": "daily",
       "chargeFirstSunday": false,
@@ -828,8 +828,8 @@
       "advanceBalance": 0,
       "savings": 0.02,
       "installmentsAgreed": 1001,
-      "installmentsRemaining": 981,
-      "installmentsPaid": 20,
+      "installmentsRemaining": 982,
+      "installmentsPaid": 19,
       "otherCharges": [],
       "createdAt": "2026-04-11T22:03:48.890Z",
       "lastChargeDate": "2026-04-15",

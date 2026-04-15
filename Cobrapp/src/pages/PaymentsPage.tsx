@@ -129,8 +129,39 @@ type ChargeApplyResult = {
 type PendingBankPreview = {
   rentAmount: number;
   frequencyLabel: string;
-  installmentsRemaining: number;
+  installmentsRemainingAfter: number;
+  installmentsDeducted: number;
   balanceAfter: number;
+  installmentsCoveredByAdvance: number;
+  upToDateUntil: string | null;
+};
+
+type PendingColumnFilters = {
+  folio: string;
+  account: string;
+  group: string;
+  date: string;
+  amount: string;
+  name: string;
+  similarity: string;
+  unit: string;
+  preview: string;
+  description: string;
+  actions: string;
+};
+
+const EMPTY_PENDING_FILTERS: PendingColumnFilters = {
+  folio: "",
+  account: "",
+  group: "",
+  date: "",
+  amount: "",
+  name: "",
+  similarity: "",
+  unit: "",
+  preview: "",
+  description: "",
+  actions: ""
 };
 
 type Props = {
@@ -143,6 +174,39 @@ type Props = {
 
 function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function computeCoveredInstallmentsFromAdvance(advanceBefore: number, advanceAfter: number, rentAmount: number): number {
+  const normalizedRent = roundMoney(Math.max(0, rentAmount));
+  if (!Number.isFinite(normalizedRent) || normalizedRent <= 0) return 0;
+  const coveredBefore = Math.floor(roundMoney(Math.max(0, advanceBefore)) / normalizedRent);
+  const coveredAfter = Math.floor(roundMoney(Math.max(0, advanceAfter)) / normalizedRent);
+  return Math.max(0, coveredAfter - coveredBefore);
+}
+
+function getAdvanceLetterLabel(client: Client, advanceAdded: number): string | null {
+  const normalizedAdvanceAdded = roundMoney(Math.max(0, advanceAdded));
+  if (normalizedAdvanceAdded <= 0) return null;
+  const rentAmount = roundMoney(client.rentAmount);
+  if (!Number.isFinite(rentAmount) || rentAmount <= 0) return null;
+
+  const currentAdvance = roundMoney(Math.max(0, client.advanceBalance ?? 0));
+  const resultingAdvance = roundMoney(currentAdvance + normalizedAdvanceAdded);
+  const coveredBefore = Math.floor(currentAdvance / rentAmount);
+  const coveredAfter = Math.floor(resultingAdvance / rentAmount);
+  const installmentsPaid = Math.max(0, client.installmentsPaid ?? 0);
+  const startLetter = installmentsPaid + coveredBefore + 1;
+  const endLetter = installmentsPaid + coveredAfter;
+
+  if (endLetter >= startLetter) {
+    return startLetter === endLetter
+      ? `Letra ${startLetter}`
+      : `Letras ${startLetter}-${endLetter}`;
+  }
+
+  const partialCovered = roundMoney(resultingAdvance - coveredBefore * rentAmount);
+  const percentage = Math.max(0, Math.min(100, Math.round((partialCovered / rentAmount) * 100)));
+  return `Letra ${startLetter} (${percentage}% cubierta)`;
 }
 
 function toInputMoney(value: number): string {
@@ -506,6 +570,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
   const [pendingClassifyClientId, setPendingClassifyClientId] = useState("");
   const [pendingClassifySearch, setPendingClassifySearch] = useState("");
   const [pendingImportError, setPendingImportError] = useState("");
+  const [pendingFilters, setPendingFilters] = useState<PendingColumnFilters>(() => ({ ...EMPTY_PENDING_FILTERS }));
   const [pendingOtherChargesInput, setPendingOtherChargesInput] = useState<Record<string, string>>({});
   const [manualAssignmentAudit, setManualAssignmentAudit] = useState<ManualBankAssignmentAudit[]>(() => loadManualBankAssignmentAudit());
   const [autoAmountInfo, setAutoAmountInfo] = useState("");
@@ -534,6 +599,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     () => clients.find((c) => c.id === form.clientId) ?? null,
     [clients, form.clientId]
   );
+
+  const clientById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
 
   const [manualOtherChargesInput, setManualOtherChargesInput] = useState<Record<string, string>>({});
 
@@ -621,6 +688,11 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     return findNextChargeDay(projectedClient, operationalDate);
   }, [operationalDate, preview, selectedClient]);
 
+  const previewAdvanceLetterLabel = useMemo(() => {
+    if (!selectedClient || !preview || preview.advanceApplied <= 0) return null;
+    return getAdvanceLetterLabel(selectedClient, preview.advanceApplied);
+  }, [preview, selectedClient]);
+
   const monthEndSuggestion = useMemo(() => {
     if (!selectedClient) return null;
     if (selectedClient.balance > 0) return null;
@@ -632,6 +704,72 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       resultingNextDate: result.resultingNextDate
     };
   }, [monthEndDate, operationalDate, selectedClient]);
+
+  const hasPendingColumnFilters = useMemo(
+    () => Object.values(pendingFilters).some((value) => value.trim().length > 0),
+    [pendingFilters]
+  );
+
+  const filteredPendingBankItems = useMemo(() => {
+    const normalize = (value: string): string => value.trim().toLowerCase();
+    const includesFilter = (target: string, filterValue: string): boolean => {
+      const query = normalize(filterValue);
+      if (!query) return true;
+      return normalize(target).includes(query);
+    };
+
+    const asAmountLabel = (value: number): string => `${value.toFixed(2)} ${formatCurrency(value)}`;
+
+    return pendingBankItems.filter((item) => {
+      const assignedClient = item.suggestedClientId ? (clientById.get(item.suggestedClientId) ?? null) : null;
+      const hasOtherCharges = !!(assignedClient?.otherCharges?.length);
+      const { nombre, centavos, notificado, score } = getSimilaritySignals(item);
+      const isHighSim = score >= 2 && !hasOtherCharges && !!assignedClient;
+      const unitProbability = score >= 3 ? "Alta" : score === 2 ? "Media" : score === 1 ? "Baja" : "Sin datos";
+      const pendingPreview = getPendingBankPreview(item, assignedClient);
+      const actionLabels = [
+        isHighSim && assignedClient ? "Aplicar" : "",
+        assignedClient && (!isHighSim || hasOtherCharges) ? (hasOtherCharges ? "Revisar cargos" : "Revisar") : "",
+        "Ignorar"
+      ].filter(Boolean).join(" ");
+      const previewLabel = pendingPreview
+        ? `Renta ${formatCurrency(pendingPreview.rentAmount)} ${pendingPreview.frequencyLabel} Cuotas ${pendingPreview.installmentsRemainingAfter} Impacto ${pendingPreview.installmentsDeducted} Cobro ${formatCurrency(pendingPreview.balanceAfter)}`
+        : "Sin vista previa";
+      const unitLabel = assignedClient ? `${assignedClient.unitId} ${assignedClient.name}` : "Sin asignar";
+      const groupLabel = item.mappedGroup ? `Grupo ${item.mappedGroup}` : "";
+      const nameLabel = item.suggestedClientName || item.extractedName || "";
+      const similarityLabel = [
+        isHighSim ? "Alta similitud" : "Sin alta similitud",
+        `Probabilidad ${unitProbability}`,
+        nombre ? "nombre" : "",
+        centavos ? "centavos" : "",
+        notificado ? "notificado" : "",
+        hasOtherCharges ? "otros cargos" : ""
+      ].filter(Boolean).join(" ");
+
+      return (
+        includesFilter(item.folio, pendingFilters.folio) &&
+        includesFilter(item.accountNumber ?? "", pendingFilters.account) &&
+        includesFilter(groupLabel, pendingFilters.group) &&
+        includesFilter(item.dateApplied, pendingFilters.date) &&
+        includesFilter(asAmountLabel(item.amountReceived), pendingFilters.amount) &&
+        includesFilter(nameLabel, pendingFilters.name) &&
+        includesFilter(similarityLabel, pendingFilters.similarity) &&
+        includesFilter(unitLabel, pendingFilters.unit) &&
+        includesFilter(previewLabel, pendingFilters.preview) &&
+        includesFilter(item.description, pendingFilters.description) &&
+        includesFilter(actionLabels, pendingFilters.actions)
+      );
+    });
+  }, [clientById, pendingBankItems, pendingFilters, notifiedPayments]);
+
+  function updatePendingFilter(field: keyof PendingColumnFilters, value: string): void {
+    setPendingFilters((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function clearPendingFilters(): void {
+    setPendingFilters({ ...EMPTY_PENDING_FILTERS });
+  }
 
   function normalizeToOperationalDate(dateKey: string): string {
     if (!dateKey) return operationalDateKey;
@@ -765,15 +903,14 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       const lastBefore = client.lastChargeDate ?? "-";
 
       if (shouldChargeByRule && alreadyChargedThruTarget) {
-        anomalyClients += 1;
         rows.push({
           clientId: client.id,
           unitId: client.unitId,
           name: client.name,
           shouldCharge: true,
           charged: false,
-          anomaly: true,
-          reason: "Marcado como cobrado antes del cierre",
+          anomaly: false,
+          reason: "Cobro ya aplicado previamente",
           balanceBefore,
           balanceAfter: balanceBefore,
           chargedAmount: 0,
@@ -785,6 +922,14 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
 
       const shouldCharge = !alreadyChargedThruTarget && shouldChargeByRule;
       if (!shouldCharge) {
+        const reason = alreadyChargedThruTarget
+          ? "Sin cobro: fecha ya cubierta"
+          : shouldChargeByRule
+            ? "Sin cobro por estado de fecha"
+            : "No corresponde por regla";
+        const lastAfter = alreadyChargedThruTarget
+          ? (client.lastChargeDate ?? targetDateKey)
+          : targetDateKey;
         rows.push({
           clientId: client.id,
           unitId: client.unitId,
@@ -792,13 +937,14 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
           shouldCharge: shouldChargeByRule,
           charged: false,
           anomaly: false,
-          reason: shouldChargeByRule ? "Sin cobro por estado de fecha" : "No corresponde por regla",
+          reason,
           balanceBefore,
           balanceAfter: balanceBefore,
           chargedAmount: 0,
           lastChargeDateBefore: lastBefore,
-          lastChargeDateAfter: targetDateKey
+          lastChargeDateAfter: lastAfter
         });
+        if (alreadyChargedThruTarget) return client;
         return { ...client, lastChargeDate: targetDateKey };
       }
       chargedClients += 1;
@@ -1365,8 +1511,10 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const pendingBefore = rentAmount > 0 ? Math.ceil(balanceBefore / rentAmount) : 0;
     const pendingAfter = rentAmount > 0 && balanceAfter > 0 ? Math.ceil(balanceAfter / rentAmount) : 0;
     const installmentsDeducted = Math.max(0, pendingBefore - pendingAfter);
+    const installmentsCoveredByAdvance = computeCoveredInstallmentsFromAdvance(advanceBefore, advanceAfter, rentAmount);
+    const installmentsImpact = installmentsDeducted + installmentsCoveredByAdvance;
     const installmentsPaidAfter = Math.max(0, client.installmentsPaid) + installmentsDeducted;
-    const installmentsRemainingAfter = Math.max(0, (client.installmentsRemaining || 0) - installmentsDeducted);
+    const installmentsRemainingAfter = Math.max(0, (client.installmentsRemaining || 0) - installmentsImpact);
 
     const payment: Payment = {
       id: crypto.randomUUID(),
@@ -1439,12 +1587,40 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const balanceBefore = roundMoney(Math.max(0, client.balance));
     const wholePart = roundMoney(Math.max(0, item.capitalPart));
     const appliedToRent = roundMoney(Math.min(wholePart, balanceBefore));
+    const advanceBefore = roundMoney(Math.max(0, client.advanceBalance ?? 0));
+    const advanceApplied = roundMoney(Math.max(0, wholePart - appliedToRent));
+    const advanceAfter = roundMoney(advanceBefore + advanceApplied);
     const balanceAfter = roundMoney(Math.max(0, balanceBefore - appliedToRent));
+    const rentAmount = roundMoney(Math.max(0, client.rentAmount));
+    const pendingBefore = rentAmount > 0 ? Math.ceil(balanceBefore / rentAmount) : 0;
+    const pendingAfter = rentAmount > 0 && balanceAfter > 0 ? Math.ceil(balanceAfter / rentAmount) : 0;
+    const installmentsDeducted = Math.max(0, pendingBefore - pendingAfter);
+    const installmentsCoveredByAdvance = computeCoveredInstallmentsFromAdvance(advanceBefore, advanceAfter, rentAmount);
+    const installmentsImpact = installmentsDeducted + installmentsCoveredByAdvance;
+    const installmentsRemainingAfter = Math.max(0, (client.installmentsRemaining ?? 0) - installmentsImpact);
+    let upToDateUntil: string | null = null;
+    if (balanceAfter <= 0) {
+      const referenceDate = parseDateKey(item.dateApplied) ?? operationalDate;
+      const projectedClient: Client = {
+        ...client,
+        balance: balanceAfter,
+        advanceBalance: advanceAfter
+      };
+      const nextChargeDate = findNextChargeDay(projectedClient, referenceDate);
+      if (nextChargeDate) {
+        const coveredUntilDate = new Date(nextChargeDate);
+        coveredUntilDate.setDate(coveredUntilDate.getDate() - 1);
+        upToDateUntil = toDateKey(coveredUntilDate);
+      }
+    }
     return {
-      rentAmount: roundMoney(Math.max(0, client.rentAmount)),
+      rentAmount,
       frequencyLabel: FREQUENCY_LABEL[client.frequency] ?? client.frequency,
-      installmentsRemaining: Math.max(0, client.installmentsRemaining ?? 0),
-      balanceAfter
+      installmentsRemainingAfter,
+      installmentsDeducted,
+      balanceAfter,
+      installmentsCoveredByAdvance,
+      upToDateUntil
     };
   }
 
@@ -1464,8 +1640,10 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const pendingBefore = rentAmount > 0 ? Math.ceil(balanceBefore / rentAmount) : 0;
     const pendingAfterN = rentAmount > 0 && balanceAfter > 0 ? Math.ceil(balanceAfter / rentAmount) : 0;
     const installmentsDeducted = Math.max(0, pendingBefore - pendingAfterN);
+    const installmentsCoveredByAdvance = computeCoveredInstallmentsFromAdvance(advanceBefore, advanceAfter, rentAmount);
+    const installmentsImpact = installmentsDeducted + installmentsCoveredByAdvance;
     const installmentsPaidAfter = Math.max(0, client.installmentsPaid) + installmentsDeducted;
-    const installmentsRemainingAfter = Math.max(0, (client.installmentsRemaining || 0) - installmentsDeducted);
+    const installmentsRemainingAfter = Math.max(0, (client.installmentsRemaining || 0) - installmentsImpact);
 
     const payment: Payment = {
       id: crypto.randomUUID(),
@@ -2478,6 +2656,12 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                     <strong>{formatCurrency(preview.advanceApplied)}</strong>
                   </div>
                 )}
+                {previewAdvanceLetterLabel && (
+                  <div className="payment-preview-row">
+                    <span>Adelanto aplica a</span>
+                    <strong>{previewAdvanceLetterLabel}</strong>
+                  </div>
+                )}
               </div>
               <div className="payment-preview-col">
                 <div className="payment-preview-row">
@@ -2494,7 +2678,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                 </div>
                 {projectedNextChargeDate && (
                   <div className="payment-preview-row">
-                    <span>Prox. fecha de cobro</span>
+                    <span>Prox. fecha de pago</span>
                     <strong>{formatDate(projectedNextChargeDate)}</strong>
                   </div>
                 )}
@@ -2728,6 +2912,13 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
             <p className="hint" style={{ marginTop: 8 }}>
               La importacion aplica regla automatica por cuenta y grupo. En edicion manual puedes asignar cualquier cliente.
             </p>
+            {hasPendingColumnFilters && (
+              <div style={{ marginTop: 8 }}>
+                <button type="button" className="button ghost small" onClick={clearPendingFilters}>
+                  Limpiar filtros
+                </button>
+              </div>
+            )}
             {pendingBankItems.length === 0 ? (
             <p className="empty">No hay movimientos pendientes de asignar cliente.</p>
             ) : (
@@ -2751,9 +2942,22 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                       <th>Descripcion</th>
                       <th>Acciones</th>
                     </tr>
+                    <tr>
+                      <th><input type="text" className="payment-input" placeholder="Buscar" value={pendingFilters.folio} onChange={(e) => updatePendingFilter("folio", e.target.value)} /></th>
+                      <th><input type="text" className="payment-input" placeholder="Buscar" value={pendingFilters.account} onChange={(e) => updatePendingFilter("account", e.target.value)} /></th>
+                      <th><input type="text" className="payment-input" placeholder="Buscar" value={pendingFilters.group} onChange={(e) => updatePendingFilter("group", e.target.value)} /></th>
+                      <th><input type="text" className="payment-input" placeholder="Buscar" value={pendingFilters.date} onChange={(e) => updatePendingFilter("date", e.target.value)} /></th>
+                      <th><input type="text" className="payment-input" placeholder="Buscar" value={pendingFilters.amount} onChange={(e) => updatePendingFilter("amount", e.target.value)} /></th>
+                      <th><input type="text" className="payment-input" placeholder="Buscar" value={pendingFilters.name} onChange={(e) => updatePendingFilter("name", e.target.value)} /></th>
+                      <th><input type="text" className="payment-input" placeholder="Buscar" value={pendingFilters.similarity} onChange={(e) => updatePendingFilter("similarity", e.target.value)} /></th>
+                      <th><input type="text" className="payment-input" placeholder="Buscar" value={pendingFilters.unit} onChange={(e) => updatePendingFilter("unit", e.target.value)} /></th>
+                      <th><input type="text" className="payment-input" placeholder="Buscar" value={pendingFilters.preview} onChange={(e) => updatePendingFilter("preview", e.target.value)} /></th>
+                      <th><input type="text" className="payment-input" placeholder="Buscar" value={pendingFilters.description} onChange={(e) => updatePendingFilter("description", e.target.value)} /></th>
+                      <th><input type="text" className="payment-input" placeholder="Buscar" value={pendingFilters.actions} onChange={(e) => updatePendingFilter("actions", e.target.value)} /></th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {pendingBankItems.map((item) => {
+                    {filteredPendingBankItems.map((item) => {
                       const assignedClient = item.suggestedClientId ? clients.find((c) => c.id === item.suggestedClientId) : null;
                       const hasOtherCharges = !!(assignedClient?.otherCharges?.length);
                       const isPreMatched = !!item.suggestedClientId;
@@ -2762,6 +2966,10 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                       const unitProbability = score >= 3 ? "Alta" : score === 2 ? "Media" : score === 1 ? "Baja" : "Sin datos";
                       const rowClass = hasOtherCharges ? "pending-row--other-charges" : isHighSim ? "pending-row--high-sim" : isPreMatched ? "pending-row--ready" : "";
                       const pendingPreview = getPendingBankPreview(item, assignedClient);
+                      const upToDateUntilDate = pendingPreview?.upToDateUntil
+                        ? parseDateKey(pendingPreview.upToDateUntil)
+                        : null;
+                      const installmentsImpact = (pendingPreview?.installmentsDeducted ?? 0) + (pendingPreview?.installmentsCoveredByAdvance ?? 0);
                       return (
                         <tr key={item.folio} className={rowClass}>
                           <td><code>{item.folio}</code></td>
@@ -2814,7 +3022,21 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                               <div className="pending-preview-card">
                                 <div className="pending-preview-row"><span>Renta</span><strong>{formatCurrency(pendingPreview.rentAmount)}</strong></div>
                                 <div className="pending-preview-row"><span>Frecuencia</span><strong>{pendingPreview.frequencyLabel}</strong></div>
-                                <div className="pending-preview-row"><span>Cuotas restantes</span><strong>{pendingPreview.installmentsRemaining}</strong></div>
+                                <div className="pending-preview-row"><span>Cuotas restantes despues del pago</span><strong>{pendingPreview.installmentsRemainingAfter}</strong></div>
+                                {pendingPreview.balanceAfter <= 0 && (
+                                  <div className="pending-preview-row">
+                                    <span>Al dia hasta</span>
+                                    <strong className="amount-good">{upToDateUntilDate ? formatDate(upToDateUntilDate) : "-"}</strong>
+                                  </div>
+                                )}
+                                <div className="pending-preview-row">
+                                  <span>Impacto de cuotas</span>
+                                  <strong className={installmentsImpact > 0 ? "amount-good" : "amount-muted"}>
+                                    {installmentsImpact > 0
+                                      ? `-${installmentsImpact} ${installmentsImpact === 1 ? "cuota" : "cuotas"}`
+                                      : "Sin cambio"}
+                                  </strong>
+                                </div>
                                 <div className="pending-preview-row"><span>Monto a cobrar</span><strong className={pendingPreview.balanceAfter > 0 ? "amount-debt" : "amount-good"}>{formatCurrency(pendingPreview.balanceAfter)}</strong></div>
                               </div>
                             ) : (
@@ -2840,6 +3062,13 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                         </tr>
                       );
                     })}
+                    {filteredPendingBankItems.length === 0 && (
+                      <tr>
+                        <td colSpan={11}>
+                          <span className="amount-muted">No hay resultados con los filtros actuales.</span>
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -3117,6 +3346,15 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                 const applied = roundMoney(Math.min(capitalForRent, Math.max(0, c.balance)));
                 const extras = roundMoney(Math.max(0, wholePart - applied - totalOtherCharges));
                 const balanceAfterPreview = roundMoney(Math.max(0, c.balance - applied));
+                const advanceLetterLabel = getAdvanceLetterLabel(c, extras);
+                const previewReferenceDate = parseDateKey(pendingClassifyTarget.dateApplied) ?? startOfDay(new Date());
+                const projectedClient: Client = {
+                  ...c,
+                  balance: balanceAfterPreview,
+                  advanceBalance: roundMoney((c.advanceBalance ?? 0) + extras),
+                  savings: roundMoney((c.savings ?? 0) + centsPart)
+                };
+                const projectedNextPayDate = findNextChargeDay(projectedClient, previewReferenceDate);
                 return (
                   <>
                     {(c.otherCharges ?? []).length > 0 && (
@@ -3147,9 +3385,11 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                           {totalOtherCharges > 0 && <div className="payment-preview-row"><span>Otros cargos</span><strong className="amount-warning">{formatCurrency(totalOtherCharges)}</strong></div>}
                           {centsPart > 0 && <div className="payment-preview-row"><span>Ahorro (centavos)</span><strong>{formatCurrency(centsPart)}</strong></div>}
                           {extras > 0 && <div className="payment-preview-row"><span>Pago adelantado</span><strong>{formatCurrency(extras)}</strong></div>}
+                          {advanceLetterLabel && <div className="payment-preview-row"><span>Adelanto aplica a</span><strong>{advanceLetterLabel}</strong></div>}
                         </div>
                         <div className="payment-preview-col">
                           <div className="payment-preview-row"><span>Nuevo saldo</span><strong className={balanceAfterPreview <= 0 ? "amount-good" : "amount-debt"}>{formatCurrency(balanceAfterPreview)}</strong></div>
+                          {projectedNextPayDate && <div className="payment-preview-row"><span>Prox. fecha de pago</span><strong>{formatDate(projectedNextPayDate)}</strong></div>}
                         </div>
                       </div>
                     </div>

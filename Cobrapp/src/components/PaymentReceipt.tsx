@@ -291,8 +291,8 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
       <div className="receipt-section">
         <div className="receipt-simple-title">Que te falta</div>
         <div className="receipt-subrow">
-          <span>Cuotas pagadas en total</span>
-          <span>{payment.installmentsPaidAfter}</span>
+          <span>Cuotas restantes</span>
+          <span>{payment.installmentsRemainingAfter}</span>
         </div>
         <div className="receipt-subrow">
           <span>Cuotas atrasadas</span>

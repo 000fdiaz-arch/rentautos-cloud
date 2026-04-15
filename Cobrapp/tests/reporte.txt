@@ -1,5 +1,5 @@
 COBRAPP - REPORTE DE PRUEBAS
-Fecha: 04/12/2026, 6:45:04 p. m.
+Fecha: 04/14/2026, 5:35:22 p. m.
 Clientes activos: 1 | Pagos: 1
 
  PRUEBA 1: App carga correctamente - titulo: "Cobrapp - Modulo 1"

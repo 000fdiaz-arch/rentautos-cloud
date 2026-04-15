@@ -1,5 +1,5 @@
 COBRAPP VALIDATION E2E
-Fecha: 04/14/2026, 12:19:50 p. m.
+Fecha: 04/14/2026, 5:35:10 p. m.
 Base URL: http://127.0.0.1:5174
 
 [PASS] Carga inicial de app y navegacion principal
