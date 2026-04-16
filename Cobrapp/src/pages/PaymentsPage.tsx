@@ -1440,6 +1440,18 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     savePendingBankItems(next);
   }
 
+  function handleDismissAllPending(): void {
+    if (pendingBankItems.length === 0) return;
+    const confirmed = window.confirm(
+      `Vas a ignorar ${pendingBankItems.length} pendiente(s) del banco. Esta accion no se puede deshacer.`
+    );
+    if (!confirmed) return;
+    setPendingBankItems([]);
+    savePendingBankItems([]);
+    setPendingClassifyTarget(null);
+    setPendingImportError(`Se ignoraron ${pendingBankItems.length} pendiente(s) del banco.`);
+  }
+
   function handlePendingUnitChange(item: PendingBankItem, nextClientId: string): void {
     const previous = item.suggestedClientId
       ? clients.find((c) => c.id === item.suggestedClientId) ?? null
@@ -2895,6 +2907,11 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
             <button type="button" className="button ghost" onClick={handleImportBankCSV}>
               Importar CSV del banco
             </button>
+            {pendingBankItems.length > 0 && (
+              <button type="button" className="button danger small" onClick={handleDismissAllPending}>
+                Ignorar todos
+              </button>
+            )}
             <button type="button" className="button ghost" onClick={() => setIsPendingOpen((v) => !v)}>
               {isPendingOpen ? "Cerrar" : "Ver pendientes"}
             </button>

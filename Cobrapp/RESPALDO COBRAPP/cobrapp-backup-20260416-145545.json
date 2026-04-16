@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": "2026-04-16T21:59:17.160Z",
+  "exportedAt": "2026-04-16T19:55:45.797Z",
   "clients": [
     {
       "id": "4dd9b32b-f507-45d0-9d03-c28248bb9153",
@@ -24,8 +24,8 @@
     {
       "id": "5b260814-e698-4dcd-a8f2-81a52c4a11bd",
       "unitId": "T06",
-      "name": "JUAN CARLOS MADRID PEREZ",
       "cedula": "8-892-1109",
+      "name": "JUAN CARLOS MADRID PEREZ",
       "rentAmount": 377,
       "frequency": "biweekly",
       "chargeFirstSunday": false,
@@ -68,12 +68,12 @@
       "rentAmount": 754,
       "frequency": "monthly",
       "chargeFirstSunday": false,
-      "balance": 0,
+      "balance": 754,
       "advanceBalance": 0,
       "savings": 0,
       "installmentsAgreed": 42,
-      "installmentsRemaining": 18,
-      "installmentsPaid": 24,
+      "installmentsRemaining": 19,
+      "installmentsPaid": 23,
       "otherCharges": [],
       "createdAt": "2026-04-09T19:34:52.668Z",
       "lastChargeDate": "2026-04-16",
@@ -178,8 +178,8 @@
     {
       "id": "bddfddd4-84eb-4bb4-9b06-057f32b88a4c",
       "unitId": "T05",
-      "name": "MARCOS ANTONIO TRYHANE RAMIREZ",
       "cedula": "8-826-306",
+      "name": "MARCOS ANTONIO TRYHANE RAMIREZ",
       "rentAmount": 32,
       "frequency": "daily",
       "chargeFirstSunday": false,
@@ -259,12 +259,12 @@
     {
       "id": "e4d80e1f-81f2-45ea-b642-e56c643e7f73",
       "unitId": "T08",
-      "cedula": "8-436-426",
       "name": "JOSE REYNALDO OLACIREGUI",
+      "cedula": "8-436-426",
       "rentAmount": 36,
       "frequency": "daily",
       "chargeFirstSunday": false,
-      "balance": 0,
+      "balance": 36,
       "advanceBalance": 0,
       "savings": 0.32,
       "installmentsAgreed": 913,
@@ -853,8 +853,8 @@
     {
       "id": "024df955-7c05-4081-8609-de483654d1bd",
       "unitId": "C16",
-      "name": "DANIEL IVAN SANTAMARIA DE LEON",
       "cedula": "8-878-813",
+      "name": "DANIEL IVAN SANTAMARIA DE LEON",
       "rentAmount": 33,
       "frequency": "daily",
       "chargeFirstSunday": false,
@@ -1097,8 +1097,8 @@
     {
       "id": "f47d422e-42f5-44f3-afd0-5ca00f38e956",
       "unitId": "T09",
-      "name": "AGUSTIN PALACIO MAGALLON",
       "cedula": "8-734-1116",
+      "name": "AGUSTIN PALACIO MAGALLON",
       "rentAmount": 28,
       "frequency": "daily",
       "chargeFirstSunday": false,
@@ -1580,8 +1580,8 @@
     {
       "id": "e634cff1-03ff-4efa-ade3-68982c601324",
       "unitId": "D38",
-      "name": "OIDEEN POLANCO PENA",
       "cedula": "8-853-2110",
+      "name": "OIDEEN POLANCO PENA",
       "rentAmount": 403,
       "frequency": "biweekly",
       "chargeFirstSunday": false,
@@ -1604,12 +1604,12 @@
       "rentAmount": 35,
       "frequency": "daily",
       "chargeFirstSunday": false,
-      "balance": 221,
+      "balance": 256,
       "advanceBalance": 0,
-      "savings": 0.45,
+      "savings": 0.31,
       "installmentsAgreed": 1095,
-      "installmentsRemaining": 745,
-      "installmentsPaid": 350,
+      "installmentsRemaining": 746,
+      "installmentsPaid": 349,
       "otherCharges": [],
       "createdAt": "2026-04-14T14:55:20.563Z",
       "lastChargeDate": "2026-04-16",
@@ -1733,8 +1733,8 @@
     {
       "id": "877f0be6-9600-4912-bd68-2a826aba8387",
       "unitId": "T27",
-      "name": "JOSE MARTIN AGUILAR GUZMAN",
       "cedula": "8-811-535",
+      "name": "JOSE MARTIN AGUILAR GUZMAN",
       "rentAmount": 377,
       "frequency": "biweekly",
       "chargeFirstSunday": false,
@@ -2008,9 +2008,9 @@
       "rentAmount": 33,
       "frequency": "daily",
       "chargeFirstSunday": false,
-      "balance": 106,
+      "balance": 126,
       "advanceBalance": 0,
-      "savings": 3.4,
+      "savings": 2.55,
       "installmentsAgreed": 913,
       "installmentsRemaining": 870,
       "installmentsPaid": 43,
@@ -2359,8 +2359,8 @@
     {
       "id": "edb556ff-724a-408e-a577-d84ed62c7ba0",
       "unitId": "A04",
-      "name": "OCTAVIO ENRIQUE SANCHEZ",
       "cedula": "8-717-1680",
+      "name": "OCTAVIO ENRIQUE SANCHEZ",
       "rentAmount": 35,
       "frequency": "daily",
       "chargeFirstSunday": false,
@@ -2906,12 +2906,12 @@
       "rentAmount": 33,
       "frequency": "daily",
       "chargeFirstSunday": false,
-      "balance": 99,
+      "balance": 132,
       "advanceBalance": 0,
-      "savings": 1.5,
+      "savings": 0.75,
       "installmentsAgreed": 823,
-      "installmentsRemaining": 821,
-      "installmentsPaid": 2,
+      "installmentsRemaining": 822,
+      "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-15T21:36:00.436Z",
       "lastChargeDate": "2026-04-16",
@@ -3022,12 +3022,12 @@
       "rentAmount": 198,
       "frequency": "weekly",
       "chargeFirstSunday": false,
-      "balance": 0,
+      "balance": 53,
       "advanceBalance": 0,
-      "savings": 1.06,
+      "savings": 0.53,
       "installmentsAgreed": 147,
-      "installmentsRemaining": 146,
-      "installmentsPaid": 1,
+      "installmentsRemaining": 147,
+      "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-15T22:45:00.675Z",
       "lastChargeDate": "2026-04-16",
@@ -3057,17 +3057,17 @@
     {
       "id": "aeccc77a-f49d-4c6d-9c6c-14bcf242c9d7",
       "unitId": "A01",
-      "name": "EDGARDO JOSE TORREGROZA PEREZ",
       "cedula": "8-968-189",
+      "name": "EDGARDO JOSE TORREGROZA PEREZ",
       "rentAmount": 299,
       "frequency": "biweekly",
       "chargeFirstSunday": false,
-      "balance": 0,
+      "balance": 299,
       "advanceBalance": 0,
-      "savings": 0.01,
+      "savings": 0,
       "installmentsAgreed": 49,
-      "installmentsRemaining": 48,
-      "installmentsPaid": 1,
+      "installmentsRemaining": 49,
+      "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-16T15:12:48.321Z",
       "lastChargeDate": "2026-04-16",
@@ -3076,8 +3076,8 @@
     {
       "id": "183230f3-df1f-451c-912a-70e788b1c41e",
       "unitId": "A02",
-      "name": "ALEXANDER JAVIER GONZALEZ",
       "cedula": "9-717-1870",
+      "name": "ALEXANDER JAVIER GONZALEZ",
       "rentAmount": 180,
       "frequency": "weekly",
       "chargeFirstSunday": false,
@@ -3101,16 +3101,16 @@
       "rentAmount": 192,
       "frequency": "weekly",
       "chargeFirstSunday": false,
-      "balance": 0,
+      "balance": 192,
       "advanceBalance": 0,
       "savings": 0,
       "installmentsAgreed": 149,
-      "installmentsRemaining": 148,
-      "installmentsPaid": 1,
+      "installmentsRemaining": 149,
+      "installmentsPaid": 0,
       "otherCharges": [
         {
           "label": "REPARACION",
-          "amount": 150
+          "amount": 168
         }
       ],
       "createdAt": "2026-04-16T15:38:16.623Z",
@@ -3121,8 +3121,8 @@
     {
       "id": "4a3624ff-ee5e-4448-812b-3adef7122f97",
       "unitId": "A08",
-      "name": "MARCOS EMETERIO CHANIS AVILA",
       "cedula": "8-882-806",
+      "name": "MARCOS EMETERIO CHANIS AVILA",
       "rentAmount": 299,
       "frequency": "biweekly",
       "chargeFirstSunday": false,
@@ -3140,8 +3140,8 @@
     {
       "id": "5191aa22-7522-4e7b-9dc9-d35a9700e119",
       "unitId": "A10",
-      "name": "ADELMA MERCEDES RENTERIA MURILLO",
       "cedula": "8-715-1906",
+      "name": "ADELMA MERCEDES RENTERIA MURILLO",
       "rentAmount": 403,
       "frequency": "biweekly",
       "chargeFirstSunday": false,
@@ -3159,8 +3159,8 @@
     {
       "id": "81b20a9a-1022-4ccf-8b77-a7d8a6952ac4",
       "unitId": "A12",
-      "name": "RIGOBERTO ABDUL AGUILAR VALENCIA",
       "cedula": "8-867-225",
+      "name": "RIGOBERTO ABDUL AGUILAR VALENCIA",
       "rentAmount": 180,
       "frequency": "weekly",
       "chargeFirstSunday": false,
@@ -3179,14 +3179,14 @@
     {
       "id": "e0f4e11c-9ef0-4176-9338-f993895f0960",
       "unitId": "A13",
-      "name": "ZACARIAS ARAUZ VIQUEZ",
       "cedula": "8-892-758",
+      "name": "ZACARIAS ARAUZ VIQUEZ",
       "rentAmount": 192,
       "frequency": "weekly",
       "chargeFirstSunday": false,
-      "balance": 84,
+      "balance": 144,
       "advanceBalance": 0,
-      "savings": 0.13,
+      "savings": 0,
       "installmentsAgreed": 133,
       "installmentsRemaining": 133,
       "installmentsPaid": 0,
@@ -3204,8 +3204,8 @@
     {
       "id": "a3adf91c-e2af-4284-bf75-58537c9e1281",
       "unitId": "A18",
-      "name": "ANAYANSI EDITH CIGARRUISTA MURGAS",
       "cedula": "8-381-124",
+      "name": "ANAYANSI EDITH CIGARRUISTA MURGAS",
       "rentAmount": 180,
       "frequency": "weekly",
       "chargeFirstSunday": false,
@@ -3224,8 +3224,8 @@
     {
       "id": "4411aa10-13d7-4180-8fa7-adceb51c26ee",
       "unitId": "A20",
-      "name": "JOAQUIN CEDEÑO ORTEGA",
       "cedula": "2-737-2228",
+      "name": "JOAQUIN CEDEÑO ORTEGA",
       "rentAmount": 168,
       "frequency": "weekly",
       "chargeFirstSunday": false,
@@ -3244,8 +3244,8 @@
     {
       "id": "c4580e1a-7271-4e78-89da-50f2370cb67a",
       "unitId": "A21",
-      "name": "YENIFER MASSIEL SALAZAR VERGARA",
       "cedula": "8-915-1257",
+      "name": "YENIFER MASSIEL SALAZAR VERGARA",
       "rentAmount": 299,
       "frequency": "biweekly",
       "chargeFirstSunday": false,
@@ -3263,8 +3263,8 @@
     {
       "id": "fac5a6b8-ed61-499e-9d2f-b2f6cca046ab",
       "unitId": "A22",
-      "name": "YARIBETH YADIRA GARCIA GONZALEZ",
       "cedula": "8-790-2049",
+      "name": "YARIBETH YADIRA GARCIA GONZALEZ",
       "rentAmount": 180,
       "frequency": "weekly",
       "chargeFirstSunday": false,
@@ -3283,8 +3283,8 @@
     {
       "id": "f9134342-35a8-4ec5-8813-9324e9db5959",
       "unitId": "A24",
-      "name": "YADIRA ANGELYCK CRUZ",
       "cedula": "8-934-796",
+      "name": "YADIRA ANGELYCK CRUZ",
       "rentAmount": 192,
       "frequency": "weekly",
       "chargeFirstSunday": false,
@@ -3303,8 +3303,8 @@
     {
       "id": "cbe04fd8-922b-4165-9b5a-ac8e060352c7",
       "unitId": "A27",
-      "name": "YOILENA NOHELIS GUERRA BARRIA",
       "cedula": "8-890-1885",
+      "name": "YOILENA NOHELIS GUERRA BARRIA",
       "rentAmount": 364,
       "frequency": "biweekly",
       "chargeFirstSunday": false,
@@ -3331,8 +3331,8 @@
     {
       "id": "a4df8a72-92a1-49e3-a1b4-71d70f10bff9",
       "unitId": "A31",
-      "name": "CEFERINO VEGA RODRIGUEZ",
       "cedula": "3-706-2154",
+      "name": "CEFERINO VEGA RODRIGUEZ",
       "rentAmount": 299,
       "frequency": "biweekly",
       "chargeFirstSunday": false,
@@ -3350,8 +3350,8 @@
     {
       "id": "c4fc2d1f-3799-42cf-8206-91afb6764fab",
       "unitId": "A35",
-      "name": "FRANCISCO RICHAR IGLESIAS ARCIA",
       "cedula": "10-716-1897",
+      "name": "FRANCISCO RICHAR IGLESIAS ARCIA",
       "rentAmount": 168,
       "frequency": "weekly",
       "chargeFirstSunday": false,
@@ -3370,8 +3370,8 @@
     {
       "id": "e2b03779-b372-45cf-ab46-8a462292fa34",
       "unitId": "A36",
-      "name": "MICHAEL YUNIER MIRANDA SALCEDO",
       "cedula": "4-767-1040",
+      "name": "MICHAEL YUNIER MIRANDA SALCEDO",
       "rentAmount": 403,
       "frequency": "biweekly",
       "chargeFirstSunday": false,
@@ -3389,8 +3389,8 @@
     {
       "id": "6bc4b693-29ca-4e2e-a32a-4c2d83cca484",
       "unitId": "A37",
-      "name": "CESAR AUGUSTO BROCE MARTINEZ",
       "cedula": "3-752-421",
+      "name": "CESAR AUGUSTO BROCE MARTINEZ",
       "rentAmount": 204,
       "frequency": "weekly",
       "chargeFirstSunday": false,
@@ -3409,8 +3409,8 @@
     {
       "id": "89dc0f6a-5fe8-42db-944f-50d5af878d47",
       "unitId": "A43",
-      "name": "BRAYAN BUENDIAZ SUELTO",
       "cedula": "BG278873",
+      "name": "BRAYAN BUENDIAZ SUELTO",
       "rentAmount": 186,
       "frequency": "weekly",
       "chargeFirstSunday": false,
@@ -3438,8 +3438,8 @@
     {
       "id": "2a23d44d-8bfe-47d2-92b3-6f07f40b9ed6",
       "unitId": "A49",
-      "name": "FLORENTINO SANCHEZ",
       "cedula": "2-122-1002",
+      "name": "FLORENTINO SANCHEZ",
       "rentAmount": 180,
       "frequency": "weekly",
       "chargeFirstSunday": false,
@@ -3458,8 +3458,8 @@
     {
       "id": "1aea9138-7dce-4948-ace3-e6f97a7b3dc7",
       "unitId": "A50",
-      "name": "DAYANA HURTADO",
       "cedula": "1-306-91556",
+      "name": "DAYANA HURTADO",
       "rentAmount": 198,
       "frequency": "weekly",
       "chargeFirstSunday": false,
@@ -3478,8 +3478,8 @@
     {
       "id": "65bf37d9-4a86-4093-9252-4d606c29a59d",
       "unitId": "A54",
-      "name": "YASURI NELEIKA RIOS ARMUELLES",
       "cedula": "8-842-981",
+      "name": "YASURI NELEIKA RIOS ARMUELLES",
       "rentAmount": 33,
       "frequency": "daily",
       "chargeFirstSunday": true,
@@ -3497,8 +3497,8 @@
     {
       "id": "8ee57b42-3dfd-438c-a7ad-961c418cc5a4",
       "unitId": "A57",
-      "name": "JUAN LUIS RIVERA RAMÍREZ",
       "cedula": "3-704-563",
+      "name": "JUAN LUIS RIVERA RAMÍREZ",
       "rentAmount": 192,
       "frequency": "weekly",
       "chargeFirstSunday": false,
@@ -3517,8 +3517,8 @@
     {
       "id": "05038129-d92f-4ebd-9e0b-8bf0d8a22531",
       "unitId": "A17",
-      "name": "JERICA JINETH OLMEDO ANINO",
       "cedula": "8-781-1217",
+      "name": "JERICA JINETH OLMEDO ANINO",
       "rentAmount": 29,
       "frequency": "daily",
       "chargeFirstSunday": true,
@@ -3536,8 +3536,8 @@
     {
       "id": "b74239fe-2659-4c8e-8d3c-497bb095f584",
       "unitId": "A82",
-      "name": "ANGEL EDUARDO ESPINOSA MORENO",
       "cedula": "8-893-1353",
+      "name": "ANGEL EDUARDO ESPINOSA MORENO",
       "rentAmount": 192,
       "frequency": "weekly",
       "chargeFirstSunday": false,
@@ -3556,8 +3556,8 @@
     {
       "id": "4193e435-c8bd-4d52-8be4-e107fb8f3b41",
       "unitId": "A71",
-      "name": "JOSE ANGEL GARCIA MITRE",
       "cedula": "3-732-929",
+      "name": "JOSE ANGEL GARCIA MITRE",
       "rentAmount": 192,
       "frequency": "weekly",
       "chargeFirstSunday": false,
@@ -3577,83 +3577,6 @@
       "lastChargeDate": "2026-04-16",
       "status": "active",
       "weeklyChargeDay": "tuesday"
-    },
-    {
-      "id": "20ac02fe-c07c-4144-b7fc-73196d717a5a",
-      "unitId": "A80",
-      "name": "ARMANDO ABDIEL CANTO FUENTES",
-      "cedula": "4-748-314",
-      "rentAmount": 192,
-      "frequency": "weekly",
-      "chargeFirstSunday": false,
-      "balance": 593,
-      "advanceBalance": 0,
-      "savings": 0.8,
-      "installmentsAgreed": 28,
-      "installmentsRemaining": 28,
-      "installmentsPaid": 0,
-      "otherCharges": [],
-      "createdAt": "2026-04-16T19:56:50.750Z",
-      "lastChargeDate": "2026-04-16",
-      "status": "active",
-      "weeklyChargeDay": "monday"
-    },
-    {
-      "id": "c7f91375-d971-4a3e-a7cf-7455b256e1f7",
-      "unitId": "A78",
-      "name": "MICHAEL ALEXIS CENTENO RODRIUGUEZ",
-      "cedula": "8-835-581",
-      "rentAmount": 299,
-      "frequency": "biweekly",
-      "chargeFirstSunday": false,
-      "balance": 0,
-      "advanceBalance": 120,
-      "savings": 0,
-      "installmentsAgreed": 56,
-      "installmentsRemaining": 56,
-      "installmentsPaid": 0,
-      "otherCharges": [],
-      "createdAt": "2026-04-16T20:11:08.288Z",
-      "lastChargeDate": "2026-04-16",
-      "status": "active"
-    },
-    {
-      "id": "2a333862-688d-4fc0-8435-7d3f258c7310",
-      "unitId": "A42",
-      "name": "ANTONY JAVIER GALVEZ",
-      "cedula": "8-900-2162",
-      "rentAmount": 29,
-      "frequency": "daily",
-      "chargeFirstSunday": true,
-      "balance": 0,
-      "advanceBalance": 0,
-      "savings": 0,
-      "installmentsAgreed": 790,
-      "installmentsRemaining": 790,
-      "installmentsPaid": 0,
-      "otherCharges": [],
-      "createdAt": "2026-04-16T20:20:10.743Z",
-      "lastChargeDate": "2026-04-16",
-      "status": "active"
-    },
-    {
-      "id": "98c6ec62-4e13-4525-bf8c-a752894995ab",
-      "unitId": "C47",
-      "name": "ANGEL AMADO GARCIA VELASQUEZ",
-      "cedula": "8-927-193",
-      "rentAmount": 33,
-      "frequency": "daily",
-      "chargeFirstSunday": true,
-      "balance": 0,
-      "advanceBalance": 0,
-      "savings": 0,
-      "installmentsAgreed": 913,
-      "installmentsRemaining": 913,
-      "installmentsPaid": 0,
-      "otherCharges": [],
-      "createdAt": "2026-04-16T21:25:38.040Z",
-      "lastChargeDate": "2026-04-16",
-      "status": "active"
     }
   ],
   "payments": [
@@ -11035,6 +10958,12 @@
       "amountReceived": 16.05,
       "appliedToRent": 16,
       "centavosAhorro": 0.05,
+      "otherChargesDueAfter": [
+        {
+          "label": "COLISION",
+          "amount": 237
+        }
+      ],
       "installmentsDeducted": 1,
       "balanceBefore": 139,
       "balanceAfter": 123,
@@ -11044,13 +10973,7 @@
       "installmentsRemainingAfter": 573,
       "rentAmount": 32,
       "frequency": "daily",
-      "createdAt": "2026-04-16T13:37:35.753Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "COLISION",
-          "amount": 237
-        }
-      ]
+      "createdAt": "2026-04-16T13:37:35.753Z"
     },
     {
       "id": "566d54a1-76cf-495c-9894-d3ec2185f754",
@@ -11088,16 +11011,6 @@
       "amountReceived": 35,
       "appliedToRent": 35,
       "centavosAhorro": 0,
-      "installmentsDeducted": 1,
-      "balanceBefore": 140,
-      "balanceAfter": 105,
-      "savingsBefore": 0.3,
-      "savingsAfter": 0.3,
-      "installmentsPaidAfter": 574,
-      "installmentsRemainingAfter": 338,
-      "rentAmount": 35,
-      "frequency": "daily",
-      "createdAt": "2026-04-16T13:42:08.575Z",
       "otherChargesDueAfter": [
         {
           "label": "PIEZAS",
@@ -11107,7 +11020,17 @@
           "label": "COLISION",
           "amount": 1906
         }
-      ]
+      ],
+      "installmentsDeducted": 1,
+      "balanceBefore": 140,
+      "balanceAfter": 105,
+      "savingsBefore": 0.3,
+      "savingsAfter": 0.3,
+      "installmentsPaidAfter": 574,
+      "installmentsRemainingAfter": 338,
+      "rentAmount": 35,
+      "frequency": "daily",
+      "createdAt": "2026-04-16T13:42:08.575Z"
     },
     {
       "id": "4602b7aa-5093-4882-b56e-20a5295d3591",
@@ -11122,16 +11045,6 @@
       "amountReceived": 35.1,
       "appliedToRent": 35,
       "centavosAhorro": 0.1,
-      "installmentsDeducted": 1,
-      "balanceBefore": 105,
-      "balanceAfter": 70,
-      "savingsBefore": 0.3,
-      "savingsAfter": 0.4,
-      "installmentsPaidAfter": 575,
-      "installmentsRemainingAfter": 337,
-      "rentAmount": 35,
-      "frequency": "daily",
-      "createdAt": "2026-04-16T13:42:28.500Z",
       "otherChargesDueAfter": [
         {
           "label": "PIEZAS",
@@ -11141,7 +11054,17 @@
           "label": "COLISION",
           "amount": 1906
         }
-      ]
+      ],
+      "installmentsDeducted": 1,
+      "balanceBefore": 105,
+      "balanceAfter": 70,
+      "savingsBefore": 0.3,
+      "savingsAfter": 0.4,
+      "installmentsPaidAfter": 575,
+      "installmentsRemainingAfter": 337,
+      "rentAmount": 35,
+      "frequency": "daily",
+      "createdAt": "2026-04-16T13:42:28.500Z"
     },
     {
       "id": "3aeed438-5d11-43b7-9c46-fc112485b82f",
@@ -11252,6 +11175,12 @@
       "amountReceived": 33.04,
       "appliedToRent": 33,
       "centavosAhorro": 0.04,
+      "otherChargesDueAfter": [
+        {
+          "label": "REPARACION",
+          "amount": 506
+        }
+      ],
       "installmentsDeducted": 1,
       "balanceBefore": 131,
       "balanceAfter": 98,
@@ -11261,13 +11190,7 @@
       "installmentsRemainingAfter": 908,
       "rentAmount": 33,
       "frequency": "daily",
-      "createdAt": "2026-04-16T13:44:41.289Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "REPARACION",
-          "amount": 506
-        }
-      ]
+      "createdAt": "2026-04-16T13:44:41.289Z"
     },
     {
       "id": "d5b04ebd-8138-4ba3-975b-c9f035c9db52",
@@ -11522,6 +11445,12 @@
       "amountReceived": 36.08,
       "appliedToRent": 36,
       "centavosAhorro": 0.08,
+      "otherChargesDueAfter": [
+        {
+          "label": "REPARACION",
+          "amount": 47
+        }
+      ],
       "installmentsDeducted": 1,
       "balanceBefore": 72,
       "balanceAfter": 36,
@@ -11531,13 +11460,7 @@
       "installmentsRemainingAfter": 985,
       "rentAmount": 36,
       "frequency": "daily",
-      "createdAt": "2026-04-16T14:07:47.039Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "REPARACION",
-          "amount": 47
-        }
-      ]
+      "createdAt": "2026-04-16T14:07:47.039Z"
     },
     {
       "id": "fbe1bb52-a00c-4194-9f1e-6e9223ab5d6e",
@@ -11599,6 +11522,12 @@
       "amountReceived": 50,
       "appliedToRent": 50,
       "centavosAhorro": 0,
+      "otherChargesDueAfter": [
+        {
+          "label": "CEDER MANEJO",
+          "amount": 70
+        }
+      ],
       "installmentsDeducted": 0,
       "balanceBefore": 90,
       "balanceAfter": 40,
@@ -11609,13 +11538,7 @@
       "rentAmount": 210,
       "frequency": "weekly",
       "weeklyChargeDay": "monday",
-      "createdAt": "2026-04-16T14:11:56.743Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "CEDER MANEJO",
-          "amount": 70
-        }
-      ]
+      "createdAt": "2026-04-16T14:11:56.743Z"
     },
     {
       "id": "f02f4463-0819-4d6d-9841-ad20ee8677b7",
@@ -11630,6 +11553,12 @@
       "amountReceived": 20,
       "appliedToRent": 20,
       "centavosAhorro": 0,
+      "otherChargesDueAfter": [
+        {
+          "label": "CEDER MANEJO",
+          "amount": 70
+        }
+      ],
       "installmentsDeducted": 0,
       "balanceBefore": 40,
       "balanceAfter": 20,
@@ -11640,13 +11569,7 @@
       "rentAmount": 210,
       "frequency": "weekly",
       "weeklyChargeDay": "monday",
-      "createdAt": "2026-04-16T14:12:14.361Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "CEDER MANEJO",
-          "amount": 70
-        }
-      ]
+      "createdAt": "2026-04-16T14:12:14.361Z"
     },
     {
       "id": "f3071ed0-5d51-4c10-8b51-741e349d83d6",
@@ -11685,16 +11608,6 @@
       "amountReceived": 35.81,
       "appliedToRent": 35,
       "centavosAhorro": 0.81,
-      "installmentsDeducted": 1,
-      "balanceBefore": 167,
-      "balanceAfter": 132,
-      "savingsBefore": 4.05,
-      "savingsAfter": 4.86,
-      "installmentsPaidAfter": 150,
-      "installmentsRemainingAfter": 945,
-      "rentAmount": 35,
-      "frequency": "daily",
-      "createdAt": "2026-04-16T14:24:49.797Z",
       "otherChargesDueAfter": [
         {
           "label": "MULTA POR EXCEDER KILOMETRAJE",
@@ -11704,7 +11617,17 @@
           "label": "REPARACION",
           "amount": 250
         }
-      ]
+      ],
+      "installmentsDeducted": 1,
+      "balanceBefore": 167,
+      "balanceAfter": 132,
+      "savingsBefore": 4.05,
+      "savingsAfter": 4.86,
+      "installmentsPaidAfter": 150,
+      "installmentsRemainingAfter": 945,
+      "rentAmount": 35,
+      "frequency": "daily",
+      "createdAt": "2026-04-16T14:24:49.797Z"
     },
     {
       "id": "32e35d92-a6ce-4807-9563-d686e81ebebe",
@@ -11719,6 +11642,12 @@
       "amountReceived": 35.62,
       "appliedToRent": 25,
       "centavosAhorro": 0.62,
+      "otherChargesApplied": [
+        {
+          "label": "MULTA SALDO NEGATIVO PANAPASS",
+          "amount": 10
+        }
+      ],
       "installmentsDeducted": 0,
       "balanceBefore": 130,
       "balanceAfter": 105,
@@ -11728,13 +11657,7 @@
       "installmentsRemainingAfter": 748,
       "rentAmount": 34,
       "frequency": "daily",
-      "createdAt": "2026-04-16T14:29:48.059Z",
-      "otherChargesApplied": [
-        {
-          "label": "MULTA SALDO NEGATIVO PANAPASS",
-          "amount": 10
-        }
-      ]
+      "createdAt": "2026-04-16T14:29:48.059Z"
     },
     {
       "id": "05fe5ef9-9f4e-400c-b209-c29339809919",
@@ -11822,16 +11745,6 @@
       "amountReceived": 37.68,
       "appliedToRent": 37,
       "centavosAhorro": 0.68,
-      "installmentsDeducted": 1,
-      "balanceBefore": 259,
-      "balanceAfter": 222,
-      "savingsBefore": 3.4,
-      "savingsAfter": 4.08,
-      "installmentsPaidAfter": 230,
-      "installmentsRemainingAfter": 927,
-      "rentAmount": 37,
-      "frequency": "daily",
-      "createdAt": "2026-04-16T14:32:27.621Z",
       "otherChargesDueAfter": [
         {
           "label": "Multa por Mantenimiento",
@@ -11841,7 +11754,17 @@
           "label": "Reparacion",
           "amount": 315
         }
-      ]
+      ],
+      "installmentsDeducted": 1,
+      "balanceBefore": 259,
+      "balanceAfter": 222,
+      "savingsBefore": 3.4,
+      "savingsAfter": 4.08,
+      "installmentsPaidAfter": 230,
+      "installmentsRemainingAfter": 927,
+      "rentAmount": 37,
+      "frequency": "daily",
+      "createdAt": "2026-04-16T14:32:27.621Z"
     },
     {
       "id": "027876c3-8308-4dbf-8f73-f6476b0ad601",
@@ -11856,16 +11779,6 @@
       "amountReceived": 35.28,
       "appliedToRent": 33,
       "centavosAhorro": 0.28,
-      "installmentsDeducted": 1,
-      "balanceBefore": 208,
-      "balanceAfter": 175,
-      "savingsBefore": 1.12,
-      "savingsAfter": 1.4,
-      "installmentsPaidAfter": 334,
-      "installmentsRemainingAfter": 888,
-      "rentAmount": 33,
-      "frequency": "daily",
-      "createdAt": "2026-04-16T14:34:14.206Z",
       "otherChargesApplied": [
         {
           "label": "REPARACION",
@@ -11877,7 +11790,17 @@
           "label": "REPARACION",
           "amount": 1942
         }
-      ]
+      ],
+      "installmentsDeducted": 1,
+      "balanceBefore": 208,
+      "balanceAfter": 175,
+      "savingsBefore": 1.12,
+      "savingsAfter": 1.4,
+      "installmentsPaidAfter": 334,
+      "installmentsRemainingAfter": 888,
+      "rentAmount": 33,
+      "frequency": "daily",
+      "createdAt": "2026-04-16T14:34:14.206Z"
     },
     {
       "id": "1749294c-030d-4b50-9d87-014d0518dea8",
@@ -11964,16 +11887,6 @@
       "amountReceived": 75.45,
       "appliedToRent": 75,
       "centavosAhorro": 0.45,
-      "installmentsDeducted": 2,
-      "balanceBefore": 167,
-      "balanceAfter": 92,
-      "savingsBefore": 1.35,
-      "savingsAfter": 1.8,
-      "installmentsPaidAfter": 190,
-      "installmentsRemainingAfter": 785,
-      "rentAmount": 35,
-      "frequency": "daily",
-      "createdAt": "2026-04-16T14:37:53.591Z",
       "otherChargesDueAfter": [
         {
           "label": "COLISION",
@@ -11983,7 +11896,17 @@
           "label": "REPARACION",
           "amount": 871
         }
-      ]
+      ],
+      "installmentsDeducted": 2,
+      "balanceBefore": 167,
+      "balanceAfter": 92,
+      "savingsBefore": 1.35,
+      "savingsAfter": 1.8,
+      "installmentsPaidAfter": 190,
+      "installmentsRemainingAfter": 785,
+      "rentAmount": 35,
+      "frequency": "daily",
+      "createdAt": "2026-04-16T14:37:53.591Z"
     },
     {
       "id": "1be44549-a660-41fc-97df-982bbf35e2bc",
@@ -11998,6 +11921,12 @@
       "amountReceived": 30.01,
       "appliedToRent": 30,
       "centavosAhorro": 0.01,
+      "otherChargesDueAfter": [
+        {
+          "label": "REPARACION",
+          "amount": 1285
+        }
+      ],
       "installmentsDeducted": 1,
       "balanceBefore": 255,
       "balanceAfter": 225,
@@ -12007,13 +11936,7 @@
       "installmentsRemainingAfter": 555,
       "rentAmount": 30,
       "frequency": "daily",
-      "createdAt": "2026-04-16T14:43:19.911Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "REPARACION",
-          "amount": 1285
-        }
-      ]
+      "createdAt": "2026-04-16T14:43:19.911Z"
     },
     {
       "id": "30286f30-e0cd-4c92-b5eb-91f990ba3dc8",
@@ -12052,6 +11975,12 @@
       "amountReceived": 37.13,
       "appliedToRent": 37,
       "centavosAhorro": 0.13,
+      "otherChargesDueAfter": [
+        {
+          "label": "PRESUPUESTO PARA REPARACION",
+          "amount": 300
+        }
+      ],
       "installmentsDeducted": 1,
       "balanceBefore": 185,
       "balanceAfter": 148,
@@ -12061,13 +11990,7 @@
       "installmentsRemainingAfter": 1032,
       "rentAmount": 37,
       "frequency": "daily",
-      "createdAt": "2026-04-16T14:46:27.895Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "PRESUPUESTO PARA REPARACION",
-          "amount": 300
-        }
-      ]
+      "createdAt": "2026-04-16T14:46:27.895Z"
     },
     {
       "id": "b4bb5642-aca2-44e2-9a79-3881b1d2d207",
@@ -12082,6 +12005,12 @@
       "amountReceived": 64.45,
       "appliedToRent": 64,
       "centavosAhorro": 0.45,
+      "otherChargesDueAfter": [
+        {
+          "label": "REPARACION",
+          "amount": 157
+        }
+      ],
       "installmentsDeducted": 2,
       "balanceBefore": 250,
       "balanceAfter": 186,
@@ -12091,13 +12020,7 @@
       "installmentsRemainingAfter": 679,
       "rentAmount": 32,
       "frequency": "daily",
-      "createdAt": "2026-04-16T14:52:00.788Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "REPARACION",
-          "amount": 157
-        }
-      ]
+      "createdAt": "2026-04-16T14:52:00.788Z"
     },
     {
       "id": "c0fd6410-822a-4383-9084-58466e713a84",
@@ -12112,6 +12035,12 @@
       "amountReceived": 28.26,
       "appliedToRent": 28,
       "centavosAhorro": 0.26,
+      "otherChargesDueAfter": [
+        {
+          "label": "MULTA POR KM: 80 , SALDO COLISION",
+          "amount": 665
+        }
+      ],
       "installmentsDeducted": 1,
       "balanceBefore": 169,
       "balanceAfter": 141,
@@ -12121,13 +12050,7 @@
       "installmentsRemainingAfter": 502,
       "rentAmount": 28,
       "frequency": "daily",
-      "createdAt": "2026-04-16T14:52:29.996Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "MULTA POR KM: 80 , SALDO COLISION",
-          "amount": 665
-        }
-      ]
+      "createdAt": "2026-04-16T14:52:29.996Z"
     },
     {
       "id": "032a1d41-fcbd-4be4-bd93-4e4cfebb4255",
@@ -12334,6 +12257,12 @@
       "amountReceived": 33.68,
       "appliedToRent": 33,
       "centavosAhorro": 0.68,
+      "otherChargesDueAfter": [
+        {
+          "label": "GRUA",
+          "amount": 33
+        }
+      ],
       "installmentsDeducted": 1,
       "balanceBefore": 392,
       "balanceAfter": 359,
@@ -12343,13 +12272,7 @@
       "installmentsRemainingAfter": 328,
       "rentAmount": 33,
       "frequency": "daily",
-      "createdAt": "2026-04-16T15:01:35.209Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "GRUA",
-          "amount": 33
-        }
-      ]
+      "createdAt": "2026-04-16T15:01:35.209Z"
     },
     {
       "id": "25f11b30-0726-47f6-8ee3-6f4653872870",
@@ -12364,6 +12287,12 @@
       "amountReceived": 34.74,
       "appliedToRent": 34,
       "centavosAhorro": 0.74,
+      "otherChargesDueAfter": [
+        {
+          "label": "REPARACION 771 /CHAPISTERIA",
+          "amount": 750
+        }
+      ],
       "installmentsDeducted": 1,
       "balanceBefore": 115,
       "balanceAfter": 81,
@@ -12373,13 +12302,7 @@
       "installmentsRemainingAfter": 666,
       "rentAmount": 34,
       "frequency": "daily",
-      "createdAt": "2026-04-16T15:01:57.787Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "REPARACION 771 /CHAPISTERIA",
-          "amount": 750
-        }
-      ]
+      "createdAt": "2026-04-16T15:01:57.787Z"
     },
     {
       "id": "b679dd2b-14dd-43b4-bbb0-1f555b2e44a4",
@@ -12633,12 +12556,12 @@
       "amountReceived": 65.25,
       "appliedToRent": 25,
       "centavosAhorro": 0.25,
+      "advanceApplied": 40,
       "installmentsDeducted": 1,
       "balanceBefore": 25,
       "balanceAfter": 0,
       "savingsBefore": 1,
       "savingsAfter": 1.25,
-      "advanceApplied": 40,
       "installmentsPaidAfter": 38,
       "installmentsRemainingAfter": 165,
       "rentAmount": 198,
@@ -12659,6 +12582,12 @@
       "amountReceived": 36.06,
       "appliedToRent": 36,
       "centavosAhorro": 0.06,
+      "otherChargesDueAfter": [
+        {
+          "label": "DEUDA CAMBIO DE PLAN 50, REPARACION",
+          "amount": 770
+        }
+      ],
       "installmentsDeducted": 1,
       "balanceBefore": 140,
       "balanceAfter": 104,
@@ -12668,13 +12597,7 @@
       "installmentsRemainingAfter": 200,
       "rentAmount": 31,
       "frequency": "daily",
-      "createdAt": "2026-04-16T19:30:50.537Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "DEUDA CAMBIO DE PLAN 50, REPARACION",
-          "amount": 770
-        }
-      ]
+      "createdAt": "2026-04-16T19:30:50.537Z"
     },
     {
       "id": "3a903f65-a5f7-490d-9aaf-eb431bb1effe",
@@ -12737,16 +12660,6 @@
       "amountReceived": 40.04,
       "appliedToRent": 35,
       "centavosAhorro": 0.04,
-      "installmentsDeducted": 1,
-      "balanceBefore": 170,
-      "balanceAfter": 135,
-      "savingsBefore": 0.04,
-      "savingsAfter": 0.08,
-      "installmentsPaidAfter": 184,
-      "installmentsRemainingAfter": 911,
-      "rentAmount": 35,
-      "frequency": "daily",
-      "createdAt": "2026-04-16T19:33:05.808Z",
       "otherChargesApplied": [
         {
           "label": "COLISION",
@@ -12758,7 +12671,17 @@
           "label": "COLISION",
           "amount": 814
         }
-      ]
+      ],
+      "installmentsDeducted": 1,
+      "balanceBefore": 170,
+      "balanceAfter": 135,
+      "savingsBefore": 0.04,
+      "savingsAfter": 0.08,
+      "installmentsPaidAfter": 184,
+      "installmentsRemainingAfter": 911,
+      "rentAmount": 35,
+      "frequency": "daily",
+      "createdAt": "2026-04-16T19:33:05.808Z"
     },
     {
       "id": "a3b9c53c-f4a7-4961-8a4d-ec861e140afa",
@@ -12797,6 +12720,12 @@
       "amountReceived": 26.23,
       "appliedToRent": 26,
       "centavosAhorro": 0.23,
+      "otherChargesDueAfter": [
+        {
+          "label": "REPARACION",
+          "amount": 1019
+        }
+      ],
       "installmentsDeducted": 0,
       "balanceBefore": 61,
       "balanceAfter": 35,
@@ -12807,13 +12736,7 @@
       "rentAmount": 198,
       "frequency": "weekly",
       "weeklyChargeDay": "monday",
-      "createdAt": "2026-04-16T19:36:23.321Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "REPARACION",
-          "amount": 1019
-        }
-      ]
+      "createdAt": "2026-04-16T19:36:23.321Z"
     },
     {
       "id": "e542ade1-3234-4cd4-b635-40751a990eda",
@@ -12828,6 +12751,12 @@
       "amountReceived": 150.17,
       "appliedToRent": 0,
       "centavosAhorro": 0.17,
+      "otherChargesApplied": [
+        {
+          "label": "ABONO",
+          "amount": 150
+        }
+      ],
       "installmentsDeducted": 0,
       "balanceBefore": 0,
       "balanceAfter": 0,
@@ -12837,13 +12766,7 @@
       "installmentsRemainingAfter": 730,
       "rentAmount": 29,
       "frequency": "daily",
-      "createdAt": "2026-04-16T19:40:39.158Z",
-      "otherChargesApplied": [
-        {
-          "label": "ABONO",
-          "amount": 150
-        }
-      ]
+      "createdAt": "2026-04-16T19:40:39.158Z"
     },
     {
       "id": "12174486-7f17-4008-bb58-947e060ca5b3",
@@ -12908,6 +12831,12 @@
       "amountReceived": 192.71,
       "appliedToRent": 192,
       "centavosAhorro": 0.71,
+      "otherChargesDueAfter": [
+        {
+          "label": "REPARACION",
+          "amount": 231
+        }
+      ],
       "installmentsDeducted": 1,
       "balanceBefore": 222,
       "balanceAfter": 30,
@@ -12918,13 +12847,7 @@
       "rentAmount": 192,
       "frequency": "weekly",
       "weeklyChargeDay": "tuesday",
-      "createdAt": "2026-04-16T19:55:04.404Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "REPARACION",
-          "amount": 231
-        }
-      ]
+      "createdAt": "2026-04-16T19:55:04.404Z"
     },
     {
       "id": "51b6edd0-1f8a-4c19-b23a-178bc044562d",
@@ -12949,334 +12872,6 @@
       "rentAmount": 299,
       "frequency": "biweekly",
       "createdAt": "2026-04-16T19:55:45.765Z"
-    },
-    {
-      "id": "f0665c1c-99aa-4854-bfa4-42e2474124d3",
-      "receiptNumber": "REC-0411",
-      "clientId": "20ac02fe-c07c-4144-b7fc-73196d717a5a",
-      "clientName": "ARMANDO ABDIEL CANTO FUENTES",
-      "clientUnit": "A80",
-      "clientCedula": "4-748-314",
-      "dateApplied": "2026-04-16",
-      "paymentMethod": "ACH Express",
-      "reference": "FOLIO:2048602197 | REF:21358354 | AUTO-ALTA-SIMILITUD | CR TRAN. ACH XPRESS//BANCO GENERAL-21358354-ARMANDO ABDIEL CA",
-      "amountReceived": 40.8,
-      "appliedToRent": 40,
-      "centavosAhorro": 0.8,
-      "installmentsDeducted": 0,
-      "balanceBefore": 633,
-      "balanceAfter": 593,
-      "savingsBefore": 0,
-      "savingsAfter": 0.8,
-      "installmentsPaidAfter": 0,
-      "installmentsRemainingAfter": 28,
-      "rentAmount": 192,
-      "frequency": "weekly",
-      "weeklyChargeDay": "monday",
-      "createdAt": "2026-04-16T19:57:12.416Z"
-    },
-    {
-      "id": "e39ec8f2-c255-486d-91bf-4ace5785d013",
-      "receiptNumber": "REC-0412",
-      "clientId": "c7f91375-d971-4a3e-a7cf-7455b256e1f7",
-      "clientName": "MICHAEL ALEXIS CENTENO RODRIUGUEZ",
-      "clientUnit": "A78",
-      "clientCedula": "8-835-581",
-      "dateApplied": "2026-04-16",
-      "paymentMethod": "ACH Express",
-      "reference": "FOLIO:2049312753 | REF:21370789 | CLASIFICADO-MANUAL | CR TRAN. ACH XPRESS//BANCO GENERAL-21370789-ROBERTO DANIEL PA",
-      "amountReceived": 120,
-      "appliedToRent": 0,
-      "centavosAhorro": 0,
-      "installmentsDeducted": 0,
-      "balanceBefore": 0,
-      "balanceAfter": 0,
-      "savingsBefore": 0,
-      "savingsAfter": 0,
-      "advanceApplied": 120,
-      "installmentsPaidAfter": 0,
-      "installmentsRemainingAfter": 56,
-      "rentAmount": 299,
-      "frequency": "biweekly",
-      "createdAt": "2026-04-16T20:13:11.588Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "DEPOSITO",
-          "amount": 120
-        }
-      ]
-    },
-    {
-      "id": "79d4368e-9161-482d-806b-388c979180a4",
-      "receiptNumber": "REC-0413",
-      "clientId": "c7f91375-d971-4a3e-a7cf-7455b256e1f7",
-      "clientName": "MICHAEL ALEXIS CENTENO RODRIUGUEZ",
-      "clientUnit": "A78",
-      "clientCedula": "8-835-581",
-      "dateApplied": "2026-04-16",
-      "paymentMethod": "Efectivo",
-      "amountReceived": 120,
-      "appliedToRent": 0,
-      "centavosAhorro": 0,
-      "installmentsDeducted": 0,
-      "balanceBefore": 0,
-      "balanceAfter": 0,
-      "savingsBefore": 0,
-      "savingsAfter": 0,
-      "installmentsPaidAfter": 0,
-      "installmentsRemainingAfter": 56,
-      "rentAmount": 299,
-      "frequency": "biweekly",
-      "createdAt": "2026-04-16T20:13:43.803Z",
-      "otherChargesApplied": [
-        {
-          "label": "DEPOSITO",
-          "amount": 120
-        }
-      ]
-    },
-    {
-      "id": "59a8c1ac-39c1-460e-82e6-bed6c7ad2d9c",
-      "receiptNumber": "REC-0414",
-      "clientId": "7618350f-ce22-47cc-8be9-c3f5eb5545b0",
-      "clientName": "GABRIEL ALBERTO BERMUDEZ MARTINEZ",
-      "clientUnit": "A53",
-      "clientCedula": "8-963-2114",
-      "dateApplied": "2026-04-16",
-      "paymentMethod": "ACH Express",
-      "reference": "FOLIO:2050060769 | REF:21390226 | AUTO-ALTA-SIMILITUD | CR TRAN. ACH XPRESS//BANCO GENERAL-21390226-CELINA IBETH MART",
-      "amountReceived": 53.53,
-      "appliedToRent": 53,
-      "centavosAhorro": 0.53,
-      "installmentsDeducted": 1,
-      "balanceBefore": 53,
-      "balanceAfter": 0,
-      "savingsBefore": 0.53,
-      "savingsAfter": 1.06,
-      "installmentsPaidAfter": 1,
-      "installmentsRemainingAfter": 146,
-      "rentAmount": 198,
-      "frequency": "weekly",
-      "weeklyChargeDay": "friday",
-      "createdAt": "2026-04-16T20:14:38.116Z"
-    },
-    {
-      "id": "d1cc1462-ca65-4884-87a7-7fb1aeac7070",
-      "receiptNumber": "REC-0415",
-      "clientId": "2a333862-688d-4fc0-8435-7d3f258c7310",
-      "clientName": "ANTONY JAVIER GALVEZ",
-      "clientUnit": "A42",
-      "clientCedula": "8-900-2162",
-      "dateApplied": "2026-04-16",
-      "paymentMethod": "ACH Express",
-      "reference": "FOLIO:2050215512 | REF:21391933 | CLASIFICADO-MANUAL | CR TRAN. ACH XPRESS//BANCO GENERAL-21391933-ANTONY JAVIER GAL",
-      "amountReceived": 150,
-      "appliedToRent": 0,
-      "centavosAhorro": 0,
-      "installmentsDeducted": 0,
-      "balanceBefore": 0,
-      "balanceAfter": 0,
-      "savingsBefore": 0,
-      "savingsAfter": 0,
-      "installmentsPaidAfter": 0,
-      "installmentsRemainingAfter": 790,
-      "rentAmount": 29,
-      "frequency": "daily",
-      "createdAt": "2026-04-16T20:21:27.968Z",
-      "otherChargesApplied": [
-        {
-          "label": "DEPOSITO",
-          "amount": 150
-        }
-      ]
-    },
-    {
-      "id": "63915f71-443d-4c3a-9b9b-89943c24f9f2",
-      "receiptNumber": "REC-0416",
-      "clientId": "2a17a6f2-0725-4d58-8804-eb60137e0f9f",
-      "clientName": "ABDIEL SABINO PEREZ VALDERRAMA",
-      "clientUnit": "A03",
-      "clientCedula": "8-765-2311",
-      "dateApplied": "2026-04-16",
-      "paymentMethod": "Efectivo",
-      "amountReceived": 192,
-      "appliedToRent": 192,
-      "centavosAhorro": 0,
-      "installmentsDeducted": 1,
-      "balanceBefore": 192,
-      "balanceAfter": 0,
-      "savingsBefore": 0,
-      "savingsAfter": 0,
-      "installmentsPaidAfter": 1,
-      "installmentsRemainingAfter": 148,
-      "rentAmount": 192,
-      "frequency": "weekly",
-      "weeklyChargeDay": "thursday",
-      "createdAt": "2026-04-16T20:36:56.042Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "REPARACION",
-          "amount": 168
-        }
-      ]
-    },
-    {
-      "id": "f006cfaf-abb4-4f5d-b361-e5a2927941b9",
-      "receiptNumber": "REC-0417",
-      "clientId": "f4692d3b-8939-4b01-bab4-8ef338c70a3e",
-      "clientName": "JOSE MANUEL MORALES",
-      "clientUnit": "T14",
-      "clientCedula": "4-755-721",
-      "dateApplied": "2026-04-16",
-      "paymentMethod": "ACH Express",
-      "reference": "FOLIO:2051198480 | REF:21404168 | AUTO-ALTA-SIMILITUD | CR TRAN. ACH XPRESS//BANCO GENERAL-21404168-JOSE MANUEL MORAL",
-      "amountReceived": 35.14,
-      "appliedToRent": 35,
-      "centavosAhorro": 0.14,
-      "installmentsDeducted": 1,
-      "balanceBefore": 256,
-      "balanceAfter": 221,
-      "savingsBefore": 0.31,
-      "savingsAfter": 0.45,
-      "installmentsPaidAfter": 350,
-      "installmentsRemainingAfter": 745,
-      "rentAmount": 35,
-      "frequency": "daily",
-      "createdAt": "2026-04-16T20:39:36.988Z"
-    },
-    {
-      "id": "2e669626-f9ea-4af2-8277-98d1fbf388a4",
-      "receiptNumber": "REC-0418",
-      "clientId": "e0f4e11c-9ef0-4176-9338-f993895f0960",
-      "clientName": "ZACARIAS ARAUZ VIQUEZ",
-      "clientUnit": "A13",
-      "clientCedula": "8-892-758",
-      "dateApplied": "2026-04-16",
-      "paymentMethod": "ACH Express",
-      "reference": "FOLIO:2051186902 | REF:21404047 | CLASIFICADO-MANUAL | CR TRAN. ACH XPRESS//BANCO GENERAL-21404047-ZACARIAS ARAUZ VI",
-      "amountReceived": 60.13,
-      "appliedToRent": 60,
-      "centavosAhorro": 0.13,
-      "installmentsDeducted": 0,
-      "balanceBefore": 144,
-      "balanceAfter": 84,
-      "savingsBefore": 0,
-      "savingsAfter": 0.13,
-      "installmentsPaidAfter": 0,
-      "installmentsRemainingAfter": 133,
-      "rentAmount": 192,
-      "frequency": "weekly",
-      "weeklyChargeDay": "monday",
-      "createdAt": "2026-04-16T20:44:32.033Z",
-      "otherChargesDueAfter": [
-        {
-          "label": "REPARACION",
-          "amount": 1454
-        }
-      ]
-    },
-    {
-      "id": "11eb4f62-be18-497b-8711-2ce97adaf4b9",
-      "receiptNumber": "REC-0419",
-      "clientId": "98c6ec62-4e13-4525-bf8c-a752894995ab",
-      "clientName": "ANGEL AMADO GARCIA VELASQUEZ",
-      "clientUnit": "C47",
-      "clientCedula": "8-927-193",
-      "dateApplied": "2026-04-16",
-      "paymentMethod": "Tarjeta",
-      "reference": "183.75 POR PUNTO, POR EL FEE BANCARIO",
-      "amountReceived": 175,
-      "appliedToRent": 0,
-      "centavosAhorro": 0,
-      "installmentsDeducted": 0,
-      "balanceBefore": 0,
-      "balanceAfter": 0,
-      "savingsBefore": 0,
-      "savingsAfter": 0,
-      "installmentsPaidAfter": 0,
-      "installmentsRemainingAfter": 913,
-      "rentAmount": 33,
-      "frequency": "daily",
-      "createdAt": "2026-04-16T21:31:01.048Z",
-      "otherChargesApplied": [
-        {
-          "label": "ABONO",
-          "amount": 175
-        }
-      ]
-    },
-    {
-      "id": "88d89fde-beb8-4ff6-a8ae-e39a118a2a4e",
-      "receiptNumber": "REC-0420",
-      "clientId": "399230eb-30d0-4ce9-bfd0-cb10a72aa5e4",
-      "clientName": "LUIS ALBERTO RIOS SERRANO",
-      "clientUnit": "A85",
-      "clientCedula": "4-810-839",
-      "dateApplied": "2026-04-16",
-      "paymentMethod": "ACH Express",
-      "reference": "FOLIO:2051372119 | REF:21406250 | AUTO-ALTA-SIMILITUD | CR TRAN. ACH XPRESS//BANCO GENERAL-21406250-LUIS ALBERTO RIOS",
-      "amountReceived": 20.85,
-      "appliedToRent": 20,
-      "centavosAhorro": 0.85,
-      "installmentsDeducted": 0,
-      "balanceBefore": 126,
-      "balanceAfter": 106,
-      "savingsBefore": 2.55,
-      "savingsAfter": 3.4,
-      "installmentsPaidAfter": 43,
-      "installmentsRemainingAfter": 870,
-      "rentAmount": 33,
-      "frequency": "daily",
-      "createdAt": "2026-04-16T21:33:50.783Z"
-    },
-    {
-      "id": "1c380584-6aa2-45af-840d-9e2be858f97a",
-      "receiptNumber": "REC-0421",
-      "clientId": "750a8de4-43af-4f49-9e2c-b1d84d9aa1c3",
-      "clientName": "JAMIR ASSLAN PONCE VILLAR",
-      "clientUnit": "A75",
-      "clientCedula": "8-926-1849",
-      "dateApplied": "2026-04-16",
-      "paymentMethod": "ACH Express",
-      "reference": "FOLIO:2051518646 | REF:21409992 | AUTO-ALTA-SIMILITUD | CR TRAN. ACH XPRESS//BANCO GENERAL-21409992-JAMIR ASSLAN PONC",
-      "amountReceived": 33.75,
-      "appliedToRent": 33,
-      "centavosAhorro": 0.75,
-      "installmentsDeducted": 1,
-      "balanceBefore": 132,
-      "balanceAfter": 99,
-      "savingsBefore": 0.75,
-      "savingsAfter": 1.5,
-      "installmentsPaidAfter": 2,
-      "installmentsRemainingAfter": 821,
-      "rentAmount": 33,
-      "frequency": "daily",
-      "createdAt": "2026-04-16T21:34:16.745Z"
-    },
-    {
-      "id": "1b420240-2125-4f5e-bebc-7a780f6610b1",
-      "receiptNumber": "REC-0422",
-      "clientId": "ef5feaec-e07b-498c-9c06-927935db0d8b",
-      "clientName": "JEAN CARLOS GONZALEZ PETRO",
-      "clientUnit": "T11",
-      "clientCedula": "8-833-1496",
-      "dateApplied": "2026-04-16",
-      "paymentMethod": "Transferencia Bancaria",
-      "reference": "FOLIO:2051398674 | REF:N/A | AUTO-ALTA-SIMILITUD | CR ACH//1408600-JEAN CARLO-TRANSFERENCIA A TERCE",
-      "amountReceived": 754,
-      "appliedToRent": 754,
-      "centavosAhorro": 0,
-      "installmentsDeducted": 1,
-      "balanceBefore": 754,
-      "balanceAfter": 0,
-      "savingsBefore": 0,
-      "savingsAfter": 0,
-      "installmentsPaidAfter": 24,
-      "installmentsRemainingAfter": 18,
-      "rentAmount": 754,
-      "frequency": "monthly",
-      "monthlyChargeDay": 15,
-      "createdAt": "2026-04-16T21:41:00.435Z"
     }
   ]
 }
