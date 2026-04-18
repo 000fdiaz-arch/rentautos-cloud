@@ -34,7 +34,7 @@ const INITIAL_EXPORT_FIELDS: ExportField[] = [
 ];
 
 const FREQUENCY_LABEL: Record<BillingFrequency, string> = {
-  daily: "Diaria",
+  daily: "Diario",
   weekly: "Semanal",
   biweekly: "Quincenal",
   monthly: "Mensual"
@@ -638,7 +638,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
                 </label>
                 <label>Frecuencia
                   <select value={form.frequency} onChange={(e) => setForm((c) => ({ ...c, frequency: e.target.value as BillingFrequency }))}>
-                    <option value="daily">Diaria</option>
+                    <option value="daily">Diario</option>
                     <option value="weekly">Semanal</option>
                     <option value="biweekly">Quincenal</option>
                     <option value="monthly">Mensual</option>
@@ -791,7 +791,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
             <label>
               Frecuencia
               <select value={form.frequency} onChange={(e) => setForm((c) => ({ ...c, frequency: e.target.value as BillingFrequency }))}>
-                <option value="daily">Diaria</option>
+                <option value="daily">Diario</option>
                 <option value="weekly">Semanal</option>
                 <option value="biweekly">Quincenal</option>
                 <option value="monthly">Mensual</option>
@@ -883,7 +883,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
           <input type="text" placeholder="Buscar por unidad, cliente o cedula" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           <select value={frequencyFilter} onChange={(e) => setFrequencyFilter(e.target.value as "all" | BillingFrequency)}>
             <option value="all">Todas las frecuencias</option>
-            <option value="daily">Diaria</option>
+            <option value="daily">Diario</option>
             <option value="weekly">Semanal</option>
             <option value="biweekly">Quincenal</option>
             <option value="monthly">Mensual</option>

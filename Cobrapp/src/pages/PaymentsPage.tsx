@@ -29,7 +29,7 @@ const CASH_CLOSING_AUDIT_KEY = "cobrapp.module2.cash_closing_audit.v1";
 const CHARGE_RUNS_KEY = "cobrapp.module2.charge_runs.v1";
 
 const FREQUENCY_LABEL: Record<string, string> = {
-  daily: "Diaria",
+  daily: "Diario",
   weekly: "Semanal",
   biweekly: "Quincenal",
   monthly: "Mensual"
@@ -129,6 +129,7 @@ type ChargeApplyResult = {
 type PendingBankPreview = {
   rentAmount: number;
   frequencyLabel: string;
+  installmentsAgreed: number;
   installmentsRemainingAfter: number;
   installmentsDeducted: number;
   balanceAfter: number;
@@ -733,7 +734,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
         "Ignorar"
       ].filter(Boolean).join(" ");
       const previewLabel = pendingPreview
-        ? `Renta ${formatCurrency(pendingPreview.rentAmount)} ${pendingPreview.frequencyLabel} Cuotas ${pendingPreview.installmentsRemainingAfter} Impacto ${pendingPreview.installmentsDeducted} Cobro ${formatCurrency(pendingPreview.balanceAfter)}`
+        ? `Renta ${formatCurrency(pendingPreview.rentAmount)} ${pendingPreview.frequencyLabel} Pactadas ${pendingPreview.installmentsAgreed} Cuotas ${pendingPreview.installmentsRemainingAfter} Impacto ${pendingPreview.installmentsDeducted} Cobro ${formatCurrency(pendingPreview.balanceAfter)}`
         : "Sin vista previa";
       const unitLabel = assignedClient ? `${assignedClient.unitId} ${assignedClient.name}` : "Sin asignar";
       const groupLabel = item.mappedGroup ? `Grupo ${item.mappedGroup}` : "";
@@ -1628,6 +1629,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     return {
       rentAmount,
       frequencyLabel: FREQUENCY_LABEL[client.frequency] ?? client.frequency,
+      installmentsAgreed: Math.max(0, client.installmentsAgreed ?? 0),
       installmentsRemainingAfter,
       installmentsDeducted,
       balanceAfter,
@@ -3039,6 +3041,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                               <div className="pending-preview-card">
                                 <div className="pending-preview-row"><span>Renta</span><strong>{formatCurrency(pendingPreview.rentAmount)}</strong></div>
                                 <div className="pending-preview-row"><span>Frecuencia</span><strong>{pendingPreview.frequencyLabel}</strong></div>
+                                <div className="pending-preview-row"><span>Cuotas pactadas</span><strong>{pendingPreview.installmentsAgreed}</strong></div>
                                 <div className="pending-preview-row"><span>Cuotas restantes despues del pago</span><strong>{pendingPreview.installmentsRemainingAfter}</strong></div>
                                 {pendingPreview.balanceAfter <= 0 && (
                                   <div className="pending-preview-row">
