@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": "2026-04-19T11:39:43.378Z",
+  "exportedAt": "2026-04-19T03:43:48.398Z",
   "clients": [
     {
       "id": "4dd9b32b-f507-45d0-9d03-c28248bb9153",
@@ -18,7 +18,7 @@
       "installmentsPaid": 250,
       "otherCharges": [],
       "createdAt": "2026-04-09T19:07:46.308Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -37,7 +37,7 @@
       "installmentsPaid": 21,
       "otherCharges": [],
       "createdAt": "2026-04-09T19:13:19.163Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -56,7 +56,7 @@
       "installmentsPaid": 39,
       "otherCharges": [],
       "createdAt": "2026-04-09T19:18:37.026Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "saturday"
     },
@@ -76,7 +76,7 @@
       "installmentsPaid": 24,
       "otherCharges": [],
       "createdAt": "2026-04-09T19:34:52.668Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "monthlyChargeDay": 15
     },
@@ -101,7 +101,7 @@
         }
       ],
       "createdAt": "2026-04-09T21:44:24.816Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -120,7 +120,7 @@
       "installmentsPaid": 152,
       "otherCharges": [],
       "createdAt": "2026-04-10T17:10:34.202Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -148,7 +148,7 @@
         }
       ],
       "createdAt": "2026-04-10T17:13:39.240Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -172,7 +172,7 @@
         }
       ],
       "createdAt": "2026-04-10T20:41:17.850Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -196,7 +196,7 @@
         }
       ],
       "createdAt": "2026-04-10T20:55:04.886Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -215,7 +215,7 @@
       "installmentsPaid": 501,
       "otherCharges": [],
       "createdAt": "2026-04-11T15:05:59.835Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -234,7 +234,7 @@
       "installmentsPaid": 86,
       "otherCharges": [],
       "createdAt": "2026-04-11T15:08:31.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -253,7 +253,7 @@
       "installmentsPaid": 573,
       "otherCharges": [],
       "createdAt": "2026-04-11T15:10:36.877Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -272,7 +272,7 @@
       "installmentsPaid": 53,
       "otherCharges": [],
       "createdAt": "2026-04-11T15:12:45.623Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -291,7 +291,7 @@
       "installmentsPaid": 553,
       "otherCharges": [],
       "createdAt": "2026-04-11T15:14:57.292Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -310,7 +310,7 @@
       "installmentsPaid": 170,
       "otherCharges": [],
       "createdAt": "2026-04-11T18:03:40.395Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -334,7 +334,7 @@
         }
       ],
       "createdAt": "2026-04-11T18:22:00.064Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -353,7 +353,7 @@
       "installmentsPaid": 51,
       "otherCharges": [],
       "createdAt": "2026-04-11T18:23:55.229Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -372,7 +372,7 @@
       "installmentsPaid": 75,
       "otherCharges": [],
       "createdAt": "2026-04-11T18:25:12.576Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -391,7 +391,7 @@
       "installmentsPaid": 42,
       "otherCharges": [],
       "createdAt": "2026-04-11T18:26:45.275Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -415,7 +415,7 @@
         }
       ],
       "createdAt": "2026-04-11T18:29:33.873Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -434,7 +434,7 @@
       "installmentsPaid": 9,
       "otherCharges": [],
       "createdAt": "2026-04-11T18:31:38.624Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "friday"
     },
@@ -454,14 +454,14 @@
       "installmentsPaid": 7,
       "otherCharges": [],
       "createdAt": "2026-04-11T18:33:48.497Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
       "id": "9861acc9-8404-4f5a-bd9e-1c5ead6fafa4",
       "unitId": "EX-D25",
-      "name": "JOEL ARTURO SANCHEZ COSSIO",
       "cedula": "8-856-432",
+      "name": "JOEL ARTURO SANCHEZ COSSIO",
       "rentAmount": 36,
       "frequency": "daily",
       "chargeFirstSunday": false,
@@ -493,7 +493,7 @@
       "installmentsPaid": 46,
       "otherCharges": [],
       "createdAt": "2026-04-11T18:37:54.586Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -512,7 +512,7 @@
       "installmentsPaid": 15,
       "otherCharges": [],
       "createdAt": "2026-04-11T18:45:47.681Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "saturday"
     },
@@ -533,7 +533,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-11T19:32:28.439Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -552,7 +552,7 @@
       "installmentsPaid": 38,
       "otherCharges": [],
       "createdAt": "2026-04-11T20:31:38.816Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -581,7 +581,7 @@
         }
       ],
       "createdAt": "2026-04-11T20:59:35.897Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -600,7 +600,7 @@
       "installmentsPaid": 37,
       "otherCharges": [],
       "createdAt": "2026-04-11T21:02:53.861Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -619,7 +619,7 @@
       "installmentsPaid": 57,
       "otherCharges": [],
       "createdAt": "2026-04-11T21:05:10.150Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -647,7 +647,7 @@
         }
       ],
       "createdAt": "2026-04-11T21:10:49.613Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -666,7 +666,7 @@
       "installmentsPaid": 38,
       "otherCharges": [],
       "createdAt": "2026-04-11T21:14:00.614Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "friday"
     },
@@ -686,7 +686,7 @@
       "installmentsPaid": 226,
       "otherCharges": [],
       "createdAt": "2026-04-11T21:16:20.342Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -714,7 +714,7 @@
         }
       ],
       "createdAt": "2026-04-11T21:20:53.925Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -738,7 +738,7 @@
         }
       ],
       "createdAt": "2026-04-11T21:24:26.811Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -757,7 +757,7 @@
       "installmentsPaid": 220,
       "otherCharges": [],
       "createdAt": "2026-04-11T21:26:41.351Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -781,7 +781,7 @@
         }
       ],
       "createdAt": "2026-04-11T21:30:47.546Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -809,7 +809,7 @@
         }
       ],
       "createdAt": "2026-04-11T21:35:00.497Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -828,7 +828,7 @@
       "installmentsPaid": 25,
       "otherCharges": [],
       "createdAt": "2026-04-11T22:03:48.890Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -847,7 +847,7 @@
       "installmentsPaid": 51,
       "otherCharges": [],
       "createdAt": "2026-04-11T22:14:06.746Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -867,7 +867,7 @@
       "installmentsPaid": 41,
       "otherCharges": [],
       "createdAt": "2026-04-11T22:16:59.883Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -886,7 +886,7 @@
       "installmentsPaid": 31,
       "otherCharges": [],
       "createdAt": "2026-04-11T22:18:27.297Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -905,7 +905,7 @@
       "installmentsPaid": 69,
       "otherCharges": [],
       "createdAt": "2026-04-11T22:22:46.654Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -929,7 +929,7 @@
         }
       ],
       "createdAt": "2026-04-11T22:26:09.434Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -953,7 +953,7 @@
         }
       ],
       "createdAt": "2026-04-11T22:29:25.198Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -972,7 +972,7 @@
       "installmentsPaid": 171,
       "otherCharges": [],
       "createdAt": "2026-04-11T22:32:03.636Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -991,7 +991,7 @@
       "installmentsPaid": 22,
       "otherCharges": [],
       "createdAt": "2026-04-11T22:39:27.365Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1010,7 +1010,7 @@
       "installmentsPaid": 2,
       "otherCharges": [],
       "createdAt": "2026-04-11T22:42:51.658Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1034,7 +1034,7 @@
         }
       ],
       "createdAt": "2026-04-11T22:46:49.158Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1045,8 +1045,7 @@
       "rentAmount": 35,
       "frequency": "daily",
       "chargeFirstSunday": true,
-      "firstSundayChargedAt": "2026-04-19",
-      "balance": 105,
+      "balance": 70,
       "advanceBalance": 0,
       "savings": 2.5,
       "installmentsAgreed": 1095,
@@ -1054,7 +1053,7 @@
       "installmentsPaid": 9,
       "otherCharges": [],
       "createdAt": "2026-04-11T22:48:37.252Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1073,7 +1072,7 @@
       "installmentsPaid": 37,
       "otherCharges": [],
       "createdAt": "2026-04-11T22:54:49.048Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1092,7 +1091,7 @@
       "installmentsPaid": 7,
       "otherCharges": [],
       "createdAt": "2026-04-13T14:40:01.785Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -1112,7 +1111,7 @@
       "installmentsPaid": 259,
       "otherCharges": [],
       "createdAt": "2026-04-13T14:45:45.015Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1131,7 +1130,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "saturday"
     },
@@ -1151,7 +1150,7 @@
       "installmentsPaid": 55,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1170,7 +1169,7 @@
       "installmentsPaid": 18,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -1190,7 +1189,7 @@
       "installmentsPaid": 2,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "wednesday"
     },
@@ -1210,7 +1209,7 @@
       "installmentsPaid": 18,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -1230,7 +1229,7 @@
       "installmentsPaid": 6,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1254,7 +1253,7 @@
         }
       ],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1278,7 +1277,7 @@
         }
       ],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "saturday"
     },
@@ -1298,7 +1297,7 @@
       "installmentsPaid": 91,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1338,7 +1337,7 @@
       "installmentsPaid": 15,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -1358,7 +1357,7 @@
       "installmentsPaid": 14,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -1378,7 +1377,7 @@
       "installmentsPaid": 5,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1397,7 +1396,7 @@
       "installmentsPaid": 41,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1416,7 +1415,7 @@
       "installmentsPaid": 7,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -1436,7 +1435,7 @@
       "installmentsPaid": 11,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -1456,7 +1455,7 @@
       "installmentsPaid": 15,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1475,7 +1474,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "wednesday"
     },
@@ -1495,7 +1494,7 @@
       "installmentsPaid": 4,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1514,7 +1513,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1533,7 +1532,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1557,7 +1556,7 @@
         }
       ],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -1577,7 +1576,7 @@
       "installmentsPaid": 10,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1596,14 +1595,14 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-13T22:43:57.326Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
       "id": "f4692d3b-8939-4b01-bab4-8ef338c70a3e",
       "unitId": "T14",
-      "name": "JOSE MANUEL MORALES",
       "cedula": "4-755-721",
+      "name": "JOSE MANUEL MORALES",
       "rentAmount": 35,
       "frequency": "daily",
       "chargeFirstSunday": false,
@@ -1615,7 +1614,7 @@
       "installmentsPaid": 352,
       "otherCharges": [],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1634,7 +1633,7 @@
       "installmentsPaid": 235,
       "otherCharges": [],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1653,7 +1652,7 @@
       "installmentsPaid": 191,
       "otherCharges": [],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1672,7 +1671,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -1692,7 +1691,7 @@
       "installmentsPaid": 601,
       "otherCharges": [],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1711,7 +1710,7 @@
       "installmentsPaid": 14,
       "otherCharges": [],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1730,7 +1729,7 @@
       "installmentsPaid": 10,
       "otherCharges": [],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1749,7 +1748,7 @@
       "installmentsPaid": 35,
       "otherCharges": [],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1773,7 +1772,7 @@
         }
       ],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1792,7 +1791,7 @@
       "installmentsPaid": 46,
       "otherCharges": [],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1816,7 +1815,7 @@
         }
       ],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1835,7 +1834,7 @@
       "installmentsPaid": 17,
       "otherCharges": [],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -1855,7 +1854,7 @@
       "installmentsPaid": 25,
       "otherCharges": [],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1874,7 +1873,7 @@
       "installmentsPaid": 101,
       "otherCharges": [],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1893,7 +1892,7 @@
       "installmentsPaid": 2,
       "otherCharges": [],
       "createdAt": "2026-04-14T14:55:20.563Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -1913,7 +1912,7 @@
       "installmentsPaid": 269,
       "otherCharges": [],
       "createdAt": "2026-04-14T15:43:11.713Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1932,7 +1931,7 @@
       "installmentsPaid": 776,
       "otherCharges": [],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1956,7 +1955,7 @@
         }
       ],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1975,7 +1974,7 @@
       "installmentsPaid": 19,
       "otherCharges": [],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -1999,7 +1998,7 @@
         }
       ],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -2019,7 +2018,7 @@
       "installmentsPaid": 44,
       "otherCharges": [],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2043,7 +2042,7 @@
         }
       ],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2062,7 +2061,7 @@
       "installmentsPaid": 1160,
       "otherCharges": [],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -2091,7 +2090,7 @@
         }
       ],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2110,7 +2109,7 @@
       "installmentsPaid": 153,
       "otherCharges": [],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2134,7 +2133,7 @@
         }
       ],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2158,7 +2157,7 @@
         }
       ],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2182,7 +2181,7 @@
         }
       ],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2201,7 +2200,7 @@
       "installmentsPaid": 592,
       "otherCharges": [],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2220,7 +2219,7 @@
       "installmentsPaid": 242,
       "otherCharges": [],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2239,7 +2238,7 @@
       "installmentsPaid": 145,
       "otherCharges": [],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -2259,7 +2258,7 @@
       "installmentsPaid": 26,
       "otherCharges": [],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2278,7 +2277,7 @@
       "installmentsPaid": 6,
       "otherCharges": [],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2302,7 +2301,7 @@
         }
       ],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2330,7 +2329,7 @@
         }
       ],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2349,7 +2348,7 @@
       "installmentsPaid": 107,
       "otherCharges": [],
       "createdAt": "2026-04-14T21:31:05.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -2369,7 +2368,7 @@
       "installmentsPaid": 45,
       "otherCharges": [],
       "createdAt": "2026-04-15T15:23:35.465Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2393,7 +2392,7 @@
         }
       ],
       "createdAt": "2026-04-15T15:26:47.112Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2417,7 +2416,7 @@
         }
       ],
       "createdAt": "2026-04-15T15:29:54.751Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2436,7 +2435,7 @@
       "installmentsPaid": 30,
       "otherCharges": [],
       "createdAt": "2026-04-15T15:33:34.477Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -2456,7 +2455,7 @@
       "installmentsPaid": 2,
       "otherCharges": [],
       "createdAt": "2026-04-15T15:35:22.509Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "wednesday"
     },
@@ -2476,7 +2475,7 @@
       "installmentsPaid": 36,
       "otherCharges": [],
       "createdAt": "2026-04-15T15:38:38.094Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2495,7 +2494,7 @@
       "installmentsPaid": 30,
       "otherCharges": [],
       "createdAt": "2026-04-15T15:43:03.540Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -2515,7 +2514,7 @@
       "installmentsPaid": 2,
       "otherCharges": [],
       "createdAt": "2026-04-15T15:45:31.840Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2534,7 +2533,7 @@
       "installmentsPaid": 420,
       "otherCharges": [],
       "createdAt": "2026-04-15T15:53:54.777Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2553,7 +2552,7 @@
       "installmentsPaid": 53,
       "otherCharges": [],
       "createdAt": "2026-04-15T16:30:02.352Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2572,7 +2571,7 @@
       "installmentsPaid": 100,
       "otherCharges": [],
       "createdAt": "2026-04-15T16:39:26.000Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2591,7 +2590,7 @@
       "installmentsPaid": 12,
       "otherCharges": [],
       "createdAt": "2026-04-15T16:50:12.112Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2610,7 +2609,7 @@
       "installmentsPaid": 11,
       "otherCharges": [],
       "createdAt": "2026-04-15T16:55:47.701Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2633,7 +2632,7 @@
         }
       ],
       "createdAt": "2026-04-15T17:26:19.889Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2652,7 +2651,7 @@
       "installmentsPaid": 363,
       "otherCharges": [],
       "createdAt": "2026-04-15T17:34:42.330Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2671,7 +2670,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-15T17:37:19.754Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "saturday"
     },
@@ -2691,7 +2690,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-15T17:40:22.309Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "wednesday"
     },
@@ -2711,7 +2710,7 @@
       "installmentsPaid": 35,
       "otherCharges": [],
       "createdAt": "2026-04-15T17:43:17.175Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -2731,7 +2730,7 @@
       "installmentsPaid": 65,
       "otherCharges": [],
       "createdAt": "2026-04-15T18:58:27.686Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2750,7 +2749,7 @@
       "installmentsPaid": 3,
       "otherCharges": [],
       "createdAt": "2026-04-15T19:03:24.618Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2769,7 +2768,7 @@
       "installmentsPaid": 105,
       "otherCharges": [],
       "createdAt": "2026-04-15T19:05:05.114Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2793,7 +2792,7 @@
         }
       ],
       "createdAt": "2026-04-15T20:47:14.036Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2812,7 +2811,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-15T20:54:35.435Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2831,7 +2830,7 @@
       "installmentsPaid": 4,
       "otherCharges": [],
       "createdAt": "2026-04-15T20:56:43.253Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2850,7 +2849,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-15T21:00:36.242Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -2870,7 +2869,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-15T21:12:35.397Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2889,7 +2888,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-15T21:15:06.576Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -2914,7 +2913,7 @@
         }
       ],
       "createdAt": "2026-04-15T21:33:23.879Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -2934,7 +2933,7 @@
       "installmentsPaid": 32,
       "otherCharges": [],
       "createdAt": "2026-04-15T21:36:00.436Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2953,7 +2952,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-15T21:43:05.314Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2972,7 +2971,7 @@
       "installmentsPaid": 5,
       "otherCharges": [],
       "createdAt": "2026-04-15T21:45:53.608Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -2991,7 +2990,7 @@
       "installmentsPaid": 2,
       "otherCharges": [],
       "createdAt": "2026-04-15T22:18:59.343Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3010,7 +3009,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-15T22:39:05.443Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -3030,7 +3029,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-15T22:40:53.958Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -3050,7 +3049,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-15T22:45:00.675Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "friday"
     },
@@ -3070,7 +3069,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-15T22:48:55.053Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "saturday"
     },
@@ -3090,7 +3089,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-16T15:12:48.321Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3109,7 +3108,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-16T15:15:06.492Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "saturday"
     },
@@ -3134,7 +3133,7 @@
         }
       ],
       "createdAt": "2026-04-16T15:38:16.623Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -3154,7 +3153,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-16T15:46:35.005Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3173,7 +3172,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-16T15:49:21.975Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3192,7 +3191,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-16T16:05:28.715Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -3217,7 +3216,7 @@
         }
       ],
       "createdAt": "2026-04-16T16:09:32.727Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -3237,7 +3236,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-16T16:11:16.793Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "saturday"
     },
@@ -3257,7 +3256,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-16T16:35:39.295Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -3277,7 +3276,7 @@
       "installmentsPaid": 2,
       "otherCharges": [],
       "createdAt": "2026-04-16T16:37:09.658Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3296,7 +3295,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-16T16:40:48.315Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -3316,7 +3315,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-16T16:42:02.740Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -3345,7 +3344,7 @@
         }
       ],
       "createdAt": "2026-04-16T17:08:53.099Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3364,7 +3363,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-16T17:17:30.808Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3383,7 +3382,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-16T17:19:34.824Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -3395,8 +3394,7 @@
       "rentAmount": 35,
       "frequency": "daily",
       "chargeFirstSunday": true,
-      "firstSundayChargedAt": "2026-04-19",
-      "balance": 70,
+      "balance": 35,
       "advanceBalance": 0,
       "savings": 0.72,
       "installmentsAgreed": 1095,
@@ -3404,7 +3402,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-16T17:21:06.528Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3423,7 +3421,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-16T17:24:27.953Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "friday"
     },
@@ -3452,7 +3450,7 @@
         }
       ],
       "createdAt": "2026-04-16T17:26:36.183Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "friday"
     },
@@ -3472,7 +3470,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-16T17:32:57.170Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "saturday"
     },
@@ -3492,7 +3490,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-16T17:34:28.685Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -3504,8 +3502,7 @@
       "rentAmount": 33,
       "frequency": "daily",
       "chargeFirstSunday": true,
-      "firstSundayChargedAt": "2026-04-19",
-      "balance": 33,
+      "balance": 0,
       "advanceBalance": 0,
       "savings": 1.08,
       "installmentsAgreed": 852,
@@ -3513,7 +3510,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-16T18:14:45.652Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3532,7 +3529,7 @@
       "installmentsPaid": 13,
       "otherCharges": [],
       "createdAt": "2026-04-16T18:25:06.116Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -3544,8 +3541,7 @@
       "rentAmount": 29,
       "frequency": "daily",
       "chargeFirstSunday": true,
-      "firstSundayChargedAt": "2026-04-19",
-      "balance": 87,
+      "balance": 58,
       "advanceBalance": 0,
       "savings": 0.17,
       "installmentsAgreed": 730,
@@ -3553,7 +3549,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-16T18:34:18.274Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3572,7 +3568,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-16T19:43:22.696Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -3597,7 +3593,7 @@
         }
       ],
       "createdAt": "2026-04-16T19:54:17.998Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -3617,7 +3613,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-16T19:56:50.750Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -3637,7 +3633,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-16T20:11:08.288Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3648,8 +3644,7 @@
       "rentAmount": 29,
       "frequency": "daily",
       "chargeFirstSunday": true,
-      "firstSundayChargedAt": "2026-04-19",
-      "balance": 29,
+      "balance": 0,
       "advanceBalance": 0,
       "savings": 0.84,
       "installmentsAgreed": 790,
@@ -3657,7 +3652,7 @@
       "installmentsPaid": 2,
       "otherCharges": [],
       "createdAt": "2026-04-16T20:20:10.743Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3668,8 +3663,7 @@
       "rentAmount": 33,
       "frequency": "daily",
       "chargeFirstSunday": true,
-      "firstSundayChargedAt": "2026-04-19",
-      "balance": 65,
+      "balance": 32,
       "advanceBalance": 0,
       "savings": 0,
       "installmentsAgreed": 913,
@@ -3677,7 +3671,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-16T21:25:38.040Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3709,18 +3703,18 @@
         }
       ],
       "createdAt": "2026-04-16T22:15:33.726Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
       "id": "0aeca48d-56fb-40d5-90e1-f97d782e9d96",
       "unitId": "T03",
-      "cedula": "8-381-124",
       "name": "ANAYANSI EDITH CIGARRUISTA MURGAS",
+      "cedula": "8-381-124",
       "rentAmount": 30,
       "frequency": "daily",
       "chargeFirstSunday": false,
-      "balance": 22,
+      "balance": 0,
       "advanceBalance": 8,
       "savings": 0.99,
       "installmentsAgreed": 730,
@@ -3728,7 +3722,7 @@
       "installmentsPaid": 4,
       "otherCharges": [],
       "createdAt": "2026-04-17T04:12:30.157Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3752,7 +3746,7 @@
         }
       ],
       "createdAt": "2026-04-17T17:14:31.661Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "saturday"
     },
@@ -3772,7 +3766,7 @@
       "installmentsPaid": 20,
       "otherCharges": [],
       "createdAt": "2026-04-17T17:23:52.273Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3791,7 +3785,7 @@
       "installmentsPaid": 187,
       "otherCharges": [],
       "createdAt": "2026-04-17T17:40:29.920Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3810,7 +3804,7 @@
       "installmentsPaid": 23,
       "otherCharges": [],
       "createdAt": "2026-04-17T18:05:01.611Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3829,7 +3823,7 @@
       "installmentsPaid": 107,
       "otherCharges": [],
       "createdAt": "2026-04-17T18:36:09.831Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3848,7 +3842,7 @@
       "installmentsPaid": 30,
       "otherCharges": [],
       "createdAt": "2026-04-17T18:40:43.157Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -3868,7 +3862,7 @@
       "installmentsPaid": 12,
       "otherCharges": [],
       "createdAt": "2026-04-17T18:42:44.175Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -3888,7 +3882,7 @@
       "installmentsPaid": 7,
       "otherCharges": [],
       "createdAt": "2026-04-17T18:46:19.420Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "friday"
     },
@@ -3908,7 +3902,7 @@
       "installmentsPaid": 28,
       "otherCharges": [],
       "createdAt": "2026-04-17T18:50:09.967Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "friday"
     },
@@ -3928,7 +3922,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-17T19:11:35.547Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3947,7 +3941,7 @@
       "installmentsPaid": 32,
       "otherCharges": [],
       "createdAt": "2026-04-17T19:36:08.774Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3966,7 +3960,7 @@
       "installmentsPaid": 109,
       "otherCharges": [],
       "createdAt": "2026-04-17T19:38:22.599Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -3985,7 +3979,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-18T15:04:35.458Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "wednesday"
     },
@@ -4005,7 +3999,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-18T15:30:51.696Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "saturday"
     },
@@ -4025,7 +4019,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-18T15:35:02.815Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "wednesday"
     },
@@ -4044,7 +4038,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-18T15:38:19.959Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "saturday"
     },
@@ -4063,7 +4057,7 @@
       "installmentsPaid": 2,
       "otherCharges": [],
       "createdAt": "2026-04-18T15:55:17.842Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "thursday"
     },
@@ -4087,7 +4081,7 @@
         }
       ],
       "createdAt": "2026-04-18T16:18:59.297Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "saturday"
     },
@@ -4106,7 +4100,7 @@
       "installmentsPaid": 28,
       "otherCharges": [],
       "createdAt": "2026-04-18T16:59:55.808Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -4124,7 +4118,7 @@
       "installmentsPaid": 23,
       "otherCharges": [],
       "createdAt": "2026-04-18T18:12:37.049Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -4148,7 +4142,7 @@
         }
       ],
       "createdAt": "2026-04-18T19:46:38.014Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -4167,7 +4161,7 @@
       "installmentsPaid": 18,
       "otherCharges": [],
       "createdAt": "2026-04-18T20:41:42.864Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -4185,7 +4179,7 @@
       "installmentsPaid": 8,
       "otherCharges": [],
       "createdAt": "2026-04-18T20:59:57.977Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "monthlyChargeDay": 17
     },
@@ -4204,7 +4198,7 @@
       "installmentsPaid": 14,
       "otherCharges": [],
       "createdAt": "2026-04-18T21:01:36.816Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -4222,7 +4216,7 @@
       "installmentsPaid": 43,
       "otherCharges": [],
       "createdAt": "2026-04-18T21:05:05.544Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -4240,7 +4234,7 @@
       "installmentsPaid": 19,
       "otherCharges": [],
       "createdAt": "2026-04-18T21:07:10.832Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -4258,7 +4252,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-18T21:08:20.331Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -4276,7 +4270,7 @@
       "installmentsPaid": 41,
       "otherCharges": [],
       "createdAt": "2026-04-18T21:35:17.768Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "wednesday"
     },
@@ -4295,7 +4289,7 @@
       "installmentsPaid": 13,
       "otherCharges": [],
       "createdAt": "2026-04-18T21:37:46.988Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "wednesday"
     },
@@ -4314,7 +4308,7 @@
       "installmentsPaid": 2,
       "otherCharges": [],
       "createdAt": "2026-04-18T21:39:43.929Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -4333,7 +4327,7 @@
       "installmentsPaid": 8,
       "otherCharges": [],
       "createdAt": "2026-04-18T21:41:57.207Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "monthlyChargeDay": 30
     },
@@ -4352,7 +4346,7 @@
       "installmentsPaid": 15,
       "otherCharges": [],
       "createdAt": "2026-04-18T21:44:12.755Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "monthlyChargeDay": 15
     },
@@ -4371,7 +4365,7 @@
       "installmentsPaid": 2,
       "otherCharges": [],
       "createdAt": "2026-04-18T21:45:41.430Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "wednesday"
     },
@@ -4390,7 +4384,7 @@
       "installmentsPaid": 49,
       "otherCharges": [],
       "createdAt": "2026-04-18T21:56:22.510Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "tuesday"
     },
@@ -4409,7 +4403,7 @@
       "installmentsPaid": 71,
       "otherCharges": [],
       "createdAt": "2026-04-18T21:57:12.725Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "friday"
     },
@@ -4428,7 +4422,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-18T22:00:32.574Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "friday"
     },
@@ -4447,7 +4441,7 @@
       "installmentsPaid": 54,
       "otherCharges": [],
       "createdAt": "2026-04-18T22:04:01.375Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -4466,7 +4460,7 @@
       "installmentsPaid": 28,
       "otherCharges": [],
       "createdAt": "2026-04-18T22:07:47.788Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -4484,7 +4478,7 @@
       "installmentsPaid": 25,
       "otherCharges": [],
       "createdAt": "2026-04-18T22:10:08.253Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -4502,7 +4496,7 @@
       "installmentsPaid": 62,
       "otherCharges": [],
       "createdAt": "2026-04-18T22:11:24.533Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active",
       "weeklyChargeDay": "monday"
     },
@@ -4521,7 +4515,7 @@
       "installmentsPaid": 1,
       "otherCharges": [],
       "createdAt": "2026-04-18T22:15:33.953Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     },
     {
@@ -4539,31 +4533,7 @@
       "installmentsPaid": 0,
       "otherCharges": [],
       "createdAt": "2026-04-19T03:38:57.855Z",
-      "lastChargeDate": "2026-04-19",
-      "status": "active"
-    },
-    {
-      "id": "44a23f1a-283e-4784-8d3b-602874368afd",
-      "unitId": "D25",
-      "name": "ANTONIO CARLOS MEDINA BERNAL",
-      "rentAmount": 35,
-      "frequency": "daily",
-      "chargeFirstSunday": true,
-      "firstSundayChargedAt": "2026-04-19",
-      "balance": 70,
-      "advanceBalance": 0,
-      "savings": 0.25,
-      "installmentsAgreed": 1095,
-      "installmentsRemaining": 1095,
-      "installmentsPaid": 0,
-      "otherCharges": [
-        {
-          "label": "ABONO",
-          "amount": 25
-        }
-      ],
-      "createdAt": "2026-04-19T03:46:02.918Z",
-      "lastChargeDate": "2026-04-19",
+      "lastChargeDate": "2026-04-18",
       "status": "active"
     }
   ],
@@ -19999,6 +19969,12 @@
       "amountReceived": 616.4,
       "appliedToRent": 0,
       "centavosAhorro": 0.4,
+      "otherChargesApplied": [
+        {
+          "label": "DEPOSITO",
+          "amount": 616
+        }
+      ],
       "installmentsDeducted": 0,
       "balanceBefore": 0,
       "balanceAfter": 0,
@@ -20008,13 +19984,7 @@
       "installmentsRemainingAfter": 85,
       "rentAmount": 416,
       "frequency": "biweekly",
-      "createdAt": "2026-04-19T03:39:13.539Z",
-      "otherChargesApplied": [
-        {
-          "label": "DEPOSITO",
-          "amount": 616
-        }
-      ]
+      "createdAt": "2026-04-19T03:39:13.539Z"
     },
     {
       "id": "29ede791-aa3f-4f4c-8d44-7bd5e78980e1",
@@ -20063,75 +20033,6 @@
       "rentAmount": 416,
       "frequency": "biweekly",
       "createdAt": "2026-04-19T03:41:24.356Z"
-    },
-    {
-      "id": "121dba8c-26e7-4fa8-a4d1-1d2e5c3235a2",
-      "receiptNumber": "REC-0656",
-      "clientId": "44a23f1a-283e-4784-8d3b-602874368afd",
-      "clientName": "ANTONIO CARLOS MEDINA BERNAL",
-      "clientUnit": "D25",
-      "dateApplied": "2026-04-18",
-      "paymentMethod": "ACH Express",
-      "reference": "FOLIO:2059950254 | REF:21540546 | CLASIFICADO-MANUAL | CR TRAN. ACH XPRESS//BANCO GENERAL-21540546-AIMETH SUGEY HURT",
-      "amountReceived": 114.25,
-      "appliedToRent": 0,
-      "centavosAhorro": 0.25,
-      "installmentsDeducted": 0,
-      "balanceBefore": 35,
-      "balanceAfter": 35,
-      "savingsBefore": 0,
-      "savingsAfter": 0.25,
-      "installmentsPaidAfter": 0,
-      "installmentsRemainingAfter": 1095,
-      "rentAmount": 35,
-      "frequency": "daily",
-      "createdAt": "2026-04-19T03:48:03.381Z",
-      "otherChargesApplied": [
-        {
-          "label": "ABONO",
-          "amount": 114
-        }
-      ],
-      "otherChargesDueAfter": [
-        {
-          "label": "ABONO",
-          "amount": 36
-        }
-      ]
-    },
-    {
-      "id": "1349b6c0-f6c2-4bfa-ae00-73efd73dc09f",
-      "receiptNumber": "REC-0658",
-      "clientId": "44a23f1a-283e-4784-8d3b-602874368afd",
-      "clientName": "ANTONIO CARLOS MEDINA BERNAL",
-      "clientUnit": "D25",
-      "dateApplied": "2026-04-18",
-      "paymentMethod": "Efectivo",
-      "amountReceived": 11,
-      "appliedToRent": 0,
-      "centavosAhorro": 0,
-      "installmentsDeducted": 0,
-      "balanceBefore": 35,
-      "balanceAfter": 35,
-      "savingsBefore": 0.25,
-      "savingsAfter": 0.25,
-      "installmentsPaidAfter": 0,
-      "installmentsRemainingAfter": 1095,
-      "rentAmount": 35,
-      "frequency": "daily",
-      "createdAt": "2026-04-19T03:49:21.982Z",
-      "otherChargesApplied": [
-        {
-          "label": "ABONO",
-          "amount": 11
-        }
-      ],
-      "otherChargesDueAfter": [
-        {
-          "label": "ABONO",
-          "amount": 25
-        }
-      ]
     }
   ]
 }

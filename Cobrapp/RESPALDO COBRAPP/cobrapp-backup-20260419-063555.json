@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": "2026-04-19T11:39:43.378Z",
+  "exportedAt": "2026-04-19T11:35:55.132Z",
   "clients": [
     {
       "id": "4dd9b32b-f507-45d0-9d03-c28248bb9153",
@@ -3715,12 +3715,12 @@
     {
       "id": "0aeca48d-56fb-40d5-90e1-f97d782e9d96",
       "unitId": "T03",
-      "cedula": "8-381-124",
       "name": "ANAYANSI EDITH CIGARRUISTA MURGAS",
+      "cedula": "8-381-124",
       "rentAmount": 30,
       "frequency": "daily",
       "chargeFirstSunday": false,
-      "balance": 22,
+      "balance": 0,
       "advanceBalance": 8,
       "savings": 0.99,
       "installmentsAgreed": 730,

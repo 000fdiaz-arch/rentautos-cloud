@@ -224,38 +224,39 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   return (
     <>
       <div className="receipt-header">
-        <div className="receipt-header-left">
-          <div className="receipt-brand-sub receipt-brand-sub--title">Comprobante de pago</div>
-          <div className="receipt-header-info-row">
-            <div className="receipt-header-meta">
-              <div className="receipt-brand-sub">Unidad: {payment.clientUnit}</div>
-              <div className="receipt-brand-sub">Plan: {frequencyLabel}</div>
-              <div className="receipt-brand-sub">Renta: {formatCurrency(payment.rentAmount)}</div>
-              <div className="receipt-brand-sub">Cuotas pagadas: {payment.installmentsPaidAfter}</div>
-            </div>
-            <div className={`receipt-overdue-banner receipt-overdue-banner--inline ${hasPending ? "" : "receipt-overdue-banner--ok"}`}>
-              <span className="receipt-overdue-icon">{hasPending ? "!" : <strong>OK</strong>}</span>
-              <div>
-                <div className="receipt-overdue-title">{hasPending ? "TIENES SALDO PENDIENTE" : "ESTAS AL DIA"}</div>
-                <div className="receipt-overdue-sub">
-                  {hasPending ? (
-                    <>
-                      {overdueAfter > 0 && (
-                        <> Cuotas atrasadas: {formatCurrency(moroseBalanceToday)} ({overdueAfter} {overdueAfter === 1 ? "cuota" : "cuotas"}).</>
-                      )}
-                      {otherChargesDueTotal > 0 && (
-                        <> Otros cargos: {formatCurrency(otherChargesDueTotal)}.</>
-                      )}
-                    </>
-                  ) : "No tienes saldo pendiente."}
-                </div>
+        <div className="receipt-header-top">
+          <div className="receipt-date receipt-date--left">{formatDateSpanish(payment.dateApplied)}</div>
+          <div className="receipt-number receipt-number--right">{payment.receiptNumber}</div>
+        </div>
+        <div className="receipt-brand-sub receipt-brand-sub--title">COMPROBANTE DE PAGO</div>
+        <div className="receipt-header-info-row">
+          <div className="receipt-header-meta">
+            <div className="receipt-brand-sub">Unidad: {payment.clientUnit}</div>
+            <div className="receipt-brand-sub">Plan: {frequencyLabel}</div>
+            <div className="receipt-brand-sub">Renta: {formatCurrency(payment.rentAmount)}</div>
+            <div className="receipt-brand-sub">Cuotas pagadas: {payment.installmentsPaidAfter}</div>
+            {hasPending && debtSinceLabel && (
+              <div className="receipt-brand-sub receipt-header-debt-since">Debe desde: {debtSinceLabel}</div>
+            )}
+          </div>
+          <div className={`receipt-overdue-banner receipt-overdue-banner--inline ${hasPending ? "" : "receipt-overdue-banner--ok"}`}>
+            <span className="receipt-overdue-icon">{hasPending ? "!" : <strong>OK</strong>}</span>
+            <div>
+              <div className="receipt-overdue-title">{hasPending ? "TIENES SALDO PENDIENTE" : "ESTAS AL DIA"}</div>
+              <div className="receipt-overdue-sub">
+                {hasPending ? (
+                  <>
+                    {overdueAfter > 0 && (
+                      <> Cuotas atrasadas: {formatCurrency(moroseBalanceToday)} ({overdueAfter} {overdueAfter === 1 ? "cuota" : "cuotas"}).</>
+                    )}
+                    {otherChargesDueTotal > 0 && (
+                      <> Otros cargos: {formatCurrency(otherChargesDueTotal)}.</>
+                    )}
+                  </>
+                ) : "No tienes saldo pendiente."}
               </div>
             </div>
           </div>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <div className="receipt-number">{payment.receiptNumber}</div>
-          <div className="receipt-date">{formatDateSpanish(payment.dateApplied)}</div>
         </div>
       </div>
 
@@ -278,31 +279,25 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
       </div>
 
       <div className="receipt-section">
-        <div className="receipt-simple-title">LO QUE PAGO</div>
+        <div className="receipt-simple-title">PAGOS APLICADOS</div>
         <div className="receipt-subrow">
-          <span>Pago hoy</span>
+          <span>Pagaste hoy</span>
           <span>{formatCurrency(payment.amountReceived)}</span>
         </div>
         <div className="receipt-subrow">
-          <span>{advanceApplied > 0 ? "Se aplico a renta (incluye pago adelantado)" : "Se aplico a renta"}</span>
+          <span>{advanceApplied > 0 ? "Aplicado a renta (incluye pago adelantado)" : "Aplicado a renta"}</span>
           <span>{formatCurrency(payment.appliedToRent + advanceApplied)}</span>
         </div>
         {otherChargesApplied.map((charge) => (
           <div key={`paid-${charge.label}`} className="receipt-subrow">
-            <span>Se pago {charge.label.toUpperCase()}</span>
+            <span>Aplicado a {charge.label.toUpperCase()}</span>
             <span>{formatCurrency(charge.amount)}</span>
           </div>
         ))}
-        {payment.appliedToRent <= 0 && otherChargesApplied.length === 0 && advanceApplied <= 0 && (
-          <div className="receipt-subrow">
-            <span>Sin aplicacion de pago</span>
-            <span>{formatCurrency(0)}</span>
-          </div>
-        )}
       </div>
 
       <div className="receipt-section">
-        <div className="receipt-simple-title">SALDOS QUE LE QUEDAN</div>
+        <div className="receipt-simple-title">SALDOS PENDIENTES A PAGAR</div>
         {hasMoroseBalance && (
           <div className="receipt-subrow">
             <span>Saldo moroso en renta</span>
@@ -311,7 +306,7 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
         )}
         {otherChargesDueAfter.map((charge) => (
           <div key={`due-${charge.label}`} className="receipt-subrow receipt-subrow--debt">
-            <span>Debe en {charge.label.toUpperCase()}</span>
+            <span>Saldo de {charge.label.toUpperCase()}</span>
             <span>{formatCurrency(charge.amount)}</span>
           </div>
         ))}
@@ -319,12 +314,6 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
           <div className="receipt-subrow">
             <span>Estado</span>
             <span className="receipt-value-good">AL DIA</span>
-          </div>
-        )}
-        {hasPending && debtSinceLabel && (
-          <div className="receipt-subrow">
-            <span>Debe desde</span>
-            <span>{debtSinceLabel}</span>
           </div>
         )}
       </div>

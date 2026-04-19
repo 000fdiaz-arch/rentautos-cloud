@@ -1421,17 +1421,17 @@ tbody tr:hover {
 
 .receipt-header {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   margin-bottom: 20px;
   padding-bottom: 16px;
   border-bottom: 2px solid #0f766e;
 }
 
-.receipt-header-left {
-  flex: 1;
-  min-width: 0;
+.receipt-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
 }
 
 .receipt-brand {
@@ -1451,19 +1451,28 @@ tbody tr:hover {
 .receipt-brand-sub--title {
   text-align: center;
   font-weight: 800;
+  font-size: 0.92rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #0f172a;
+  margin-top: 0;
 }
 
 .receipt-header-meta {
+  flex: 1;
   padding: 8px 10px;
   border-radius: 8px;
   background: #e2e8f0;
 }
 
 .receipt-header-info-row {
-  margin-top: 8px;
   display: flex;
   gap: 10px;
-  align-items: flex-start;
+  align-items: stretch;
+}
+
+.receipt-header-debt-since {
+  margin-top: 6px;
 }
 
 .receipt-number {
@@ -1473,11 +1482,22 @@ tbody tr:hover {
   text-align: right;
 }
 
+.receipt-number--right {
+  text-align: right;
+}
+
 .receipt-date {
   font-size: 0.78rem;
   color: #64748b;
   margin-top: 2px;
   text-align: right;
+}
+
+.receipt-date--left {
+  text-align: left;
+  font-weight: 800;
+  color: #0f172a;
+  margin-top: 0;
 }
 
 /* Overdue banner */
