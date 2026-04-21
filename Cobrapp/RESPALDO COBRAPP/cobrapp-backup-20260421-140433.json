@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": "2026-04-21T19:06:24.966Z",
+  "exportedAt": "2026-04-21T19:04:33.541Z",
   "clients": [
     {
       "id": "4dd9b32b-f507-45d0-9d03-c28248bb9153",
@@ -1125,7 +1125,7 @@
       "chargeFirstSunday": false,
       "balance": 204,
       "advanceBalance": 0,
-      "savings": 0.02,
+      "savings": 0.01,
       "installmentsAgreed": 183,
       "installmentsRemaining": 183,
       "installmentsPaid": 0,
@@ -31990,30 +31990,6 @@
       "frequency": "weekly",
       "weeklyChargeDay": "saturday",
       "createdAt": "2026-04-21T19:04:33.491Z"
-    },
-    {
-      "id": "87052fe3-3dd8-45bf-82cc-fed605fdfe94",
-      "receiptNumber": "REC-1055",
-      "clientId": "df05be46-b62e-4c01-a61b-373147b5f338",
-      "clientName": "ALEJANDRO ARROYO GONZALEZ",
-      "clientUnit": "T21",
-      "clientCedula": "6-72-547",
-      "dateApplied": "2026-04-21",
-      "paymentMethod": "Deposito Bancario",
-      "reference": "FOLIO:2067361933 | REF:N/A | AUTO-ALTA-SIMILITUD | DEPOSITO",
-      "amountReceived": 34.21,
-      "appliedToRent": 34,
-      "centavosAhorro": 0.21,
-      "installmentsDeducted": 1,
-      "balanceBefore": 34,
-      "balanceAfter": 0,
-      "savingsBefore": 1.68,
-      "savingsAfter": 1.89,
-      "installmentsPaidAfter": 172,
-      "installmentsRemainingAfter": 741,
-      "rentAmount": 34,
-      "frequency": "daily",
-      "createdAt": "2026-04-21T19:06:24.936Z"
     }
   ]
 }

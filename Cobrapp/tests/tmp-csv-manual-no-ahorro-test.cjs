@@ -69,13 +69,16 @@ const { chromium } = require('playwright');
 
   if (!state.payment) throw new Error('No se registro pago');
   if ((state.payment.centavosAhorro || 0) !== 0) throw new Error(`centavosAhorro esperado 0, recibido ${state.payment.centavosAhorro}`);
-  if ((state.payment.advanceApplied || 0) !== 0) throw new Error(`advanceApplied esperado 0, recibido ${state.payment.advanceApplied}`);
+  if ((state.payment.advanceApplied || 0) !== 110) throw new Error(`advanceApplied esperado 110, recibido ${state.payment.advanceApplied}`);
   if ((state.client.savings || 0) !== 0) throw new Error(`savings esperado 0, recibido ${state.client.savings}`);
-  if (!state.client.otherCharges || state.client.otherCharges.length !== 1 || state.client.otherCharges[0].amount !== 5) {
-    throw new Error(`otros cargos pendientes esperados 5, recibido ${JSON.stringify(state.client.otherCharges)}`);
+  if (!state.payment.otherChargesApplied || state.payment.otherChargesApplied.length !== 1 || state.payment.otherChargesApplied[0].amount !== 5) {
+    throw new Error(`otros cargos aplicados esperados 5, recibido ${JSON.stringify(state.payment.otherChargesApplied)}`);
+  }
+  if (!state.client.otherCharges || state.client.otherCharges.length !== 1 || state.client.otherCharges[0].amount !== 115) {
+    throw new Error(`otros cargos pendientes esperados 115, recibido ${JSON.stringify(state.client.otherCharges)}`);
   }
 
-  console.log('OK CSV manual: no va a ahorro, y otros cargos quedan pendientes correctamente.');
+  console.log('OK CSV manual: regla D/T diario aplica 5 a otros cargos y deja remanente pendiente.');
   console.log(JSON.stringify(state, null, 2));
   await browser.close();
 })().catch((err) => {

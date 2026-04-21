@@ -253,6 +253,30 @@ function splitWholeAndCents(amount: number): { wholePart: number; centsPart: num
   return { wholePart, centsPart };
 }
 
+const FIXED_OTHER_CHARGES_SPLIT = 5;
+
+function shouldForceFiveToOtherCharges(client: Client): boolean {
+  const groupCode = extractGroupCodeFromUnit(client.unitId);
+  if (groupCode !== "D" && groupCode !== "T") return false;
+  if (client.frequency !== "daily") return false;
+  return (client.otherCharges ?? []).some((charge) => roundMoney(charge.amount) > 0);
+}
+
+function distributeAcrossOtherCharges(configured: OtherCharge[] | undefined, amount: number): OtherCharge[] {
+  let remaining = roundMoney(Math.max(0, amount));
+  const applied: OtherCharge[] = [];
+  for (const charge of configured ?? []) {
+    if (remaining <= 0) break;
+    const pendingForCharge = roundMoney(Math.max(0, charge.amount));
+    if (pendingForCharge <= 0) continue;
+    const appliedAmount = roundMoney(Math.min(pendingForCharge, remaining));
+    if (appliedAmount <= 0) continue;
+    applied.push({ label: charge.label, amount: appliedAmount });
+    remaining = roundMoney(Math.max(0, remaining - appliedAmount));
+  }
+  return applied;
+}
+
 function computeAppliedOtherCharges(
   configured: OtherCharge[] | undefined,
   manualInput: Record<string, string>,
@@ -272,6 +296,33 @@ function computeAppliedOtherCharges(
   return { otherChargesApplied, totalOtherCharges };
 }
 
+function computeEffectiveOtherChargesAllocation(
+  client: Client,
+  manualInput: Record<string, string>,
+  wholePart: number
+): { otherChargesApplied: OtherCharge[]; totalOtherCharges: number; forcedRuleApplied: boolean } {
+  if (!shouldForceFiveToOtherCharges(client)) {
+    const manual = computeAppliedOtherCharges(client.otherCharges, manualInput, wholePart);
+    return {
+      otherChargesApplied: manual.otherChargesApplied,
+      totalOtherCharges: manual.totalOtherCharges,
+      forcedRuleApplied: false
+    };
+  }
+
+  const pendingOtherCharges = roundMoney(
+    (client.otherCharges ?? []).reduce((sum, charge) => sum + roundMoney(Math.max(0, charge.amount)), 0)
+  );
+  const forcedAmount = roundMoney(Math.min(FIXED_OTHER_CHARGES_SPLIT, Math.max(0, wholePart), pendingOtherCharges));
+  const otherChargesApplied = distributeAcrossOtherCharges(client.otherCharges, forcedAmount);
+  const totalOtherCharges = roundMoney(otherChargesApplied.reduce((sum, charge) => sum + charge.amount, 0));
+  return {
+    otherChargesApplied,
+    totalOtherCharges,
+    forcedRuleApplied: totalOtherCharges > 0
+  };
+}
+
 type ManualPaymentAllocation = {
   balanceBefore: number;
   appliedToRent: number;
@@ -283,6 +334,7 @@ type ManualPaymentAllocation = {
   pendingAfter: number;
   totalOtherCharges: number;
   otherChargesApplied: OtherCharge[];
+  forcedOtherChargesRuleApplied: boolean;
 };
 
 function computeManualPaymentAllocation(
@@ -294,8 +346,8 @@ function computeManualPaymentAllocation(
   const { wholePart, centsPart } = splitWholeAndCents(amount);
   const balanceBefore = roundMoney(client.balance);
 
-  const { otherChargesApplied, totalOtherCharges } = computeAppliedOtherCharges(
-    client.otherCharges,
+  const { otherChargesApplied, totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
+    client,
     manualOtherChargesInput,
     wholePart
   );
@@ -319,7 +371,8 @@ function computeManualPaymentAllocation(
     pendingBefore,
     pendingAfter,
     totalOtherCharges,
-    otherChargesApplied
+    otherChargesApplied,
+    forcedOtherChargesRuleApplied: forcedRuleApplied
   };
 }
 
@@ -617,6 +670,10 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
 
     return computeManualPaymentAllocation(selectedClient, amount, manualOtherChargesInput);
   }, [form.amountReceived, selectedClient, manualOtherChargesInput]);
+  const isForcedOtherChargesRuleClient = useMemo(
+    () => (selectedClient ? shouldForceFiveToOtherCharges(selectedClient) : false),
+    [selectedClient]
+  );
 
   const isZeroBalance = selectedClient !== null && selectedClient.balance === 0;
   const isBankPayment = BANK_PAYMENT_METHODS.has(form.paymentMethod);
@@ -1511,8 +1568,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const wholePart = roundMoney(item.capitalPart);
     const centsPart = roundMoney(item.centsPart);
 
-    const { otherChargesApplied, totalOtherCharges } = computeAppliedOtherCharges(
-      client.otherCharges,
+    const { otherChargesApplied, totalOtherCharges } = computeEffectiveOtherChargesAllocation(
+      client,
       pendingOtherChargesInput,
       wholePart
     );
@@ -1604,9 +1661,11 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     if (!client) return null;
     const balanceBefore = roundMoney(Math.max(0, client.balance));
     const wholePart = roundMoney(Math.max(0, item.capitalPart));
-    const appliedToRent = roundMoney(Math.min(wholePart, balanceBefore));
+    const { totalOtherCharges } = computeEffectiveOtherChargesAllocation(client, {}, wholePart);
+    const capitalForRent = roundMoney(Math.max(0, wholePart - totalOtherCharges));
+    const appliedToRent = roundMoney(Math.min(capitalForRent, balanceBefore));
     const advanceBefore = roundMoney(Math.max(0, client.advanceBalance ?? 0));
-    const advanceApplied = roundMoney(Math.max(0, wholePart - appliedToRent));
+    const advanceApplied = roundMoney(Math.max(0, wholePart - appliedToRent - totalOtherCharges));
     const advanceAfter = roundMoney(advanceBefore + advanceApplied);
     const balanceAfter = roundMoney(Math.max(0, balanceBefore - appliedToRent));
     const rentAmount = roundMoney(Math.max(0, client.rentAmount));
@@ -1649,8 +1708,10 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const advanceBefore = roundMoney(client.advanceBalance ?? 0);
     const wholePart = roundMoney(item.capitalPart);
     const centsPart = roundMoney(item.centsPart);
-    const appliedToRent = roundMoney(Math.min(wholePart, Math.max(0, balanceBefore)));
-    const advanceApplied = roundMoney(Math.max(0, wholePart - appliedToRent));
+    const { otherChargesApplied, totalOtherCharges } = computeEffectiveOtherChargesAllocation(client, {}, wholePart);
+    const capitalForRent = roundMoney(Math.max(0, wholePart - totalOtherCharges));
+    const appliedToRent = roundMoney(Math.min(capitalForRent, Math.max(0, balanceBefore)));
+    const advanceApplied = roundMoney(Math.max(0, wholePart - appliedToRent - totalOtherCharges));
     const centavosAhorro = centsPart;
     const balanceAfter = roundMoney(Math.max(0, balanceBefore - appliedToRent));
     const savingsAfter = roundMoney(savingsBefore + centavosAhorro);
@@ -1678,6 +1739,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       appliedToRent,
       centavosAhorro,
       advanceApplied: advanceApplied > 0 ? advanceApplied : undefined,
+      otherChargesApplied: otherChargesApplied.length > 0 ? otherChargesApplied : undefined,
+      otherChargesDueAfter: computeOtherChargesDueAfter(client.otherCharges, otherChargesApplied),
       installmentsDeducted,
       balanceBefore,
       balanceAfter,
@@ -1698,7 +1761,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       advanceBalance: advanceAfter,
       savings: savingsAfter,
       installmentsPaid: installmentsPaidAfter,
-      installmentsRemaining: installmentsRemainingAfter
+      installmentsRemaining: installmentsRemainingAfter,
+      otherCharges: computeOtherChargesDueAfter(client.otherCharges, otherChargesApplied) ?? []
     };
     return { updatedClient, payment };
   }
@@ -2716,18 +2780,29 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
         {selectedClient && (selectedClient.otherCharges ?? []).length > 0 && (
           <div className="other-charges-section" style={{ marginTop: 14 }}>
             <div className="other-charges-title">Otros cargos de este cliente</div>
+            {isForcedOtherChargesRuleClient && (
+              <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
+                Regla D/T diario activa: por cada pago se aplican automaticamente hasta {formatCurrency(FIXED_OTHER_CHARGES_SPLIT)} a otros cargos.
+              </p>
+            )}
             {(selectedClient.otherCharges ?? []).map((charge) => (
               <div key={charge.label} className="other-charges-row">
                 <label className="payment-label">{charge.label} <span className="amount-muted">(configurado: {formatCurrency(charge.amount)})</span></label>
-                <input
-                  type="number"
-                  className="payment-input"
-                  min="0"
-                  step="0.01"
-                  placeholder={String(charge.amount)}
-                  value={manualOtherChargesInput[charge.label] ?? charge.amount}
-                  onChange={(e) => setManualOtherChargesInput((prev) => ({ ...prev, [charge.label]: e.target.value }))}
-                />
+                {isForcedOtherChargesRuleClient ? (
+                  <div className="payment-input" style={{ display: "flex", alignItems: "center" }}>
+                    Aplicacion automatica
+                  </div>
+                ) : (
+                  <input
+                    type="number"
+                    className="payment-input"
+                    min="0"
+                    step="0.01"
+                    placeholder={String(charge.amount)}
+                    value={manualOtherChargesInput[charge.label] ?? charge.amount}
+                    onChange={(e) => setManualOtherChargesInput((prev) => ({ ...prev, [charge.label]: e.target.value }))}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -2749,7 +2824,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                 </div>
                 {preview.totalOtherCharges > 0 && (
                   <div className="payment-preview-row">
-                    <span>Otros cargos</span>
+                    <span>{preview.forcedOtherChargesRuleApplied ? "Otros cargos (regla D/T diario)" : "Otros cargos"}</span>
                     <strong className="amount-warning">{formatCurrency(preview.totalOtherCharges)}</strong>
                   </div>
                 )}
@@ -3444,7 +3519,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                 if (!c) return null;
                 const wholePart = roundMoney(pendingClassifyTarget.capitalPart);
                 const centsPart = roundMoney(pendingClassifyTarget.centsPart);
-                const { totalOtherCharges } = computeAppliedOtherCharges(c.otherCharges, pendingOtherChargesInput, wholePart);
+                const { totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(c, pendingOtherChargesInput, wholePart);
                 const capitalForRent = roundMoney(Math.max(0, wholePart - totalOtherCharges));
                 const applied = roundMoney(Math.min(capitalForRent, Math.max(0, c.balance)));
                 const extras = roundMoney(Math.max(0, wholePart - applied - totalOtherCharges));
@@ -3463,18 +3538,29 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                     {(c.otherCharges ?? []).length > 0 && (
                       <div className="other-charges-section" style={{ marginTop: 14 }}>
                         <div className="other-charges-title">Otros cargos de este cliente</div>
+                        {shouldForceFiveToOtherCharges(c) && (
+                          <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
+                            Regla D/T diario activa: se aplican automaticamente hasta {formatCurrency(FIXED_OTHER_CHARGES_SPLIT)} a otros cargos.
+                          </p>
+                        )}
                         {(c.otherCharges ?? []).map((charge) => (
                           <div key={charge.label} className="other-charges-row">
                             <label className="payment-label">{charge.label} <span className="amount-muted">(configurado: {formatCurrency(charge.amount)})</span></label>
-                            <input
-                              type="number"
-                              className="payment-input"
-                              min="0"
-                              step="0.01"
-                              placeholder="0.00"
-                              value={pendingOtherChargesInput[charge.label] ?? ""}
-                              onChange={(e) => setPendingOtherChargesInput((prev) => ({ ...prev, [charge.label]: e.target.value }))}
-                            />
+                            {shouldForceFiveToOtherCharges(c) ? (
+                              <div className="payment-input" style={{ display: "flex", alignItems: "center" }}>
+                                Aplicacion automatica
+                              </div>
+                            ) : (
+                              <input
+                                type="number"
+                                className="payment-input"
+                                min="0"
+                                step="0.01"
+                                placeholder="0.00"
+                                value={pendingOtherChargesInput[charge.label] ?? ""}
+                                onChange={(e) => setPendingOtherChargesInput((prev) => ({ ...prev, [charge.label]: e.target.value }))}
+                              />
+                            )}
                           </div>
                         ))}
                       </div>
@@ -3485,7 +3571,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                         <div className="payment-preview-col">
                           <div className="payment-preview-row"><span>Saldo actual</span><strong className="amount-debt">{formatCurrency(c.balance)}</strong></div>
                           <div className="payment-preview-row"><span>Aplicado a renta</span><strong>{formatCurrency(applied)}</strong></div>
-                          {totalOtherCharges > 0 && <div className="payment-preview-row"><span>Otros cargos</span><strong className="amount-warning">{formatCurrency(totalOtherCharges)}</strong></div>}
+                          {totalOtherCharges > 0 && <div className="payment-preview-row"><span>{forcedRuleApplied ? "Otros cargos (regla D/T diario)" : "Otros cargos"}</span><strong className="amount-warning">{formatCurrency(totalOtherCharges)}</strong></div>}
                           {centsPart > 0 && <div className="payment-preview-row"><span>Ahorro (centavos)</span><strong>{formatCurrency(centsPart)}</strong></div>}
                           {extras > 0 && <div className="payment-preview-row"><span>Pago adelantado</span><strong>{formatCurrency(extras)}</strong></div>}
                           {advanceLetterLabel && <div className="payment-preview-row"><span>Adelanto aplica a</span><strong>{advanceLetterLabel}</strong></div>}
