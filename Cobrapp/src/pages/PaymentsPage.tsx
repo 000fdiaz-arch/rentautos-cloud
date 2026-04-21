@@ -165,6 +165,11 @@ const EMPTY_PENDING_FILTERS: PendingColumnFilters = {
   actions: ""
 };
 
+function extractGroupCodeFromUnitValue(unitId: string): string {
+  const match = String(unitId ?? "").trim().match(/^([A-Za-z]+)/);
+  return match ? match[1].toUpperCase() : "";
+}
+
 type Props = {
   clients: Client[];
   bankRules: BankRule[];
@@ -256,7 +261,7 @@ function splitWholeAndCents(amount: number): { wholePart: number; centsPart: num
 const FIXED_OTHER_CHARGES_SPLIT = 5;
 
 function shouldForceFiveToOtherCharges(client: Client): boolean {
-  const groupCode = extractGroupCodeFromUnit(client.unitId);
+  const groupCode = extractGroupCodeFromUnitValue(client.unitId);
   if (groupCode !== "D" && groupCode !== "T") return false;
   if (client.frequency !== "daily") return false;
   return (client.otherCharges ?? []).some((charge) => roundMoney(charge.amount) > 0);

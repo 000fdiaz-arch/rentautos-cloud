@@ -6,7 +6,7 @@ const { chromium } = require("playwright");
   await page.goto("http://127.0.0.1:5174/", { waitUntil: "domcontentloaded" });
 
   const client = {
-    id: "dt-manual-1",
+    id: "dt-pending-1",
     unitId: "T01",
     name: "CLIENTE T01",
     cedula: "8-111-111",
@@ -25,29 +25,36 @@ const { chromium } = require("playwright");
     status: "active"
   };
 
-  await page.evaluate(({ client }) => {
+  const pending = {
+    folio: "FOLIO-DT-001",
+    dateApplied: "2026-04-21",
+    amountReceived: 30,
+    capitalPart: 30,
+    centsPart: 0,
+    transactionCode: "253-215",
+    referenceId: "T01",
+    extractedName: "CLIENTE T01",
+    description: "PRUEBA DT PENDIENTE",
+    importedAt: new Date().toISOString(),
+    accountNumber: "3380008048",
+    mappedGroup: "T",
+    suggestedClientId: "dt-pending-1",
+    suggestedClientName: "CLIENTE T01"
+  };
+
+  await page.evaluate(({ client, pending }) => {
     localStorage.setItem("cobrapp.module1.clients.v1", JSON.stringify([client]));
     localStorage.setItem("cobrapp.module2.payments.v1", JSON.stringify([]));
-    localStorage.setItem("cobrapp.module2.pending_bank.v1", JSON.stringify([]));
+    localStorage.setItem("cobrapp.module2.pending_bank.v1", JSON.stringify([pending]));
     localStorage.setItem("cobrapp.payments.seq.v1", "0");
     localStorage.setItem("cobrapp.module2.cash_closings.v1", JSON.stringify([]));
-  }, { client });
+  }, { client, pending });
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: /^Pagos$/i }).click();
-  const registerToggle = page.getByRole("button", { name: /Registrar pago|Cerrar/i }).first();
-  if (await registerToggle.count()) {
-    const label = await registerToggle.innerText();
-    if (!/Cerrar/i.test(label)) await registerToggle.click();
-  }
-
-  const clientSearch = page.locator("input.client-search-input").first();
-  await clientSearch.waitFor({ state: "visible" });
-  await clientSearch.fill("T01");
-  await page.locator(".client-dropdown-item").first().click();
-
-  await page.getByLabel("Monto recibido (USD)").fill("30");
-  await page.getByRole("button", { name: /Confirmar pago y generar recibo/i }).click();
+  await page.locator("button:has-text('Ver pendientes')").first().click();
+  await page.locator("button:has-text('Revisar cargos')").first().click();
+  await page.locator("button:has-text('Confirmar y registrar pago')").first().click();
 
   const state = await page.evaluate(() => {
     const clients = JSON.parse(localStorage.getItem("cobrapp.module1.clients.v1") || "[]");
@@ -65,9 +72,9 @@ const { chromium } = require("playwright");
     throw new Error(`otros cargos pendientes esperados 1280, recibido ${JSON.stringify(state.client.otherCharges)}`);
   }
 
-  console.log("OK manual D/T: pago 30 => 5 a otros cargos y 25 a renta.");
+  console.log("OK pendiente D/T: pago 30 => 5 a otros cargos y 25 a renta.");
   await browser.close();
 })().catch((err) => {
-  console.error("FALLO TEST D/T MANUAL 30:", err && err.message ? err.message : err);
+  console.error("FALLO TEST PENDIENTE D/T 30:", err && err.message ? err.message : err);
   process.exit(1);
 });

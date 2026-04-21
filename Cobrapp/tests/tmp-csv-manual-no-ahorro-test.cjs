@@ -55,9 +55,6 @@ const { chromium } = require('playwright');
 
   // Open manual review due to other charges
   await page.getByRole('button', { name: /Revisar cargos/i }).click();
-
-  const amountInput = page.locator('.other-charges-section input.payment-input').first();
-  await amountInput.fill('115');
   await page.getByRole('button', { name: /Confirmar y registrar pago/i }).click();
 
   // Verify stored data
