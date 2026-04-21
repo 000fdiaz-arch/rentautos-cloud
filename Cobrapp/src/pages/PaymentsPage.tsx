@@ -582,6 +582,11 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
   const historyTopScrollRef = useRef<HTMLDivElement>(null);
   const historyTopInnerRef = useRef<HTMLDivElement>(null);
   const historyBottomScrollRef = useRef<HTMLDivElement>(null);
+  const cashSectionRef = useRef<HTMLElement>(null);
+  const registerSectionRef = useRef<HTMLElement>(null);
+  const notifiedSectionRef = useRef<HTMLElement>(null);
+  const pendingSectionRef = useRef<HTMLElement>(null);
+  const historySectionRef = useRef<HTMLElement>(null);
 
   const activeClients = useMemo(
     () => clients.filter((c) => !c.archivedAt),
@@ -2290,6 +2295,35 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     }
   }
 
+  function scrollToWorkSection(sectionRef: React.RefObject<HTMLElement>): void {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+  }
+
+  function handleQuickToggleSection(
+    isOpen: boolean,
+    setOpen: React.Dispatch<React.SetStateAction<boolean>>,
+    sectionRef: React.RefObject<HTMLElement>
+  ): void {
+    if (!isOpen) {
+      setOpen(true);
+      scrollToWorkSection(sectionRef);
+      return;
+    }
+    setOpen(false);
+  }
+
+  function handleQuickImportCSV(): void {
+    if (!isPendingOpen) {
+      setIsPendingOpen(true);
+    }
+    scrollToWorkSection(pendingSectionRef);
+    void handleImportBankCSV();
+  }
+
   if (confirmedPayment) {
     return (
       <div className="page-inner">
@@ -2304,18 +2338,10 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
 
   return (
     <div className="page-inner">
-      <header className="hero">
-        <h1>Pagos</h1>
-        <p>Registra abonos y descarga recibos en imagen.</p>
-      </header>
-
       {/* -- Payment form -- */}
-      <section className="panel">
+      <section ref={cashSectionRef} className="panel" style={{ display: isCashClosingOpen ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Cierre de caja</h2>
-          <button type="button" className="button ghost" onClick={() => setIsCashClosingOpen((v) => !v)}>
-            {isCashClosingOpen ? "Cerrar" : "+ Cierre de caja"}
-          </button>
         </div>
         {isCashClosingOpen && (
         <>
@@ -2492,12 +2518,67 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
         )}
       </section>
 
-      <section className="panel">
+      <section className="panel payment-quick-actions-panel">
+        <div className="payment-quick-actions-grid">
+          <button
+            type="button"
+            className={`payment-quick-action${isCashClosingOpen ? " payment-quick-action--active" : ""}`}
+            onClick={() => handleQuickToggleSection(isCashClosingOpen, setIsCashClosingOpen, cashSectionRef)}
+          >
+            <span className="payment-quick-action-title">Cierre de caja</span>
+            <span className="payment-quick-action-state">{isCashClosingOpen ? "Ocultar" : "Abrir"}</span>
+          </button>
+
+          <button
+            type="button"
+            className={`payment-quick-action${isRegisterOpen ? " payment-quick-action--active" : ""}`}
+            onClick={() => handleQuickToggleSection(isRegisterOpen, setIsRegisterOpen, registerSectionRef)}
+          >
+            <span className="payment-quick-action-title">Registrar pago</span>
+            <span className="payment-quick-action-state">{isRegisterOpen ? "Ocultar" : "Abrir"}</span>
+          </button>
+
+          <button
+            type="button"
+            className={`payment-quick-action${isNotifiedOpen ? " payment-quick-action--active" : ""}`}
+            onClick={() => handleQuickToggleSection(isNotifiedOpen, setIsNotifiedOpen, notifiedSectionRef)}
+          >
+            <span className="payment-quick-action-title">Pago notificado</span>
+            <span className="payment-quick-action-state">{isNotifiedOpen ? "Ocultar" : "Abrir"}</span>
+          </button>
+
+          <button
+            type="button"
+            className="payment-quick-action"
+            onClick={handleQuickImportCSV}
+          >
+            <span className="payment-quick-action-title">Importar CSV</span>
+            <span className="payment-quick-action-state">Banco</span>
+          </button>
+
+          <button
+            type="button"
+            className={`payment-quick-action${isPendingOpen ? " payment-quick-action--active" : ""}`}
+            onClick={() => handleQuickToggleSection(isPendingOpen, setIsPendingOpen, pendingSectionRef)}
+          >
+            <span className="payment-quick-action-title">Ver pendientes</span>
+            <span className="payment-quick-action-state">{isPendingOpen ? "Ocultar" : "Abrir"}</span>
+          </button>
+
+          <button
+            type="button"
+            className={`payment-quick-action${isHistoryOpen ? " payment-quick-action--active" : ""}`}
+            onClick={() => handleQuickToggleSection(isHistoryOpen, setIsHistoryOpen, historySectionRef)}
+          >
+            <span className="payment-quick-action-title">Historial pagos</span>
+            <span className="payment-quick-action-state">{isHistoryOpen ? "Ocultar" : "Abrir"}</span>
+          </button>
+        </div>
+      </section>
+
+      <section ref={registerSectionRef} className="panel" style={{ display: isRegisterOpen ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Registrar pago</h2>
-          <button type="button" className="button ghost" onClick={() => setIsRegisterOpen((v) => !v)}>
-            {isRegisterOpen ? "Cerrar" : "+ Registrar pago"}
-          </button>
         </div>
 
         {isRegisterOpen && (
@@ -2560,9 +2641,23 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
           {/* Method */}
           <div className="payment-field-group">
             <label className="payment-label">Forma de pago</label>
-            <select className="payment-input" value={form.paymentMethod} onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value as PaymentMethod }))}>
-              {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <div className="payment-method-grid" role="radiogroup" aria-label="Forma de pago">
+              {PAYMENT_METHODS.map((m) => {
+                const isSelected = form.paymentMethod === m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    className={`payment-method-option${isSelected ? " payment-method-option--active" : ""}`}
+                    role="radio"
+                    aria-checked={isSelected}
+                    onClick={() => setForm((f) => ({ ...f, paymentMethod: m }))}
+                  >
+                    {m}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="payment-field-group">
@@ -2719,12 +2814,9 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
         )}
       </section>
 
-      <section className="panel">
+      <section ref={notifiedSectionRef} className="panel" style={{ display: isNotifiedOpen ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Pagos notificados (pendientes)</h2>
-          <button type="button" className="button ghost" onClick={() => setIsNotifiedOpen((v) => !v)}>
-            {isNotifiedOpen ? "Cerrar" : "+ Pago notificado"}
-          </button>
         </div>
 
         {isNotifiedOpen && (
@@ -2887,7 +2979,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       </section>
 
       {/* -- Pending bank items -- */}
-      <section className="panel">
+      <section ref={pendingSectionRef} className="panel" style={{ display: isPendingOpen ? undefined : "none" }}>
         <div className="panel-head">
           <h2>
             Pendientes del banco
@@ -2906,17 +2998,11 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                 Aplicar alta similitud
               </button>
             )}
-            <button type="button" className="button ghost" onClick={handleImportBankCSV}>
-              Importar CSV del banco
-            </button>
             {pendingBankItems.length > 0 && (
               <button type="button" className="button danger small" onClick={handleDismissAllPending}>
                 Ignorar todos
               </button>
             )}
-            <button type="button" className="button ghost" onClick={() => setIsPendingOpen((v) => !v)}>
-              {isPendingOpen ? "Cerrar" : "Ver pendientes"}
-            </button>
           </div>
         </div>
 
@@ -3099,12 +3185,9 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       </section>
 
       {/* -- Payment history -- */}
-      <section className="panel">
+      <section ref={historySectionRef} className="panel" style={{ display: isHistoryOpen ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Historial de pagos</h2>
-          <button type="button" className="button ghost" onClick={() => setIsHistoryOpen((v) => !v)}>
-            {isHistoryOpen ? "Cerrar" : "+ Historial de pagos"}
-          </button>
         </div>
         {isHistoryOpen && (
         <>

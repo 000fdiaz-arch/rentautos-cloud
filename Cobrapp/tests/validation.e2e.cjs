@@ -120,12 +120,10 @@ async function run() {
 
   await test("Registrar pago y actualizar saldo", async () => {
     await page.getByRole("button", { name: "Pagos", exact: true }).click();
-    const openRegisterButton = page.getByRole("button", { name: "+ Registrar pago" });
-    if (await openRegisterButton.isVisible()) {
-      await openRegisterButton.click();
-    }
+    await openPaymentsQuickAction(page, "Registrar pago");
 
     const clientSearch = page.getByPlaceholder("Buscar por unidad, nombre o cedula...");
+    await clientSearch.waitFor({ state: "visible", timeout: 10000 });
     await clientSearch.fill(unitId);
     await page.locator(".client-dropdown-item").first().click();
 
@@ -143,10 +141,8 @@ async function run() {
   await shot(page, "04-payment-registered");
 
   await test("Historial de pagos muestra controles y filas", async () => {
-    const openHistoryButton = page.getByRole("button", { name: "+ Historial de pagos" });
-    if (await openHistoryButton.isVisible()) {
-      await openHistoryButton.click();
-    }
+    await page.getByRole("button", { name: "Pagos", exact: true }).click();
+    await openPaymentsQuickAction(page, "Historial pagos");
 
     await expectVisible(page, "input[title='Filtrar desde fecha']");
     await expectVisible(page, "input[title='Filtrar hasta fecha']");
@@ -212,6 +208,16 @@ async function expectVisible(page, selector) {
  */
 async function expectTextOnPage(page, text) {
   await page.getByText(text, { exact: false }).first().waitFor({ state: "visible", timeout: 7000 });
+}
+
+/**
+ * @param {import('playwright').Page} page
+ * @param {string} label
+ */
+async function openPaymentsQuickAction(page, label) {
+  const button = page.locator(".payment-quick-actions-panel .payment-quick-action", { hasText: label }).first();
+  await button.waitFor({ state: "visible", timeout: 7000 });
+  await button.click();
 }
 
 run().catch((error) => {

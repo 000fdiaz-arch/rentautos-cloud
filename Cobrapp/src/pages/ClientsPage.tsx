@@ -591,11 +591,6 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
 
   return (
     <>
-      <header className="hero">
-        <h1>Clientes</h1>
-        <p>Clientes y reglas automaticas de cobro en USD.</p>
-      </header>
-
       <section className="summary-grid">
         <button
           type="button"

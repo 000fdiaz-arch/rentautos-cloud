@@ -119,11 +119,6 @@ export default function SettingsPage({ bankRules, onBankRulesChange }: Props) {
 
   return (
     <>
-      <section className="hero">
-        <h1>Configuraciones</h1>
-        <p>Administra reglas de cuenta bancaria por grupo para enrutar importaciones del CSV automaticamente.</p>
-      </section>
-
       <section className="panel">
         <div className="panel-head">
           <h2>Regla bancaria</h2>
