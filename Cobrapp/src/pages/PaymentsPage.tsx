@@ -182,6 +182,26 @@ function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function getInstallmentsFromAdvance(payment: Pick<Payment, "installmentsFromAdvance" | "advanceApplied" | "rentAmount">): number {
+  if (typeof payment.installmentsFromAdvance === "number" && Number.isInteger(payment.installmentsFromAdvance) && payment.installmentsFromAdvance >= 0) {
+    return payment.installmentsFromAdvance;
+  }
+  if (payment.rentAmount > 0 && (payment.advanceApplied ?? 0) > 0) {
+    return Math.floor((payment.advanceApplied ?? 0) / payment.rentAmount);
+  }
+  return 0;
+}
+
+function getInstallmentsTotalInPayment(payment: Pick<Payment, "installmentsTotalInPayment" | "installmentsFromDebt" | "installmentsDeducted" | "installmentsFromAdvance" | "advanceApplied" | "rentAmount">): number {
+  if (typeof payment.installmentsTotalInPayment === "number" && Number.isInteger(payment.installmentsTotalInPayment) && payment.installmentsTotalInPayment >= 0) {
+    return payment.installmentsTotalInPayment;
+  }
+  const fromDebt = typeof payment.installmentsFromDebt === "number"
+    ? payment.installmentsFromDebt
+    : Math.max(0, payment.installmentsDeducted ?? 0);
+  return Math.max(0, fromDebt + getInstallmentsFromAdvance(payment));
+}
+
 function computeCoveredInstallmentsFromAdvance(advanceBefore: number, advanceAfter: number, rentAmount: number): number {
   const normalizedRent = roundMoney(Math.max(0, rentAmount));
   if (!Number.isFinite(normalizedRent) || normalizedRent <= 0) return 0;
@@ -335,6 +355,8 @@ type ManualPaymentAllocation = {
   advanceApplied: number;
   balanceAfter: number;
   installmentsDeducted: number;
+  installmentsCoveredByAdvance: number;
+  installmentsTotalInPayment: number;
   pendingBefore: number;
   pendingAfter: number;
   totalOtherCharges: number;
@@ -362,9 +384,13 @@ function computeManualPaymentAllocation(
   const centavosAhorro = centsPart;
   const balanceAfter = roundMoney(balanceBefore - appliedToRent);
   const rentAmount = client.rentAmount;
+  const advanceBefore = roundMoney(Math.max(0, client.advanceBalance ?? 0));
+  const advanceAfter = roundMoney(advanceBefore + advanceApplied);
   const pendingBefore = rentAmount > 0 ? Math.ceil(balanceBefore / rentAmount) : 0;
   const pendingAfter = rentAmount > 0 && balanceAfter > 0 ? Math.ceil(balanceAfter / rentAmount) : 0;
   const installmentsDeducted = Math.max(0, pendingBefore - pendingAfter);
+  const installmentsCoveredByAdvance = computeCoveredInstallmentsFromAdvance(advanceBefore, advanceAfter, rentAmount);
+  const installmentsTotalInPayment = installmentsDeducted + installmentsCoveredByAdvance;
 
   return {
     balanceBefore,
@@ -373,6 +399,8 @@ function computeManualPaymentAllocation(
     advanceApplied,
     balanceAfter,
     installmentsDeducted,
+    installmentsCoveredByAdvance,
+    installmentsTotalInPayment,
     pendingBefore,
     pendingAfter,
     totalOtherCharges,
@@ -1613,6 +1641,9 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       otherChargesApplied: otherChargesApplied.length > 0 ? otherChargesApplied : undefined,
       otherChargesDueAfter: computeOtherChargesDueAfter(client.otherCharges, otherChargesApplied),
       installmentsDeducted,
+      installmentsFromDebt: installmentsDeducted,
+      installmentsFromAdvance: installmentsCoveredByAdvance,
+      installmentsTotalInPayment: installmentsImpact,
       balanceBefore,
       balanceAfter,
       savingsBefore,
@@ -1747,6 +1778,9 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       otherChargesApplied: otherChargesApplied.length > 0 ? otherChargesApplied : undefined,
       otherChargesDueAfter: computeOtherChargesDueAfter(client.otherCharges, otherChargesApplied),
       installmentsDeducted,
+      installmentsFromDebt: installmentsDeducted,
+      installmentsFromAdvance: installmentsCoveredByAdvance,
+      installmentsTotalInPayment: installmentsImpact,
       balanceBefore,
       balanceAfter,
       savingsBefore,
@@ -2039,6 +2073,9 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       otherChargesApplied: allocation.otherChargesApplied.length > 0 ? allocation.otherChargesApplied : undefined,
       otherChargesDueAfter: computeOtherChargesDueAfter(selectedClient.otherCharges, allocation.otherChargesApplied),
       installmentsDeducted: allocation.installmentsDeducted,
+      installmentsFromDebt: allocation.installmentsDeducted,
+      installmentsFromAdvance: allocation.installmentsCoveredByAdvance,
+      installmentsTotalInPayment: allocation.installmentsTotalInPayment,
       balanceBefore: allocation.balanceBefore,
       balanceAfter: allocation.balanceAfter,
       savingsBefore: selectedClient.savings,
@@ -2244,7 +2281,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       if (historySortField === "amount") comparison = a.amountReceived - b.amountReceived;
       if (historySortField === "applied") comparison = a.appliedToRent - b.appliedToRent;
       if (historySortField === "savings") comparison = a.centavosAhorro - b.centavosAhorro;
-      if (historySortField === "installments") comparison = a.installmentsDeducted - b.installmentsDeducted;
+      if (historySortField === "installments") comparison = getInstallmentsTotalInPayment(a) - getInstallmentsTotalInPayment(b);
       if (historySortField === "method") comparison = a.paymentMethod.localeCompare(b.paymentMethod);
       if (comparison !== 0) return comparison * dir;
       return b.createdAt.localeCompare(a.createdAt);
@@ -3411,7 +3448,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                     <td><span className="amount-good">{formatCurrency(p.amountReceived)}</span></td>
                     <td>{formatCurrency(p.appliedToRent)}</td>
                     <td>{p.centavosAhorro > 0 ? formatCurrency(p.centavosAhorro) : <span className="amount-muted">-</span>}</td>
-                    <td>{p.installmentsDeducted > 0 ? `-${p.installmentsDeducted}` : <span className="amount-muted">-</span>}</td>
+                    <td>{getInstallmentsTotalInPayment(p) > 0 ? `-${getInstallmentsTotalInPayment(p)}` : <span className="amount-muted">-</span>}</td>
                     <td>{p.paymentMethod}</td>
                     <td>
                       <button

@@ -100,6 +100,9 @@ export type Payment = {
   appliedToRent: number;
   centavosAhorro: number;
   installmentsDeducted: number;
+  installmentsFromDebt?: number;
+  installmentsFromAdvance?: number;
+  installmentsTotalInPayment?: number;
   balanceBefore: number;
   balanceAfter: number;
   savingsBefore: number;

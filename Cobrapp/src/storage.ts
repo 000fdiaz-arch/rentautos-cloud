@@ -237,6 +237,9 @@ function normalizePayment(item: unknown): Payment | null {
   const savingsBefore = parseFiniteNumber(raw.savingsBefore);
   const savingsAfter = parseFiniteNumber(raw.savingsAfter);
   const advanceApplied = parseFiniteNumber(raw.advanceApplied);
+  const installmentsFromDebt = parseFiniteNumber(raw.installmentsFromDebt);
+  const installmentsFromAdvance = parseFiniteNumber(raw.installmentsFromAdvance);
+  const installmentsTotalInPayment = parseFiniteNumber(raw.installmentsTotalInPayment);
 
   if (
     amountReceived === null || amountReceived < 0 ||
@@ -246,8 +249,27 @@ function normalizePayment(item: unknown): Payment | null {
     balanceAfter === null || balanceAfter < 0 ||
     savingsBefore === null || savingsBefore < 0 ||
     savingsAfter === null || savingsAfter < 0 ||
-    (advanceApplied !== null && advanceApplied < 0)
+    (advanceApplied !== null && advanceApplied < 0) ||
+    (installmentsFromDebt !== null && (!Number.isInteger(installmentsFromDebt) || installmentsFromDebt < 0)) ||
+    (installmentsFromAdvance !== null && (!Number.isInteger(installmentsFromAdvance) || installmentsFromAdvance < 0)) ||
+    (installmentsTotalInPayment !== null && (!Number.isInteger(installmentsTotalInPayment) || installmentsTotalInPayment < 0))
   ) return null;
+
+  const normalizedRentAmount = parseNonNegativeNumber(raw.rentAmount);
+  const fallbackInstallmentsFromDebt = parseNonNegativeInteger(raw.installmentsDeducted);
+  const fallbackInstallmentsFromAdvance =
+    normalizedRentAmount > 0 && (advanceApplied ?? 0) > 0
+      ? Math.floor((advanceApplied ?? 0) / normalizedRentAmount)
+      : 0;
+  const normalizedInstallmentsFromDebt = installmentsFromDebt !== null
+    ? installmentsFromDebt
+    : fallbackInstallmentsFromDebt;
+  const normalizedInstallmentsFromAdvance = installmentsFromAdvance !== null
+    ? installmentsFromAdvance
+    : fallbackInstallmentsFromAdvance;
+  const normalizedInstallmentsTotalInPayment = installmentsTotalInPayment !== null
+    ? installmentsTotalInPayment
+    : normalizedInstallmentsFromDebt + normalizedInstallmentsFromAdvance;
 
   return {
     id: raw.id,
@@ -269,6 +291,9 @@ function normalizePayment(item: unknown): Payment | null {
     appliedToRent,
     centavosAhorro,
     installmentsDeducted: parseNonNegativeInteger(raw.installmentsDeducted),
+    installmentsFromDebt: normalizedInstallmentsFromDebt,
+    installmentsFromAdvance: normalizedInstallmentsFromAdvance,
+    installmentsTotalInPayment: normalizedInstallmentsTotalInPayment,
     balanceBefore,
     balanceAfter,
     savingsBefore,
@@ -276,7 +301,7 @@ function normalizePayment(item: unknown): Payment | null {
     advanceApplied: advanceApplied ?? undefined,
     installmentsPaidAfter: parseNonNegativeInteger(raw.installmentsPaidAfter),
     installmentsRemainingAfter: parseNonNegativeInteger(raw.installmentsRemainingAfter),
-    rentAmount: parseNonNegativeNumber(raw.rentAmount),
+    rentAmount: normalizedRentAmount,
     frequency: (raw.frequency === "daily" || raw.frequency === "weekly" || raw.frequency === "biweekly" || raw.frequency === "monthly")
       ? raw.frequency
       : "monthly",

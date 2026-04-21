@@ -190,6 +190,16 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
       : payment.frequency === "biweekly"
       ? "Quincenal"
       : "Mensual";
+  const installmentsFromDebt = Math.max(0, payment.installmentsFromDebt ?? payment.installmentsDeducted ?? 0);
+  const installmentsFromAdvance = Math.max(
+    0,
+    payment.installmentsFromAdvance ??
+      (payment.rentAmount > 0 ? Math.floor((payment.advanceApplied ?? 0) / payment.rentAmount) : 0)
+  );
+  const installmentsTotalInPayment = Math.max(
+    0,
+    payment.installmentsTotalInPayment ?? installmentsFromDebt + installmentsFromAdvance
+  );
   // Cuotas vencidas reales despues del pago
   const overdueAfter = payment.rentAmount > 0
     ? Math.max(0, Math.ceil(payment.balanceAfter / payment.rentAmount))
@@ -234,7 +244,8 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
             <div className="receipt-brand-sub">Unidad: {payment.clientUnit}</div>
             <div className="receipt-brand-sub">Plan: {frequencyLabel}</div>
             <div className="receipt-brand-sub">Renta: {formatCurrency(payment.rentAmount)}</div>
-            <div className="receipt-brand-sub">Cuotas pagadas: {payment.installmentsPaidAfter}</div>
+            <div className="receipt-brand-sub">Cuotas cubiertas en este pago: {installmentsTotalInPayment}</div>
+            <div className="receipt-brand-sub">Detalle: {installmentsFromDebt} vencida(s) + {installmentsFromAdvance} adelantada(s)</div>
             {hasPending && debtSinceLabel && (
               <div className="receipt-brand-sub receipt-header-debt-since">Debe desde: {debtSinceLabel}</div>
             )}
