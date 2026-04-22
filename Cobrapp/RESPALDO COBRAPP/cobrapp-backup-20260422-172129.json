@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": "2026-04-22T22:31:57.353Z",
+  "exportedAt": "2026-04-22T22:21:29.849Z",
   "clients": [
     {
       "id": "4dd9b32b-f507-45d0-9d03-c28248bb9153",
@@ -41444,34 +41444,6 @@
       "rentAmount": 36,
       "frequency": "daily",
       "createdAt": "2026-04-22T22:06:38.804Z"
-    },
-    {
-      "id": "052fb1df-6fd2-40dd-a401-74d2d15d6e97",
-      "receiptNumber": "REC-1285",
-      "clientId": "c4580e1a-7271-4e78-89da-50f2370cb67a",
-      "clientName": "YENIFER MASSIEL SALAZAR VERGARA",
-      "clientUnit": "A21",
-      "clientCedula": "8-915-1257",
-      "dateApplied": "2026-04-22",
-      "paymentMethod": "ACH Express",
-      "reference": "FOLIO:2073356905 | REF:21721608 | AUTO-ALTA-SIMILITUD | CR TRAN. ACH XPRESS//BANCO GENERAL-21721608-YENIFER MASSIEL S",
-      "amountReceived": 20.21,
-      "appliedToRent": 0,
-      "centavosAhorro": 0.21,
-      "advanceApplied": 20,
-      "installmentsDeducted": 0,
-      "installmentsFromDebt": 0,
-      "installmentsFromAdvance": 0,
-      "installmentsTotalInPayment": 0,
-      "balanceBefore": 0,
-      "balanceAfter": 0,
-      "savingsBefore": 0.42,
-      "savingsAfter": 0.63,
-      "installmentsPaidAfter": 2,
-      "installmentsRemainingAfter": 54,
-      "rentAmount": 299,
-      "frequency": "biweekly",
-      "createdAt": "2026-04-22T22:31:57.127Z"
     }
   ]
 }

@@ -6,6 +6,7 @@ import type {
   OtherCharge,
   Payment,
   PaymentMethod,
+  PendingCardItem,
   PendingBankItem
 } from "./types";
 
@@ -340,6 +341,7 @@ export function savePayments(payments: Payment[]): void {
 // -- Pending Bank Items --
 
 const PENDING_BANK_KEY = "cobrapp.module2.pending_bank.v1";
+const PENDING_CARD_KEY = "cobrapp.module2.pending_card.v1";
 const BANK_RULES_KEY = "cobrapp.settings.bank_rules.v1";
 const MANUAL_ASSIGNMENT_AUDIT_KEY = "cobrapp.module2.manual_assignment_audit.v1";
 
@@ -366,6 +368,58 @@ export function loadPendingBankItems(): PendingBankItem[] {
 
 export function savePendingBankItems(items: PendingBankItem[]): void {
   localStorage.setItem(PENDING_BANK_KEY, JSON.stringify(items));
+}
+
+function normalizePendingCardItem(item: unknown): PendingCardItem | null {
+  if (!item || typeof item !== "object") return null;
+  const raw = item as Record<string, unknown>;
+  if (
+    typeof raw.id !== "string" ||
+    typeof raw.folio !== "string" ||
+    typeof raw.clientId !== "string" ||
+    typeof raw.clientName !== "string" ||
+    typeof raw.clientUnit !== "string" ||
+    typeof raw.amountExpected !== "number" ||
+    !Number.isFinite(raw.amountExpected) ||
+    raw.amountExpected <= 0 ||
+    typeof raw.dateRegistered !== "string" ||
+    typeof raw.expectedSettlementDate !== "string" ||
+    typeof raw.createdAt !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: raw.id,
+    appliedPaymentId: typeof raw.appliedPaymentId === "string" && raw.appliedPaymentId.trim() ? raw.appliedPaymentId : undefined,
+    folio: raw.folio,
+    clientId: raw.clientId,
+    clientName: raw.clientName,
+    clientUnit: raw.clientUnit,
+    clientCedula: typeof raw.clientCedula === "string" && raw.clientCedula.trim() ? raw.clientCedula : undefined,
+    amountExpected: raw.amountExpected,
+    dateRegistered: raw.dateRegistered,
+    expectedSettlementDate: raw.expectedSettlementDate,
+    reference: typeof raw.reference === "string" && raw.reference.trim() ? raw.reference : undefined,
+    createdAt: raw.createdAt
+  };
+}
+
+export function loadPendingCardItems(): PendingCardItem[] {
+  const raw = localStorage.getItem(PENDING_CARD_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => normalizePendingCardItem(item))
+      .filter((item): item is PendingCardItem => item !== null);
+  } catch {
+    return [];
+  }
+}
+
+export function savePendingCardItems(items: PendingCardItem[]): void {
+  localStorage.setItem(PENDING_CARD_KEY, JSON.stringify(items));
 }
 
 function normalizeBankRule(item: unknown): BankRule | null {

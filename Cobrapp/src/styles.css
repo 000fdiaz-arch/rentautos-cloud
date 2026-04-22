@@ -1487,6 +1487,12 @@ tbody tr:hover {
   background: #e6fffb !important;
 }
 
+.history-column-filter-input {
+  min-width: 96px;
+  font-size: 0.8rem;
+  padding: 6px 8px;
+}
+
 .payment-receipt-modal {
   max-width: 760px;
   overflow-y: auto;
@@ -1540,11 +1546,11 @@ tbody tr:hover {
 }
 
 .receipt-card {
-  background: #ffffff;
-  border: 1.5px solid #d1d5db;
-  border-radius: 16px;
+  background: #f8fafc;
+  border: 1.5px solid #d8e0ea;
+  border-radius: 14px;
   max-width: 480px;
-  padding: 32px 36px;
+  padding: 26px 30px;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   color: #0f172a;
 }
@@ -1552,9 +1558,9 @@ tbody tr:hover {
 .receipt-header {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 20px;
-  padding-bottom: 16px;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
   border-bottom: 2px solid #0f766e;
 }
 
@@ -1562,6 +1568,7 @@ tbody tr:hover {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 12px;
 }
 
 .receipt-brand {
@@ -1572,17 +1579,17 @@ tbody tr:hover {
 }
 
 .receipt-brand-sub {
-  font-size: 0.75rem;
-  color: #1e293b;
+  font-size: 0.74rem;
+  color: #334155;
   font-weight: 600;
   margin-top: 2px;
 }
 
 .receipt-brand-sub--title {
   text-align: center;
-  font-weight: 800;
-  font-size: 0.92rem;
-  letter-spacing: 0.08em;
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: #0f172a;
   margin-top: 0;
@@ -1595,19 +1602,79 @@ tbody tr:hover {
   background: #e2e8f0;
 }
 
-.receipt-header-info-row {
-  display: flex;
-  gap: 10px;
-  align-items: stretch;
-}
-
 .receipt-header-debt-since {
   margin-top: 6px;
 }
 
+.receipt-top-left-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 120px;
+  background: #e8eef6;
+  border: 1px solid #d1dbe8;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.receipt-summary-compact-line {
+  font-size: 0.68rem;
+  color: #0f172a;
+  line-height: 1.25;
+}
+
+.receipt-summary-compact-line + .receipt-summary-compact-line {
+  margin-top: 1px;
+}
+
+.receipt-top-right-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  margin-left: auto;
+}
+
+.receipt-top-action {
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 10px;
+  border: 1px dashed #f59e0b;
+  border-radius: 8px;
+  background: #fffbeb;
+  margin: 0 8px;
+}
+
+.receipt-top-action-label {
+  font-size: 0.62rem;
+  color: #6b2f12;
+  font-weight: 600;
+  text-align: center;
+}
+
+.receipt-top-action strong {
+  font-size: 0.76rem;
+  color: #5b2a00;
+  font-weight: 700;
+}
+
+.receipt-top-balance-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: stretch;
+}
+
+.receipt-top-balance-grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .receipt-number {
-  font-size: 0.95rem;
-  font-weight: 800;
+  font-size: 0.82rem;
+  font-weight: 700;
   color: #0f172a;
   text-align: right;
 }
@@ -1617,29 +1684,29 @@ tbody tr:hover {
 }
 
 .receipt-date {
-  font-size: 0.78rem;
-  color: #64748b;
-  margin-top: 2px;
+  font-size: 0.68rem;
+  color: #475467;
+  margin-top: 1px;
   text-align: right;
-}
-
-.receipt-date--left {
-  text-align: left;
-  font-weight: 800;
-  color: #0f172a;
-  margin-top: 0;
 }
 
 /* Overdue banner */
 .receipt-overdue-banner {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  background: #fef2f2;
-  border: 1.5px solid #fca5a5;
+  gap: 8px;
+  background: #fff7ed;
+  border: 1.5px solid #fdba74;
   border-radius: 10px;
-  padding: 12px 14px;
-  margin-bottom: 16px;
+  padding: 10px 12px;
+  margin-bottom: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.receipt-overdue-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .receipt-overdue-banner--inline {
@@ -1649,60 +1716,198 @@ tbody tr:hover {
 }
 
 .receipt-overdue-icon {
-  font-size: 1.2rem;
+  font-size: 0.92rem;
   flex-shrink: 0;
-  margin-top: 1px;
+  margin-top: 2px;
+  color: #b42318;
 }
 
 .receipt-overdue-title {
-  font-size: 0.9rem;
-  font-weight: 800;
-  color: #b91c1c;
-  letter-spacing: 0.02em;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #b42318;
+  letter-spacing: 0.015em;
 }
 
 .receipt-overdue-sub {
-  font-size: 0.8rem;
-  color: #b91c1c;
-  margin-top: 2px;
-  font-weight: 600;
+  font-size: 0.67rem;
+  color: #344054;
+  margin-top: 3px;
+  font-weight: 500;
+}
+
+.receipt-overdue-debt-since {
+  margin-bottom: 4px;
+  color: #344054;
+}
+
+.receipt-overdue-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.receipt-overdue-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  color: #344054;
+}
+
+.receipt-overdue-row span {
+  flex: 1;
+}
+
+.receipt-overdue-row strong {
+  min-width: 88px;
+  text-align: right;
+  color: #111827;
+  font-weight: 700;
+}
+
+.receipt-overdue-row--total {
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px dashed #f59e0b;
+}
+
+.receipt-overdue-row--total strong {
+  color: #0f172a;
+}
+
+.receipt-overdue-row--single strong {
+  min-width: 102px;
+}
+
+.receipt-overdue-other-box {
+  margin-top: 8px;
+  border: 1px solid #f2c94c;
+  background: #fffbea;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.receipt-overdue-other-title {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #7a4e00;
+  margin-bottom: 2px;
+}
+
+.receipt-overdue-other-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.66rem;
+  color: #1f2937;
+  padding: 0;
+}
+
+.receipt-overdue-other-row strong {
+  color: #111827;
+  font-weight: 700;
+}
+
+.receipt-overdue-other-row--total {
+  margin-top: auto;
+  padding-top: 5px;
+  border-top: 1px dashed #f2c94c;
+}
+
+.receipt-overdue-other-band {
+  border: 1px solid #f4c95d;
+  background: #fffbea;
+  border-radius: 10px;
+  padding: 8px 10px;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.receipt-overdue-other-band--separate {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.receipt-advance-panel {
+  margin-bottom: 12px;
+  border: 1.5px solid #93c5fd;
+  background: #eff6ff;
+  border-radius: 10px;
+  padding: 9px 11px;
+}
+
+.receipt-advance-title {
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #1d4ed8;
+  margin-bottom: 4px;
+}
+
+.receipt-advance-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 0.68rem;
+  color: #334155;
+  padding: 1px 0;
+}
+
+.receipt-advance-row strong {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.receipt-advance-row--pending strong {
+  color: #b42318;
+}
+
+.receipt-advance-row--ok strong {
+  color: #15803d;
 }
 
 /* Sections */
 .receipt-section {
-  margin-bottom: 16px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e4e7ec;
 }
 
 .receipt-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 0;
-  font-size: 0.875rem;
+  padding: 3px 0;
+  font-size: 0.74rem;
   gap: 12px;
 }
 
-.receipt-row span:first-child { color: #64748b; }
-.receipt-row span:last-child { font-weight: 500; color: #0f172a; text-align: right; }
+.receipt-row span:first-child { color: #475467; }
+.receipt-row span:last-child { font-weight: 600; color: #0f172a; text-align: right; }
 .receipt-simple-title {
-  font-size: 0.78rem;
-  font-weight: 800;
+  font-size: 0.68rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: #0f766e;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .receipt-value-good {
   color: #15803d;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .receipt-value-debt {
-  color: #b91c1c;
-  font-weight: 700;
+  color: #b42318;
+  font-weight: 600;
 }
 
 .receipt-reference {
@@ -1721,18 +1926,18 @@ tbody tr:hover {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  font-size: 0.8rem;
-  color: #64748b;
-  padding: 2px 0;
+  font-size: 0.69rem;
+  color: #475467;
+  padding: 1px 0;
 }
 
 .receipt-subrow span:last-child {
-  color: #334155;
-  font-weight: 600;
+  color: #344054;
+  font-weight: 700;
 }
 
 .receipt-subrow--debt span {
-  color: #b91c1c;
+  color: #9a3412;
 }
 
 .receipt-overdue-banner--ok {
@@ -1746,8 +1951,17 @@ tbody tr:hover {
 }
 
 @media (max-width: 640px) {
-  .receipt-header-info-row {
-    flex-direction: column;
+  .receipt-top-balance-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .receipt-top-right-meta {
+    align-items: flex-end;
+    gap: 2px;
+  }
+
+  .receipt-top-action {
+    margin: 0;
   }
 }
 
@@ -1846,27 +2060,27 @@ tbody tr:hover {
 }
 
 .receipt-reminders-box {
-  margin-top: 12px;
-  background: #f6f8ff;
-  border: 1.5px solid #c7d2fe;
-  border-radius: 14px;
-  padding: 14px 16px;
+  margin-top: 10px;
+  background: #f5f8ff;
+  border: 1.5px solid #c9d6ff;
+  border-radius: 12px;
+  padding: 12px 14px;
 }
 
 .receipt-reminders-title {
-  font-size: 0.82rem;
-  font-weight: 800;
-  color: #1e40af;
-  margin-bottom: 10px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #1d4ed8;
+  margin-bottom: 6px;
 }
 
 .receipt-reminders-list {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 6px;
-  color: #334155;
-  font-size: 0.75rem;
+  gap: 5px;
+  color: #344054;
+  font-size: 0.64rem;
   line-height: 1.42;
   list-style: none;
 }
@@ -1889,7 +2103,7 @@ tbody tr:hover {
 }
 
 .receipt-reminder-highlight {
-  color: #2563eb;
+  color: #1d4ed8;
   font-weight: 800;
 }
 
@@ -1946,11 +2160,11 @@ tbody tr:hover {
 
 .receipt-footer {
   text-align: center;
-  font-size: 0.72rem;
-  color: #94a3b8;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px dashed #e2e8f0;
+  font-size: 0.62rem;
+  color: #98a2b3;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #e4e7ec;
 }
 
 

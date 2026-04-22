@@ -59,6 +59,21 @@ export type PendingBankItem = {
   suggestedClientName?: string;
 };
 
+export type PendingCardItem = {
+  id: string;
+  appliedPaymentId?: string;
+  folio: string;
+  clientId: string;
+  clientName: string;
+  clientUnit: string;
+  clientCedula?: string;
+  amountExpected: number;
+  dateRegistered: string;
+  expectedSettlementDate: string;
+  reference?: string;
+  createdAt: string;
+};
+
 export type BankRule = {
   id: string;
   accountNumber: string;

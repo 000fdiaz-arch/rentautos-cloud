@@ -1,10 +1,12 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import PaymentReceipt, { downloadPaymentsReceiptsZip } from "../components/PaymentReceipt";
+import PaymentReceipt, { downloadPaymentReceiptImage, downloadPaymentsReceiptsZip } from "../components/PaymentReceipt";
 import { formatCurrency, formatDate } from "../format";
 import {
+  loadPendingCardItems,
   loadManualBankAssignmentAudit,
   loadPendingBankItems,
   nextReceiptNumber,
+  savePendingCardItems,
   saveManualBankAssignmentAudit,
   savePendingBankItems
 } from "../storage";
@@ -15,6 +17,7 @@ import type {
   OtherCharge,
   Payment,
   PaymentMethod,
+  PendingCardItem,
   PendingBankItem
 } from "../types";
 import { findNextChargeDay, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../billing";
@@ -53,6 +56,11 @@ type NotifiedPayment = {
 type NotifiedPaymentForm = {
   unitId: string;
   amount: string;
+};
+
+type PendingCardEditForm = {
+  folio: string;
+  reference: string;
 };
 
 type NotifiedSortField = "unit" | "client" | "amount" | "createdAt";
@@ -151,6 +159,18 @@ type PendingColumnFilters = {
   actions: string;
 };
 
+type HistoryColumnFilters = {
+  receipt: string;
+  date: string;
+  unit: string;
+  client: string;
+  amount: string;
+  applied: string;
+  savings: string;
+  installments: string;
+  method: string;
+};
+
 const EMPTY_PENDING_FILTERS: PendingColumnFilters = {
   folio: "",
   account: "",
@@ -165,9 +185,35 @@ const EMPTY_PENDING_FILTERS: PendingColumnFilters = {
   actions: ""
 };
 
+const EMPTY_HISTORY_COLUMN_FILTERS: HistoryColumnFilters = {
+  receipt: "",
+  date: "",
+  unit: "",
+  client: "",
+  amount: "",
+  applied: "",
+  savings: "",
+  installments: "",
+  method: ""
+};
+
 function extractGroupCodeFromUnitValue(unitId: string): string {
   const match = String(unitId ?? "").trim().match(/^([A-Za-z]+)/);
   return match ? match[1].toUpperCase() : "";
+}
+
+function getNextDateKey(dateKey: string): string {
+  const parsed = parseDateKey(dateKey);
+  if (!parsed) return dateKey;
+  const next = new Date(parsed);
+  next.setDate(next.getDate() + 1);
+  return toDateKey(next);
+}
+
+function buildTemporaryCardFolio(dateKey: string): string {
+  const compactDate = dateKey.replace(/-/g, "");
+  const token = String(Date.now()).slice(-6);
+  return `TMP-${compactDate}-${token}`;
 }
 
 type Props = {
@@ -324,9 +370,10 @@ function computeAppliedOtherCharges(
 function computeEffectiveOtherChargesAllocation(
   client: Client,
   manualInput: Record<string, string>,
-  wholePart: number
+  wholePart: number,
+  allowManualOverrideForForcedRule = false
 ): { otherChargesApplied: OtherCharge[]; totalOtherCharges: number; forcedRuleApplied: boolean } {
-  if (!shouldForceFiveToOtherCharges(client)) {
+  if (!shouldForceFiveToOtherCharges(client) || allowManualOverrideForForcedRule) {
     const manual = computeAppliedOtherCharges(client.otherCharges, manualInput, wholePart);
     return {
       otherChargesApplied: manual.otherChargesApplied,
@@ -367,7 +414,8 @@ type ManualPaymentAllocation = {
 function computeManualPaymentAllocation(
   client: Client,
   rawAmount: number,
-  manualOtherChargesInput: Record<string, string>
+  manualOtherChargesInput: Record<string, string>,
+  allowManualOverrideForForcedRule = false
 ): ManualPaymentAllocation {
   const amount = roundMoney(Math.max(0, rawAmount));
   const { wholePart, centsPart } = splitWholeAndCents(amount);
@@ -376,7 +424,8 @@ function computeManualPaymentAllocation(
   const { otherChargesApplied, totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
     client,
     manualOtherChargesInput,
-    wholePart
+    wholePart,
+    allowManualOverrideForForcedRule
   );
   const appliedToRent = roundMoney(Math.min(Math.max(0, wholePart - totalOtherCharges), balanceBefore));
   const leftover = roundMoney(Math.max(0, wholePart - totalOtherCharges - appliedToRent));
@@ -623,6 +672,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
   const [historyGroupFilter, setHistoryGroupFilter] = useState<string>("all");
   const [historyDateFrom, setHistoryDateFrom] = useState<string>("");
   const [historyDateTo, setHistoryDateTo] = useState<string>("");
+  const [historyColumnFilters, setHistoryColumnFilters] = useState<HistoryColumnFilters>({ ...EMPTY_HISTORY_COLUMN_FILTERS });
   const [historySortField, setHistorySortField] = useState<HistorySortField>("date");
   const [historySortDirection, setHistorySortDirection] = useState<SortDirection>("desc");
   const [historySelectedPaymentIds, setHistorySelectedPaymentIds] = useState<string[]>([]);
@@ -652,15 +702,24 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
   const [reopenTargetDate, setReopenTargetDate] = useState<string | null>(null);
   const [reopenReason, setReopenReason] = useState<string>("");
   const [pendingBankItems, setPendingBankItems] = useState<PendingBankItem[]>(() => loadPendingBankItems());
+  const [pendingCardItems, setPendingCardItems] = useState<PendingCardItem[]>(() => loadPendingCardItems());
   const [isPendingOpen, setIsPendingOpen] = useState(false);
+  const [isCardPendingOpen, setIsCardPendingOpen] = useState(false);
   const [pendingClassifyTarget, setPendingClassifyTarget] = useState<PendingBankItem | null>(null);
   const [pendingClassifyClientId, setPendingClassifyClientId] = useState("");
   const [pendingClassifySearch, setPendingClassifySearch] = useState("");
   const [pendingImportError, setPendingImportError] = useState("");
   const [pendingFilters, setPendingFilters] = useState<PendingColumnFilters>(() => ({ ...EMPTY_PENDING_FILTERS }));
   const [pendingOtherChargesInput, setPendingOtherChargesInput] = useState<Record<string, string>>({});
+  const [manualOverrideForcedOtherCharges, setManualOverrideForcedOtherCharges] = useState(false);
+  const [pendingManualOverrideForcedOtherCharges, setPendingManualOverrideForcedOtherCharges] = useState(false);
   const [manualAssignmentAudit, setManualAssignmentAudit] = useState<ManualBankAssignmentAudit[]>(() => loadManualBankAssignmentAudit());
   const [autoAmountInfo, setAutoAmountInfo] = useState("");
+  const [paymentInfo, setPaymentInfo] = useState("");
+  const [editingPendingCardId, setEditingPendingCardId] = useState<string | null>(null);
+  const [editingPendingCardForm, setEditingPendingCardForm] = useState<PendingCardEditForm>({ folio: "", reference: "" });
+  const [bulkPendingCardFolio, setBulkPendingCardFolio] = useState("");
+  const [cardPendingMessage, setCardPendingMessage] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const pendingTopScrollRef = useRef<HTMLDivElement>(null);
   const pendingTopInnerRef = useRef<HTMLDivElement>(null);
@@ -668,11 +727,28 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
   const historyTopScrollRef = useRef<HTMLDivElement>(null);
   const historyTopInnerRef = useRef<HTMLDivElement>(null);
   const historyBottomScrollRef = useRef<HTMLDivElement>(null);
+  const autoDownloadedPaymentIdsRef = useRef<Set<string>>(new Set());
+  const reconcilingCardRef = useRef(false);
   const cashSectionRef = useRef<HTMLElement>(null);
   const registerSectionRef = useRef<HTMLElement>(null);
   const notifiedSectionRef = useRef<HTMLElement>(null);
   const pendingSectionRef = useRef<HTMLElement>(null);
+  const pendingCardSectionRef = useRef<HTMLElement>(null);
   const historySectionRef = useRef<HTMLElement>(null);
+
+  function finalizeSuccessfulPayment(payment: Payment, options?: { openReceipt?: boolean }): void {
+    if (options?.openReceipt) {
+      setConfirmedPayment(payment);
+    }
+    if (autoDownloadedPaymentIdsRef.current.has(payment.id)) return;
+    autoDownloadedPaymentIdsRef.current.add(payment.id);
+    void downloadPaymentReceiptImage(payment).catch(() => {
+      setErrors((prev) => {
+        const msg = "Pago registrado, pero no se pudo descargar el recibo automaticamente. Intenta descargarlo manualmente.";
+        return prev.includes(msg) ? prev : [...prev, msg];
+      });
+    });
+  }
 
   const activeClients = useMemo(
     () => clients.filter((c) => !c.archivedAt),
@@ -701,15 +777,17 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const amount = parseFloat(form.amountReceived);
     if (!Number.isFinite(amount) || amount <= 0) return null;
 
-    return computeManualPaymentAllocation(selectedClient, amount, manualOtherChargesInput);
-  }, [form.amountReceived, selectedClient, manualOtherChargesInput]);
+    return computeManualPaymentAllocation(selectedClient, amount, manualOtherChargesInput, manualOverrideForcedOtherCharges);
+  }, [form.amountReceived, selectedClient, manualOtherChargesInput, manualOverrideForcedOtherCharges]);
   const isForcedOtherChargesRuleClient = useMemo(
     () => (selectedClient ? shouldForceFiveToOtherCharges(selectedClient) : false),
     [selectedClient]
   );
+  const isForcedOtherChargesRuleActive = isForcedOtherChargesRuleClient && !manualOverrideForcedOtherCharges;
 
   const isZeroBalance = selectedClient !== null && selectedClient.balance === 0;
   const isBankPayment = BANK_PAYMENT_METHODS.has(form.paymentMethod);
+  const isCardPayment = form.paymentMethod === "Tarjeta";
 
   const notifiedRows = useMemo(() => {
     const getClient = (clientId: string): Client | null => clients.find((c) => c.id === clientId) ?? null;
@@ -881,6 +959,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
   }, [operationalDateKey]);
 
   useEffect(() => {
+    if (reconcilingCardRef.current) return;
     const normalizedPayments = payments.map((p) => {
       const nextDateApplied = normalizeToOperationalDate(p.dateApplied);
       return nextDateApplied === p.dateApplied ? p : { ...p, dateApplied: nextDateApplied };
@@ -900,6 +979,73 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       savePendingBankItems(normalizedPending);
     }
   }, [operationalDateKey, payments, pendingBankItems, onPaymentsChange]);
+
+  useEffect(() => {
+    if (reconcilingCardRef.current) return;
+    if (pendingCardItems.length === 0 || pendingBankItems.length === 0) return;
+
+    const amountTolerance = 0.02;
+    const pendingByFolio = new Map<string, PendingCardItem[]>();
+    for (const item of pendingCardItems) {
+      const normalized = normalizeFolioToken(item.folio);
+      if (!normalized) continue;
+      const current = pendingByFolio.get(normalized) ?? [];
+      current.push(item);
+      pendingByFolio.set(normalized, current);
+    }
+
+    const nextPayments = [...payments];
+    let paymentsUpdated = false;
+    const usedBankIndexes = new Set<number>();
+    const reconciledCardIds = new Set<string>();
+    let reconciledGroups = 0;
+    let reconciledCardCount = 0;
+
+    for (let index = 0; index < pendingBankItems.length; index += 1) {
+      const bankItem = pendingBankItems[index];
+      const normalizedBankFolio = normalizeFolioToken(bankItem.folio);
+      if (!normalizedBankFolio) continue;
+      if (usedBankIndexes.has(index)) continue;
+
+      const groupedCards = pendingByFolio.get(normalizedBankFolio);
+      if (!groupedCards || groupedCards.length === 0) continue;
+      const groupedAmount = roundMoney(groupedCards.reduce((sum, item) => sum + roundMoney(item.amountExpected), 0));
+      if (Math.abs(groupedAmount - roundMoney(bankItem.amountReceived)) > amountTolerance) continue;
+
+      usedBankIndexes.add(index);
+      reconciledGroups += 1;
+      reconciledCardCount += groupedCards.length;
+
+      for (const cardItem of groupedCards) {
+        reconciledCardIds.add(cardItem.id);
+        if (!cardItem.appliedPaymentId) continue;
+        const paymentIndex = nextPayments.findIndex((p) => p.id === cardItem.appliedPaymentId);
+        if (paymentIndex < 0) continue;
+        const currentPayment = nextPayments[paymentIndex];
+        const currentReference = currentPayment.reference?.trim() ?? "";
+        const reconciliationTag = `TARJETA-CONCILIADA | FOLIO:${normalizedBankFolio} | FECHA-BANCO:${bankItem.dateApplied || operationalDateKey}`;
+        if (currentReference.toUpperCase().includes("TARJETA-CONCILIADA")) continue;
+        nextPayments[paymentIndex] = {
+          ...currentPayment,
+          reference: currentReference ? `${currentReference} | ${reconciliationTag}` : reconciliationTag
+        };
+        paymentsUpdated = true;
+      }
+    }
+
+    if (reconciledCardIds.size === 0) return;
+
+    const remainingCardItems = pendingCardItems.filter((item) => !reconciledCardIds.has(item.id));
+    const remainingBankItems = pendingBankItems.filter((_, index) => !usedBankIndexes.has(index));
+    reconcilingCardRef.current = true;
+    if (paymentsUpdated) onPaymentsChange(nextPayments);
+    setPendingBankItems(remainingBankItems);
+    savePendingBankItems(remainingBankItems);
+    setPendingCardItems(remainingCardItems);
+    savePendingCardItems(remainingCardItems);
+    setPendingImportError(`Tarjetas conciliadas automaticamente: ${reconciledCardCount} pago(s) en ${reconciledGroups} lote(s).`);
+    setTimeout(() => { reconcilingCardRef.current = false; }, 0);
+  }, [pendingCardItems, pendingBankItems, payments, operationalDateKey, onPaymentsChange]);
 
   useEffect(() => {
     if (!isPendingOpen) return;
@@ -1174,6 +1320,31 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     return set;
   }
 
+  function buildExistingProcessedFolioSetForCsvImport(rows: Payment[]): Set<string> {
+    const set = new Set<string>();
+    for (const payment of rows) {
+      const reference = payment.reference ?? "";
+      const isBankPayment = BANK_PAYMENT_METHODS.has(payment.paymentMethod);
+      const isReconciledCardPayment =
+        payment.paymentMethod === "Tarjeta" &&
+        reference.toUpperCase().includes("TARJETA-CONCILIADA");
+      if (!isBankPayment && !isReconciledCardPayment) continue;
+      for (const folio of extractFoliosFromReference(reference)) {
+        set.add(folio);
+      }
+    }
+    return set;
+  }
+
+  function buildExistingCardPendingFolioSet(rows: PendingCardItem[]): Set<string> {
+    const set = new Set<string>();
+    for (const item of rows) {
+      const folio = normalizeFolioToken(item.folio);
+      if (folio) set.add(folio);
+    }
+    return set;
+  }
+
   function extractGroupCodeFromUnit(unitId: string): string {
     const match = normalizeBankText(unitId).match(/^([A-Za-z]+)/);
     return match ? match[1].toUpperCase() : "";
@@ -1386,7 +1557,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
         return;
       }
 
-      const existingFoliosInPayments = buildExistingBankFolioSet(payments);
+      const existingFoliosInPayments = buildExistingProcessedFolioSetForCsvImport(payments);
       const existingFoliosInPending = new Set(pendingBankItems.map((i) => normalizeFolioToken(i.folio)));
 
       const accountsInFile = new Set<string>();
@@ -1519,6 +1690,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
   }
   function handleOpenClassify(item: PendingBankItem): void {
     setPendingClassifyTarget(item);
+    setPendingManualOverrideForcedOtherCharges(false);
     if (item.suggestedClientId) {
       const c = clients.find((cl) => cl.id === item.suggestedClientId);
       setPendingClassifyClientId(item.suggestedClientId);
@@ -1546,6 +1718,128 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     savePendingBankItems([]);
     setPendingClassifyTarget(null);
     setPendingImportError(`Se ignoraron ${pendingBankItems.length} pendiente(s) del banco.`);
+  }
+
+  function handleRemovePendingCard(id: string): void {
+    if (editingPendingCardId === id) {
+      setEditingPendingCardId(null);
+      setEditingPendingCardForm({ folio: "", reference: "" });
+    }
+    const next = pendingCardItems.filter((item) => item.id !== id);
+    setPendingCardItems(next);
+    savePendingCardItems(next);
+  }
+
+  function handleStartEditPendingCard(item: PendingCardItem): void {
+    setEditingPendingCardId(item.id);
+    setEditingPendingCardForm({
+      folio: item.folio,
+      reference: item.reference ?? ""
+    });
+    setCardPendingMessage("");
+  }
+
+  function handleCancelEditPendingCard(): void {
+    setEditingPendingCardId(null);
+    setEditingPendingCardForm({ folio: "", reference: "" });
+  }
+
+  function handleSaveEditPendingCard(item: PendingCardItem): void {
+    const normalizedFolio = normalizeFolioToken(editingPendingCardForm.folio);
+    if (!normalizedFolio) {
+      setCardPendingMessage("Debes indicar un folio valido para poder conciliar el pago de tarjeta.");
+      return;
+    }
+
+    const existingBankFolios = buildExistingBankFolioSet(payments);
+    if (existingBankFolios.has(normalizedFolio)) {
+      setCardPendingMessage(`No se puede usar el folio ${normalizedFolio}: ya existe en pagos bancarios.`);
+      return;
+    }
+
+    const cleanedReference = editingPendingCardForm.reference.trim();
+    const next = pendingCardItems.map((row) => {
+      if (row.id !== item.id) return row;
+      return {
+        ...row,
+        folio: normalizedFolio,
+        reference: cleanedReference || undefined
+      };
+    });
+    setPendingCardItems(next);
+    savePendingCardItems(next);
+    setEditingPendingCardId(null);
+    setEditingPendingCardForm({ folio: "", reference: "" });
+    setCardPendingMessage(`Pendiente actualizado. Folio listo para conciliar: ${normalizedFolio}.`);
+  }
+
+  function handleApplyFolioToAllPendingCards(): void {
+    if (pendingCardItems.length === 0) return;
+    const normalizedFolio = normalizeFolioToken(bulkPendingCardFolio);
+    if (!normalizedFolio) {
+      setCardPendingMessage("Debes indicar un folio valido para aplicar en lote.");
+      return;
+    }
+    const existingBankFolios = buildExistingBankFolioSet(payments);
+    if (existingBankFolios.has(normalizedFolio)) {
+      setCardPendingMessage(`No se puede usar el folio ${normalizedFolio}: ya existe en pagos bancarios.`);
+      return;
+    }
+    const next = pendingCardItems.map((row) => ({ ...row, folio: normalizedFolio }));
+    setPendingCardItems(next);
+    savePendingCardItems(next);
+    setCardPendingMessage(`Folio ${normalizedFolio} aplicado a ${next.length} pendiente(s) de tarjeta.`);
+  }
+
+  function handleGeneratePendingCardReceipt(item: PendingCardItem): void {
+    if (item.appliedPaymentId) {
+      const existingPayment = payments.find((payment) => payment.id === item.appliedPaymentId);
+      if (existingPayment) {
+        finalizeSuccessfulPayment(existingPayment, { openReceipt: true });
+        setCardPendingMessage(`Comprobante generado para folio ${item.folio}.`);
+        return;
+      }
+    }
+    const client = clients.find((c) => c.id === item.clientId);
+    if (!client) {
+      setCardPendingMessage(`No se pudo generar comprobante: cliente no encontrado para folio ${item.folio}.`);
+      return;
+    }
+    const previewAllocation = computeManualPaymentAllocation(client, item.amountExpected, {});
+    const previewPayment: Payment = {
+      id: crypto.randomUUID(),
+      receiptNumber: `T-PEND-${new Date().getTime()}`,
+      clientId: client.id,
+      clientName: client.name,
+      clientUnit: client.unitId,
+      clientCedula: client.cedula,
+      dateApplied: item.dateRegistered || operationalDateKey,
+      paymentMethod: "Tarjeta",
+      reference: `FOLIO:${normalizeFolioToken(item.folio)} | TARJETA-PENDIENTE-CONCILIACION | ${item.reference || "N/A"}`,
+      amountReceived: item.amountExpected,
+      appliedToRent: previewAllocation.appliedToRent,
+      centavosAhorro: previewAllocation.centavosAhorro,
+      advanceApplied: previewAllocation.advanceApplied > 0 ? previewAllocation.advanceApplied : undefined,
+      otherChargesApplied: previewAllocation.otherChargesApplied.length > 0 ? previewAllocation.otherChargesApplied : undefined,
+      otherChargesDueAfter: computeOtherChargesDueAfter(client.otherCharges, previewAllocation.otherChargesApplied),
+      installmentsDeducted: previewAllocation.installmentsDeducted,
+      installmentsFromDebt: previewAllocation.installmentsDeducted,
+      installmentsFromAdvance: previewAllocation.installmentsCoveredByAdvance,
+      installmentsTotalInPayment: previewAllocation.installmentsTotalInPayment,
+      balanceBefore: previewAllocation.balanceBefore,
+      balanceAfter: previewAllocation.balanceAfter,
+      savingsBefore: client.savings,
+      savingsAfter: roundMoney(client.savings + previewAllocation.centavosAhorro),
+      installmentsPaidAfter: client.installmentsPaid + previewAllocation.installmentsDeducted,
+      installmentsRemainingAfter: Math.max(0, client.installmentsRemaining - previewAllocation.installmentsDeducted),
+      rentAmount: client.rentAmount,
+      frequency: client.frequency,
+      weeklyChargeDay: client.weeklyChargeDay,
+      monthlyChargeDay: client.monthlyChargeDay,
+      createdAt: new Date().toISOString()
+    };
+    finalizeSuccessfulPayment(previewPayment, { openReceipt: true });
+    setCardPendingMessage(`Comprobante generado para folio ${item.folio}.`);
   }
 
   function handlePendingUnitChange(item: PendingBankItem, nextClientId: string): void {
@@ -1604,7 +1898,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const { otherChargesApplied, totalOtherCharges } = computeEffectiveOtherChargesAllocation(
       client,
       pendingOtherChargesInput,
-      wholePart
+      wholePart,
+      pendingManualOverrideForcedOtherCharges
     );
 
     // Capital after deducting otros cargos goes to rent
@@ -1673,6 +1968,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
 
     onClientsChange(updatedClients);
     onPaymentsChange([...payments, payment]);
+    finalizeSuccessfulPayment(payment);
     const remainingNotified = removeOneMatchingNotified(notifiedPayments, client.id, item.amountReceived, item.dateApplied);
     setNotifiedPayments(remainingNotified);
     saveNotifiedPayments(remainingNotified);
@@ -1681,6 +1977,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     setPendingBankItems(next);
     savePendingBankItems(next);
     setPendingClassifyTarget(null);
+    setPendingManualOverrideForcedOtherCharges(false);
   }
 
   function getSimilaritySignals(item: PendingBankItem): { nombre: boolean; centavos: boolean; notificado: boolean; score: number } {
@@ -1824,6 +2121,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const updatedClients = clients.map((c) => (c.id === updatedClient.id ? updatedClient : c));
     onClientsChange(updatedClients);
     onPaymentsChange([...payments, payment]);
+    finalizeSuccessfulPayment(payment);
     const remainingNotified = removeOneMatchingNotified(notifiedPayments, client.id, item.amountReceived, item.dateApplied);
     setNotifiedPayments(remainingNotified);
     saveNotifiedPayments(remainingNotified);
@@ -1877,6 +2175,9 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
 
     onClientsChange([...updatedClientsMap.values()]);
     onPaymentsChange([...payments, ...newPayments]);
+    for (const payment of newPayments) {
+      finalizeSuccessfulPayment(payment);
+    }
     let remainingNotified = [...notifiedPayments];
     for (const item of highSim) {
       const normalizedFolio = normalizeFolioToken(item.folio);
@@ -1895,14 +2196,18 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     setClientSearch("");
     setDropdownOpen(false);
     setManualOtherChargesInput({});
+    setManualOverrideForcedOtherCharges(false);
     setAutoAmountInfo("");
+    setPaymentInfo("");
   }
 
   function handleClearClient(): void {
     setForm((f) => ({ ...f, clientId: "" }));
     setClientSearch("");
     setDropdownOpen(false);
+    setManualOverrideForcedOtherCharges(false);
     setAutoAmountInfo("");
+    setPaymentInfo("");
   }
 
   function handleAutoFillToMonthEnd(): void {
@@ -1922,6 +2227,14 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     if (!form.clientId) errs.push("Debes seleccionar un cliente.");
     const amount = parseFloat(form.amountReceived);
     if (!Number.isFinite(amount) || amount <= 0) errs.push("El monto recibido debe ser mayor a 0.");
+    if (form.paymentMethod === "Tarjeta") {
+      const enteredFolios = extractFoliosFromReference(form.reference);
+      if (enteredFolios.length > 0) {
+        const existingBankFolios = buildExistingBankFolioSet(payments);
+        const duplicate = enteredFolios.find((folio) => existingBankFolios.has(folio));
+        if (duplicate) errs.push(`El folio ${duplicate} ya existe en pagos bancarios.`);
+      }
+    }
     if (isBankPayment) {
       const enteredFolios = extractFoliosFromReference(form.reference);
       if (enteredFolios.length === 0) {
@@ -2051,9 +2364,111 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     if (errs.length > 0) { setErrors(errs); return; }
     if (!selectedClient || !preview) return;
     const amountReceived = roundMoney(parseFloat(form.amountReceived));
-    const allocation = computeManualPaymentAllocation(selectedClient, amountReceived, manualOtherChargesInput);
+    if (form.paymentMethod === "Tarjeta") {
+      const allocation = computeManualPaymentAllocation(
+        selectedClient,
+        amountReceived,
+        manualOtherChargesInput,
+        manualOverrideForcedOtherCharges
+      );
+
+      const enteredFolios = extractFoliosFromReference(form.reference);
+      const normalizedFolio = enteredFolios[0] ?? buildTemporaryCardFolio(operationalDateKey);
+      const receiptNumber = nextReceiptNumber();
+      const cardPayment: Payment = {
+        id: crypto.randomUUID(),
+        receiptNumber,
+        clientId: selectedClient.id,
+        clientName: selectedClient.name,
+        clientUnit: selectedClient.unitId,
+        clientCedula: selectedClient.cedula,
+        dateApplied: operationalDateKey,
+        paymentMethod: "Tarjeta",
+        reference: `FOLIO:${normalizedFolio} | TARJETA-PENDIENTE-CONCILIACION | ${form.reference.trim() || "PENDIENTE-FOLIO"}`,
+        amountReceived,
+        appliedToRent: allocation.appliedToRent,
+        centavosAhorro: allocation.centavosAhorro,
+        advanceApplied: allocation.advanceApplied > 0 ? allocation.advanceApplied : undefined,
+        otherChargesApplied: allocation.otherChargesApplied.length > 0 ? allocation.otherChargesApplied : undefined,
+        otherChargesDueAfter: computeOtherChargesDueAfter(selectedClient.otherCharges, allocation.otherChargesApplied),
+        installmentsDeducted: allocation.installmentsDeducted,
+        installmentsFromDebt: allocation.installmentsDeducted,
+        installmentsFromAdvance: allocation.installmentsCoveredByAdvance,
+        installmentsTotalInPayment: allocation.installmentsTotalInPayment,
+        balanceBefore: allocation.balanceBefore,
+        balanceAfter: allocation.balanceAfter,
+        savingsBefore: selectedClient.savings,
+        savingsAfter: roundMoney(selectedClient.savings + allocation.centavosAhorro),
+        installmentsPaidAfter: selectedClient.installmentsPaid + allocation.installmentsDeducted,
+        installmentsRemainingAfter: Math.max(0, selectedClient.installmentsRemaining - allocation.installmentsDeducted),
+        rentAmount: selectedClient.rentAmount,
+        frequency: selectedClient.frequency,
+        weeklyChargeDay: selectedClient.weeklyChargeDay,
+        monthlyChargeDay: selectedClient.monthlyChargeDay,
+        createdAt: new Date().toISOString()
+      };
+
+      const updatedClients = clients.map((c) => {
+        if (c.id !== selectedClient.id) return c;
+        const otherChargesDueAfter = computeOtherChargesDueAfter(c.otherCharges, allocation.otherChargesApplied) ?? [];
+        return {
+          ...c,
+          balance: allocation.balanceAfter,
+          advanceBalance: roundMoney((c.advanceBalance ?? 0) + allocation.advanceApplied),
+          savings: roundMoney(c.savings + allocation.centavosAhorro),
+          installmentsRemaining: Math.max(0, c.installmentsRemaining - allocation.installmentsDeducted),
+          installmentsPaid: c.installmentsPaid + allocation.installmentsDeducted,
+          otherCharges: otherChargesDueAfter
+        };
+      });
+
+      const pendingCard: PendingCardItem = {
+        id: crypto.randomUUID(),
+        appliedPaymentId: cardPayment.id,
+        folio: normalizedFolio,
+        clientId: selectedClient.id,
+        clientName: selectedClient.name,
+        clientUnit: selectedClient.unitId,
+        clientCedula: selectedClient.cedula,
+        amountExpected: amountReceived,
+        dateRegistered: operationalDateKey,
+        expectedSettlementDate: getNextDateKey(operationalDateKey),
+        reference: form.reference.trim() || undefined,
+        createdAt: new Date().toISOString()
+      };
+      const nextPendingCardItems = [...pendingCardItems, pendingCard];
+
+      onClientsChange(updatedClients);
+      onPaymentsChange([...payments, cardPayment]);
+      setPendingCardItems(nextPendingCardItems);
+      savePendingCardItems(nextPendingCardItems);
+      setErrors([]);
+      setPaymentInfo(
+        enteredFolios.length > 0
+          ? `Pago en tarjeta aplicado. Pendiente de conciliacion bancaria con folio ${normalizedFolio} para ${pendingCard.expectedSettlementDate}.`
+          : `Pago en tarjeta aplicado con folio temporal ${normalizedFolio}. Debes corregirlo manana para conciliar con el CSV.`
+      );
+      finalizeSuccessfulPayment(cardPayment);
+      setForm({
+        clientId: "",
+        dateApplied: operationalDateKey,
+        paymentMethod: "Efectivo",
+        reference: "",
+        amountReceived: ""
+      });
+      setManualOtherChargesInput({});
+      setManualOverrideForcedOtherCharges(false);
+      return;
+    }
+    const allocation = computeManualPaymentAllocation(
+      selectedClient,
+      amountReceived,
+      manualOtherChargesInput,
+      manualOverrideForcedOtherCharges
+    );
 
     setErrors([]);
+    setPaymentInfo("");
     const receiptNumber = nextReceiptNumber();
 
     const payment: Payment = {
@@ -2105,7 +2520,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
 
     onClientsChange(updatedClients);
     onPaymentsChange([...payments, payment]);
-    setConfirmedPayment(payment);
+    finalizeSuccessfulPayment(payment);
     setForm({
       clientId: "",
       dateApplied: operationalDateKey,
@@ -2113,6 +2528,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       reference: "",
       amountReceived: ""
     });
+    setManualOtherChargesInput({});
+    setManualOverrideForcedOtherCharges(false);
   }
 
   function handleDeletePayment(payment: Payment): void {
@@ -2242,6 +2659,14 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     return historySortDirection === "desc" ? "v" : "^";
   }
 
+  function updateHistoryColumnFilter(field: keyof HistoryColumnFilters, value: string): void {
+    setHistoryColumnFilters((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function clearHistoryColumnFilters(): void {
+    setHistoryColumnFilters({ ...EMPTY_HISTORY_COLUMN_FILTERS });
+  }
+
   const historyAvailableGroups = useMemo(() => {
     return [...new Set(
       payments
@@ -2257,6 +2682,11 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     return "";
   }, [historyDateFrom, historyDateTo]);
 
+  const hasHistoryColumnFilters = useMemo(
+    () => Object.values(historyColumnFilters).some((value) => value.trim().length > 0),
+    [historyColumnFilters]
+  );
+
   const historyRows = useMemo(() => {
     if (historyDateRangeError) return [];
 
@@ -2266,10 +2696,34 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const byGroup = historyGroupFilter === "all"
       ? byClient
       : byClient.filter((p) => extractGroupCodeFromUnit(p.clientUnit) === historyGroupFilter);
-    const filtered = byGroup.filter((p) => {
+    const filteredByDate = byGroup.filter((p) => {
       if (historyDateFrom && p.dateApplied < historyDateFrom) return false;
       if (historyDateTo && p.dateApplied > historyDateTo) return false;
       return true;
+    });
+    const normalize = (value: string): string => value.trim().toLowerCase();
+    const includesFilter = (target: string, filterValue: string): boolean => {
+      const query = normalize(filterValue);
+      if (!query) return true;
+      return normalize(target).includes(query);
+    };
+    const filtered = filteredByDate.filter((p) => {
+      const installments = getInstallmentsTotalInPayment(p);
+      const amountLabel = `${p.amountReceived.toFixed(2)} ${formatCurrency(p.amountReceived)}`;
+      const appliedLabel = `${p.appliedToRent.toFixed(2)} ${formatCurrency(p.appliedToRent)}`;
+      const savingsLabel = `${p.centavosAhorro.toFixed(2)} ${formatCurrency(p.centavosAhorro)}`;
+      const installmentsLabel = installments > 0 ? `-${installments}` : "-";
+      return (
+        includesFilter(p.receiptNumber, historyColumnFilters.receipt) &&
+        includesFilter(p.dateApplied, historyColumnFilters.date) &&
+        includesFilter(p.clientUnit, historyColumnFilters.unit) &&
+        includesFilter(p.clientName, historyColumnFilters.client) &&
+        includesFilter(amountLabel, historyColumnFilters.amount) &&
+        includesFilter(appliedLabel, historyColumnFilters.applied) &&
+        includesFilter(savingsLabel, historyColumnFilters.savings) &&
+        includesFilter(installmentsLabel, historyColumnFilters.installments) &&
+        includesFilter(p.paymentMethod, historyColumnFilters.method)
+      );
     });
     const dir = historySortDirection === "asc" ? 1 : -1;
     const sorted = [...filtered].sort((a, b) => {
@@ -2287,7 +2741,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       return b.createdAt.localeCompare(a.createdAt);
     });
     return sorted;
-  }, [payments, historyClientId, historyGroupFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError]);
+  }, [payments, historyClientId, historyGroupFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
 
   useEffect(() => {
     if (!isHistoryOpen) return;
@@ -2673,6 +3127,15 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
 
           <button
             type="button"
+            className={`payment-quick-action${isCardPendingOpen ? " payment-quick-action--active" : ""}`}
+            onClick={() => handleQuickToggleSection(isCardPendingOpen, setIsCardPendingOpen, pendingCardSectionRef)}
+          >
+            <span className="payment-quick-action-title">Pendientes tarjeta</span>
+            <span className="payment-quick-action-state">{isCardPendingOpen ? "Ocultar" : "Abrir"}</span>
+          </button>
+
+          <button
+            type="button"
             className={`payment-quick-action${isHistoryOpen ? " payment-quick-action--active" : ""}`}
             onClick={() => handleQuickToggleSection(isHistoryOpen, setIsHistoryOpen, historySectionRef)}
           >
@@ -2767,15 +3230,21 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
           </div>
 
           <div className="payment-field-group">
-            <label className="payment-label">{isBankPayment ? "Referencia (Folio)" : "Referencia (Opcional)"}</label>
+            <label className="payment-label">{(isBankPayment || isCardPayment) ? "Referencia (Folio)" : "Referencia (Opcional)"}</label>
             <input
               type="text"
               className="payment-input"
-              placeholder={isBankPayment ? "Obligatorio para pago bancario" : "Opcional"}
+              placeholder={isBankPayment ? "Obligatorio para pago bancario" : isCardPayment ? "Opcional (si no, se crea folio temporal)" : "Opcional"}
               value={form.reference}
               onChange={(e) => setForm((f) => ({ ...f, reference: e.target.value }))}
             />
-            {isBankPayment && <span className="payment-inline-hint">Para pagos bancarios debes colocar el folio o referencia.</span>}
+            {(isBankPayment || isCardPayment) && (
+              <span className="payment-inline-hint">
+                {isCardPayment
+                  ? "El pago en tarjeta se aplica de inmediato y queda pendiente solo para conciliacion bancaria por folio."
+                  : "Para pagos bancarios debes colocar el folio o referencia."}
+              </span>
+            )}
           </div>
 
           {/* Amount */}
@@ -2823,14 +3292,25 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
           <div className="other-charges-section" style={{ marginTop: 14 }}>
             <div className="other-charges-title">Otros cargos de este cliente</div>
             {isForcedOtherChargesRuleClient && (
-              <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
-                Regla D/T diario activa: por cada pago se aplican automaticamente hasta {formatCurrency(FIXED_OTHER_CHARGES_SPLIT)} a otros cargos.
-              </p>
+              <>
+                <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
+                  {isForcedOtherChargesRuleActive
+                    ? `Regla D/T diario activa: por cada pago se aplican automaticamente hasta ${formatCurrency(FIXED_OTHER_CHARGES_SPLIT)} a otros cargos.`
+                    : "Edicion manual activa para este pago: puedes definir otros cargos manualmente."}
+                </p>
+                <button
+                  type="button"
+                  className="button ghost small"
+                  onClick={() => setManualOverrideForcedOtherCharges((prev) => !prev)}
+                >
+                  {isForcedOtherChargesRuleActive ? "Editar este pago" : "Volver a automatico"}
+                </button>
+              </>
             )}
             {(selectedClient.otherCharges ?? []).map((charge) => (
               <div key={charge.label} className="other-charges-row">
                 <label className="payment-label">{charge.label} <span className="amount-muted">(configurado: {formatCurrency(charge.amount)})</span></label>
-                {isForcedOtherChargesRuleClient ? (
+                {isForcedOtherChargesRuleActive ? (
                   <div className="payment-input" style={{ display: "flex", alignItems: "center" }}>
                     Aplicacion automatica
                   </div>
@@ -2866,7 +3346,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                 </div>
                 {preview.totalOtherCharges > 0 && (
                   <div className="payment-preview-row">
-                    <span>{preview.forcedOtherChargesRuleApplied ? "Otros cargos (regla D/T diario)" : "Otros cargos"}</span>
+                    <span>{preview.forcedOtherChargesRuleApplied ? "Otros cargos (regla D/T diario)" : "Otros cargos (manual)"}</span>
                     <strong className="amount-warning">{formatCurrency(preview.totalOtherCharges)}</strong>
                   </div>
                 )}
@@ -2916,6 +3396,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
         {errors.length > 0 && (
           <ul className="error-list">{errors.map((e) => <li key={e}>{e}</li>)}</ul>
         )}
+        {paymentInfo && <p className="hint recon-info">{paymentInfo}</p>}
 
         <div style={{ marginTop: 20 }}>
           <button
@@ -3092,6 +3573,111 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
           </div>
         )}
         </>
+        )}
+      </section>
+
+      <section ref={pendingCardSectionRef} className="panel" style={{ display: isCardPendingOpen ? undefined : "none" }}>
+        <div className="panel-head">
+          <h2>Pendientes por folio (Tarjeta)</h2>
+        </div>
+        {isCardPendingOpen && (
+          <>
+            <p className="hint">Estos pagos ya fueron aplicados al cliente. Este panel es solo para conciliacion bancaria por lote/folio.</p>
+            {cardPendingMessage && (
+              <p className={`hint ${cardPendingMessage.startsWith("No se") || cardPendingMessage.startsWith("Debes") ? "error-text" : "recon-info"}`}>
+                {cardPendingMessage}
+              </p>
+            )}
+            {pendingCardItems.length === 0 ? (
+              <p className="empty">No hay pagos de tarjeta pendientes.</p>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, marginBottom: 8 }}>
+                  <input
+                    type="text"
+                    className="payment-input"
+                    style={{ maxWidth: 280 }}
+                    placeholder="Folio final del lote"
+                    value={bulkPendingCardFolio}
+                    onChange={(e) => setBulkPendingCardFolio(e.target.value)}
+                  />
+                  <button type="button" className="button primary small" onClick={handleApplyFolioToAllPendingCards}>
+                    Aplicar folio a todos
+                  </button>
+                </div>
+                <div className="table-scroll" style={{ marginTop: 10 }}>
+                  <table>
+                  <thead>
+                    <tr>
+                      <th>Folio</th>
+                      <th>Fecha registro</th>
+                      <th>Fecha esperada banco</th>
+                      <th>Unidad</th>
+                      <th>Cliente</th>
+                      <th>Monto esperado</th>
+                      <th>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingCardItems.map((item) => (
+                      <tr key={item.id}>
+                        <td>
+                          {editingPendingCardId === item.id ? (
+                            <input
+                              type="text"
+                              className="payment-input"
+                              value={editingPendingCardForm.folio}
+                              onChange={(e) => setEditingPendingCardForm((prev) => ({ ...prev, folio: e.target.value }))}
+                            />
+                          ) : (
+                            <code>{item.folio}</code>
+                          )}
+                        </td>
+                        <td>{item.dateRegistered}</td>
+                        <td>{item.expectedSettlementDate}</td>
+                        <td>{item.clientUnit}</td>
+                        <td>{item.clientName}</td>
+                        <td><strong>{formatCurrency(item.amountExpected)}</strong></td>
+                        <td className="actions-cell">
+                          {editingPendingCardId === item.id ? (
+                            <>
+                              <input
+                                type="text"
+                                className="payment-input"
+                                placeholder="Referencia opcional"
+                                value={editingPendingCardForm.reference}
+                                onChange={(e) => setEditingPendingCardForm((prev) => ({ ...prev, reference: e.target.value }))}
+                                style={{ minWidth: 180 }}
+                              />
+                              <button type="button" className="button primary small" onClick={() => handleSaveEditPendingCard(item)}>
+                                Guardar
+                              </button>
+                              <button type="button" className="button ghost small" onClick={handleCancelEditPendingCard}>
+                                Cancelar
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button type="button" className="button primary small" onClick={() => handleGeneratePendingCardReceipt(item)}>
+                                Comprobante
+                              </button>
+                              <button type="button" className="button ghost small" onClick={() => handleStartEditPendingCard(item)}>
+                                Editar
+                              </button>
+                              <button type="button" className="button danger small" onClick={() => handleRemovePendingCard(item.id)}>
+                                Eliminar
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </>
         )}
       </section>
 
@@ -3401,6 +3987,13 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
           </div>
           </div>
           {historyBulkDownloadError && <p className="hint error-text">{historyBulkDownloadError}</p>}
+          {hasHistoryColumnFilters && (
+            <div style={{ marginBottom: 8 }}>
+              <button type="button" className="button ghost small" onClick={clearHistoryColumnFilters}>
+                Limpiar filtros de columnas
+              </button>
+            </div>
+          )}
           <div className="top-scroll" ref={historyTopScrollRef}>
             <div ref={historyTopInnerRef} className="top-scroll-inner" />
           </div>
@@ -3426,6 +4019,19 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                   <th><button type="button" className="sort-button" onClick={() => handleSortHistory("savings")}>Ahorro <span className={`sort-icon ${historySortField === "savings" ? "active" : ""}`}>{renderHistorySortIcon("savings")}</span></button></th>
                   <th><button type="button" className="sort-button" onClick={() => handleSortHistory("installments")}>Cuotas <span className={`sort-icon ${historySortField === "installments" ? "active" : ""}`}>{renderHistorySortIcon("installments")}</span></button></th>
                   <th><button type="button" className="sort-button" onClick={() => handleSortHistory("method")}>Metodo <span className={`sort-icon ${historySortField === "method" ? "active" : ""}`}>{renderHistorySortIcon("method")}</span></button></th>
+                  <th></th>
+                </tr>
+                <tr>
+                  <th></th>
+                  <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.receipt} onChange={(e) => updateHistoryColumnFilter("receipt", e.target.value)} /></th>
+                  <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.date} onChange={(e) => updateHistoryColumnFilter("date", e.target.value)} /></th>
+                  <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.unit} onChange={(e) => updateHistoryColumnFilter("unit", e.target.value)} /></th>
+                  <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.client} onChange={(e) => updateHistoryColumnFilter("client", e.target.value)} /></th>
+                  <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.amount} onChange={(e) => updateHistoryColumnFilter("amount", e.target.value)} /></th>
+                  <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.applied} onChange={(e) => updateHistoryColumnFilter("applied", e.target.value)} /></th>
+                  <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.savings} onChange={(e) => updateHistoryColumnFilter("savings", e.target.value)} /></th>
+                  <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.installments} onChange={(e) => updateHistoryColumnFilter("installments", e.target.value)} /></th>
+                  <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.method} onChange={(e) => updateHistoryColumnFilter("method", e.target.value)} /></th>
                   <th></th>
                 </tr>
               </thead>
@@ -3561,7 +4167,14 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                 if (!c) return null;
                 const wholePart = roundMoney(pendingClassifyTarget.capitalPart);
                 const centsPart = roundMoney(pendingClassifyTarget.centsPart);
-                const { totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(c, pendingOtherChargesInput, wholePart);
+                const forcedRuleForClassifyClient = shouldForceFiveToOtherCharges(c);
+                const forcedRuleActiveInClassify = forcedRuleForClassifyClient && !pendingManualOverrideForcedOtherCharges;
+                const { totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
+                  c,
+                  pendingOtherChargesInput,
+                  wholePart,
+                  pendingManualOverrideForcedOtherCharges
+                );
                 const capitalForRent = roundMoney(Math.max(0, wholePart - totalOtherCharges));
                 const applied = roundMoney(Math.min(capitalForRent, Math.max(0, c.balance)));
                 const extras = roundMoney(Math.max(0, wholePart - applied - totalOtherCharges));
@@ -3580,15 +4193,26 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                     {(c.otherCharges ?? []).length > 0 && (
                       <div className="other-charges-section" style={{ marginTop: 14 }}>
                         <div className="other-charges-title">Otros cargos de este cliente</div>
-                        {shouldForceFiveToOtherCharges(c) && (
-                          <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
-                            Regla D/T diario activa: se aplican automaticamente hasta {formatCurrency(FIXED_OTHER_CHARGES_SPLIT)} a otros cargos.
-                          </p>
+                        {forcedRuleForClassifyClient && (
+                          <>
+                            <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
+                              {forcedRuleActiveInClassify
+                                ? `Regla D/T diario activa: se aplican automaticamente hasta ${formatCurrency(FIXED_OTHER_CHARGES_SPLIT)} a otros cargos.`
+                                : "Edicion manual activa para este pago: puedes definir otros cargos manualmente."}
+                            </p>
+                            <button
+                              type="button"
+                              className="button ghost small"
+                              onClick={() => setPendingManualOverrideForcedOtherCharges((prev) => !prev)}
+                            >
+                              {forcedRuleActiveInClassify ? "Editar este pago" : "Volver a automatico"}
+                            </button>
+                          </>
                         )}
                         {(c.otherCharges ?? []).map((charge) => (
                           <div key={charge.label} className="other-charges-row">
                             <label className="payment-label">{charge.label} <span className="amount-muted">(configurado: {formatCurrency(charge.amount)})</span></label>
-                            {shouldForceFiveToOtherCharges(c) ? (
+                            {forcedRuleActiveInClassify ? (
                               <div className="payment-input" style={{ display: "flex", alignItems: "center" }}>
                                 Aplicacion automatica
                               </div>
@@ -3613,7 +4237,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                         <div className="payment-preview-col">
                           <div className="payment-preview-row"><span>Saldo actual</span><strong className="amount-debt">{formatCurrency(c.balance)}</strong></div>
                           <div className="payment-preview-row"><span>Aplicado a renta</span><strong>{formatCurrency(applied)}</strong></div>
-                          {totalOtherCharges > 0 && <div className="payment-preview-row"><span>{forcedRuleApplied ? "Otros cargos (regla D/T diario)" : "Otros cargos"}</span><strong className="amount-warning">{formatCurrency(totalOtherCharges)}</strong></div>}
+                          {totalOtherCharges > 0 && <div className="payment-preview-row"><span>{forcedRuleApplied ? "Otros cargos (regla D/T diario)" : "Otros cargos (manual)"}</span><strong className="amount-warning">{formatCurrency(totalOtherCharges)}</strong></div>}
                           {centsPart > 0 && <div className="payment-preview-row"><span>Ahorro (centavos)</span><strong>{formatCurrency(centsPart)}</strong></div>}
                           {extras > 0 && <div className="payment-preview-row"><span>Pago adelantado</span><strong>{formatCurrency(extras)}</strong></div>}
                           {advanceLetterLabel && <div className="payment-preview-row"><span>Adelanto aplica a</span><strong>{advanceLetterLabel}</strong></div>}
@@ -3629,7 +4253,16 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
               })()}
             </div>
             <div className="modal-actions">
-              <button type="button" className="button ghost" onClick={() => setPendingClassifyTarget(null)}>Cancelar</button>
+              <button
+                type="button"
+                className="button ghost"
+                onClick={() => {
+                  setPendingClassifyTarget(null);
+                  setPendingManualOverrideForcedOtherCharges(false);
+                }}
+              >
+                Cancelar
+              </button>
               <button type="button" className="button primary" disabled={!pendingClassifyClientId} onClick={handleConfirmClassify}>
                 Confirmar y registrar pago
               </button>
