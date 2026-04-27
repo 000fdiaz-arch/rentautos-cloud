@@ -13,9 +13,15 @@ type Props = {
 function formatDateSpanish(dateStr: string): string {
   const parts = dateStr.split("-");
   if (parts.length !== 3) return dateStr;
+  const weekdays = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
   const months = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+  const year = parseInt(parts[0], 10);
   const month = parseInt(parts[1], 10) - 1;
-  return `${parseInt(parts[2], 10)} ${months[month] ?? ""} ${parts[0]}`;
+  const day = parseInt(parts[2], 10);
+  if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) return dateStr;
+  const date = new Date(`${dateStr}T12:00:00`);
+  const weekdayLabel = weekdays[date.getDay()] ?? "";
+  return `${weekdayLabel} ${day} ${months[month] ?? ""} ${year}`.trim();
 }
 
 function sanitizeFileToken(value: string): string {
@@ -224,8 +230,9 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   const overdueAfter = payment.rentAmount > 0
     ? Math.max(0, Math.ceil(payment.balanceAfter / payment.rentAmount))
     : 0;
+  const overdueInstallmentsLabel = overdueAfter === 1 ? "1 cuota" : `${overdueAfter} cuotas`;
 
-  // "Debe desde" con la misma logica de Modulo 1
+  // "Debe desde" con la misma logica del modulo de clientes
   const paymentDate = startOfDay(new Date(payment.dateApplied + "T12:00:00"));
   const minimalClient = {
     balance: payment.balanceAfter,
@@ -244,11 +251,12 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   const otherChargesDueAfter = payment.otherChargesDueAfter ?? [];
   const otherChargesDueTotal = otherChargesDueAfter.reduce((sum, charge) => sum + charge.amount, 0);
   const advanceApplied = Math.max(0, payment.advanceApplied ?? 0);
+  const advanceBalanceAfter = roundMoney(Math.max(0, payment.advanceBalanceAfter ?? advanceApplied));
   const moroseBalanceToday = Math.max(0, payment.balanceAfter);
   const hasMoroseBalance = moroseBalanceToday > 0;
   const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
   const nextChargeDate = normalizedRent > 0 ? findNextChargeDateForReceipt(minimalClient, paymentDate) : null;
-  const advanceAppliedToNextInstallment = normalizedRent > 0 ? roundMoney(Math.min(advanceApplied, normalizedRent)) : 0;
+  const advanceAppliedToNextInstallment = normalizedRent > 0 ? roundMoney(Math.min(advanceBalanceAfter, normalizedRent)) : 0;
   const advanceRemainingForNextInstallment = normalizedRent > 0
     ? roundMoney(Math.max(0, normalizedRent - advanceAppliedToNextInstallment))
     : 0;
@@ -263,11 +271,6 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   const saldoParaBajarCuenta = hasPartialForOneAccount
     ? roundMoney(moroseBalanceToday % normalizedRent)
     : 0;
-  const saldoCorriente = hasPartialForOneAccount && isCurrentChargeDay ? normalizedRent : 0;
-  const saldoAtrasado = hasPartialForOneAccount
-    ? roundMoney(Math.max(0, moroseBalanceToday - saldoParaBajarCuenta - saldoCorriente))
-    : moroseBalanceToday;
-  const totalPendienteRenta = moroseBalanceToday;
   const saldoParaBajarHoy = hasMoroseBalance
     ? (
       hasPartialForOneAccount
@@ -275,6 +278,12 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
         : roundMoney(Math.min(moroseBalanceToday, normalizedRent > 0 ? normalizedRent : moroseBalanceToday))
     )
     : 0;
+  const saldoCorriente =
+    hasMoroseBalance && normalizedRent > 0 && isCurrentChargeDay
+      ? roundMoney(Math.min(moroseBalanceToday, normalizedRent))
+      : 0;
+  const saldoVencido = roundMoney(Math.max(0, moroseBalanceToday - saldoCorriente));
+  const totalPendienteRenta = roundMoney(saldoVencido + saldoCorriente);
   const totalPending = Math.max(0, moroseBalanceToday + otherChargesDueTotal);
   const hasPending = totalPending > 0;
   const debtSinceLabel = debtStartDate ? formatDate(debtStartDate) : null;
@@ -295,8 +304,9 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
           </div>
           {hasPending && (
             <div className="receipt-top-action">
-              <span className="receipt-top-action-label">Para bajar una cuenta hoy</span>
+              <span className="receipt-top-action-label">Hoy para bajar 1 cuenta</span>
               <strong>{formatCurrency(saldoParaBajarHoy)}</strong>
+              <span className="receipt-top-action-note">No cancela el total.</span>
             </div>
           )}
           <div className="receipt-top-right-meta">
@@ -310,65 +320,66 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
           </div>
         )}
 
-        <div className={`receipt-top-balance-grid ${otherChargesDueAfter.length === 0 ? "receipt-top-balance-grid--single" : ""}`}>
-          <div className={`receipt-overdue-banner ${hasPending ? "" : "receipt-overdue-banner--ok"}`}>
-            <span className="receipt-overdue-icon">{hasPending ? "!" : <strong>OK</strong>}</span>
-            <div className="receipt-overdue-content">
-              <div className="receipt-overdue-title">{hasPending ? "TIENES SALDO PENDIENTE" : "ESTAS AL DIA"}</div>
-              <div className="receipt-overdue-sub">
-                {hasPending ? (
-                  <>
-                    {debtSinceLabel && (
-                      <div className="receipt-overdue-debt-since">Debe desde: {debtSinceLabel}</div>
-                    )}
-                    {hasPartialForOneAccount ? (
-                      <div className="receipt-overdue-grid">
-                        <div className="receipt-overdue-row">
-                          <span>Saldo para bajar una cuenta</span>
-                          <strong>{formatCurrency(saldoParaBajarCuenta)}</strong>
-                        </div>
-                        <div className="receipt-overdue-row">
-                          <span>Saldo atrasado</span>
-                          <strong>{formatCurrency(saldoAtrasado)}</strong>
-                        </div>
-                        <div className="receipt-overdue-row">
-                          <span>Saldo corriente</span>
-                          <strong>{formatCurrency(saldoCorriente)}</strong>
-                        </div>
-                        <div className="receipt-overdue-row receipt-overdue-row--total">
-                          <span>Total pendiente de renta</span>
-                          <strong>{formatCurrency(totalPendienteRenta)}</strong>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="receipt-overdue-grid">
-                        <div className="receipt-overdue-row receipt-overdue-row--single">
-                          <span>Total pendiente de renta</span>
-                          <strong>{formatCurrency(moroseBalanceToday)}</strong>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                ) : "No tienes saldo pendiente."}
-              </div>
+        <div className="receipt-dual-grid">
+          <div className="receipt-section receipt-section--panel">
+            <div className="receipt-simple-title">PAGOS APLICADOS</div>
+            <div className="receipt-subrow">
+              <span>Pagaste hoy</span>
+              <span>{formatCurrency(payment.amountReceived)}</span>
             </div>
+            <div className="receipt-subrow">
+              <span>{advanceApplied > 0 ? "Aplicado a saldo actual" : "Aplicado a renta"}</span>
+              <span>{formatCurrency(appliedToCurrentRent)}</span>
+            </div>
+            {hasAdvancePanel && (
+              <div className="receipt-subrow">
+                <span>
+                  Aplicado a proxima letra
+                  {nextChargeDate ? ` (${formatDate(nextChargeDate)})` : ""}
+                </span>
+                <span>{formatCurrency(advanceApplied)}</span>
+              </div>
+            )}
+            {hasAdvancePendingForNextInstallment && (
+              <div className="receipt-subrow receipt-subrow--debt">
+                <span>
+                  Faltante de esa letra
+                  {nextChargeDate ? ` (${formatDate(nextChargeDate)})` : ""}
+                </span>
+                <span>{formatCurrency(advanceRemainingForNextInstallment)}</span>
+              </div>
+            )}
+            {hasAdvancePanel && (
+              <div className="receipt-subrow">
+                <span>Aplicado a renta (total)</span>
+                <span>{formatCurrency(appliedToCurrentRent + advanceApplied)}</span>
+              </div>
+            )}
+            {otherChargesApplied.map((charge, index) => (
+              <div key={`paid-${charge.id ?? charge.label}-${index}`} className="receipt-subrow">
+                <span>Aplicado a {charge.label.toUpperCase()}</span>
+                <span>{formatCurrency(charge.amount)}</span>
+              </div>
+            ))}
           </div>
 
-          {hasPending && otherChargesDueAfter.length > 0 && (
-            <div className="receipt-overdue-other-band receipt-overdue-other-band--separate">
-              <div className="receipt-overdue-other-title">OTROS CARGOS</div>
-              {otherChargesDueAfter.map((charge) => (
-                <div key={`top-due-${charge.label}`} className="receipt-overdue-other-row">
-                  <span>{charge.label.toUpperCase()}</span>
-                  <strong>{formatCurrency(charge.amount)}</strong>
-                </div>
-              ))}
-              <div className="receipt-overdue-other-row receipt-overdue-other-row--total">
-                <span>Total otros cargos</span>
-                <strong>{formatCurrency(otherChargesDueTotal)}</strong>
-              </div>
+          <div className="receipt-section receipt-section--panel">
+            <div className="receipt-simple-title">DATOS DEL CLIENTE</div>
+            <div className="receipt-row">
+              <span>Cliente</span>
+              <span><strong>{payment.clientName.toUpperCase()}</strong></span>
             </div>
-          )}
+            <div className="receipt-row">
+              <span>Metodo</span>
+              <span>{payment.paymentMethod}</span>
+            </div>
+            {folio && (
+              <div className="receipt-row">
+                <span>Folio</span>
+                <span className="receipt-reference">{folio}</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -382,7 +393,7 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
             </div>
           )}
           <div className="receipt-advance-row">
-            <span>Abonado a esa letra</span>
+            <span>Abonado acumulado a esa letra</span>
             <strong>{formatCurrency(advanceAppliedToNextInstallment)}</strong>
           </div>
           {hasAdvancePendingForNextInstallment ? (
@@ -399,106 +410,54 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
         </div>
       )}
 
-      <div className="receipt-section">
-        <div className="receipt-simple-title">DATOS DEL PAGO</div>
-        <div className="receipt-row">
-          <span>Cliente</span>
-          <span><strong>{payment.clientName.toUpperCase()}</strong></span>
-        </div>
-        <div className="receipt-row">
-          <span>Metodo</span>
-          <span>{payment.paymentMethod}</span>
-        </div>
-        {folio && (
-          <div className="receipt-row">
-            <span>Folio</span>
-            <span className="receipt-reference">{folio}</span>
+      <div className={`receipt-top-balance-grid ${otherChargesDueAfter.length === 0 ? "receipt-top-balance-grid--single" : ""}`}>
+        <div className={`receipt-overdue-banner ${hasPending ? "" : "receipt-overdue-banner--ok"}`}>
+          <span className="receipt-overdue-icon">{hasPending ? "!" : <strong>OK</strong>}</span>
+          <div className="receipt-overdue-content">
+            <div className="receipt-overdue-title">{hasPending ? "PAGO PENDIENTE HOY" : "ESTAS AL DIA"}</div>
+            <div className="receipt-overdue-sub">
+              {hasPending ? (
+                <>
+                  {debtSinceLabel && (
+                    <div className="receipt-overdue-debt-since">
+                      Pendiente desde: {debtSinceLabel}
+                      {overdueAfter > 0 ? ` (${overdueInstallmentsLabel})` : ""}
+                    </div>
+                  )}
+                  <div className="receipt-overdue-grid">
+                    <div className="receipt-overdue-row">
+                      <span>Saldo vencido</span>
+                      <strong>{formatCurrency(saldoVencido)}</strong>
+                    </div>
+                    <div className="receipt-overdue-row receipt-overdue-row--next">
+                      <span>Saldo corriente</span>
+                      <strong>{formatCurrency(saldoCorriente)}</strong>
+                    </div>
+                    <div className="receipt-overdue-row receipt-overdue-row--total">
+                      <span>Total pendiente de renta</span>
+                      <strong>{formatCurrency(totalPendienteRenta)}</strong>
+                    </div>
+                  </div>
+                </>
+              ) : "No tienes saldo pendiente."}
+            </div>
           </div>
-        )}
-      </div>
+        </div>
 
-      <div className="receipt-section">
-        <div className="receipt-simple-title">PAGOS APLICADOS</div>
-        <div className="receipt-subrow">
-          <span>Pagaste hoy</span>
-          <span>{formatCurrency(payment.amountReceived)}</span>
-        </div>
-        <div className="receipt-subrow">
-          <span>{advanceApplied > 0 ? "Aplicado a saldo actual" : "Aplicado a renta"}</span>
-          <span>{formatCurrency(appliedToCurrentRent)}</span>
-        </div>
-        {hasAdvancePanel && (
-          <div className="receipt-subrow">
-            <span>
-              Aplicado a proxima letra
-              {nextChargeDate ? ` (${formatDate(nextChargeDate)})` : ""}
-            </span>
-            <span>{formatCurrency(advanceApplied)}</span>
-          </div>
-        )}
-        {hasAdvancePendingForNextInstallment && (
-          <div className="receipt-subrow receipt-subrow--debt">
-            <span>
-              Faltante de esa letra
-              {nextChargeDate ? ` (${formatDate(nextChargeDate)})` : ""}
-            </span>
-            <span>{formatCurrency(advanceRemainingForNextInstallment)}</span>
-          </div>
-        )}
-        {hasAdvancePanel && (
-          <div className="receipt-subrow">
-            <span>Aplicado a renta (total)</span>
-            <span>{formatCurrency(appliedToCurrentRent + advanceApplied)}</span>
-          </div>
-        )}
-        {otherChargesApplied.map((charge) => (
-          <div key={`paid-${charge.label}`} className="receipt-subrow">
-            <span>Aplicado a {charge.label.toUpperCase()}</span>
-            <span>{formatCurrency(charge.amount)}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="receipt-section">
-        <div className="receipt-simple-title">SALDOS PENDIENTES A PAGAR</div>
-        {hasMoroseBalance && (
-          <div className="receipt-subrow">
-            <span>Saldo pendiente de renta</span>
-            <span className="receipt-value-debt">{formatCurrency(moroseBalanceToday)}</span>
-          </div>
-        )}
-        {otherChargesDueAfter.length > 0 && (
-          <>
-            {otherChargesDueAfter.map((charge) => (
-              <div key={`due-${charge.label}`} className="receipt-subrow receipt-subrow--debt">
-                <span>Saldo de {charge.label.toUpperCase()}</span>
-                <span>{formatCurrency(charge.amount)}</span>
+        {hasPending && otherChargesDueAfter.length > 0 && (
+          <div className="receipt-overdue-other-band receipt-overdue-other-band--separate">
+            <div className="receipt-overdue-other-title">OTROS CARGOS</div>
+            {otherChargesDueAfter.map((charge, index) => (
+              <div key={`top-due-${charge.id ?? charge.label}-${index}`} className="receipt-overdue-other-row">
+                <span>{charge.label.toUpperCase()}</span>
+                <strong>{formatCurrency(charge.amount)}</strong>
               </div>
             ))}
-          </>
-        )}
-        {(hasMoroseBalance || otherChargesDueAfter.length > 0) && (
-          <div className="receipt-subrow">
-            <span><strong>Total general pendiente</strong></span>
-            <span className="receipt-value-debt"><strong>{formatCurrency(totalPending)}</strong></span>
-          </div>
-        )}
-        {!hasMoroseBalance && otherChargesDueAfter.length === 0 && (
-          <>
-            <div className="receipt-subrow">
-              <span>Estado</span>
-              <span className="receipt-value-good">AL DIA</span>
+            <div className="receipt-overdue-other-row receipt-overdue-other-row--total">
+              <span>Total otros cargos</span>
+              <strong>{formatCurrency(otherChargesDueTotal)}</strong>
             </div>
-            {hasAdvancePendingForNextInstallment && (
-              <div className="receipt-subrow receipt-subrow--debt">
-                <span>
-                  Proxima letra
-                  {nextChargeDate ? ` (${formatDate(nextChargeDate)})` : ""}
-                </span>
-                <span>Pendiente parcial: {formatCurrency(advanceRemainingForNextInstallment)}</span>
-              </div>
-            )}
-          </>
+          </div>
         )}
       </div>
 
