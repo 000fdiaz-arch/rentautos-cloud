@@ -4,12 +4,10 @@ import PaymentsPage from "./pages/PaymentsPage";
 import ReceivablesPage from "./pages/ReceivablesPage";
 import SettingsPage from "./pages/SettingsPage";
 import {
-  loadCloudClients,
-  loadCloudPayments,
-  saveCloudClients,
-  saveCloudPayments
-} from "./cloudData";
-import {
+  loadClients,
+  loadPayments,
+  saveClients,
+  savePayments,
   loadBankRules,
   loadLateFeeSettings,
   loadOtherChargesRetentionByClient,
@@ -31,49 +29,20 @@ import "./styles.css";
 type AppPage = "clients" | "payments" | "receivables" | "settings";
 
 type AppShellProps = {
-  userId: string;
   userEmail?: string;
   onSignOut?: () => void;
 };
 
-export default function AppShell({ userId, userEmail, onSignOut }: AppShellProps) {
+export default function AppShell({ userEmail, onSignOut }: AppShellProps) {
   const [page, setPage] = useState<AppPage>("clients");
-  const [clients, setClients] = useState<Client[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
+  const [clients, setClients] = useState<Client[]>(() => loadClients());
+  const [payments, setPayments] = useState<Payment[]>(() => loadPayments());
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
   const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
   const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>(() => loadOtherChargesRetentionByClient());
   const [backupConfigured, setBackupConfigured] = useState<boolean>(false);
   const [backupStatus, setBackupStatus] = useState<"idle" | "ok" | "error">("idle");
   const [backupMessage, setBackupMessage] = useState<string>("");
-  const [cloudLoading, setCloudLoading] = useState<boolean>(true);
-  const [cloudError, setCloudError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    setCloudLoading(true);
-    setCloudError(null);
-
-    Promise.all([loadCloudClients(userId), loadCloudPayments(userId)])
-      .then(([nextClients, nextPayments]) => {
-        if (!active) return;
-        setClients(nextClients);
-        setPayments(nextPayments);
-      })
-      .catch((err) => {
-        if (!active) return;
-        const nextError = err as { message?: string };
-        setCloudError(nextError.message ?? "No se pudieron cargar los datos de la nube.");
-      })
-      .finally(() => {
-        if (!active) return;
-        setCloudLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [userId]);
 
   // Check on load if a folder is already saved
   useEffect(() => {
@@ -105,15 +74,7 @@ export default function AppShell({ userId, userEmail, onSignOut }: AppShellProps
 
   async function persistClients(next: Client[]): Promise<void> {
     setClients(next);
-    try {
-      await saveCloudClients(userId, next);
-      setCloudError(null);
-    } catch (err) {
-      const nextError = err as { message?: string };
-      setCloudError(nextError.message ?? "No se pudieron guardar los clientes en la nube.");
-      alert("No se pudo guardar clientes en la nube.");
-      return;
-    }
+    saveClients(next);
     const result = await autoBackupDetailed(next, payments);
     if (!result.ok && result.code === "not_configured") setBackupConfigured(false);
     if (backupConfigured) flashStatus(result);
@@ -121,15 +82,7 @@ export default function AppShell({ userId, userEmail, onSignOut }: AppShellProps
 
   async function persistPayments(next: Payment[]): Promise<void> {
     setPayments(next);
-    try {
-      await saveCloudPayments(userId, next);
-      setCloudError(null);
-    } catch (err) {
-      const nextError = err as { message?: string };
-      setCloudError(nextError.message ?? "No se pudieron guardar los pagos en la nube.");
-      alert("No se pudo guardar pagos en la nube.");
-      return;
-    }
+    savePayments(next);
     const result = await autoBackupDetailed(clients, next);
     if (!result.ok && result.code === "not_configured") setBackupConfigured(false);
     if (backupConfigured) flashStatus(result);
@@ -182,13 +135,10 @@ export default function AppShell({ userId, userEmail, onSignOut }: AppShellProps
       }
       const nextClients = parsed.clients as Client[];
       const nextPayments = (parsed.payments ?? []) as Payment[];
-      await Promise.all([
-        saveCloudClients(userId, nextClients),
-        saveCloudPayments(userId, nextPayments)
-      ]);
+      saveClients(nextClients);
+      savePayments(nextPayments);
       setClients(nextClients);
       setPayments(nextPayments);
-      setCloudError(null);
       alert(`Datos cargados: ${nextClients.length} cliente(s), ${nextPayments.length} pago(s).`);
     } catch (err) {
       if ((err as { name?: string }).name === "AbortError") return;
@@ -197,17 +147,6 @@ export default function AppShell({ userId, userEmail, onSignOut }: AppShellProps
   }
 
   const supported = isAutoBackupSupported();
-
-  if (cloudLoading) {
-    return (
-      <main className="auth-page">
-        <section className="auth-card">
-          <h1>Rentautos</h1>
-          <p>Cargando datos en la nube...</p>
-        </section>
-      </main>
-    );
-  }
 
   return (
     <>
@@ -331,7 +270,6 @@ export default function AppShell({ userId, userEmail, onSignOut }: AppShellProps
         </div>
       </nav>
       <main className="page">
-        {cloudError && <div className="error-banner">{cloudError}</div>}
         {page === "clients" && (
           <ClientsPage clients={clients} onClientsChange={persistClients} />
         )}
