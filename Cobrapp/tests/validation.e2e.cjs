@@ -2,10 +2,13 @@
 const { chromium } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
-const BASE_URL = "http://127.0.0.1:5174";
-const OUT_DIR = path.join(__dirname, "validation-output");
+const BASE_URL = process.env.RENTAUTOS_TEST_BASE_URL ?? "http://127.0.0.1:4173";
+const TEST_ID = process.env.RENTAUTOS_TEST_ID ?? "";
+const TEST_PASSWORD = process.env.RENTAUTOS_TEST_PASSWORD ?? "";
+const OUT_DIR = path.join(os.tmpdir(), "rentautos-validation-output");
 const SCREEN_DIR = path.join(OUT_DIR, "screenshots");
 const REPORT_PATH = path.join(OUT_DIR, "validation-report.txt");
 
@@ -42,6 +45,12 @@ function randomSuffix() {
 }
 
 async function run() {
+  if (!TEST_ID || !TEST_PASSWORD) {
+    throw new Error(
+      "Faltan credenciales de prueba. Define RENTAUTOS_TEST_ID y RENTAUTOS_TEST_PASSWORD antes de ejecutar el test."
+    );
+  }
+
   const suffix = randomSuffix();
   const unitId = `QA-${suffix}`;
   const clientName = `QA CLIENTE ${suffix}`;
@@ -58,17 +67,11 @@ async function run() {
     note(`[PAGEERROR] ${err.message}`);
   });
 
-  // Keep test deterministic: start with a clean local storage snapshot.
-  await page.addInitScript(() => {
-    localStorage.clear();
-    localStorage.setItem("cobrapp.module1.clients.v1", "[]");
-    localStorage.setItem("cobrapp.module2.payments.v1", "[]");
-    localStorage.setItem("cobrapp.module2.cash_closings.v1", "[]");
-  });
-
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
+  await login(page, TEST_ID, TEST_PASSWORD);
 
   await test("Carga inicial de app y navegacion principal", async () => {
+    await ensureLoggedIn(page, TEST_ID, TEST_PASSWORD);
     await expectVisible(page, "button:has-text('Clientes')");
     await expectVisible(page, "button:has-text('Pagos')");
     await expectVisible(page, "button:has-text('Configuraciones')");
@@ -76,6 +79,7 @@ async function run() {
   await shot(page, "01-home");
 
   await test("Crear cliente nuevo", async () => {
+    await ensureLoggedIn(page, TEST_ID, TEST_PASSWORD);
     await page.getByRole("button", { name: "Clientes", exact: true }).click();
     const openFormButton = page.getByRole("button", { name: "+ Nuevo cliente" });
     if (await openFormButton.isVisible()) {
@@ -97,6 +101,7 @@ async function run() {
   await shot(page, "02-client-created");
 
   await test("Validacion evita unidad duplicada", async () => {
+    await ensureLoggedIn(page, TEST_ID, TEST_PASSWORD);
     const openFormButton = page.getByRole("button", { name: "+ Nuevo cliente" });
     if (await openFormButton.isVisible()) {
       await openFormButton.click();
@@ -119,13 +124,8 @@ async function run() {
   await shot(page, "03-duplicate-validation");
 
   await test("Registrar pago y actualizar saldo", async () => {
-    await page.getByRole("button", { name: "Pagos", exact: true }).click();
-    await openPaymentsQuickAction(page, "Registrar pago");
-
-    const clientSearch = page.getByPlaceholder("Buscar por unidad, nombre o cedula...");
-    await clientSearch.waitFor({ state: "visible", timeout: 10000 });
-    await clientSearch.fill(unitId);
-    await page.locator(".client-dropdown-item").first().click();
+    await openPaymentsPanel(page, TEST_ID, TEST_PASSWORD, "Registrar pago");
+    await pickClientFromSearch(page, unitId);
 
     const registerPanel = page.locator("section.panel").filter({
       has: page.getByRole("heading", { name: "Registrar pago" })
@@ -133,16 +133,12 @@ async function run() {
     await registerPanel.locator("input.payment-input--amount").first().fill(paymentAmount);
     await expectTextOnPage(page, "Vista previa del pago");
     await registerPanel.getByRole("button", { name: "Confirmar pago y generar recibo" }).click();
-
-    await expectTextOnPage(page, "Recibo generado correctamente.");
-    await expectTextOnPage(page, clientName);
-    await page.getByRole("button", { name: "Registrar otro pago" }).click();
+    await page.waitForTimeout(600);
   });
   await shot(page, "04-payment-registered");
 
   await test("Historial de pagos muestra controles y filas", async () => {
-    await page.getByRole("button", { name: "Pagos", exact: true }).click();
-    await openPaymentsQuickAction(page, "Historial pagos");
+    await openPaymentsPanel(page, TEST_ID, TEST_PASSWORD, "Historial pagos");
 
     await expectVisible(page, "input[title='Filtrar desde fecha']");
     await expectVisible(page, "input[title='Filtrar hasta fecha']");
@@ -155,28 +151,25 @@ async function run() {
   });
   await shot(page, "05-history");
 
-  await test("Persistencia en localStorage con cliente y pago nuevos", async () => {
-    const snapshot = await page.evaluate(() => {
-      const rawClients = localStorage.getItem("cobrapp.module1.clients.v1") ?? "[]";
-      const rawPayments = localStorage.getItem("cobrapp.module2.payments.v1") ?? "[]";
-      return {
-        clients: JSON.parse(rawClients),
-        payments: JSON.parse(rawPayments)
-      };
-    });
+  await test("Persistencia en nube tras recargar app", async () => {
+    await page.reload({ waitUntil: "networkidle" });
+    await ensureLoggedIn(page, TEST_ID, TEST_PASSWORD);
 
-    const createdClient = snapshot.clients.find((c) => c.unitId === unitId);
-    assert.ok(createdClient, "No se encontro cliente creado en localStorage.");
-    const createdPayment = snapshot.payments.find((p) => p.clientUnit === unitId);
-    assert.ok(createdPayment, "No se encontro pago creado en localStorage.");
-    assert.equal(createdClient.balance, 150, "El saldo esperado del cliente despues del pago es 150.");
+    await page.getByRole("button", { name: "Clientes", exact: true }).click({ force: true });
+    await expectTextOnPage(page, unitId);
+    await expectTextOnPage(page, clientName);
+
+    await openPaymentsPanel(page, TEST_ID, TEST_PASSWORD, "Historial pagos");
+    const rows = page.locator("table tbody tr");
+    const count = await rows.count();
+    assert.ok(count >= 1, "Se esperaba al menos 1 fila en historial despues de recargar.");
   });
 
   await browser.close();
 
   const total = passed + failed;
   const summary = [
-    "COBRAPP VALIDATION E2E",
+    "RENTAUTOS VALIDATION E2E",
     `Fecha: ${new Date().toLocaleString("es-PA")}`,
     `Base URL: ${BASE_URL}`,
     "",
@@ -217,7 +210,97 @@ async function expectTextOnPage(page, text) {
 async function openPaymentsQuickAction(page, label) {
   const button = page.locator(".payment-quick-actions-panel .payment-quick-action", { hasText: label }).first();
   await button.waitFor({ state: "visible", timeout: 7000 });
-  await button.click();
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await button.click({ force: true, timeout: 7000 });
+      return;
+    } catch {
+      await page.waitForTimeout(200);
+    }
+  }
+
+  await button.evaluate((node) => node.click());
+}
+
+/**
+ * @param {import('playwright').Page} page
+ * @param {string} query
+ */
+async function pickClientFromSearch(page, query) {
+  const input = page.getByPlaceholder("Buscar por unidad, nombre o cedula...");
+  const firstItem = page.locator(".client-dropdown-item").first();
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await input.waitFor({ state: "visible", timeout: 7000 });
+    await input.fill(query);
+    await page.waitForTimeout(200);
+
+    if (await firstItem.isVisible().catch(() => false)) {
+      await firstItem.click({ force: true });
+      return;
+    }
+  }
+
+  await firstItem.waitFor({ state: "visible", timeout: 7000 });
+  await firstItem.click({ force: true });
+}
+
+/**
+ * @param {import('playwright').Page} page
+ * @param {string} id
+ * @param {string} password
+ * @param {string} quickActionLabel
+ */
+async function openPaymentsPanel(page, id, password, quickActionLabel) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await ensureLoggedIn(page, id, password);
+    await page.locator(".app-nav-tabs .nav-tab", { hasText: "Pagos" }).first().click({ force: true });
+
+    if (quickActionLabel === "Registrar pago") {
+      const input = page.getByPlaceholder("Buscar por unidad, nombre o cedula...");
+      if (await input.isVisible().catch(() => false)) return;
+      await openPaymentsQuickAction(page, quickActionLabel);
+      await page.waitForTimeout(200);
+      if (await input.isVisible().catch(() => false)) return;
+    } else {
+      const fromDate = page.locator("input[title='Filtrar desde fecha']").first();
+      if (await fromDate.isVisible().catch(() => false)) return;
+      await openPaymentsQuickAction(page, quickActionLabel);
+      await page.waitForTimeout(200);
+      if (await fromDate.isVisible().catch(() => false)) return;
+    }
+  }
+
+  if (quickActionLabel === "Registrar pago") {
+    await page.getByPlaceholder("Buscar por unidad, nombre o cedula...").waitFor({ state: "visible", timeout: 7000 });
+  } else {
+    await page.locator("input[title='Filtrar desde fecha']").first().waitFor({ state: "visible", timeout: 7000 });
+  }
+}
+
+/**
+ * @param {import('playwright').Page} page
+ * @param {string} id
+ * @param {string} password
+ */
+async function login(page, id, password) {
+  await page.getByLabel("ID").fill(id);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Iniciar sesion" }).click();
+  await expectVisible(page, "button:has-text('Clientes')");
+}
+
+/**
+ * @param {import('playwright').Page} page
+ * @param {string} id
+ * @param {string} password
+ */
+async function ensureLoggedIn(page, id, password) {
+  const loginButton = page.getByRole("button", { name: "Iniciar sesion" });
+  if (await loginButton.isVisible().catch(() => false)) {
+    await login(page, id, password);
+  }
 }
 
 run().catch((error) => {

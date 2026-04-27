@@ -40,7 +40,7 @@ const FREQUENCY_LABEL: Record<BillingFrequency, string> = {
   monthly: "Mensual"
 };
 
-type OtherChargeForm = { label: string; amount: string };
+type OtherChargeForm = { id: string; label: string; amount: string };
 
 type ClientForm = {
   unitId: string;
@@ -93,6 +93,14 @@ function parseIntegerOrNull(value: string): number | null {
   return parsed;
 }
 
+function createOtherChargeForm(initial?: Partial<OtherChargeForm>): OtherChargeForm {
+  return {
+    id: initial?.id && initial.id.trim() ? initial.id : crypto.randomUUID(),
+    label: initial?.label ?? "",
+    amount: initial?.amount ?? ""
+  };
+}
+
 function hasBillingRuleChanged(existing: Client, form: ClientForm): boolean {
   if (existing.frequency !== form.frequency) return true;
   if (form.frequency === "weekly") return (existing.weeklyChargeDay ?? "monday") !== form.weeklyChargeDay;
@@ -138,7 +146,11 @@ function getOperationalReferenceDate(now: Date): Date {
 function buildClient(form: ClientForm, existing?: Client): Client {
   const otherCharges: OtherCharge[] = form.otherCharges
     .filter((c) => c.label.trim() && parseNumberOrNull(c.amount) !== null)
-    .map((c) => ({ label: c.label.trim(), amount: Number(c.amount) }));
+    .map((c) => ({
+      id: c.id && c.id.trim() ? c.id.trim() : crypto.randomUUID(),
+      label: c.label.trim(),
+      amount: Number(c.amount)
+    }));
 
   const now = new Date();
   const resetLastChargeDate = existing ? hasBillingRuleChanged(existing, form) : false;
@@ -433,7 +445,9 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
       installmentsAgreed: String(client.installmentsAgreed),
       installmentsRemaining: String(client.installmentsRemaining),
       installmentsPaid: String(client.installmentsPaid),
-      otherCharges: client.otherCharges.map((c) => ({ label: c.label, amount: String(c.amount) }))
+      otherCharges: client.otherCharges.map((c) =>
+        createOtherChargeForm({ id: c.id, label: c.label, amount: String(c.amount) })
+      )
     };
     setForm(recalculateInstallments(nextForm));
     setErrors([]);
@@ -681,7 +695,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
                   <div className="other-charges-header">
                     <span>Otros cargos</span>
                     <button type="button" className="button ghost small" onClick={() =>
-                      setForm((c) => ({ ...c, otherCharges: [...c.otherCharges, { label: "", amount: "" }] }))
+                      setForm((c) => ({ ...c, otherCharges: [...c.otherCharges, createOtherChargeForm()] }))
                     }>+ Agregar</button>
                   </div>
                   {form.otherCharges.map((charge, i) => (
@@ -840,7 +854,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
               <div className="other-charges-header">
                 <span>Otros cargos</span>
                 <button type="button" className="button ghost small" onClick={() =>
-                  setForm((c) => ({ ...c, otherCharges: [...c.otherCharges, { label: "", amount: "" }] }))
+                  setForm((c) => ({ ...c, otherCharges: [...c.otherCharges, createOtherChargeForm()] }))
                 }>+ Agregar</button>
               </div>
               {form.otherCharges.map((charge, i) => (

@@ -1,5 +1,5 @@
 {
-  "name": "cobrapp",
+  "name": "rentautos",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -12,6 +12,7 @@
     "test:validation": "node tests/validation.e2e.cjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.104.1",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",

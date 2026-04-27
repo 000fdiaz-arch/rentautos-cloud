@@ -63,18 +63,18 @@ const { chromium } = require("playwright");
   });
 
   if (!state.payment) throw new Error("No se registro pago");
-  if (state.payment.appliedToRent !== 30) throw new Error(`appliedToRent esperado 30, recibido ${state.payment.appliedToRent}`);
-  if (state.payment.otherChargesApplied) {
-    throw new Error(`no se esperaba regla forzada fuera de D/T, recibido ${JSON.stringify(state.payment.otherChargesApplied)}`);
+  if (state.payment.appliedToRent !== 25) throw new Error(`appliedToRent esperado 25, recibido ${state.payment.appliedToRent}`);
+  if (!state.payment.otherChargesApplied || state.payment.otherChargesApplied[0]?.amount !== 5) {
+    throw new Error(`otros cargos aplicados esperados 5, recibido ${JSON.stringify(state.payment.otherChargesApplied)}`);
   }
-  if (state.client.balance !== 110) throw new Error(`balance esperado 110, recibido ${state.client.balance}`);
-  if (!state.client.otherCharges || state.client.otherCharges[0]?.amount !== 120) {
-    throw new Error(`otros cargos deben quedar iguales en grupo no D/T, recibido ${JSON.stringify(state.client.otherCharges)}`);
+  if (state.client.balance !== 115) throw new Error(`balance esperado 115, recibido ${state.client.balance}`);
+  if (!state.client.otherCharges || state.client.otherCharges[0]?.amount !== 115) {
+    throw new Error(`otros cargos pendientes esperados 115, recibido ${JSON.stringify(state.client.otherCharges)}`);
   }
 
-  console.log("OK pendiente no D/T: no aplica regla fija de 5.");
+  console.log("OK pendiente no D/T: aplica retencion automatica configurable por unidad.");
   await browser.close();
 })().catch((err) => {
-  console.error("FALLO TEST PENDIENTE NO D/T:", err && err.message ? err.message : err);
+  console.error("FALLO TEST PENDIENTE NO D/T (RETENCION CONFIGURABLE):", err && err.message ? err.message : err);
   process.exit(1);
 });

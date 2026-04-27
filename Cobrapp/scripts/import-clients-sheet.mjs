@@ -301,7 +301,7 @@ async function main() {
     console.log(`Pagos preservados desde respaldo base: ${payments.length}.`);
   }
   console.log(`Archivo generado: ${outPath}`);
-  console.log("Ahora en Cobrapp usa el boton 'Cargar respaldo' y selecciona ese JSON.");
+  console.log("Ahora en Rentautos usa el boton 'Cargar respaldo' y selecciona ese JSON.");
 }
 
 main().catch((error) => {

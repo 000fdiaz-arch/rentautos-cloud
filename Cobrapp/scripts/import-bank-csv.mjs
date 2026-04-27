@@ -18,7 +18,7 @@ function printUsage() {
       '    "payments": [...]',
       "  }",
       "",
-      "Tambien soporta el backup de Cobrapp:",
+      "Tambien soporta el backup de Rentautos:",
       "  { version, exportedAt, clients, payments }"
     ].join("\n")
   );

@@ -1,8 +1,13 @@
 import type {
   BankRule,
+  BillingFrequency,
   Client,
   ClientStatus,
+  LateFeeLedgerEntry,
+  LateFeeReason,
+  LateFeeSettings,
   ManualBankAssignmentAudit,
+  OtherChargesRetentionByClient,
   OtherCharge,
   Payment,
   PaymentMethod,
@@ -28,7 +33,10 @@ const PAYMENT_METHODS = new Set<PaymentMethod>([
   "ACH Express",
   "Deposito Bancario",
   "Transferencia Bancaria",
-  "Tarjeta"
+  "Tarjeta",
+  "YAPPY LM",
+  "Referido",
+  "Descuento"
 ]);
 
 function parseFiniteNumber(value: unknown): number | null {
@@ -52,15 +60,41 @@ function parseNonNegativeInteger(value: unknown): number {
   return parsed;
 }
 
+function normalizeOtherChargeId(value: unknown): string {
+  if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  return crypto.randomUUID();
+}
+
+function normalizeUnitId(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.trim().toUpperCase();
+}
+
+function normalizeBillingFrequency(value: unknown): BillingFrequency {
+  return value === "daily" || value === "weekly" || value === "biweekly" || value === "monthly"
+    ? value
+    : "daily";
+}
+
+function normalizeLateFeeReason(value: unknown): LateFeeReason | null {
+  return value === "DAILY_MISSED_PROOF" || value === "WEEKLY_LATE_DAY"
+    ? value
+    : null;
+}
+
 function parseChargeArray(value: unknown): OtherCharge[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const parsed = (value as unknown[])
-    .filter((c): c is { label: string; amount: number } =>
+    .filter((c): c is { id?: string; label: string; amount: number } =>
       typeof (c as Record<string, unknown>).label === "string" &&
       typeof (c as Record<string, unknown>).amount === "number" &&
       Number.isFinite((c as Record<string, unknown>).amount as number)
     )
-    .map((c) => ({ label: c.label, amount: c.amount }));
+    .map((c) => ({
+      id: typeof c.id === "string" && c.id.trim().length > 0 ? c.id.trim() : undefined,
+      label: c.label,
+      amount: c.amount
+    }));
   return parsed.length > 0 ? parsed : undefined;
 }
 
@@ -69,13 +103,14 @@ function normalizeOtherCharges(raw: Record<string, unknown>): OtherCharge[] {
   if (Array.isArray(raw.otherCharges)) {
     return (raw.otherCharges as unknown[])
       .filter(
-        (c): c is { label: string; amount: number } =>
+        (c): c is { id?: string; label: string; amount: number } =>
           typeof (c as Record<string, unknown>).label === "string" &&
           typeof (c as Record<string, unknown>).amount === "number" &&
           ((c as Record<string, unknown>).label as string).trim().length > 0 &&
           Number.isFinite((c as Record<string, unknown>).amount as number)
       )
       .map((c) => ({
+        id: normalizeOtherChargeId(c.id),
         label: (c.label as string).trim(),
         amount: c.amount as number
       }));
@@ -85,7 +120,7 @@ function normalizeOtherCharges(raw: Record<string, unknown>): OtherCharge[] {
   const label = raw.otherChargeLabel;
   const amount = Number(raw.otherChargeAmount);
   if (typeof label === "string" && label.trim() && Number.isFinite(amount) && amount !== 0) {
-    return [{ label: label.trim(), amount }];
+    return [{ id: crypto.randomUUID(), label: label.trim(), amount }];
   }
 
   return [];
@@ -238,6 +273,7 @@ function normalizePayment(item: unknown): Payment | null {
   const savingsBefore = parseFiniteNumber(raw.savingsBefore);
   const savingsAfter = parseFiniteNumber(raw.savingsAfter);
   const advanceApplied = parseFiniteNumber(raw.advanceApplied);
+  const advanceBalanceAfter = parseFiniteNumber(raw.advanceBalanceAfter);
   const installmentsFromDebt = parseFiniteNumber(raw.installmentsFromDebt);
   const installmentsFromAdvance = parseFiniteNumber(raw.installmentsFromAdvance);
   const installmentsTotalInPayment = parseFiniteNumber(raw.installmentsTotalInPayment);
@@ -251,6 +287,7 @@ function normalizePayment(item: unknown): Payment | null {
     savingsBefore === null || savingsBefore < 0 ||
     savingsAfter === null || savingsAfter < 0 ||
     (advanceApplied !== null && advanceApplied < 0) ||
+    (advanceBalanceAfter !== null && advanceBalanceAfter < 0) ||
     (installmentsFromDebt !== null && (!Number.isInteger(installmentsFromDebt) || installmentsFromDebt < 0)) ||
     (installmentsFromAdvance !== null && (!Number.isInteger(installmentsFromAdvance) || installmentsFromAdvance < 0)) ||
     (installmentsTotalInPayment !== null && (!Number.isInteger(installmentsTotalInPayment) || installmentsTotalInPayment < 0))
@@ -300,6 +337,7 @@ function normalizePayment(item: unknown): Payment | null {
     savingsBefore,
     savingsAfter,
     advanceApplied: advanceApplied ?? undefined,
+    advanceBalanceAfter: advanceBalanceAfter ?? undefined,
     installmentsPaidAfter: parseNonNegativeInteger(raw.installmentsPaidAfter),
     installmentsRemainingAfter: parseNonNegativeInteger(raw.installmentsRemainingAfter),
     rentAmount: normalizedRentAmount,
@@ -344,6 +382,9 @@ const PENDING_BANK_KEY = "cobrapp.module2.pending_bank.v1";
 const PENDING_CARD_KEY = "cobrapp.module2.pending_card.v1";
 const BANK_RULES_KEY = "cobrapp.settings.bank_rules.v1";
 const MANUAL_ASSIGNMENT_AUDIT_KEY = "cobrapp.module2.manual_assignment_audit.v1";
+const LATE_FEE_SETTINGS_KEY = "cobrapp.settings.late_fee_settings.v1";
+const LATE_FEE_LEDGER_KEY = "cobrapp.module2.late_fee_ledger.v1";
+const OTHER_CHARGES_RETENTION_KEY = "cobrapp.settings.other_charges_retention.v1";
 
 export function loadPendingBankItems(): PendingBankItem[] {
   const raw = localStorage.getItem(PENDING_BANK_KEY);
@@ -491,4 +532,148 @@ export function loadManualBankAssignmentAudit(): ManualBankAssignmentAudit[] {
 
 export function saveManualBankAssignmentAudit(items: ManualBankAssignmentAudit[]): void {
   localStorage.setItem(MANUAL_ASSIGNMENT_AUDIT_KEY, JSON.stringify(items));
+}
+
+const DEFAULT_LATE_FEE_LABEL = "RECARGO POR TARDANZA DE PAGO";
+
+function defaultLateFeeSettings(): LateFeeSettings {
+  return {
+    active: false,
+    dailyAmount: 5,
+    chargeLabel: DEFAULT_LATE_FEE_LABEL,
+    selectedUnits: []
+  };
+}
+
+export function loadLateFeeSettings(): LateFeeSettings {
+  const raw = localStorage.getItem(LATE_FEE_SETTINGS_KEY);
+  if (!raw) return defaultLateFeeSettings();
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const defaults = defaultLateFeeSettings();
+    const selectedUnitsRaw = Array.isArray(parsed.selectedUnits) ? parsed.selectedUnits : [];
+    const selectedUnits = Array.from(
+      new Set(
+        selectedUnitsRaw
+          .map((unit) => normalizeUnitId(unit))
+          .filter((unit) => unit.length > 0)
+      )
+    ).sort((a, b) => a.localeCompare(b));
+    const dailyAmount = parseNonNegativeNumber(parsed.dailyAmount);
+    const labelRaw = typeof parsed.chargeLabel === "string" ? parsed.chargeLabel.trim() : "";
+    return {
+      active: parsed.active === true,
+      dailyAmount: dailyAmount > 0 ? dailyAmount : defaults.dailyAmount,
+      chargeLabel: labelRaw || defaults.chargeLabel,
+      selectedUnits
+    };
+  } catch {
+    return defaultLateFeeSettings();
+  }
+}
+
+export function saveLateFeeSettings(settings: LateFeeSettings): void {
+  const normalized: LateFeeSettings = {
+    active: settings.active === true,
+    dailyAmount: parseNonNegativeNumber(settings.dailyAmount) || 5,
+    chargeLabel: typeof settings.chargeLabel === "string" && settings.chargeLabel.trim()
+      ? settings.chargeLabel.trim()
+      : DEFAULT_LATE_FEE_LABEL,
+    selectedUnits: Array.from(
+      new Set((settings.selectedUnits ?? []).map((unit) => normalizeUnitId(unit)).filter((unit) => unit.length > 0))
+    ).sort((a, b) => a.localeCompare(b))
+  };
+  localStorage.setItem(LATE_FEE_SETTINGS_KEY, JSON.stringify(normalized));
+}
+
+function normalizeLateFeeLedgerEntry(item: unknown): LateFeeLedgerEntry | null {
+  if (!item || typeof item !== "object") return null;
+  const raw = item as Record<string, unknown>;
+  const reason = normalizeLateFeeReason(raw.reason);
+  const amount = parseNonNegativeNumber(raw.amount);
+  const unitId = normalizeUnitId(raw.unitId);
+  const chargeLabel = typeof raw.chargeLabel === "string" && raw.chargeLabel.trim()
+    ? raw.chargeLabel.trim()
+    : DEFAULT_LATE_FEE_LABEL;
+  if (
+    typeof raw.id !== "string" ||
+    typeof raw.clientId !== "string" ||
+    typeof raw.date !== "string" ||
+    typeof raw.createdAt !== "string" ||
+    reason === null ||
+    amount <= 0 ||
+    unitId.length === 0
+  ) {
+    return null;
+  }
+  return {
+    id: raw.id,
+    clientId: raw.clientId,
+    unitId,
+    date: raw.date,
+    amount,
+    reason,
+    chargeLabel,
+    createdAt: raw.createdAt
+  };
+}
+
+export function loadLateFeeLedger(): LateFeeLedgerEntry[] {
+  const raw = localStorage.getItem(LATE_FEE_LEDGER_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => normalizeLateFeeLedgerEntry(item))
+      .filter((item): item is LateFeeLedgerEntry => item !== null)
+      .sort((a, b) => b.date.localeCompare(a.date));
+  } catch {
+    return [];
+  }
+}
+
+export function saveLateFeeLedger(entries: LateFeeLedgerEntry[]): void {
+  localStorage.setItem(LATE_FEE_LEDGER_KEY, JSON.stringify(entries));
+}
+
+export function loadOtherChargesRetentionByClient(): OtherChargesRetentionByClient {
+  const raw = localStorage.getItem(OTHER_CHARGES_RETENTION_KEY);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const normalized: OtherChargesRetentionByClient = {};
+    for (const [clientId, value] of Object.entries(parsed)) {
+      if (!clientId || !clientId.trim()) continue;
+      if (typeof value === "number" || typeof value === "string") {
+        // Backward compatibility: old format was just amount.
+        normalized[clientId] = {
+          amount: parseNonNegativeNumber(value),
+          cycle: "daily"
+        };
+        continue;
+      }
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const rec = value as Record<string, unknown>;
+      normalized[clientId] = {
+        amount: parseNonNegativeNumber(rec.amount),
+        cycle: rec.cycle === "when_payment" ? "when_payment" : normalizeBillingFrequency(rec.cycle)
+      };
+    }
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+export function saveOtherChargesRetentionByClient(settings: OtherChargesRetentionByClient): void {
+  const normalized: OtherChargesRetentionByClient = {};
+  for (const [clientId, config] of Object.entries(settings ?? {})) {
+    if (!clientId || !clientId.trim()) continue;
+    const amount = parseNonNegativeNumber(config?.amount);
+    const cycle = config?.cycle === "when_payment" ? "when_payment" : normalizeBillingFrequency(config?.cycle);
+    normalized[clientId] = { amount, cycle };
+  }
+  localStorage.setItem(OTHER_CHARGES_RETENTION_KEY, JSON.stringify(normalized));
 }

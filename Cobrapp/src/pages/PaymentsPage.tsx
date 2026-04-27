@@ -2,18 +2,25 @@
 import PaymentReceipt, { downloadPaymentReceiptImage, downloadPaymentsReceiptsZip } from "../components/PaymentReceipt";
 import { formatCurrency, formatDate } from "../format";
 import {
+  loadLateFeeLedger,
   loadPendingCardItems,
   loadManualBankAssignmentAudit,
   loadPendingBankItems,
   nextReceiptNumber,
+  saveLateFeeLedger,
   savePendingCardItems,
   saveManualBankAssignmentAudit,
   savePendingBankItems
 } from "../storage";
 import type {
   BankRule,
+  BillingFrequency,
   Client,
+  LateFeeLedgerEntry,
+  LateFeeSettings,
   ManualBankAssignmentAudit,
+  OtherChargesRetentionCycle,
+  OtherChargesRetentionByClient,
   OtherCharge,
   Payment,
   PaymentMethod,
@@ -21,8 +28,18 @@ import type {
   PendingBankItem
 } from "../types";
 import { findNextChargeDay, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../billing";
+import { applyLateFeesForClosingDate, subtractOtherCharge } from "../lateFees";
 
-const PAYMENT_METHODS: PaymentMethod[] = ["Efectivo", "ACH Express", "Deposito Bancario", "Transferencia Bancaria", "Tarjeta"];
+const PAYMENT_METHODS: PaymentMethod[] = [
+  "Efectivo",
+  "ACH Express",
+  "Deposito Bancario",
+  "Transferencia Bancaria",
+  "Tarjeta",
+  "YAPPY LM",
+  "Referido",
+  "Descuento"
+];
 const BANK_PAYMENT_METHODS = new Set<PaymentMethod>(["ACH Express", "Deposito Bancario", "Transferencia Bancaria"]);
 const NOTIFIED_PAYMENTS_KEY = "cobrapp.module2.notified.v1";
 const NOTIFIED_AMOUNT_TOLERANCE = 0.02;
@@ -130,6 +147,8 @@ type ChargeApplyResult = {
   chargedClients: number;
   anomalyClients: number;
   chargedTotal: number;
+  lateFeeClients: number;
+  lateFeeTotal: number;
   rows: ChargeReportRow[];
   blockingError?: string;
 };
@@ -197,11 +216,6 @@ const EMPTY_HISTORY_COLUMN_FILTERS: HistoryColumnFilters = {
   method: ""
 };
 
-function extractGroupCodeFromUnitValue(unitId: string): string {
-  const match = String(unitId ?? "").trim().match(/^([A-Za-z]+)/);
-  return match ? match[1].toUpperCase() : "";
-}
-
 function getNextDateKey(dateKey: string): string {
   const parsed = parseDateKey(dateKey);
   if (!parsed) return dateKey;
@@ -219,6 +233,8 @@ function buildTemporaryCardFolio(dateKey: string): string {
 type Props = {
   clients: Client[];
   bankRules: BankRule[];
+  lateFeeSettings: LateFeeSettings;
+  otherChargesRetentionByClient: OtherChargesRetentionByClient;
   onClientsChange: (next: Client[]) => void;
   payments: Payment[];
   onPaymentsChange: (next: Payment[]) => void;
@@ -324,13 +340,107 @@ function splitWholeAndCents(amount: number): { wholePart: number; centsPart: num
   return { wholePart, centsPart };
 }
 
-const FIXED_OTHER_CHARGES_SPLIT = 5;
+const DEFAULT_OTHER_CHARGES_RETENTION = 5;
 
-function shouldForceFiveToOtherCharges(client: Client): boolean {
-  const groupCode = extractGroupCodeFromUnitValue(client.unitId);
-  if (groupCode !== "D" && groupCode !== "T") return false;
-  if (client.frequency !== "daily") return false;
-  return (client.otherCharges ?? []).some((charge) => roundMoney(charge.amount) > 0);
+function getConfiguredOtherChargesRetentionConfig(
+  client: Client,
+  retentionByClient: OtherChargesRetentionByClient
+): { amount: number; cycle: OtherChargesRetentionCycle } {
+  const configured = retentionByClient[client.id];
+  const amount = Number.isFinite(configured?.amount) ? roundMoney(Math.max(0, configured.amount)) : DEFAULT_OTHER_CHARGES_RETENTION;
+  const cycle = configured?.cycle ?? client.frequency;
+  return { amount, cycle };
+}
+
+function getRetentionCycleLabel(cycle: OtherChargesRetentionCycle): string {
+  if (cycle === "daily") return "Diario";
+  if (cycle === "weekly") return "Semanal";
+  if (cycle === "biweekly") return "Quincenal";
+  if (cycle === "monthly") return "Mensual";
+  return "Cuando paga";
+}
+
+function getLastPaymentDateKey(clientId: string, payments: Payment[], beforeOrOnDateKey: string): string | null {
+  const last = payments
+    .filter((payment) => payment.clientId === clientId && payment.dateApplied <= beforeOrOnDateKey)
+    .sort((a, b) => b.dateApplied.localeCompare(a.dateApplied))[0];
+  return last?.dateApplied ?? null;
+}
+
+function getRetentionCycleClient(client: Client, cycle: OtherChargesRetentionCycle): Client {
+  if (cycle === "when_payment") return client;
+  const base: Client = { ...client, frequency: cycle as BillingFrequency };
+  if (cycle === "daily") {
+    // Daily retention excludes Sunday by default.
+    return { ...base, chargeFirstSunday: false };
+  }
+  if (cycle === "weekly") {
+    return { ...base, weeklyChargeDay: client.weeklyChargeDay ?? "monday" };
+  }
+  if (cycle === "monthly") {
+    return { ...base, monthlyChargeDay: client.monthlyChargeDay ?? 1 };
+  }
+  return base;
+}
+
+function countRetentionEventsInRange(
+  client: Client,
+  cycle: OtherChargesRetentionCycle,
+  fromExclusive: Date,
+  toInclusive: Date
+): number {
+  if (cycle === "when_payment") return 1;
+  const normalizedFrom = startOfDay(fromExclusive);
+  const normalizedTo = startOfDay(toInclusive);
+  if (normalizedTo < normalizedFrom) return 0;
+  let cursor = new Date(normalizedFrom);
+  cursor.setDate(cursor.getDate() + 1);
+  let events = 0;
+  const cycleClient = getRetentionCycleClient(client, cycle);
+  for (let i = 0; i < 4000 && cursor <= normalizedTo; i += 1) {
+    if (cycle === "daily") {
+      if (cursor.getDay() !== 0) events += 1;
+    } else if (isChargeDay(cycleClient, cursor)) {
+      events += 1;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return events;
+}
+
+function computeConfiguredRetentionForPayment(
+  client: Client,
+  retentionByClient: OtherChargesRetentionByClient,
+  payments: Payment[],
+  paymentDateKey: string
+): number {
+  const config = getConfiguredOtherChargesRetentionConfig(client, retentionByClient);
+  if (config.amount <= 0) return 0;
+  if (config.cycle === "when_payment") return config.amount;
+  const paymentDate = parseDateKey(paymentDateKey) ?? startOfDay(new Date());
+  const lastPaymentDateKey = getLastPaymentDateKey(client.id, payments, paymentDateKey);
+  if (!lastPaymentDateKey) return config.amount;
+  const lastPaymentDate = parseDateKey(lastPaymentDateKey);
+  if (!lastPaymentDate) return config.amount;
+  const events = countRetentionEventsInRange(client, config.cycle, lastPaymentDate, paymentDate);
+  if (events <= 0) return 0;
+  return roundMoney(config.amount * events);
+}
+
+function shouldForceRetentionToOtherCharges(
+  client: Client,
+  retentionByClient: OtherChargesRetentionByClient,
+  payments: Payment[],
+  paymentDateKey: string
+): boolean {
+  const hasPendingOtherCharges = (client.otherCharges ?? []).some((charge) => roundMoney(charge.amount) > 0);
+  if (!hasPendingOtherCharges) return false;
+  return computeConfiguredRetentionForPayment(client, retentionByClient, payments, paymentDateKey) > 0;
+}
+
+function getOtherChargeKey(charge: Pick<OtherCharge, "id" | "label">, fallbackIndex = 0): string {
+  if (charge.id && charge.id.trim()) return `id:${charge.id.trim()}`;
+  return `legacy:${charge.label.trim().toUpperCase()}:${fallbackIndex}`;
 }
 
 function distributeAcrossOtherCharges(configured: OtherCharge[] | undefined, amount: number): OtherCharge[] {
@@ -342,7 +452,7 @@ function distributeAcrossOtherCharges(configured: OtherCharge[] | undefined, amo
     if (pendingForCharge <= 0) continue;
     const appliedAmount = roundMoney(Math.min(pendingForCharge, remaining));
     if (appliedAmount <= 0) continue;
-    applied.push({ label: charge.label, amount: appliedAmount });
+    applied.push({ id: charge.id, label: charge.label, amount: appliedAmount });
     remaining = roundMoney(Math.max(0, remaining - appliedAmount));
   }
   return applied;
@@ -355,12 +465,13 @@ function computeAppliedOtherCharges(
 ): { otherChargesApplied: OtherCharge[]; totalOtherCharges: number } {
   let remaining = roundMoney(Math.max(0, maxAvailable));
   const otherChargesApplied = (configured ?? [])
-    .map((charge) => {
-      const inputVal = parseFloat(manualInput[charge.label] ?? "");
+    .map((charge, index) => {
+      const key = getOtherChargeKey(charge, index);
+      const inputVal = parseFloat(manualInput[key] ?? "");
       const desired = roundMoney(Number.isFinite(inputVal) ? Math.max(0, inputVal) : 0);
       const appliedAmount = roundMoney(Math.min(desired, Math.max(0, remaining)));
       remaining = roundMoney(Math.max(0, remaining - appliedAmount));
-      return { label: charge.label, amount: appliedAmount };
+      return { id: charge.id, label: charge.label, amount: appliedAmount };
     })
     .filter((c) => c.amount > 0);
   const totalOtherCharges = roundMoney(otherChargesApplied.reduce((sum, charge) => sum + charge.amount, 0));
@@ -371,9 +482,12 @@ function computeEffectiveOtherChargesAllocation(
   client: Client,
   manualInput: Record<string, string>,
   wholePart: number,
+  retentionByClient: OtherChargesRetentionByClient,
+  payments: Payment[],
+  paymentDateKey: string,
   allowManualOverrideForForcedRule = false
 ): { otherChargesApplied: OtherCharge[]; totalOtherCharges: number; forcedRuleApplied: boolean } {
-  if (!shouldForceFiveToOtherCharges(client) || allowManualOverrideForForcedRule) {
+  if (!shouldForceRetentionToOtherCharges(client, retentionByClient, payments, paymentDateKey) || allowManualOverrideForForcedRule) {
     const manual = computeAppliedOtherCharges(client.otherCharges, manualInput, wholePart);
     return {
       otherChargesApplied: manual.otherChargesApplied,
@@ -385,7 +499,8 @@ function computeEffectiveOtherChargesAllocation(
   const pendingOtherCharges = roundMoney(
     (client.otherCharges ?? []).reduce((sum, charge) => sum + roundMoney(Math.max(0, charge.amount)), 0)
   );
-  const forcedAmount = roundMoney(Math.min(FIXED_OTHER_CHARGES_SPLIT, Math.max(0, wholePart), pendingOtherCharges));
+  const configuredRetention = computeConfiguredRetentionForPayment(client, retentionByClient, payments, paymentDateKey);
+  const forcedAmount = roundMoney(Math.min(configuredRetention, Math.max(0, wholePart), pendingOtherCharges));
   const otherChargesApplied = distributeAcrossOtherCharges(client.otherCharges, forcedAmount);
   const totalOtherCharges = roundMoney(otherChargesApplied.reduce((sum, charge) => sum + charge.amount, 0));
   return {
@@ -415,6 +530,9 @@ function computeManualPaymentAllocation(
   client: Client,
   rawAmount: number,
   manualOtherChargesInput: Record<string, string>,
+  retentionByClient: OtherChargesRetentionByClient,
+  payments: Payment[],
+  paymentDateKey: string,
   allowManualOverrideForForcedRule = false
 ): ManualPaymentAllocation {
   const amount = roundMoney(Math.max(0, rawAmount));
@@ -425,6 +543,9 @@ function computeManualPaymentAllocation(
     client,
     manualOtherChargesInput,
     wholePart,
+    retentionByClient,
+    payments,
+    paymentDateKey,
     allowManualOverrideForForcedRule
   );
   const appliedToRent = roundMoney(Math.min(Math.max(0, wholePart - totalOtherCharges), balanceBefore));
@@ -460,33 +581,45 @@ function computeManualPaymentAllocation(
 
 function computeOtherChargesDueAfter(configured: OtherCharge[] | undefined, applied: OtherCharge[] | undefined): OtherCharge[] | undefined {
   if (!configured || configured.length === 0) return undefined;
-  const appliedByLabel = new Map<string, number>();
-  for (const charge of applied ?? []) {
-    const current = appliedByLabel.get(charge.label) ?? 0;
-    appliedByLabel.set(charge.label, roundMoney(current + charge.amount));
-  }
   const due = configured
-    .map((charge) => ({
-      label: charge.label,
-      amount: roundMoney(Math.max(0, charge.amount - (appliedByLabel.get(charge.label) ?? 0)))
-    }))
+    .map((charge, index) => {
+      const key = getOtherChargeKey(charge, index);
+      const appliedAmount = roundMoney(
+        Math.max(
+          0,
+          (applied ?? [])
+            .filter((entry, entryIndex) => getOtherChargeKey(entry, entryIndex) === key)
+            .reduce((sum, entry) => sum + entry.amount, 0)
+        )
+      );
+      return {
+        id: charge.id,
+        label: charge.label,
+        amount: roundMoney(Math.max(0, charge.amount - appliedAmount))
+      };
+    })
     .filter((charge) => charge.amount > 0);
   return due.length > 0 ? due : undefined;
 }
 
 function restoreOtherChargesAfterDelete(current: OtherCharge[] | undefined, applied: OtherCharge[] | undefined): OtherCharge[] {
   if (!applied || applied.length === 0) return current ?? [];
-  const totals = new Map<string, number>();
-  for (const charge of current ?? []) {
-    totals.set(charge.label, roundMoney(Math.max(0, charge.amount)));
+  const totals = new Map<string, OtherCharge>();
+  for (const [index, charge] of (current ?? []).entries()) {
+    const key = getOtherChargeKey(charge, index);
+    totals.set(key, { id: charge.id, label: charge.label, amount: roundMoney(Math.max(0, charge.amount)) });
   }
-  for (const charge of applied) {
-    const previous = totals.get(charge.label) ?? 0;
-    totals.set(charge.label, roundMoney(previous + charge.amount));
+  for (const [index, charge] of applied.entries()) {
+    const key = getOtherChargeKey(charge, index);
+    const previous = totals.get(key);
+    const previousAmount = previous ? previous.amount : 0;
+    totals.set(key, {
+      id: charge.id,
+      label: charge.label,
+      amount: roundMoney(previousAmount + charge.amount)
+    });
   }
-  return [...totals.entries()]
-    .map(([label, amount]) => ({ label, amount }))
-    .filter((charge) => charge.amount > 0);
+  return [...totals.values()].filter((charge) => charge.amount > 0);
 }
 
 function loadNotifiedPayments(): NotifiedPayment[] {
@@ -652,7 +785,15 @@ function downloadChargeCloseReportCsv(report: ChargeCloseReport): void {
   setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
 
-export default function PaymentsPage({ clients, bankRules, onClientsChange, payments, onPaymentsChange }: Props) {
+export default function PaymentsPage({
+  clients,
+  bankRules,
+  lateFeeSettings,
+  otherChargesRetentionByClient,
+  onClientsChange,
+  payments,
+  onPaymentsChange
+}: Props) {
   const [form, setForm] = useState<PaymentForm>({
     clientId: "",
     dateApplied: toDateKey(new Date()),
@@ -698,6 +839,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
   const [cashClosingError, setCashClosingError] = useState<string>("");
   const [cashClosingAudit, setCashClosingAudit] = useState<CashClosingAuditEvent[]>(() => loadCashClosingAudit());
   const [chargeRuns, setChargeRuns] = useState<ChargeRun[]>(() => loadChargeRuns());
+  const [lateFeeLedger, setLateFeeLedger] = useState<LateFeeLedgerEntry[]>(() => loadLateFeeLedger());
   const [lastCloseReport, setLastCloseReport] = useState<ChargeCloseReport | null>(null);
   const [reopenTargetDate, setReopenTargetDate] = useState<string | null>(null);
   const [reopenReason, setReopenReason] = useState<string>("");
@@ -776,14 +918,35 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     if (!selectedClient) return null;
     const amount = parseFloat(form.amountReceived);
     if (!Number.isFinite(amount) || amount <= 0) return null;
+    const effectiveDateKey = form.dateApplied || toDateKey(new Date());
 
-    return computeManualPaymentAllocation(selectedClient, amount, manualOtherChargesInput, manualOverrideForcedOtherCharges);
-  }, [form.amountReceived, selectedClient, manualOtherChargesInput, manualOverrideForcedOtherCharges]);
+    return computeManualPaymentAllocation(
+      selectedClient,
+      amount,
+      manualOtherChargesInput,
+      otherChargesRetentionByClient,
+      payments,
+      effectiveDateKey,
+      manualOverrideForcedOtherCharges
+    );
+  }, [form.amountReceived, form.dateApplied, manualOtherChargesInput, otherChargesRetentionByClient, payments, selectedClient, manualOverrideForcedOtherCharges]);
   const isForcedOtherChargesRuleClient = useMemo(
-    () => (selectedClient ? shouldForceFiveToOtherCharges(selectedClient) : false),
-    [selectedClient]
+    () => (
+      selectedClient
+        ? shouldForceRetentionToOtherCharges(selectedClient, otherChargesRetentionByClient, payments, form.dateApplied || toDateKey(new Date()))
+        : false
+    ),
+    [form.dateApplied, otherChargesRetentionByClient, payments, selectedClient]
   );
   const isForcedOtherChargesRuleActive = isForcedOtherChargesRuleClient && !manualOverrideForcedOtherCharges;
+  const selectedClientRetentionConfig = useMemo(
+    () => (
+      selectedClient
+        ? getConfiguredOtherChargesRetentionConfig(selectedClient, otherChargesRetentionByClient)
+        : { amount: DEFAULT_OTHER_CHARGES_RETENTION, cycle: "daily" as const }
+    ),
+    [otherChargesRetentionByClient, selectedClient]
+  );
 
   const isZeroBalance = selectedClient !== null && selectedClient.balance === 0;
   const isBankPayment = BANK_PAYMENT_METHODS.has(form.paymentMethod);
@@ -935,7 +1098,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
         includesFilter(actionLabels, pendingFilters.actions)
       );
     });
-  }, [clientById, pendingBankItems, pendingFilters, notifiedPayments]);
+  }, [clientById, pendingBankItems, pendingFilters, notifiedPayments, otherChargesRetentionByClient]);
 
   function updatePendingFilter(field: keyof PendingColumnFilters, value: string): void {
     setPendingFilters((prev) => ({ ...prev, [field]: value }));
@@ -1110,14 +1273,35 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
         chargedClients: 0,
         anomalyClients: 0,
         chargedTotal: 0,
+        lateFeeClients: 0,
+        lateFeeTotal: 0,
         rows: []
       };
     }
     const targetDate = new Date(closingDate);
     targetDate.setDate(targetDate.getDate() + 1);
     const targetDateKey = toDateKey(targetDate);
+    const alreadyProcessed = chargeRuns.some((r) => r.targetDate === targetDateKey);
 
-    if (chargeRuns.some((r) => r.targetDate === targetDateKey)) {
+    const lateFeeResult = applyLateFeesForClosingDate({
+      clients,
+      payments,
+      lateFeeLedger,
+      lateFeeSettings,
+      closingDateKey
+    });
+    const clientsWithLateFees = lateFeeResult.clients;
+    const newLateFeeEntries = lateFeeResult.newEntries;
+    const lateFeeClients = lateFeeResult.lateFeeClients;
+    const lateFeeTotal = lateFeeResult.lateFeeTotal;
+
+    if (alreadyProcessed) {
+      if (newLateFeeEntries.length > 0) {
+        const nextLedger = [...newLateFeeEntries, ...lateFeeLedger].slice(0, 10000);
+        setLateFeeLedger(nextLedger);
+        saveLateFeeLedger(nextLedger);
+        onClientsChange(clientsWithLateFees);
+      }
       return {
         targetDate: targetDateKey,
         alreadyProcessed: true,
@@ -1125,6 +1309,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
         chargedClients: 0,
         anomalyClients: 0,
         chargedTotal: 0,
+        lateFeeClients,
+        lateFeeTotal,
         rows: []
       };
     }
@@ -1134,7 +1320,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     let anomalyClients = 0;
     let chargedTotal = 0;
     const rows: ChargeReportRow[] = [];
-    const nextClients = clients.map((client) => {
+    const nextClients = clientsWithLateFees.map((client) => {
       if (client.archivedAt || client.status === "inactive") return client;
       const clientLastCharge = client.lastChargeDate ? parseDateKey(client.lastChargeDate) : null;
       const alreadyChargedThruTarget = clientLastCharge !== null && clientLastCharge >= targetDate;
@@ -1222,14 +1408,22 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     if (anomalyClients > 0) {
       return {
         targetDate: targetDateKey,
-        alreadyProcessed: false,
+        alreadyProcessed,
         expectedClients,
         chargedClients,
         anomalyClients,
         chargedTotal,
+        lateFeeClients: 0,
+        lateFeeTotal: 0,
         rows,
         blockingError: `No se pudo cerrar: ${anomalyClients} cliente(s) tenian estado inconsistente para ${targetDateKey}.`
       };
+    }
+
+    if (newLateFeeEntries.length > 0) {
+      const nextLedger = [...newLateFeeEntries, ...lateFeeLedger].slice(0, 10000);
+      setLateFeeLedger(nextLedger);
+      saveLateFeeLedger(nextLedger);
     }
 
     onClientsChange(nextClients);
@@ -1250,11 +1444,13 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
 
     return {
       targetDate: targetDateKey,
-      alreadyProcessed: false,
+      alreadyProcessed,
       expectedClients,
       chargedClients,
       anomalyClients,
       chargedTotal,
+      lateFeeClients,
+      lateFeeTotal,
       rows
     };
   }
@@ -1805,7 +2001,14 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       setCardPendingMessage(`No se pudo generar comprobante: cliente no encontrado para folio ${item.folio}.`);
       return;
     }
-    const previewAllocation = computeManualPaymentAllocation(client, item.amountExpected, {});
+    const previewAllocation = computeManualPaymentAllocation(
+      client,
+      item.amountExpected,
+      {},
+      otherChargesRetentionByClient,
+      payments,
+      item.dateRegistered || operationalDateKey
+    );
     const previewPayment: Payment = {
       id: crypto.randomUUID(),
       receiptNumber: `T-PEND-${new Date().getTime()}`,
@@ -1820,6 +2023,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       appliedToRent: previewAllocation.appliedToRent,
       centavosAhorro: previewAllocation.centavosAhorro,
       advanceApplied: previewAllocation.advanceApplied > 0 ? previewAllocation.advanceApplied : undefined,
+      advanceBalanceAfter: roundMoney((client.advanceBalance ?? 0) + previewAllocation.advanceApplied),
       otherChargesApplied: previewAllocation.otherChargesApplied.length > 0 ? previewAllocation.otherChargesApplied : undefined,
       otherChargesDueAfter: computeOtherChargesDueAfter(client.otherCharges, previewAllocation.otherChargesApplied),
       installmentsDeducted: previewAllocation.installmentsDeducted,
@@ -1899,6 +2103,9 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       client,
       pendingOtherChargesInput,
       wholePart,
+      otherChargesRetentionByClient,
+      payments,
+      item.dateApplied,
       pendingManualOverrideForcedOtherCharges
     );
 
@@ -1933,6 +2140,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       appliedToRent,
       centavosAhorro,
       advanceApplied: advanceApplied > 0 ? advanceApplied : undefined,
+      advanceBalanceAfter: advanceAfter,
       otherChargesApplied: otherChargesApplied.length > 0 ? otherChargesApplied : undefined,
       otherChargesDueAfter: computeOtherChargesDueAfter(client.otherCharges, otherChargesApplied),
       installmentsDeducted,
@@ -1994,7 +2202,14 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     if (!client) return null;
     const balanceBefore = roundMoney(Math.max(0, client.balance));
     const wholePart = roundMoney(Math.max(0, item.capitalPart));
-    const { totalOtherCharges } = computeEffectiveOtherChargesAllocation(client, {}, wholePart);
+    const { totalOtherCharges } = computeEffectiveOtherChargesAllocation(
+      client,
+      {},
+      wholePart,
+      otherChargesRetentionByClient,
+      payments,
+      item.dateApplied
+    );
     const capitalForRent = roundMoney(Math.max(0, wholePart - totalOtherCharges));
     const appliedToRent = roundMoney(Math.min(capitalForRent, balanceBefore));
     const advanceBefore = roundMoney(Math.max(0, client.advanceBalance ?? 0));
@@ -2041,7 +2256,14 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const advanceBefore = roundMoney(client.advanceBalance ?? 0);
     const wholePart = roundMoney(item.capitalPart);
     const centsPart = roundMoney(item.centsPart);
-    const { otherChargesApplied, totalOtherCharges } = computeEffectiveOtherChargesAllocation(client, {}, wholePart);
+    const { otherChargesApplied, totalOtherCharges } = computeEffectiveOtherChargesAllocation(
+      client,
+      {},
+      wholePart,
+      otherChargesRetentionByClient,
+      payments,
+      item.dateApplied
+    );
     const capitalForRent = roundMoney(Math.max(0, wholePart - totalOtherCharges));
     const appliedToRent = roundMoney(Math.min(capitalForRent, Math.max(0, balanceBefore)));
     const advanceApplied = roundMoney(Math.max(0, wholePart - appliedToRent - totalOtherCharges));
@@ -2072,6 +2294,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       appliedToRent,
       centavosAhorro,
       advanceApplied: advanceApplied > 0 ? advanceApplied : undefined,
+      advanceBalanceAfter: advanceAfter,
       otherChargesApplied: otherChargesApplied.length > 0 ? otherChargesApplied : undefined,
       otherChargesDueAfter: computeOtherChargesDueAfter(client.otherCharges, otherChargesApplied),
       installmentsDeducted,
@@ -2310,10 +2533,13 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     const chargeInfo = chargeResult.alreadyProcessed
       ? `Cobros de ${chargeResult.targetDate} ya estaban aplicados previamente.`
       : `Cobros aplicados para ${chargeResult.targetDate}: esperados ${chargeResult.expectedClients}, cobrados ${chargeResult.chargedClients}, total ${formatCurrency(chargeResult.chargedTotal)}.`;
+    const lateFeeInfo = chargeResult.lateFeeClients > 0
+      ? ` Recargos por tardanza: ${chargeResult.lateFeeClients} cliente(s), total ${formatCurrency(chargeResult.lateFeeTotal)}.`
+      : "";
     setCashClosingError("");
     setCashClosingReason("");
     setCashClosingInfo(
-      `Caja cerrada para ${date}. Pagos del dia: ${paymentsOfDay.length}. Total del dia: ${formatCurrency(dayTotal)}. ${chargeInfo}`
+      `Caja cerrada para ${date}. Pagos del dia: ${paymentsOfDay.length}. Total del dia: ${formatCurrency(dayTotal)}. ${chargeInfo}${lateFeeInfo}`
     );
   }
 
@@ -2341,6 +2567,29 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     setCashClosings(nextClosings);
     saveCashClosings(nextClosings);
 
+    const feesFromDate = lateFeeLedger.filter((entry) => entry.date === reopenTargetDate);
+    if (feesFromDate.length > 0) {
+      const entriesByClient = new Map<string, LateFeeLedgerEntry[]>();
+      for (const entry of feesFromDate) {
+        const rows = entriesByClient.get(entry.clientId) ?? [];
+        rows.push(entry);
+        entriesByClient.set(entry.clientId, rows);
+      }
+      const revertedClients = clients.map((client) => {
+        const entries = entriesByClient.get(client.id);
+        if (!entries || entries.length === 0) return client;
+        let otherCharges = [...(client.otherCharges ?? [])];
+        for (const entry of entries) {
+          otherCharges = subtractOtherCharge(otherCharges, entry.chargeLabel, entry.amount);
+        }
+        return { ...client, otherCharges };
+      });
+      onClientsChange(revertedClients);
+      const nextLedger = lateFeeLedger.filter((entry) => entry.date !== reopenTargetDate);
+      setLateFeeLedger(nextLedger);
+      saveLateFeeLedger(nextLedger);
+    }
+
     const event: CashClosingAuditEvent = {
       id: crypto.randomUUID(),
       date: reopenTargetDate,
@@ -2353,7 +2602,12 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
     setCashClosingAudit(nextAudit);
     saveCashClosingAudit(nextAudit);
 
-    setCashClosingInfo(`Caja reabierta para ${reopenTargetDate}.`);
+    const rollbackCount = lateFeeLedger.filter((entry) => entry.date === reopenTargetDate).length;
+    setCashClosingInfo(
+      rollbackCount > 0
+        ? `Caja reabierta para ${reopenTargetDate}. Se reversaron ${rollbackCount} recargo(s) de mora de esa fecha.`
+        : `Caja reabierta para ${reopenTargetDate}.`
+    );
     setCashClosingError("");
     setReopenTargetDate(null);
     setReopenReason("");
@@ -2369,6 +2623,9 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
         selectedClient,
         amountReceived,
         manualOtherChargesInput,
+        otherChargesRetentionByClient,
+        payments,
+        operationalDateKey,
         manualOverrideForcedOtherCharges
       );
 
@@ -2389,6 +2646,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
         appliedToRent: allocation.appliedToRent,
         centavosAhorro: allocation.centavosAhorro,
         advanceApplied: allocation.advanceApplied > 0 ? allocation.advanceApplied : undefined,
+        advanceBalanceAfter: roundMoney((selectedClient.advanceBalance ?? 0) + allocation.advanceApplied),
         otherChargesApplied: allocation.otherChargesApplied.length > 0 ? allocation.otherChargesApplied : undefined,
         otherChargesDueAfter: computeOtherChargesDueAfter(selectedClient.otherCharges, allocation.otherChargesApplied),
         installmentsDeducted: allocation.installmentsDeducted,
@@ -2464,6 +2722,9 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       selectedClient,
       amountReceived,
       manualOtherChargesInput,
+      otherChargesRetentionByClient,
+      payments,
+      operationalDateKey,
       manualOverrideForcedOtherCharges
     );
 
@@ -2485,6 +2746,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
       appliedToRent: allocation.appliedToRent,
       centavosAhorro: allocation.centavosAhorro,
       advanceApplied: allocation.advanceApplied > 0 ? allocation.advanceApplied : undefined,
+      advanceBalanceAfter: roundMoney((selectedClient.advanceBalance ?? 0) + allocation.advanceApplied),
       otherChargesApplied: allocation.otherChargesApplied.length > 0 ? allocation.otherChargesApplied : undefined,
       otherChargesDueAfter: computeOtherChargesDueAfter(selectedClient.otherCharges, allocation.otherChargesApplied),
       installmentsDeducted: allocation.installmentsDeducted,
@@ -3295,7 +3557,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
               <>
                 <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
                   {isForcedOtherChargesRuleActive
-                    ? `Regla D/T diario activa: por cada pago se aplican automaticamente hasta ${formatCurrency(FIXED_OTHER_CHARGES_SPLIT)} a otros cargos.`
+                    ? `Regla automatica activa (${getRetentionCycleLabel(selectedClientRetentionConfig.cycle)}): monto base ${formatCurrency(selectedClientRetentionConfig.amount)}.`
                     : "Edicion manual activa para este pago: puedes definir otros cargos manualmente."}
                 </p>
                 <button
@@ -3307,8 +3569,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                 </button>
               </>
             )}
-            {(selectedClient.otherCharges ?? []).map((charge) => (
-              <div key={charge.label} className="other-charges-row">
+            {(selectedClient.otherCharges ?? []).map((charge, index) => (
+              <div key={getOtherChargeKey(charge, index)} className="other-charges-row">
                 <label className="payment-label">{charge.label} <span className="amount-muted">(configurado: {formatCurrency(charge.amount)})</span></label>
                 {isForcedOtherChargesRuleActive ? (
                   <div className="payment-input" style={{ display: "flex", alignItems: "center" }}>
@@ -3321,8 +3583,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                     min="0"
                     step="0.01"
                     placeholder={String(charge.amount)}
-                    value={manualOtherChargesInput[charge.label] ?? charge.amount}
-                    onChange={(e) => setManualOtherChargesInput((prev) => ({ ...prev, [charge.label]: e.target.value }))}
+                    value={manualOtherChargesInput[getOtherChargeKey(charge, index)] ?? charge.amount}
+                    onChange={(e) => setManualOtherChargesInput((prev) => ({ ...prev, [getOtherChargeKey(charge, index)]: e.target.value }))}
                   />
                 )}
               </div>
@@ -3346,7 +3608,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                 </div>
                 {preview.totalOtherCharges > 0 && (
                   <div className="payment-preview-row">
-                    <span>{preview.forcedOtherChargesRuleApplied ? "Otros cargos (regla D/T diario)" : "Otros cargos (manual)"}</span>
+                    <span>{preview.forcedOtherChargesRuleApplied ? "Otros cargos (regla automatica)" : "Otros cargos (manual)"}</span>
                     <strong className="amount-warning">{formatCurrency(preview.totalOtherCharges)}</strong>
                   </div>
                 )}
@@ -4167,12 +4429,21 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                 if (!c) return null;
                 const wholePart = roundMoney(pendingClassifyTarget.capitalPart);
                 const centsPart = roundMoney(pendingClassifyTarget.centsPart);
-                const forcedRuleForClassifyClient = shouldForceFiveToOtherCharges(c);
+                const classifyRetentionConfig = getConfiguredOtherChargesRetentionConfig(c, otherChargesRetentionByClient);
+                const forcedRuleForClassifyClient = shouldForceRetentionToOtherCharges(
+                  c,
+                  otherChargesRetentionByClient,
+                  payments,
+                  pendingClassifyTarget.dateApplied
+                );
                 const forcedRuleActiveInClassify = forcedRuleForClassifyClient && !pendingManualOverrideForcedOtherCharges;
                 const { totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
                   c,
                   pendingOtherChargesInput,
                   wholePart,
+                  otherChargesRetentionByClient,
+                  payments,
+                  pendingClassifyTarget.dateApplied,
                   pendingManualOverrideForcedOtherCharges
                 );
                 const capitalForRent = roundMoney(Math.max(0, wholePart - totalOtherCharges));
@@ -4197,7 +4468,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                           <>
                             <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
                               {forcedRuleActiveInClassify
-                                ? `Regla D/T diario activa: se aplican automaticamente hasta ${formatCurrency(FIXED_OTHER_CHARGES_SPLIT)} a otros cargos.`
+                                ? `Regla automatica activa (${getRetentionCycleLabel(classifyRetentionConfig.cycle)}): monto base ${formatCurrency(classifyRetentionConfig.amount)}.`
                                 : "Edicion manual activa para este pago: puedes definir otros cargos manualmente."}
                             </p>
                             <button
@@ -4209,8 +4480,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                             </button>
                           </>
                         )}
-                        {(c.otherCharges ?? []).map((charge) => (
-                          <div key={charge.label} className="other-charges-row">
+                        {(c.otherCharges ?? []).map((charge, index) => (
+                          <div key={getOtherChargeKey(charge, index)} className="other-charges-row">
                             <label className="payment-label">{charge.label} <span className="amount-muted">(configurado: {formatCurrency(charge.amount)})</span></label>
                             {forcedRuleActiveInClassify ? (
                               <div className="payment-input" style={{ display: "flex", alignItems: "center" }}>
@@ -4223,8 +4494,8 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                                 min="0"
                                 step="0.01"
                                 placeholder="0.00"
-                                value={pendingOtherChargesInput[charge.label] ?? ""}
-                                onChange={(e) => setPendingOtherChargesInput((prev) => ({ ...prev, [charge.label]: e.target.value }))}
+                                value={pendingOtherChargesInput[getOtherChargeKey(charge, index)] ?? ""}
+                                onChange={(e) => setPendingOtherChargesInput((prev) => ({ ...prev, [getOtherChargeKey(charge, index)]: e.target.value }))}
                               />
                             )}
                           </div>
@@ -4237,7 +4508,7 @@ export default function PaymentsPage({ clients, bankRules, onClientsChange, paym
                         <div className="payment-preview-col">
                           <div className="payment-preview-row"><span>Saldo actual</span><strong className="amount-debt">{formatCurrency(c.balance)}</strong></div>
                           <div className="payment-preview-row"><span>Aplicado a renta</span><strong>{formatCurrency(applied)}</strong></div>
-                          {totalOtherCharges > 0 && <div className="payment-preview-row"><span>{forcedRuleApplied ? "Otros cargos (regla D/T diario)" : "Otros cargos (manual)"}</span><strong className="amount-warning">{formatCurrency(totalOtherCharges)}</strong></div>}
+                          {totalOtherCharges > 0 && <div className="payment-preview-row"><span>{forcedRuleApplied ? "Otros cargos (regla automatica)" : "Otros cargos (manual)"}</span><strong className="amount-warning">{formatCurrency(totalOtherCharges)}</strong></div>}
                           {centsPart > 0 && <div className="payment-preview-row"><span>Ahorro (centavos)</span><strong>{formatCurrency(centsPart)}</strong></div>}
                           {extras > 0 && <div className="payment-preview-row"><span>Pago adelantado</span><strong>{formatCurrency(extras)}</strong></div>}
                           {advanceLetterLabel && <div className="payment-preview-row"><span>Adelanto aplica a</span><strong>{advanceLetterLabel}</strong></div>}

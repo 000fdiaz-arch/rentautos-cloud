@@ -1,13 +1,19 @@
-COBRAPP VALIDATION E2E
-Fecha: 04/21/2026, 12:51:45 p. m.
+RENTAUTOS VALIDATION E2E
+Fecha: 04/25/2026, 3:16:02 p. m.
 Base URL: http://127.0.0.1:5174
 
 [PASS] Carga inicial de app y navegacion principal
 [PASS] Crear cliente nuevo
 [PASS] Validacion evita unidad duplicada
-[PASS] Registrar pago y actualizar saldo
-[PASS] Historial de pagos muestra controles y filas
-[PASS] Persistencia en localStorage con cliente y pago nuevos
+[FAIL] Registrar pago y actualizar saldo -> locator.press: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for getByPlaceholder('Buscar por unidad, nombre o cedula...')[22m
 
-TOTAL: 6 pasadas, 0 fallidas, 6 ejecutadas.
+[FAIL] Historial de pagos muestra controles y filas -> locator.waitFor: Timeout 7000ms exceeded.
+Call log:
+[2m  - waiting for locator('button:has-text(\'Descargar seleccionados\')').first() to be visible[22m
+
+[FAIL] Persistencia en nube tras recargar app -> Se esperaba al menos 1 fila en historial despues de recargar.
+
+TOTAL: 3 pasadas, 3 fallidas, 6 ejecutadas.
 Screenshots: C:\Users\Gedler3000\Documents\Playground\Cobrapp\tests\validation-output\screenshots

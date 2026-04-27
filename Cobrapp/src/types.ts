@@ -8,6 +8,7 @@ export type WeeklyChargeDay =
   | "saturday";
 
 export type OtherCharge = {
+  id?: string;
   label: string;
   amount: number;
 };
@@ -39,7 +40,44 @@ export type Client = {
   statusComment?: string;
 };
 
-export type PaymentMethod = "Efectivo" | "ACH Express" | "Deposito Bancario" | "Transferencia Bancaria" | "Tarjeta";
+export type PaymentMethod =
+  | "Efectivo"
+  | "ACH Express"
+  | "Deposito Bancario"
+  | "Transferencia Bancaria"
+  | "Tarjeta"
+  | "YAPPY LM"
+  | "Referido"
+  | "Descuento";
+
+export type LateFeeSettings = {
+  active: boolean;
+  dailyAmount: number;
+  chargeLabel: string;
+  selectedUnits: string[];
+};
+
+export type OtherChargesRetentionCycle = BillingFrequency | "when_payment";
+
+export type OtherChargesRetentionConfig = {
+  amount: number;
+  cycle: OtherChargesRetentionCycle;
+};
+
+export type OtherChargesRetentionByClient = Record<string, OtherChargesRetentionConfig>;
+
+export type LateFeeReason = "DAILY_MISSED_PROOF" | "WEEKLY_LATE_DAY";
+
+export type LateFeeLedgerEntry = {
+  id: string;
+  clientId: string;
+  unitId: string;
+  date: string;
+  amount: number;
+  reason: LateFeeReason;
+  chargeLabel: string;
+  createdAt: string;
+};
 
 export type PendingBankItem = {
   folio: string;
@@ -104,6 +142,7 @@ export type Payment = {
   otherChargesApplied?: OtherCharge[];
   otherChargesDueAfter?: OtherCharge[];
   advanceApplied?: number;
+  advanceBalanceAfter?: number;
   clientId: string;
   clientName: string;
   clientUnit: string;
