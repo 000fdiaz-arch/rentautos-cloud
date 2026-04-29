@@ -805,7 +805,7 @@ export default function PaymentsPage({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [confirmedPayment, setConfirmedPayment] = useState<Payment | null>(null);
-  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
+  const [isRegisterOpen, setIsRegisterOpen] = useState(true);
   const [isNotifiedOpen, setIsNotifiedOpen] = useState(false);
   const [isCashClosingOpen, setIsCashClosingOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -845,7 +845,7 @@ export default function PaymentsPage({
   const [reopenReason, setReopenReason] = useState<string>("");
   const [pendingBankItems, setPendingBankItems] = useState<PendingBankItem[]>(() => loadPendingBankItems());
   const [pendingCardItems, setPendingCardItems] = useState<PendingCardItem[]>(() => loadPendingCardItems());
-  const [isPendingOpen, setIsPendingOpen] = useState(false);
+  const [isPendingOpen, setIsPendingOpen] = useState(true);
   const [isCardPendingOpen, setIsCardPendingOpen] = useState(false);
   const [pendingClassifyTarget, setPendingClassifyTarget] = useState<PendingBankItem | null>(null);
   const [pendingClassifyClientId, setPendingClassifyClientId] = useState("");
@@ -1886,7 +1886,7 @@ export default function PaymentsPage({
   }
   function handleOpenClassify(item: PendingBankItem): void {
     setPendingClassifyTarget(item);
-    setPendingManualOverrideForcedOtherCharges(false);
+    setPendingManualOverrideForcedOtherCharges(roundMoney(item.centsPart) > 0);
     if (item.suggestedClientId) {
       const c = clients.find((cl) => cl.id === item.suggestedClientId);
       setPendingClassifyClientId(item.suggestedClientId);
@@ -2034,8 +2034,8 @@ export default function PaymentsPage({
       balanceAfter: previewAllocation.balanceAfter,
       savingsBefore: client.savings,
       savingsAfter: roundMoney(client.savings + previewAllocation.centavosAhorro),
-      installmentsPaidAfter: client.installmentsPaid + previewAllocation.installmentsDeducted,
-      installmentsRemainingAfter: Math.max(0, client.installmentsRemaining - previewAllocation.installmentsDeducted),
+      installmentsPaidAfter: client.installmentsPaid + previewAllocation.installmentsTotalInPayment,
+      installmentsRemainingAfter: Math.max(0, client.installmentsRemaining - previewAllocation.installmentsTotalInPayment),
       rentAmount: client.rentAmount,
       frequency: client.frequency,
       weeklyChargeDay: client.weeklyChargeDay,
@@ -2657,8 +2657,8 @@ export default function PaymentsPage({
         balanceAfter: allocation.balanceAfter,
         savingsBefore: selectedClient.savings,
         savingsAfter: roundMoney(selectedClient.savings + allocation.centavosAhorro),
-        installmentsPaidAfter: selectedClient.installmentsPaid + allocation.installmentsDeducted,
-        installmentsRemainingAfter: Math.max(0, selectedClient.installmentsRemaining - allocation.installmentsDeducted),
+        installmentsPaidAfter: selectedClient.installmentsPaid + allocation.installmentsTotalInPayment,
+        installmentsRemainingAfter: Math.max(0, selectedClient.installmentsRemaining - allocation.installmentsTotalInPayment),
         rentAmount: selectedClient.rentAmount,
         frequency: selectedClient.frequency,
         weeklyChargeDay: selectedClient.weeklyChargeDay,
@@ -2674,8 +2674,8 @@ export default function PaymentsPage({
           balance: allocation.balanceAfter,
           advanceBalance: roundMoney((c.advanceBalance ?? 0) + allocation.advanceApplied),
           savings: roundMoney(c.savings + allocation.centavosAhorro),
-          installmentsRemaining: Math.max(0, c.installmentsRemaining - allocation.installmentsDeducted),
-          installmentsPaid: c.installmentsPaid + allocation.installmentsDeducted,
+          installmentsRemaining: Math.max(0, c.installmentsRemaining - allocation.installmentsTotalInPayment),
+          installmentsPaid: c.installmentsPaid + allocation.installmentsTotalInPayment,
           otherCharges: otherChargesDueAfter
         };
       });
@@ -2706,7 +2706,7 @@ export default function PaymentsPage({
           ? `Pago en tarjeta aplicado. Pendiente de conciliacion bancaria con folio ${normalizedFolio} para ${pendingCard.expectedSettlementDate}.`
           : `Pago en tarjeta aplicado con folio temporal ${normalizedFolio}. Debes corregirlo manana para conciliar con el CSV.`
       );
-      finalizeSuccessfulPayment(cardPayment);
+      finalizeSuccessfulPayment(cardPayment, { openReceipt: true });
       setForm({
         clientId: "",
         dateApplied: operationalDateKey,
@@ -2757,8 +2757,8 @@ export default function PaymentsPage({
       balanceAfter: allocation.balanceAfter,
       savingsBefore: selectedClient.savings,
       savingsAfter: roundMoney(selectedClient.savings + allocation.centavosAhorro),
-      installmentsPaidAfter: selectedClient.installmentsPaid + allocation.installmentsDeducted,
-      installmentsRemainingAfter: Math.max(0, selectedClient.installmentsRemaining - allocation.installmentsDeducted),
+      installmentsPaidAfter: selectedClient.installmentsPaid + allocation.installmentsTotalInPayment,
+      installmentsRemainingAfter: Math.max(0, selectedClient.installmentsRemaining - allocation.installmentsTotalInPayment),
       rentAmount: selectedClient.rentAmount,
       frequency: selectedClient.frequency,
       weeklyChargeDay: selectedClient.weeklyChargeDay,
@@ -2774,15 +2774,15 @@ export default function PaymentsPage({
         balance: allocation.balanceAfter,
         advanceBalance: roundMoney((c.advanceBalance ?? 0) + allocation.advanceApplied),
         savings: roundMoney(c.savings + allocation.centavosAhorro),
-        installmentsRemaining: Math.max(0, c.installmentsRemaining - allocation.installmentsDeducted),
-        installmentsPaid: c.installmentsPaid + allocation.installmentsDeducted,
+        installmentsRemaining: Math.max(0, c.installmentsRemaining - allocation.installmentsTotalInPayment),
+        installmentsPaid: c.installmentsPaid + allocation.installmentsTotalInPayment,
         otherCharges: otherChargesDueAfter
       };
     });
 
     onClientsChange(updatedClients);
     onPaymentsChange([...payments, payment]);
-    finalizeSuccessfulPayment(payment);
+    finalizeSuccessfulPayment(payment, { openReceipt: true });
     setForm({
       clientId: "",
       dateApplied: operationalDateKey,
@@ -2807,8 +2807,8 @@ export default function PaymentsPage({
         balance: roundMoney(c.balance + payment.appliedToRent),
         advanceBalance: roundMoney(Math.max(0, (c.advanceBalance ?? 0) - (payment.advanceApplied ?? 0))),
         savings: roundMoney(Math.max(0, c.savings - payment.centavosAhorro)),
-        installmentsRemaining: c.installmentsRemaining + payment.installmentsDeducted,
-        installmentsPaid: Math.max(0, c.installmentsPaid - payment.installmentsDeducted),
+        installmentsRemaining: c.installmentsRemaining + getInstallmentsTotalInPayment(payment),
+        installmentsPaid: Math.max(0, c.installmentsPaid - getInstallmentsTotalInPayment(payment)),
         otherCharges: restoreOtherChargesAfterDelete(c.otherCharges, payment.otherChargesApplied)
       };
     });
@@ -3130,12 +3130,12 @@ export default function PaymentsPage({
     setOpen: React.Dispatch<React.SetStateAction<boolean>>,
     sectionRef: React.RefObject<HTMLElement>
   ): void {
-    if (!isOpen) {
-      setOpen(true);
-      scrollToWorkSection(sectionRef);
+    if (isOpen) {
+      setOpen(false);
       return;
     }
-    setOpen(false);
+    setOpen(true);
+    scrollToWorkSection(sectionRef);
   }
 
   function handleQuickImportCSV(): void {
@@ -3390,6 +3390,7 @@ export default function PaymentsPage({
           <button
             type="button"
             className={`payment-quick-action${isCardPendingOpen ? " payment-quick-action--active" : ""}`}
+            aria-label="Pendientes de conciliacion TDC"
             onClick={() => handleQuickToggleSection(isCardPendingOpen, setIsCardPendingOpen, pendingCardSectionRef)}
           >
             <span className="payment-quick-action-title">Pendientes tarjeta</span>
@@ -3480,8 +3481,7 @@ export default function PaymentsPage({
                     key={m}
                     type="button"
                     className={`payment-method-option${isSelected ? " payment-method-option--active" : ""}`}
-                    role="radio"
-                    aria-checked={isSelected}
+                    aria-pressed={isSelected}
                     onClick={() => setForm((f) => ({ ...f, paymentMethod: m }))}
                   >
                     {m}

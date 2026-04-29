@@ -34,6 +34,7 @@ export type Client = {
   advanceBalance: number;
   savings: number;
   createdAt: string;
+  firstChargeDate?: string;
   lastChargeDate?: string;
   archivedAt?: string;
   status: ClientStatus;

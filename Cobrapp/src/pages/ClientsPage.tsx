@@ -46,6 +46,7 @@ type ClientForm = {
   unitId: string;
   cedula: string;
   name: string;
+  firstChargeDate: string;
   rentAmount: string;
   frequency: BillingFrequency;
   chargeFirstSunday: boolean;
@@ -68,6 +69,7 @@ const initialForm: ClientForm = {
   unitId: "",
   cedula: "",
   name: "",
+  firstChargeDate: toDateKey(new Date()),
   rentAmount: "",
   frequency: "monthly",
   chargeFirstSunday: false,
@@ -153,6 +155,11 @@ function buildClient(form: ClientForm, existing?: Client): Client {
     }));
 
   const now = new Date();
+  const todayKey = toDateKey(now);
+  const normalizedFirstChargeDate = form.firstChargeDate.trim() || existing?.firstChargeDate || todayKey;
+  const firstChargeDate = parseDateKey(normalizedFirstChargeDate) ? normalizedFirstChargeDate : todayKey;
+  const firstChargeAnchor = parseDateKey(firstChargeDate) ?? startOfDay(now);
+  const firstChargeLastDate = toDateKey(new Date(firstChargeAnchor.getFullYear(), firstChargeAnchor.getMonth(), firstChargeAnchor.getDate() - 1));
   const resetLastChargeDate = existing ? hasBillingRuleChanged(existing, form) : false;
 
   const client: Client = {
@@ -172,9 +179,10 @@ function buildClient(form: ClientForm, existing?: Client): Client {
     installmentsPaid: Number(form.installmentsPaid),
     otherCharges,
     createdAt: existing?.createdAt ?? now.toISOString(),
+    firstChargeDate,
     lastChargeDate: resetLastChargeDate
-      ? toDateKey(now)
-      : (existing?.lastChargeDate ?? toDateKey(now)),
+      ? firstChargeLastDate
+      : (existing?.lastChargeDate ?? firstChargeLastDate),
     archivedAt: existing?.archivedAt,
     status: existing?.status ?? "active",
     statusComment: existing?.statusComment
@@ -353,6 +361,17 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
     );
     if (duplicated) { messages.push("UNIDAD/ID ya existe. No se permiten duplicados."); fields.add("unitId"); }
     if (!input.name.trim()) { messages.push("El nombre del cliente es obligatorio."); fields.add("name"); }
+    const firstChargeDate = parseDateKey(input.firstChargeDate.trim());
+    if (!firstChargeDate) {
+      messages.push("La fecha de primer cobro es obligatoria.");
+      fields.add("firstChargeDate");
+    } else {
+      const today = startOfDay(new Date());
+      if (startOfDay(firstChargeDate) < today) {
+        messages.push("La fecha de primer cobro no puede ser menor a hoy.");
+        fields.add("firstChargeDate");
+      }
+    }
 
     const rentAmount = Number(input.rentAmount);
     if (!Number.isFinite(rentAmount) || rentAmount < 0) {
@@ -436,6 +455,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
       unitId: client.unitId,
       cedula: client.cedula ?? "",
       name: client.name,
+      firstChargeDate: client.firstChargeDate ?? toDateKey(new Date()),
       rentAmount: String(client.rentAmount),
       frequency: client.frequency,
       chargeFirstSunday: client.chargeFirstSunday ?? false,
@@ -642,6 +662,9 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
                 <label>Nombre
                   <input type="text" value={form.name} onChange={(e) => setForm((c) => ({ ...c, name: e.target.value }))} placeholder="Ej. Richard Alexander" className={errorFields.has("name") ? "input-error" : undefined} required />
                 </label>
+                <label>Fecha primer cobro
+                  <input type="date" value={form.firstChargeDate} onChange={(e) => setForm((c) => ({ ...c, firstChargeDate: e.target.value }))} className={errorFields.has("firstChargeDate") ? "input-error" : undefined} required />
+                </label>
                 <label>Renta (USD)
                   <input type="number" step="0.01" min="0" value={form.rentAmount} onChange={(e) => setForm((c) => ({ ...c, rentAmount: e.target.value }))} placeholder="0.00" className={errorFields.has("rentAmount") ? "input-error" : undefined} required />
                 </label>
@@ -792,6 +815,10 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
             <label>
               Nombre
               <input type="text" value={form.name} onChange={(e) => setForm((c) => ({ ...c, name: e.target.value }))} placeholder="Ej. Richard Alexander" className={errorFields.has("name") ? "input-error" : undefined} required />
+            </label>
+            <label>
+              Fecha primer cobro
+              <input type="date" value={form.firstChargeDate} onChange={(e) => setForm((c) => ({ ...c, firstChargeDate: e.target.value }))} className={errorFields.has("firstChargeDate") ? "input-error" : undefined} required />
             </label>
             <label>
               Renta (USD)

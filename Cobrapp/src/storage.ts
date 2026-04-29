@@ -183,6 +183,10 @@ function normalizeClient(item: unknown): Client | null {
     installmentsPaid: parseNonNegativeInteger(raw.installmentsPaid),
     otherCharges: normalizeOtherCharges(raw),
     createdAt: raw.createdAt,
+    firstChargeDate:
+      typeof raw.firstChargeDate === "string" && raw.firstChargeDate.trim()
+        ? raw.firstChargeDate
+        : undefined,
     lastChargeDate:
       typeof raw.lastChargeDate === "string" && raw.lastChargeDate.trim()
         ? raw.lastChargeDate
