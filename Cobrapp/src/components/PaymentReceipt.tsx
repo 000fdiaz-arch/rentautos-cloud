@@ -230,7 +230,7 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   const overdueAfter = payment.rentAmount > 0
     ? Math.max(0, Math.ceil(payment.balanceAfter / payment.rentAmount))
     : 0;
-  const overdueInstallmentsLabel = overdueAfter === 1 ? "1 cuota" : `${overdueAfter} cuotas`;
+  const overdueInstallmentsLabel = overdueAfter === 1 ? "1 cta" : `${overdueAfter} ctas`;
 
   // "Debe desde" con la misma logica del modulo de clientes
   const paymentDate = startOfDay(new Date(payment.dateApplied + "T12:00:00"));
@@ -283,6 +283,14 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
       ? roundMoney(Math.min(moroseBalanceToday, normalizedRent))
       : 0;
   const saldoVencido = roundMoney(Math.max(0, moroseBalanceToday - saldoCorriente));
+  const saldoVencidoCuotas =
+    normalizedRent > 0
+      ? Math.floor((saldoVencido + Number.EPSILON) / normalizedRent)
+      : 0;
+  const saldoVencidoCuotasLabel =
+    saldoVencidoCuotas > 0
+      ? ` (${saldoVencidoCuotas === 1 ? "1 cta" : `${saldoVencidoCuotas} ctas`})`
+      : "";
   const totalPendienteRenta = roundMoney(saldoVencido + saldoCorriente);
   const totalPending = Math.max(0, moroseBalanceToday + otherChargesDueTotal);
   const hasPending = totalPending > 0;
@@ -425,8 +433,14 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
                     </div>
                   )}
                   <div className="receipt-overdue-grid">
+                    {hasPartialForOneAccount && (
+                      <div className="receipt-overdue-row">
+                        <span>Saldo para bajar una cta.</span>
+                        <strong>{formatCurrency(saldoParaBajarCuenta)}</strong>
+                      </div>
+                    )}
                     <div className="receipt-overdue-row">
-                      <span>Saldo vencido</span>
+                      <span>{`Saldo vencido${saldoVencidoCuotasLabel}`}</span>
                       <strong>{formatCurrency(saldoVencido)}</strong>
                     </div>
                     <div className="receipt-overdue-row receipt-overdue-row--next">
@@ -467,7 +481,7 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
           <li className="receipt-reminder-item">
             <span className="receipt-reminder-icon" aria-hidden="true">*</span>
             <span>
-              Al pagar, agrega los <strong className="receipt-reminder-highlight">centavos de tu unidad</strong>.
+              <strong className="receipt-reminder-highlight">TODOS SUS PAGOS DEBEN VENIR CON LOS CENTAVOS DE SU UNIDAD.</strong>
             </span>
           </li>
           <li className="receipt-reminder-item">

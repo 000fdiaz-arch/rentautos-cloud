@@ -1795,14 +1795,14 @@ tbody tr:hover {
 }
 
 .receipt-overdue-title {
-  font-size: 0.76rem;
+  font-size: 0.7rem;
   font-weight: 700;
   color: #b42318;
   letter-spacing: 0.015em;
 }
 
 .receipt-overdue-sub {
-  font-size: 0.67rem;
+  font-size: 0.62rem;
   color: #344054;
   margin-top: 3px;
   font-weight: 500;
@@ -1829,19 +1829,25 @@ tbody tr:hover {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 12px;
+  gap: 8px;
   color: #344054;
+  font-size: 0.6rem;
 }
 
 .receipt-overdue-row span {
   flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .receipt-overdue-row strong {
-  min-width: 88px;
+  min-width: 74px;
   text-align: right;
   color: #111827;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .receipt-overdue-row--total {
