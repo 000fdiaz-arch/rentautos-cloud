@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { formatCurrency, formatDate } from "../format";
-import { getDebtStartDate, isChargeDay, startOfDay } from "../billing";
+import { isChargeDay, startOfDay } from "../billing";
 import type { Payment } from "../types";
 
 type Props = {
@@ -226,13 +226,6 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
     payment.installmentsTotalInPayment ?? installmentsFromDebt + installmentsFromAdvance
   );
   const installmentsPaidIncludingAdvance = Math.max(0, payment.installmentsPaidAfter + installmentsFromAdvance);
-  // Cuotas vencidas reales despues del pago
-  const overdueAfter = payment.rentAmount > 0
-    ? Math.max(0, Math.ceil(payment.balanceAfter / payment.rentAmount))
-    : 0;
-  const overdueInstallmentsLabel = overdueAfter === 1 ? "1 cta" : `${overdueAfter} ctas`;
-
-  // "Debe desde" con la misma logica del modulo de clientes
   const paymentDate = startOfDay(new Date(payment.dateApplied + "T12:00:00"));
   const minimalClient = {
     balance: payment.balanceAfter,
@@ -244,9 +237,7 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
     id: "", unitId: "", name: "", installmentsAgreed: 0,
     installmentsRemaining: 0, installmentsPaid: 0,
     otherCharges: [], advanceBalance: 0, savings: 0, createdAt: ""
-  } as Parameters<typeof getDebtStartDate>[0];
-
-  const debtStartDate = getDebtStartDate(minimalClient, paymentDate);
+  };
   const otherChargesApplied = payment.otherChargesApplied ?? [];
   const otherChargesDueAfter = payment.otherChargesDueAfter ?? [];
   const otherChargesDueTotal = otherChargesDueAfter.reduce((sum, charge) => sum + charge.amount, 0);
@@ -263,7 +254,6 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   const hasAdvancePanel = advanceApplied > 0 && normalizedRent > 0;
   const hasAdvancePendingForNextInstallment = hasAdvancePanel && advanceRemainingForNextInstallment > 0;
   const appliedToCurrentRent = roundMoney(Math.max(0, payment.appliedToRent));
-  const isCurrentChargeDay = normalizedRent > 0 && isChargeDay(minimalClient, paymentDate);
   const hasPartialForOneAccount =
     hasMoroseBalance &&
     normalizedRent > 0 &&
@@ -279,22 +269,26 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
     )
     : 0;
   const saldoCorriente =
-    hasMoroseBalance && normalizedRent > 0 && isCurrentChargeDay
-      ? roundMoney(Math.min(moroseBalanceToday, normalizedRent))
+    hasMoroseBalance
+      ? roundMoney(Math.max(0, moroseBalanceToday - saldoParaBajarCuenta))
       : 0;
-  const saldoVencido = roundMoney(Math.max(0, moroseBalanceToday - saldoCorriente));
-  const saldoVencidoCuotas =
+  const saldoCorrienteCuotas =
     normalizedRent > 0
-      ? Math.floor((saldoVencido + Number.EPSILON) / normalizedRent)
+      ? Math.floor((saldoCorriente + Number.EPSILON) / normalizedRent)
       : 0;
-  const saldoVencidoCuotasLabel =
-    saldoVencidoCuotas > 0
-      ? ` (${saldoVencidoCuotas === 1 ? "1 cta" : `${saldoVencidoCuotas} ctas`})`
+  const saldoCorrienteCuotasLabel =
+    saldoCorrienteCuotas > 0
+      ? ` (${saldoCorrienteCuotas === 1 ? "1 cta" : `${saldoCorrienteCuotas} ctas`})`
       : "";
-  const totalPendienteRenta = roundMoney(saldoVencido + saldoCorriente);
+  const saldoParaBajarCuentaLabel = hasPartialForOneAccount ? " (1 cuota parcial)" : "";
+  const totalPendienteRenta = roundMoney(Math.max(0, moroseBalanceToday));
+  const totalPendienteCuotas = normalizedRent > 0 ? Math.ceil((totalPendienteRenta + Number.EPSILON) / normalizedRent) : 0;
+  const totalPendienteCuotasLabel =
+    totalPendienteCuotas > 0
+      ? ` (${totalPendienteCuotas === 1 ? "1 cta" : `${totalPendienteCuotas} ctas`})`
+      : "";
   const totalPending = Math.max(0, moroseBalanceToday + otherChargesDueTotal);
   const hasPending = totalPending > 0;
-  const debtSinceLabel = debtStartDate ? formatDate(debtStartDate) : null;
   const folio = payment.reference ? extractFolio(payment.reference) : "";
   const isPendingCardSettlement =
     payment.paymentMethod === "Tarjeta" &&
@@ -426,29 +420,19 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
             <div className="receipt-overdue-sub">
               {hasPending ? (
                 <>
-                  {debtSinceLabel && (
-                    <div className="receipt-overdue-debt-since">
-                      Pendiente desde: {debtSinceLabel}
-                      {overdueAfter > 0 ? ` (${overdueInstallmentsLabel})` : ""}
-                    </div>
-                  )}
                   <div className="receipt-overdue-grid">
                     {hasPartialForOneAccount && (
                       <div className="receipt-overdue-row">
-                        <span>Saldo para bajar una cta.</span>
+                        <span>{`Saldo bajar 1 cta${saldoParaBajarCuentaLabel}`}</span>
                         <strong>{formatCurrency(saldoParaBajarCuenta)}</strong>
                       </div>
                     )}
-                    <div className="receipt-overdue-row">
-                      <span>{`Saldo vencido${saldoVencidoCuotasLabel}`}</span>
-                      <strong>{formatCurrency(saldoVencido)}</strong>
-                    </div>
                     <div className="receipt-overdue-row receipt-overdue-row--next">
-                      <span>Saldo corriente</span>
+                      <span>{`Saldo corriente${saldoCorrienteCuotasLabel}`}</span>
                       <strong>{formatCurrency(saldoCorriente)}</strong>
                     </div>
                     <div className="receipt-overdue-row receipt-overdue-row--total">
-                      <span>Total pendiente de renta</span>
+                      <span>{`Total pendiente de renta${totalPendienteCuotasLabel}`}</span>
                       <strong>{formatCurrency(totalPendienteRenta)}</strong>
                     </div>
                   </div>
