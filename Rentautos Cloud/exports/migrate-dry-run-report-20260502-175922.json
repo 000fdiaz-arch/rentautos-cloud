@@ -1,0 +1,179 @@
+{
+  "schemaVersion": "rentautos-migrate-report-v1",
+  "mode": "dry-run",
+  "input": "C:\\Users\\Gedler3000\\Documents\\Playground\\Rentautos Cloud\\exports\\baseline-full-20260502-175916.json",
+  "userId": "00000000-0000-0000-0000-000000000001",
+  "startedAt": "2026-05-02T22:59:22.288Z",
+  "tables": {
+    "clients_cloud": {
+      "sourceKey": "cobrapp.module1.clients.v1",
+      "expectedRows": 383,
+      "validRows": 383,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "array",
+        "size": 383
+      }
+    },
+    "payments_cloud": {
+      "sourceKey": "cobrapp.module2.payments.v1",
+      "expectedRows": 2450,
+      "validRows": 2450,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "array",
+        "size": 2450
+      }
+    },
+    "receipt_sequences_cloud": {
+      "sourceKey": "cobrapp.payments.seq.v1",
+      "expectedRows": 1,
+      "validRows": 1,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "number",
+        "size": 1
+      }
+    },
+    "pending_bank_items_cloud": {
+      "sourceKey": "cobrapp.module2.pending_bank.v1",
+      "expectedRows": 0,
+      "validRows": 0,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "array",
+        "size": 0
+      }
+    },
+    "pending_card_items_cloud": {
+      "sourceKey": "cobrapp.module2.pending_card.v1",
+      "expectedRows": 0,
+      "validRows": 0,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "array",
+        "size": 0
+      }
+    },
+    "bank_rules_cloud": {
+      "sourceKey": "cobrapp.settings.bank_rules.v1",
+      "expectedRows": 0,
+      "validRows": 0,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "array",
+        "size": 0
+      }
+    },
+    "manual_assignment_audit_cloud": {
+      "sourceKey": "cobrapp.module2.manual_assignment_audit.v1",
+      "expectedRows": 0,
+      "validRows": 0,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "array",
+        "size": 0
+      }
+    },
+    "late_fee_settings_cloud": {
+      "sourceKey": "cobrapp.settings.late_fee_settings.v1",
+      "expectedRows": 1,
+      "validRows": 1,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "object",
+        "size": 4
+      }
+    },
+    "late_fee_ledger_cloud": {
+      "sourceKey": "cobrapp.module2.late_fee_ledger.v1",
+      "expectedRows": 0,
+      "validRows": 0,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "array",
+        "size": 0
+      }
+    },
+    "other_charges_retention_cloud": {
+      "sourceKey": "cobrapp.settings.other_charges_retention.v1",
+      "expectedRows": 1,
+      "validRows": 1,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "object",
+        "size": 0
+      }
+    },
+    "notified_payments_cloud": {
+      "sourceKey": "cobrapp.module2.notified.v1",
+      "expectedRows": 0,
+      "validRows": 0,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "array",
+        "size": 0
+      }
+    },
+    "cash_closings_cloud": {
+      "sourceKey": "cobrapp.module2.cash_closings.v1",
+      "expectedRows": 0,
+      "validRows": 0,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "array",
+        "size": 0
+      }
+    },
+    "cash_closing_audit_cloud": {
+      "sourceKey": "cobrapp.module2.cash_closing_audit.v1",
+      "expectedRows": 0,
+      "validRows": 0,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "array",
+        "size": 0
+      }
+    },
+    "charge_runs_cloud": {
+      "sourceKey": "cobrapp.module2.charge_runs.v1",
+      "expectedRows": 0,
+      "validRows": 0,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "array",
+        "size": 0
+      }
+    },
+    "client_ui_prefs_cloud": {
+      "sourceKey": "cobrapp.clients.status_filter.v1",
+      "expectedRows": 1,
+      "validRows": 1,
+      "invalidRows": 0,
+      "sampleSummary": {
+        "exists": true,
+        "kind": "string",
+        "size": 1
+      }
+    }
+  },
+  "totals": {
+    "rows": 2837,
+    "errors": 0
+  },
+  "finishedAt": "2026-05-02T22:59:22.289Z"
+}
