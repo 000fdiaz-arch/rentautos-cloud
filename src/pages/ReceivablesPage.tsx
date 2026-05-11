@@ -21,6 +21,7 @@ import type { Client, Payment } from "../types";
 type Props = {
   clients: Client[];
   payments: Payment[];
+  hideCollectedThisMonth?: boolean;
 };
 
 const STATE_FILTER_OPTIONS: Array<{ value: ReceivableState; label: string }> = [
@@ -72,7 +73,7 @@ function pendingSummaryText(totalPending: number, rentAmount: number): string {
   return `${formatCurrency(totalPending)} (${pendingInstallments} ${installmentText(pendingInstallments)})`;
 }
 
-export default function ReceivablesPage({ clients, payments }: Props) {
+export default function ReceivablesPage({ clients, payments, hideCollectedThisMonth = false }: Props) {
   const [now, setNow] = useState<Date>(() => new Date());
   const [filters, setFilters] = useState<ReceivableFilters>(DEFAULT_RECEIVABLE_FILTERS);
   const [sortField, setSortField] = useState<ReceivableSortField>("unitId");
@@ -297,12 +298,14 @@ export default function ReceivablesPage({ clients, payments }: Props) {
           <strong>{summary.clientesMorosos}</strong>
         </button>
       </section>
-      <section className="ar-secondary-metric-row">
-        <button type="button" className={`ar-secondary-metric ${dashboardFilter === "cobradoEsteMes" ? "ar-secondary-metric--active" : ""}`} onClick={() => handleDashboardFilterClick("cobradoEsteMes")}>
-          <span>Cobrado este mes</span>
-          <strong>{formatCurrency(summary.cobradoEsteMes)}</strong>
-        </button>
-      </section>
+      {!hideCollectedThisMonth && (
+        <section className="ar-secondary-metric-row">
+          <button type="button" className={`ar-secondary-metric ${dashboardFilter === "cobradoEsteMes" ? "ar-secondary-metric--active" : ""}`} onClick={() => handleDashboardFilterClick("cobradoEsteMes")}>
+            <span>Cobrado este mes</span>
+            <strong>{formatCurrency(summary.cobradoEsteMes)}</strong>
+          </button>
+        </section>
+      )}
 
       <section className="panel">
         <div className="panel-head">

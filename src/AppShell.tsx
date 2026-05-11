@@ -44,11 +44,13 @@ type AppPage = "clients" | "payments" | "receivables" | "settings";
 type AppShellProps = {
   userId?: string;
   userEmail?: string;
+  appRole?: "admin" | "operador" | "lectura";
   onSignOut?: () => void;
 };
 
-export default function AppShell({ userId, userEmail, onSignOut }: AppShellProps) {
-  const [page, setPage] = useState<AppPage>("clients");
+export default function AppShell({ userId, userEmail, appRole = "lectura", onSignOut }: AppShellProps) {
+  const isReadOnlyReceivables = appRole === "lectura";
+  const [page, setPage] = useState<AppPage>(isReadOnlyReceivables ? "receivables" : "clients");
   const [clients, setClients] = useState<Client[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [bankRules, setBankRules] = useState<BankRule[]>([]);
@@ -116,6 +118,14 @@ export default function AppShell({ userId, userEmail, onSignOut }: AppShellProps
       setBackupRunning(false);
     }
   }
+
+  useEffect(() => {
+    if (isReadOnlyReceivables) {
+      setPage("receivables");
+    } else if (page === "receivables") {
+      setPage("clients");
+    }
+  }, [isReadOnlyReceivables]);
 
   useEffect(() => {
     if (!userId) return;
@@ -370,13 +380,24 @@ export default function AppShell({ userId, userEmail, onSignOut }: AppShellProps
         <section className="auth-card">
           <h1>Rentautos</h1>
           <p>{cloudLoadError}</p>
-          <button
-            type="button"
-            className="button primary"
-            onClick={() => setCloudReloadTick((value) => value + 1)}
-          >
-            Reintentar
-          </button>
+          <div style={{ display: "grid", gap: 10, justifyItems: "start" }}>
+            <button
+              type="button"
+              className="button primary"
+              onClick={() => setCloudReloadTick((value) => value + 1)}
+            >
+              Reintentar
+            </button>
+            {onSignOut && (
+              <button
+                type="button"
+                className="button ghost"
+                onClick={() => void onSignOut()}
+              >
+                Cerrar sesion
+              </button>
+            )}
+          </div>
         </section>
       </main>
     );
@@ -388,20 +409,24 @@ export default function AppShell({ userId, userEmail, onSignOut }: AppShellProps
         <div className="app-nav-inner">
           <span className="app-nav-brand">Rentautos</span>
           <div className="app-nav-tabs">
-            <button
-              type="button"
-              className={`nav-tab ${page === "clients" ? "nav-tab--active" : ""}`}
-              onClick={() => setPage("clients")}
-            >
-              Clientes
-            </button>
-            <button
-              type="button"
-              className={`nav-tab ${page === "payments" ? "nav-tab--active" : ""}`}
-              onClick={() => setPage("payments")}
-            >
-              Pagos
-            </button>
+            {!isReadOnlyReceivables && (
+              <>
+                <button
+                  type="button"
+                  className={`nav-tab ${page === "clients" ? "nav-tab--active" : ""}`}
+                  onClick={() => setPage("clients")}
+                >
+                  Clientes
+                </button>
+                <button
+                  type="button"
+                  className={`nav-tab ${page === "payments" ? "nav-tab--active" : ""}`}
+                  onClick={() => setPage("payments")}
+                >
+                  Pagos
+                </button>
+              </>
+            )}
             <button
               type="button"
               className={`nav-tab ${page === "receivables" ? "nav-tab--active" : ""}`}
@@ -409,13 +434,15 @@ export default function AppShell({ userId, userEmail, onSignOut }: AppShellProps
             >
               Cuentas por Cobrar
             </button>
-            <button
-              type="button"
-              className={`nav-tab ${page === "settings" ? "nav-tab--active" : ""}`}
-              onClick={() => setPage("settings")}
-            >
-              Configuraciones
-            </button>
+            {!isReadOnlyReceivables && (
+              <button
+                type="button"
+                className={`nav-tab ${page === "settings" ? "nav-tab--active" : ""}`}
+                onClick={() => setPage("settings")}
+              >
+                Configuraciones
+              </button>
+            )}
           </div>
 
           <div className="backup-nav-zone">
@@ -476,6 +503,7 @@ export default function AppShell({ userId, userEmail, onSignOut }: AppShellProps
           <ReceivablesPage
             clients={clients}
             payments={payments}
+            hideCollectedThisMonth={isReadOnlyReceivables}
           />
         )}
         {page === "settings" && (

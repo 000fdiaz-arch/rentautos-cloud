@@ -7,6 +7,7 @@ import "./styles.css";
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
+  const [appRole, setAppRole] = useState<"admin" | "operador" | "lectura">("lectura");
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [authBootError, setAuthBootError] = useState<string>("");
 
@@ -49,6 +50,40 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRole() {
+      if (!session?.user.id || !supabase) {
+        setAppRole("lectura");
+        return;
+      }
+      try {
+        const { data, error } = await supabase
+          .from("user_profiles")
+          .select("role")
+          .eq("id", session.user.id)
+          .maybeSingle();
+        if (error) throw error;
+        if (cancelled) return;
+        const role = data?.role;
+        if (role === "admin" || role === "operador" || role === "lectura") {
+          setAppRole(role);
+          return;
+        }
+        setAppRole("lectura");
+      } catch {
+        if (!cancelled) setAppRole("lectura");
+      }
+    }
+
+    void loadRole();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user.id]);
+
   if (!isSupabaseConfigured) {
     return (
       <main className="auth-page">
@@ -88,6 +123,7 @@ export default function App() {
     <AppShell
       userId={session.user.id}
       userEmail={session.user.email}
+      appRole={appRole}
       onSignOut={async () => {
         if (!supabase) return;
         await supabase.auth.signOut();
