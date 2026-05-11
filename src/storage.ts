@@ -9,6 +9,8 @@ import type {
   ManualBankAssignmentAudit,
   OtherChargesRetentionByClient,
   OtherCharge,
+  PaymentPromise,
+  PaymentPromiseStatus,
   Payment,
   PaymentMethod,
   PendingCardItem,
@@ -393,6 +395,7 @@ const MANUAL_ASSIGNMENT_AUDIT_KEY = "cobrapp.module2.manual_assignment_audit.v1"
 const LATE_FEE_SETTINGS_KEY = "cobrapp.settings.late_fee_settings.v1";
 const LATE_FEE_LEDGER_KEY = "cobrapp.module2.late_fee_ledger.v1";
 const OTHER_CHARGES_RETENTION_KEY = "cobrapp.settings.other_charges_retention.v1";
+const PAYMENT_PROMISES_KEY = "cobrapp.module3.payment_promises.v1";
 
 export function loadPendingBankItems(): PendingBankItem[] {
   const raw = localStorage.getItem(PENDING_BANK_KEY);
@@ -684,4 +687,73 @@ export function saveOtherChargesRetentionByClient(settings: OtherChargesRetentio
     normalized[clientId] = { amount, cycle };
   }
   localStorage.setItem(OTHER_CHARGES_RETENTION_KEY, JSON.stringify(normalized));
+}
+
+function normalizePaymentPromiseStatus(value: unknown): PaymentPromiseStatus {
+  return value === "pending" ||
+    value === "fulfilled" ||
+    value === "incomplete" ||
+    value === "overdue" ||
+    value === "rescheduled" ||
+    value === "cancelled" ||
+    value === "fulfilled_late"
+    ? value
+    : "pending";
+}
+
+function normalizePaymentPromise(item: unknown): PaymentPromise | null {
+  if (!item || typeof item !== "object") return null;
+  const raw = item as Record<string, unknown>;
+  if (
+    typeof raw.id !== "string" ||
+    typeof raw.clientId !== "string" ||
+    typeof raw.clientName !== "string" ||
+    typeof raw.clientUnit !== "string" ||
+    typeof raw.dueAt !== "string" ||
+    typeof raw.createdAt !== "string" ||
+    typeof raw.updatedAt !== "string"
+  ) return null;
+
+  const amountPromised = parseNonNegativeNumber(raw.amountPromised);
+  const amountCollectedWithinWindow = parseNonNegativeNumber(raw.amountCollectedWithinWindow);
+  const amountCollectedTotal = parseNonNegativeNumber(raw.amountCollectedTotal);
+  const amountMissing = parseNonNegativeNumber(raw.amountMissing);
+
+  return {
+    id: raw.id,
+    clientId: raw.clientId,
+    clientName: raw.clientName,
+    clientUnit: raw.clientUnit,
+    amountPromised,
+    amountCollectedWithinWindow,
+    amountCollectedTotal,
+    amountMissing,
+    dueAt: raw.dueAt,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+    comment: typeof raw.comment === "string" ? raw.comment : "",
+    status: normalizePaymentPromiseStatus(raw.status),
+    closedAt: typeof raw.closedAt === "string" && raw.closedAt.trim() ? raw.closedAt : undefined,
+    closedReason: typeof raw.closedReason === "string" && raw.closedReason.trim() ? raw.closedReason : undefined,
+    createdBy: typeof raw.createdBy === "string" && raw.createdBy.trim() ? raw.createdBy : undefined
+  };
+}
+
+export function loadPaymentPromises(): PaymentPromise[] {
+  const raw = localStorage.getItem(PAYMENT_PROMISES_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => normalizePaymentPromise(item))
+      .filter((item): item is PaymentPromise => item !== null)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  } catch {
+    return [];
+  }
+}
+
+export function savePaymentPromises(items: PaymentPromise[]): void {
+  localStorage.setItem(PAYMENT_PROMISES_KEY, JSON.stringify(items));
 }

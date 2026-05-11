@@ -173,3 +173,31 @@ export type Payment = {
   travelFundAvailableSnapshot?: number;
   createdAt: string;
 };
+
+export type PaymentPromiseStatus =
+  | "pending"
+  | "fulfilled"
+  | "incomplete"
+  | "overdue"
+  | "rescheduled"
+  | "cancelled"
+  | "fulfilled_late";
+
+export type PaymentPromise = {
+  id: string;
+  clientId: string;
+  clientName: string;
+  clientUnit: string;
+  amountPromised: number;
+  amountCollectedWithinWindow: number;
+  amountCollectedTotal: number;
+  amountMissing: number;
+  dueAt: string; // ISO datetime
+  createdAt: string; // ISO datetime
+  updatedAt: string; // ISO datetime
+  comment: string;
+  status: PaymentPromiseStatus;
+  closedAt?: string;
+  closedReason?: string;
+  createdBy?: string;
+};
