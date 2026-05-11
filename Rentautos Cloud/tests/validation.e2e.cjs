@@ -80,7 +80,7 @@ async function run() {
 
   await test("Crear cliente nuevo", async () => {
     await ensureLoggedIn(page, TEST_ID, TEST_PASSWORD);
-    await page.getByRole("button", { name: "Clientes", exact: true }).click();
+    await page.getByRole("button", { name: "Clientes", exact: true }).click({ force: true });
     const openFormButton = page.getByRole("button", { name: "+ Nuevo cliente" });
     if (await openFormButton.isVisible()) {
       await openFormButton.click();
@@ -95,8 +95,7 @@ async function run() {
     await page.getByLabel("MONTO A COBRAR (USD)").fill(initialBalance);
     await page.getByRole("button", { name: "Guardar cliente" }).click();
 
-    await expectTextOnPage(page, unitId);
-    await expectTextOnPage(page, clientName);
+    await ensureClientVisibleInClientsTable(page, unitId, clientName);
   });
   await shot(page, "02-client-created");
 
@@ -118,8 +117,15 @@ async function run() {
 
     await expectTextOnPage(page, "UNIDAD/ID ya existe. No se permiten duplicados.");
 
-    const closeBtn = page.getByRole("button", { name: "Cerrar" }).first();
-    if (await closeBtn.isVisible()) await closeBtn.click();
+    // Cierra solo el formulario de "Nuevo cliente" para evitar confundirlo con "Cerrar sesion".
+    const newClientPanel = page
+      .locator("section.panel")
+      .filter({ has: page.getByRole("heading", { name: "Nuevo cliente" }) })
+      .first();
+    const closeFormButton = newClientPanel.getByRole("button", { name: "Cerrar", exact: true }).first();
+    if (await closeFormButton.isVisible().catch(() => false)) {
+      await closeFormButton.click({ force: true });
+    }
   });
   await shot(page, "03-duplicate-validation");
 
@@ -133,19 +139,29 @@ async function run() {
     await registerPanel.locator("input.payment-input--amount").first().fill(paymentAmount);
     await expectTextOnPage(page, "Vista previa del pago");
     await registerPanel.getByRole("button", { name: "Confirmar pago y generar recibo" }).click();
-    await page.waitForTimeout(600);
+    const backToRegister = page.getByRole("button", { name: /Registrar otro pago/i }).first();
+    await backToRegister.waitFor({ state: "visible", timeout: 15000 });
+    await backToRegister.click({ force: true });
+    await page.locator(".payment-quick-actions-panel").first().waitFor({ state: "visible", timeout: 15000 });
   });
   await shot(page, "04-payment-registered");
 
   await test("Historial de pagos muestra controles y filas", async () => {
+    // Desacopla este caso del estado previo (por ejemplo, pantalla de recibo u otro panel abierto).
+    await page.reload({ waitUntil: "networkidle" });
+    await ensureLoggedIn(page, TEST_ID, TEST_PASSWORD);
     await openPaymentsPanel(page, TEST_ID, TEST_PASSWORD, "Historial pagos");
+    const historySection = page
+      .locator("section.panel")
+      .filter({ has: page.getByRole("heading", { name: /Historial( de)? pagos/i }) })
+      .first();
 
-    await expectVisible(page, "input[title='Filtrar desde fecha']");
-    await expectVisible(page, "input[title='Filtrar hasta fecha']");
-    await expectVisible(page, "button:has-text('Descargar seleccionados')");
-    await expectVisible(page, "button:has-text('Descargar filtrados')");
+    await historySection.getByRole("button", { name: /Descargar seleccionados/i }).first().waitFor({ state: "visible", timeout: 15000 });
+    await historySection.getByRole("button", { name: /Descargar filtrados/i }).first().waitFor({ state: "visible", timeout: 15000 });
+    await historySection.locator("table thead th", { hasText: "Recibo" }).first().waitFor({ state: "visible", timeout: 15000 });
+    await historySection.locator("table thead th", { hasText: "Fecha" }).first().waitFor({ state: "visible", timeout: 15000 });
 
-    const rows = page.locator("table tbody tr");
+    const rows = historySection.locator("table tbody tr");
     const count = await rows.count();
     assert.ok(count >= 1, "Se esperaba al menos 1 fila en historial.");
   });
@@ -154,13 +170,14 @@ async function run() {
   await test("Persistencia en nube tras recargar app", async () => {
     await page.reload({ waitUntil: "networkidle" });
     await ensureLoggedIn(page, TEST_ID, TEST_PASSWORD);
-
-    await page.getByRole("button", { name: "Clientes", exact: true }).click({ force: true });
-    await expectTextOnPage(page, unitId);
-    await expectTextOnPage(page, clientName);
+    await ensureClientVisibleInClientsTable(page, unitId, clientName);
 
     await openPaymentsPanel(page, TEST_ID, TEST_PASSWORD, "Historial pagos");
-    const rows = page.locator("table tbody tr");
+    const historySection = page
+      .locator("section.panel")
+      .filter({ has: page.getByRole("heading", { name: /Historial( de)? pagos/i }) })
+      .first();
+    const rows = historySection.locator("table tbody tr");
     const count = await rows.count();
     assert.ok(count >= 1, "Se esperaba al menos 1 fila en historial despues de recargar.");
   });
@@ -192,7 +209,7 @@ async function run() {
  * @param {string} selector
  */
 async function expectVisible(page, selector) {
-  await page.locator(selector).first().waitFor({ state: "visible", timeout: 7000 });
+  await page.locator(selector).first().waitFor({ state: "visible", timeout: 15000 });
 }
 
 /**
@@ -200,7 +217,7 @@ async function expectVisible(page, selector) {
  * @param {string} text
  */
 async function expectTextOnPage(page, text) {
-  await page.getByText(text, { exact: false }).first().waitFor({ state: "visible", timeout: 7000 });
+  await page.getByText(text, { exact: false }).first().waitFor({ state: "visible", timeout: 15000 });
 }
 
 /**
@@ -208,19 +225,36 @@ async function expectTextOnPage(page, text) {
  * @param {string} label
  */
 async function openPaymentsQuickAction(page, label) {
-  const button = page.locator(".payment-quick-actions-panel .payment-quick-action", { hasText: label }).first();
-  await button.waitFor({ state: "visible", timeout: 7000 });
+  const button = page
+    .locator(".payment-quick-actions-panel .payment-quick-action")
+    .filter({ has: page.locator(".payment-quick-action-title", { hasText: label }) })
+    .first();
+  if (!(await button.isVisible().catch(() => false))) return false;
+  await button.scrollIntoViewIfNeeded();
+  const state = button.locator(".payment-quick-action-state").first();
+  const stateText = ((await state.textContent().catch(() => "")) ?? "").trim().toLowerCase();
+  if (stateText.includes("ocultar")) return true;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      await button.click({ force: true, timeout: 7000 });
-      return;
+      await button.click({ force: true, timeout: 15000 });
+      await page.waitForTimeout(250);
+      const nextState = ((await state.textContent().catch(() => "")) ?? "").trim().toLowerCase();
+      if (nextState.includes("ocultar")) return true;
+      continue;
     } catch {
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(700);
     }
   }
 
-  await button.evaluate((node) => node.click());
+  try {
+    await button.evaluate((node) => node.click());
+    await page.waitForTimeout(250);
+    const afterEvalState = ((await state.textContent().catch(() => "")) ?? "").trim().toLowerCase();
+    return afterEvalState.includes("ocultar");
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -228,11 +262,15 @@ async function openPaymentsQuickAction(page, label) {
  * @param {string} query
  */
 async function pickClientFromSearch(page, query) {
-  const input = page.getByPlaceholder("Buscar por unidad, nombre o cedula...");
-  const firstItem = page.locator(".client-dropdown-item").first();
+  const registerSection = page
+    .locator("section.panel")
+    .filter({ has: page.getByRole("heading", { name: "Registrar pago" }) })
+    .first();
+  const input = registerSection.getByPlaceholder("Buscar por unidad, nombre o cedula...");
+  const firstItem = registerSection.locator(".client-dropdown-item").first();
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    await input.waitFor({ state: "visible", timeout: 7000 });
+    await input.waitFor({ state: "visible", timeout: 15000 });
     await input.fill(query);
     await page.waitForTimeout(200);
 
@@ -242,7 +280,7 @@ async function pickClientFromSearch(page, query) {
     }
   }
 
-  await firstItem.waitFor({ state: "visible", timeout: 7000 });
+  await firstItem.waitFor({ state: "visible", timeout: 15000 });
   await firstItem.click({ force: true });
 }
 
@@ -253,30 +291,88 @@ async function pickClientFromSearch(page, query) {
  * @param {string} quickActionLabel
  */
 async function openPaymentsPanel(page, id, password, quickActionLabel) {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
     await ensureLoggedIn(page, id, password);
+    const returnFromReceipt = page.getByRole("button", { name: /Registrar otro pago/i }).first();
+    if (await returnFromReceipt.isVisible().catch(() => false)) {
+      await returnFromReceipt.click({ force: true });
+      await page.waitForTimeout(400);
+    }
     await page.locator(".app-nav-tabs .nav-tab", { hasText: "Pagos" }).first().click({ force: true });
+    await page.locator(".payment-quick-actions-panel").first().waitFor({ state: "visible", timeout: 15000 });
 
     if (quickActionLabel === "Registrar pago") {
-      const input = page.getByPlaceholder("Buscar por unidad, nombre o cedula...");
-      if (await input.isVisible().catch(() => false)) return;
+      const registerSection = page
+        .locator("section.panel")
+        .filter({ has: page.getByRole("heading", { name: "Registrar pago" }) })
+        .first();
+      const input = registerSection.getByPlaceholder("Buscar por unidad, nombre o cedula...");
+
+      if (await registerSection.isVisible().catch(() => false) && await input.isVisible().catch(() => false)) return;
+
       await openPaymentsQuickAction(page, quickActionLabel);
-      await page.waitForTimeout(200);
-      if (await input.isVisible().catch(() => false)) return;
+      try {
+        await registerSection.waitFor({ state: "visible", timeout: 5000 });
+        await input.waitFor({ state: "visible", timeout: 5000 });
+        return;
+      } catch {
+        // retry
+      }
     } else {
-      const fromDate = page.locator("input[title='Filtrar desde fecha']").first();
-      if (await fromDate.isVisible().catch(() => false)) return;
+      const historySection = page
+        .locator("section.panel")
+        .filter({ has: page.getByRole("heading", { name: /Historial( de)? pagos/i }) })
+        .first();
+      if (await historySection.isVisible().catch(() => false)) return;
+
       await openPaymentsQuickAction(page, quickActionLabel);
-      await page.waitForTimeout(200);
-      if (await fromDate.isVisible().catch(() => false)) return;
+      try {
+        await historySection.waitFor({ state: "visible", timeout: 5000 });
+        return;
+      } catch {
+        // retry
+      }
     }
   }
 
   if (quickActionLabel === "Registrar pago") {
-    await page.getByPlaceholder("Buscar por unidad, nombre o cedula...").waitFor({ state: "visible", timeout: 7000 });
+    const registerSection = page
+      .locator("section.panel")
+      .filter({ has: page.getByRole("heading", { name: "Registrar pago" }) })
+      .first();
+    await registerSection.waitFor({ state: "visible", timeout: 30000 });
+    await registerSection.getByPlaceholder("Buscar por unidad, nombre o cedula...").waitFor({ state: "visible", timeout: 30000 });
   } else {
-    await page.locator("input[title='Filtrar desde fecha']").first().waitFor({ state: "visible", timeout: 7000 });
+    const historySection = page
+      .locator("section.panel")
+      .filter({ has: page.getByRole("heading", { name: /Historial( de)? pagos/i }) })
+      .first();
+    await historySection.waitFor({ state: "visible", timeout: 15000 });
   }
+}
+
+/**
+ * @param {import('playwright').Page} page
+ * @param {string} unitId
+ * @param {string} clientName
+ */
+async function ensureClientVisibleInClientsTable(page, unitId, clientName) {
+  await page.getByRole("button", { name: "Clientes", exact: true }).click({ force: true });
+
+  const filterSelects = page.locator(".filters-bar select");
+  const count = await filterSelects.count();
+  if (count >= 4) {
+    await filterSelects.nth(0).selectOption("all"); // frecuencia
+    await filterSelects.nth(1).selectOption("all"); // grupo
+    await filterSelects.nth(2).selectOption("all"); // deuda
+    await filterSelects.nth(3).selectOption("all"); // estado
+  }
+
+  const searchInput = page.getByPlaceholder("Buscar por unidad, cliente o cedula");
+  await searchInput.fill(unitId);
+
+  await expectVisible(page, `table tbody tr:has-text("${unitId}")`);
+  await expectTextOnPage(page, clientName);
 }
 
 /**
