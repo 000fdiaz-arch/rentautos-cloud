@@ -1,0 +1,16 @@
+COBRAPP - REPORTE DE PRUEBAS
+Fecha: 04/29/2026, 2:28:49 p. m.
+Clientes activos: 1 | Pagos: 1
+
+ PRUEBA 1: App carga correctamente - titulo: "Rentautos"
+ PRUEBA 2: Modulo 1 - Tabla/lista de clientes visible - 1 clientes activos en BD
+ PRUEBA 3: Busqueda de cliente funciona - busco "Cliente"
+ PRUEBA 4: Modulo 2 - Pantalla de Pagos carga correctamente
+ PRUEBA 5: Formulario de pago - preview no visible (puede requerir interaccion manual)
+ PRUEBA 6: Boton de confirmacion de pago presente
+ PRUEBA 7: Datos de cuotas consistentes en todos los clientes - 1 clientes verificados
+ PRUEBA 8: Sin saldos negativos en clientes activos
+ PRUEBA 9: Historial de pagos abre con filtros, seleccion multiple y acciones masivas - 1 pagos en BD
+ PRUEBA 10: Sin errores de JavaScript en consola
+
+TOTAL: 10 pasadas, 0 fallidas de 10
