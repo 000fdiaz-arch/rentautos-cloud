@@ -13,15 +13,15 @@ type Props = {
 function formatDateSpanish(dateStr: string): string {
   const parts = dateStr.split("-");
   if (parts.length !== 3) return dateStr;
-  const weekdays = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
-  const months = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+  const weekdays = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
+  const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
   const year = parseInt(parts[0], 10);
   const month = parseInt(parts[1], 10) - 1;
   const day = parseInt(parts[2], 10);
   if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) return dateStr;
   const date = new Date(`${dateStr}T12:00:00`);
   const weekdayLabel = weekdays[date.getDay()] ?? "";
-  return `${weekdayLabel} ${day} ${months[month] ?? ""} ${year}`.trim();
+  return `${weekdayLabel}\n${day} ${months[month] ?? ""} ${year}`.trim();
 }
 
 function sanitizeFileToken(value: string): string {
@@ -289,8 +289,8 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
       : "";
   const totalPending = Math.max(0, moroseBalanceToday + otherChargesDueTotal);
   const hasPending = totalPending > 0;
-  const travelFundAvailable = roundMoney(Math.max(0, payment.travelFundAvailableSnapshot ?? 0));
-  const hasTravelFundAvailable = travelFundAvailable > 0;
+  const travelFundBalance = roundMoney(Math.max(0, payment.travelFundAvailableSnapshot ?? 0));
+  const hasTravelFundBalance = travelFundBalance > 0;
   const folio = payment.reference ? extractFolio(payment.reference) : "";
   const isPendingCardSettlement =
     payment.paymentMethod === "Tarjeta" &&
@@ -416,7 +416,7 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
 
       <div className={`receipt-top-balance-grid ${otherChargesDueAfter.length === 0 ? "receipt-top-balance-grid--single" : ""}`}>
         <div className={`receipt-overdue-banner ${hasPending ? "" : "receipt-overdue-banner--ok"}`}>
-          <span className="receipt-overdue-icon">{hasPending ? "!" : <strong>OK</strong>}</span>
+          <span className="receipt-overdue-icon">{hasPending ? "!" : <strong>✓</strong>}</span>
           <div className="receipt-overdue-content">
             <div className="receipt-overdue-title">{hasPending ? "PAGO PENDIENTE HOY" : "ESTAS AL DIA"}</div>
             <div className="receipt-overdue-sub">
@@ -461,10 +461,9 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
         )}
       </div>
 
-      {hasTravelFundAvailable && (
+      {hasTravelFundBalance && (
         <div className="receipt-savings-box">
-          <div className="receipt-savings-label">FONDO DE VIAJE</div>
-          <div className="receipt-savings-value">{formatCurrency(travelFundAvailable)}</div>
+          <div className="receipt-savings-value">{`Fondo de viaje: ${formatCurrency(travelFundBalance)}`}</div>
         </div>
       )}
 

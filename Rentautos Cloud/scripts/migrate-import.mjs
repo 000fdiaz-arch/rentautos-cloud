@@ -25,6 +25,14 @@ function makeRowId(key, rec, idx) {
   return `row-${idx + 1}`;
 }
 
+function chunkIds(ids, size = 150) {
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += size) {
+    chunks.push(ids.slice(i, i + size));
+  }
+  return chunks;
+}
+
 const mode = parseArg("mode", "dry-run");
 const input = parseArg("input", "");
 const userId = parseArg("user-id", "");
@@ -98,11 +106,43 @@ for (const [key, table] of Object.entries(ARRAY_TABLE_MAP)) {
     id: makeRowId(key, rec, idx),
     data: rec
   }));
-  if (rows.length === 0) continue;
-  const { error } = await supabase.from(table).upsert(rows, { onConflict: "user_id,id" });
-  if (error) {
-    report.tables[table].error = error.message;
+
+  if (rows.length > 0) {
+    const { error } = await supabase.from(table).upsert(rows, { onConflict: "user_id,id" });
+    if (error) {
+      report.tables[table].error = error.message;
+      report.totals.errors += 1;
+      continue;
+    }
+  }
+
+  const nextIds = new Set(rows.map((row) => row.id));
+  const { data: existingRows, error: selectError } = await supabase
+    .from(table)
+    .select("id")
+    .eq("user_id", userId);
+
+  if (selectError) {
+    report.tables[table].error = selectError.message;
     report.totals.errors += 1;
+    continue;
+  }
+
+  const staleIds = (existingRows ?? [])
+    .map((row) => String(row.id ?? ""))
+    .filter((id) => id.length > 0 && !nextIds.has(id));
+
+  for (const idsChunk of chunkIds(staleIds)) {
+    const { error: deleteError } = await supabase
+      .from(table)
+      .delete()
+      .eq("user_id", userId)
+      .in("id", idsChunk);
+    if (deleteError) {
+      report.tables[table].error = deleteError.message;
+      report.totals.errors += 1;
+      break;
+    }
   }
 }
 

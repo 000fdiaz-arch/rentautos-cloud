@@ -1,9 +1,26 @@
 const { chromium } = require('playwright');
 
+async function ensureLoggedIn(page) {
+  const pagosBtn = page.getByRole('button', { name: /^Pagos$/i });
+  if (await pagosBtn.count()) return;
+  const loginBtn = page.getByRole('button', { name: /Iniciar sesion/i });
+  if (!(await loginBtn.count())) return;
+  const testId = process.env.RENTAUTOS_TEST_ID;
+  const testPassword = process.env.RENTAUTOS_TEST_PASSWORD;
+  if (!testId || !testPassword) {
+    throw new Error('Faltan RENTAUTOS_TEST_ID y RENTAUTOS_TEST_PASSWORD para autenticar el test.');
+  }
+  await page.getByLabel(/^ID$/i).fill(testId);
+  await page.getByLabel(/^Password$/i).fill(testPassword);
+  await loginBtn.click();
+  await page.getByRole('button', { name: /^Pagos$/i }).waitFor({ timeout: 30000 });
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
   await page.goto('http://127.0.0.1:5174/', { waitUntil: 'domcontentloaded' });
+  await ensureLoggedIn(page);
 
   const client = {
     id: 'c71-client-manual-month',

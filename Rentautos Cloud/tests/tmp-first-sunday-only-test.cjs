@@ -20,8 +20,8 @@ function makeDailyClient() {
     chargeFirstSunday: true,
     firstSundayChargedAt: undefined,
     installmentsAgreed: 100,
-    installmentsRemaining: 94,
-    installmentsPaid: 6,
+    installmentsRemaining: 93,
+    installmentsPaid: 7,
     otherCharges: [],
     balance: 0,
     advanceBalance: 0,
@@ -46,7 +46,7 @@ function makeDailyClient() {
 
   const { applyAutomaticCharges } = require(bundlePath);
 
-  // Caso 1: Primer domingo del mes -> SI cobra una vez
+  // Caso 1: Primer domingo del mes -> SI cobra una vez (si cuotas pagadas <= 7)
   let client = makeDailyClient();
   let run = applyAutomaticCharges([client], new Date("2026-05-03T10:00:00")); // domingo
   client = run.clients[0];

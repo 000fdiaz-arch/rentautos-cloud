@@ -238,6 +238,7 @@ type Props = {
   onClientsChange: (next: Client[]) => void;
   payments: Payment[];
   onPaymentsChange: (next: Payment[]) => void;
+  onCashClose?: () => void;
 };
 
 function roundMoney(value: number): number {
@@ -792,7 +793,8 @@ export default function PaymentsPage({
   otherChargesRetentionByClient,
   onClientsChange,
   payments,
-  onPaymentsChange
+  onPaymentsChange,
+  onCashClose
 }: Props) {
   const [form, setForm] = useState<PaymentForm>({
     clientId: "",
@@ -805,7 +807,7 @@ export default function PaymentsPage({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [confirmedPayment, setConfirmedPayment] = useState<Payment | null>(null);
-  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
+  const [isRegisterOpen, setIsRegisterOpen] = useState(true);
   const [isNotifiedOpen, setIsNotifiedOpen] = useState(false);
   const [isCashClosingOpen, setIsCashClosingOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -845,7 +847,7 @@ export default function PaymentsPage({
   const [reopenReason, setReopenReason] = useState<string>("");
   const [pendingBankItems, setPendingBankItems] = useState<PendingBankItem[]>(() => loadPendingBankItems());
   const [pendingCardItems, setPendingCardItems] = useState<PendingCardItem[]>(() => loadPendingCardItems());
-  const [isPendingOpen, setIsPendingOpen] = useState(false);
+  const [isPendingOpen, setIsPendingOpen] = useState(true);
   const [isCardPendingOpen, setIsCardPendingOpen] = useState(false);
   const [pendingClassifyTarget, setPendingClassifyTarget] = useState<PendingBankItem | null>(null);
   const [pendingClassifyClientId, setPendingClassifyClientId] = useState("");
@@ -1720,7 +1722,164 @@ export default function PaymentsPage({
     return [...uniqueById.values()][0];
   }
 
-    async function handleImportBankCSV(): Promise<void> {
+  async function processBankCSV(text: string): Promise<void> {
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.replace(/\uFEFF/g, ""))
+      .filter((line) => normalizeBankText(line).length > 0);
+    if (lines.length < 2) {
+      setPendingImportError("El archivo CSV no tiene filas de datos.");
+      return;
+    }
+
+    const headerColumns = parseCsvRow(lines[0]);
+    const expectedColumns = headerColumns.length;
+    const headers = headerColumns.map((h) =>
+      h.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "")
+    );
+    const idxAccount = headers.findIndex((h) => h === "cuenta");
+    const idxFolio = headers.findIndex((h) => h === "folio");
+    const idxCredito = headers.findIndex((h) => h.includes("credito") || h === "credit");
+    const idxDesc = headers.findIndex((h) => h.includes("descripcion") || h.includes("descripci") || h.includes("detalle"));
+    const idxTransactionCode = headers.findIndex((h) => h === "codigodetransaccion" || h === "codigotransaccion");
+
+    if (idxAccount === -1 || idxFolio === -1 || idxCredito === -1) {
+      setPendingImportError("No se encontraron las columnas esperadas (Cuenta, Folio, Credito). Verifica el archivo.");
+      return;
+    }
+
+    const existingFoliosInPayments = buildExistingProcessedFolioSetForCsvImport(payments);
+    const existingFoliosInPending = new Set(pendingBankItems.map((i) => normalizeFolioToken(i.folio)));
+
+    const accountsInFile = new Set<string>();
+    let invalidRows = 0;
+    for (let i = 1; i < lines.length; i += 1) {
+      const cols = coerceCsvColumns(lines[i], expectedColumns);
+      if (!cols) {
+        invalidRows += 1;
+        continue;
+      }
+      const amount = parseBankAmount(normalizeBankText(cols[idxCredito] ?? ""));
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      const accountNumber = normalizeAccountNumber(cols[idxAccount] ?? "");
+      if (accountNumber) accountsInFile.add(accountNumber);
+    }
+
+    const missingRuleAccounts = [...accountsInFile].filter((accountNumber) => !findMappedGroupByAccount(accountNumber));
+    if (missingRuleAccounts.length > 0) {
+      setPendingImportError(`No hay regla bancaria activa para cuenta(s): ${missingRuleAccounts.join(", ")}. Configuralas en Configuraciones > Regla bancaria.`);
+      return;
+    }
+
+    const newPendingItems: PendingBankItem[] = [];
+    const importedAt = new Date().toISOString();
+    let autoMatched = 0;
+    let skipped = 0;
+    let ignoredNonClient = 0;
+
+    for (let i = 1; i < lines.length; i += 1) {
+      const cols = coerceCsvColumns(lines[i], expectedColumns);
+      if (!cols) continue;
+
+      const accountNumber = normalizeAccountNumber(cols[idxAccount] ?? "");
+      const mappedGroup = findMappedGroupByAccount(accountNumber);
+      const folio = normalizeFolioToken(cols[idxFolio] ?? "");
+      const creditoRaw = normalizeBankText(cols[idxCredito] ?? "");
+      const description = normalizeBankText(cols[idxDesc] ?? "");
+      const transactionCode = idxTransactionCode >= 0 ? normalizeBankText(cols[idxTransactionCode] ?? "") : "";
+      const amount = parseBankAmount(creditoRaw);
+
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      if (!folio || !mappedGroup) continue;
+      if (isIgnoredBankMovement(transactionCode, description)) {
+        ignoredNonClient += 1;
+        continue;
+      }
+      if (existingFoliosInPayments.has(folio) || existingFoliosInPending.has(folio)) {
+        skipped += 1;
+        continue;
+      }
+
+      const capitalPart = Math.floor(amount);
+      const centsPart = Math.round((amount - capitalPart) * 100) / 100;
+      const dateApplied = operationalDateKey;
+      const { referenceId, extractedName } = parseBankDescription(description);
+      const candidateClients = activeClients.filter((client) => extractGroupCodeFromUnit(client.unitId) === mappedGroup);
+
+      let matched: Client | null = null;
+      if (referenceId) {
+        const byUnit = candidateClients.filter((c) =>
+          normalizeBankText(c.unitId) === referenceId || normalizeBankText(c.cedula ?? "") === referenceId
+        );
+        if (byUnit.length === 1) matched = byUnit[0];
+      }
+      if (!matched && extractedName) {
+        const byExact = candidateClients.filter((c) => normalizeBankName(c.name) === normalizeBankName(extractedName));
+        if (byExact.length === 1) matched = byExact[0];
+      }
+      if (!matched && extractedName) {
+        matched = findClientByNamePrefix(extractedName, candidateClients);
+      }
+      if (!matched) {
+        matched = findClientFromNotified(amount, dateApplied, candidateClients);
+      }
+
+      const baseItem: PendingBankItem = {
+        folio,
+        dateApplied,
+        amountReceived: amount,
+        capitalPart,
+        centsPart,
+        transactionCode: transactionCode || undefined,
+        referenceId,
+        extractedName,
+        description,
+        importedAt,
+        accountNumber: accountNumber || undefined,
+        mappedGroup
+      };
+
+      if (matched) {
+        newPendingItems.push({
+          ...baseItem,
+          suggestedClientId: matched.id,
+          suggestedClientName: matched.name
+        });
+        autoMatched += 1;
+      } else {
+        newPendingItems.push(baseItem);
+      }
+      existingFoliosInPending.add(folio);
+    }
+
+    if (newPendingItems.length === 0 && skipped === 0 && ignoredNonClient === 0) {
+      setPendingImportError("No se encontraron creditos aplicables en el archivo.");
+      return;
+    }
+
+    const unmatched = newPendingItems.filter((i) => !i.suggestedClientId).length;
+    const groupsFound = [...new Set(newPendingItems.map((item) => item.mappedGroup).filter(Boolean))];
+    const parts: string[] = [];
+    if (groupsFound.length > 0) parts.push(`Grupo detectado: ${groupsFound.join(", ")}`);
+    if (autoMatched > 0) parts.push(`${autoMatched} identificado(s) listos para aplicar`);
+    if (unmatched > 0) parts.push(`${unmatched} sin cliente identificado`);
+    if (skipped > 0) parts.push(`${skipped} duplicado(s) omitido(s)`);
+    if (ignoredNonClient > 0) parts.push(`${ignoredNonClient} movimiento(s) no cliente ignorado(s)`);
+    if (invalidRows > 0) parts.push(`${invalidRows} fila(s) irregulares reparadas/omitidas`);
+
+    if (newPendingItems.length > 0) {
+      if (newPendingItems.length > 0) {
+        const next = [...pendingBankItems, ...newPendingItems];
+        setPendingBankItems(next);
+        savePendingBankItems(next);
+        setIsPendingOpen(true);
+      }
+    }
+
+    setPendingImportError(parts.length > 0 ? `${parts.join(" - ")}.` : "Importacion completada.");
+  }
+
+  async function handlePickAndProcessBankCSV(): Promise<void> {
     setPendingImportError("");
     try {
       const [fileHandle] = await (window as Window & { showOpenFilePicker: (opts: object) => Promise<FileSystemFileHandle[]> }).showOpenFilePicker({
@@ -1729,162 +1888,15 @@ export default function PaymentsPage({
       });
       const file = await fileHandle.getFile();
       const text = await file.text();
-
-      const lines = text
-        .split(/\r?\n/)
-        .map((line) => line.replace(/\uFEFF/g, ""))
-        .filter((line) => normalizeBankText(line).length > 0);
-      if (lines.length < 2) {
-        setPendingImportError("El archivo CSV no tiene filas de datos.");
-        return;
-      }
-
-      const headerColumns = parseCsvRow(lines[0]);
-      const expectedColumns = headerColumns.length;
-      const headers = headerColumns.map((h) =>
-        h.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "")
-      );
-      const idxAccount = headers.findIndex((h) => h === "cuenta");
-      const idxFolio = headers.findIndex((h) => h === "folio");
-      const idxCredito = headers.findIndex((h) => h.includes("credito") || h === "credit");
-      const idxDesc = headers.findIndex((h) => h.includes("descripcion") || h.includes("descripci") || h.includes("detalle"));
-      const idxTransactionCode = headers.findIndex((h) => h === "codigodetransaccion" || h === "codigotransaccion");
-
-      if (idxAccount === -1 || idxFolio === -1 || idxCredito === -1) {
-        setPendingImportError("No se encontraron las columnas esperadas (Cuenta, Folio, Credito). Verifica el archivo.");
-        return;
-      }
-
-      const existingFoliosInPayments = buildExistingProcessedFolioSetForCsvImport(payments);
-      const existingFoliosInPending = new Set(pendingBankItems.map((i) => normalizeFolioToken(i.folio)));
-
-      const accountsInFile = new Set<string>();
-      let invalidRows = 0;
-      for (let i = 1; i < lines.length; i += 1) {
-        const cols = coerceCsvColumns(lines[i], expectedColumns);
-        if (!cols) {
-          invalidRows += 1;
-          continue;
-        }
-        const amount = parseBankAmount(normalizeBankText(cols[idxCredito] ?? ""));
-        if (!Number.isFinite(amount) || amount <= 0) continue;
-        const accountNumber = normalizeAccountNumber(cols[idxAccount] ?? "");
-        if (accountNumber) accountsInFile.add(accountNumber);
-      }
-
-      const missingRuleAccounts = [...accountsInFile].filter((accountNumber) => !findMappedGroupByAccount(accountNumber));
-      if (missingRuleAccounts.length > 0) {
-        setPendingImportError(`No hay regla bancaria activa para cuenta(s): ${missingRuleAccounts.join(", ")}. Configuralas en Configuraciones > Regla bancaria.`);
-        return;
-      }
-
-      const newPendingItems: PendingBankItem[] = [];
-      const importedAt = new Date().toISOString();
-      let autoMatched = 0;
-      let skipped = 0;
-      let ignoredNonClient = 0;
-
-      for (let i = 1; i < lines.length; i += 1) {
-        const cols = coerceCsvColumns(lines[i], expectedColumns);
-        if (!cols) continue;
-
-        const accountNumber = normalizeAccountNumber(cols[idxAccount] ?? "");
-        const mappedGroup = findMappedGroupByAccount(accountNumber);
-        const folio = normalizeFolioToken(cols[idxFolio] ?? "");
-        const creditoRaw = normalizeBankText(cols[idxCredito] ?? "");
-        const description = normalizeBankText(cols[idxDesc] ?? "");
-        const transactionCode = idxTransactionCode >= 0 ? normalizeBankText(cols[idxTransactionCode] ?? "") : "";
-        const amount = parseBankAmount(creditoRaw);
-
-        if (!Number.isFinite(amount) || amount <= 0) continue;
-        if (!folio || !mappedGroup) continue;
-        if (isIgnoredBankMovement(transactionCode, description)) {
-          ignoredNonClient += 1;
-          continue;
-        }
-        if (existingFoliosInPayments.has(folio) || existingFoliosInPending.has(folio)) {
-          skipped += 1;
-          continue;
-        }
-
-        const capitalPart = Math.floor(amount);
-        const centsPart = Math.round((amount - capitalPart) * 100) / 100;
-        const dateApplied = operationalDateKey;
-        const { referenceId, extractedName } = parseBankDescription(description);
-        const candidateClients = activeClients.filter((client) => extractGroupCodeFromUnit(client.unitId) === mappedGroup);
-
-        let matched: Client | null = null;
-        if (referenceId) {
-          const byUnit = candidateClients.filter((c) =>
-            normalizeBankText(c.unitId) === referenceId || normalizeBankText(c.cedula ?? "") === referenceId
-          );
-          if (byUnit.length === 1) matched = byUnit[0];
-        }
-        if (!matched && extractedName) {
-          const byExact = candidateClients.filter((c) => normalizeBankName(c.name) === normalizeBankName(extractedName));
-          if (byExact.length === 1) matched = byExact[0];
-        }
-        if (!matched && extractedName) {
-          matched = findClientByNamePrefix(extractedName, candidateClients);
-        }
-        if (!matched) {
-          matched = findClientFromNotified(amount, dateApplied, candidateClients);
-        }
-
-        const baseItem: PendingBankItem = {
-          folio,
-          dateApplied,
-          amountReceived: amount,
-          capitalPart,
-          centsPart,
-          transactionCode: transactionCode || undefined,
-          referenceId,
-          extractedName,
-          description,
-          importedAt,
-          accountNumber: accountNumber || undefined,
-          mappedGroup
-        };
-
-        if (matched) {
-          newPendingItems.push({
-            ...baseItem,
-            suggestedClientId: matched.id,
-            suggestedClientName: matched.name
-          });
-          autoMatched += 1;
-        } else {
-          newPendingItems.push(baseItem);
-        }
-        existingFoliosInPending.add(folio);
-      }
-
-      if (newPendingItems.length === 0 && skipped === 0 && ignoredNonClient === 0) {
-        setPendingImportError("No se encontraron creditos aplicables en el archivo.");
-        return;
-      }
-
-      if (newPendingItems.length > 0) {
-        const next = [...pendingBankItems, ...newPendingItems];
-        setPendingBankItems(next);
-        savePendingBankItems(next);
-        setIsPendingOpen(true);
-      }
-
-      const parts: string[] = [];
-      const unmatched = newPendingItems.filter((i) => !i.suggestedClientId).length;
-      const groupsFound = [...new Set(newPendingItems.map((item) => item.mappedGroup).filter(Boolean))];
-      if (groupsFound.length > 0) parts.push(`Grupo detectado: ${groupsFound.join(", ")}`);
-      if (autoMatched > 0) parts.push(`${autoMatched} identificado(s) listos para aplicar`);
-      if (unmatched > 0) parts.push(`${unmatched} sin cliente identificado`);
-      if (skipped > 0) parts.push(`${skipped} duplicado(s) omitido(s)`);
-      if (ignoredNonClient > 0) parts.push(`${ignoredNonClient} movimiento(s) no cliente ignorado(s)`);
-      if (invalidRows > 0) parts.push(`${invalidRows} fila(s) irregulares reparadas/omitidas`);
-      setPendingImportError(parts.length > 0 ? `${parts.join(" - ")}.` : "Importacion completada.");
+      await processBankCSV(text);
     } catch (err) {
       if ((err as { name?: string }).name === "AbortError") return;
       setPendingImportError("Error al leer el archivo CSV. Verifica que sea el archivo de movimientos del banco.");
     }
+  }
+
+  async function handleImportBankCSV(): Promise<void> {
+    await handlePickAndProcessBankCSV();
   }
   function handleOpenClassify(item: PendingBankItem): void {
     setPendingClassifyTarget(item);
@@ -1949,9 +1961,10 @@ export default function PaymentsPage({
       return;
     }
 
-    const existingBankFolios = buildExistingBankFolioSet(payments);
-    if (existingBankFolios.has(normalizedFolio)) {
-      setCardPendingMessage(`No se puede usar el folio ${normalizedFolio}: ya existe en pagos bancarios.`);
+    const takenFolios = buildTakenFolioSet(payments, pendingBankItems, pendingCardItems);
+    takenFolios.delete(normalizeFolioToken(item.folio));
+    if (takenFolios.has(normalizedFolio)) {
+      setCardPendingMessage(`No se puede usar el folio ${normalizedFolio}: ya fue utilizado.`);
       return;
     }
 
@@ -1978,9 +1991,9 @@ export default function PaymentsPage({
       setCardPendingMessage("Debes indicar un folio valido para aplicar en lote.");
       return;
     }
-    const existingBankFolios = buildExistingBankFolioSet(payments);
-    if (existingBankFolios.has(normalizedFolio)) {
-      setCardPendingMessage(`No se puede usar el folio ${normalizedFolio}: ya existe en pagos bancarios.`);
+    const takenFolios = buildTakenFolioSet(payments, pendingBankItems, pendingCardItems);
+    if (takenFolios.has(normalizedFolio)) {
+      setCardPendingMessage(`No se puede usar el folio ${normalizedFolio}: ya fue utilizado.`);
       return;
     }
     const next = pendingCardItems.map((row) => ({ ...row, folio: normalizedFolio }));
@@ -2090,8 +2103,14 @@ export default function PaymentsPage({
     const client = clients.find((c) => c.id === pendingClassifyClientId);
     if (!client) return;
     const normalizedFolio = normalizeFolioToken(pendingClassifyTarget.folio);
-    if (buildExistingBankFolioSet(payments).has(normalizedFolio)) {
-      setErrors([`No se puede registrar el folio ${normalizedFolio}: ya existe en pagos bancarios.`]);
+    const takenFolios = buildTakenFolioSet(
+      payments,
+      pendingBankItems,
+      pendingCardItems,
+      { excludePendingBankFolios: new Set([normalizedFolio]) }
+    );
+    if (takenFolios.has(normalizedFolio)) {
+      setErrors([`No se puede registrar el folio ${normalizedFolio}: ya fue utilizado.`]);
       return;
     }
 
@@ -2336,8 +2355,14 @@ export default function PaymentsPage({
     const client = clients.find((c) => c.id === item.suggestedClientId);
     if (!client) return;
     const normalizedFolio = normalizeFolioToken(item.folio);
-    if (buildExistingBankFolioSet(payments).has(normalizedFolio)) {
-      setErrors([`No se puede registrar el folio ${normalizedFolio}: ya existe en pagos bancarios.`]);
+    const takenFolios = buildTakenFolioSet(
+      payments,
+      pendingBankItems,
+      pendingCardItems,
+      { excludePendingBankFolios: new Set([normalizedFolio]) }
+    );
+    if (takenFolios.has(normalizedFolio)) {
+      setErrors([`No se puede registrar el folio ${normalizedFolio}: ya fue utilizado.`]);
       return;
     }
     // If has otros cargos, open classify modal instead
@@ -2371,7 +2396,13 @@ export default function PaymentsPage({
 
     let updatedClientsMap = new Map(clients.map((c) => [c.id, { ...c }]));
     const newPayments: Payment[] = [];
-    const usedFolios = buildExistingBankFolioSet(payments);
+    const highSimFolios = new Set(highSim.map((item) => normalizeFolioToken(item.folio)).filter((folio) => folio.length > 0));
+    const usedFolios = buildTakenFolioSet(
+      payments,
+      pendingBankItems,
+      pendingCardItems,
+      { excludePendingBankFolios: highSimFolios }
+    );
     let skippedDuplicates = 0;
 
     for (const item of highSim) {
@@ -2430,6 +2461,36 @@ export default function PaymentsPage({
     setRegisterTravelFundInput(toInputMoney(roundMoney(Math.max(0, client.travelFundBalance ?? 0))));
   }
 
+  function buildTakenFolioSet(
+    paymentRows: Payment[],
+    pendingBankRows: PendingBankItem[],
+    pendingCardRows: PendingCardItem[],
+    options?: {
+      excludePendingBankFolios?: Set<string>;
+      excludePendingCardIds?: Set<string>;
+    }
+  ): Set<string> {
+    const set = new Set<string>();
+    const excludePendingBankFolios = options?.excludePendingBankFolios ?? new Set<string>();
+    const excludePendingCardIds = options?.excludePendingCardIds ?? new Set<string>();
+    for (const payment of paymentRows) {
+      for (const folio of extractFoliosFromReference(payment.reference ?? "")) {
+        if (folio) set.add(folio);
+      }
+    }
+    for (const item of pendingBankRows) {
+      const folio = normalizeFolioToken(item.folio);
+      if (excludePendingBankFolios.has(folio)) continue;
+      if (folio) set.add(folio);
+    }
+    for (const item of pendingCardRows) {
+      if (excludePendingCardIds.has(item.id)) continue;
+      const folio = normalizeFolioToken(item.folio);
+      if (folio) set.add(folio);
+    }
+    return set;
+  }
+
   function handleClearClient(): void {
     setForm((f) => ({ ...f, clientId: "" }));
     setClientSearch("");
@@ -2486,15 +2547,15 @@ export default function PaymentsPage({
 
   function validate(): string[] {
     const errs: string[] = [];
+    const takenFolios = buildTakenFolioSet(payments, pendingBankItems, pendingCardItems);
     if (!form.clientId) errs.push("Debes seleccionar un cliente.");
     const amount = parseFloat(form.amountReceived);
     if (!Number.isFinite(amount) || amount <= 0) errs.push("El monto recibido debe ser mayor a 0.");
     if (form.paymentMethod === "Tarjeta") {
       const enteredFolios = extractFoliosFromReference(form.reference);
       if (enteredFolios.length > 0) {
-        const existingBankFolios = buildExistingBankFolioSet(payments);
-        const duplicate = enteredFolios.find((folio) => existingBankFolios.has(folio));
-        if (duplicate) errs.push(`El folio ${duplicate} ya existe en pagos bancarios.`);
+        const duplicate = enteredFolios.find((folio) => takenFolios.has(folio));
+        if (duplicate) errs.push(`El folio ${duplicate} ya fue utilizado.`);
       }
     }
     if (isBankPayment) {
@@ -2502,9 +2563,8 @@ export default function PaymentsPage({
       if (enteredFolios.length === 0) {
         errs.push("Debes indicar el folio/referencia para pagos bancarios.");
       } else {
-        const existingFolios = buildExistingBankFolioSet(payments);
-        const duplicate = enteredFolios.find((folio) => existingFolios.has(folio));
-        if (duplicate) errs.push(`El folio ${duplicate} ya existe en otro pago bancario.`);
+        const duplicate = enteredFolios.find((folio) => takenFolios.has(folio));
+        if (duplicate) errs.push(`El folio ${duplicate} ya fue utilizado.`);
       }
     }
     if (isDateClosed(operationalDateKey)) errs.push(`La caja de ${operationalDateKey} ya esta cerrada.`);
@@ -2580,6 +2640,7 @@ export default function PaymentsPage({
     setCashClosingInfo(
       `Caja cerrada para ${date}. Pagos del dia: ${paymentsOfDay.length}. Total del dia: ${formatCurrency(dayTotal)}. ${chargeInfo}${lateFeeInfo}`
     );
+    onCashClose?.();
   }
 
   function openReopenDialog(date: string): void {
@@ -3187,6 +3248,7 @@ export default function PaymentsPage({
     void handleImportBankCSV();
   }
 
+
   if (confirmedPayment) {
     return (
       <div className="page-inner">
@@ -3418,6 +3480,7 @@ export default function PaymentsPage({
             <span className="payment-quick-action-title">Importar CSV</span>
             <span className="payment-quick-action-state">Banco</span>
           </button>
+
 
           <button
             type="button"

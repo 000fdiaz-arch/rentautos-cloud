@@ -19,6 +19,24 @@ export type BackupResult =
   | { ok: true; code: "ok"; message: string }
   | { ok: false; code: BackupFailureCode; message: string };
 
+export type BackupTrigger = "manual" | "daily_5pm_pa" | "cash_closing" | "signout";
+
+export type BackupExtraData = {
+  seq?: number;
+  pendingBankItems?: unknown[];
+  pendingCardItems?: unknown[];
+  bankRules?: unknown[];
+  manualAssignmentAudit?: unknown[];
+  lateFeeSettings?: Record<string, unknown>;
+  lateFeeLedger?: unknown[];
+  otherChargesRetentionByClient?: Record<string, unknown>;
+  notifiedPayments?: unknown[];
+  cashClosings?: unknown[];
+  cashClosingAudit?: unknown[];
+  chargeRuns?: unknown[];
+  statusFilter?: string;
+};
+
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
@@ -148,7 +166,12 @@ export async function autoBackup(clients: Client[], payments: Payment[]): Promis
 }
 
 /** Writes the backup JSON and returns detailed status for UI/audit feedback. */
-export async function autoBackupDetailed(clients: Client[], payments: Payment[]): Promise<BackupResult> {
+export async function autoBackupDetailed(
+  clients: Client[],
+  payments: Payment[],
+  extraData: BackupExtraData = {},
+  trigger: BackupTrigger = "manual"
+): Promise<BackupResult> {
   let handle: FileSystemDirectoryHandle | null = null;
   try {
     handle = await loadHandle();
@@ -194,8 +217,22 @@ export async function autoBackupDetailed(clients: Client[], payments: Payment[])
     const data = {
       version: 1,
       exportedAt: now.toISOString(),
+      trigger,
       clients,
       payments,
+      seq: Number.isFinite(extraData.seq) ? Number(extraData.seq) : 0,
+      pendingBankItems: Array.isArray(extraData.pendingBankItems) ? extraData.pendingBankItems : [],
+      pendingCardItems: Array.isArray(extraData.pendingCardItems) ? extraData.pendingCardItems : [],
+      bankRules: Array.isArray(extraData.bankRules) ? extraData.bankRules : [],
+      manualAssignmentAudit: Array.isArray(extraData.manualAssignmentAudit) ? extraData.manualAssignmentAudit : [],
+      lateFeeSettings: extraData.lateFeeSettings ?? { active: false, dailyAmount: 5, chargeLabel: "RECARGO POR TARDANZA DE PAGO", selectedUnits: [] },
+      lateFeeLedger: Array.isArray(extraData.lateFeeLedger) ? extraData.lateFeeLedger : [],
+      otherChargesRetentionByClient: extraData.otherChargesRetentionByClient ?? {},
+      notifiedPayments: Array.isArray(extraData.notifiedPayments) ? extraData.notifiedPayments : [],
+      cashClosings: Array.isArray(extraData.cashClosings) ? extraData.cashClosings : [],
+      cashClosingAudit: Array.isArray(extraData.cashClosingAudit) ? extraData.cashClosingAudit : [],
+      chargeRuns: Array.isArray(extraData.chargeRuns) ? extraData.chargeRuns : [],
+      statusFilter: typeof extraData.statusFilter === "string" ? extraData.statusFilter : "active"
     };
     const payload = JSON.stringify(data, null, 2);
     const versionedFilename = buildVersionedBackupFilename(now);

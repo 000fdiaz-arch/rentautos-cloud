@@ -38,12 +38,8 @@ const { chromium } = require("playwright");
   await page.getByRole("button", { name: /^Pagos$/i }).click();
 
   async function registerAdvancePayment(amount, folio) {
-    const search = page.locator("input.client-search-input").first();
-    if (!(await search.isVisible().catch(() => false))) {
-      await page.locator("button:has-text('Registrar pago')").first().click();
-      await search.waitFor({ state: "visible", timeout: 15000 });
-    }
-    await search.fill("A21");
+    await page.locator("button:has-text('Registrar pago')").first().click();
+    await page.locator("input[placeholder*='Buscar por unidad']").fill("A21");
     await page.locator(".client-dropdown-item").first().click();
     await page.getByRole("button", { name: "ACH Express" }).click();
     await page.locator("input[placeholder*='Obligatorio para pago bancario']").fill(folio);

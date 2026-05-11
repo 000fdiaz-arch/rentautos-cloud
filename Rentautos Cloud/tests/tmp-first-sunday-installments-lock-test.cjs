@@ -49,17 +49,17 @@ function buildClient(installmentsPaid) {
 
   const sunday = new Date("2026-05-03T10:00:00");
 
-  const c6 = buildClient(6);
-  assert(isChargeDay(c6, sunday) === true, "Con 6 cuotas pagadas, primer domingo debe cobrar");
-  const run6 = applyAutomaticCharges([c6], sunday).clients[0];
-  assert(run6.balance === 33, `Con 6 cuotas pagadas, balance esperado 33, recibido ${run6.balance}`);
-
   const c7 = buildClient(7);
-  assert(isChargeDay(c7, sunday) === false, "Con 7 cuotas pagadas, domingo no debe cobrar");
+  assert(isChargeDay(c7, sunday) === true, "Con 7 cuotas pagadas, primer domingo debe cobrar");
   const run7 = applyAutomaticCharges([c7], sunday).clients[0];
-  assert(run7.balance === 0, `Con 7 cuotas pagadas, balance esperado 0, recibido ${run7.balance}`);
+  assert(run7.balance === 33, `Con 7 cuotas pagadas, balance esperado 33, recibido ${run7.balance}`);
 
-  console.log("OK sunday lock by installmentsPaid>=7.");
+  const c8 = buildClient(8);
+  assert(isChargeDay(c8, sunday) === false, "Con mas de 7 cuotas pagadas, domingo no debe cobrar");
+  const run8 = applyAutomaticCharges([c8], sunday).clients[0];
+  assert(run8.balance === 0, `Con 8 cuotas pagadas, balance esperado 0, recibido ${run8.balance}`);
+
+  console.log("OK sunday lock by installmentsPaid>7.");
 })()
   .catch((error) => {
     console.error("FALLO TEST SUNDAY LOCK:", error && error.message ? error.message : error);

@@ -45,7 +45,7 @@ function getAdjustedMonthlyChargeDate(year: number, monthIndex: number, monthlyC
 }
 
 function hasFirstSundayAlreadyCounted(client: Client): boolean {
-  return !!client.firstSundayChargedAt || (client.installmentsPaid ?? 0) >= 7;
+  return !!client.firstSundayChargedAt || (client.installmentsPaid ?? 0) > 7;
 }
 
 export function isChargeDay(client: Client, date: Date): boolean {

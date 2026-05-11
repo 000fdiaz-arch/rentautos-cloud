@@ -14,151 +14,353 @@ import {
   saveBankRules,
   saveLateFeeSettings,
   saveOtherChargesRetentionByClient,
+  savePendingBankItems,
+  savePendingCardItems,
+  saveManualBankAssignmentAudit,
+  saveLateFeeLedger,
 } from "./storage";
 import {
+  loadCloudClients,
+  loadCloudPayments,
+  saveCloudClients,
+  saveCloudPayments
+} from "./cloudData";
+import { disableCloudMirror, flushCloudMirror, initializeCloudMirror } from "./cloudMirror";
+import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
+import {
   autoBackupDetailed,
-  type BackupResult,
   configureBackupFolder,
   getBackupHandle,
   isAutoBackupSupported,
   removeBackupFolder,
+  type BackupExtraData,
+  type BackupTrigger
 } from "./autobackup";
-import { assertSupportedPersistenceMode, persistenceMode } from "./persistenceMode";
 import type { BankRule, Client, LateFeeSettings, OtherChargesRetentionByClient, Payment } from "./types";
 import "./styles.css";
 
 type AppPage = "clients" | "payments" | "receivables" | "settings";
 
 type AppShellProps = {
+  userId?: string;
   userEmail?: string;
   onSignOut?: () => void;
 };
 
-export default function AppShell({ userEmail, onSignOut }: AppShellProps) {
-  assertSupportedPersistenceMode();
-
+export default function AppShell({ userId, userEmail, onSignOut }: AppShellProps) {
   const [page, setPage] = useState<AppPage>("clients");
-  const [clients, setClients] = useState<Client[]>(() => loadClients());
-  const [payments, setPayments] = useState<Payment[]>(() => loadPayments());
-  const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
+  const [clients, setClients] = useState<Client[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [bankRules, setBankRules] = useState<BankRule[]>([]);
   const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
   const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>(() => loadOtherChargesRetentionByClient());
+  const [cloudReady, setCloudReady] = useState<boolean>(!userId);
+  const [cloudLoadError, setCloudLoadError] = useState<string>("");
+  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "ok" | "error">("idle");
+  const [lastSyncAt, setLastSyncAt] = useState<string>("");
+  const [backupSupported] = useState<boolean>(isAutoBackupSupported());
   const [backupConfigured, setBackupConfigured] = useState<boolean>(false);
-  const [backupStatus, setBackupStatus] = useState<"idle" | "ok" | "error">("idle");
-  const [backupMessage, setBackupMessage] = useState<string>("");
+  const [backupStatus, setBackupStatus] = useState<string>("Sin respaldo configurado.");
+  const [backupRunning, setBackupRunning] = useState<boolean>(false);
+  const [hasPendingChanges, setHasPendingChanges] = useState<boolean>(false);
+  const [lastBackupAt, setLastBackupAt] = useState<string>("");
+  const [lastDailyBackupKey, setLastDailyBackupKey] = useState<string>("");
 
-  // Check on load if a folder is already saved
-  useEffect(() => {
-    getBackupHandle().then(async (h) => {
-      setBackupConfigured(!!h);
-      if (!h) {
-        setBackupMessage("Sin carpeta de respaldo configurada.");
-        return;
-      }
-      try {
-        const perm = await h.queryPermission({ mode: "readwrite" });
-        if (perm === "granted") {
-          setBackupMessage("Respaldo automatico activo.");
-        } else {
-          setBackupMessage("Respaldo configurado, pero sin permiso de escritura. Usa Reconectar.");
-        }
-      } catch {
-        setBackupMessage("La carpeta de respaldo no esta disponible. Usa Reconectar.");
-      }
-    });
-  }, []);
-
-  // Flash the backup status indicator for 2 seconds
-  function flashStatus(result: BackupResult) {
-    setBackupStatus(result.ok ? "ok" : "error");
-    setBackupMessage(result.message);
-    setTimeout(() => setBackupStatus("idle"), 2000);
+  function parseLocalJson(key: string, fallback: unknown): unknown {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      return JSON.parse(raw);
+    } catch {
+      return fallback;
+    }
   }
 
+  function buildBackupExtraData(): BackupExtraData {
+    return {
+      seq: Number(localStorage.getItem("cobrapp.payments.seq.v1") ?? "0") || 0,
+      pendingBankItems: parseLocalJson("cobrapp.module2.pending_bank.v1", []) as unknown[],
+      pendingCardItems: parseLocalJson("cobrapp.module2.pending_card.v1", []) as unknown[],
+      bankRules: parseLocalJson("cobrapp.settings.bank_rules.v1", []) as unknown[],
+      manualAssignmentAudit: parseLocalJson("cobrapp.module2.manual_assignment_audit.v1", []) as unknown[],
+      lateFeeSettings: parseLocalJson("cobrapp.settings.late_fee_settings.v1", {}) as Record<string, unknown>,
+      lateFeeLedger: parseLocalJson("cobrapp.module2.late_fee_ledger.v1", []) as unknown[],
+      otherChargesRetentionByClient: parseLocalJson("cobrapp.settings.other_charges_retention.v1", {}) as Record<string, unknown>,
+      notifiedPayments: parseLocalJson("cobrapp.module2.notified.v1", []) as unknown[],
+      cashClosings: parseLocalJson("cobrapp.module2.cash_closings.v1", []) as unknown[],
+      cashClosingAudit: parseLocalJson("cobrapp.module2.cash_closing_audit.v1", []) as unknown[],
+      chargeRuns: parseLocalJson("cobrapp.module2.charge_runs.v1", []) as unknown[],
+      statusFilter: String(localStorage.getItem("cobrapp.clients.status_filter.v1") ?? "active")
+    };
+  }
+
+  async function runBackup(trigger: BackupTrigger, force = false): Promise<{ ok: boolean; message: string }> {
+    if (!backupSupported) {
+      return { ok: false, message: "Este navegador no soporta respaldo automatico local." };
+    }
+    if (!force && !hasPendingChanges && trigger !== "manual") {
+      return { ok: true, message: "No habia cambios pendientes; respaldo omitido." };
+    }
+    setBackupRunning(true);
+    try {
+      const result = await autoBackupDetailed(clients, payments, buildBackupExtraData(), trigger);
+      setBackupStatus(result.message);
+      if (result.ok) {
+        setHasPendingChanges(false);
+        setLastBackupAt(new Date().toLocaleString("es-PA"));
+      }
+      return { ok: result.ok, message: result.message };
+    } finally {
+      setBackupRunning(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setCloudReady(false);
+        setCloudLoadError("");
+        setSyncStatus("syncing");
+        await initializeCloudMirror(userId);
+        const [cloudClients, cloudPayments] = await Promise.all([
+          loadCloudClients(userId),
+          loadCloudPayments(userId)
+        ]);
+        if (cancelled) return;
+        setClients(cloudClients);
+        setPayments(cloudPayments);
+        setBankRules(loadBankRules());
+        setLateFeeSettings(loadLateFeeSettings());
+        setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
+        // Mantiene compatibilidad con funciones que aun leen localStorage.
+        saveClients(cloudClients);
+        savePayments(cloudPayments);
+        setSyncStatus("ok");
+        setLastSyncAt(new Date().toLocaleTimeString());
+        setCloudReady(true);
+      } catch (err) {
+        console.error("No se pudo cargar data cloud.", err);
+        setSyncStatus("error");
+        setCloudLoadError("No se pudo cargar la data de nube. Verifica conexion e intenta de nuevo.");
+        setCloudReady(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      disableCloudMirror();
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!backupSupported) return;
+    let mounted = true;
+    (async () => {
+      const handle = await getBackupHandle();
+      if (!mounted) return;
+      setBackupConfigured(!!handle);
+      if (!handle) {
+        setBackupStatus("Sin respaldo configurado.");
+        return;
+      }
+      setBackupStatus("Respaldo configurado.");
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [backupSupported]);
+
+  useEffect(() => {
+    if (!backupSupported) return;
+    const timer = window.setInterval(() => {
+      const now = new Date();
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Panama",
+        hour12: false,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      }).formatToParts(now);
+      const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? "";
+      const dateKey = `${get("year")}-${get("month")}-${get("day")}`;
+      const hour = get("hour");
+      const minute = get("minute");
+      if (hour === "17" && minute === "00" && lastDailyBackupKey !== dateKey) {
+        setLastDailyBackupKey(dateKey);
+        void runBackup("daily_5pm_pa", false);
+      }
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [backupSupported, lastDailyBackupKey, hasPendingChanges, clients, payments]);
+
   async function persistClients(next: Client[]): Promise<void> {
+    if (userId && !cloudReady) return;
     setClients(next);
+    if (userId) {
+      try {
+        setSyncStatus("syncing");
+        await saveCloudClients(userId, next);
+        setSyncStatus("ok");
+        setLastSyncAt(new Date().toLocaleTimeString());
+      } catch (err) {
+        console.error("No se pudo guardar clientes en cloud.", err);
+        setSyncStatus("error");
+      }
+    }
     saveClients(next);
-    const result = await autoBackupDetailed(next, payments);
-    if (!result.ok && result.code === "not_configured") setBackupConfigured(false);
-    if (backupConfigured) flashStatus(result);
+    setHasPendingChanges(true);
   }
 
   async function persistPayments(next: Payment[]): Promise<void> {
+    if (userId && !cloudReady) return;
     setPayments(next);
+    if (userId) {
+      try {
+        setSyncStatus("syncing");
+        await saveCloudPayments(userId, next);
+        setSyncStatus("ok");
+        setLastSyncAt(new Date().toLocaleTimeString());
+      } catch (err) {
+        console.error("No se pudo guardar pagos en cloud.", err);
+        setSyncStatus("error");
+      }
+    }
     savePayments(next);
-    const result = await autoBackupDetailed(clients, next);
-    if (!result.ok && result.code === "not_configured") setBackupConfigured(false);
-    if (backupConfigured) flashStatus(result);
+    setHasPendingChanges(true);
   }
 
   function persistBankRules(next: BankRule[]): void {
     setBankRules(next);
     saveBankRules(next);
+    setHasPendingChanges(true);
   }
 
   function persistLateFeeSettings(next: LateFeeSettings): void {
     setLateFeeSettings(next);
     saveLateFeeSettings(next);
+    setHasPendingChanges(true);
   }
 
   function persistOtherChargesRetentionByClient(next: OtherChargesRetentionByClient): void {
     setOtherChargesRetentionByClient(next);
     saveOtherChargesRetentionByClient(next);
+    setHasPendingChanges(true);
   }
 
-  async function handleConfigureBackup() {
-    const handle = await configureBackupFolder();
-    if (handle) {
-      setBackupConfigured(true);
-      // Run an immediate backup with current data
-      const result = await autoBackupDetailed(clients, payments);
-      flashStatus(result);
+  async function validateBackupFile(file: File): Promise<BackupImportReport> {
+    const content = await file.text();
+    return analyzeBackupFileContent(file.name, content);
+  }
+
+  async function applyBackupImport(report: BackupImportReport): Promise<{ ok: boolean; message: string }> {
+    if (!report.compatible) {
+      return { ok: false, message: "El respaldo no es compatible. Corrige los errores e intenta otra vez." };
+    }
+
+    try {
+      const clientsRaw = report.normalizedData["cobrapp.module1.clients.v1"];
+      const paymentsRaw = report.normalizedData["cobrapp.module2.payments.v1"];
+      const clientsNext = Array.isArray(clientsRaw) ? (clientsRaw as Client[]) : [];
+      const paymentsNext = Array.isArray(paymentsRaw) ? (paymentsRaw as Payment[]) : [];
+
+      await persistClients(clientsNext);
+      await persistPayments(paymentsNext);
+
+      const bankRulesRaw = report.normalizedData["cobrapp.settings.bank_rules.v1"];
+      persistBankRules(Array.isArray(bankRulesRaw) ? (bankRulesRaw as BankRule[]) : []);
+
+      const lateFeeRaw = report.normalizedData["cobrapp.settings.late_fee_settings.v1"];
+      persistLateFeeSettings((lateFeeRaw && typeof lateFeeRaw === "object" ? lateFeeRaw : {}) as LateFeeSettings);
+
+      const otherChargesRaw = report.normalizedData["cobrapp.settings.other_charges_retention.v1"];
+      persistOtherChargesRetentionByClient(
+        (otherChargesRaw && typeof otherChargesRaw === "object" ? otherChargesRaw : {}) as OtherChargesRetentionByClient
+      );
+
+      savePendingBankItems(Array.isArray(report.normalizedData["cobrapp.module2.pending_bank.v1"]) ? report.normalizedData["cobrapp.module2.pending_bank.v1"] as never[] : []);
+      savePendingCardItems(Array.isArray(report.normalizedData["cobrapp.module2.pending_card.v1"]) ? report.normalizedData["cobrapp.module2.pending_card.v1"] as never[] : []);
+      saveManualBankAssignmentAudit(Array.isArray(report.normalizedData["cobrapp.module2.manual_assignment_audit.v1"]) ? report.normalizedData["cobrapp.module2.manual_assignment_audit.v1"] as never[] : []);
+      saveLateFeeLedger(Array.isArray(report.normalizedData["cobrapp.module2.late_fee_ledger.v1"]) ? report.normalizedData["cobrapp.module2.late_fee_ledger.v1"] as never[] : []);
+
+      localStorage.setItem("cobrapp.module2.notified.v1", JSON.stringify(report.normalizedData["cobrapp.module2.notified.v1"] ?? []));
+      localStorage.setItem("cobrapp.module2.cash_closings.v1", JSON.stringify(report.normalizedData["cobrapp.module2.cash_closings.v1"] ?? []));
+      localStorage.setItem("cobrapp.module2.cash_closing_audit.v1", JSON.stringify(report.normalizedData["cobrapp.module2.cash_closing_audit.v1"] ?? []));
+      localStorage.setItem("cobrapp.module2.charge_runs.v1", JSON.stringify(report.normalizedData["cobrapp.module2.charge_runs.v1"] ?? []));
+      localStorage.setItem("cobrapp.payments.seq.v1", String(Number(report.normalizedData["cobrapp.payments.seq.v1"] ?? 0) || 0));
+      localStorage.setItem("cobrapp.clients.status_filter.v1", String(report.normalizedData["cobrapp.clients.status_filter.v1"] ?? ""));
+      setHasPendingChanges(true);
+
+      return { ok: true, message: "Respaldo importado correctamente. Ya puedes continuar con la migracion cloud." };
+    } catch (error) {
+      console.error("Fallo importando respaldo.", error);
+      return { ok: false, message: "No se pudo importar el respaldo completo. Revisa consola y vuelve a intentar." };
     }
   }
 
-  async function handleRemoveBackup() {
+  async function handleConfigureBackupFolder(): Promise<{ ok: boolean; message: string }> {
+    if (!backupSupported) return { ok: false, message: "Este navegador no soporta respaldo local." };
+    const handle = await configureBackupFolder();
+    if (!handle) return { ok: false, message: "No se pudo configurar carpeta (cancelado o sin permisos)." };
+    setBackupConfigured(true);
+    setBackupStatus("Carpeta de respaldo configurada.");
+    return { ok: true, message: "Carpeta de respaldo configurada." };
+  }
+
+  async function handleDisconnectBackupFolder(): Promise<{ ok: boolean; message: string }> {
     await removeBackupFolder();
     setBackupConfigured(false);
-    setBackupStatus("idle");
-    setBackupMessage("Respaldo removido.");
+    setBackupStatus("Respaldo local desconectado.");
+    return { ok: true, message: "Respaldo local desconectado." };
   }
 
-  async function handleLoadBackup() {
-    try {
-      const [fileHandle] = await (window as Window & { showOpenFilePicker: (opts: object) => Promise<FileSystemFileHandle[]> }).showOpenFilePicker({
-        types: [{ description: "Respaldo Rentautos (JSON)", accept: { "application/json": [".json"] } }],
-        multiple: false
-      });
-      const file = await fileHandle.getFile();
-      const text = await file.text();
-      const parsed = JSON.parse(text) as { clients?: unknown[]; payments?: unknown[] };
-      if (!Array.isArray(parsed?.clients)) {
-        alert("El archivo no tiene el formato correcto (se esperaba { clients, payments }).");
-        return;
+  async function handleSignOutWithBackup(): Promise<void> {
+    if (userId) {
+      try {
+        setSyncStatus("syncing");
+        await flushCloudMirror();
+        setSyncStatus("ok");
+        setLastSyncAt(new Date().toLocaleTimeString());
+      } catch (error) {
+        console.error("No se pudo completar la sincronizacion final antes de cerrar sesion.", error);
+        setSyncStatus("error");
       }
-      const nextClients = parsed.clients as Client[];
-      const nextPayments = (parsed.payments ?? []) as Payment[];
-      saveClients(nextClients);
-      savePayments(nextPayments);
-      setClients(nextClients);
-      setPayments(nextPayments);
-      alert(`Datos cargados: ${nextClients.length} cliente(s), ${nextPayments.length} pago(s).`);
-    } catch (err) {
-      if ((err as { name?: string }).name === "AbortError") return;
-      alert("Error al cargar el archivo. Asegurate de seleccionar un respaldo JSON valido.");
     }
+    await runBackup("signout", false);
+    await onSignOut?.();
   }
 
-  const supported = isAutoBackupSupported();
+  if (userId && !cloudReady) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <h1>Rentautos</h1>
+          <p>Cargando data de nube...</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (cloudLoadError) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <h1>Rentautos</h1>
+          <p>{cloudLoadError}</p>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <>
       <nav className="app-nav">
         <div className="app-nav-inner">
           <span className="app-nav-brand">Rentautos</span>
-          <span className="hint" title="Modo de persistencia activo" style={{ marginLeft: 12 }}>
-            Modo: {persistenceMode}
-          </span>
           <div className="app-nav-tabs">
             <button
               type="button"
@@ -191,74 +393,22 @@ export default function AppShell({ userEmail, onSignOut }: AppShellProps) {
           </div>
 
           <div className="backup-nav-zone">
-            <button
-              type="button"
-              className="nav-backup-btn nav-backup-btn--setup"
-              onClick={handleLoadBackup}
-              title="Carga clientes y pagos desde un archivo JSON de respaldo"
-            >
-              Cargar respaldo
-            </button>
+            <span className="hint">
+              Estado nube:{" "}
+              {syncStatus === "syncing"
+                ? "Sincronizando..."
+                : syncStatus === "ok"
+                ? "En nube"
+                : syncStatus === "error"
+                ? "Error"
+                : "Listo"}
+            </span>
+            {lastSyncAt && (
+              <span className="hint" style={{ marginLeft: 8 }}>
+                Ultima sync: {lastSyncAt}
+              </span>
+            )}
           </div>
-
-          {supported && (
-            <div className="backup-nav-zone">
-              {backupConfigured ? (
-                <>
-                  <span
-                    className={`backup-dot ${
-                      backupStatus === "ok"
-                        ? "backup-dot--ok"
-                        : backupStatus === "error"
-                        ? "backup-dot--error"
-                        : "backup-dot--ready"
-                    }`}
-                    title={
-                      backupStatus === "ok"
-                        ? "Respaldo guardado"
-                        : backupStatus === "error"
-                        ? "Error al respaldar"
-                        : "Respaldo automatico activo"
-                    }
-                  />
-                  <button
-                    type="button"
-                    className="nav-backup-btn"
-                    title="Quitar carpeta de respaldo"
-                    onClick={handleRemoveBackup}
-                  >
-                    Respaldo OK
-                  </button>
-                  <button
-                    type="button"
-                    className="nav-backup-btn nav-backup-btn--setup"
-                    title="Volver a elegir carpeta y renovar permisos de respaldo"
-                    onClick={handleConfigureBackup}
-                  >
-                    Reconectar
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="nav-backup-btn nav-backup-btn--setup"
-                  onClick={handleConfigureBackup}
-                  title="Configura una carpeta para respaldo automatico"
-                >
-                  Configurar respaldo
-                </button>
-              )}
-              {backupMessage && (
-                <span
-                  className="hint"
-                  style={{ marginLeft: 8, maxWidth: 340, display: "inline-block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "middle" }}
-                  title={backupMessage}
-                >
-                  {backupMessage}
-                </span>
-              )}
-            </div>
-          )}
 
           {onSignOut && (
             <div className="backup-nav-zone auth-nav-zone">
@@ -266,7 +416,7 @@ export default function AppShell({ userEmail, onSignOut }: AppShellProps) {
               <button
                 type="button"
                 className="nav-backup-btn nav-backup-btn--setup"
-                onClick={onSignOut}
+                onClick={() => void handleSignOutWithBackup()}
                 title="Cerrar sesion"
               >
                 Cerrar sesion
@@ -288,6 +438,7 @@ export default function AppShell({ userEmail, onSignOut }: AppShellProps) {
             onClientsChange={persistClients}
             payments={payments}
             onPaymentsChange={persistPayments}
+            onCashClose={() => void runBackup("cash_closing", true)}
           />
         )}
         {page === "receivables" && (
@@ -305,6 +456,17 @@ export default function AppShell({ userEmail, onSignOut }: AppShellProps) {
             onBankRulesChange={persistBankRules}
             onLateFeeSettingsChange={persistLateFeeSettings}
             onOtherChargesRetentionByClientChange={persistOtherChargesRetentionByClient}
+            onValidateBackupFile={validateBackupFile}
+            onApplyBackupImport={applyBackupImport}
+            onManualBackup={() => runBackup("manual", true)}
+            onConfigureBackupFolder={handleConfigureBackupFolder}
+            onDisconnectBackupFolder={handleDisconnectBackupFolder}
+            backupSupported={backupSupported}
+            backupConfigured={backupConfigured}
+            backupRunning={backupRunning}
+            backupStatus={backupStatus}
+            hasPendingChanges={hasPendingChanges}
+            lastBackupAt={lastBackupAt}
           />
         )}
       </main>

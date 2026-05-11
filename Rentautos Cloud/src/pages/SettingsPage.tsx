@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { formatCurrency, formatFileDate } from "../format";
+import type { BackupImportReport } from "../backupImport";
 import type {
   BankRule,
   Client,
@@ -33,6 +34,17 @@ type Props = {
   onBankRulesChange: (next: BankRule[]) => void;
   onLateFeeSettingsChange: (next: LateFeeSettings) => void;
   onOtherChargesRetentionByClientChange: (next: OtherChargesRetentionByClient) => void;
+  onValidateBackupFile: (file: File) => Promise<BackupImportReport>;
+  onApplyBackupImport: (report: BackupImportReport) => Promise<{ ok: boolean; message: string }>;
+  onManualBackup: () => Promise<{ ok: boolean; message: string }>;
+  onConfigureBackupFolder: () => Promise<{ ok: boolean; message: string }>;
+  onDisconnectBackupFolder: () => Promise<{ ok: boolean; message: string }>;
+  backupSupported: boolean;
+  backupConfigured: boolean;
+  backupRunning: boolean;
+  backupStatus: string;
+  hasPendingChanges: boolean;
+  lastBackupAt: string;
 };
 
 const initialForm: FormState = {
@@ -77,7 +89,18 @@ export default function SettingsPage({
   otherChargesRetentionByClient,
   onBankRulesChange,
   onLateFeeSettingsChange,
-  onOtherChargesRetentionByClientChange
+  onOtherChargesRetentionByClientChange,
+  onValidateBackupFile,
+  onApplyBackupImport,
+  onManualBackup,
+  onConfigureBackupFolder,
+  onDisconnectBackupFolder,
+  backupSupported,
+  backupConfigured,
+  backupRunning,
+  backupStatus,
+  hasPendingChanges,
+  lastBackupAt
 }: Props) {
   const [form, setForm] = useState<FormState>(initialForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -89,6 +112,10 @@ export default function SettingsPage({
   const [otherChargesSortField, setOtherChargesSortField] = useState<OtherChargesSortField>("unit");
   const [otherChargesSortDirection, setOtherChargesSortDirection] = useState<SortDirection>("asc");
   const [otherChargesFilters, setOtherChargesFilters] = useState<OtherChargesFilters>(EMPTY_OTHER_CHARGES_FILTERS);
+  const [backupReport, setBackupReport] = useState<BackupImportReport | null>(null);
+  const [backupImportStatus, setBackupImportStatus] = useState<string>("");
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [manualBackupInfo, setManualBackupInfo] = useState<string>("");
 
   const activeRules = useMemo(
     () => bankRules.filter((r) => r.active).sort((a, b) => a.accountNumber.localeCompare(b.accountNumber)),
@@ -409,8 +436,150 @@ export default function SettingsPage({
     }
   }
 
+  async function handleBackupFileChange(file: File | null): Promise<void> {
+    if (!file) return;
+    setBackupBusy(true);
+    setBackupImportStatus("");
+    try {
+      const report = await onValidateBackupFile(file);
+      setBackupReport(report);
+      setBackupImportStatus(report.compatible ? "Respaldo compatible detectado." : "El respaldo tiene incompatibilidades.");
+    } catch {
+      setBackupReport(null);
+      setBackupImportStatus("No se pudo leer el archivo seleccionado.");
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function handleApplyBackup(): Promise<void> {
+    if (!backupReport) return;
+    setBackupBusy(true);
+    try {
+      const result = await onApplyBackupImport(backupReport);
+      setBackupImportStatus(result.message);
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function handleManualBackup(): Promise<void> {
+    setManualBackupInfo("");
+    const result = await onManualBackup();
+    setManualBackupInfo(result.message);
+  }
+
+  async function handleConfigureFolder(): Promise<void> {
+    setManualBackupInfo("");
+    const result = await onConfigureBackupFolder();
+    setManualBackupInfo(result.message);
+  }
+
+  async function handleDisconnectFolder(): Promise<void> {
+    setManualBackupInfo("");
+    const result = await onDisconnectBackupFolder();
+    setManualBackupInfo(result.message);
+  }
+
   return (
     <>
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Respaldo automatico</h2>
+        </div>
+        <p className="hint" style={{ marginTop: 0 }}>
+          Flujo activo: 5:00 PM (Panama), cierre de caja y cierre de sesion (si hay cambios).
+        </p>
+        <p className="hint">Estado: {backupSupported ? (backupConfigured ? "Configurado" : "No configurado") : "No soportado por navegador"}.</p>
+        <p className="hint">Cambios pendientes: {hasPendingChanges ? "Si" : "No"}.</p>
+        <p className="hint">Ultimo respaldo: {lastBackupAt || "Sin ejecucion aun"}.</p>
+        <p className="hint">Detalle: {backupStatus}.</p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+          <button type="button" className="button ghost" onClick={() => void handleConfigureFolder()} disabled={!backupSupported || backupRunning}>
+            Configurar carpeta
+          </button>
+          <button type="button" className="button ghost" onClick={() => void handleDisconnectFolder()} disabled={!backupConfigured || backupRunning}>
+            Desconectar carpeta
+          </button>
+          <button type="button" className="button primary" onClick={() => void handleManualBackup()} disabled={!backupConfigured || backupRunning}>
+            Generar backup ahora
+          </button>
+        </div>
+        {manualBackupInfo && <p className="hint" style={{ marginTop: 8 }}>{manualBackupInfo}</p>}
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Migracion de respaldo</h2>
+        </div>
+        <p className="hint" style={{ marginTop: 0 }}>
+          Sube un JSON de respaldo para validar compatibilidad antes de migrar/continuar en nube.
+        </p>
+        <div className="form-grid">
+          <label>
+            Archivo de respaldo (.json)
+            <input
+              type="file"
+              accept=".json,application/json"
+              onChange={(e) => void handleBackupFileChange(e.target.files?.[0] ?? null)}
+              disabled={backupBusy}
+            />
+          </label>
+        </div>
+
+        {backupImportStatus && <p className="hint" style={{ marginTop: 10 }}>{backupImportStatus}</p>}
+
+        {backupReport && (
+          <>
+            <div className="table-scroll" style={{ marginTop: 10 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Archivo</th>
+                    <th>Compatible</th>
+                    <th>Clientes</th>
+                    <th>Pagos</th>
+                    <th>Secuencia</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>{backupReport.fileName}</td>
+                    <td>{backupReport.compatible ? "Si" : "No"}</td>
+                    <td>{String(backupReport.summary.clients ?? 0)}</td>
+                    <td>{String(backupReport.summary.payments ?? 0)}</td>
+                    <td>{String(backupReport.summary.seq ?? 0)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {backupReport.issues.length > 0 && (
+              <ul className="error-list">
+                {backupReport.issues.map((issue) => <li key={issue}>{issue}</li>)}
+              </ul>
+            )}
+
+            {backupReport.warnings.length > 0 && (
+              <ul className="hint" style={{ marginTop: 8 }}>
+                {backupReport.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+              </ul>
+            )}
+
+            <div style={{ marginTop: 10 }}>
+              <button
+                type="button"
+                className="button primary"
+                onClick={() => void handleApplyBackup()}
+                disabled={!backupReport.compatible || backupBusy}
+              >
+                Importar respaldo a la app
+              </button>
+            </div>
+          </>
+        )}
+      </section>
+
       <section className="panel">
         <div className="panel-head">
           <h2>Recargos por mora</h2>
