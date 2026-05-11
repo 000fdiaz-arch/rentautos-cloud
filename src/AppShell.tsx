@@ -45,11 +45,13 @@ type AppShellProps = {
   userId?: string;
   userEmail?: string;
   appRole?: "admin" | "operador" | "lectura";
+  dataOwnerUserId?: string | null;
   onSignOut?: () => void;
 };
 
-export default function AppShell({ userId, userEmail, appRole = "lectura", onSignOut }: AppShellProps) {
+export default function AppShell({ userId, userEmail, appRole = "lectura", dataOwnerUserId, onSignOut }: AppShellProps) {
   const isReadOnlyReceivables = appRole === "lectura";
+  const cloudDataUserId = isReadOnlyReceivables ? (dataOwnerUserId ?? userId) : userId;
   const [page, setPage] = useState<AppPage>(isReadOnlyReceivables ? "receivables" : "clients");
   const [clients, setClients] = useState<Client[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -128,7 +130,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", onSig
   }, [isReadOnlyReceivables]);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!cloudDataUserId) return;
     let cancelled = false;
 
     (async () => {
@@ -137,10 +139,12 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", onSig
         setCloudLoadError("");
         setSyncErrorMessage("");
         setSyncStatus("syncing");
-        await initializeCloudMirror(userId);
+        if (!isReadOnlyReceivables) {
+          await initializeCloudMirror(cloudDataUserId);
+        }
         const [cloudClients, cloudPayments] = await Promise.all([
-          loadCloudClients(userId),
-          loadCloudPayments(userId)
+          loadCloudClients(cloudDataUserId),
+          loadCloudPayments(cloudDataUserId)
         ]);
         if (cancelled) return;
         setClients(cloudClients);
@@ -168,7 +172,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", onSig
       cancelled = true;
       disableCloudMirror();
     };
-  }, [userId, cloudReloadTick]);
+  }, [cloudDataUserId, cloudReloadTick, isReadOnlyReceivables]);
 
   useEffect(() => {
     if (!backupSupported) return;
@@ -214,13 +218,14 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", onSig
   }, [backupSupported, lastDailyBackupKey, hasPendingChanges, clients, payments]);
 
   async function persistClients(next: Client[]): Promise<void> {
-    if (userId && !cloudReady) return;
+    if (isReadOnlyReceivables) return;
+    if (cloudDataUserId && !cloudReady) return;
     const previous = clients;
     setClients(next);
-    if (userId) {
+    if (cloudDataUserId) {
       try {
         setSyncStatus("syncing");
-        await saveCloudClients(userId, next);
+        await saveCloudClients(cloudDataUserId, next);
         setSyncStatus("ok");
         setSyncErrorMessage("");
         setLastSyncAt(new Date().toLocaleTimeString());
@@ -237,13 +242,14 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", onSig
   }
 
   async function persistPayments(next: Payment[]): Promise<void> {
-    if (userId && !cloudReady) return;
+    if (isReadOnlyReceivables) return;
+    if (cloudDataUserId && !cloudReady) return;
     const previous = payments;
     setPayments(next);
-    if (userId) {
+    if (cloudDataUserId) {
       try {
         setSyncStatus("syncing");
-        await saveCloudPayments(userId, next);
+        await saveCloudPayments(cloudDataUserId, next);
         setSyncStatus("ok");
         setSyncErrorMessage("");
         setLastSyncAt(new Date().toLocaleTimeString());
@@ -344,7 +350,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", onSig
   }
 
   async function handleSignOutWithBackup(): Promise<void> {
-    if (userId) {
+    if (cloudDataUserId && !isReadOnlyReceivables) {
       try {
         setSyncStatus("syncing");
         await flushCloudMirror();
@@ -363,7 +369,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", onSig
     await onSignOut?.();
   }
 
-  if (userId && !cloudReady) {
+  if (cloudDataUserId && !cloudReady) {
     return (
       <main className="auth-page">
         <section className="auth-card">
