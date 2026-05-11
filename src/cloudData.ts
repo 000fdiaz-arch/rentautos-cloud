@@ -1,5 +1,5 @@
 import { supabase } from "./lib/supabase";
-import type { Client, Payment } from "./types";
+import type { Client, Payment, PaymentPromise } from "./types";
 
 type DataRow<T> = {
   id: string;
@@ -22,7 +22,7 @@ function chunkIds(ids: string[], size = 150): string[][] {
 }
 
 async function deleteStaleRows(
-  table: "clients_cloud" | "payments_cloud",
+  table: "clients_cloud" | "payments_cloud" | "payment_promises_cloud",
   userId: string,
   nextIds: Set<string>
 ): Promise<void> {
@@ -138,4 +138,44 @@ export async function saveCloudPayments(userId: string, payments: Payment[]): Pr
   }
 
   await deleteStaleRows("payments_cloud", userId, nextIds);
+}
+
+export async function loadCloudPaymentPromises(userId: string): Promise<PaymentPromise[]> {
+  const client = getClient();
+  const allRows: DataRow<PaymentPromise>[] = [];
+  let from = 0;
+  while (true) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await client
+      .from("payment_promises_cloud")
+      .select("id,data")
+      .eq("user_id", userId)
+      .range(from, to);
+    if (error) throw error;
+    const batch = (data ?? []) as DataRow<PaymentPromise>[];
+    allRows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return allRows.map((row) => row.data);
+}
+
+export async function saveCloudPaymentPromises(userId: string, promises: PaymentPromise[]): Promise<void> {
+  const client = getClient();
+  const nextIds = new Set(promises.map((item) => item.id));
+  const rows = promises.map((item) => ({
+    user_id: userId,
+    id: item.id,
+    data: item
+  }));
+
+  if (rows.length > 0) {
+    const { error } = await client
+      .from("payment_promises_cloud")
+      .upsert(rows, { onConflict: "user_id,id" });
+
+    if (error) throw error;
+  }
+
+  await deleteStaleRows("payment_promises_cloud", userId, nextIds);
 }

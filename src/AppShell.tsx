@@ -23,8 +23,10 @@ import {
 } from "./storage";
 import {
   loadCloudClients,
+  loadCloudPaymentPromises,
   loadCloudPayments,
   saveCloudClients,
+  saveCloudPaymentPromises,
   saveCloudPayments
 } from "./cloudData";
 import { disableCloudMirror, flushCloudMirror, initializeCloudMirror } from "./cloudMirror";
@@ -54,6 +56,9 @@ type AppShellProps = {
 
 export default function AppShell({ userId, userEmail, appRole = "lectura", dataOwnerUserId, onSignOut }: AppShellProps) {
   const isReadOnlyReceivables = appRole === "lectura";
+  const normalizedEmail = (userEmail ?? "").trim().toLowerCase();
+  const isAmbarUser = normalizedEmail.includes("ambar");
+  const canManagePromises = !isReadOnlyReceivables || isAmbarUser;
   const cloudDataUserId = isReadOnlyReceivables ? (dataOwnerUserId ?? userId) : userId;
   const [page, setPage] = useState<AppPage>(isReadOnlyReceivables ? "receivables" : "clients");
   const [clients, setClients] = useState<Client[]>([]);
@@ -147,20 +152,22 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         if (!isReadOnlyReceivables) {
           await initializeCloudMirror(cloudDataUserId);
         }
-        const [cloudClients, cloudPayments] = await Promise.all([
+        const [cloudPromises, cloudClientsData, cloudPaymentsData] = await Promise.all([
+          loadCloudPaymentPromises(cloudDataUserId).catch(() => [] as PaymentPromise[]),
           loadCloudClients(cloudDataUserId),
           loadCloudPayments(cloudDataUserId)
         ]);
         if (cancelled) return;
-        setClients(cloudClients);
-        setPayments(cloudPayments);
+        setClients(cloudClientsData);
+        setPayments(cloudPaymentsData);
+        setPaymentPromises(cloudPromises);
         setBankRules(loadBankRules());
-        setPaymentPromises(loadPaymentPromises());
         setLateFeeSettings(loadLateFeeSettings());
         setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
         // Mantiene compatibilidad con funciones que aun leen localStorage.
-        saveClients(cloudClients);
-        savePayments(cloudPayments);
+        saveClients(cloudClientsData);
+        savePayments(cloudPaymentsData);
+        savePaymentPromises(cloudPromises);
         setSyncStatus("ok");
         setSyncErrorMessage("");
         setLastSyncAt(new Date().toLocaleTimeString());
@@ -271,6 +278,13 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     const reevaluatedPromises = evaluatePaymentPromises(paymentPromises, next, new Date());
     setPaymentPromises(reevaluatedPromises);
     savePaymentPromises(reevaluatedPromises);
+    if (cloudDataUserId) {
+      try {
+        await saveCloudPaymentPromises(cloudDataUserId, reevaluatedPromises);
+      } catch {
+        // Keep local state available even if promises cloud table is not migrated yet.
+      }
+    }
     setHasPendingChanges(true);
   }
 
@@ -278,6 +292,11 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     const reevaluated = evaluatePaymentPromises(next, payments, new Date());
     setPaymentPromises(reevaluated);
     savePaymentPromises(reevaluated);
+    if (cloudDataUserId) {
+      void saveCloudPaymentPromises(cloudDataUserId, reevaluated).catch(() => {
+        // Keep local state available even if promises cloud table is not migrated yet.
+      });
+    }
     setHasPendingChanges(true);
   }
 
@@ -529,6 +548,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             payments={payments}
             paymentPromises={paymentPromises}
             onPaymentPromisesChange={persistPaymentPromises}
+            canManagePromises={canManagePromises}
             hideCollectedThisMonth={isReadOnlyReceivables}
           />
         )}
