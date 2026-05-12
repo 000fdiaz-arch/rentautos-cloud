@@ -61,13 +61,13 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const canManagePromises = !isReadOnlyReceivables || isAmbarUser;
   const cloudDataUserId = isReadOnlyReceivables ? (dataOwnerUserId ?? userId) : userId;
   const [page, setPage] = useState<AppPage>(isReadOnlyReceivables ? "receivables" : "clients");
-  const [clients, setClients] = useState<Client[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [bankRules, setBankRules] = useState<BankRule[]>([]);
+  const [clients, setClients] = useState<Client[]>(() => loadClients());
+  const [payments, setPayments] = useState<Payment[]>(() => loadPayments());
+  const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
   const [paymentPromises, setPaymentPromises] = useState<PaymentPromise[]>(() => loadPaymentPromises());
   const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
   const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>(() => loadOtherChargesRetentionByClient());
-  const [cloudReady, setCloudReady] = useState<boolean>(!userId);
+  const [cloudReady, setCloudReady] = useState<boolean>(false);
   const [cloudLoadError, setCloudLoadError] = useState<string>("");
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "ok" | "error">("idle");
   const [syncErrorMessage, setSyncErrorMessage] = useState<string>("");
@@ -151,7 +151,9 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         setSyncErrorMessage("");
         setSyncStatus("syncing");
         if (!isReadOnlyReceivables) {
-          await initializeCloudMirror(cloudDataUserId);
+          void initializeCloudMirror(cloudDataUserId).catch((error) => {
+            console.error("No se pudo inicializar cloud mirror.", error);
+          });
         }
         const [cloudPromises, cloudClientsData, cloudPaymentsData] = await Promise.all([
           loadCloudPaymentPromises(cloudDataUserId).catch(() => [] as PaymentPromise[]),
@@ -406,17 +408,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     }
     await runBackup("signout", false);
     await onSignOut?.();
-  }
-
-  if (cloudDataUserId && !cloudReady) {
-    return (
-      <main className="auth-page">
-        <section className="auth-card">
-          <h1>Rentautos</h1>
-          <p>Cargando data de nube...</p>
-        </section>
-      </main>
-    );
   }
 
   if (cloudLoadError) {
