@@ -897,7 +897,7 @@ export default function PaymentsPage({
   }
 
   const activeClients = useMemo(
-    () => clients.filter((c) => !c.archivedAt),
+    () => clients.filter((c) => !c.archivedAt && c.status !== "archivado"),
     [clients]
   );
 
@@ -1325,7 +1325,15 @@ export default function PaymentsPage({
     let chargedTotal = 0;
     const rows: ChargeReportRow[] = [];
     const nextClients = clientsWithLateFees.map((client) => {
-      if (client.archivedAt || client.status === "inactive") return client;
+      if (
+        client.archivedAt ||
+        client.status === "archivado" ||
+        client.status === "taller" ||
+        client.status === "chapisteria" ||
+        client.status === "custodia"
+      ) {
+        return client;
+      }
       const clientLastCharge = client.lastChargeDate ? parseDateKey(client.lastChargeDate) : null;
       const alreadyChargedThruTarget = clientLastCharge !== null && clientLastCharge >= targetDate;
       const canCharge = Number.isFinite(client.rentAmount) && client.rentAmount > 0;

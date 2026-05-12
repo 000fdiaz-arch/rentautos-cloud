@@ -90,7 +90,15 @@ export function applyAutomaticCharges(currentClients: Client[], now: Date): { cl
   let changed = false;
 
   const next = currentClients.map((client) => {
-    if (client.archivedAt || client.status === "inactive") return client;
+    if (
+      client.archivedAt ||
+      client.status === "archivado" ||
+      client.status === "taller" ||
+      client.status === "chapisteria" ||
+      client.status === "custodia"
+    ) {
+      return client;
+    }
     const firstChargeDate = client.firstChargeDate ? parseDateKey(client.firstChargeDate) : null;
     if (firstChargeDate && firstChargeDate > today) {
       const targetLastCharge = toDateKey(addDays(firstChargeDate, -1));

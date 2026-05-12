@@ -141,7 +141,7 @@ export default function SettingsPage({
 
   const clientsWithPendingOtherCharges = useMemo(() => {
     return clients
-      .filter((client) => !client.archivedAt && client.status === "active")
+      .filter((client) => !client.archivedAt && client.status !== "archivado")
       .map((client) => ({
         client,
         pendingOtherCharges: (client.otherCharges ?? [])

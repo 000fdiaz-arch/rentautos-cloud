@@ -1,5 +1,5 @@
 import { supabase } from "./lib/supabase";
-import type { Client, Payment, PaymentPromise } from "./types";
+import type { Client, ClientStatus, Payment, PaymentPromise } from "./types";
 
 type DataRow<T> = {
   id: string;
@@ -11,6 +11,43 @@ const PAGE_SIZE = 1000;
 function getClient() {
   if (!supabase) throw new Error("Supabase no esta configurado.");
   return supabase;
+}
+
+function normalizeClientStatus(rawStatus: unknown, archivedAt: unknown): ClientStatus {
+  const value = typeof rawStatus === "string" ? rawStatus.trim().toLowerCase() : "";
+  if (
+    value === "activo" ||
+    value === "cliente_enfermo" ||
+    value === "taller" ||
+    value === "chapisteria" ||
+    value === "custodia" ||
+    value === "en_busqueda" ||
+    value === "archivado"
+  ) {
+    return value;
+  }
+  if (value === "active") return "activo";
+  if (value === "inactive") return "archivado";
+  if (typeof archivedAt === "string" && archivedAt.trim().length > 0) return "archivado";
+  return "activo";
+}
+
+function normalizeCloudClient(client: Client): Client {
+  const normalizedStatus = normalizeClientStatus(
+    (client as unknown as { status?: unknown }).status,
+    (client as unknown as { archivedAt?: unknown }).archivedAt
+  );
+  const nextArchivedAt =
+    normalizedStatus === "archivado"
+      ? ((client.archivedAt && client.archivedAt.trim().length > 0)
+          ? client.archivedAt
+          : new Date().toISOString())
+      : undefined;
+  return {
+    ...client,
+    status: normalizedStatus,
+    archivedAt: nextArchivedAt
+  };
 }
 
 function chunkIds(ids: string[], size = 150): string[][] {
@@ -77,7 +114,7 @@ export async function loadCloudClients(userId: string): Promise<Client[]> {
     if (batch.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
   }
-  return allRows.map((row) => row.data);
+  return allRows.map((row) => normalizeCloudClient(row.data));
 }
 
 export async function saveCloudClients(userId: string, clients: Client[]): Promise<void> {

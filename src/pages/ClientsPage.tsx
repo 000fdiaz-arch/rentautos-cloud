@@ -62,9 +62,27 @@ type ClientForm = {
 
 type SortField = "unitId" | "name" | "frequency" | "rentAmount" | "balance" | "debtDate" | "status";
 type SortDirection = "asc" | "desc";
-type StatusFilter = "all" | "active" | "inactive" | "archived";
+type StatusFilter = "all" | Client["status"];
 const STATUS_FILTER_STORAGE_KEY = "cobrapp.clients.status_filter.v1";
 const CASH_CLOSINGS_KEY = "cobrapp.module2.cash_closings.v1";
+const STATUS_OPTIONS: Client["status"][] = [
+  "activo",
+  "cliente_enfermo",
+  "taller",
+  "chapisteria",
+  "custodia",
+  "en_busqueda",
+  "archivado"
+];
+const STATUS_LABEL: Record<Client["status"], string> = {
+  activo: "Activo",
+  cliente_enfermo: "Cliente Enfermo",
+  taller: "Taller",
+  chapisteria: "Chapisteria",
+  custodia: "Custodia",
+  en_busqueda: "En busqueda",
+  archivado: "Archivado"
+};
 
 const initialForm: ClientForm = {
   unitId: "",
@@ -187,7 +205,7 @@ function buildClient(form: ClientForm, existing?: Client): Client {
       ? firstChargeLastDate
       : (existing?.lastChargeDate ?? firstChargeLastDate),
     archivedAt: existing?.archivedAt,
-    status: existing?.status ?? "active",
+    status: existing?.status ?? "activo",
     statusComment: existing?.statusComment
   };
 
@@ -215,11 +233,14 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
     try {
       const saved = window.localStorage.getItem(STATUS_FILTER_STORAGE_KEY);
-      if (saved === "active" || saved === "inactive" || saved === "archived" || saved === "all") return saved;
+      if (saved === "all") return "all";
+      if (saved === "active") return "activo";
+      if (saved === "inactive" || saved === "archived") return "archivado";
+      if (saved && STATUS_OPTIONS.includes(saved as Client["status"])) return saved as Client["status"];
     } catch {
       // Ignore storage errors and default to active.
     }
-    return "active";
+    return "activo";
   });
   const [sortField, setSortField] = useState<SortField>("unitId");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
@@ -233,22 +254,30 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
     variant: "warning" | "danger";
     onConfirm: () => void;
   } | null>(null);
-  const [pauseDialog, setPauseDialog] = useState<{
+  const [statusDialog, setStatusDialog] = useState<{
     clientId: string;
+    nextStatus: Client["status"];
     comment: string;
   } | null>(null);
   const topScrollRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const topScrollInnerRef = useRef<HTMLDivElement>(null);
 
-  const activeClientsCount = useMemo(
-    () => clients.filter((client) => !client.archivedAt && client.status === "active").length,
-    [clients]
-  );
-  const inactiveClientsCount = useMemo(
-    () => clients.filter((client) => !client.archivedAt && client.status === "inactive").length,
-    [clients]
-  );
+  const statusCounts = useMemo(() => {
+    const counts: Record<Client["status"], number> = {
+      activo: 0,
+      cliente_enfermo: 0,
+      taller: 0,
+      chapisteria: 0,
+      custodia: 0,
+      en_busqueda: 0,
+      archivado: 0
+    };
+    for (const client of clients) {
+      counts[client.status] += 1;
+    }
+    return counts;
+  }, [clients]);
   const operationalReferenceDate = useMemo(() => getOperationalReferenceDate(now), [now]);
   const availableGroups = useMemo(() => {
     return [...new Set(clients.map((c) => extractGroupCode(c.unitId)).filter((g) => g.length > 0))].sort((a, b) => a.localeCompare(b));
@@ -264,9 +293,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
     });
 
     const filtered = baseRows.filter(({ client, debtStartDate }) => {
-      if (statusFilter === "active" && (client.archivedAt || client.status !== "active")) return false;
-      if (statusFilter === "inactive" && (client.archivedAt || client.status !== "inactive")) return false;
-      if (statusFilter === "archived" && !client.archivedAt) return false;
+      if (statusFilter !== "all" && client.status !== statusFilter) return false;
       if (frequencyFilter !== "all" && client.frequency !== frequencyFilter) return false;
       if (groupFilter !== "all" && extractGroupCode(client.unitId) !== groupFilter) return false;
       if (debtFilter === "withDebt" && debtStartDate === null) return false;
@@ -498,8 +525,11 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
       message: "Este cliente quedara archivado y dejara de acumular cobros automaticos.",
       variant: "warning",
       onConfirm: () => {
-        const archivedAt = new Date().toISOString();
-        persist(clients.map((client) => (client.id === clientId ? { ...client, archivedAt } : client)));
+        persist(clients.map((client) =>
+          client.id === clientId
+            ? { ...client, status: "archivado", archivedAt: new Date().toISOString() }
+            : client
+        ));
         setConfirmDialog(null);
       }
     });
@@ -513,7 +543,9 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
       onConfirm: () => {
         const todayKey = toDateKey(new Date());
         persist(clients.map((client) =>
-          client.id === clientId ? { ...client, archivedAt: undefined, lastChargeDate: todayKey } : client
+          client.id === clientId
+            ? { ...client, status: "activo", archivedAt: undefined, statusComment: undefined, lastChargeDate: todayKey }
+            : client
         ));
         setConfirmDialog(null);
       }
@@ -538,24 +570,64 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
     });
   }
 
-  function handleToggleStatus(client: Client): void {
-    if (client.status === "inactive") {
-      persist(clients.map((c) =>
-        c.id === client.id ? { ...c, status: "active" as const, statusComment: undefined, lastChargeDate: toDateKey(new Date()) } : c
-      ));
-    } else {
-      setPauseDialog({ clientId: client.id, comment: "" });
-    }
+  function isStatusAllowedForClient(client: Client, nextStatus: Client["status"]): boolean {
+    if (nextStatus !== "cliente_enfermo") return true;
+    return client.frequency === "daily";
   }
 
-  function handleConfirmPause(): void {
-    if (!pauseDialog) return;
-    const comment = pauseDialog.comment.trim();
-    if (!comment) return;
+  function requiresComment(nextStatus: Client["status"]): boolean {
+    return nextStatus === "taller" || nextStatus === "chapisteria" || nextStatus === "custodia" || nextStatus === "archivado";
+  }
+
+  function applyClientStatusChange(client: Client, nextStatus: Client["status"], comment: string): Client {
+    const normalizedComment = comment.trim() || undefined;
+    if (nextStatus === "activo") {
+      return {
+        ...client,
+        status: "activo",
+        statusComment: undefined,
+        archivedAt: undefined,
+        lastChargeDate: toDateKey(new Date())
+      };
+    }
+    if (nextStatus === "archivado") {
+      return {
+        ...client,
+        status: "archivado",
+        statusComment: normalizedComment,
+        archivedAt: new Date().toISOString()
+      };
+    }
+    return {
+      ...client,
+      status: nextStatus,
+      statusComment: normalizedComment
+    };
+  }
+
+  function handleStatusSelection(client: Client, nextStatus: Client["status"]): void {
+    if (!isStatusAllowedForClient(client, nextStatus)) {
+      setErrors(["'Cliente Enfermo' solo aplica para clientes de plan diario."]);
+      return;
+    }
+    if (nextStatus === client.status) return;
+
+    const needsComment = requiresComment(nextStatus);
+    if (!needsComment) {
+      persist(clients.map((c) => (c.id === client.id ? applyClientStatusChange(c, nextStatus, "") : c)));
+      return;
+    }
+    setStatusDialog({ clientId: client.id, nextStatus, comment: "" });
+  }
+
+  function handleConfirmStatusChange(): void {
+    if (!statusDialog) return;
+    const comment = statusDialog.comment.trim();
+    if (requiresComment(statusDialog.nextStatus) && !comment) return;
     persist(clients.map((c) =>
-      c.id === pauseDialog.clientId ? { ...c, status: "inactive" as const, statusComment: comment } : c
+      c.id === statusDialog.clientId ? applyClientStatusChange(c, statusDialog.nextStatus, comment) : c
     ));
-    setPauseDialog(null);
+    setStatusDialog(null);
   }
 
   function handleSort(field: SortField): void {
@@ -635,22 +707,17 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
   return (
     <>
       <section className="summary-grid">
-        <button
-          type="button"
-          className={`summary-card summary-card--interactive${statusFilter === "active" ? " summary-card--selected" : ""}`}
-          onClick={() => setStatusFilter("active")}
-        >
-          <span>Clientes activos</span>
-          <strong>{activeClientsCount}</strong>
-        </button>
-        <button
-          type="button"
-          className={`summary-card summary-card--interactive summary-card--inactive${statusFilter === "inactive" ? " summary-card--selected" : ""}`}
-          onClick={() => setStatusFilter("inactive")}
-        >
-          <span>Clientes inactivos</span>
-          <strong>{inactiveClientsCount}</strong>
-        </button>
+        {STATUS_OPTIONS.map((status) => (
+          <button
+            key={status}
+            type="button"
+            className={`summary-card summary-card--interactive${statusFilter === status ? " summary-card--selected" : ""}`}
+            onClick={() => setStatusFilter(status)}
+          >
+            <span>{STATUS_LABEL[status]}</span>
+            <strong>{statusCounts[status]}</strong>
+          </button>
+        ))}
       </section>
 
       {editingClientId !== null && (
@@ -781,26 +848,35 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
         </div>
       )}
 
-      {pauseDialog !== null && (
-        <div className="modal-overlay" onClick={() => setPauseDialog(null)}>
+      {statusDialog !== null && (
+        <div className="modal-overlay" onClick={() => setStatusDialog(null)}>
           <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Pausar cliente</h2>
-              <button type="button" className="modal-close" onClick={() => setPauseDialog(null)}>X</button>
+              <h2>Cambiar estado</h2>
+              <button type="button" className="modal-close" onClick={() => setStatusDialog(null)}>X</button>
             </div>
             <div className="confirm-modal-body">
-              <p>El cliente quedara inactivo y no acumulara cobros hasta que lo reactives. Indica el motivo:</p>
+              <p>
+                Confirma el cambio a <strong>{STATUS_LABEL[statusDialog.nextStatus]}</strong> e indica el motivo:
+              </p>
               <textarea
                 className="pause-comment-input"
                 placeholder="Ej. Acuerdo de pago, reparacion en unidad, negociacion..."
-                value={pauseDialog.comment}
-                onChange={(e) => setPauseDialog((d) => d ? { ...d, comment: e.target.value } : d)}
+                value={statusDialog.comment}
+                onChange={(e) => setStatusDialog((d) => d ? { ...d, comment: e.target.value } : d)}
                 rows={3}
                 autoFocus
               />
               <div className="confirm-modal-actions" style={{ marginTop: 16 }}>
-                <button type="button" className="button primary" onClick={handleConfirmPause} disabled={pauseDialog.comment.trim().length === 0}>Pausar</button>
-                <button type="button" className="button ghost" onClick={() => setPauseDialog(null)}>Cancelar</button>
+                <button
+                  type="button"
+                  className="button primary"
+                  onClick={handleConfirmStatusChange}
+                  disabled={statusDialog.comment.trim().length === 0}
+                >
+                  Confirmar
+                </button>
+                <button type="button" className="button ghost" onClick={() => setStatusDialog(null)}>Cancelar</button>
               </div>
             </div>
           </div>
@@ -952,10 +1028,10 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
             <option value="withoutDebt">Solo al dia</option>
           </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
-            <option value="active">Solo activos</option>
-            <option value="inactive">Solo inactivos</option>
-            <option value="archived">Solo archivados</option>
-            <option value="all">Activos y archivados</option>
+            <option value="all">Todos los estados</option>
+            {STATUS_OPTIONS.map((status) => (
+              <option key={status} value={status}>{STATUS_LABEL[status]}</option>
+            ))}
           </select>
         </div>
         <div className="export-bar">
@@ -1030,7 +1106,7 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
                         <td><strong>{client.unitId}</strong></td>
                         <td>
                           <span className="client-name">
-                            {client.name}{client.archivedAt ? " (Archivado)" : ""}
+                            {client.name}
                           </span>
                         </td>
                         <td><span className="amount-muted">{client.cedula ?? "-"}</span></td>
@@ -1078,22 +1154,27 @@ export default function ClientsPage({ clients, onClientsChange }: Props) {
                           )}
                         </td>
                         <td className="status-cell">
-                          {!client.archivedAt && (
-                            <button
-                              type="button"
-                              className={`status-badge ${client.status === "inactive" ? "status-badge--inactive" : "status-badge--active"}`}
-                              title={client.status === "inactive" && client.statusComment ? `Motivo: ${client.statusComment}` : undefined}
-                              onClick={() => handleToggleStatus(client)}
-                            >
-                              {client.status === "inactive" ? "Inactivo" : "Activo"}
-                            </button>
-                          )}
+                          <select
+                            value={client.status}
+                            onChange={(e) => handleStatusSelection(client, e.target.value as Client["status"])}
+                            title={client.statusComment ? `Motivo: ${client.statusComment}` : undefined}
+                          >
+                            {STATUS_OPTIONS.map((status) => (
+                              <option
+                                key={status}
+                                value={status}
+                                disabled={status === "cliente_enfermo" && client.frequency !== "daily"}
+                              >
+                                {STATUS_LABEL[status]}
+                              </option>
+                            ))}
+                          </select>
                         </td>
                         <td className="actions-cell">
                           <button type="button" className="action-btn action-btn--edit" title="Editar" onClick={() => handleStartEditClient(client)}>
                             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                           </button>
-                          {client.archivedAt ? (
+                          {client.status === "archivado" ? (
                             <button type="button" className="action-btn action-btn--restore" title="Restaurar" onClick={() => handleRestoreClient(client.id)}>
                               <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.87"/></svg>
                             </button>

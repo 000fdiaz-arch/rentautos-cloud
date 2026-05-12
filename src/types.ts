@@ -13,7 +13,14 @@ export type OtherCharge = {
   amount: number;
 };
 
-export type ClientStatus = "active" | "inactive";
+export type ClientStatus =
+  | "activo"
+  | "cliente_enfermo"
+  | "taller"
+  | "chapisteria"
+  | "custodia"
+  | "en_busqueda"
+  | "archivado";
 
 export type Client = {
   id: string;

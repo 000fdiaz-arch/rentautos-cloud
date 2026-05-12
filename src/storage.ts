@@ -159,6 +159,24 @@ function normalizeClient(item: unknown): Client | null {
     return null;
   }
 
+  const rawStatus = typeof raw.status === "string" ? raw.status.trim().toLowerCase() : "";
+  const status: ClientStatus =
+    rawStatus === "activo" ||
+    rawStatus === "cliente_enfermo" ||
+    rawStatus === "taller" ||
+    rawStatus === "chapisteria" ||
+    rawStatus === "custodia" ||
+    rawStatus === "en_busqueda" ||
+    rawStatus === "archivado"
+      ? rawStatus
+      : rawStatus === "active"
+      ? "activo"
+      : rawStatus === "inactive"
+      ? "archivado"
+      : typeof raw.archivedAt === "string" && raw.archivedAt.trim().length > 0
+      ? "archivado"
+      : "activo";
+
   const normalized: Client = {
     id: raw.id,
     unitId:
@@ -198,7 +216,7 @@ function normalizeClient(item: unknown): Client | null {
       typeof raw.archivedAt === "string" && raw.archivedAt.trim()
         ? raw.archivedAt
         : undefined,
-    status: (raw.status === "inactive" ? "inactive" : "active") as ClientStatus,
+    status,
     statusComment:
       typeof raw.statusComment === "string" && raw.statusComment.trim()
         ? raw.statusComment
