@@ -2751,6 +2751,32 @@ tbody tr:hover {
   flex-wrap: wrap;
 }
 
+.ar-street-export-button {
+  margin-left: 12px;
+  background: #0f3d5e;
+  color: #ffffff;
+  border: 1px solid #0f3d5e;
+  box-shadow: 0 2px 8px rgba(15, 61, 94, 0.28);
+}
+
+.ar-street-export-button:hover {
+  background: #12486f;
+}
+
+.ar-street-export-button:disabled {
+  opacity: 0.55;
+  box-shadow: none;
+}
+
+.ar-street-export-hint {
+  margin-left: 8px;
+}
+
+.ar-sub-actions-row {
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+
 .ar-filter-count {
   display: inline-flex;
   align-items: center;
@@ -2907,7 +2933,42 @@ tbody tr:hover {
 }
 
 .ar-table {
-  min-width: 1350px;
+  min-width: 1180px;
+}
+
+.ar-table--compact {
+  min-width: 100%;
+  table-layout: fixed;
+}
+
+.ar-table--compact th,
+.ar-table--compact td {
+  padding: 8px 8px;
+}
+
+.ar-table--compact th:nth-child(1),
+.ar-table--compact td:nth-child(1) {
+  width: 120px;
+}
+
+.ar-table--compact th:nth-child(2),
+.ar-table--compact td:nth-child(2) {
+  width: 170px;
+}
+
+.ar-table--compact th:nth-child(3),
+.ar-table--compact td:nth-child(3) {
+  width: 145px;
+}
+
+.ar-table--compact th:nth-child(4),
+.ar-table--compact td:nth-child(4) {
+  width: 140px;
+}
+
+.ar-table--compact th:nth-child(5),
+.ar-table--compact td:nth-child(5) {
+  width: 168px;
 }
 
 .ar-table thead th {
@@ -3008,6 +3069,98 @@ tbody tr:hover {
   justify-content: center;
 }
 
+.ar-actions-cell--compact {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.ar-actions-cell--compact .button {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  font-size: 0.76rem;
+}
+
+.ar-promise-cell,
+.ar-pending-cell {
+  min-width: 0;
+}
+
+.ar-truncate-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.78rem;
+}
+
+.ar-unit-id {
+  font-size: 1.1rem;
+  letter-spacing: 0.01em;
+}
+
+.ar-badge--street {
+  margin-top: 5px;
+  color: #0b5e58;
+  background: rgba(15, 118, 110, 0.12);
+  border-color: rgba(15, 118, 110, 0.28);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+
+.ar-badge--street-button {
+  cursor: pointer;
+  border-width: 1px;
+}
+
+.ar-badge--street-button:hover {
+  background: rgba(15, 118, 110, 0.2);
+}
+
+.ar-badge-street-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 6px;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: #0f766e;
+  background: rgba(15, 118, 110, 0.12);
+  border: 1px solid rgba(15, 118, 110, 0.22);
+  line-height: 1;
+}
+
+.ar-badge--street-button:hover .ar-badge-street-remove {
+  background: rgba(15, 118, 110, 0.18);
+  border-color: rgba(15, 118, 110, 0.3);
+}
+
+.ar-street-legend {
+  margin-top: 4px;
+  font-size: 0.7rem;
+  color: #475569;
+  max-width: 150px;
+}
+
+.ar-collector-balance-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: #f8fafc;
+}
+
+.ar-collector-balance-card p {
+  margin: 2px 0 0;
+}
+
 .ar-payment-age-badge {
   display: inline-flex;
   align-items: center;
@@ -3096,6 +3249,14 @@ tbody tr:hover {
   padding: 0 24px 20px;
 }
 
+.ar-collector-form-grid {
+  grid-template-columns: 1fr;
+}
+
+.ar-collector-min-amount {
+  grid-column: auto;
+}
+
 @media (max-width: 980px) {
   .ar-filters-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3128,6 +3289,10 @@ tbody tr:hover {
   }
 
   .ar-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ar-collector-form-grid {
     grid-template-columns: 1fr;
   }
 

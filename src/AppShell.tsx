@@ -106,6 +106,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       cashClosingAudit: parseLocalJson("cobrapp.module2.cash_closing_audit.v1", []) as unknown[],
       chargeRuns: parseLocalJson("cobrapp.module2.charge_runs.v1", []) as unknown[],
       paymentPromises: parseLocalJson("cobrapp.module3.payment_promises.v1", []) as unknown[],
+      streetManagement: parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>,
       statusFilter: String(localStorage.getItem("cobrapp.clients.status_filter.v1") ?? "active")
     };
   }
@@ -358,6 +359,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       localStorage.setItem("cobrapp.module2.cash_closing_audit.v1", JSON.stringify(report.normalizedData["cobrapp.module2.cash_closing_audit.v1"] ?? []));
       localStorage.setItem("cobrapp.module2.charge_runs.v1", JSON.stringify(report.normalizedData["cobrapp.module2.charge_runs.v1"] ?? []));
       localStorage.setItem("cobrapp.module3.payment_promises.v1", JSON.stringify(report.normalizedData["cobrapp.module3.payment_promises.v1"] ?? []));
+      localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(report.normalizedData["cobrapp.module3.street_management.v1"] ?? {}));
       localStorage.setItem("cobrapp.payments.seq.v1", String(Number(report.normalizedData["cobrapp.payments.seq.v1"] ?? 0) || 0));
       localStorage.setItem("cobrapp.clients.status_filter.v1", String(report.normalizedData["cobrapp.clients.status_filter.v1"] ?? ""));
       setPaymentPromises(loadPaymentPromises());

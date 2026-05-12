@@ -14,6 +14,7 @@ VITE_SUPABASE_ANON_KEY=TU_SUPABASE_ANON_KEY
 4. En Supabase SQL Editor, ejecuta estos scripts:
    - `supabase/01-auth-roles.sql`
    - `supabase/02-cloud-data.sql`
+   - `supabase/03-street-management-cloud.sql`
 5. Crea una cuenta desde la pantalla de registro de la app.
 6. En SQL Editor, promueve tu usuario principal a admin:
 
