@@ -151,11 +151,9 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         setCloudLoadError("");
         setSyncErrorMessage("");
         setSyncStatus("syncing");
-        if (!isReadOnlyReceivables) {
-          void initializeCloudMirror(cloudDataUserId).catch((error) => {
-            console.error("No se pudo inicializar cloud mirror.", error);
-          });
-        }
+        void initializeCloudMirror(cloudDataUserId).catch((error) => {
+          console.error("No se pudo inicializar cloud mirror.", error);
+        });
         const [cloudPromises, cloudClientsData, cloudPaymentsData] = await Promise.all([
           loadCloudPaymentPromises(cloudDataUserId).catch(() => [] as PaymentPromise[]),
           loadCloudClients(cloudDataUserId),
