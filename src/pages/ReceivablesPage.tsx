@@ -404,6 +404,12 @@ export default function ReceivablesPage({ clients, payments, paymentPromises, on
     setPromiseTargetRow(null);
   }
 
+  function deletePromise(promiseId: string): void {
+    if (!canManagePromises) return;
+    onPaymentPromisesChange(paymentPromises.filter((promise) => promise.id !== promiseId));
+    setPromiseTargetRow(null);
+  }
+
   function openCollectorActionModal(row: ReceivableRow): void {
     setCollectorTargetRow(row);
     setCollectorActionType("cobrar");
@@ -563,6 +569,12 @@ function promiseCompactDetails(promise: PaymentPromise): string {
                             <div className="debt-meta ar-truncate-line" title={promiseCompactDetails(promise)}>
                               {promiseCompactDetails(promise)}
                             </div>
+                            {canManagePromises && (
+                              <div className="ar-inline-actions">
+                                <button type="button" className="button ghost small" onClick={() => openPromiseDrawer(row)}>Editar</button>
+                                <button type="button" className="button danger small" onClick={() => deletePromise(promise.id)}>Eliminar</button>
+                              </div>
+                            )}
                           </>
                         ) : (
                           canManagePromises

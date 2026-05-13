@@ -3088,6 +3088,13 @@ tbody tr:hover {
   min-width: 0;
 }
 
+.ar-inline-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
 .ar-truncate-line {
   white-space: nowrap;
   overflow: hidden;
