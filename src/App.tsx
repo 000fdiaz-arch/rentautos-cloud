@@ -10,6 +10,7 @@ export default function App() {
   const [appRole, setAppRole] = useState<"admin" | "operador" | "lectura">("lectura");
   const [dataOwnerUserId, setDataOwnerUserId] = useState<string | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
+  const [loadingProfile, setLoadingProfile] = useState(false);
   const [authBootError, setAuthBootError] = useState<string>("");
 
   useEffect(() => {
@@ -58,8 +59,10 @@ export default function App() {
       if (!session?.user.id || !supabase) {
         setAppRole("lectura");
         setDataOwnerUserId(null);
+        setLoadingProfile(false);
         return;
       }
+      setLoadingProfile(true);
       try {
         const { data, error } = await supabase
           .from("user_profiles")
@@ -80,6 +83,8 @@ export default function App() {
         setAppRole("lectura");
       } catch {
         if (!cancelled) setAppRole("lectura");
+      } finally {
+        if (!cancelled) setLoadingProfile(false);
       }
     }
 
@@ -124,6 +129,17 @@ export default function App() {
   }
 
   if (!session) return <AuthPanel />;
+
+  if (loadingProfile) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <h1>Rentautos</h1>
+          <p>Cargando perfil...</p>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <AppShell
