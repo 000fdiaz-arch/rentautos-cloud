@@ -59,7 +59,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const normalizedEmail = (userEmail ?? "").trim().toLowerCase();
   const isAmbarUser = normalizedEmail.includes("ambar");
   const canManagePromises = !isReadOnlyReceivables || isAmbarUser;
-  const cloudDataUserId = isReadOnlyReceivables ? (dataOwnerUserId ?? userId) : userId;
+  // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
+  const cloudDataUserId = dataOwnerUserId ?? userId;
   const [page, setPage] = useState<AppPage>(isReadOnlyReceivables ? "receivables" : "clients");
   const [clients, setClients] = useState<Client[]>(() => loadClients());
   const [payments, setPayments] = useState<Payment[]>(() => loadPayments());
