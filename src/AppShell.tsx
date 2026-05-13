@@ -438,6 +438,17 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     );
   }
 
+  if (cloudDataUserId && !cloudReady) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <h1>Rentautos</h1>
+          <p>Sincronizando data de nube...</p>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <>
       <nav className="app-nav">
