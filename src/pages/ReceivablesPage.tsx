@@ -397,12 +397,20 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
     setFilters((current) => ({ ...current, [key]: value }));
   }
 
-  function handleStateFilterChange(value: string) {
+  function handleStateFilterToggle(value: ReceivableState | "all") {
     if (value === "all") {
       updateFilter("state", []);
       return;
     }
-    updateFilter("state", [value as ReceivableState]);
+    const current = filters.state;
+    if (current.includes(value)) {
+      updateFilter(
+        "state",
+        current.filter((item) => item !== value)
+      );
+      return;
+    }
+    updateFilter("state", [...current, value]);
   }
 
   function clearFilters() {
@@ -918,14 +926,27 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
         <div className="panel-head"><h2>Filtros</h2><div className="ar-filter-actions"><button type="button" className="button ghost small" onClick={clearFilters}>Limpiar filtros</button></div></div>
         <div className="ar-filters-grid">
           <div className="ar-filter-field"><span className="ar-filter-label">Buscar unidad</span><input type="text" value={filters.unitSearch} onChange={(event) => updateFilter("unitSearch", event.target.value)} /></div>
-          <div className="ar-filter-field">
+          <div className="ar-filter-field ar-filter-field--states">
             <span className="ar-filter-label">Estado</span>
-            <select value={filters.state[0] ?? "all"} onChange={(event) => handleStateFilterChange(event.target.value)}>
-              <option value="all">Todos</option>
+            <div className="ar-state-chips" role="group" aria-label="Filtro de estado">
+              <button
+                type="button"
+                className={`ar-state-chip ${filters.state.length === 0 ? "ar-state-chip--active" : ""}`}
+                onClick={() => handleStateFilterToggle("all")}
+              >
+                Todos
+              </button>
               {STATE_FILTER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`ar-state-chip ${filters.state.includes(option.value) ? "ar-state-chip--active" : ""}`}
+                  onClick={() => handleStateFilterToggle(option.value)}
+                >
+                  {option.label}
+                </button>
               ))}
-            </select>
+            </div>
           </div>
         </div>
       </section>
