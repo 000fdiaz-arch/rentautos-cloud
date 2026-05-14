@@ -11,27 +11,22 @@ import {
   loadBankRules,
   loadLateFeeSettings,
   loadOtherChargesRetentionByClient,
-  loadPaymentPromises,
   saveBankRules,
   saveLateFeeSettings,
   saveOtherChargesRetentionByClient,
   savePendingBankItems,
   savePendingCardItems,
   saveManualBankAssignmentAudit,
-  savePaymentPromises,
   saveLateFeeLedger,
 } from "./storage";
 import {
   loadCloudClients,
-  loadCloudPaymentPromises,
   loadCloudPayments,
   saveCloudClients,
-  saveCloudPaymentPromises,
   saveCloudPayments
 } from "./cloudData";
 import { disableCloudMirror, flushCloudMirror, initializeCloudMirror } from "./cloudMirror";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
-import { evaluatePaymentPromises } from "./paymentPromises";
 import {
   autoBackupDetailed,
   configureBackupFolder,
@@ -41,7 +36,7 @@ import {
   type BackupExtraData,
   type BackupTrigger
 } from "./autobackup";
-import type { BankRule, Client, LateFeeSettings, OtherChargesRetentionByClient, Payment, PaymentPromise } from "./types";
+import type { BankRule, Client, LateFeeSettings, OtherChargesRetentionByClient, Payment } from "./types";
 import "./styles.css";
 
 type AppPage = "clients" | "payments" | "receivables" | "settings";
@@ -56,16 +51,12 @@ type AppShellProps = {
 
 export default function AppShell({ userId, userEmail, appRole = "lectura", dataOwnerUserId, onSignOut }: AppShellProps) {
   const isReadOnlyReceivables = appRole === "lectura";
-  const normalizedEmail = (userEmail ?? "").trim().toLowerCase();
-  const isAmbarUser = normalizedEmail.includes("ambar");
-  const canManagePromises = !isReadOnlyReceivables || isAmbarUser;
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = dataOwnerUserId ?? userId;
   const [page, setPage] = useState<AppPage>(isReadOnlyReceivables ? "receivables" : "clients");
   const [clients, setClients] = useState<Client[]>(() => loadClients());
   const [payments, setPayments] = useState<Payment[]>(() => loadPayments());
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
-  const [paymentPromises, setPaymentPromises] = useState<PaymentPromise[]>(() => loadPaymentPromises());
   const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
   const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>(() => loadOtherChargesRetentionByClient());
   const [cloudReady, setCloudReady] = useState<boolean>(false);
@@ -106,7 +97,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       cashClosings: parseLocalJson("cobrapp.module2.cash_closings.v1", []) as unknown[],
       cashClosingAudit: parseLocalJson("cobrapp.module2.cash_closing_audit.v1", []) as unknown[],
       chargeRuns: parseLocalJson("cobrapp.module2.charge_runs.v1", []) as unknown[],
-      paymentPromises: parseLocalJson("cobrapp.module3.payment_promises.v1", []) as unknown[],
       streetManagement: parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>,
       statusFilter: String(localStorage.getItem("cobrapp.clients.status_filter.v1") ?? "active")
     };
@@ -154,22 +144,19 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         void initializeCloudMirror(cloudDataUserId).catch((error) => {
           console.error("No se pudo inicializar cloud mirror.", error);
         });
-        const [cloudPromises, cloudClientsData, cloudPaymentsData] = await Promise.all([
-          loadCloudPaymentPromises(cloudDataUserId).catch(() => [] as PaymentPromise[]),
+        const [cloudClientsData, cloudPaymentsData] = await Promise.all([
           loadCloudClients(cloudDataUserId),
           loadCloudPayments(cloudDataUserId)
         ]);
         if (cancelled) return;
         setClients(cloudClientsData);
         setPayments(cloudPaymentsData);
-        setPaymentPromises(cloudPromises);
         setBankRules(loadBankRules());
         setLateFeeSettings(loadLateFeeSettings());
         setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
         // Mantiene compatibilidad con funciones que aun leen localStorage.
         saveClients(cloudClientsData);
         savePayments(cloudPaymentsData);
-        savePaymentPromises(cloudPromises);
         setSyncStatus("ok");
         setSyncErrorMessage("");
         setLastSyncAt(new Date().toLocaleTimeString());
@@ -277,28 +264,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       }
     }
     savePayments(next);
-    const reevaluatedPromises = evaluatePaymentPromises(paymentPromises, next, new Date());
-    setPaymentPromises(reevaluatedPromises);
-    savePaymentPromises(reevaluatedPromises);
-    if (cloudDataUserId) {
-      try {
-        await saveCloudPaymentPromises(cloudDataUserId, reevaluatedPromises);
-      } catch {
-        // Keep local state available even if promises cloud table is not migrated yet.
-      }
-    }
-    setHasPendingChanges(true);
-  }
-
-  function persistPaymentPromises(next: PaymentPromise[]): void {
-    const reevaluated = evaluatePaymentPromises(next, payments, new Date());
-    setPaymentPromises(reevaluated);
-    savePaymentPromises(reevaluated);
-    if (cloudDataUserId) {
-      void saveCloudPaymentPromises(cloudDataUserId, reevaluated).catch(() => {
-        // Keep local state available even if promises cloud table is not migrated yet.
-      });
-    }
     setHasPendingChanges(true);
   }
 
@@ -359,11 +324,9 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       localStorage.setItem("cobrapp.module2.cash_closings.v1", JSON.stringify(report.normalizedData["cobrapp.module2.cash_closings.v1"] ?? []));
       localStorage.setItem("cobrapp.module2.cash_closing_audit.v1", JSON.stringify(report.normalizedData["cobrapp.module2.cash_closing_audit.v1"] ?? []));
       localStorage.setItem("cobrapp.module2.charge_runs.v1", JSON.stringify(report.normalizedData["cobrapp.module2.charge_runs.v1"] ?? []));
-      localStorage.setItem("cobrapp.module3.payment_promises.v1", JSON.stringify(report.normalizedData["cobrapp.module3.payment_promises.v1"] ?? []));
       localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(report.normalizedData["cobrapp.module3.street_management.v1"] ?? {}));
       localStorage.setItem("cobrapp.payments.seq.v1", String(Number(report.normalizedData["cobrapp.payments.seq.v1"] ?? 0) || 0));
       localStorage.setItem("cobrapp.clients.status_filter.v1", String(report.normalizedData["cobrapp.clients.status_filter.v1"] ?? ""));
-      setPaymentPromises(loadPaymentPromises());
       setHasPendingChanges(true);
 
       return { ok: true, message: "Respaldo importado correctamente. Ya puedes continuar con la migracion cloud." };
@@ -549,9 +512,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           <ReceivablesPage
             clients={clients}
             payments={payments}
-            paymentPromises={paymentPromises}
-            onPaymentPromisesChange={persistPaymentPromises}
-            canManagePromises={canManagePromises}
             hideCollectedThisMonth={isReadOnlyReceivables}
           />
         )}

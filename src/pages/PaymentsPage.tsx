@@ -29,6 +29,7 @@ import type {
 } from "../types";
 import { findNextChargeDay, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../billing";
 import { applyLateFeesForClosingDate, subtractOtherCharge } from "../lateFees";
+import { buildReceivableRows } from "../receivables";
 
 const PAYMENT_METHODS: PaymentMethod[] = [
   "Efectivo",
@@ -47,6 +48,8 @@ const NOTIFIED_DAYS_WINDOW = 7;
 const CASH_CLOSINGS_KEY = "cobrapp.module2.cash_closings.v1";
 const CASH_CLOSING_AUDIT_KEY = "cobrapp.module2.cash_closing_audit.v1";
 const CHARGE_RUNS_KEY = "cobrapp.module2.charge_runs.v1";
+const COLLECTION_STATUS_KEY = "cobrapp.module3.street_management.v1";
+const COLLECTION_CLOSURES_KEY = "cobrapp.module3.collection_closures.v1";
 
 const FREQUENCY_LABEL: Record<string, string> = {
   daily: "Diario",
@@ -241,6 +244,37 @@ type Props = {
   onCashClose?: () => void;
 };
 
+type CollectionStatus = "no_answer" | "reminder" | "call_later" | "paid";
+
+type CollectionStatusRecord = {
+  status: CollectionStatus;
+  comment: string;
+  updatedAt: string;
+};
+
+type CollectionClosureItem = {
+  clientId: string;
+  unitId: string;
+  clientName: string;
+  lastPaymentDate: string | null;
+  receivableState: string;
+  totalPending: number;
+  collectionStatus: CollectionStatus;
+  comment: string;
+  autoApplied: boolean;
+};
+
+type CollectionClosureSnapshot = {
+  date: string;
+  closedAt: string;
+  actor: string;
+  reason: string;
+  totals: Record<CollectionStatus, number>;
+  items: CollectionClosureItem[];
+};
+
+type CollectionClosuresByDate = Record<string, CollectionClosureSnapshot>;
+
 function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
@@ -339,6 +373,63 @@ function splitWholeAndCents(amount: number): { wholePart: number; centsPart: num
   const wholePart = Math.floor(normalized + Number.EPSILON);
   const centsPart = roundMoney(normalized - wholePart);
   return { wholePart, centsPart };
+}
+
+function parseCollectionStatusesFromStorage(): Record<string, CollectionStatusRecord> {
+  try {
+    const raw = localStorage.getItem(COLLECTION_STATUS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const next: Record<string, CollectionStatusRecord> = {};
+    for (const [clientId, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== "object") continue;
+      const row = value as Record<string, unknown>;
+      const status = row.status;
+      if (status !== "no_answer" && status !== "reminder" && status !== "call_later" && status !== "paid") continue;
+      next[clientId] = {
+        status,
+        comment: typeof row.comment === "string" ? row.comment.slice(0, 5) : "",
+        updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : new Date().toISOString()
+      };
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function loadCollectionClosuresFromStorage(): CollectionClosuresByDate {
+  try {
+    const raw = localStorage.getItem(COLLECTION_CLOSURES_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as CollectionClosuresByDate;
+  } catch {
+    return {};
+  }
+}
+
+function resolveCollectionStatusForClosure(
+  row: { id: string; state: string; lastPaymentDate: string | null },
+  statusesByClient: Record<string, CollectionStatusRecord>,
+  closureDate: string
+): { status: CollectionStatus; comment: string; autoApplied: boolean } {
+  const manual = statusesByClient[row.id];
+  const paidToday = row.lastPaymentDate === closureDate;
+  const autoPaid = row.state === "alDia" || paidToday;
+  if (manual?.status) {
+    return {
+      status: manual.status,
+      comment: manual.status === "call_later" ? (manual.comment ?? "").slice(0, 5) : "",
+      autoApplied: false
+    };
+  }
+  if (autoPaid) {
+    return { status: "paid", comment: "", autoApplied: true };
+  }
+  return { status: "reminder", comment: "", autoApplied: true };
 }
 
 const DEFAULT_OTHER_CHARGES_RETENTION = 5;
@@ -2637,6 +2728,49 @@ export default function PaymentsPage({
     const nextAudit = [event, ...cashClosingAudit].slice(0, 300);
     setCashClosingAudit(nextAudit);
     saveCashClosingAudit(nextAudit);
+
+    // Snapshot final de gestion de cobros para consulta historica y bloqueo del dia cerrado.
+    const closureDateRef = parseDateKey(date) ?? startOfDay(new Date());
+    const receivableRows = buildReceivableRows(clients, payments, closureDateRef);
+    const statusesByClient = parseCollectionStatusesFromStorage();
+    const closureTotals: Record<CollectionStatus, number> = {
+      no_answer: 0,
+      reminder: 0,
+      call_later: 0,
+      paid: 0
+    };
+    const closureItems: CollectionClosureItem[] = receivableRows.map((row) => {
+      const resolved = resolveCollectionStatusForClosure(row, statusesByClient, date);
+      closureTotals[resolved.status] += 1;
+      return {
+        clientId: row.id,
+        unitId: row.unitId,
+        clientName: row.name,
+        lastPaymentDate: row.lastPaymentDate,
+        receivableState: row.state,
+        totalPending: row.totalPending,
+        collectionStatus: resolved.status,
+        comment: resolved.comment,
+        autoApplied: resolved.autoApplied
+      };
+    });
+    const collectionClosureSnapshot: CollectionClosureSnapshot = {
+      date,
+      closedAt: new Date().toISOString(),
+      actor,
+      reason,
+      totals: closureTotals,
+      items: closureItems
+    };
+    const existingClosures = loadCollectionClosuresFromStorage();
+    localStorage.setItem(
+      COLLECTION_CLOSURES_KEY,
+      JSON.stringify({
+        ...existingClosures,
+        [date]: collectionClosureSnapshot
+      })
+    );
+
     const chargeInfo = chargeResult.alreadyProcessed
       ? `Cobros de ${chargeResult.targetDate} ya estaban aplicados previamente.`
       : `Cobros aplicados para ${chargeResult.targetDate}: esperados ${chargeResult.expectedClients}, cobrados ${chargeResult.chargedClients}, total ${formatCurrency(chargeResult.chargedTotal)}.`;

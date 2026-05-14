@@ -2774,7 +2774,14 @@ tbody tr:hover {
 
 .ar-sub-actions-row {
   margin-top: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  background: var(--color-bg);
+  min-height: 52px;
+  padding: 6px 0;
 }
 
 .ar-filter-count {
@@ -2944,38 +2951,65 @@ tbody tr:hover {
 .ar-table--compact th,
 .ar-table--compact td {
   padding: 8px 8px;
+  box-sizing: border-box;
 }
 
 .ar-table--compact th:nth-child(1),
 .ar-table--compact td:nth-child(1) {
-  width: 120px;
+  width: 14%;
 }
 
 .ar-table--compact th:nth-child(2),
 .ar-table--compact td:nth-child(2) {
-  width: 170px;
+  width: 23%;
 }
 
 .ar-table--compact th:nth-child(3),
 .ar-table--compact td:nth-child(3) {
-  width: 145px;
+  width: 19%;
 }
 
 .ar-table--compact th:nth-child(4),
 .ar-table--compact td:nth-child(4) {
-  width: 140px;
+  width: 29%;
 }
 
 .ar-table--compact th:nth-child(5),
 .ar-table--compact td:nth-child(5) {
-  width: 168px;
+  width: 15%;
 }
 
-.ar-table thead th {
+.ar-sticky-stack {
   position: sticky;
-  top: 0;
-  z-index: 2;
+  top: var(--ar-sticky-toolbar-top, 58px);
+  z-index: 6;
+  background: var(--color-bg);
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.ar-columns-head {
+  display: grid;
+  grid-template-columns: 14% 23% 19% 29% 15%;
+  align-items: center;
+  gap: 0;
   background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 8px 0;
+}
+
+.ar-columns-head-btn {
+  justify-content: flex-start;
+  padding: 0 10px;
+}
+
+.ar-columns-head-label {
+  padding: 0 10px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #4f6b8f;
 }
 
 .ar-progress-wrap {
@@ -3064,6 +3098,11 @@ tbody tr:hover {
   align-items: stretch;
 }
 
+.ar-table--compact td.ar-actions-cell {
+  display: table-cell;
+  vertical-align: middle;
+}
+
 .ar-actions-cell .button {
   width: 100%;
   justify-content: center;
@@ -3105,6 +3144,137 @@ tbody tr:hover {
 .ar-unit-id {
   font-size: 1.1rem;
   letter-spacing: 0.01em;
+}
+
+.ar-collection-cell {
+  vertical-align: middle;
+}
+
+.ar-collection-wrap {
+  display: grid;
+  gap: 6px;
+  align-content: center;
+}
+
+.ar-collection-select,
+.ar-collection-comment {
+  width: 100%;
+  border: 1px solid #d1d9e6;
+  border-radius: 12px;
+  background: #fbfdff;
+  padding: 9px 12px;
+  font-size: 0.9rem;
+  color: #0f172a;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.ar-collection-select:focus,
+.ar-collection-comment:focus {
+  outline: none;
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15);
+  background: #ffffff;
+}
+
+.ar-collection-select:disabled {
+  background: #eef2f7;
+  color: #475569;
+  cursor: not-allowed;
+}
+
+.ar-collection-note {
+  margin-top: -1px;
+}
+
+.ar-header-filter-cell {
+  position: sticky;
+}
+
+.ar-header-filter-wrap {
+  display: grid;
+  gap: 4px;
+  min-width: 210px;
+}
+
+.ar-header-filter-label {
+  display: block;
+  color: #4f6b8f;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.1;
+}
+
+.ar-header-filter-select {
+  width: 100%;
+  border: 1px solid #0f766e;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 6px 10px;
+  min-height: 34px;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.ar-header-filter-select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15);
+}
+
+.ar-toolbar-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 4px;
+}
+
+.ar-toolbar-filter-label {
+  color: #5f7596;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ar-toolbar-filter-select {
+  border: 1px solid #c8d4e5;
+  border-radius: 999px;
+  background: #f8fbff;
+  color: #0f172a;
+  padding: 5px 12px;
+  min-height: 32px;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.ar-toolbar-filter-select:focus {
+  outline: none;
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+  background: #ffffff;
+}
+
+.ar-view-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+
+.ar-history-panel {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid #d8e2ef;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.ar-history-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .ar-badge--street {
