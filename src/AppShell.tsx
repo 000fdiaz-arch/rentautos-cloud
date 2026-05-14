@@ -21,7 +21,9 @@ import {
 } from "./storage";
 import {
   loadCloudClients,
+  loadCloudCollectionClosures,
   loadCloudPayments,
+  loadCloudStreetManagement,
   saveCloudClients,
   saveCloudPayments
 } from "./cloudData";
@@ -168,9 +170,11 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         void initializeCloudMirror(cloudDataUserId).catch((error) => {
           console.error("No se pudo inicializar cloud mirror.", error);
         });
-        const [cloudClientsData, cloudPaymentsData] = await Promise.all([
+        const [cloudClientsData, cloudPaymentsData, cloudStreetManagement, cloudCollectionClosures] = await Promise.all([
           loadCloudClients(cloudDataUserId),
-          loadCloudPayments(cloudDataUserId)
+          loadCloudPayments(cloudDataUserId),
+          loadCloudStreetManagement(cloudDataUserId),
+          loadCloudCollectionClosures(cloudDataUserId)
         ]);
         if (cancelled) return;
         setClients(cloudClientsData);
@@ -181,6 +185,9 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         // Mantiene compatibilidad con funciones que aun leen localStorage.
         saveClients(cloudClientsData);
         savePayments(cloudPaymentsData);
+        localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(cloudStreetManagement));
+        localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(cloudCollectionClosures));
+        recalculateRouteCollectionCount();
         setSyncStatus("ok");
         setSyncErrorMessage("");
         setLastSyncAt(new Date().toLocaleTimeString());
@@ -212,6 +219,26 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       window.clearInterval(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (!cloudDataUserId || !cloudReady) return;
+    const timer = window.setInterval(() => {
+      void (async () => {
+        try {
+          const [streetManagement, collectionClosures] = await Promise.all([
+            loadCloudStreetManagement(cloudDataUserId),
+            loadCloudCollectionClosures(cloudDataUserId)
+          ]);
+          localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(streetManagement));
+          localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(collectionClosures));
+          recalculateRouteCollectionCount();
+        } catch (error) {
+          console.error("No se pudo refrescar Cobro en Ruta desde nube.", error);
+        }
+      })();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [cloudDataUserId, cloudReady]);
 
   useEffect(() => {
     if (!backupSupported) return;

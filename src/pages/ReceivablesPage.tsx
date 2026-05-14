@@ -199,6 +199,34 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   return null;
 }
 
+function parseCollectionStatusMapFromStorage(raw: string | null): Record<string, CollectionStatusRecord> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, CollectionStatusRecord> = {};
+    for (const [clientId, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const row = parseStoredCollectionRecord(value);
+      if (!row) continue;
+      next[clientId] = row;
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function parseCollectionClosuresFromStorage(raw: string | null): CollectionClosuresByDate {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as CollectionClosuresByDate;
+  } catch {
+    return {};
+  }
+}
+
 export default function ReceivablesPage({ clients, payments, hideCollectedThisMonth = false }: Props) {
   const [now, setNow] = useState<Date>(() => new Date());
   const [filters, setFilters] = useState<ReceivableFilters>(DEFAULT_RECEIVABLE_FILTERS);
@@ -258,21 +286,7 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(COLLECTION_STATUS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as unknown;
-      if (!parsed || typeof parsed !== "object") return;
-      const next: Record<string, CollectionStatusRecord> = {};
-      for (const [clientId, value] of Object.entries(parsed as Record<string, unknown>)) {
-        const row = parseStoredCollectionRecord(value);
-        if (!row) continue;
-        next[clientId] = row;
-      }
-      setCollectionStatusByClient(next);
-    } catch {
-      setCollectionStatusByClient({});
-    }
+    setCollectionStatusByClient(parseCollectionStatusMapFromStorage(window.localStorage.getItem(COLLECTION_STATUS_KEY)));
   }, []);
 
   useEffect(() => {
@@ -280,15 +294,23 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
   }, [collectionStatusByClient]);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(COLLECTION_CLOSURES_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as unknown;
-      if (!parsed || typeof parsed !== "object") return;
-      setCollectionClosuresByDate(parsed as CollectionClosuresByDate);
-    } catch {
-      setCollectionClosuresByDate({});
-    }
+    setCollectionClosuresByDate(parseCollectionClosuresFromStorage(window.localStorage.getItem(COLLECTION_CLOSURES_KEY)));
+  }, []);
+
+  useEffect(() => {
+    const syncFromStorage = () => {
+      setCollectionStatusByClient(parseCollectionStatusMapFromStorage(window.localStorage.getItem(COLLECTION_STATUS_KEY)));
+      setCollectionClosuresByDate(parseCollectionClosuresFromStorage(window.localStorage.getItem(COLLECTION_CLOSURES_KEY)));
+    };
+    const onStorage = (event: StorageEvent): void => {
+      if (event.key === COLLECTION_STATUS_KEY || event.key === COLLECTION_CLOSURES_KEY) syncFromStorage();
+    };
+    window.addEventListener("storage", onStorage);
+    const timer = window.setInterval(syncFromStorage, 3000);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {

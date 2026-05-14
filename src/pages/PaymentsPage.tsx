@@ -2770,6 +2770,8 @@ export default function PaymentsPage({
         [date]: collectionClosureSnapshot
       })
     );
+    // Reinicia la gestion activa despues del cierre para arrancar el siguiente ciclo en estado base.
+    localStorage.setItem(COLLECTION_STATUS_KEY, JSON.stringify({}));
 
     const chargeInfo = chargeResult.alreadyProcessed
       ? `Cobros de ${chargeResult.targetDate} ya estaban aplicados previamente.`

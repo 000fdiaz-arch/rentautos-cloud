@@ -5,6 +5,9 @@ type DataRow<T> = {
   id: string;
   data: T;
 };
+type SingletonDataRow = {
+  data?: unknown;
+};
 
 const PAGE_SIZE = 1000;
 
@@ -215,4 +218,47 @@ export async function saveCloudPaymentPromises(userId: string, promises: Payment
   }
 
   await deleteStaleRows("payment_promises_cloud", userId, nextIds);
+}
+
+function normalizeRecord(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return {};
+  return payload as Record<string, unknown>;
+}
+
+export async function loadCloudStreetManagement(userId: string): Promise<Record<string, unknown>> {
+  const client = getClient();
+  const { data, error } = await client
+    .from("street_management_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return normalizeRecord((data as SingletonDataRow | null)?.data);
+}
+
+export async function saveCloudStreetManagement(userId: string, value: Record<string, unknown>): Promise<void> {
+  const client = getClient();
+  const { error } = await client
+    .from("street_management_cloud")
+    .upsert({ user_id: userId, data: value }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export async function loadCloudCollectionClosures(userId: string): Promise<Record<string, unknown>> {
+  const client = getClient();
+  const { data, error } = await client
+    .from("collection_closures_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return normalizeRecord((data as SingletonDataRow | null)?.data);
+}
+
+export async function saveCloudCollectionClosures(userId: string, value: Record<string, unknown>): Promise<void> {
+  const client = getClient();
+  const { error } = await client
+    .from("collection_closures_cloud")
+    .upsert({ user_id: userId, data: value }, { onConflict: "user_id" });
+  if (error) throw error;
 }
