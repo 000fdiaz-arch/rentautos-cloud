@@ -2801,8 +2801,12 @@ tbody tr:hover {
   flex: 1;
 }
 
-.ar-export-route-btn {
+.ar-export-route-menu-wrap {
+  position: relative;
   margin-left: auto;
+}
+
+.ar-export-route-btn {
   align-self: flex-start;
   border: 1px solid #f59e0b;
   background: linear-gradient(135deg, #f59e0b, #f97316);
@@ -2818,6 +2822,41 @@ tbody tr:hover {
 
 .ar-export-route-btn:disabled {
   opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.ar-export-route-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 170px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.16);
+  z-index: 20;
+  display: grid;
+  gap: 4px;
+}
+
+.ar-export-route-menu-item {
+  border: 0;
+  background: transparent;
+  color: #0f172a;
+  text-align: left;
+  font-weight: 700;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.ar-export-route-menu-item:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+.ar-export-route-menu-item:disabled {
+  opacity: 0.65;
   cursor: not-allowed;
 }
 

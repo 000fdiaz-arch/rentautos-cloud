@@ -50,6 +50,7 @@ type CollectionStatusRecord = {
   managementUpdatedAt?: string;
 };
 type FieldManagementType = "solo_cobrar" | "cobrar_o_quitar";
+type RouteExportFormat = "jpg" | "pdf" | "excel";
 
 type CollectionClosureItem = {
   clientId: string;
@@ -214,6 +215,8 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExportConfigOpen, setIsExportConfigOpen] = useState<boolean>(false);
+  const [routeExportFormat, setRouteExportFormat] = useState<RouteExportFormat>("jpg");
+  const [isRouteExportMenuOpen, setIsRouteExportMenuOpen] = useState<boolean>(false);
   const [exportFields, setExportFields] = useState<ExportField[]>(INITIAL_EXPORT_FIELDS);
   const [stickyToolbarTop, setStickyToolbarTop] = useState<number>(58);
   const [fieldManagementModalClientId, setFieldManagementModalClientId] = useState<string | null>(null);
@@ -581,10 +584,81 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
     link.click();
   }
 
-  async function handleExportCobroEnRuta(): Promise<void> {
+  function truncateTextToWidth(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    maxWidth: number
+  ): string {
+    const value = text.replace(/\s+/g, " ").trim();
+    if (!value) return "-";
+    if (ctx.measureText(value).width <= maxWidth) return value;
+    const ellipsis = "...";
+    const words = value.split(" ");
+    let byWord = "";
+    for (const word of words) {
+      const candidate = byWord ? `${byWord} ${word}` : word;
+      if (ctx.measureText(`${candidate}${ellipsis}`).width <= maxWidth) {
+        byWord = candidate;
+      } else {
+        break;
+      }
+    }
+    if (byWord) return `${byWord}${ellipsis}`;
+
+    let low = 0;
+    let high = value.length;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      const candidate = `${value.slice(0, mid)}${ellipsis}`;
+      if (ctx.measureText(candidate).width <= maxWidth) low = mid;
+      else high = mid - 1;
+    }
+    return `${value.slice(0, low)}${ellipsis}`;
+  }
+
+  function drawCellText(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    x: number,
+    y: number,
+    maxWidth: number,
+    align: CanvasTextAlign = "left"
+  ): void {
+    const safeMaxWidth = Math.max(12, maxWidth);
+    const clipped = truncateTextToWidth(ctx, text, safeMaxWidth);
+    ctx.textAlign = align;
+    const drawX = align === "right" ? x + safeMaxWidth : x;
+    ctx.fillText(clipped, drawX, y);
+    ctx.textAlign = "left";
+  }
+
+  function drawRoundedRect(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number
+  ): void {
+    const safeRadius = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + safeRadius, y);
+    ctx.lineTo(x + width - safeRadius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+    ctx.lineTo(x + width, y + height - safeRadius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+    ctx.lineTo(x + safeRadius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+    ctx.lineTo(x, y + safeRadius);
+    ctx.quadraticCurveTo(x, y, x + safeRadius, y);
+    ctx.closePath();
+  }
+
+  async function handleExportCobroEnRuta(formatOverride?: RouteExportFormat): Promise<void> {
     setExportError(null);
     setIsExporting(true);
     try {
+      const exportFormat = formatOverride ?? routeExportFormat;
       const candidates = baseRows
         .filter((row) => {
           const management = collectionStatusByClient[row.id];
@@ -597,91 +671,202 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
         return;
       }
 
-      const title = `Lista cobro en ruta - ${formatDateForTitle(now)}`;
       const totalToCollect = candidates.reduce((acc, row) => acc + (collectionStatusByClient[row.id]?.managementAmount ?? 0), 0);
       const rows = candidates;
+
+      if (exportFormat === "pdf") {
+        const [{ default: JsPDF }, { default: autoTable }] = await Promise.all([
+          import("jspdf"),
+          import("jspdf-autotable")
+        ]);
+        const doc = new JsPDF({ orientation: "landscape", format: "a4" });
+        const headers = ["Unidad", "Cliente", "Cuotas", "Tipo", "Monto", "Coment."];
+        const body = rows.map((row) => {
+          const management = collectionStatusByClient[row.id];
+          const cuotas = `${formatCurrency(row.totalPending)} (${lateInstallmentsLabel(row.totalPending, row.rentAmount)})`;
+          const tipo = management?.managementType === "solo_cobrar" ? "Solo cobrar" : "Cobrar/quitar";
+          const monto = formatCurrency(management?.managementAmount ?? 0);
+          const comentario = (management?.managementComment ?? "").trim().slice(0, 25) || "-";
+          return [row.unitId, row.name, cuotas, tipo, monto, comentario];
+        });
+        autoTable(doc, {
+          head: [headers],
+          body,
+          startY: 14,
+          styles: { fontSize: 8, cellPadding: 2 },
+          headStyles: { fillColor: [15, 118, 110], textColor: 255, fontStyle: "bold" },
+          alternateRowStyles: { fillColor: [248, 250, 252] }
+        });
+        doc.save(`lista-cobro-en-ruta-${now.toISOString().slice(0, 10)}.pdf`);
+        return;
+      }
+
+      if (exportFormat === "excel") {
+        const xlsx = await import("xlsx");
+        const headers = ["Unidad", "Cliente", "Cuotas", "Tipo", "Monto", "Coment."];
+        const dataRows = rows.map((row) => {
+          const management = collectionStatusByClient[row.id];
+          const cuotas = `${formatCurrency(row.totalPending)} (${lateInstallmentsLabel(row.totalPending, row.rentAmount)})`;
+          const tipo = management?.managementType === "solo_cobrar" ? "Solo cobrar" : "Cobrar/quitar";
+          const monto = management?.managementAmount ?? 0;
+          const comentario = (management?.managementComment ?? "").trim().slice(0, 25) || "-";
+          return [row.unitId, row.name, cuotas, tipo, monto, comentario];
+        });
+        const worksheet = xlsx.utils.aoa_to_sheet([headers, ...dataRows]);
+        const workbook = xlsx.utils.book_new();
+        xlsx.utils.book_append_sheet(workbook, worksheet, "Cobro en ruta");
+        const bytes = xlsx.write(workbook, { type: "array", bookType: "xlsx" });
+        const blob = new Blob([bytes], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `lista-cobro-en-ruta-${now.toISOString().slice(0, 10)}.xlsx`;
+        link.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+
       const canvas = document.createElement("canvas");
-      const width = 1080;
-      const height = 1920;
+      const width = 1600;
+      const outerLeft = 30;
+      const outerRight = width - 30;
+      const tableTop = 34;
+      const headerHeight = 64;
+      const minRowHeight = 54;
+      const maxRowHeight = 68;
+      const baseBodyHeight = 1100;
+      const densityRowHeight = Math.floor(baseBodyHeight / Math.max(1, rows.length));
+      const rowHeight = Math.max(minRowHeight, Math.min(maxRowHeight, densityRowHeight));
+      const rowFont = Math.max(17, Math.min(24, Math.floor(rowHeight * 0.42)));
+      const bottomMargin = 96;
+      const minHeight = 700;
+      const contentHeight = tableTop + headerHeight + rows.length * rowHeight + bottomMargin + 64;
+      const height = Math.max(minHeight, contentHeight);
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const outerLeft = 34;
-      const outerRight = width - 34;
-      const tableTop = 160;
-      const tableBottom = height - 70;
       const tableWidth = outerRight - outerLeft;
-      const headerHeight = 42;
-      const bodyHeight = tableBottom - tableTop - headerHeight;
-      const rowHeight = Math.max(18, Math.floor(bodyHeight / Math.max(1, rows.length)));
-      const rowFont = Math.max(11, Math.min(18, Math.floor(rowHeight * 0.48)));
+      const tableBottom = tableTop + headerHeight + rows.length * rowHeight;
 
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = "#f8fafc";
       ctx.fillRect(0, 0, width, height);
-      ctx.fillStyle = "#0f172a";
-      ctx.font = "bold 42px Segoe UI, Arial, sans-serif";
-      ctx.fillText(title, 40, 62);
-      ctx.font = "26px Segoe UI, Arial, sans-serif";
-      ctx.fillStyle = "#475569";
-      ctx.fillText(`Clientes: ${rows.length} | Total: ${formatCurrency(totalToCollect)} | 1 imagen`, 40, 102);
-
       const colX = {
-        unidad: outerLeft + 10,
-        cliente: outerLeft + 86,
-        letraPlan: outerLeft + 350,
-        cuotas: outerLeft + 550,
-        tipo: outerLeft + 680,
-        monto: outerLeft + 820,
-        comentario: outerLeft + 930
+        unidad: outerLeft + 28,
+        cliente: outerLeft + 155,
+        cuotas: outerLeft + 700,
+        tipo: outerLeft + 995,
+        monto: outerLeft + 1170,
+        comentario: outerLeft + 1320
       };
 
-      ctx.fillStyle = "#0f766e";
-      ctx.fillRect(outerLeft, tableTop, tableWidth, headerHeight);
+      drawRoundedRect(ctx, outerLeft, tableTop, tableWidth, headerHeight + rows.length * rowHeight, 8);
       ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 15px Segoe UI, Arial, sans-serif";
-      ctx.fillText("Unidad", colX.unidad, tableTop + 27);
-      ctx.fillText("Cliente", colX.cliente, tableTop + 27);
-      ctx.fillText("Letra/Plan", colX.letraPlan, tableTop + 27);
-      ctx.fillText("Cuotas", colX.cuotas, tableTop + 27);
-      ctx.fillText("Tipo", colX.tipo, tableTop + 27);
-      ctx.fillText("Monto", colX.monto, tableTop + 27);
-      ctx.fillText("Coment.", colX.comentario, tableTop + 27);
+      ctx.fill();
+      ctx.strokeStyle = "#dbe1ea";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      const headerGradient = ctx.createLinearGradient(outerLeft, tableTop, outerRight, tableTop + headerHeight);
+      headerGradient.addColorStop(0, "#0f766e");
+      headerGradient.addColorStop(1, "#0b5e58");
+      drawRoundedRect(ctx, outerLeft, tableTop, tableWidth, headerHeight, 8);
+      ctx.fillStyle = headerGradient;
+      ctx.fill();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 24px Segoe UI, Arial, sans-serif";
+      const headerY = tableTop + 41;
+      ctx.fillText("Unidad", colX.unidad, headerY);
+      ctx.fillText("Cliente", colX.cliente, headerY);
+      ctx.fillText("Cuotas", colX.cuotas, headerY);
+      ctx.fillText("Tipo", colX.tipo, headerY);
+      ctx.fillText("Monto", colX.monto, headerY);
+      ctx.fillText("Coment.", colX.comentario, headerY);
 
       rows.forEach((row, index) => {
         const y = tableTop + headerHeight + index * rowHeight;
         const management = collectionStatusByClient[row.id];
-        ctx.fillStyle = index % 2 === 0 ? "#f8fafc" : "#ffffff";
+        ctx.fillStyle = index % 2 === 0 ? "#fcfdff" : "#f7f9fc";
         ctx.fillRect(outerLeft, y, tableWidth, rowHeight);
-        ctx.strokeStyle = "#e2e8f0";
+        ctx.strokeStyle = "#e7edf5";
         ctx.lineWidth = 1;
-        ctx.strokeRect(outerLeft, y, tableWidth, rowHeight);
+        ctx.beginPath();
+        ctx.moveTo(outerLeft, y + rowHeight);
+        ctx.lineTo(outerRight, y + rowHeight);
+        ctx.stroke();
 
-        const clientName = row.name.length > 22 ? `${row.name.slice(0, 22)}...` : row.name;
-        const plan = planLabelForExport(row.plan).replace("Quincenal", "Qnal").replace("Semanal", "Sem");
-        const letraPlan = `${formatCurrency(row.rentAmount)} ${plan}`;
-        const cuotas = lateInstallmentsLabel(row.totalPending, row.rentAmount);
+        const clientName = row.name;
+        const cuotas = `${formatCurrency(row.totalPending)} (${lateInstallmentsLabel(row.totalPending, row.rentAmount)})`;
         const tipo = management?.managementType === "solo_cobrar" ? "Solo cobrar" : "Cobrar/quitar";
         const monto = formatCurrency(management?.managementAmount ?? 0);
-        const comentario = (management?.managementComment ?? "").trim().slice(0, 18);
+        const comentarioRaw = (management?.managementComment ?? "").trim();
+        const comentarioMax25 = comentarioRaw.slice(0, 25);
+        const colPadding = 18;
+        const clienteWidth = colX.cuotas - colX.cliente - colPadding;
+        const cuotasWidth = colX.tipo - colX.cuotas - colPadding;
+        const tipoWidth = colX.monto - colX.tipo - colPadding;
+        const montoWidth = colX.comentario - colX.monto - colPadding;
+        const commentMaxWidth = outerRight - colX.comentario - colPadding;
+        const rowBaseline = y + Math.floor(rowHeight * 0.66);
 
-        ctx.font = `bold ${rowFont + 1}px Segoe UI, Arial, sans-serif`;
-        ctx.fillStyle = "#0f172a";
-        ctx.fillText(row.unitId, colX.unidad, y + rowHeight - 5);
-        ctx.font = `${rowFont}px Segoe UI, Arial, sans-serif`;
-        ctx.fillStyle = "#334155";
-        ctx.fillText(clientName, colX.cliente, y + rowHeight - 5);
-        ctx.fillText(letraPlan, colX.letraPlan, y + rowHeight - 5);
-        ctx.fillText(cuotas, colX.cuotas, y + rowHeight - 5);
-        ctx.fillText(tipo, colX.tipo, y + rowHeight - 5);
         ctx.font = `bold ${rowFont}px Segoe UI, Arial, sans-serif`;
         ctx.fillStyle = "#0b5e58";
-        ctx.fillText(monto, colX.monto, y + rowHeight - 5);
+        ctx.fillText(row.unitId, colX.unidad, rowBaseline);
         ctx.font = `${rowFont}px Segoe UI, Arial, sans-serif`;
-        ctx.fillStyle = "#475569";
-        ctx.fillText(comentario || "-", colX.comentario, y + rowHeight - 5);
+        ctx.fillStyle = "#1e293b";
+        drawCellText(ctx, clientName, colX.cliente, rowBaseline, clienteWidth);
+        drawCellText(ctx, cuotas, colX.cuotas, rowBaseline, cuotasWidth);
+
+        const badgeX = colX.tipo;
+        const badgeY = y + Math.floor((rowHeight - 32) / 2);
+        const badgeHeight = 32;
+        const badgeText = tipo;
+        ctx.font = `600 ${Math.max(14, rowFont - 5)}px Segoe UI, Arial, sans-serif`;
+        const badgeTextWidth = ctx.measureText(badgeText).width;
+        const badgeWidth = Math.min(tipoWidth, Math.max(122, badgeTextWidth + 42));
+        drawRoundedRect(ctx, badgeX, badgeY, badgeWidth, badgeHeight, 8);
+        const isSoloCobrar = management?.managementType === "solo_cobrar";
+        const badgeBg = isSoloCobrar ? "#e8f7ee" : "#eff6ff";
+        const badgeDot = isSoloCobrar ? "#1dbf73" : "#3b82f6";
+        const badgeTextColor = isSoloCobrar ? "#0b6b47" : "#1e40af";
+        ctx.fillStyle = badgeBg;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.fillStyle = badgeDot;
+        ctx.arc(badgeX + 16, badgeY + badgeHeight / 2, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = badgeTextColor;
+        ctx.fillText(badgeText, badgeX + 28, badgeY + 22);
+
+        ctx.font = `bold ${rowFont}px Segoe UI, Arial, sans-serif`;
+        ctx.fillStyle = "#0b5e58";
+        drawCellText(ctx, monto, colX.monto, rowBaseline, montoWidth, "right");
+        ctx.font = `${Math.max(15, rowFont - 1)}px Segoe UI, Arial, sans-serif`;
+        ctx.fillStyle = "#334155";
+        drawCellText(ctx, comentarioMax25, colX.comentario, rowBaseline, commentMaxWidth);
       });
+
+      ctx.fillStyle = "#7c8ea6";
+      ctx.font = "22px Segoe UI, Arial, sans-serif";
+      const generatedAt = now.toLocaleString("es-PA", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+      const soloCobrarCount = rows.filter((row) => collectionStatusByClient[row.id]?.managementType === "solo_cobrar").length;
+      const cobrarQuitarCount = rows.filter((row) => collectionStatusByClient[row.id]?.managementType === "cobrar_o_quitar").length;
+      const leftFooterText = `Unidades enviadas: ${rows.length} | Solo cobrar: ${soloCobrarCount} | Cobrar/quitar: ${cobrarQuitarCount} | Esperado recolectar: ${formatCurrency(totalToCollect)}`;
+      const footerLineOneY = tableBottom + 46;
+      const footerLineTwoY = tableBottom + 74;
+      ctx.fillText(leftFooterText, outerLeft, footerLineOneY);
+      const footerText = `(Reporte generado el ${generatedAt})`;
+      ctx.fillText(footerText, outerLeft, footerLineTwoY);
 
       const fileName = `lista-cobro-en-ruta-${now.toISOString().slice(0, 10)}.png`;
       downloadCanvas(canvas, fileName);
@@ -779,14 +964,58 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
                 </select>
               </label>
             </div>
-            <button
-              type="button"
-              className="button small ar-export-route-btn"
-              onClick={handleExportCobroEnRuta}
-              disabled={isExporting}
-            >
-              Export Cobro en Ruta
-            </button>
+            <div className="ar-export-route-menu-wrap">
+              <button
+                type="button"
+                className="button small ar-export-route-btn"
+                onClick={() => setIsRouteExportMenuOpen((open) => !open)}
+                disabled={isExporting}
+                aria-haspopup="menu"
+                aria-expanded={isRouteExportMenuOpen}
+              >
+                Export Cobro en Ruta ({routeExportFormat.toUpperCase()})
+              </button>
+              {isRouteExportMenuOpen && (
+                <div className="ar-export-route-menu" role="menu" aria-label="Formatos de exportacion">
+                  <button
+                    type="button"
+                    className="ar-export-route-menu-item"
+                    onClick={() => {
+                      setRouteExportFormat("pdf");
+                      setIsRouteExportMenuOpen(false);
+                      void handleExportCobroEnRuta("pdf");
+                    }}
+                    disabled={isExporting}
+                  >
+                    PDF
+                  </button>
+                  <button
+                    type="button"
+                    className="ar-export-route-menu-item"
+                    onClick={() => {
+                      setRouteExportFormat("jpg");
+                      setIsRouteExportMenuOpen(false);
+                      void handleExportCobroEnRuta("jpg");
+                    }}
+                    disabled={isExporting}
+                  >
+                    JPG
+                  </button>
+                  <button
+                    type="button"
+                    className="ar-export-route-menu-item"
+                    onClick={() => {
+                      setRouteExportFormat("excel");
+                      setIsRouteExportMenuOpen(false);
+                      void handleExportCobroEnRuta("excel");
+                    }}
+                    disabled={isExporting}
+                  >
+                    EXCEL
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           <div className="ar-columns-head">
             <button type="button" className="sort-button ar-columns-head-btn" onClick={() => handleSort("unitId")}>Unidad <span className={`sort-icon ${sortField === "unitId" ? "active" : ""}`}>{renderSortIcon(sortField === "unitId", sortDirection)}</span></button>
