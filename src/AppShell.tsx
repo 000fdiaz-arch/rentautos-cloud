@@ -72,6 +72,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const [lastBackupAt, setLastBackupAt] = useState<string>("");
   const [lastDailyBackupKey, setLastDailyBackupKey] = useState<string>("");
   const [cloudReloadTick, setCloudReloadTick] = useState<number>(0);
+  const [routeCollectionCount, setRouteCollectionCount] = useState<number>(0);
 
   function parseLocalJson(key: string, fallback: unknown): unknown {
     try {
@@ -80,6 +81,29 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       return JSON.parse(raw);
     } catch {
       return fallback;
+    }
+  }
+
+  function recalculateRouteCollectionCount(): void {
+    try {
+      const raw = localStorage.getItem("cobrapp.module3.street_management.v1");
+      if (!raw) {
+        setRouteCollectionCount(0);
+        return;
+      }
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const values = Object.values(parsed ?? {});
+      const count = values.filter((value) => {
+        if (!value || typeof value !== "object") return false;
+        const row = value as Record<string, unknown>;
+        const type = row.managementType;
+        const amount = typeof row.managementAmount === "number" ? row.managementAmount : Number(row.managementAmount);
+        const hasType = type === "solo_cobrar" || type === "cobrar_o_quitar";
+        return hasType && Number.isFinite(amount) && amount > 0;
+      }).length;
+      setRouteCollectionCount(count);
+    } catch {
+      setRouteCollectionCount(0);
     }
   }
 
@@ -175,6 +199,19 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       disableCloudMirror();
     };
   }, [cloudDataUserId, cloudReloadTick, isReadOnlyReceivables]);
+
+  useEffect(() => {
+    recalculateRouteCollectionCount();
+    const onStorage = (event: StorageEvent): void => {
+      if (event.key === "cobrapp.module3.street_management.v1") recalculateRouteCollectionCount();
+    };
+    window.addEventListener("storage", onStorage);
+    const timer = window.setInterval(recalculateRouteCollectionCount, 2000);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (!backupSupported) return;
@@ -442,6 +479,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
               onClick={() => setPage("receivables")}
             >
               Cuentas por Cobrar
+              {routeCollectionCount > 0 && <span className="nav-tab-badge">Ruta: {routeCollectionCount}</span>}
             </button>
             {!isReadOnlyReceivables && (
               <button

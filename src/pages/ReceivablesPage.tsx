@@ -44,7 +44,12 @@ type CollectionStatusRecord = {
   status: CollectionStatus;
   comment: string;
   updatedAt: string;
+  managementType?: FieldManagementType;
+  managementAmount?: number;
+  managementComment?: string;
+  managementUpdatedAt?: string;
 };
+type FieldManagementType = "solo_cobrar" | "cobrar_o_quitar";
 
 type CollectionClosureItem = {
   clientId: string;
@@ -144,23 +149,50 @@ function normalizeComment(value: string): string {
   return value.slice(0, 5);
 }
 
+function normalizeFieldManagementComment(value: string): string {
+  return value.slice(0, 25);
+}
+
+function formatDateForTitle(value: Date): string {
+  const day = String(value.getDate()).padStart(2, "0");
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const year = value.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+function planLabelForExport(plan: ReceivableRow["plan"]): string {
+  return PLAN_LABEL[plan] ?? "Plan";
+}
+
+function lateInstallmentsLabel(totalPending: number, rentAmount: number): string {
+  if (rentAmount <= 0) return "0";
+  const installments = Math.ceil(totalPending / rentAmount);
+  if (installments <= 0) return "0";
+  return installments === 1 ? "1 cuota" : `${installments} cuotas`;
+}
+
 function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
   const status = row.status;
   const comment = typeof row.comment === "string" ? normalizeComment(row.comment.trim()) : "";
   const updatedAt = typeof row.updatedAt === "string" ? row.updatedAt : new Date().toISOString();
+  const managementType = row.managementType === "solo_cobrar" || row.managementType === "cobrar_o_quitar" ? row.managementType : undefined;
+  const rawManagementAmount = typeof row.managementAmount === "number" ? row.managementAmount : Number(row.managementAmount);
+  const managementAmount = Number.isFinite(rawManagementAmount) && rawManagementAmount > 0 ? rawManagementAmount : undefined;
+  const managementComment = typeof row.managementComment === "string" ? normalizeFieldManagementComment(row.managementComment.trim()) : "";
+  const managementUpdatedAt = typeof row.managementUpdatedAt === "string" ? row.managementUpdatedAt : undefined;
 
   if (status === "no_answer" || status === "reminder" || status === "call_later" || status === "paid") {
-    return { status, comment, updatedAt };
+    return { status, comment, updatedAt, managementType, managementAmount, managementComment, managementUpdatedAt };
   }
 
   const legacyActionType = row.actionType;
   if (legacyActionType === "cobrar") {
-    return { status: "reminder", comment, updatedAt };
+    return { status: "reminder", comment, updatedAt, managementType: "solo_cobrar", managementAmount, managementComment, managementUpdatedAt };
   }
   if (legacyActionType === "quitarOCobrar") {
-    return { status: "call_later", comment, updatedAt };
+    return { status: "call_later", comment, updatedAt, managementType: "cobrar_o_quitar", managementAmount, managementComment, managementUpdatedAt };
   }
 
   return null;
@@ -184,6 +216,11 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
   const [isExportConfigOpen, setIsExportConfigOpen] = useState<boolean>(false);
   const [exportFields, setExportFields] = useState<ExportField[]>(INITIAL_EXPORT_FIELDS);
   const [stickyToolbarTop, setStickyToolbarTop] = useState<number>(58);
+  const [fieldManagementModalClientId, setFieldManagementModalClientId] = useState<string | null>(null);
+  const [fieldManagementDraftByClient, setFieldManagementDraftByClient] = useState<
+    Record<string, { type: FieldManagementType | ""; amount: string; comment: string }>
+  >({});
+  const [fieldManagementErrorByClient, setFieldManagementErrorByClient] = useState<Record<string, string>>({});
 
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const subActionsRowRef = useRef<HTMLDivElement>(null);
@@ -308,6 +345,20 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
 
   const rows = useMemo(() => sortReceivableRows(dashboardFilteredRows, sortField, sortDirection), [dashboardFilteredRows, sortDirection, sortField]);
   const summary = useMemo(() => computeReceivableSummary(filteredRows, payments, now), [filteredRows, now, payments]);
+  const routeCollectionRows = useMemo(
+    () =>
+      baseRows
+        .filter((row) => {
+          const management = collectionStatusByClient[row.id];
+          return !!management?.managementType && !!management.managementAmount && management.managementAmount > 0;
+        })
+        .sort((a, b) => a.unitId.localeCompare(b.unitId)),
+    [baseRows, collectionStatusByClient]
+  );
+  const routeCollectionTotal = useMemo(
+    () => routeCollectionRows.reduce((acc, row) => acc + (collectionStatusByClient[row.id]?.managementAmount ?? 0), 0),
+    [collectionStatusByClient, routeCollectionRows]
+  );
   const todayDateKey = useMemo(() => {
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -351,6 +402,13 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
     return row.state === "alDia" || hasPaymentToday(row);
   }
 
+  function hasRouteCollection(row: ReceivableRow): boolean {
+    const management = collectionStatusByClient[row.id];
+    if (!management) return false;
+    const hasType = management.managementType === "solo_cobrar" || management.managementType === "cobrar_o_quitar";
+    return hasType && !!management.managementAmount && management.managementAmount > 0;
+  }
+
   function getEffectiveStatus(row: ReceivableRow): CollectionStatus | "" {
     const stored = collectionStatusByClient[row.id]?.status;
     if (stored) return stored;
@@ -389,6 +447,86 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
           status: currentStatus,
           comment: normalizeComment(value),
           updatedAt: new Date().toISOString()
+        }
+      };
+    });
+  }
+
+  function handleOpenFieldManagementModal(clientId: string): void {
+    const stored = collectionStatusByClient[clientId];
+    setFieldManagementDraftByClient((drafts) => ({
+      ...drafts,
+      [clientId]: {
+        type: stored?.managementType ?? "",
+        amount: stored?.managementAmount ? String(stored.managementAmount) : "",
+        comment: stored?.managementComment ?? ""
+      }
+    }));
+    setFieldManagementErrorByClient((current) => ({ ...current, [clientId]: "" }));
+    setFieldManagementModalClientId(clientId);
+  }
+
+  function handleFieldManagementDraftChange(
+    clientId: string,
+    patch: Partial<{ type: FieldManagementType | ""; amount: string; comment: string }>
+  ): void {
+    setFieldManagementErrorByClient((current) => ({ ...current, [clientId]: "" }));
+    setFieldManagementDraftByClient((current) => {
+      const existing = current[clientId] ?? { type: "", amount: "", comment: "" };
+      return {
+        ...current,
+        [clientId]: {
+          ...existing,
+          ...patch,
+          comment: patch.comment !== undefined ? normalizeFieldManagementComment(patch.comment) : existing.comment
+        }
+      };
+    });
+  }
+
+  function handleSaveFieldManagement(clientId: string): void {
+    const draft = fieldManagementDraftByClient[clientId] ?? { type: "", amount: "", comment: "" };
+    if (draft.type !== "solo_cobrar" && draft.type !== "cobrar_o_quitar") {
+      setFieldManagementErrorByClient((current) => ({ ...current, [clientId]: "Selecciona tipo de gestion." }));
+      return;
+    }
+    const parsedAmount = Number(draft.amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setFieldManagementErrorByClient((current) => ({ ...current, [clientId]: "Monto a pagar obligatorio." }));
+      return;
+    }
+
+    setCollectionStatusByClient((current) => {
+      const previous = current[clientId];
+      return {
+        ...current,
+        [clientId]: {
+          status: previous?.status ?? "reminder",
+          comment: previous?.comment ?? "",
+          updatedAt: previous?.updatedAt ?? new Date().toISOString(),
+          managementType: draft.type,
+          managementAmount: parsedAmount,
+          managementComment: normalizeFieldManagementComment(draft.comment),
+          managementUpdatedAt: new Date().toISOString()
+        }
+      };
+    });
+    setFieldManagementErrorByClient((current) => ({ ...current, [clientId]: "" }));
+    setFieldManagementModalClientId(null);
+  }
+
+  function handleRemoveFieldManagement(clientId: string): void {
+    setCollectionStatusByClient((current) => {
+      const previous = current[clientId];
+      if (!previous) return current;
+      return {
+        ...current,
+        [clientId]: {
+          ...previous,
+          managementType: undefined,
+          managementAmount: undefined,
+          managementComment: "",
+          managementUpdatedAt: new Date().toISOString()
         }
       };
     });
@@ -436,6 +574,124 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
     }
   }
 
+  function downloadCanvas(canvas: HTMLCanvasElement, fileName: string): void {
+    const link = document.createElement("a");
+    link.href = canvas.toDataURL("image/png");
+    link.download = fileName;
+    link.click();
+  }
+
+  async function handleExportCobroEnRuta(): Promise<void> {
+    setExportError(null);
+    setIsExporting(true);
+    try {
+      const candidates = baseRows
+        .filter((row) => {
+          const management = collectionStatusByClient[row.id];
+          return !!management?.managementType && !!management.managementAmount && management.managementAmount > 0;
+        })
+        .sort((a, b) => a.unitId.localeCompare(b.unitId));
+
+      if (candidates.length === 0) {
+        setExportError("No hay registros con Cobro en Ruta para exportar.");
+        return;
+      }
+
+      const title = `Lista cobro en ruta - ${formatDateForTitle(now)}`;
+      const totalToCollect = candidates.reduce((acc, row) => acc + (collectionStatusByClient[row.id]?.managementAmount ?? 0), 0);
+      const rows = candidates;
+      const canvas = document.createElement("canvas");
+      const width = 1080;
+      const height = 1920;
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const outerLeft = 34;
+      const outerRight = width - 34;
+      const tableTop = 160;
+      const tableBottom = height - 70;
+      const tableWidth = outerRight - outerLeft;
+      const headerHeight = 42;
+      const bodyHeight = tableBottom - tableTop - headerHeight;
+      const rowHeight = Math.max(18, Math.floor(bodyHeight / Math.max(1, rows.length)));
+      const rowFont = Math.max(11, Math.min(18, Math.floor(rowHeight * 0.48)));
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "#0f172a";
+      ctx.font = "bold 42px Segoe UI, Arial, sans-serif";
+      ctx.fillText(title, 40, 62);
+      ctx.font = "26px Segoe UI, Arial, sans-serif";
+      ctx.fillStyle = "#475569";
+      ctx.fillText(`Clientes: ${rows.length} | Total: ${formatCurrency(totalToCollect)} | 1 imagen`, 40, 102);
+
+      const colX = {
+        unidad: outerLeft + 10,
+        cliente: outerLeft + 86,
+        letraPlan: outerLeft + 350,
+        cuotas: outerLeft + 550,
+        tipo: outerLeft + 680,
+        monto: outerLeft + 820,
+        comentario: outerLeft + 930
+      };
+
+      ctx.fillStyle = "#0f766e";
+      ctx.fillRect(outerLeft, tableTop, tableWidth, headerHeight);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 15px Segoe UI, Arial, sans-serif";
+      ctx.fillText("Unidad", colX.unidad, tableTop + 27);
+      ctx.fillText("Cliente", colX.cliente, tableTop + 27);
+      ctx.fillText("Letra/Plan", colX.letraPlan, tableTop + 27);
+      ctx.fillText("Cuotas", colX.cuotas, tableTop + 27);
+      ctx.fillText("Tipo", colX.tipo, tableTop + 27);
+      ctx.fillText("Monto", colX.monto, tableTop + 27);
+      ctx.fillText("Coment.", colX.comentario, tableTop + 27);
+
+      rows.forEach((row, index) => {
+        const y = tableTop + headerHeight + index * rowHeight;
+        const management = collectionStatusByClient[row.id];
+        ctx.fillStyle = index % 2 === 0 ? "#f8fafc" : "#ffffff";
+        ctx.fillRect(outerLeft, y, tableWidth, rowHeight);
+        ctx.strokeStyle = "#e2e8f0";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(outerLeft, y, tableWidth, rowHeight);
+
+        const clientName = row.name.length > 22 ? `${row.name.slice(0, 22)}...` : row.name;
+        const plan = planLabelForExport(row.plan).replace("Quincenal", "Qnal").replace("Semanal", "Sem");
+        const letraPlan = `${formatCurrency(row.rentAmount)} ${plan}`;
+        const cuotas = lateInstallmentsLabel(row.totalPending, row.rentAmount);
+        const tipo = management?.managementType === "solo_cobrar" ? "Solo cobrar" : "Cobrar/quitar";
+        const monto = formatCurrency(management?.managementAmount ?? 0);
+        const comentario = (management?.managementComment ?? "").trim().slice(0, 18);
+
+        ctx.font = `bold ${rowFont + 1}px Segoe UI, Arial, sans-serif`;
+        ctx.fillStyle = "#0f172a";
+        ctx.fillText(row.unitId, colX.unidad, y + rowHeight - 5);
+        ctx.font = `${rowFont}px Segoe UI, Arial, sans-serif`;
+        ctx.fillStyle = "#334155";
+        ctx.fillText(clientName, colX.cliente, y + rowHeight - 5);
+        ctx.fillText(letraPlan, colX.letraPlan, y + rowHeight - 5);
+        ctx.fillText(cuotas, colX.cuotas, y + rowHeight - 5);
+        ctx.fillText(tipo, colX.tipo, y + rowHeight - 5);
+        ctx.font = `bold ${rowFont}px Segoe UI, Arial, sans-serif`;
+        ctx.fillStyle = "#0b5e58";
+        ctx.fillText(monto, colX.monto, y + rowHeight - 5);
+        ctx.font = `${rowFont}px Segoe UI, Arial, sans-serif`;
+        ctx.fillStyle = "#475569";
+        ctx.fillText(comentario || "-", colX.comentario, y + rowHeight - 5);
+      });
+
+      const fileName = `lista-cobro-en-ruta-${now.toISOString().slice(0, 10)}.png`;
+      downloadCanvas(canvas, fileName);
+    } catch {
+      setExportError("No se pudo exportar Cobro en Ruta.");
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   return (
     <>
       <section className="hero ar-hero"><div><h1>Cuentas por Cobrar</h1><p>Control de saldos vencidos y proximos a vencer.</p></div></section>
@@ -444,6 +700,10 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
         <button type="button" className={`summary-card summary-card--interactive ar-summary-card--debt ${dashboardFilter === "totalVencido" ? "summary-card--selected" : ""}`} onClick={() => setDashboardFilter(dashboardFilter === "totalVencido" ? "none" : "totalVencido")}><span>Vencido + critico</span><strong>{formatCurrency(summary.totalVencido)}</strong></button>
         <button type="button" className={`summary-card summary-card--interactive ${dashboardFilter === "proximoAVencer" ? "summary-card--selected" : ""}`} onClick={() => setDashboardFilter(dashboardFilter === "proximoAVencer" ? "none" : "proximoAVencer")}><span>Proximos a vencer</span><strong>{formatCurrency(summary.proximoAVencer)}</strong></button>
         <button type="button" className={`summary-card summary-card--interactive ar-summary-card--debt ${dashboardFilter === "clientesMorosos" ? "summary-card--selected" : ""}`} onClick={() => setDashboardFilter(dashboardFilter === "clientesMorosos" ? "none" : "clientesMorosos")}><span>Clientes morosos</span><strong>{summary.clientesMorosos}</strong></button>
+        <div className="summary-card ar-summary-card--route">
+          <span>Cobro en ruta</span>
+          <strong>{routeCollectionRows.length} | {formatCurrency(routeCollectionTotal)}</strong>
+        </div>
       </section>
       {!hideCollectedThisMonth && <section className="ar-secondary-metric-row"><button type="button" className={`ar-secondary-metric ${dashboardFilter === "cobradoEsteMes" ? "ar-secondary-metric--active" : ""}`} onClick={() => setDashboardFilter(dashboardFilter === "cobradoEsteMes" ? "none" : "cobradoEsteMes")}><span>Cobrado este mes</span><strong>{formatCurrency(summary.cobradoEsteMes)}</strong></button></section>}
 
@@ -519,6 +779,14 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
                 </select>
               </label>
             </div>
+            <button
+              type="button"
+              className="button small ar-export-route-btn"
+              onClick={handleExportCobroEnRuta}
+              disabled={isExporting}
+            >
+              Export Cobro en Ruta
+            </button>
           </div>
           <div className="ar-columns-head">
             <button type="button" className="sort-button ar-columns-head-btn" onClick={() => handleSort("unitId")}>Unidad <span className={`sort-icon ${sortField === "unitId" ? "active" : ""}`}>{renderSortIcon(sortField === "unitId", sortDirection)}</span></button>
@@ -608,13 +876,14 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
               ) : rows.map((row) => {
                 const paidToday = hasPaymentToday(row);
                 const autoPaid = hasAutoPaidStatus(row);
+                const routeCollection = hasRouteCollection(row);
                 const hasManualStatus = !!collectionStatusByClient[row.id]?.status;
                 const effectiveStatus = getEffectiveStatus(row);
                 const storedComment = collectionStatusByClient[row.id]?.comment ?? "";
                 const sourceClient = clients.find((client) => client.id === row.id);
                 const operationalStatus = sourceClient?.status ?? "activo";
                 return (
-                  <tr key={row.id}>
+                  <tr key={row.id} className={collectionStatusByClient[row.id]?.managementType ? "ar-row--route" : ""}>
                     <td><strong className="ar-unit-id">{row.unitId}</strong></td>
                     <td className="ar-pending-cell">
                       <span className="client-name">{pendingSummaryText(row.totalPending, row.rentAmount)}</span>
@@ -632,6 +901,21 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
                     </td>
                     <td className="ar-collection-cell">
                       <div className="ar-collection-wrap">
+                        {routeCollection && (
+                          <span className="ar-route-collection-tag">
+                            COBRO EN RUTA
+                            <button
+                              type="button"
+                              className="ar-route-collection-remove"
+                              onClick={() => handleRemoveFieldManagement(row.id)}
+                              aria-label={`Quitar cobro en ruta de ${row.unitId}`}
+                              title="Quitar de cobro en ruta"
+                              disabled={isTodayCollectionClosed}
+                            >
+                              x
+                            </button>
+                          </span>
+                        )}
                         <select
                           className="ar-collection-select"
                           value={effectiveStatus}
@@ -662,7 +946,17 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
                       </div>
                     </td>
                     <td className="ar-actions-cell ar-actions-cell--compact">
-                      <button type="button" className="button ghost small" onClick={() => setSelectedDetailRow(row)}>Ver detalle</button>
+                      <div className="ar-actions-stack">
+                        <button type="button" className="button ghost small" onClick={() => setSelectedDetailRow(row)}>Ver detalle</button>
+                        <button
+                          type="button"
+                          className="button ghost small"
+                          onClick={() => handleOpenFieldManagementModal(row.id)}
+                          disabled={isTodayCollectionClosed}
+                        >
+                          Cobro en Ruta
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -671,6 +965,73 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
           </table>
         </div>
       </section>
+
+      {fieldManagementModalClientId && (() => {
+        const row = rows.find((item) => item.id === fieldManagementModalClientId) ?? baseRows.find((item) => item.id === fieldManagementModalClientId) ?? null;
+        if (!row) return null;
+        const draft = fieldManagementDraftByClient[row.id] ?? {
+          type: collectionStatusByClient[row.id]?.managementType ?? "",
+          amount: collectionStatusByClient[row.id]?.managementAmount ? String(collectionStatusByClient[row.id]?.managementAmount) : "",
+          comment: collectionStatusByClient[row.id]?.managementComment ?? ""
+        };
+        const error = fieldManagementErrorByClient[row.id] ?? "";
+        return (
+          <div className="modal-overlay">
+            <div className="modal ar-detail-modal ar-field-management-modal">
+              <div className="modal-header">
+                <h2>Cobro en Ruta - {row.unitId}</h2>
+                <button type="button" className="modal-close" onClick={() => setFieldManagementModalClientId(null)}>X</button>
+              </div>
+              <div className="modal-body">
+                <div className="ar-detail-grid">
+                  <div><span className="hint">Unidad</span><p><strong>{row.unitId}</strong></p></div>
+                  <div><span className="hint">Cliente</span><p><strong>{row.name}</strong></p></div>
+                  <div><span className="hint">Pendiente</span><p className="amount-debt">{pendingSummaryText(row.totalPending, row.rentAmount)}</p></div>
+                  <div><span className="hint">Ult. pago</span><p>{row.lastPaymentDate ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) : "Sin pagos"}</p></div>
+                </div>
+                <div className="ar-field-management-box ar-field-management-box--modal">
+                  <label className="ar-field-management-label">
+                    Tipo de gestion
+                    <select
+                      value={draft.type}
+                      onChange={(event) => handleFieldManagementDraftChange(row.id, { type: event.target.value as FieldManagementType | "" })}
+                    >
+                      <option value="">Seleccionar</option>
+                      <option value="solo_cobrar">Solo cobrar</option>
+                      <option value="cobrar_o_quitar">Cobrar o quitar</option>
+                    </select>
+                  </label>
+                  <label className="ar-field-management-label">
+                    Monto a pagar
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={draft.amount}
+                      onChange={(event) => handleFieldManagementDraftChange(row.id, { amount: event.target.value })}
+                      placeholder="0.00"
+                    />
+                  </label>
+                  <label className="ar-field-management-label">
+                    Comentario (max 25)
+                    <input
+                      type="text"
+                      maxLength={25}
+                      value={draft.comment}
+                      onChange={(event) => handleFieldManagementDraftChange(row.id, { comment: event.target.value })}
+                    />
+                  </label>
+                  {error ? <span className="hint error-text">{error}</span> : null}
+                </div>
+              </div>
+              <div className="modal-actions ar-detail-actions">
+                <button type="button" className="button ghost" onClick={() => setFieldManagementModalClientId(null)}>Cancelar</button>
+                <button type="button" className="button primary" onClick={() => handleSaveFieldManagement(row.id)}>Guardar cobro en ruta</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {selectedDetailRow && <div className="modal-overlay"><div className="modal ar-detail-modal"><div className="modal-header"><h2>Detalle de cuenta - {selectedDetailRow.unitId}</h2><button type="button" className="modal-close" onClick={() => setSelectedDetailRow(null)}>X</button></div><div className="modal-body"><div className="ar-detail-grid"><div><span className="hint">Cliente</span><p><strong>{selectedDetailRow.name}</strong></p></div><div><span className="hint">Cedula</span><p>{selectedDetailRow.cedula}</p></div><div><span className="hint">Unidad</span><p>{selectedDetailRow.unitId}</p></div><div><span className="hint">Grupo</span><p>{selectedDetailRow.group || "-"}</p></div><div><span className="hint">Datos contrato</span><p>{PLAN_LABEL[selectedDetailRow.plan]} | Total contrato: {formatCurrency(selectedDetailRow.contractTotal)}</p></div><div><span className="hint">Proxima fecha pago</span><p>{selectedDetailRow.nextDueDate ? formatDate(new Date(`${selectedDetailRow.nextDueDate}T12:00:00`)) : "-"}</p></div><div><span className="hint">Saldo vencido</span><p className="amount-debt">{formatCurrency(selectedDetailRow.overdueBalance)}</p></div><div><span className="hint">Total pendiente</span><p className="amount-debt">{formatCurrency(selectedDetailRow.totalPending)}</p></div></div></div><div className="modal-actions ar-detail-actions"><button type="button" className="button ghost" onClick={() => setSelectedDetailRow(null)}>Cerrar</button></div></div></div>}
     </>
