@@ -103,7 +103,6 @@ const INITIAL_EXPORT_FIELDS: ExportField[] = [
   { key: "state", label: "Estado", enabled: true }
 ];
 
-const COLLECTION_STATUS_KEY = "cobrapp.module3.street_management.v1";
 const COLLECTION_CLOSURES_KEY = "cobrapp.module3.collection_closures.v1";
 
 function renderSortIcon(active: boolean, direction: SortDirection): string {
@@ -297,15 +296,12 @@ export default function ReceivablesPage({
   }, []);
 
   useEffect(() => {
-    const localSerialized = JSON.stringify(collectionStatusByClient);
-    const parsed = streetManagementData
-      ? parseCollectionStatusMapFromStorage(JSON.stringify(streetManagementData))
-      : parseCollectionStatusMapFromStorage(window.localStorage.getItem(COLLECTION_STATUS_KEY));
+    const parsed = parseCollectionStatusMapFromStorage(JSON.stringify(streetManagementData ?? {}));
     const incomingSerialized = JSON.stringify(parsed);
-    if (streetPersistPendingRef.current && incomingSerialized !== localSerialized) return;
+    if (streetPersistPendingRef.current && incomingSerialized !== lastStreetSnapshotRef.current) return;
     setCollectionStatusByClient(parsed);
     lastStreetSnapshotRef.current = incomingSerialized;
-  }, [streetManagementData, collectionStatusByClient]);
+  }, [streetManagementData]);
 
   useEffect(() => {
     const serialized = JSON.stringify(collectionStatusByClient);
@@ -322,7 +318,6 @@ export default function ReceivablesPage({
             return;
           }
         }
-        window.localStorage.setItem(COLLECTION_STATUS_KEY, serialized);
         lastStreetSnapshotRef.current = serialized;
         streetPersistPendingRef.current = false;
       })();
