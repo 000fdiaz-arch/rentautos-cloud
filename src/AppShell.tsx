@@ -132,6 +132,30 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     return `{${keys.map((key) => `${JSON.stringify(key)}:${stableSerialize(row[key])}`).join(",")}}`;
   }
 
+  function toStreetRecordTimestamp(value: unknown): number {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
+    const row = value as Record<string, unknown>;
+    const updatedAt = typeof row.updatedAt === "string" ? Date.parse(row.updatedAt) : Number.NaN;
+    const managementUpdatedAt = typeof row.managementUpdatedAt === "string" ? Date.parse(row.managementUpdatedAt) : Number.NaN;
+    const updatedAtMs = Number.isFinite(updatedAt) ? updatedAt : 0;
+    const managementUpdatedAtMs = Number.isFinite(managementUpdatedAt) ? managementUpdatedAt : 0;
+    return Math.max(updatedAtMs, managementUpdatedAtMs);
+  }
+
+  function mergeStreetManagementByTimestamp(
+    current: Record<string, unknown>,
+    incoming: Record<string, unknown>
+  ): Record<string, unknown> {
+    const merged: Record<string, unknown> = { ...current };
+    for (const [clientId, incomingValue] of Object.entries(incoming)) {
+      const currentValue = merged[clientId];
+      const incomingTs = toStreetRecordTimestamp(incomingValue);
+      const currentTs = toStreetRecordTimestamp(currentValue);
+      if (incomingTs >= currentTs) merged[clientId] = incomingValue;
+    }
+    return merged;
+  }
+
   function handleStartCashClientPayment(payload: {
     dateApplied: string;
     clientId: string;
@@ -263,11 +287,14 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           const data = row?.data;
           if (!data || typeof data !== "object" || Array.isArray(data)) return;
           const nextData = data as Record<string, unknown>;
-          const incomingSnapshot = stableSerialize(nextData);
-          if (incomingSnapshot === lastStreetManagementSnapshotRef.current) return;
-          lastStreetManagementSnapshotRef.current = incomingSnapshot;
-          setStreetManagementData(nextData);
-          recalculateRouteCollectionCount(nextData);
+          setStreetManagementData((current) => {
+            const mergedData = mergeStreetManagementByTimestamp(current, nextData);
+            const incomingSnapshot = stableSerialize(mergedData);
+            if (incomingSnapshot === lastStreetManagementSnapshotRef.current) return current;
+            lastStreetManagementSnapshotRef.current = incomingSnapshot;
+            recalculateRouteCollectionCount(mergedData);
+            return mergedData;
+          });
           setLastSyncAt(new Date().toLocaleTimeString());
         }
       )
@@ -297,13 +324,17 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             loadCloudStreetManagement(cloudDataUserId),
             loadCloudCollectionClosures(cloudDataUserId)
           ]);
-          const incomingSnapshot = stableSerialize(streetManagement);
-          if (incomingSnapshot !== lastStreetManagementSnapshotRef.current) {
-            lastStreetManagementSnapshotRef.current = incomingSnapshot;
-            setStreetManagementData(streetManagement);
-          }
+          setStreetManagementData((current) => {
+            const mergedData = mergeStreetManagementByTimestamp(current, streetManagement);
+            const incomingSnapshot = stableSerialize(mergedData);
+            if (incomingSnapshot !== lastStreetManagementSnapshotRef.current) {
+              lastStreetManagementSnapshotRef.current = incomingSnapshot;
+              recalculateRouteCollectionCount(mergedData);
+              return mergedData;
+            }
+            return current;
+          });
           localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(collectionClosures));
-          recalculateRouteCollectionCount(streetManagement);
         } catch (error) {
           console.error("No se pudo refrescar Cobro en Ruta desde nube.", error);
         }
@@ -463,11 +494,12 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       return true;
     }
     try {
+      const mergedNext = mergeStreetManagementByTimestamp(streetManagementData, next);
       setSyncStatus("syncing");
-      await saveCloudStreetManagement(cloudDataUserId, next);
-      lastStreetManagementSnapshotRef.current = stableSerialize(next);
-      setStreetManagementData(next);
-      recalculateRouteCollectionCount(next);
+      await saveCloudStreetManagement(cloudDataUserId, mergedNext);
+      lastStreetManagementSnapshotRef.current = stableSerialize(mergedNext);
+      setStreetManagementData(mergedNext);
+      recalculateRouteCollectionCount(mergedNext);
       setHasPendingChanges(true);
       setSyncStatus("ok");
       setSyncErrorMessage("");
