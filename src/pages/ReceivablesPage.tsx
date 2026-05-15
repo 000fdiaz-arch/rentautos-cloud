@@ -23,6 +23,7 @@ type Props = {
   clients: Client[];
   payments: Payment[];
   hideCollectedThisMonth?: boolean;
+  onStreetManagementPersist?: (value: Record<string, unknown>) => Promise<boolean> | boolean;
 };
 
 type DashboardFilter =
@@ -227,7 +228,7 @@ function parseCollectionClosuresFromStorage(raw: string | null): CollectionClosu
   }
 }
 
-export default function ReceivablesPage({ clients, payments, hideCollectedThisMonth = false }: Props) {
+export default function ReceivablesPage({ clients, payments, hideCollectedThisMonth = false, onStreetManagementPersist }: Props) {
   const [now, setNow] = useState<Date>(() => new Date());
   const [filters, setFilters] = useState<ReceivableFilters>(DEFAULT_RECEIVABLE_FILTERS);
   const [sortField, setSortField] = useState<ReceivableSortField>("unitId");
@@ -255,6 +256,8 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
 
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const subActionsRowRef = useRef<HTMLDivElement>(null);
+  const persistStreetTimerRef = useRef<number | null>(null);
+  const lastStreetSnapshotRef = useRef<string>("");
 
   useEffect(() => {
     const timerId = window.setInterval(() => setNow(new Date()), 60_000);
@@ -286,12 +289,33 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
   }, []);
 
   useEffect(() => {
-    setCollectionStatusByClient(parseCollectionStatusMapFromStorage(window.localStorage.getItem(COLLECTION_STATUS_KEY)));
+    const parsed = parseCollectionStatusMapFromStorage(window.localStorage.getItem(COLLECTION_STATUS_KEY));
+    setCollectionStatusByClient(parsed);
+    lastStreetSnapshotRef.current = JSON.stringify(parsed);
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(COLLECTION_STATUS_KEY, JSON.stringify(collectionStatusByClient));
-  }, [collectionStatusByClient]);
+    const serialized = JSON.stringify(collectionStatusByClient);
+    window.localStorage.setItem(COLLECTION_STATUS_KEY, serialized);
+    if (serialized === lastStreetSnapshotRef.current) return;
+
+    if (persistStreetTimerRef.current) window.clearTimeout(persistStreetTimerRef.current);
+    persistStreetTimerRef.current = window.setTimeout(() => {
+      void (async () => {
+        if (onStreetManagementPersist) {
+          const ok = await onStreetManagementPersist(collectionStatusByClient as Record<string, unknown>);
+          if (ok === false) return;
+        }
+        lastStreetSnapshotRef.current = serialized;
+      })();
+    }, 400);
+  }, [collectionStatusByClient, onStreetManagementPersist]);
+
+  useEffect(() => {
+    return () => {
+      if (persistStreetTimerRef.current) window.clearTimeout(persistStreetTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     setCollectionClosuresByDate(parseCollectionClosuresFromStorage(window.localStorage.getItem(COLLECTION_CLOSURES_KEY)));

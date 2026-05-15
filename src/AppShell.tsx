@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ClientsPage from "./pages/ClientsPage";
 import PaymentsPage from "./pages/PaymentsPage";
 import ReceivablesPage from "./pages/ReceivablesPage";
 import SettingsPage from "./pages/SettingsPage";
+import CashClosingPage from "./pages/CashClosingPage";
 import {
   loadClients,
   loadPayments,
@@ -25,7 +26,8 @@ import {
   loadCloudPayments,
   loadCloudStreetManagement,
   saveCloudClients,
-  saveCloudPayments
+  saveCloudPayments,
+  saveCloudStreetManagement
 } from "./cloudData";
 import { disableCloudMirror, flushCloudMirror, initializeCloudMirror } from "./cloudMirror";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
@@ -41,7 +43,7 @@ import {
 import type { BankRule, Client, LateFeeSettings, OtherChargesRetentionByClient, Payment } from "./types";
 import "./styles.css";
 
-type AppPage = "clients" | "payments" | "receivables" | "settings";
+type AppPage = "clients" | "payments" | "receivables" | "settings" | "cash_closing";
 
 type AppShellProps = {
   userId?: string;
@@ -75,6 +77,14 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const [lastDailyBackupKey, setLastDailyBackupKey] = useState<string>("");
   const [cloudReloadTick, setCloudReloadTick] = useState<number>(0);
   const [routeCollectionCount, setRouteCollectionCount] = useState<number>(0);
+  const [cashPaymentPrefill, setCashPaymentPrefill] = useState<{
+    dateApplied: string;
+    clientId: string;
+    reference: string;
+    amountReceived: string;
+    token: number;
+  } | null>(null);
+  const lastStreetManagementLocalWriteAtRef = useRef<number>(0);
 
   function parseLocalJson(key: string, fallback: unknown): unknown {
     try {
@@ -107,6 +117,16 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     } catch {
       setRouteCollectionCount(0);
     }
+  }
+
+  function handleStartCashClientPayment(payload: {
+    dateApplied: string;
+    clientId: string;
+    reference: string;
+    amountReceived: string;
+  }): void {
+    setCashPaymentPrefill({ ...payload, token: Date.now() });
+    setPage("payments");
   }
 
   function buildBackupExtraData(): BackupExtraData {
@@ -229,7 +249,9 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             loadCloudStreetManagement(cloudDataUserId),
             loadCloudCollectionClosures(cloudDataUserId)
           ]);
-          localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(streetManagement));
+          if (Date.now() - lastStreetManagementLocalWriteAtRef.current > 15000) {
+            localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(streetManagement));
+          }
           localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(collectionClosures));
           recalculateRouteCollectionCount();
         } catch (error) {
@@ -347,6 +369,28 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     setOtherChargesRetentionByClient(next);
     saveOtherChargesRetentionByClient(next);
     setHasPendingChanges(true);
+  }
+
+  async function persistStreetManagement(next: Record<string, unknown>): Promise<boolean> {
+    localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(next));
+    recalculateRouteCollectionCount();
+    lastStreetManagementLocalWriteAtRef.current = Date.now();
+    setHasPendingChanges(true);
+
+    if (!cloudDataUserId || !cloudReady) return true;
+    try {
+      setSyncStatus("syncing");
+      await saveCloudStreetManagement(cloudDataUserId, next);
+      setSyncStatus("ok");
+      setSyncErrorMessage("");
+      setLastSyncAt(new Date().toLocaleTimeString());
+      return true;
+    } catch (error) {
+      console.error("No se pudo guardar Estado Cobranza en cloud.", error);
+      setSyncStatus("error");
+      setSyncErrorMessage("No se pudo guardar Estado Cobranza en nube. Se mantiene local y se reintentara.");
+      return false;
+    }
   }
 
   async function validateBackupFile(file: File): Promise<BackupImportReport> {
@@ -517,6 +561,15 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
                 Configuraciones
               </button>
             )}
+            {!isReadOnlyReceivables && (
+              <button
+                type="button"
+                className={`nav-tab ${page === "cash_closing" ? "nav-tab--active" : ""}`}
+                onClick={() => setPage("cash_closing")}
+              >
+                Cuadre de Caja
+              </button>
+            )}
           </div>
 
           <div className="backup-nav-zone">
@@ -571,6 +624,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             payments={payments}
             onPaymentsChange={persistPayments}
             onCashClose={() => void runBackup("cash_closing", true)}
+            quickCashPrefill={cashPaymentPrefill}
+            onQuickCashPrefillConsumed={() => setCashPaymentPrefill(null)}
           />
         )}
         {page === "receivables" && (
@@ -578,6 +633,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             clients={clients}
             payments={payments}
             hideCollectedThisMonth={isReadOnlyReceivables}
+            onStreetManagementPersist={persistStreetManagement}
           />
         )}
         {page === "settings" && (
@@ -600,6 +656,13 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             backupStatus={backupStatus}
             hasPendingChanges={hasPendingChanges}
             lastBackupAt={lastBackupAt}
+          />
+        )}
+        {page === "cash_closing" && (
+          <CashClosingPage
+            clients={clients}
+            payments={payments}
+            onStartCashClientPayment={handleStartCashClientPayment}
           />
         )}
       </main>
