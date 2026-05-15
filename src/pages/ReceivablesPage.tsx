@@ -265,6 +265,7 @@ export default function ReceivablesPage({
   const subActionsRowRef = useRef<HTMLDivElement>(null);
   const persistStreetTimerRef = useRef<number | null>(null);
   const lastStreetSnapshotRef = useRef<string>("");
+  const streetPersistPendingRef = useRef<boolean>(false);
 
   useEffect(() => {
     const timerId = window.setInterval(() => setNow(new Date()), 60_000);
@@ -296,26 +297,34 @@ export default function ReceivablesPage({
   }, []);
 
   useEffect(() => {
+    const localSerialized = JSON.stringify(collectionStatusByClient);
     const parsed = streetManagementData
       ? parseCollectionStatusMapFromStorage(JSON.stringify(streetManagementData))
       : parseCollectionStatusMapFromStorage(window.localStorage.getItem(COLLECTION_STATUS_KEY));
+    const incomingSerialized = JSON.stringify(parsed);
+    if (streetPersistPendingRef.current && incomingSerialized !== localSerialized) return;
     setCollectionStatusByClient(parsed);
-    lastStreetSnapshotRef.current = JSON.stringify(parsed);
-  }, [streetManagementData]);
+    lastStreetSnapshotRef.current = incomingSerialized;
+  }, [streetManagementData, collectionStatusByClient]);
 
   useEffect(() => {
     const serialized = JSON.stringify(collectionStatusByClient);
     if (serialized === lastStreetSnapshotRef.current) return;
+    streetPersistPendingRef.current = true;
 
     if (persistStreetTimerRef.current) window.clearTimeout(persistStreetTimerRef.current);
     persistStreetTimerRef.current = window.setTimeout(() => {
       void (async () => {
         if (onStreetManagementPersist) {
           const ok = await onStreetManagementPersist(collectionStatusByClient as Record<string, unknown>);
-          if (ok === false) return;
+          if (ok === false) {
+            streetPersistPendingRef.current = false;
+            return;
+          }
         }
         window.localStorage.setItem(COLLECTION_STATUS_KEY, serialized);
         lastStreetSnapshotRef.current = serialized;
+        streetPersistPendingRef.current = false;
       })();
     }, 100);
   }, [collectionStatusByClient, onStreetManagementPersist]);
