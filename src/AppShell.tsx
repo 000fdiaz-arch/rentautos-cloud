@@ -29,6 +29,7 @@ import {
   saveCloudPayments,
   saveCloudStreetManagement
 } from "./cloudData";
+import { supabase } from "./lib/supabase";
 import { disableCloudMirror, flushCloudMirror, initializeCloudMirror } from "./cloudMirror";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
 import {
@@ -241,8 +242,48 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   }, []);
 
   useEffect(() => {
-    if (!cloudDataUserId || !cloudReady) return;
-    const timer = window.setInterval(() => {
+    if (!cloudDataUserId || !cloudReady || !supabase) return;
+
+    const channel = supabase
+      .channel(`receivables-live-${cloudDataUserId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "street_management_cloud",
+          filter: `user_id=eq.${cloudDataUserId}`
+        },
+        (payload) => {
+          const row = payload.new as { data?: unknown } | null;
+          const data = row?.data;
+          if (!data || typeof data !== "object" || Array.isArray(data)) return;
+          if (Date.now() - lastStreetManagementLocalWriteAtRef.current <= 15000) return;
+          localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(data));
+          recalculateRouteCollectionCount();
+          setLastSyncAt(new Date().toLocaleTimeString());
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "collection_closures_cloud",
+          filter: `user_id=eq.${cloudDataUserId}`
+        },
+        (payload) => {
+          const row = payload.new as { data?: unknown } | null;
+          const data = row?.data;
+          if (!data || typeof data !== "object" || Array.isArray(data)) return;
+          localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(data));
+          setLastSyncAt(new Date().toLocaleTimeString());
+        }
+      )
+      .subscribe();
+
+    // Fallback poll in case realtime is briefly interrupted.
+    const fallbackTimer = window.setInterval(() => {
       void (async () => {
         try {
           const [streetManagement, collectionClosures] = await Promise.all([
@@ -258,8 +299,12 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           console.error("No se pudo refrescar Cobro en Ruta desde nube.", error);
         }
       })();
-    }, 5000);
-    return () => window.clearInterval(timer);
+    }, 30000);
+
+    return () => {
+      window.clearInterval(fallbackTimer);
+      void supabase.removeChannel(channel);
+    };
   }, [cloudDataUserId, cloudReady]);
 
   useEffect(() => {

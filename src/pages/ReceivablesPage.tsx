@@ -308,7 +308,7 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
         }
         lastStreetSnapshotRef.current = serialized;
       })();
-    }, 400);
+    }, 100);
   }, [collectionStatusByClient, onStreetManagementPersist]);
 
   useEffect(() => {
