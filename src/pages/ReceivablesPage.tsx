@@ -1242,7 +1242,6 @@ export default function ReceivablesPage({
                 const storedComment = collectionStatusByClient[row.id]?.comment ?? "";
                 const sourceClient = clients.find((client) => client.id === row.id);
                 const operationalStatus = sourceClient?.status ?? "activo";
-                const isSavingStatus = !!statusSavingByClient[row.id];
                 return (
                   <tr key={row.id} className={collectionStatusByClient[row.id]?.managementType ? "ar-row--route" : ""}>
                     <td><strong className="ar-unit-id">{row.unitId}</strong></td>
@@ -1271,7 +1270,7 @@ export default function ReceivablesPage({
                               onClick={() => handleRemoveFieldManagement(row.id)}
                               aria-label={`Quitar cobro en ruta de ${row.unitId}`}
                               title="Quitar de cobro en ruta"
-                              disabled={isTodayCollectionClosed || isSavingStatus}
+                              disabled={isTodayCollectionClosed}
                             >
                               x
                             </button>
@@ -1281,7 +1280,7 @@ export default function ReceivablesPage({
                           className="ar-collection-select"
                           value={effectiveStatus}
                           onChange={(event) => handleCollectionStatusChange(row.id, event.target.value)}
-                          disabled={isTodayCollectionClosed || isSavingStatus}
+                          disabled={isTodayCollectionClosed}
                         >
                           <option value="">Seleccionar</option>
                           {COLLECTION_STATUS_OPTIONS.map((option) => (
@@ -1296,7 +1295,7 @@ export default function ReceivablesPage({
                             placeholder="Comentario (max 5)"
                             value={storedComment}
                             onChange={(event) => handleCallLaterCommentChange(row.id, event.target.value)}
-                            disabled={isTodayCollectionClosed || isSavingStatus}
+                            disabled={isTodayCollectionClosed}
                           />
                         )}
                         {autoPaid && !hasManualStatus && (
@@ -1313,7 +1312,7 @@ export default function ReceivablesPage({
                           type="button"
                           className="button ghost small"
                           onClick={() => handleOpenFieldManagementModal(row.id)}
-                          disabled={isTodayCollectionClosed || isSavingStatus}
+                          disabled={isTodayCollectionClosed}
                         >
                           Cobro en Ruta
                         </button>
