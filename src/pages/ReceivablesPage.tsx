@@ -155,6 +155,12 @@ function normalizeFieldManagementComment(value: string): string {
   return value.slice(0, 25);
 }
 
+function toTimestamp(value: string | undefined): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function formatDateForTitle(value: Date): string {
   const day = String(value.getDate()).padStart(2, "0");
   const month = String(value.getMonth() + 1).padStart(2, "0");
@@ -259,12 +265,15 @@ export default function ReceivablesPage({
     Record<string, { type: FieldManagementType | ""; amount: string; comment: string }>
   >({});
   const [fieldManagementErrorByClient, setFieldManagementErrorByClient] = useState<Record<string, string>>({});
+  const [statusSavingByClient, setStatusSavingByClient] = useState<Record<string, boolean>>({});
 
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const subActionsRowRef = useRef<HTMLDivElement>(null);
   const persistStreetTimerRef = useRef<number | null>(null);
   const lastStreetSnapshotRef = useRef<string>("");
   const streetPersistPendingRef = useRef<boolean>(false);
+  const optimisticStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
+  const saveTokenByClientRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     const timerId = window.setInterval(() => setNow(new Date()), 60_000);
@@ -297,9 +306,19 @@ export default function ReceivablesPage({
 
   useEffect(() => {
     const parsed = parseCollectionStatusMapFromStorage(JSON.stringify(streetManagementData ?? {}));
-    const incomingSerialized = JSON.stringify(parsed);
+    const merged: Record<string, CollectionStatusRecord> = { ...parsed };
+    const optimistic = optimisticStatusByClientRef.current;
+    for (const [clientId, optimisticRecord] of Object.entries(optimistic)) {
+      const incoming = merged[clientId];
+      if (!incoming || toTimestamp(incoming.updatedAt) < toTimestamp(optimisticRecord.updatedAt)) {
+        merged[clientId] = optimisticRecord;
+        continue;
+      }
+      delete optimistic[clientId];
+    }
+    const incomingSerialized = JSON.stringify(merged);
     if (streetPersistPendingRef.current && incomingSerialized !== lastStreetSnapshotRef.current) return;
-    setCollectionStatusByClient(parsed);
+    setCollectionStatusByClient(merged);
     lastStreetSnapshotRef.current = incomingSerialized;
   }, [streetManagementData]);
 
@@ -311,14 +330,29 @@ export default function ReceivablesPage({
     if (persistStreetTimerRef.current) window.clearTimeout(persistStreetTimerRef.current);
     persistStreetTimerRef.current = window.setTimeout(() => {
       void (async () => {
+        const saveTokenSnapshot = { ...saveTokenByClientRef.current };
         if (onStreetManagementPersist) {
           const ok = await onStreetManagementPersist(collectionStatusByClient as Record<string, unknown>);
           if (ok === false) {
+            setStatusSavingByClient((current) => {
+              const next = { ...current };
+              for (const [clientId, token] of Object.entries(saveTokenSnapshot)) {
+                if (saveTokenByClientRef.current[clientId] === token) next[clientId] = false;
+              }
+              return next;
+            });
             streetPersistPendingRef.current = false;
             return;
           }
         }
         lastStreetSnapshotRef.current = serialized;
+        setStatusSavingByClient((current) => {
+          const next = { ...current };
+          for (const [clientId, token] of Object.entries(saveTokenSnapshot)) {
+            if (saveTokenByClientRef.current[clientId] === token) next[clientId] = false;
+          }
+          return next;
+        });
         streetPersistPendingRef.current = false;
       })();
     }, 100);
@@ -485,38 +519,50 @@ export default function ReceivablesPage({
     return "";
   }
 
+  function markClientStatusAsSaving(clientId: string): void {
+    saveTokenByClientRef.current[clientId] = (saveTokenByClientRef.current[clientId] ?? 0) + 1;
+    setStatusSavingByClient((current) => ({ ...current, [clientId]: true }));
+  }
+
   function handleCollectionStatusChange(clientId: string, nextStatus: string): void {
+    markClientStatusAsSaving(clientId);
     if (nextStatus !== "no_answer" && nextStatus !== "reminder" && nextStatus !== "call_later" && nextStatus !== "paid") {
       setCollectionStatusByClient((current) => {
         const next = { ...current };
         delete next[clientId];
+        delete optimisticStatusByClientRef.current[clientId];
         return next;
       });
       return;
     }
     setCollectionStatusByClient((current) => {
       const currentComment = current[clientId]?.comment ?? "";
+      const updatedRecord: CollectionStatusRecord = {
+        status: nextStatus,
+        comment: nextStatus === "call_later" ? normalizeComment(currentComment) : "",
+        updatedAt: new Date().toISOString()
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return {
         ...current,
-        [clientId]: {
-          status: nextStatus,
-          comment: nextStatus === "call_later" ? normalizeComment(currentComment) : "",
-          updatedAt: new Date().toISOString()
-        }
+        [clientId]: updatedRecord
       };
     });
   }
 
   function handleCallLaterCommentChange(clientId: string, value: string): void {
+    markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const currentStatus = current[clientId]?.status ?? "call_later";
+      const updatedRecord: CollectionStatusRecord = {
+        status: currentStatus,
+        comment: normalizeComment(value),
+        updatedAt: new Date().toISOString()
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return {
         ...current,
-        [clientId]: {
-          status: currentStatus,
-          comment: normalizeComment(value),
-          updatedAt: new Date().toISOString()
-        }
+        [clientId]: updatedRecord
       };
     });
   }
@@ -554,6 +600,7 @@ export default function ReceivablesPage({
   }
 
   function handleSaveFieldManagement(clientId: string): void {
+    markClientStatusAsSaving(clientId);
     const draft = fieldManagementDraftByClient[clientId] ?? { type: "", amount: "", comment: "" };
     if (draft.type !== "solo_cobrar" && draft.type !== "cobrar_o_quitar") {
       setFieldManagementErrorByClient((current) => ({ ...current, [clientId]: "Selecciona tipo de gestion." }));
@@ -567,17 +614,19 @@ export default function ReceivablesPage({
 
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
+      const updatedRecord: CollectionStatusRecord = {
+        status: previous?.status ?? "reminder",
+        comment: previous?.comment ?? "",
+        updatedAt: previous?.updatedAt ?? new Date().toISOString(),
+        managementType: draft.type,
+        managementAmount: parsedAmount,
+        managementComment: normalizeFieldManagementComment(draft.comment),
+        managementUpdatedAt: new Date().toISOString()
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return {
         ...current,
-        [clientId]: {
-          status: previous?.status ?? "reminder",
-          comment: previous?.comment ?? "",
-          updatedAt: previous?.updatedAt ?? new Date().toISOString(),
-          managementType: draft.type,
-          managementAmount: parsedAmount,
-          managementComment: normalizeFieldManagementComment(draft.comment),
-          managementUpdatedAt: new Date().toISOString()
-        }
+        [clientId]: updatedRecord
       };
     });
     setFieldManagementErrorByClient((current) => ({ ...current, [clientId]: "" }));
@@ -585,18 +634,21 @@ export default function ReceivablesPage({
   }
 
   function handleRemoveFieldManagement(clientId: string): void {
+    markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       if (!previous) return current;
+      const updatedRecord: CollectionStatusRecord = {
+        ...previous,
+        managementType: undefined,
+        managementAmount: undefined,
+        managementComment: "",
+        managementUpdatedAt: new Date().toISOString()
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return {
         ...current,
-        [clientId]: {
-          ...previous,
-          managementType: undefined,
-          managementAmount: undefined,
-          managementComment: "",
-          managementUpdatedAt: new Date().toISOString()
-        }
+        [clientId]: updatedRecord
       };
     });
   }
@@ -1190,6 +1242,7 @@ export default function ReceivablesPage({
                 const storedComment = collectionStatusByClient[row.id]?.comment ?? "";
                 const sourceClient = clients.find((client) => client.id === row.id);
                 const operationalStatus = sourceClient?.status ?? "activo";
+                const isSavingStatus = !!statusSavingByClient[row.id];
                 return (
                   <tr key={row.id} className={collectionStatusByClient[row.id]?.managementType ? "ar-row--route" : ""}>
                     <td><strong className="ar-unit-id">{row.unitId}</strong></td>
@@ -1218,7 +1271,7 @@ export default function ReceivablesPage({
                               onClick={() => handleRemoveFieldManagement(row.id)}
                               aria-label={`Quitar cobro en ruta de ${row.unitId}`}
                               title="Quitar de cobro en ruta"
-                              disabled={isTodayCollectionClosed}
+                              disabled={isTodayCollectionClosed || isSavingStatus}
                             >
                               x
                             </button>
@@ -1228,7 +1281,7 @@ export default function ReceivablesPage({
                           className="ar-collection-select"
                           value={effectiveStatus}
                           onChange={(event) => handleCollectionStatusChange(row.id, event.target.value)}
-                          disabled={isTodayCollectionClosed}
+                          disabled={isTodayCollectionClosed || isSavingStatus}
                         >
                           <option value="">Seleccionar</option>
                           {COLLECTION_STATUS_OPTIONS.map((option) => (
@@ -1243,7 +1296,7 @@ export default function ReceivablesPage({
                             placeholder="Comentario (max 5)"
                             value={storedComment}
                             onChange={(event) => handleCallLaterCommentChange(row.id, event.target.value)}
-                            disabled={isTodayCollectionClosed}
+                            disabled={isTodayCollectionClosed || isSavingStatus}
                           />
                         )}
                         {autoPaid && !hasManualStatus && (
@@ -1260,7 +1313,7 @@ export default function ReceivablesPage({
                           type="button"
                           className="button ghost small"
                           onClick={() => handleOpenFieldManagementModal(row.id)}
-                          disabled={isTodayCollectionClosed}
+                          disabled={isTodayCollectionClosed || isSavingStatus}
                         >
                           Cobro en Ruta
                         </button>
