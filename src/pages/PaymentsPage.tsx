@@ -242,6 +242,14 @@ type Props = {
   payments: Payment[];
   onPaymentsChange: (next: Payment[]) => void;
   onCashClose?: () => void;
+  quickCashPrefill?: {
+    dateApplied: string;
+    clientId: string;
+    reference: string;
+    amountReceived: string;
+    token: number;
+  } | null;
+  onQuickCashPrefillConsumed?: () => void;
 };
 
 type CollectionStatus = "no_answer" | "reminder" | "call_later" | "paid";
@@ -885,7 +893,9 @@ export default function PaymentsPage({
   onClientsChange,
   payments,
   onPaymentsChange,
-  onCashClose
+  onCashClose,
+  quickCashPrefill,
+  onQuickCashPrefillConsumed
 }: Props) {
   const [form, setForm] = useState<PaymentForm>({
     clientId: "",
@@ -972,6 +982,24 @@ export default function PaymentsPage({
   const pendingSectionRef = useRef<HTMLElement>(null);
   const pendingCardSectionRef = useRef<HTMLElement>(null);
   const historySectionRef = useRef<HTMLElement>(null);
+  const [pendingQuickCashSubmitToken, setPendingQuickCashSubmitToken] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!quickCashPrefill) return;
+    setIsRegisterOpen(true);
+    setForm((prev) => ({
+      ...prev,
+      dateApplied: quickCashPrefill.dateApplied || toDateKey(new Date()),
+      paymentMethod: "Efectivo",
+      clientId: quickCashPrefill.clientId || "",
+      reference: quickCashPrefill.reference || "",
+      amountReceived: quickCashPrefill.amountReceived || ""
+    }));
+    setClientSearch("");
+    setErrors([]);
+    setPendingQuickCashSubmitToken(quickCashPrefill.token);
+    onQuickCashPrefillConsumed?.();
+  }, [quickCashPrefill, onQuickCashPrefillConsumed]);
 
   function finalizeSuccessfulPayment(payment: Payment, options?: { openReceipt?: boolean }): void {
     if (options?.openReceipt) {
@@ -1025,6 +1053,16 @@ export default function PaymentsPage({
       manualOverrideForcedOtherCharges
     );
   }, [form.amountReceived, form.dateApplied, manualOtherChargesInput, otherChargesRetentionByClient, payments, selectedClient, manualOverrideForcedOtherCharges]);
+
+  useEffect(() => {
+    if (!pendingQuickCashSubmitToken) return;
+    if (!selectedClient) return;
+    const amount = parseFloat(form.amountReceived);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    handleConfirmPayment();
+    setPendingQuickCashSubmitToken(null);
+  }, [pendingQuickCashSubmitToken, selectedClient, form.amountReceived]);
+
   const isForcedOtherChargesRuleClient = useMemo(
     () => (
       selectedClient
@@ -2857,10 +2895,10 @@ export default function PaymentsPage({
     setReopenReason("");
   }
 
-  function handleConfirmPayment(): void {
+  function handleConfirmPayment(): boolean {
     const errs = validate();
-    if (errs.length > 0) { setErrors(errs); return; }
-    if (!selectedClient || !preview) return;
+    if (errs.length > 0) { setErrors(errs); return false; }
+    if (!selectedClient || !preview) return false;
     const amountReceived = roundMoney(parseFloat(form.amountReceived));
     if (form.paymentMethod === "Tarjeta") {
       const allocation = computeManualPaymentAllocation(
@@ -2961,7 +2999,7 @@ export default function PaymentsPage({
       });
       setManualOtherChargesInput({});
       setManualOverrideForcedOtherCharges(false);
-      return;
+      return true;
     }
     const allocation = computeManualPaymentAllocation(
       selectedClient,
@@ -3038,6 +3076,7 @@ export default function PaymentsPage({
     });
     setManualOtherChargesInput({});
     setManualOverrideForcedOtherCharges(false);
+    return true;
   }
 
   function handleDeletePayment(payment: Payment): void {
