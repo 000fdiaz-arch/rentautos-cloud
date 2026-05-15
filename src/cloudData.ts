@@ -225,6 +225,17 @@ function normalizeRecord(payload: unknown): Record<string, unknown> {
   return payload as Record<string, unknown>;
 }
 
+function normalizeCloudValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => normalizeCloudValue(item));
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  const next: Record<string, unknown> = {};
+  for (const key of Object.keys(record).sort((a, b) => a.localeCompare(b))) {
+    next[key] = normalizeCloudValue(record[key]);
+  }
+  return next;
+}
+
 export async function loadCloudStreetManagement(userId: string): Promise<Record<string, unknown>> {
   const client = getClient();
   const { data, error } = await client
@@ -238,9 +249,10 @@ export async function loadCloudStreetManagement(userId: string): Promise<Record<
 
 export async function saveCloudStreetManagement(userId: string, value: Record<string, unknown>): Promise<void> {
   const client = getClient();
+  const normalized = normalizeCloudValue(value) as Record<string, unknown>;
   const { error } = await client
     .from("street_management_cloud")
-    .upsert({ user_id: userId, data: value }, { onConflict: "user_id" });
+    .upsert({ user_id: userId, data: normalized }, { onConflict: "user_id" });
   if (error) throw error;
 }
 

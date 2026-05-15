@@ -86,7 +86,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     amountReceived: string;
     token: number;
   } | null>(null);
-  const lastStreetManagementLocalWriteAtRef = useRef<number>(0);
+  const lastStreetManagementSnapshotRef = useRef<string>("");
 
   function parseLocalJson(key: string, fallback: unknown): unknown {
     try {
@@ -118,6 +118,18 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     } catch {
       setRouteCollectionCount(0);
     }
+  }
+
+  function stableSerialize(value: unknown): string {
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => stableSerialize(item)).join(",")}]`;
+    }
+    if (!value || typeof value !== "object") {
+      return JSON.stringify(value);
+    }
+    const row = value as Record<string, unknown>;
+    const keys = Object.keys(row).sort((a, b) => a.localeCompare(b));
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableSerialize(row[key])}`).join(",")}}`;
   }
 
   function handleStartCashClientPayment(payload: {
@@ -207,6 +219,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         saveClients(cloudClientsData);
         savePayments(cloudPaymentsData);
         setStreetManagementData(cloudStreetManagement);
+        lastStreetManagementSnapshotRef.current = stableSerialize(cloudStreetManagement);
         localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(cloudCollectionClosures));
         recalculateRouteCollectionCount(cloudStreetManagement);
         setSyncStatus("ok");
@@ -249,9 +262,12 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           const row = payload.new as { data?: unknown } | null;
           const data = row?.data;
           if (!data || typeof data !== "object" || Array.isArray(data)) return;
-          if (Date.now() - lastStreetManagementLocalWriteAtRef.current <= 15000) return;
-          setStreetManagementData(data as Record<string, unknown>);
-          recalculateRouteCollectionCount(data as Record<string, unknown>);
+          const nextData = data as Record<string, unknown>;
+          const incomingSnapshot = stableSerialize(nextData);
+          if (incomingSnapshot === lastStreetManagementSnapshotRef.current) return;
+          lastStreetManagementSnapshotRef.current = incomingSnapshot;
+          setStreetManagementData(nextData);
+          recalculateRouteCollectionCount(nextData);
           setLastSyncAt(new Date().toLocaleTimeString());
         }
       )
@@ -281,7 +297,9 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             loadCloudStreetManagement(cloudDataUserId),
             loadCloudCollectionClosures(cloudDataUserId)
           ]);
-          if (Date.now() - lastStreetManagementLocalWriteAtRef.current > 15000) {
+          const incomingSnapshot = stableSerialize(streetManagement);
+          if (incomingSnapshot !== lastStreetManagementSnapshotRef.current) {
+            lastStreetManagementSnapshotRef.current = incomingSnapshot;
             setStreetManagementData(streetManagement);
           }
           localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(collectionClosures));
@@ -447,9 +465,9 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     try {
       setSyncStatus("syncing");
       await saveCloudStreetManagement(cloudDataUserId, next);
+      lastStreetManagementSnapshotRef.current = stableSerialize(next);
       setStreetManagementData(next);
       recalculateRouteCollectionCount(next);
-      lastStreetManagementLocalWriteAtRef.current = Date.now();
       setHasPendingChanges(true);
       setSyncStatus("ok");
       setSyncErrorMessage("");
