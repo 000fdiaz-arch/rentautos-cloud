@@ -389,6 +389,36 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     setHasPendingChanges(true);
   }
 
+  async function persistClientsAndPayments(nextClients: Client[], nextPayments: Payment[]): Promise<boolean> {
+    if (isReadOnlyReceivables) return false;
+    if (cloudDataUserId && !cloudReady) return false;
+    const previousClients = clients;
+    const previousPayments = payments;
+    setClients(nextClients);
+    setPayments(nextPayments);
+    if (cloudDataUserId) {
+      try {
+        setSyncStatus("syncing");
+        await saveCloudClients(cloudDataUserId, nextClients);
+        await saveCloudPayments(cloudDataUserId, nextPayments);
+        setSyncStatus("ok");
+        setSyncErrorMessage("");
+        setLastSyncAt(new Date().toLocaleTimeString());
+      } catch (err) {
+        console.error("No se pudo guardar clientes/pagos en cloud.", err);
+        setClients(previousClients);
+        setPayments(previousPayments);
+        setSyncStatus("error");
+        setSyncErrorMessage("No se pudo guardar clientes/pagos en nube. El cambio fue revertido.");
+        return false;
+      }
+    }
+    saveClients(nextClients);
+    savePayments(nextPayments);
+    setHasPendingChanges(true);
+    return true;
+  }
+
   function persistBankRules(next: BankRule[]): void {
     setBankRules(next);
     saveBankRules(next);
@@ -663,6 +693,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             onClientsChange={persistClients}
             payments={payments}
             onPaymentsChange={persistPayments}
+            onPersistClientPayment={persistClientsAndPayments}
             onCashClose={() => void runBackup("cash_closing", true)}
             quickCashPrefill={cashPaymentPrefill}
             onQuickCashPrefillConsumed={() => setCashPaymentPrefill(null)}

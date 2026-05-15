@@ -241,6 +241,7 @@ type Props = {
   onClientsChange: (next: Client[]) => void;
   payments: Payment[];
   onPaymentsChange: (next: Payment[]) => void;
+  onPersistClientPayment?: (nextClients: Client[], nextPayments: Payment[]) => Promise<boolean>;
   onCashClose?: () => void;
   quickCashPrefill?: {
     dateApplied: string;
@@ -893,6 +894,7 @@ export default function PaymentsPage({
   onClientsChange,
   payments,
   onPaymentsChange,
+  onPersistClientPayment,
   onCashClose,
   quickCashPrefill,
   onQuickCashPrefillConsumed
@@ -1059,9 +1061,18 @@ export default function PaymentsPage({
     if (!selectedClient) return;
     const amount = parseFloat(form.amountReceived);
     if (!Number.isFinite(amount) || amount <= 0) return;
-    handleConfirmPayment();
+    void handleConfirmPayment();
     setPendingQuickCashSubmitToken(null);
   }, [pendingQuickCashSubmitToken, selectedClient, form.amountReceived]);
+
+  async function persistClientPaymentState(nextClients: Client[], nextPayments: Payment[]): Promise<boolean> {
+    if (onPersistClientPayment) {
+      return onPersistClientPayment(nextClients, nextPayments);
+    }
+    onClientsChange(nextClients);
+    onPaymentsChange(nextPayments);
+    return true;
+  }
 
   const isForcedOtherChargesRuleClient = useMemo(
     () => (
@@ -2235,7 +2246,7 @@ export default function PaymentsPage({
     }
   }
 
-  function handleConfirmClassify(): void {
+  async function handleConfirmClassify(): Promise<void> {
     if (!pendingClassifyTarget || !pendingClassifyClientId) return;
     const client = clients.find((c) => c.id === pendingClassifyClientId);
     if (!client) return;
@@ -2334,8 +2345,11 @@ export default function PaymentsPage({
       };
     });
 
-    onClientsChange(updatedClients);
-    onPaymentsChange([...payments, payment]);
+    const saved = await persistClientPaymentState(updatedClients, [...payments, payment]);
+    if (!saved) {
+      setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
+      return;
+    }
     finalizeSuccessfulPayment(payment);
     const remainingNotified = removeOneMatchingNotified(notifiedPayments, client.id, item.amountReceived, item.dateApplied);
     setNotifiedPayments(remainingNotified);
@@ -2487,7 +2501,7 @@ export default function PaymentsPage({
     return { updatedClient, payment };
   }
 
-  function handleQuickApply(item: PendingBankItem): void {
+  async function handleQuickApply(item: PendingBankItem): Promise<void> {
     if (!item.suggestedClientId) return;
     const client = clients.find((c) => c.id === item.suggestedClientId);
     if (!client) return;
@@ -2509,8 +2523,11 @@ export default function PaymentsPage({
     }
     const { updatedClient, payment } = applyPendingItem(item, client);
     const updatedClients = clients.map((c) => (c.id === updatedClient.id ? updatedClient : c));
-    onClientsChange(updatedClients);
-    onPaymentsChange([...payments, payment]);
+    const saved = await persistClientPaymentState(updatedClients, [...payments, payment]);
+    if (!saved) {
+      setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
+      return;
+    }
     finalizeSuccessfulPayment(payment);
     const remainingNotified = removeOneMatchingNotified(notifiedPayments, client.id, item.amountReceived, item.dateApplied);
     setNotifiedPayments(remainingNotified);
@@ -2520,7 +2537,7 @@ export default function PaymentsPage({
     savePendingBankItems(next);
   }
 
-  function handleApplyAllHighSimilarity(): void {
+  async function handleApplyAllHighSimilarity(): Promise<void> {
     const highSim = pendingBankItems.filter((item) => {
       const { score } = getSimilaritySignals(item);
       if (score < 2) return false;
@@ -2569,8 +2586,11 @@ export default function PaymentsPage({
     const appliedFolios = new Set(newPayments.flatMap((p) => extractFoliosFromReference(p.reference ?? "")));
     const remainingPending = pendingBankItems.filter((i) => !appliedFolios.has(normalizeFolioToken(i.folio)));
 
-    onClientsChange([...updatedClientsMap.values()]);
-    onPaymentsChange([...payments, ...newPayments]);
+    const saved = await persistClientPaymentState([...updatedClientsMap.values()], [...payments, ...newPayments]);
+    if (!saved) {
+      setErrors(["No se pudo guardar pagos en nube. No se aplicaron cambios."]);
+      return;
+    }
     for (const payment of newPayments) {
       finalizeSuccessfulPayment(payment);
     }
@@ -2895,7 +2915,7 @@ export default function PaymentsPage({
     setReopenReason("");
   }
 
-  function handleConfirmPayment(): boolean {
+  async function handleConfirmPayment(): Promise<boolean> {
     const errs = validate();
     if (errs.length > 0) { setErrors(errs); return false; }
     if (!selectedClient || !preview) return false;
@@ -2979,8 +2999,11 @@ export default function PaymentsPage({
       };
       const nextPendingCardItems = [...pendingCardItems, pendingCard];
 
-      onClientsChange(updatedClients);
-      onPaymentsChange([...payments, cardPayment]);
+      const saved = await persistClientPaymentState(updatedClients, [...payments, cardPayment]);
+      if (!saved) {
+        setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
+        return false;
+      }
       setPendingCardItems(nextPendingCardItems);
       savePendingCardItems(nextPendingCardItems);
       setErrors([]);
@@ -3064,8 +3087,11 @@ export default function PaymentsPage({
       };
     });
 
-    onClientsChange(updatedClients);
-    onPaymentsChange([...payments, payment]);
+    const saved = await persistClientPaymentState(updatedClients, [...payments, payment]);
+    if (!saved) {
+      setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
+      return false;
+    }
     finalizeSuccessfulPayment(payment, { openReceipt: true });
     setForm({
       clientId: "",
@@ -3975,7 +4001,7 @@ export default function PaymentsPage({
           <button
             type="button"
             className="button primary"
-            onClick={handleConfirmPayment}
+            onClick={() => void handleConfirmPayment()}
             disabled={!form.clientId || !preview || isDateClosed(operationalDateKey)}
           >
             Confirmar pago y generar recibo
@@ -4270,7 +4296,7 @@ export default function PaymentsPage({
               const c = clients.find((cl) => cl.id === item.suggestedClientId);
               return c && !(c.otherCharges?.length);
             }) && (
-              <button type="button" className="button primary small" onClick={handleApplyAllHighSimilarity}>
+              <button type="button" className="button primary small" onClick={() => void handleApplyAllHighSimilarity()}>
                 Aplicar alta similitud
               </button>
             )}
@@ -4451,7 +4477,7 @@ export default function PaymentsPage({
                           <td style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.description}>{item.description}</td>
                           <td className="actions-cell">
                             {isHighSim && assignedClient && (
-                              <button type="button" className="button primary small" onClick={() => handleQuickApply(item)}>
+                              <button type="button" className="button primary small" onClick={() => void handleQuickApply(item)}>
                                 Aplicar
                               </button>
                             )}
@@ -4868,7 +4894,7 @@ export default function PaymentsPage({
               >
                 Cancelar
               </button>
-              <button type="button" className="button primary" disabled={!pendingClassifyClientId} onClick={handleConfirmClassify}>
+              <button type="button" className="button primary" disabled={!pendingClassifyClientId} onClick={() => void handleConfirmClassify()}>
                 Confirmar y registrar pago
               </button>
             </div>
