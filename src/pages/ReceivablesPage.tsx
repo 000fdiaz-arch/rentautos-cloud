@@ -23,6 +23,7 @@ type Props = {
   clients: Client[];
   payments: Payment[];
   hideCollectedThisMonth?: boolean;
+  streetManagementData?: Record<string, unknown>;
   onStreetManagementPersist?: (value: Record<string, unknown>) => Promise<boolean> | boolean;
 };
 
@@ -228,7 +229,13 @@ function parseCollectionClosuresFromStorage(raw: string | null): CollectionClosu
   }
 }
 
-export default function ReceivablesPage({ clients, payments, hideCollectedThisMonth = false, onStreetManagementPersist }: Props) {
+export default function ReceivablesPage({
+  clients,
+  payments,
+  hideCollectedThisMonth = false,
+  streetManagementData,
+  onStreetManagementPersist
+}: Props) {
   const [now, setNow] = useState<Date>(() => new Date());
   const [filters, setFilters] = useState<ReceivableFilters>(DEFAULT_RECEIVABLE_FILTERS);
   const [sortField, setSortField] = useState<ReceivableSortField>("unitId");
@@ -289,14 +296,15 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
   }, []);
 
   useEffect(() => {
-    const parsed = parseCollectionStatusMapFromStorage(window.localStorage.getItem(COLLECTION_STATUS_KEY));
+    const parsed = streetManagementData
+      ? parseCollectionStatusMapFromStorage(JSON.stringify(streetManagementData))
+      : parseCollectionStatusMapFromStorage(window.localStorage.getItem(COLLECTION_STATUS_KEY));
     setCollectionStatusByClient(parsed);
     lastStreetSnapshotRef.current = JSON.stringify(parsed);
-  }, []);
+  }, [streetManagementData]);
 
   useEffect(() => {
     const serialized = JSON.stringify(collectionStatusByClient);
-    window.localStorage.setItem(COLLECTION_STATUS_KEY, serialized);
     if (serialized === lastStreetSnapshotRef.current) return;
 
     if (persistStreetTimerRef.current) window.clearTimeout(persistStreetTimerRef.current);
@@ -306,6 +314,7 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
           const ok = await onStreetManagementPersist(collectionStatusByClient as Record<string, unknown>);
           if (ok === false) return;
         }
+        window.localStorage.setItem(COLLECTION_STATUS_KEY, serialized);
         lastStreetSnapshotRef.current = serialized;
       })();
     }, 100);
@@ -323,11 +332,10 @@ export default function ReceivablesPage({ clients, payments, hideCollectedThisMo
 
   useEffect(() => {
     const syncFromStorage = () => {
-      setCollectionStatusByClient(parseCollectionStatusMapFromStorage(window.localStorage.getItem(COLLECTION_STATUS_KEY)));
       setCollectionClosuresByDate(parseCollectionClosuresFromStorage(window.localStorage.getItem(COLLECTION_CLOSURES_KEY)));
     };
     const onStorage = (event: StorageEvent): void => {
-      if (event.key === COLLECTION_STATUS_KEY || event.key === COLLECTION_CLOSURES_KEY) syncFromStorage();
+      if (event.key === COLLECTION_CLOSURES_KEY) syncFromStorage();
     };
     window.addEventListener("storage", onStorage);
     const timer = window.setInterval(syncFromStorage, 3000);
