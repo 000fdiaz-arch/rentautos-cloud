@@ -56,7 +56,10 @@ async function exportToExcelWithStatusColors(
   sheetName: string,
   fileName: string,
   headers: string[],
-  body: (string | number)[][]
+  body: (string | number)[][],
+  options?: {
+    dropdownColumns?: Array<{ header: string; values: string[] }>;
+  }
 ): Promise<void> {
   const exceljs = await import("exceljs");
   const workbook = new exceljs.Workbook();
@@ -92,6 +95,24 @@ async function exportToExcelWithStatusColors(
           right: { style: "thin", color: { argb: palette.border } }
         };
       }
+    }
+  }
+
+  for (const dropdownColumn of options?.dropdownColumns ?? []) {
+    const columnIndex = headers.findIndex(
+      (header) => header.trim().toUpperCase() === dropdownColumn.header.trim().toUpperCase()
+    );
+    if (columnIndex === -1 || dropdownColumn.values.length === 0) continue;
+    const formulaValues = dropdownColumn.values.map((value) => value.replace(/"/g, '""')).join(",");
+    for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+      worksheet.getCell(rowNumber, columnIndex + 1).dataValidation = {
+        type: "list",
+        allowBlank: true,
+        formulae: [`"${formulaValues}"`],
+        showErrorMessage: true,
+        errorTitle: "Valor invalido",
+        error: "Selecciona una opcion de la lista."
+      };
     }
   }
 
@@ -168,7 +189,24 @@ export async function exportReceivablesToExcel(
     "Cuentas por Cobrar",
     `rentautos-cuentas-por-cobrar-${formatFileDate(now)}.xlsx`,
     headers,
-    body
+    body,
+    {
+      dropdownColumns: [
+        {
+          header: "ESTADO COBRANZA",
+          values: [
+            "Llamada no responde, se dejo mensaje.",
+            "Mensaje recordatorio.",
+            "Llamar mas tarde.",
+            "Pago confirmado."
+          ]
+        },
+        {
+          header: "COBRO EN RUTA",
+          values: ["SI", "NO"]
+        }
+      ]
+    }
   );
 }
 

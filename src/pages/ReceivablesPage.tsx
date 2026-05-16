@@ -35,7 +35,15 @@ type DashboardFilter =
   | "clientesMorosos"
   | "cobradoEsteMes";
 
-type ExportFieldKey = "unitId" | "name" | "rentAmount" | "pendingSummary" | "lastPaymentDate" | "state";
+type ExportFieldKey =
+  | "unitId"
+  | "name"
+  | "rentAmount"
+  | "pendingSummary"
+  | "lastPaymentDate"
+  | "state"
+  | "collectionStatus"
+  | "routeCollection";
 type ExportField = { key: ExportFieldKey; label: string; enabled: boolean };
 type CollectionStatusFilter = "all" | CollectionStatus;
 type GroupFilter = "all" | string;
@@ -100,7 +108,9 @@ const INITIAL_EXPORT_FIELDS: ExportField[] = [
   { key: "rentAmount", label: "Letra", enabled: true },
   { key: "pendingSummary", label: "Cuentas pendiente", enabled: true },
   { key: "lastPaymentDate", label: "Ultima fecha de pago", enabled: true },
-  { key: "state", label: "Estado", enabled: true }
+  { key: "state", label: "Estado", enabled: true },
+  { key: "collectionStatus", label: "ESTADO COBRANZA", enabled: true },
+  { key: "routeCollection", label: "COBRO EN RUTA", enabled: true }
 ];
 
 const COLLECTION_CLOSURES_KEY = "cobrapp.module3.collection_closures.v1";
@@ -654,18 +664,26 @@ export default function ReceivablesPage({
   }
 
   async function handleExportExcel() {
-    const headers = exportFields.filter((field) => field.enabled).map((field) => field.label);
-    if (headers.length === 0) return setExportError("Selecciona al menos una columna para exportar.");
+    const headers = ["Unidad", "Pendiente", "Ult. pago / Estado", "ESTADO COBRANZA", "COBRO EN RUTA"];
     setIsExporting(true);
     setExportError(null);
     try {
       await exportReceivablesToExcel(headers, rows.map((row) => headers.map((header) => {
+        const effectiveStatus = getEffectiveStatus(row);
+        const collectionStatusLabel = COLLECTION_STATUS_OPTIONS.find((option) => option.value === effectiveStatus)?.label ?? "Seleccionar";
         if (header === "Unidad") return row.unitId;
-        if (header === "Nombre") return row.name;
-        if (header === "Letra") return row.rentAmount;
-        if (header === "Cuentas pendiente") return pendingSummaryText(row.totalPending, row.rentAmount);
-        if (header === "Ultima fecha de pago") return row.lastPaymentDate ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) : "-";
-        return STATE_LABEL[row.state];
+        if (header === "Pendiente") {
+          return `${pendingSummaryText(row.totalPending, row.rentAmount)} | Letra: ${formatCurrency(row.rentAmount)} | ${row.name}`;
+        }
+        if (header === "Ult. pago / Estado") {
+          const sourceClient = clients.find((client) => client.id === row.id);
+          const operationalStatus = sourceClient?.status ?? "activo";
+          const lastPaymentLabel = row.lastPaymentDate ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) : "Sin pagos";
+          return `${lastPaymentLabel} | ${STATE_LABEL[row.state]} | ${clientOperationalStatusLabel(operationalStatus)}`;
+        }
+        if (header === "ESTADO COBRANZA") return collectionStatusLabel;
+        if (header === "COBRO EN RUTA") return hasRouteCollection(row) ? "SI" : "NO";
+        return "";
       })), now);
     } catch {
       setExportError("No se pudo exportar el archivo Excel.");
