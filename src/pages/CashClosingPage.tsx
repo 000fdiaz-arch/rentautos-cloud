@@ -1,6 +1,20 @@
-import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { formatCurrency } from "../format";
 import type { Client, Payment } from "../types";
+import PaymentReceipt from "../components/PaymentReceipt";
+import {
+  closeCashDay,
+  loadCashAudit,
+  loadCashCounts,
+  loadCashMovements,
+  loadCashSummary,
+  loadCashSummaryRange,
+  openCashDay,
+  reopenCashDay,
+  replaceCashCounts,
+  replaceCashMovements
+} from "../cashLedger";
+import { isSupabaseConfigured } from "../lib/supabase";
 
 type Movement = {
   id: string;
@@ -19,6 +33,8 @@ type DenominationRow = {
 type CashClosingPageProps = {
   clients: Client[];
   payments: Payment[];
+  appRole?: "admin" | "operador" | "lectura";
+  dataOwnerUserId?: string | null;
   onStartCashClientPayment?: (payload: {
     dateApplied: string;
     clientId: string;
@@ -38,9 +54,17 @@ function createDenominationRows(prefix: string, values: number[]): DenominationR
   return values.map((value) => ({ id: `${prefix}-${value}`, value, qty: 0 }));
 }
 
-export default function CashClosingPage({ clients, payments, onStartCashClientPayment }: CashClosingPageProps) {
+export default function CashClosingPage({
+  clients,
+  payments,
+  appRole = "lectura",
+  dataOwnerUserId,
+  onStartCashClientPayment
+}: CashClosingPageProps) {
+  const executiveReportRef = useRef<HTMLDivElement | null>(null);
+  const whatsappReportRef = useRef<HTMLDivElement | null>(null);
   const [cashDate, setCashDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [openingCash, setOpeningCash] = useState<number>(2289.07);
+  const [openingCash, setOpeningCash] = useState<number>(0);
   const [manualIncomeRows, setManualIncomeRows] = useState<Movement[]>([createMovement("mi-1")]);
   const [expenseRows, setExpenseRows] = useState<Movement[]>([
     { id: "e-1", detail: "Combustible B54", amount: 20, reference: "", actor: "" },
@@ -54,6 +78,35 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
   const [modalReference, setModalReference] = useState("");
   const [modalAmount, setModalAmount] = useState("");
   const [modalError, setModalError] = useState("");
+  const [showExecutivePreview, setShowExecutivePreview] = useState(false);
+  const [selectedReceiptPayment, setSelectedReceiptPayment] = useState<Payment | null>(null);
+  const [seedOpeningCash, setSeedOpeningCash] = useState<string>("");
+  const [closingNote, setClosingNote] = useState<string>("");
+  const [reopenNote, setReopenNote] = useState<string>("");
+  const [isDayInitialized, setIsDayInitialized] = useState<boolean>(false);
+  const [isDayClosed, setIsDayClosed] = useState<boolean>(false);
+  const [loadingDay, setLoadingDay] = useState<boolean>(false);
+  const [syncMessage, setSyncMessage] = useState<string>("");
+  const [viewTab, setViewTab] = useState<"operacion" | "conteo" | "reportes" | "auditoria">("operacion");
+  const [reportMode, setReportMode] = useState<"day" | "week" | "month">("day");
+  const [reportRows, setReportRows] = useState<Array<{
+    opening_date: string;
+    opening_balance: number;
+    income_total: number;
+    expense_total: number;
+    expected_balance: number;
+    difference_balance: number | null;
+    status: "open" | "closed";
+  }>>([]);
+  const [auditRows, setAuditRows] = useState<Array<{
+    id: number;
+    opening_date: string | null;
+    table_name: string;
+    action: string;
+    created_at: string;
+  }>>([]);
+  const isAdmin = appRole === "admin";
+  const isEditingLocked = isDayClosed;
 
   const clientCashPayments = useMemo(
     () => payments.filter((payment) => payment.dateApplied === cashDate && payment.paymentMethod === "Efectivo"),
@@ -79,6 +132,275 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
     return coins + bills;
   }, [coinRows, billRows]);
   const diff = realCash - expectedCash;
+  const exportDateSuffix = cashDate || new Date().toISOString().slice(0, 10);
+  const generatedAt = new Date().toLocaleString("es-PA");
+  const topManualIncomes = manualIncomeRows.filter((row) => row.amount > 0).slice(0, 8);
+  const topExpenses = expenseRows.filter((row) => row.amount > 0).slice(0, 8);
+  const whatsappIncomeDetails = topManualIncomes;
+  const whatsappExpenseDetails = topExpenses;
+  const topCoinRows = coinRows.filter((row) => row.qty > 0);
+  const topBillRows = billRows.filter((row) => row.qty > 0);
+  const topDifferenceRows = useMemo(
+    () =>
+      reportRows
+        .filter((row) => typeof row.difference_balance === "number" && row.difference_balance !== 0)
+        .sort((a, b) => Math.abs(Number(b.difference_balance || 0)) - Math.abs(Number(a.difference_balance || 0)))
+        .slice(0, 5),
+    [reportRows]
+  );
+  const reportTotals = useMemo(
+    () => reportRows.reduce(
+      (acc, row) => {
+        acc.opening += Number(row.opening_balance || 0);
+        acc.income += Number(row.income_total || 0);
+        acc.expense += Number(row.expense_total || 0);
+        acc.expected += Number(row.expected_balance || 0);
+        return acc;
+      },
+      { opening: 0, income: 0, expense: 0, expected: 0 }
+    ),
+    [reportRows]
+  );
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let active = true;
+    (async () => {
+      try {
+        const baseDate = new Date(`${cashDate}T12:00:00`);
+        const dayMs = 24 * 60 * 60 * 1000;
+        const from = new Date(baseDate);
+        const to = new Date(baseDate);
+        if (reportMode === "week") from.setTime(baseDate.getTime() - 6 * dayMs);
+        if (reportMode === "month") from.setTime(baseDate.getTime() - 29 * dayMs);
+        const toKey = to.toISOString().slice(0, 10);
+        const fromKey = from.toISOString().slice(0, 10);
+        const rows = await loadCashSummaryRange(fromKey, toKey, dataOwnerUserId);
+        if (!active) return;
+        setReportRows(rows);
+      } catch {
+        if (!active) return;
+        setReportRows([]);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [cashDate, reportMode, dataOwnerUserId]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !isAdmin) return;
+    let active = true;
+    (async () => {
+      try {
+        const rows = await loadCashAudit(cashDate, dataOwnerUserId);
+        if (!active) return;
+        setAuditRows(rows.map((row) => ({
+          id: row.id,
+          opening_date: row.opening_date,
+          table_name: row.table_name,
+          action: row.action,
+          created_at: row.created_at
+        })));
+      } catch {
+        if (!active) return;
+        setAuditRows([]);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [cashDate, dataOwnerUserId, isAdmin, syncMessage]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setSyncMessage("Supabase no configurado. Esta pantalla requiere conexion en nube.");
+      return;
+    }
+    let active = true;
+    setLoadingDay(true);
+    setSyncMessage("");
+    (async () => {
+      try {
+        const [summary, movements, counts] = await Promise.all([
+          loadCashSummary(cashDate, dataOwnerUserId),
+          loadCashMovements(cashDate, dataOwnerUserId),
+          loadCashCounts(cashDate, dataOwnerUserId)
+        ]);
+        if (!active) return;
+        if (!summary) {
+          setIsDayInitialized(false);
+          setIsDayClosed(false);
+          setOpeningCash(0);
+          setManualIncomeRows([createMovement("mi-1")]);
+          setExpenseRows([createMovement("e-1")]);
+          setCoinRows(createDenominationRows("c", COIN_VALUES));
+          setBillRows(createDenominationRows("b", BILL_VALUES));
+          return;
+        }
+        setIsDayInitialized(true);
+        setIsDayClosed(summary.status === "closed");
+        setOpeningCash(Number(summary.opening_balance || 0));
+        const incomeRows = movements
+          .filter((row) => row.movement_type === "income")
+          .map((row, index) => ({
+            id: row.id || `mi-${index + 1}`,
+            detail: row.description || "",
+            amount: Number(row.amount || 0),
+            reference: row.reference || "",
+            actor: ""
+          }));
+        const expenseRowsLoaded = movements
+          .filter((row) => row.movement_type === "expense")
+          .map((row, index) => ({
+            id: row.id || `e-${index + 1}`,
+            detail: row.description || "",
+            amount: Number(row.amount || 0),
+            reference: row.reference || "",
+            actor: ""
+          }));
+        setManualIncomeRows(incomeRows.length > 0 ? incomeRows : [createMovement("mi-1")]);
+        setExpenseRows(expenseRowsLoaded.length > 0 ? expenseRowsLoaded : [createMovement("e-1")]);
+        const coinMap = new Map<number, number>();
+        const billMap = new Map<number, number>();
+        counts.forEach((row) => {
+          if (row.denomination_type === "coin") coinMap.set(Number(row.denomination_value), Number(row.qty || 0));
+          if (row.denomination_type === "bill") billMap.set(Number(row.denomination_value), Number(row.qty || 0));
+        });
+        setCoinRows(createDenominationRows("c", COIN_VALUES).map((row) => ({ ...row, qty: coinMap.get(row.value) ?? 0 })));
+        setBillRows(createDenominationRows("b", BILL_VALUES).map((row) => ({ ...row, qty: billMap.get(row.value) ?? 0 })));
+      } catch (error) {
+        if (!active) return;
+        const message = error instanceof Error ? error.message : "No se pudo cargar la jornada de caja.";
+        setSyncMessage(message);
+      } finally {
+        if (active) setLoadingDay(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [cashDate, dataOwnerUserId]);
+
+  async function handleInitializeDay(): Promise<void> {
+    if (!isAdmin) {
+      setSyncMessage("Solo admin puede abrir caja.");
+      return;
+    }
+    const seed = Number(seedOpeningCash);
+    if (!Number.isFinite(seed) || seed < 0) {
+      setSyncMessage("Ingresa un saldo inicial valido (>= 0).");
+      return;
+    }
+    try {
+      setLoadingDay(true);
+      setSyncMessage("");
+      await openCashDay(cashDate, seed, "Apertura manual de arranque");
+      setSeedOpeningCash("");
+      const summary = await loadCashSummary(cashDate, dataOwnerUserId);
+      setIsDayInitialized(!!summary);
+      setIsDayClosed(summary?.status === "closed");
+      setOpeningCash(Number(summary?.opening_balance ?? 0));
+      setSyncMessage("Jornada abierta correctamente.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo abrir la jornada.";
+      setSyncMessage(message);
+    } finally {
+      setLoadingDay(false);
+    }
+  }
+
+  async function handleSaveMovements(showMessage = true): Promise<void> {
+    if (!isDayInitialized) {
+      setSyncMessage("Primero debes abrir la jornada de caja.");
+      return;
+    }
+    try {
+      setLoadingDay(true);
+      setSyncMessage("");
+      const payload = [
+        ...manualIncomeRows
+          .filter((row) => row.amount > 0)
+          .map((row) => ({
+            movement_type: "income" as const,
+            category: "manual_income",
+            amount: row.amount,
+            description: row.detail,
+            reference: row.reference
+          })),
+        ...expenseRows
+          .filter((row) => row.amount > 0)
+          .map((row) => ({
+            movement_type: "expense" as const,
+            category: "manual_expense",
+            amount: row.amount,
+            description: row.detail,
+            reference: row.reference
+          }))
+      ];
+      await replaceCashMovements(cashDate, payload, dataOwnerUserId);
+      await replaceCashCounts(
+        cashDate,
+        [
+          ...coinRows.map((row) => ({ denomination_type: "coin" as const, denomination_value: row.value, qty: row.qty })),
+          ...billRows.map((row) => ({ denomination_type: "bill" as const, denomination_value: row.value, qty: row.qty }))
+        ],
+        dataOwnerUserId
+      );
+      if (showMessage) setSyncMessage("Movimientos guardados.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo guardar movimientos.";
+      setSyncMessage(message);
+    } finally {
+      setLoadingDay(false);
+    }
+  }
+
+  async function handleCloseDay(): Promise<void> {
+    if (!isAdmin) {
+      setSyncMessage("Solo admin puede cerrar caja.");
+      return;
+    }
+    try {
+      setLoadingDay(true);
+      setSyncMessage("");
+      await handleSaveMovements(false);
+      await closeCashDay(cashDate, realCash, closingNote.trim() || undefined);
+      setIsDayClosed(true);
+      setClosingNote("");
+      setSyncMessage("Caja cerrada correctamente.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo cerrar caja.";
+      setSyncMessage(message);
+    } finally {
+      setLoadingDay(false);
+    }
+  }
+
+  async function handleReopenDay(): Promise<void> {
+    if (!isAdmin) {
+      setSyncMessage("Solo admin puede reabrir caja.");
+      return;
+    }
+    if (!reopenNote.trim()) {
+      setSyncMessage("Debes indicar motivo de reapertura.");
+      return;
+    }
+    try {
+      setLoadingDay(true);
+      setSyncMessage("");
+      await reopenCashDay(cashDate, reopenNote.trim());
+      setIsDayClosed(false);
+      setReopenNote("");
+      setSyncMessage("Caja reabierta.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo reabrir caja.";
+      setSyncMessage(message);
+    } finally {
+      setLoadingDay(false);
+    }
+  }
 
   function updateMovement(
     rows: Movement[],
@@ -125,6 +447,94 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
     setShowCashPaymentModal(false);
   }
 
+  async function handleExportJpg(): Promise<void> {
+    if (!whatsappReportRef.current) return;
+    const { default: html2canvas } = await import("html2canvas");
+    const canvas = await html2canvas(whatsappReportRef.current, {
+      backgroundColor: "#ffffff",
+      scale: 2
+    });
+    const url = canvas.toDataURL("image/jpeg", 0.95);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `cuadre-caja-${exportDateSuffix}.jpg`;
+    anchor.click();
+  }
+
+  async function handleExportPdf(): Promise<void> {
+    if (!executiveReportRef.current) return;
+    const [{ default: html2canvas }, { default: JsPDF }] = await Promise.all([
+      import("html2canvas"),
+      import("jspdf")
+    ]);
+    const canvas = await html2canvas(executiveReportRef.current, {
+      backgroundColor: "#ffffff",
+      scale: 2
+    });
+    const image = canvas.toDataURL("image/png");
+    const pdf = new JsPDF("p", "mm", "a4");
+    const pageWidth = 210;
+    const margin = 10;
+    const usableWidth = pageWidth - margin * 2;
+    const imageHeight = (canvas.height * usableWidth) / canvas.width;
+    pdf.addImage(image, "PNG", margin, margin, usableWidth, imageHeight);
+    pdf.save(`cuadre-caja-${exportDateSuffix}.pdf`);
+  }
+
+  async function handleExportExcel(): Promise<void> {
+    const { utils, writeFile } = await import("xlsx");
+    const book = utils.book_new();
+    const rows: (string | number)[][] = [
+      ["Cuadre de Caja", cashDate],
+      [],
+      ["Caja inicial", openingCash],
+      ["Total entradas", totalIncome],
+      ["Total salidas", totalExpense],
+      ["Caja esperada", expectedCash],
+      ["Efectivo real", realCash],
+      ["Diferencia", diff],
+      [],
+      ["Pagos cliente (automatico)"],
+      ["Cliente", "Recibo", "Monto"]
+    ];
+
+    if (clientCashPayments.length === 0) {
+      rows.push(["Sin pagos en efectivo", "", ""]);
+    } else {
+      clientCashPayments.forEach((payment) => {
+        rows.push([`${payment.clientUnit} - ${payment.clientName}`, payment.receiptNumber, payment.amountReceived]);
+      });
+    }
+
+    rows.push([]);
+    rows.push(["Entradas manuales"]);
+    rows.push(["Comentario", "Referencia", "Monto"]);
+    manualIncomeRows.forEach((row) => {
+      rows.push([row.detail || "", row.reference || "", Number.isFinite(row.amount) ? row.amount : 0]);
+    });
+
+    rows.push([]);
+    rows.push(["Salidas de efectivo"]);
+    rows.push(["Detalle", "Monto"]);
+    expenseRows.forEach((row) => {
+      rows.push([row.detail || "", Number.isFinite(row.amount) ? row.amount : 0]);
+    });
+
+    rows.push([]);
+    rows.push(["Conteo de monedas y billetes"]);
+    rows.push(["Tipo", "Denominacion", "Cantidad", "Total"]);
+    coinRows.forEach((row) => {
+      rows.push(["Moneda", row.value, row.qty, row.value * row.qty]);
+    });
+    billRows.forEach((row) => {
+      rows.push(["Billete", row.value, row.qty, row.value * row.qty]);
+    });
+
+    const sheet = utils.aoa_to_sheet(rows);
+    utils.book_append_sheet(book, sheet, "Cuadre Caja");
+    writeFile(book, `cuadre-caja-${exportDateSuffix}.xlsx`);
+  }
+
   return (
     <section className="cash-page">
       <header className="hero">
@@ -132,7 +542,29 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
         <p>Flujo inicial para validar formato diario de ingresos y egresos en efectivo.</p>
       </header>
 
+      <section className="panel cash-kpi-sticky">
+        <div className="cash-kpi-grid">
+          <article><span>Inicial</span><strong>{formatCurrency(openingCash)}</strong></article>
+          <article><span>Ingresos</span><strong>{formatCurrency(totalIncome)}</strong></article>
+          <article><span>Egresos</span><strong>{formatCurrency(totalExpense)}</strong></article>
+          <article><span>Esperado</span><strong>{formatCurrency(expectedCash)}</strong></article>
+          <article><span>Real</span><strong>{formatCurrency(realCash)}</strong></article>
+          <article><span>Diferencia</span><strong className={diff === 0 ? "" : diff > 0 ? "amount-good" : "amount-debt"}>{formatCurrency(diff)}</strong></article>
+        </div>
+      </section>
+
       <section className="panel cash-panel">
+        <div className="cash-view-tabs">
+          <button type="button" className={`button ghost small ${viewTab === "operacion" ? "cash-tab-active" : ""}`} onClick={() => setViewTab("operacion")}>Operacion</button>
+          <button type="button" className={`button ghost small ${viewTab === "conteo" ? "cash-tab-active" : ""}`} onClick={() => setViewTab("conteo")}>Conteo</button>
+          <button type="button" className={`button ghost small ${viewTab === "reportes" ? "cash-tab-active" : ""}`} onClick={() => setViewTab("reportes")}>Reportes</button>
+          {isAdmin && (
+            <button type="button" className={`button ghost small ${viewTab === "auditoria" ? "cash-tab-active" : ""}`} onClick={() => setViewTab("auditoria")}>Auditoria</button>
+          )}
+        </div>
+      </section>
+
+      <section className="panel cash-panel" hidden={viewTab !== "operacion"}>
         <div className="cash-header-grid">
           <label>
             Fecha operativa
@@ -144,20 +576,215 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
               type="number"
               value={openingCash}
               step="0.01"
-              onChange={(event) => setOpeningCash(Number(event.target.value || 0))}
+              readOnly
             />
           </label>
         </div>
+        {loadingDay && <p className="hint">Cargando jornada...</p>}
+        {syncMessage && <p className="hint">{syncMessage}</p>}
+        {!isDayInitialized && (
+          <div className="cash-subpanel" style={{ marginTop: 10 }}>
+            <h3>Apertura de jornada</h3>
+            <p className="hint">
+              Si no existe cierre previo, ingresa saldo inicial de arranque y abre la jornada.
+            </p>
+            <div className="cash-movement-row">
+              <input
+                type="number"
+                step="0.01"
+                placeholder="Saldo inicial de arranque"
+                value={seedOpeningCash}
+                onChange={(event) => setSeedOpeningCash(event.target.value)}
+              />
+              <button type="button" className="button primary" onClick={() => void handleInitializeDay()} disabled={!isAdmin || loadingDay}>
+                Abrir jornada
+              </button>
+            </div>
+          </div>
+        )}
+        {isDayInitialized && (
+          <div className="cash-subpanel" style={{ marginTop: 10 }}>
+            <h3>Control de jornada</h3>
+            <p className="hint">
+              Estado:{" "}
+              <strong className={isDayClosed ? "amount-debt" : "amount-good"}>
+                {isDayClosed ? "CERRADA" : "ABIERTA"}
+              </strong>
+            </p>
+            {!isDayClosed ? (
+              <div className="cash-movement-row cash-movement-row--three">
+                <input
+                  type="text"
+                  placeholder="Nota de cierre (opcional)"
+                  value={closingNote}
+                  onChange={(event) => setClosingNote(event.target.value)}
+                />
+                <button type="button" className="button ghost" onClick={() => void handleSaveMovements()} disabled={loadingDay}>
+                  Guardar cambios
+                </button>
+                <button type="button" className="button primary" onClick={() => void handleCloseDay()} disabled={!isAdmin || loadingDay}>
+                  Cerrar caja del dia
+                </button>
+              </div>
+            ) : (
+              <div className="cash-movement-row cash-movement-row--three">
+                <input
+                  type="text"
+                  placeholder="Motivo de reapertura"
+                  value={reopenNote}
+                  onChange={(event) => setReopenNote(event.target.value)}
+                />
+                <span />
+                <button type="button" className="button ghost" onClick={() => void handleReopenDay()} disabled={!isAdmin || loadingDay}>
+                  Reabrir caja
+                </button>
+              </div>
+            )}
+          </div>
+        )}      </section>
+
+      <section className="panel cash-panel" hidden={viewTab !== "reportes"}>
+        <div className="panel-head">
+          <h2>Reporte ejecutivo</h2>
+          <button type="button" className="button ghost small" onClick={() => setShowExecutivePreview(true)}>
+            Vista previa
+          </button>
+        </div>
+        <p className="hint">Usa "Vista previa" para abrir el reporte y revisar antes de exportar.</p>
+        <div className="cash-actions-row" style={{ marginTop: 12 }}>
+          <button type="button" className="button ghost small" onClick={() => void handleExportJpg()}>
+            Exportar JPG
+          </button>
+          <button type="button" className="button ghost small" onClick={() => void handleExportPdf()}>
+            Exportar PDF
+          </button>
+          <button type="button" className="button ghost small" onClick={() => void handleExportExcel()}>
+            Exportar Excel
+          </button>
+        </div>
       </section>
 
-      <section className="panel cash-panel">
+      <section className="panel cash-panel" hidden={viewTab !== "reportes"}>
+        <h2>Reportes</h2>
+        <div className="cash-actions-row">
+          <button type="button" className={`button ghost small ${reportMode === "day" ? "nav-tab--active" : ""}`} onClick={() => setReportMode("day")}>
+            Dia
+          </button>
+          <button type="button" className={`button ghost small ${reportMode === "week" ? "nav-tab--active" : ""}`} onClick={() => setReportMode("week")}>
+            Semana
+          </button>
+          <button type="button" className={`button ghost small ${reportMode === "month" ? "nav-tab--active" : ""}`} onClick={() => setReportMode("month")}>
+            Mes
+          </button>
+        </div>
+        <div className="cash-subpanel">
+          <p className="cash-total">
+            Totales periodo: Inicial <strong>{formatCurrency(reportTotals.opening)}</strong> | Ingresos{" "}
+            <strong>{formatCurrency(reportTotals.income)}</strong> | Egresos <strong>{formatCurrency(reportTotals.expense)}</strong> | Esperado{" "}
+            <strong>{formatCurrency(reportTotals.expected)}</strong>
+          </p>
+          {reportRows.length === 0 ? (
+            <p className="hint">No hay datos para el periodo seleccionado.</p>
+          ) : (
+            <div className="table-scroll">
+              <table className="ar-table ar-table--compact">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Inicial</th>
+                    <th>Ingresos</th>
+                    <th>Egresos</th>
+                    <th>Esperado</th>
+                    <th>Diferencia</th>
+                    <th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportRows.map((row) => (
+                    <tr key={row.opening_date}>
+                      <td>{row.opening_date}</td>
+                      <td>{formatCurrency(row.opening_balance)}</td>
+                      <td>{formatCurrency(row.income_total)}</td>
+                      <td>{formatCurrency(row.expense_total)}</td>
+                      <td>{formatCurrency(row.expected_balance)}</td>
+                      <td>{formatCurrency(row.difference_balance ?? 0)}</td>
+                      <td>{row.status === "closed" ? "Cerrada" : "Abierta"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {(reportMode === "week" || reportMode === "month") && topDifferenceRows.length > 0 && (
+            <>
+              <h3 style={{ marginTop: 12 }}>Top diferencias del periodo</h3>
+              <div className="table-scroll">
+                <table className="ar-table ar-table--compact">
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Diferencia</th>
+                      <th>Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topDifferenceRows.map((row) => (
+                      <tr key={`diff-${row.opening_date}`}>
+                        <td>{row.opening_date}</td>
+                        <td>{formatCurrency(row.difference_balance ?? 0)}</td>
+                        <td>{row.status === "closed" ? "Cerrada" : "Abierta"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+
+      {isAdmin && (
+        <section className="panel cash-panel" hidden={viewTab !== "auditoria"}>
+          <h2>Auditoria del dia</h2>
+          <div className="cash-subpanel">
+            {auditRows.length === 0 ? (
+              <p className="hint">Sin eventos de auditoria para esta fecha.</p>
+            ) : (
+              <div className="table-scroll">
+                <table className="ar-table ar-table--compact">
+                  <thead>
+                    <tr>
+                      <th>Fecha/Hora</th>
+                      <th>Tabla</th>
+                      <th>Accion</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditRows.map((row) => (
+                      <tr key={row.id}>
+                        <td>{new Date(row.created_at).toLocaleString("es-PA")}</td>
+                        <td>{row.table_name}</td>
+                        <td>{row.action}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      <div>
+      <section className="panel cash-panel" hidden={viewTab !== "operacion"}>
         <h2>Entradas de efectivo</h2>
         <div className="cash-actions-row">
           <button
-            type="button"
-            className="button primary"
-            onClick={handleOpenCashPaymentModal}
-          >
+                  type="button"
+                  className="button primary"
+                  onClick={handleOpenCashPaymentModal}
+                  disabled={isEditingLocked}
+                >
             Pago Cliente en efectivo
           </button>
         </div>
@@ -183,6 +810,7 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
                 type="text"
                 placeholder="Comentario"
                 value={row.detail}
+                disabled={isEditingLocked}
                 onChange={(event) =>
                   updateMovement(manualIncomeRows, setManualIncomeRows, row.id, { detail: event.target.value })
                 }
@@ -191,6 +819,7 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
                 type="text"
                 placeholder="Referencia"
                 value={row.reference || ""}
+                disabled={isEditingLocked}
                 onChange={(event) =>
                   updateMovement(manualIncomeRows, setManualIncomeRows, row.id, { reference: event.target.value })
                 }
@@ -199,6 +828,7 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
                 type="number"
                 step="0.01"
                 value={row.amount || ""}
+                disabled={isEditingLocked}
                 onChange={(event) =>
                   updateMovement(manualIncomeRows, setManualIncomeRows, row.id, { amount: Number(event.target.value || 0) })
                 }
@@ -208,6 +838,7 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
           <button
             type="button"
             className="button ghost small"
+            disabled={isEditingLocked}
             onClick={() => setManualIncomeRows((rows) => [...rows, createMovement(`mi-${rows.length + 1}`)])}
           >
             + Agregar entrada
@@ -218,7 +849,7 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
         <p className="cash-total cash-total--grand">Total entradas: <strong>{formatCurrency(totalIncome)}</strong></p>
       </section>
 
-      <section className="panel cash-panel">
+      <section className="panel cash-panel" hidden={viewTab !== "operacion"}>
         <h2>Salidas de efectivo</h2>
         {expenseRows.map((row) => (
           <div key={row.id} className="cash-movement-row">
@@ -226,12 +857,14 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
               type="text"
               placeholder="Detalle de gasto"
               value={row.detail}
+              disabled={isEditingLocked}
               onChange={(event) => updateMovement(expenseRows, setExpenseRows, row.id, { detail: event.target.value })}
             />
             <input
               type="number"
               step="0.01"
               value={row.amount || ""}
+              disabled={isEditingLocked}
               onChange={(event) =>
                 updateMovement(expenseRows, setExpenseRows, row.id, { amount: Number(event.target.value || 0) })
               }
@@ -241,6 +874,7 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
         <button
           type="button"
           className="button ghost small"
+          disabled={isEditingLocked}
           onClick={() => setExpenseRows((rows) => [...rows, createMovement(`e-${rows.length + 1}`)])}
         >
           + Agregar salida
@@ -248,8 +882,18 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
         <p className="cash-total">Total salidas: <strong>{formatCurrency(totalExpense)}</strong></p>
       </section>
 
-      <section className="panel cash-panel">
+      <section className="panel cash-panel" hidden={viewTab !== "conteo"}>
         <h2>Conteo fisico</h2>
+        <div className="cash-actions-row" style={{ marginBottom: 10 }}>
+          <button
+            type="button"
+            className="button ghost small"
+            onClick={() => void handleSaveMovements()}
+            disabled={loadingDay || !isDayInitialized || isEditingLocked}
+          >
+            Guardar conteo
+          </button>
+        </div>
         <div className="cash-denominations-grid">
           <div>
             <h3>Monedas</h3>
@@ -261,6 +905,7 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
                   min="0"
                   step="1"
                   value={row.qty || ""}
+                  disabled={isEditingLocked}
                   onChange={(event) => updateQty(coinRows, setCoinRows, row.id, Number(event.target.value || 0))}
                 />
                 <strong>{formatCurrency(row.value * row.qty)}</strong>
@@ -277,6 +922,7 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
                   min="0"
                   step="1"
                   value={row.qty || ""}
+                  disabled={isEditingLocked}
                   onChange={(event) => updateQty(billRows, setBillRows, row.id, Number(event.target.value || 0))}
                 />
                 <strong>{formatCurrency(row.value * row.qty)}</strong>
@@ -286,17 +932,7 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
         </div>
       </section>
 
-      <section className="panel cash-panel cash-result">
-        <h2>Resultado del cuadre</h2>
-        <div className="cash-result-grid">
-          <p>Caja esperada</p>
-          <strong>{formatCurrency(expectedCash)}</strong>
-          <p>Efectivo real</p>
-          <strong>{formatCurrency(realCash)}</strong>
-          <p>Diferencia</p>
-          <strong className={diff === 0 ? "" : diff > 0 ? "amount-good" : "amount-debt"}>{formatCurrency(diff)}</strong>
-        </div>
-      </section>
+      </div>
 
       {showCashPaymentModal && (
         <div className="modal-overlay" role="dialog" aria-modal="true">
@@ -353,6 +989,152 @@ export default function CashClosingPage({ clients, payments, onStartCashClientPa
           </section>
         </div>
       )}
+
+      {selectedReceiptPayment && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <section className="modal payment-receipt-modal">
+            <PaymentReceipt
+              payment={selectedReceiptPayment}
+              onClose={() => setSelectedReceiptPayment(null)}
+              closeLabel="Cerrar detalle"
+            />
+          </section>
+        </div>
+      )}
+
+      {showExecutivePreview && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <section className="modal" style={{ maxWidth: "1080px" }}>
+            <header className="modal-header">
+              <h2>Vista previa del reporte ejecutivo</h2>
+              <button type="button" className="modal-close" onClick={() => setShowExecutivePreview(false)}>
+                X
+              </button>
+            </header>
+            <div className="modal-body">
+              <h3 style={{ marginTop: 0 }}>Formato WhatsApp (JPG)</h3>
+              <div className="cash-whatsapp-report">
+                <p className="cash-whatsapp-brand">REPORTE DIARIO DE CAJA</p>
+                <h4>Rentautos Cloud</h4>
+                <p className="cash-whatsapp-date">Fecha: {cashDate}</p>
+                <div className="cash-whatsapp-main">
+                  <p>Cierre del dia</p>
+                  <strong className={diff === 0 ? "" : diff > 0 ? "amount-good" : "amount-debt"}>{formatCurrency(diff)}</strong>
+                </div>
+                <div className="cash-whatsapp-kpis">
+                  <article><span>Caja inicial</span><strong>{formatCurrency(openingCash)}</strong></article>
+                  <article><span>Entradas</span><strong>{formatCurrency(totalIncome)}</strong></article>
+                  <article><span>Salidas</span><strong>{formatCurrency(totalExpense)}</strong></article>
+                  <article><span>Efectivo real</span><strong>{formatCurrency(realCash)}</strong></article>
+                </div>
+              </div>
+              <h3 style={{ marginTop: 16 }}>Reporte ejecutivo</h3>
+              <div className="cash-executive-report">
+                <header className="cash-exec-header">
+                  <div>
+                    <p className="cash-exec-tag">REPORTE EJECUTIVO</p>
+                    <h3>Cuadre de Caja Diario</h3>
+                    <p>Fecha operativa: {cashDate}</p>
+                  </div>
+                  <div className="cash-exec-meta">
+                    <p>Rentautos Cloud</p>
+                    <p>Generado: {generatedAt}</p>
+                  </div>
+                </header>
+                <section className="cash-exec-kpis">
+                  <article><p>Caja inicial</p><strong>{formatCurrency(openingCash)}</strong></article>
+                  <article><p>Entradas totales</p><strong>{formatCurrency(totalIncome)}</strong></article>
+                  <article><p>Salidas totales</p><strong>{formatCurrency(totalExpense)}</strong></article>
+                  <article><p>Diferencia</p><strong className={diff === 0 ? "" : diff > 0 ? "amount-good" : "amount-debt"}>{formatCurrency(diff)}</strong></article>
+                </section>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      <div
+        style={{
+          position: "fixed",
+          left: "-10000px",
+          top: "0",
+          width: "980px",
+          opacity: 1,
+          pointerEvents: "none",
+          zIndex: -1
+        }}
+        aria-hidden="true"
+      >
+        <div className="cash-whatsapp-report" ref={whatsappReportRef}>
+          <p className="cash-whatsapp-brand">REPORTE DIARIO DE CAJA</p>
+          <h4>Rentautos Cloud</h4>
+          <p className="cash-whatsapp-date">Fecha: {cashDate}</p>
+          <div className="cash-whatsapp-main">
+            <p>Cierre del dia</p>
+            <strong className={diff === 0 ? "" : diff > 0 ? "amount-good" : "amount-debt"}>{formatCurrency(diff)}</strong>
+          </div>
+          <div className="cash-whatsapp-kpis">
+            <article><span>Caja inicial</span><strong>{formatCurrency(openingCash)}</strong></article>
+            <article><span>Entradas</span><strong>{formatCurrency(totalIncome)}</strong></article>
+            <article><span>Salidas</span><strong>{formatCurrency(totalExpense)}</strong></article>
+            <article><span>Efectivo real</span><strong>{formatCurrency(realCash)}</strong></article>
+          </div>
+          <div className="cash-whatsapp-details">
+            <article>
+              <h5>Detalle ingresos</h5>
+              <p className="cash-whatsapp-detail-total">Total ingresos: {formatCurrency(totalIncome)}</p>
+              <ul>
+                <li>Pagos cliente: {formatCurrency(clientCashTotal)}</li>
+                {clientCashPayments.map((payment) => (
+                  <li key={`hidden-wp-pay-${payment.id}`}>{payment.clientUnit || "Unidad"}: {formatCurrency(payment.amountReceived)}</li>
+                ))}
+                {manualIncomeTotal > 0 && <li>Entradas manuales: {formatCurrency(manualIncomeTotal)}</li>}
+                {whatsappIncomeDetails.map((row) => (
+                  <li key={`hidden-wp-mi-${row.id}`}>{row.detail || "Entrada manual"}: {formatCurrency(row.amount || 0)}</li>
+                ))}
+              </ul>
+            </article>
+            <article>
+              <h5>Detalle egresos</h5>
+              <p className="cash-whatsapp-detail-total">Total egresos: {formatCurrency(totalExpense)}</p>
+              {whatsappExpenseDetails.length === 0 ? (
+                <ul><li>Sin egresos registrados.</li></ul>
+              ) : (
+                <ul>
+                  {whatsappExpenseDetails.map((row) => (
+                    <li key={`hidden-wp-eg-${row.id}`}>{row.detail || "Egreso"}: {formatCurrency(row.amount || 0)}</li>
+                  ))}
+                </ul>
+              )}
+            </article>
+          </div>
+          <div className="cash-whatsapp-foot">
+            <p>Generado: {generatedAt}</p>
+            <p>Pagos en efectivo: {clientCashPayments.length}</p>
+          </div>
+        </div>
+
+        <div className="cash-executive-report" ref={executiveReportRef} style={{ marginTop: 16 }}>
+          <header className="cash-exec-header">
+            <div>
+              <p className="cash-exec-tag">REPORTE EJECUTIVO</p>
+              <h3>Cuadre de Caja Diario</h3>
+              <p>Fecha operativa: {cashDate}</p>
+            </div>
+            <div className="cash-exec-meta">
+              <p>Rentautos Cloud</p>
+              <p>Generado: {generatedAt}</p>
+            </div>
+          </header>
+          <section className="cash-exec-kpis">
+            <article><p>Caja inicial</p><strong>{formatCurrency(openingCash)}</strong></article>
+            <article><p>Entradas totales</p><strong>{formatCurrency(totalIncome)}</strong></article>
+            <article><p>Salidas totales</p><strong>{formatCurrency(totalExpense)}</strong></article>
+            <article><p>Diferencia</p><strong className={diff === 0 ? "" : diff > 0 ? "amount-good" : "amount-debt"}>{formatCurrency(diff)}</strong></article>
+          </section>
+        </div>
+      </div>
     </section>
   );
 }
+

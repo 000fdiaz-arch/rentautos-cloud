@@ -19,6 +19,9 @@ VITE_SUPABASE_ANON_KEY=TU_SUPABASE_ANON_KEY
    - `supabase/05-payment-promises-cloud.sql`
    - `supabase/06-collection-closures-cloud.sql`
    - `supabase/07-shared-data-owner-rls.sql`
+   - `supabase/08-daily-cash-ledger.sql`
+   - `supabase/09-cash-day-counts.sql`
+   - `supabase/10-assign-ambar-operator.sql` (si aplica)
 5. Crea una cuenta desde la pantalla de registro de la app.
 6. En SQL Editor, promueve tu usuario principal a admin:
 

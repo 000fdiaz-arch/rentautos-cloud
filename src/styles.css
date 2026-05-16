@@ -3667,11 +3667,58 @@ tbody tr:hover {
 
 .cash-page {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .cash-panel h2 {
   margin: 0 0 12px;
+}
+
+.cash-kpi-sticky {
+  position: sticky;
+  top: 66px;
+  z-index: 20;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(6px);
+}
+
+.cash-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.cash-kpi-grid article {
+  border: 1px solid #dbe4ee;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #f8fafc;
+}
+
+.cash-kpi-grid span {
+  display: block;
+  color: #64748b;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cash-kpi-grid strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 1rem;
+}
+
+.cash-view-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cash-tab-active {
+  border-color: #0f766e !important;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.12);
+  background: #ecfeff !important;
 }
 
 .cash-subpanel {
@@ -3767,6 +3814,318 @@ tbody tr:hover {
 
 .cash-result-grid strong {
   font-size: 1.05rem;
+}
+
+.cash-executive-report {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid #dbe4ee;
+  border-radius: 14px;
+  padding: 18px;
+  color: #0f172a;
+}
+
+.cash-whatsapp-wrap {
+  margin-bottom: 14px;
+}
+
+.cash-whatsapp-wrap h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  color: #334155;
+}
+
+.cash-whatsapp-report {
+  width: 100%;
+  max-width: 560px;
+  border-radius: 18px;
+  border: 1px solid #dbe4ee;
+  background: linear-gradient(160deg, #0b3b36 0%, #0f766e 60%, #15a89a 100%);
+  color: #f8fafc;
+  padding: 18px;
+  box-shadow: 0 14px 26px rgba(15, 118, 110, 0.2);
+}
+
+.cash-whatsapp-brand {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  opacity: 0.9;
+}
+
+.cash-whatsapp-report h4 {
+  margin: 8px 0 4px;
+  font-size: 1.35rem;
+}
+
+.cash-whatsapp-date {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.95;
+}
+
+.cash-whatsapp-main {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.cash-whatsapp-main p {
+  margin: 0;
+  font-size: 0.86rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cash-whatsapp-main strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 1.9rem;
+  line-height: 1.1;
+}
+
+.cash-whatsapp-kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.cash-whatsapp-kpis article {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.cash-whatsapp-kpis span {
+  display: block;
+  font-size: 0.76rem;
+  opacity: 0.9;
+}
+
+.cash-whatsapp-kpis strong {
+  display: block;
+  font-size: 1.05rem;
+  margin-top: 4px;
+}
+
+.cash-whatsapp-foot {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.74rem;
+  opacity: 0.9;
+}
+
+.cash-whatsapp-foot p {
+  margin: 0;
+}
+
+.cash-whatsapp-details {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.cash-whatsapp-details article {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.cash-whatsapp-details h5 {
+  margin: 0;
+  font-size: 0.84rem;
+  letter-spacing: 0.03em;
+}
+
+.cash-whatsapp-detail-total {
+  margin: 5px 0 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.cash-whatsapp-details ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.cash-whatsapp-details li {
+  font-size: 0.78rem;
+  line-height: 1.3;
+  margin-bottom: 3px;
+}
+
+.cash-exec-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #dbe4ee;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+}
+
+.cash-exec-tag {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  color: #0f766e;
+}
+
+.cash-exec-header h3 {
+  margin: 0 0 4px;
+  font-size: 1.3rem;
+}
+
+.cash-exec-header p,
+.cash-exec-meta p {
+  margin: 0;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.cash-exec-meta {
+  text-align: right;
+}
+
+.cash-exec-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.cash-exec-kpis article {
+  border: 1px solid #dbe4ee;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #ffffff;
+}
+
+.cash-exec-kpis article p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cash-exec-kpis article strong {
+  font-size: 1.15rem;
+}
+
+.cash-exec-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cash-exec-card {
+  border: 1px solid #dbe4ee;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #ffffff;
+}
+
+.cash-exec-card h4 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+
+.cash-exec-pairs {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 5px 12px;
+  align-items: baseline;
+}
+
+.cash-exec-pairs p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.84rem;
+}
+
+.cash-exec-pairs strong {
+  font-size: 0.92rem;
+}
+
+.cash-exec-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.cash-exec-table th,
+.cash-exec-table td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 6px 4px;
+  text-align: left;
+  font-size: 0.82rem;
+}
+
+.cash-exec-table th {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.cash-exec-card--payments {
+  min-height: 260px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.cash-exec-table-wrap {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: auto;
+  max-height: 205px;
+  background: #ffffff;
+}
+
+.cash-exec-table--payments th,
+.cash-exec-table--payments td {
+  white-space: nowrap;
+}
+
+.cash-exec-table--payments th:nth-child(1),
+.cash-exec-table--payments td:nth-child(1) {
+  width: 34%;
+}
+
+.cash-exec-table--payments th:nth-child(2),
+.cash-exec-table--payments td:nth-child(2) {
+  width: 26%;
+}
+
+.cash-exec-table--payments th:nth-child(3),
+.cash-exec-table--payments td:nth-child(3) {
+  width: 40%;
+  text-align: right;
+}
+
+.cash-detail-btn {
+  min-width: 106px;
+}
+
+@media (max-width: 900px) {
+  .cash-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cash-exec-grid {
+    grid-template-columns: 1fr;
+  }
+  .cash-exec-header {
+    flex-direction: column;
+  }
+  .cash-exec-meta {
+    text-align: left;
+  }
 }
 
 

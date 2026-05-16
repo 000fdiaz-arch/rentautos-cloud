@@ -784,6 +784,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           <CashClosingPage
             clients={clients}
             payments={payments}
+            appRole={appRole}
+            dataOwnerUserId={cloudDataUserId}
             onStartCashClientPayment={handleStartCashClientPayment}
           />
         )}
