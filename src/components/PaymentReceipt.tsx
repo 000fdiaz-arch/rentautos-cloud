@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { formatCurrency, formatDate } from "../format";
 import { isChargeDay, startOfDay } from "../billing";
@@ -92,11 +92,12 @@ function extractFolio(reference: string): string {
 async function renderReceiptCanvasFromPayment(payment: Payment): Promise<HTMLCanvasElement> {
   const host = document.createElement("div");
   host.style.position = "fixed";
-  host.style.left = "-10000px";
+  host.style.left = "0";
   host.style.top = "0";
   host.style.width = "760px";
-  host.style.opacity = "0";
+  host.style.visibility = "hidden";
   host.style.pointerEvents = "none";
+  host.style.zIndex = "-1";
   document.body.appendChild(host);
 
   const root = createRoot(host);
@@ -111,6 +112,10 @@ async function renderReceiptCanvasFromPayment(payment: Payment): Promise<HTMLCan
     );
 
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
 
     const target = host.querySelector(".receipt-card") as HTMLDivElement | null;
     if (!target) {
@@ -131,8 +136,31 @@ async function renderReceiptCanvasFromPayment(payment: Payment): Promise<HTMLCan
   }
 }
 
-export async function downloadPaymentReceiptImage(payment: Payment): Promise<void> {
-  const { fileName, blob } = await buildPaymentReceiptImageBlob(payment);
+async function renderReceiptCanvasFromElement(target: HTMLElement): Promise<HTMLCanvasElement> {
+  const html2canvas = (await import("html2canvas")).default;
+  return html2canvas(target, {
+    scale: 2,
+    backgroundColor: "#ffffff",
+    useCORS: true,
+    width: target.scrollWidth,
+    height: target.scrollHeight
+  });
+}
+
+export async function downloadPaymentReceiptImage(payment: Payment, renderedCard?: HTMLElement | null): Promise<void> {
+  const { fileName, blob } = renderedCard
+    ? await (async () => {
+      const canvas = await renderReceiptCanvasFromElement(renderedCard);
+      const fileName = buildReceiptFileName(payment);
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((value) => {
+          if (value) resolve(value);
+          else reject(new Error("No se pudo convertir el recibo a imagen."));
+        }, "image/png");
+      });
+      return { fileName, blob };
+    })()
+    : await buildPaymentReceiptImageBlob(payment);
   const link = document.createElement("a");
   const href = URL.createObjectURL(blob);
   link.download = fileName;
@@ -509,11 +537,12 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
 
 export default function PaymentReceipt({ payment, onClose, closeLabel = "Registrar otro pago" }: Props) {
   const [isDownloading, setIsDownloading] = useState(false);
+  const cardRef = useRef<HTMLDivElement | null>(null);
 
   async function handleDownload(): Promise<void> {
     setIsDownloading(true);
     try {
-      await downloadPaymentReceiptImage(payment);
+      await downloadPaymentReceiptImage(payment, cardRef.current);
     } catch {
       // silently fail - user still sees the receipt on screen
     } finally {
@@ -532,7 +561,7 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
         </button>
       </div>
 
-      <div className="receipt-card">
+      <div ref={cardRef} className="receipt-card">
         <ReceiptCardContent payment={payment} />
       </div>
     </div>
