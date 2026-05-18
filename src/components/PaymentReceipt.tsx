@@ -344,17 +344,19 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
             <div className="receipt-summary-compact-line">{frequencyLabel}, {formatCurrency(payment.rentAmount)}</div>
             <div className="receipt-summary-compact-line">{installmentsPaidIncludingAdvance} Cuotas Pagadas</div>
           </div>
-          {hasPending && (
-            <div className="receipt-top-action">
-              <div className={`receipt-next-payment-badge receipt-next-payment-badge--${badgeTone}`} title={badgeText}>
-                <span className="receipt-next-payment-badge-icon" aria-hidden="true">📅</span>
-                <span>{badgeText}</span>
-              </div>
-              <span className="receipt-top-action-label">Hoy para bajar 1 cuenta</span>
-              <strong>{formatCurrency(saldoParaBajarHoy)}</strong>
-              <span className="receipt-top-action-note">No cancela el total.</span>
+          <div className="receipt-top-action">
+            <div className={`receipt-next-payment-badge receipt-next-payment-badge--${badgeTone}`} title={badgeText}>
+              <span className="receipt-next-payment-badge-icon" aria-hidden="true">📅</span>
+              <span>{badgeText}</span>
             </div>
-          )}
+            {hasPending && (
+              <>
+                <span className="receipt-top-action-label">Hoy para bajar 1 cuenta</span>
+                <strong>{formatCurrency(saldoParaBajarHoy)}</strong>
+                <span className="receipt-top-action-note">No cancela el total.</span>
+              </>
+            )}
+          </div>
           <div className="receipt-top-right-meta">
             <div className="receipt-number receipt-number--right">{payment.receiptNumber}</div>
             <div className="receipt-date">{formatDateSpanish(payment.dateApplied)}</div>
