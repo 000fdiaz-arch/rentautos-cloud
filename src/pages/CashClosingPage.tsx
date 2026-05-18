@@ -288,15 +288,21 @@ export default function CashClosingPage({
       setSyncMessage("Solo admin puede abrir caja.");
       return;
     }
-    const seed = Number(seedOpeningCash);
-    if (!Number.isFinite(seed) || seed < 0) {
+    const seedRaw = seedOpeningCash.trim();
+    const hasManualSeed = seedRaw.length > 0;
+    const seed = hasManualSeed ? Number(seedRaw) : null;
+    if (hasManualSeed && (!Number.isFinite(seed) || (seed ?? 0) < 0)) {
       setSyncMessage("Ingresa un saldo inicial valido (>= 0).");
       return;
     }
     try {
       setLoadingDay(true);
       setSyncMessage("");
-      await openCashDay(cashDate, seed, "Apertura manual de arranque");
+      await openCashDay(
+        cashDate,
+        seed,
+        hasManualSeed ? "Apertura manual de arranque" : "Apertura automatica por arrastre de cierre anterior"
+      );
       setSeedOpeningCash("");
       const summary = await loadCashSummary(cashDate, dataOwnerUserId);
       setIsDayInitialized(!!summary);
@@ -843,6 +849,15 @@ export default function CashClosingPage({
           >
             + Agregar entrada
           </button>
+          <button
+            type="button"
+            className="button ghost small"
+            onClick={() => void handleSaveMovements()}
+            disabled={loadingDay || !isDayInitialized || isEditingLocked}
+            style={{ marginLeft: 8 }}
+          >
+            Guardar entradas
+          </button>
           <p className="cash-total">Total entradas manuales: <strong>{formatCurrency(manualIncomeTotal)}</strong></p>
         </div>
 
@@ -851,6 +866,16 @@ export default function CashClosingPage({
 
       <section className="panel cash-panel" hidden={viewTab !== "operacion"}>
         <h2>Salidas de efectivo</h2>
+        <div className="cash-actions-row" style={{ marginBottom: 10 }}>
+          <button
+            type="button"
+            className="button ghost"
+            onClick={() => void handleSaveMovements()}
+            disabled={loadingDay || !isDayInitialized || isEditingLocked}
+          >
+            Guardar salidas
+          </button>
+        </div>
         {expenseRows.map((row) => (
           <div key={row.id} className="cash-movement-row">
             <input

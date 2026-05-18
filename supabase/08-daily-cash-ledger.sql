@@ -321,6 +321,7 @@ declare
   v_existing_id uuid;
   v_previous_date date := (p_opening_date - 1);
   v_previous_status public.cash_day_status;
+  v_previous_counted numeric(14,2);
   v_previous_expected numeric(14,2);
   v_opening_balance numeric(14,2);
   v_source text;
@@ -340,15 +341,15 @@ begin
     return v_existing_id;
   end if;
 
-  select c.status, c.expected_balance
-  into v_previous_status, v_previous_expected
+  select c.status, c.counted_balance, c.expected_balance
+  into v_previous_status, v_previous_counted, v_previous_expected
   from public.cash_day_closings c
   where c.owner_user_id = v_owner_user_id
     and c.opening_date = v_previous_date
   limit 1;
 
-  if v_previous_status = 'closed' and v_previous_expected is not null then
-    v_opening_balance := v_previous_expected;
+  if v_previous_status = 'closed' and coalesce(v_previous_counted, v_previous_expected) is not null then
+    v_opening_balance := coalesce(v_previous_counted, v_previous_expected);
     v_source := 'carry_over';
   elsif p_seed_opening_balance is not null then
     v_opening_balance := p_seed_opening_balance;
