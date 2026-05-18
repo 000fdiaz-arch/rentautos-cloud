@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { formatCurrency, formatDate } from "../format";
-import { findNextChargeDay, getDebtStartDate, startOfDay } from "../billing";
+import { findNextChargeDay, isChargeDay, parseDateKey, startOfDay } from "../billing";
 import type { Payment } from "../types";
 
 type Props = {
@@ -50,6 +50,45 @@ function diffDays(fromDate: Date, toDate: Date): number {
   const to = startOfDay(toDate);
   const ms = to.getTime() - from.getTime();
   return Math.round(ms / 86400000);
+}
+
+function isSameDate(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function isDebtChargeDayForReceipt(client: Payment, date: Date): boolean {
+  if (client.frequency !== "daily") return isChargeDay(client, date);
+
+  const day = date.getDay();
+  if (day >= 1 && day <= 6) return true;
+  if (day !== 0 || !client.chargeFirstSunday) return false;
+
+  // Para el resumen de deuda, cuando ya existe el primer domingo aplicado,
+  // se debe contar solo esa fecha exacta como cuota dominical.
+  const firstSunday = client.firstSundayChargedAt ? parseDateKey(client.firstSundayChargedAt) : null;
+  if (firstSunday) return isSameDate(date, firstSunday);
+
+  // Fallback para recibos historicos sin snapshot.
+  return true;
+}
+
+function findDebtStartDateForReceipt(client: Payment, referenceDate: Date): Date | null {
+  if (!Number.isFinite(client.rentAmount) || client.rentAmount <= 0) return null;
+  const pending = Math.max(0, Math.ceil(Math.max(0, client.balanceAfter) / client.rentAmount));
+  if (pending === 0) return null;
+
+  let remaining = pending;
+  let cursor = startOfDay(referenceDate);
+  for (let i = 0; i < 36600; i += 1) {
+    if (isDebtChargeDayForReceipt(client, cursor)) {
+      remaining -= 1;
+      if (remaining === 0) return cursor;
+    }
+    const previous = new Date(cursor);
+    previous.setDate(previous.getDate() - 1);
+    cursor = previous;
+  }
+  return null;
 }
 
 function buildReceiptFileName(payment: Payment): string {
@@ -269,7 +308,7 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   const hasMoroseBalance = moroseBalanceToday > 0;
   const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
   const nextChargeDate = normalizedRent > 0 ? findNextChargeDay(minimalClient, paymentDate) : null;
-  const debtStartDate = normalizedRent > 0 && hasMoroseBalance ? getDebtStartDate(minimalClient, paymentDate) : null;
+  const debtStartDate = normalizedRent > 0 && hasMoroseBalance ? findDebtStartDateForReceipt(payment, paymentDate) : null;
   const badgeDate = hasMoroseBalance ? debtStartDate : nextChargeDate;
   const badgeDaysDelta = badgeDate ? diffDays(paymentDate, badgeDate) : null;
   const isDailyPlan = payment.frequency === "daily";
