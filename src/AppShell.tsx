@@ -7,6 +7,7 @@ import CashClosingPage from "./pages/CashClosingPage";
 import {
   loadClients,
   loadPayments,
+  loadPaymentsFromIndexedDb,
   saveClients,
   savePayments,
   loadBankRules,
@@ -87,6 +88,22 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     token: number;
   } | null>(null);
   const lastStreetManagementSnapshotRef = useRef<string>("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const indexedPayments = await loadPaymentsFromIndexedDb();
+        if (cancelled || indexedPayments.length === 0) return;
+        setPayments((current) => (current.length > 0 ? current : indexedPayments));
+      } catch (error) {
+        console.error("No se pudo hidratar pagos desde IndexedDB.", error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function parseLocalJson(key: string, fallback: unknown): unknown {
     try {
