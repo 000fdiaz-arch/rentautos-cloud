@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { formatCurrency, formatDate } from "../format";
-import { isChargeDay, startOfDay } from "../billing";
+import { findNextChargeDay, getDebtStartDate, startOfDay } from "../billing";
 import type { Payment } from "../types";
 
 type Props = {
@@ -45,19 +45,11 @@ function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-function addDays(date: Date, days: number): Date {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
-}
-
-function findNextChargeDateForReceipt(client: Parameters<typeof isChargeDay>[0], fromDate: Date): Date | null {
-  let cursor = addDays(startOfDay(fromDate), 1);
-  for (let i = 0; i < 3660; i += 1) {
-    if (isChargeDay(client, cursor)) return cursor;
-    cursor = addDays(cursor, 1);
-  }
-  return null;
+function diffDays(fromDate: Date, toDate: Date): number {
+  const from = startOfDay(fromDate);
+  const to = startOfDay(toDate);
+  const ms = to.getTime() - from.getTime();
+  return Math.round(ms / 86400000);
 }
 
 function buildReceiptFileName(payment: Payment): string {
@@ -261,6 +253,8 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
     frequency: payment.frequency,
     weeklyChargeDay: payment.weeklyChargeDay,
     monthlyChargeDay: payment.monthlyChargeDay,
+    chargeFirstSunday: payment.chargeFirstSunday,
+    firstSundayChargedAt: payment.firstSundayChargedAt,
     // campos requeridos por la firma pero no usados en el calculo
     id: "", unitId: "", name: "", installmentsAgreed: 0,
     installmentsRemaining: 0, installmentsPaid: 0,
@@ -274,7 +268,23 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   const moroseBalanceToday = Math.max(0, payment.balanceAfter);
   const hasMoroseBalance = moroseBalanceToday > 0;
   const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
-  const nextChargeDate = normalizedRent > 0 ? findNextChargeDateForReceipt(minimalClient, paymentDate) : null;
+  const nextChargeDate = normalizedRent > 0 ? findNextChargeDay(minimalClient, paymentDate) : null;
+  const debtStartDate = normalizedRent > 0 && hasMoroseBalance ? getDebtStartDate(minimalClient, paymentDate) : null;
+  const badgeDate = hasMoroseBalance ? debtStartDate : nextChargeDate;
+  const badgeDaysDelta = badgeDate ? diffDays(paymentDate, badgeDate) : null;
+  const isDailyPlan = payment.frequency === "daily";
+  const badgeTone =
+    hasMoroseBalance
+      ? "danger"
+      : badgeDate === null
+      ? "neutral"
+      : badgeDaysDelta !== null && badgeDaysDelta < 0
+      ? "danger"
+      : isDailyPlan
+      ? (badgeDaysDelta === 0 ? "warning" : "success")
+      : (badgeDaysDelta !== null && badgeDaysDelta <= 3 ? "warning" : "success");
+  const badgeLabel = hasMoroseBalance ? "Pago vencido desde" : "Proximo pago";
+  const badgeText = badgeDate ? `${badgeLabel}: ${formatDate(badgeDate)}` : `${badgeLabel}: por definir`;
   const advanceAppliedToNextInstallment = normalizedRent > 0 ? roundMoney(Math.min(advanceBalanceAfter, normalizedRent)) : 0;
   const advanceRemainingForNextInstallment = normalizedRent > 0
     ? roundMoney(Math.max(0, normalizedRent - advanceAppliedToNextInstallment))
@@ -336,6 +346,10 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
           </div>
           {hasPending && (
             <div className="receipt-top-action">
+              <div className={`receipt-next-payment-badge receipt-next-payment-badge--${badgeTone}`} title={badgeText}>
+                <span className="receipt-next-payment-badge-icon" aria-hidden="true">📅</span>
+                <span>{badgeText}</span>
+              </div>
               <span className="receipt-top-action-label">Hoy para bajar 1 cuenta</span>
               <strong>{formatCurrency(saldoParaBajarHoy)}</strong>
               <span className="receipt-top-action-note">No cancela el total.</span>

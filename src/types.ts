@@ -177,6 +177,8 @@ export type Payment = {
   frequency: BillingFrequency;
   weeklyChargeDay?: WeeklyChargeDay;
   monthlyChargeDay?: number;
+  chargeFirstSunday?: boolean;
+  firstSundayChargedAt?: string;
   travelFundAvailableSnapshot?: number;
   createdAt: string;
 };

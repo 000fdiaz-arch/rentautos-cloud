@@ -381,6 +381,11 @@ function normalizePayment(item: unknown): Payment | null {
     monthlyChargeDay: (typeof raw.monthlyChargeDay === "number" && raw.monthlyChargeDay >= 1 && raw.monthlyChargeDay <= 31)
       ? raw.monthlyChargeDay
       : undefined,
+    chargeFirstSunday: raw.chargeFirstSunday === true,
+    firstSundayChargedAt:
+      typeof raw.firstSundayChargedAt === "string" && raw.firstSundayChargedAt.trim()
+        ? raw.firstSundayChargedAt.trim()
+        : undefined,
     travelFundAvailableSnapshot: travelFundAvailableSnapshot ?? undefined,
     createdAt: raw.createdAt,
     otherChargesApplied: parseChargeArray(raw.otherChargesApplied),

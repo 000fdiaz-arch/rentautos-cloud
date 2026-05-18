@@ -2203,6 +2203,8 @@ export default function PaymentsPage({
       frequency: client.frequency,
       weeklyChargeDay: client.weeklyChargeDay,
       monthlyChargeDay: client.monthlyChargeDay,
+      chargeFirstSunday: client.chargeFirstSunday,
+      firstSundayChargedAt: client.firstSundayChargedAt,
       travelFundAvailableSnapshot: roundMoney(Math.max(0, client.travelFundBalance ?? 0)),
       createdAt: new Date().toISOString()
     };
@@ -2327,6 +2329,8 @@ export default function PaymentsPage({
       frequency: client.frequency,
       weeklyChargeDay: client.weeklyChargeDay,
       monthlyChargeDay: client.monthlyChargeDay,
+      chargeFirstSunday: client.chargeFirstSunday,
+      firstSundayChargedAt: client.firstSundayChargedAt,
       travelFundAvailableSnapshot: roundMoney(Math.max(0, client.travelFundBalance ?? 0)),
       createdAt: new Date().toISOString()
     };
@@ -2484,9 +2488,11 @@ export default function PaymentsPage({
       rentAmount: client.rentAmount,
       frequency: client.frequency,
       weeklyChargeDay: client.weeklyChargeDay,
-        monthlyChargeDay: client.monthlyChargeDay,
-        travelFundAvailableSnapshot: roundMoney(Math.max(0, client.travelFundBalance ?? 0)),
-        createdAt: new Date().toISOString()
+      monthlyChargeDay: client.monthlyChargeDay,
+      chargeFirstSunday: client.chargeFirstSunday,
+      firstSundayChargedAt: client.firstSundayChargedAt,
+      travelFundAvailableSnapshot: roundMoney(Math.max(0, client.travelFundBalance ?? 0)),
+      createdAt: new Date().toISOString()
     };
 
     const updatedClient = {
@@ -2965,6 +2971,8 @@ export default function PaymentsPage({
         frequency: selectedClient.frequency,
         weeklyChargeDay: selectedClient.weeklyChargeDay,
         monthlyChargeDay: selectedClient.monthlyChargeDay,
+        chargeFirstSunday: selectedClient.chargeFirstSunday,
+        firstSundayChargedAt: selectedClient.firstSundayChargedAt,
         travelFundAvailableSnapshot: roundMoney(Math.max(0, selectedClient.travelFundBalance ?? 0)),
         createdAt: new Date().toISOString()
       };
@@ -3069,6 +3077,8 @@ export default function PaymentsPage({
       frequency: selectedClient.frequency,
       weeklyChargeDay: selectedClient.weeklyChargeDay,
       monthlyChargeDay: selectedClient.monthlyChargeDay,
+      chargeFirstSunday: selectedClient.chargeFirstSunday,
+      firstSundayChargedAt: selectedClient.firstSundayChargedAt,
       travelFundAvailableSnapshot: roundMoney(Math.max(0, selectedClient.travelFundBalance ?? 0)),
       createdAt: new Date().toISOString()
     };
