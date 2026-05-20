@@ -287,7 +287,7 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   const installmentsPaidIncludingAdvance = Math.max(0, payment.installmentsPaidAfter + installmentsFromAdvance);
   const paymentDate = startOfDay(new Date(payment.dateApplied + "T12:00:00"));
   const minimalClient = {
-    balance: payment.balanceAfter,
+    balance: 0,
     rentAmount: payment.rentAmount,
     frequency: payment.frequency,
     weeklyChargeDay: payment.weeklyChargeDay,
@@ -304,7 +304,8 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   const otherChargesDueTotal = otherChargesDueAfter.reduce((sum, charge) => sum + charge.amount, 0);
   const advanceApplied = Math.max(0, payment.advanceApplied ?? 0);
   const advanceBalanceAfter = roundMoney(Math.max(0, payment.advanceBalanceAfter ?? advanceApplied));
-  const moroseBalanceToday = Math.max(0, payment.balanceAfter);
+  // En la reconstruccion visual del recibo, el saldo de renta debe mostrarse en cero.
+  const moroseBalanceToday = 0;
   const hasMoroseBalance = moroseBalanceToday > 0;
   const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
   const nextChargeDate = normalizedRent > 0 ? findNextChargeDay(minimalClient, paymentDate) : null;

@@ -304,10 +304,21 @@ export default function CashClosingPage({
         hasManualSeed ? "Apertura manual de arranque" : "Apertura automatica por arrastre de cierre anterior"
       );
       setSeedOpeningCash("");
-      const summary = await loadCashSummary(cashDate, dataOwnerUserId);
+      const [summary, counts] = await Promise.all([
+        loadCashSummary(cashDate, dataOwnerUserId),
+        loadCashCounts(cashDate, dataOwnerUserId)
+      ]);
       setIsDayInitialized(!!summary);
       setIsDayClosed(summary?.status === "closed");
       setOpeningCash(Number(summary?.opening_balance ?? 0));
+      const coinMap = new Map<number, number>();
+      const billMap = new Map<number, number>();
+      counts.forEach((row) => {
+        if (row.denomination_type === "coin") coinMap.set(Number(row.denomination_value), Number(row.qty || 0));
+        if (row.denomination_type === "bill") billMap.set(Number(row.denomination_value), Number(row.qty || 0));
+      });
+      setCoinRows(createDenominationRows("c", COIN_VALUES).map((row) => ({ ...row, qty: coinMap.get(row.value) ?? 0 })));
+      setBillRows(createDenominationRows("b", BILL_VALUES).map((row) => ({ ...row, qty: billMap.get(row.value) ?? 0 })));
       setSyncMessage("Jornada abierta correctamente.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "No se pudo abrir la jornada.";

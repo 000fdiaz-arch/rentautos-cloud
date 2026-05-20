@@ -935,6 +935,7 @@ export default function PaymentsPage({
   const [editingNotifiedForm, setEditingNotifiedForm] = useState<NotifiedPaymentForm>({ unitId: "", amount: "" });
   const [notifiedSortField, setNotifiedSortField] = useState<NotifiedSortField>("createdAt");
   const [notifiedSortDirection, setNotifiedSortDirection] = useState<SortDirection>("desc");
+  const [notifiedUntilNoonOnly, setNotifiedUntilNoonOnly] = useState(false);
   const [notifiedErrors, setNotifiedErrors] = useState<string[]>([]);
   const [cashClosings, setCashClosings] = useState<CashClosing[]>(() => loadCashClosings());
   const [cashClosingDate, setCashClosingDate] = useState<string>(toDateKey(new Date()));
@@ -1120,6 +1121,15 @@ export default function PaymentsPage({
       return b.createdAt.localeCompare(a.createdAt);
     });
   }, [notifiedPayments, notifiedSortDirection, notifiedSortField, clients]);
+
+  const notifiedRowsFiltered = useMemo(() => {
+    if (!notifiedUntilNoonOnly) return notifiedRows;
+    return notifiedRows.filter((row) => {
+      const created = new Date(row.createdAt);
+      if (Number.isNaN(created.getTime())) return false;
+      return created.getHours() < 12 || (created.getHours() === 12 && created.getMinutes() === 0 && created.getSeconds() === 0);
+    });
+  }, [notifiedRows, notifiedUntilNoonOnly]);
 
   const notifiedClientMatch = useMemo(() => {
     const unit = notifiedForm.unitId.trim().toLowerCase();
@@ -4074,7 +4084,18 @@ export default function PaymentsPage({
           </button>
         </div>
 
-        {notifiedRows.length === 0 ? (
+        <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={notifiedUntilNoonOnly}
+              onChange={(e) => setNotifiedUntilNoonOnly(e.target.checked)}
+            />
+            Solo registros hasta 12:00 PM
+          </label>
+        </div>
+
+        {notifiedRowsFiltered.length === 0 ? (
           <p className="empty">No hay pagos notificados pendientes.</p>
         ) : (
           <div className="table-scroll" style={{ marginTop: 14 }}>
@@ -4096,11 +4117,16 @@ export default function PaymentsPage({
                       Monto {notifiedSortField === "amount" ? (notifiedSortDirection === "desc" ? "v" : "^") : ""}
                     </button>
                   </th>
+                  <th>
+                    <button type="button" className="button ghost small" onClick={() => handleSortNotified("createdAt")}>
+                      Hora {notifiedSortField === "createdAt" ? (notifiedSortDirection === "desc" ? "v" : "^") : ""}
+                    </button>
+                  </th>
                   <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {notifiedRows.map((row) => {
+                {notifiedRowsFiltered.map((row) => {
                   const client = clients.find((c) => c.id === row.clientId);
                   const isEditing = editingNotifiedId === row.id;
                   return (
@@ -4139,6 +4165,7 @@ export default function PaymentsPage({
                           <span className="amount-good">{formatCurrency(row.amount)}</span>
                         )}
                       </td>
+                      <td>{new Date(row.createdAt).toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })}</td>
                       <td className="actions-cell">
                         {isEditing ? (
                           <>

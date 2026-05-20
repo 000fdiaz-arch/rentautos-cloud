@@ -372,6 +372,31 @@ begin
   )
   on conflict (owner_user_id, opening_date) do nothing;
 
+  -- Hereda el conteo fisico del dia anterior (si existe tabla de conteo y registros previos).
+  if to_regclass('public.cash_day_counts') is not null then
+    insert into public.cash_day_counts (
+      owner_user_id,
+      opening_date,
+      denomination_type,
+      denomination_value,
+      qty,
+      created_by
+    )
+    select
+      v_owner_user_id,
+      p_opening_date,
+      prev.denomination_type,
+      prev.denomination_value,
+      prev.qty,
+      auth.uid()
+    from public.cash_day_counts prev
+    where prev.owner_user_id = v_owner_user_id
+      and prev.opening_date = v_previous_date
+      and prev.qty > 0
+    on conflict (owner_user_id, opening_date, denomination_type, denomination_value)
+    do nothing;
+  end if;
+
   return v_existing_id;
 end;
 $$;
