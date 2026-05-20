@@ -27,7 +27,7 @@ import type {
   PendingCardItem,
   PendingBankItem
 } from "../types";
-import { findNextChargeDay, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../billing";
+import { applyAutomaticCharges, findNextChargeDay, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../billing";
 import { applyLateFeesForClosingDate, subtractOtherCharge } from "../lateFees";
 import { buildReceivableRows } from "../receivables";
 
@@ -612,10 +612,13 @@ function computeEffectiveOtherChargesAllocation(
 }
 
 type ManualPaymentAllocation = {
+  projectedClient: Client;
   balanceBefore: number;
   appliedToRent: number;
   centavosAhorro: number;
+  advanceBefore: number;
   advanceApplied: number;
+  advanceAfter: number;
   balanceAfter: number;
   installmentsDeducted: number;
   installmentsCoveredByAdvance: number;
@@ -627,6 +630,12 @@ type ManualPaymentAllocation = {
   forcedOtherChargesRuleApplied: boolean;
 };
 
+function projectClientToDate(client: Client, paymentDateKey: string): Client {
+  const paymentDate = parseDateKey(paymentDateKey) ?? startOfDay(new Date());
+  const projected = applyAutomaticCharges([client], paymentDate).clients[0];
+  return projected ?? client;
+}
+
 function computeManualPaymentAllocation(
   client: Client,
   rawAmount: number,
@@ -636,12 +645,13 @@ function computeManualPaymentAllocation(
   paymentDateKey: string,
   allowManualOverrideForForcedRule = false
 ): ManualPaymentAllocation {
+  const projectedClient = projectClientToDate(client, paymentDateKey);
   const amount = roundMoney(Math.max(0, rawAmount));
   const { wholePart, centsPart } = splitWholeAndCents(amount);
-  const balanceBefore = roundMoney(client.balance);
+  const balanceBefore = roundMoney(projectedClient.balance);
 
   const { otherChargesApplied, totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
-    client,
+    projectedClient,
     manualOtherChargesInput,
     wholePart,
     retentionByClient,
@@ -654,8 +664,8 @@ function computeManualPaymentAllocation(
   const advanceApplied = leftover;
   const centavosAhorro = centsPart;
   const balanceAfter = roundMoney(balanceBefore - appliedToRent);
-  const rentAmount = client.rentAmount;
-  const advanceBefore = roundMoney(Math.max(0, client.advanceBalance ?? 0));
+  const rentAmount = projectedClient.rentAmount;
+  const advanceBefore = roundMoney(Math.max(0, projectedClient.advanceBalance ?? 0));
   const advanceAfter = roundMoney(advanceBefore + advanceApplied);
   const pendingBefore = rentAmount > 0 ? Math.ceil(balanceBefore / rentAmount) : 0;
   const pendingAfter = rentAmount > 0 && balanceAfter > 0 ? Math.ceil(balanceAfter / rentAmount) : 0;
@@ -664,10 +674,13 @@ function computeManualPaymentAllocation(
   const installmentsTotalInPayment = installmentsDeducted + installmentsCoveredByAdvance;
 
   return {
+    projectedClient,
     balanceBefore,
     appliedToRent,
     centavosAhorro,
+    advanceBefore,
     advanceApplied,
+    advanceAfter,
     balanceAfter,
     installmentsDeducted,
     installmentsCoveredByAdvance,
@@ -2196,26 +2209,26 @@ export default function PaymentsPage({
       appliedToRent: previewAllocation.appliedToRent,
       centavosAhorro: previewAllocation.centavosAhorro,
       advanceApplied: previewAllocation.advanceApplied > 0 ? previewAllocation.advanceApplied : undefined,
-      advanceBalanceAfter: roundMoney((client.advanceBalance ?? 0) + previewAllocation.advanceApplied),
+      advanceBalanceAfter: previewAllocation.advanceAfter,
       otherChargesApplied: previewAllocation.otherChargesApplied.length > 0 ? previewAllocation.otherChargesApplied : undefined,
-      otherChargesDueAfter: computeOtherChargesDueAfter(client.otherCharges, previewAllocation.otherChargesApplied),
+      otherChargesDueAfter: computeOtherChargesDueAfter(previewAllocation.projectedClient.otherCharges, previewAllocation.otherChargesApplied),
       installmentsDeducted: previewAllocation.installmentsDeducted,
       installmentsFromDebt: previewAllocation.installmentsDeducted,
       installmentsFromAdvance: previewAllocation.installmentsCoveredByAdvance,
       installmentsTotalInPayment: previewAllocation.installmentsTotalInPayment,
       balanceBefore: previewAllocation.balanceBefore,
       balanceAfter: previewAllocation.balanceAfter,
-      savingsBefore: client.savings,
-      savingsAfter: roundMoney(client.savings + previewAllocation.centavosAhorro),
-      installmentsPaidAfter: client.installmentsPaid + previewAllocation.installmentsTotalInPayment,
-      installmentsRemainingAfter: Math.max(0, client.installmentsRemaining - previewAllocation.installmentsTotalInPayment),
-      rentAmount: client.rentAmount,
-      frequency: client.frequency,
-      weeklyChargeDay: client.weeklyChargeDay,
-      monthlyChargeDay: client.monthlyChargeDay,
-      chargeFirstSunday: client.chargeFirstSunday,
-      firstSundayChargedAt: client.firstSundayChargedAt,
-      travelFundAvailableSnapshot: roundMoney(Math.max(0, client.travelFundBalance ?? 0)),
+      savingsBefore: previewAllocation.projectedClient.savings,
+      savingsAfter: roundMoney(previewAllocation.projectedClient.savings + previewAllocation.centavosAhorro),
+      installmentsPaidAfter: previewAllocation.projectedClient.installmentsPaid + previewAllocation.installmentsTotalInPayment,
+      installmentsRemainingAfter: Math.max(0, previewAllocation.projectedClient.installmentsRemaining - previewAllocation.installmentsTotalInPayment),
+      rentAmount: previewAllocation.projectedClient.rentAmount,
+      frequency: previewAllocation.projectedClient.frequency,
+      weeklyChargeDay: previewAllocation.projectedClient.weeklyChargeDay,
+      monthlyChargeDay: previewAllocation.projectedClient.monthlyChargeDay,
+      chargeFirstSunday: previewAllocation.projectedClient.chargeFirstSunday,
+      firstSundayChargedAt: previewAllocation.projectedClient.firstSundayChargedAt,
+      travelFundAvailableSnapshot: roundMoney(Math.max(0, previewAllocation.projectedClient.travelFundBalance ?? 0)),
       createdAt: new Date().toISOString()
     };
     finalizeSuccessfulPayment(previewPayment, { openReceipt: true });
@@ -2964,26 +2977,26 @@ export default function PaymentsPage({
         appliedToRent: allocation.appliedToRent,
         centavosAhorro: allocation.centavosAhorro,
         advanceApplied: allocation.advanceApplied > 0 ? allocation.advanceApplied : undefined,
-        advanceBalanceAfter: roundMoney((selectedClient.advanceBalance ?? 0) + allocation.advanceApplied),
+        advanceBalanceAfter: allocation.advanceAfter,
         otherChargesApplied: allocation.otherChargesApplied.length > 0 ? allocation.otherChargesApplied : undefined,
-        otherChargesDueAfter: computeOtherChargesDueAfter(selectedClient.otherCharges, allocation.otherChargesApplied),
+        otherChargesDueAfter: computeOtherChargesDueAfter(allocation.projectedClient.otherCharges, allocation.otherChargesApplied),
         installmentsDeducted: allocation.installmentsDeducted,
         installmentsFromDebt: allocation.installmentsDeducted,
         installmentsFromAdvance: allocation.installmentsCoveredByAdvance,
         installmentsTotalInPayment: allocation.installmentsTotalInPayment,
         balanceBefore: allocation.balanceBefore,
         balanceAfter: allocation.balanceAfter,
-        savingsBefore: selectedClient.savings,
-        savingsAfter: roundMoney(selectedClient.savings + allocation.centavosAhorro),
-        installmentsPaidAfter: selectedClient.installmentsPaid + allocation.installmentsTotalInPayment,
-        installmentsRemainingAfter: Math.max(0, selectedClient.installmentsRemaining - allocation.installmentsTotalInPayment),
-        rentAmount: selectedClient.rentAmount,
-        frequency: selectedClient.frequency,
-        weeklyChargeDay: selectedClient.weeklyChargeDay,
-        monthlyChargeDay: selectedClient.monthlyChargeDay,
-        chargeFirstSunday: selectedClient.chargeFirstSunday,
-        firstSundayChargedAt: selectedClient.firstSundayChargedAt,
-        travelFundAvailableSnapshot: roundMoney(Math.max(0, selectedClient.travelFundBalance ?? 0)),
+        savingsBefore: allocation.projectedClient.savings,
+        savingsAfter: roundMoney(allocation.projectedClient.savings + allocation.centavosAhorro),
+        installmentsPaidAfter: allocation.projectedClient.installmentsPaid + allocation.installmentsTotalInPayment,
+        installmentsRemainingAfter: Math.max(0, allocation.projectedClient.installmentsRemaining - allocation.installmentsTotalInPayment),
+        rentAmount: allocation.projectedClient.rentAmount,
+        frequency: allocation.projectedClient.frequency,
+        weeklyChargeDay: allocation.projectedClient.weeklyChargeDay,
+        monthlyChargeDay: allocation.projectedClient.monthlyChargeDay,
+        chargeFirstSunday: allocation.projectedClient.chargeFirstSunday,
+        firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt,
+        travelFundAvailableSnapshot: roundMoney(Math.max(0, allocation.projectedClient.travelFundBalance ?? 0)),
         createdAt: new Date().toISOString()
       };
 
@@ -2993,11 +3006,13 @@ export default function PaymentsPage({
         return {
           ...c,
           balance: allocation.balanceAfter,
-          advanceBalance: roundMoney((c.advanceBalance ?? 0) + allocation.advanceApplied),
+          advanceBalance: allocation.advanceAfter,
           savings: roundMoney(c.savings + allocation.centavosAhorro),
           installmentsRemaining: Math.max(0, c.installmentsRemaining - allocation.installmentsTotalInPayment),
           installmentsPaid: c.installmentsPaid + allocation.installmentsTotalInPayment,
-          otherCharges: otherChargesDueAfter
+          otherCharges: otherChargesDueAfter,
+          lastChargeDate: allocation.projectedClient.lastChargeDate,
+          firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt
         };
       });
 
@@ -3070,26 +3085,26 @@ export default function PaymentsPage({
       appliedToRent: allocation.appliedToRent,
       centavosAhorro: allocation.centavosAhorro,
       advanceApplied: allocation.advanceApplied > 0 ? allocation.advanceApplied : undefined,
-      advanceBalanceAfter: roundMoney((selectedClient.advanceBalance ?? 0) + allocation.advanceApplied),
+      advanceBalanceAfter: allocation.advanceAfter,
       otherChargesApplied: allocation.otherChargesApplied.length > 0 ? allocation.otherChargesApplied : undefined,
-      otherChargesDueAfter: computeOtherChargesDueAfter(selectedClient.otherCharges, allocation.otherChargesApplied),
+      otherChargesDueAfter: computeOtherChargesDueAfter(allocation.projectedClient.otherCharges, allocation.otherChargesApplied),
       installmentsDeducted: allocation.installmentsDeducted,
       installmentsFromDebt: allocation.installmentsDeducted,
       installmentsFromAdvance: allocation.installmentsCoveredByAdvance,
       installmentsTotalInPayment: allocation.installmentsTotalInPayment,
       balanceBefore: allocation.balanceBefore,
       balanceAfter: allocation.balanceAfter,
-      savingsBefore: selectedClient.savings,
-      savingsAfter: roundMoney(selectedClient.savings + allocation.centavosAhorro),
-      installmentsPaidAfter: selectedClient.installmentsPaid + allocation.installmentsTotalInPayment,
-      installmentsRemainingAfter: Math.max(0, selectedClient.installmentsRemaining - allocation.installmentsTotalInPayment),
-      rentAmount: selectedClient.rentAmount,
-      frequency: selectedClient.frequency,
-      weeklyChargeDay: selectedClient.weeklyChargeDay,
-      monthlyChargeDay: selectedClient.monthlyChargeDay,
-      chargeFirstSunday: selectedClient.chargeFirstSunday,
-      firstSundayChargedAt: selectedClient.firstSundayChargedAt,
-      travelFundAvailableSnapshot: roundMoney(Math.max(0, selectedClient.travelFundBalance ?? 0)),
+      savingsBefore: allocation.projectedClient.savings,
+      savingsAfter: roundMoney(allocation.projectedClient.savings + allocation.centavosAhorro),
+      installmentsPaidAfter: allocation.projectedClient.installmentsPaid + allocation.installmentsTotalInPayment,
+      installmentsRemainingAfter: Math.max(0, allocation.projectedClient.installmentsRemaining - allocation.installmentsTotalInPayment),
+      rentAmount: allocation.projectedClient.rentAmount,
+      frequency: allocation.projectedClient.frequency,
+      weeklyChargeDay: allocation.projectedClient.weeklyChargeDay,
+      monthlyChargeDay: allocation.projectedClient.monthlyChargeDay,
+      chargeFirstSunday: allocation.projectedClient.chargeFirstSunday,
+      firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt,
+      travelFundAvailableSnapshot: roundMoney(Math.max(0, allocation.projectedClient.travelFundBalance ?? 0)),
       createdAt: new Date().toISOString()
     };
 
@@ -3099,11 +3114,13 @@ export default function PaymentsPage({
       return {
         ...c,
         balance: allocation.balanceAfter,
-        advanceBalance: roundMoney((c.advanceBalance ?? 0) + allocation.advanceApplied),
+        advanceBalance: allocation.advanceAfter,
         savings: roundMoney(c.savings + allocation.centavosAhorro),
         installmentsRemaining: Math.max(0, c.installmentsRemaining - allocation.installmentsTotalInPayment),
         installmentsPaid: c.installmentsPaid + allocation.installmentsTotalInPayment,
-        otherCharges: otherChargesDueAfter
+        otherCharges: otherChargesDueAfter,
+        lastChargeDate: allocation.projectedClient.lastChargeDate,
+        firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt
       };
     });
 
