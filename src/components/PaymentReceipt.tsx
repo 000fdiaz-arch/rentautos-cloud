@@ -286,6 +286,8 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   );
   const installmentsPaidIncludingAdvance = Math.max(0, payment.installmentsPaidAfter + installmentsFromAdvance);
   const paymentDate = startOfDay(new Date(payment.dateApplied + "T12:00:00"));
+  const advanceApplied = Math.max(0, payment.advanceApplied ?? 0);
+  const advanceBalanceAfter = roundMoney(Math.max(0, payment.advanceBalanceAfter ?? advanceApplied));
   const minimalClient = {
     balance: payment.balanceAfter,
     rentAmount: payment.rentAmount,
@@ -294,22 +296,26 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
     monthlyChargeDay: payment.monthlyChargeDay,
     chargeFirstSunday: payment.chargeFirstSunday,
     firstSundayChargedAt: payment.firstSundayChargedAt,
+    advanceBalance: advanceBalanceAfter,
     // campos requeridos por la firma pero no usados en el calculo
     id: "", unitId: "", name: "", installmentsAgreed: 0,
     installmentsRemaining: 0, installmentsPaid: 0,
-    otherCharges: [], advanceBalance: 0, savings: 0, createdAt: ""
+    otherCharges: [], savings: 0, createdAt: ""
+  };
+  const minimalClientWithoutAdvance = {
+    ...minimalClient,
+    advanceBalance: 0
   };
   const otherChargesApplied = payment.otherChargesApplied ?? [];
   const otherChargesDueAfter = payment.otherChargesDueAfter ?? [];
   const otherChargesDueTotal = otherChargesDueAfter.reduce((sum, charge) => sum + charge.amount, 0);
-  const advanceApplied = Math.max(0, payment.advanceApplied ?? 0);
-  const advanceBalanceAfter = roundMoney(Math.max(0, payment.advanceBalanceAfter ?? advanceApplied));
   const moroseBalanceToday = Math.max(0, payment.balanceAfter);
   const hasMoroseBalance = moroseBalanceToday > 0;
   const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
-  const nextChargeDate = normalizedRent > 0 ? findNextChargeDay(minimalClient, paymentDate) : null;
+  const nextChargeDate = normalizedRent > 0 ? findNextChargeDay(minimalClientWithoutAdvance, paymentDate) : null;
+  const nextPaymentDate = normalizedRent > 0 ? findNextChargeDay(minimalClient, paymentDate) : null;
   const debtStartDate = normalizedRent > 0 && hasMoroseBalance ? findDebtStartDateForReceipt(payment, paymentDate) : null;
-  const badgeDate = hasMoroseBalance ? debtStartDate : nextChargeDate;
+  const badgeDate = hasMoroseBalance ? debtStartDate : nextPaymentDate;
   const badgeDaysDelta = badgeDate ? diffDays(paymentDate, badgeDate) : null;
   const isDailyPlan = payment.frequency === "daily";
   const badgeTone =
