@@ -111,6 +111,14 @@ const DAILY_COLLECTION_PM_SEALS_KEY = "cobrapp.clients.daily_collection_pm_seals
 const DAILY_COLLECTION_CLOSE_SEALS_KEY = "cobrapp.clients.daily_collection_close_seals.v1";
 const DAILY_COLLECTION_PROMISES_KEY = "cobrapp.clients.daily_collection_promises.v1";
 const DAILY_COLLECTION_STREET_ACTIONS_KEY = "cobrapp.clients.daily_collection_street_actions.v1";
+
+function notifyCloudSyncPing(key: string): void {
+  window.dispatchEvent(
+    new CustomEvent("cobrapp:cloud-sync-ping", {
+      detail: { key, at: new Date().toISOString(), source: "clients_daily_collection" }
+    })
+  );
+}
 const STATUS_EDIT_OPTIONS: Client["status"][] = [
   "activo",
   "cliente_enfermo",
@@ -929,6 +937,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       window.localStorage.setItem(DAILY_COLLECTION_KEY, JSON.stringify(dailyCollectionByDate));
+      notifyCloudSyncPing(DAILY_COLLECTION_KEY);
     } catch {
       // ignore
     }
@@ -950,6 +959,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       window.localStorage.setItem(DAILY_COLLECTION_AM_SEALS_KEY, JSON.stringify(amSealsByDate));
+      notifyCloudSyncPing(DAILY_COLLECTION_AM_SEALS_KEY);
     } catch {
       // ignore
     }
@@ -969,6 +979,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       window.localStorage.setItem(DAILY_COLLECTION_PM_SEALS_KEY, JSON.stringify(pmSealsByDate));
+      notifyCloudSyncPing(DAILY_COLLECTION_PM_SEALS_KEY);
     } catch {
       // ignore
     }
@@ -988,6 +999,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       window.localStorage.setItem(DAILY_COLLECTION_CLOSE_SEALS_KEY, JSON.stringify(closeSealsByDate));
+      notifyCloudSyncPing(DAILY_COLLECTION_CLOSE_SEALS_KEY);
     } catch {
       // ignore
     }
@@ -1007,6 +1019,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       window.localStorage.setItem(DAILY_COLLECTION_PROMISES_KEY, JSON.stringify(promiseByClientId));
+      notifyCloudSyncPing(DAILY_COLLECTION_PROMISES_KEY);
     } catch {
       // ignore
     }
@@ -1026,6 +1039,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       window.localStorage.setItem(DAILY_COLLECTION_STREET_ACTIONS_KEY, JSON.stringify(streetActionsByDate));
+      notifyCloudSyncPing(DAILY_COLLECTION_STREET_ACTIONS_KEY);
     } catch {
       // ignore
     }

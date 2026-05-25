@@ -366,6 +366,25 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   }, [cloudDataUserId, cloudReady]);
 
   useEffect(() => {
+    if (!cloudDataUserId || !cloudReady) return;
+    let syncTimer: number | null = null;
+    const handleSyncPing = () => {
+      setSyncStatus("syncing");
+      if (syncTimer !== null) window.clearTimeout(syncTimer);
+      syncTimer = window.setTimeout(() => {
+        setSyncStatus("ok");
+        setSyncErrorMessage("");
+        setLastSyncAt(new Date().toLocaleTimeString());
+      }, 250);
+    };
+    window.addEventListener("cobrapp:cloud-sync-ping", handleSyncPing);
+    return () => {
+      window.removeEventListener("cobrapp:cloud-sync-ping", handleSyncPing);
+      if (syncTimer !== null) window.clearTimeout(syncTimer);
+    };
+  }, [cloudDataUserId, cloudReady]);
+
+  useEffect(() => {
     if (!backupSupported) return;
     let mounted = true;
     (async () => {
