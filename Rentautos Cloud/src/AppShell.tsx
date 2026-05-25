@@ -33,6 +33,7 @@ import {
 } from "./cloudData";
 import { supabase } from "./lib/supabase";
 import { disableCloudMirror, flushCloudMirror, initializeCloudMirror } from "./cloudMirror";
+import { isSupabaseOnlyMode } from "./persistenceMode";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
 import {
   autoBackupDetailed,
@@ -61,8 +62,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = dataOwnerUserId ?? userId;
   const [page, setPage] = useState<AppPage>(isReadOnlyReceivables ? "receivables" : "clients");
-  const [clients, setClients] = useState<Client[]>(() => loadClients());
-  const [payments, setPayments] = useState<Payment[]>(() => loadPayments());
+  const [clients, setClients] = useState<Client[]>(() => (isSupabaseOnlyMode ? [] : loadClients()));
+  const [payments, setPayments] = useState<Payment[]>(() => (isSupabaseOnlyMode ? [] : loadPayments()));
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
   const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
   const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>(() => loadOtherChargesRetentionByClient());
@@ -257,9 +258,11 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         setBankRules(loadBankRules());
         setLateFeeSettings(loadLateFeeSettings());
         setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
-        // Mantiene compatibilidad con funciones que aun leen localStorage.
-        saveClients(cloudClientsData);
-        savePayments(cloudPaymentsData);
+        // Mantiene cache local opcional cuando no estamos en modo estricto nube.
+        if (!isSupabaseOnlyMode) {
+          saveClients(cloudClientsData);
+          savePayments(cloudPaymentsData);
+        }
         setStreetManagementData(cloudStreetManagement);
         lastStreetManagementSnapshotRef.current = stableSerialize(cloudStreetManagement);
         localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(cloudCollectionClosures));
@@ -447,7 +450,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         return;
       }
     }
-    saveClients(next);
+    if (!isSupabaseOnlyMode) saveClients(next);
     setHasPendingChanges(true);
   }
 
@@ -471,7 +474,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         return;
       }
     }
-    savePayments(next);
+    if (!isSupabaseOnlyMode) savePayments(next);
     setHasPendingChanges(true);
   }
 
@@ -499,8 +502,10 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         return false;
       }
     }
-    saveClients(nextClients);
-    savePayments(nextPayments);
+    if (!isSupabaseOnlyMode) {
+      saveClients(nextClients);
+      savePayments(nextPayments);
+    }
     setHasPendingChanges(true);
     return true;
   }
