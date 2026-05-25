@@ -1381,6 +1381,27 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     setIsFormOpen(true);
   }
 
+  function handleUnlinkClient(client: Client): void {
+    setConfirmDialog({
+      title: "Desvincular cliente",
+      message: `Se desvinculara ${client.name} de la unidad ${client.unitId}. La unidad quedara libre y el cliente pasara a Clientes 2.0. ¿Deseas continuar?`,
+      variant: "warning",
+      onConfirm: () => {
+        persist(clients.map((current) => {
+          if (current.id !== client.id) return current;
+          return {
+            ...current,
+            unitId: "",
+            status: "archivado",
+            statusComment: `Desvinculado de unidad ${client.unitId} el ${new Date().toLocaleDateString("es-PA")}`,
+            archivedAt: new Date().toISOString()
+          };
+        }));
+        setConfirmDialog(null);
+      }
+    });
+  }
+
   function getRunEntry(clientId: string, runId: CollectionRunId): CollectionEntry | undefined {
     return todayCollection[runId][clientId];
   }
@@ -2766,6 +2787,14 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                   }}
                                 >
                                   Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button ghost small clients-info-btn clients-info-btn--primary"
+                                  onClick={() => handleUnlinkClient(client)}
+                                  title="Desvincular cliente de esta unidad"
+                                >
+                                  Desvincular
                                 </button>
                               </>
                             ) : (
