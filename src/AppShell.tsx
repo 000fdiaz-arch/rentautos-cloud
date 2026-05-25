@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import ClientsPage from "./pages/ClientsPage";
+import Clients20Page from "./pages/Clients20Page";
 import PaymentsPage from "./pages/PaymentsPage";
 import ReceivablesPage from "./pages/ReceivablesPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -45,7 +46,7 @@ import {
 import type { BankRule, Client, LateFeeSettings, OtherChargesRetentionByClient, Payment } from "./types";
 import "./styles.css";
 
-type AppPage = "clients" | "payments" | "receivables" | "settings" | "cash_closing";
+type AppPage = "clients" | "clients_20" | "payments" | "receivables" | "settings" | "cash_closing";
 
 type AppShellProps = {
   userId?: string;
@@ -674,6 +675,13 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
                 </button>
                 <button
                   type="button"
+                  className={`nav-tab ${page === "clients_20" ? "nav-tab--active" : ""}`}
+                  onClick={() => setPage("clients_20")}
+                >
+                  Clientes 2.0
+                </button>
+                <button
+                  type="button"
                   className={`nav-tab ${page === "payments" ? "nav-tab--active" : ""}`}
                   onClick={() => setPage("payments")}
                 >
@@ -749,7 +757,13 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       </nav>
       <main className="page">
         {page === "clients" && (
-          <ClientsPage clients={clients} onClientsChange={persistClients} />
+          <ClientsPage
+            clients={clients}
+            payments={payments}
+            onPaymentsChange={persistPayments}
+            onClientsChange={persistClients}
+            dataOwnerUserId={cloudDataUserId}
+          />
         )}
         {page === "payments" && (
           <PaymentsPage
@@ -765,6 +779,9 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             quickCashPrefill={cashPaymentPrefill}
             onQuickCashPrefillConsumed={() => setCashPaymentPrefill(null)}
           />
+        )}
+        {page === "clients_20" && (
+          <Clients20Page clients={clients} dataOwnerUserId={cloudDataUserId} />
         )}
         {page === "receivables" && (
           <ReceivablesPage

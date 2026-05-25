@@ -221,6 +221,10 @@ function operationalToneClass(value: Client["status"]): string {
   return "control-op-badge control-op-badge--archivado";
 }
 
+function isCollectionBlockedByStatus(status: Client["status"]): boolean {
+  return status !== "activo";
+}
+
 type FinancialTone = "moroso" | "proximo" | "al_dia";
 
 function getFinancialTone(
@@ -435,6 +439,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   const [activeDashboardFilter, setActiveDashboardFilter] = useState<{ cut: DashboardCutKey; metric: DashboardMetricKey } | null>(null);
   const [generalGroupFilter, setGeneralGroupFilter] = useState<GeneralGroupFilterKey>("ALL");
   const [saveFeedbackByKey, setSaveFeedbackByKey] = useState<Record<string, { type: "success" | "error"; text: string }>>({});
+  const [collectionOverrideByKey, setCollectionOverrideByKey] = useState<Record<string, boolean>>({});
   const [streetActionDialog, setStreetActionDialog] = useState<{
     clientId: string;
     clientName: string;
@@ -1395,6 +1400,12 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
 
   function saveCollectionEntry(client: Client, runId: CollectionRunId): void {
     const feedbackKey = `${client.id}:${runId}`;
+    const hasOverride = Boolean(collectionOverrideByKey[feedbackKey]);
+    if (isCollectionBlockedByStatus(client.status) && !hasOverride) {
+      setErrors([`Unidad en estado "${STATUS_LABEL[client.status]}". Habilita cobro manual si necesitas gestionar.`]);
+      setSaveFeedbackByKey((current) => ({ ...current, [feedbackKey]: { type: "error", text: "Requiere habilitar cobro manual" } }));
+      return;
+    }
     const draft = getDraft(client.id, runId);
     const normalizedNote = draft.note.trim() || (draft.status === "no_responde" ? "Sin respuesta" : "");
     if (!draft.status) {
@@ -2647,8 +2658,51 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                     const financialTone = getFinancialTone(debtStartDate, nextChargeDate, operationalReferenceDate);
                     const financialBadge = financialToneUi(financialTone);
                     const paidTodayAmount = client ? (paidTodayAmountByClientId.get(client.id) ?? 0) : 0;
-                    const remainingAfterTodayPayment = client ? Math.max(0, client.balance) : 0;
                     const lockedByTodayPayment = false;
+                    const clientHasManualCollectionEnabled = Boolean(client) && (["run1", "run2", "run3"] as CollectionRunId[]).some((runId) =>
+                      Boolean(collectionOverrideByKey[`${client.id}:${runId}`])
+                    );
+                    const rowBlockedByStatus = Boolean(client) && isCollectionBlockedByStatus(client.status) && !clientHasManualCollectionEnabled;
+                    const debtLabel = client
+                      ? (debtStartDate ? formatDate(debtStartDate) : nextChargeDate ? `Al dia hasta ${formatPaymentDateKey(toDateKey(nextChargeDate))}` : "Al dia")
+                      : "-";
+                    const lastPaymentLabel = client ? (() => {
+                      const value = lastPaymentByClientId.get(client.id);
+                      return value ? formatPaymentDateKey(value) : "-";
+                    })() : "-";
+
+                    if (rowBlockedByStatus && client) {
+                      return (
+                        <tr key={client.id} className="clients-row--status-alert">
+                          <td className="clients-cell-status-only" colSpan={3}>
+                            <div className="clients-status-alert">
+                              <span className="clients-status-alert__state">{STATUS_LABEL[client.status]}</span>
+                              <span>Unidad: {unitId}</span>
+                              <span>Cliente: {firstNameOf(client.name)}</span>
+                              <span>Saldo: {formatCurrency(client.balance)}</span>
+                              <span>Debe desde: {debtLabel}</span>
+                              <span>Ultimo pago: {lastPaymentLabel}</span>
+                              <span>Otros cargos: {formatCurrency(otherChargesTotal)}</span>
+                              <span>Estado cuenta: {financialBadge.label}</span>
+                              <button
+                                type="button"
+                                className="button primary small clients-status-alert__action"
+                                onClick={() => {
+                                  setCollectionOverrideByKey((current) => ({
+                                    ...current,
+                                    [`${client.id}:run1`]: true,
+                                    [`${client.id}:run2`]: true,
+                                    [`${client.id}:run3`]: true
+                                  }));
+                                }}
+                              >
+                                Generar cobro (excepcion)
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
 
                     return (
                       <tr key={client?.id ?? `fleet-${unitId}`} className={!client ? "clients-row--no-driver" : ""}>
@@ -2827,8 +2881,17 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                       ? "collection-mini-form--pm"
                                       : "collection-mini-form--close";
                                     const hasSavedEntry = Boolean(todayCollection[runId][client.id]?.status);
+                                    const blockedByStatus = isCollectionBlockedByStatus(client.status) && !collectionOverrideByKey[feedbackKey];
                                     return (
                                       <div key={runId} className={`collection-mini-form collection-mini-form--column ${runVariantClass} ${isPreventive ? "collection-mini-form--preventive" : ""} ${showProcessedChip ? "collection-mini-form--has-processed-chip" : ""}`}>
+                                        {blockedByStatus ? (
+                                          <div className="collection-status-lock">
+                                            <span className="badge badge-warning">Estado: {STATUS_LABEL[client.status]}</span>
+                                            <button type="button" className="button primary small" onClick={() => setCollectionOverrideByKey((current) => ({ ...current, [feedbackKey]: true }))}>
+                                              Habilitar cobro manual
+                                            </button>
+                                          </div>
+                                        ) : null}
                                         {promiseNeedsAction && promiseRecord && runId === "run1" ? (
                                           <div className="collection-promise-reactivation">
                                             <span className={`badge ${promiseInfo?.state === "incumplida_parcial" ? "badge-debt" : "badge-warning"}`}>
@@ -2869,7 +2932,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                           }
                                           updateDraft(client.id, runId, { status: nextStatus });
                                         }}
-                                        disabled={pmAutoPaid || lockedByTodayPayment || !runEnabledByInheritance || !runEditable}
+                                        disabled={blockedByStatus || pmAutoPaid || lockedByTodayPayment || !runEnabledByInheritance || !runEditable}
                                       >
                                           {!lockedByTodayPayment && !pmAutoPaid && <option value="">Seleccionar</option>}
                                         {pmAutoPaid ? (
@@ -2935,7 +2998,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                           placeholder="Nota"
                                           value={draft.note}
                                           onChange={(e) => updateDraft(client.id, runId, { note: e.target.value })}
-                                          disabled={pmAutoPaid || lockedByTodayPayment || !runEnabledByInheritance || !runEditable}
+                                          disabled={blockedByStatus || pmAutoPaid || lockedByTodayPayment || !runEnabledByInheritance || !runEditable}
                                         />
                                         {runId === "run3" && (
                                           <div className="collection-form-actions">
@@ -2943,7 +3006,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                               type="button"
                                               className="button ghost small"
                                               onClick={() => openStreetActionDialog(client, unitId)}
-                                              disabled={!closeStreetEligible}
+                                              disabled={blockedByStatus || !closeStreetEligible}
                                               title={closeStreetEligible ? "Enviar a cobrador de calle" : "Disponible para No responde / Llamar más tarde / Promesa de pago"}
                                             >
                                               Enviar a calle
@@ -2955,7 +3018,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                             ) : null}
                                           </div>
                                         )}
-                                        {!pmAutoPaid && !lockedByTodayPayment && runEnabledByInheritance && runEditable && (
+                                        {!blockedByStatus && !pmAutoPaid && !lockedByTodayPayment && runEnabledByInheritance && runEditable && (
                                           <div className="collection-form-actions">
                                             <button
                                               type="button"
