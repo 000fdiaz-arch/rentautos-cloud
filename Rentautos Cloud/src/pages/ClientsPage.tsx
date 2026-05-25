@@ -894,14 +894,21 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     const baseRows = generalGroupFilter === "ALL"
       ? visibleRows
       : visibleRows.filter((row) => getRowGroup(row.unitId) === generalGroupFilter);
-    if (!activeDashboardFilter || activeDashboardFilter.metric === "needContact") return baseRows;
+    if (!activeDashboardFilter) return baseRows;
+    if (activeDashboardFilter.metric === "needContact") {
+      // Pendientes del bloque aplica solo al bloque AM (RUN1).
+      if (activeDashboardFilter.cut !== "am") return baseRows;
+      const ids = new Set(collectionDashboard.am.ids.needContact);
+      return baseRows.filter((row) => row.client && ids.has(row.client.id));
+    }
     const ids = new Set(collectionDashboard[activeDashboardFilter.cut].ids[activeDashboardFilter.metric]);
     return baseRows.filter((row) => row.client && ids.has(row.client.id));
   }, [activeDashboardFilter, collectionDashboard, generalGroupFilter, visibleRows]);
 
   useEffect(() => {
-    if (activeDashboardFilter?.metric !== "needContact") return;
-    setActiveDashboardFilter(null);
+    if (activeDashboardFilter?.metric === "needContact" && activeDashboardFilter.cut !== "am") {
+      setActiveDashboardFilter(null);
+    }
   }, [activeDashboardFilter]);
 
   function persist(next: Client[]): void {
@@ -2434,10 +2441,13 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                     <div className={`collection-dashboard-kpis ${cut.key === "close" ? "collection-dashboard-kpis--close" : ""}`}>
                       <button
                         type="button"
-                        className={`collection-dashboard-kpi collection-dashboard-kpi--need is-disabled ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "needContact" ? "is-active" : ""}`}
-                        onClick={() => undefined}
-                        aria-disabled="true"
-                        title="Filtro inhabilitado por operación"
+                        className={`collection-dashboard-kpi collection-dashboard-kpi--need ${cut.key !== "am" ? "is-disabled" : ""} ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "needContact" ? "is-active" : ""}`}
+                        onClick={() => {
+                          if (cut.key !== "am") return;
+                          setActiveDashboardFilter((current) => current?.cut === "am" && current.metric === "needContact" ? null : { cut: "am", metric: "needContact" });
+                        }}
+                        aria-disabled={cut.key !== "am"}
+                        title={cut.key === "am" ? "Filtrar pendientes del bloque AM (RUN1)" : "Disponible solo en bloque AM (RUN1)"}
                       >
                         <span>Pendientes del bloque</span>
                         <strong>{cut.stats.needContact}</strong>
