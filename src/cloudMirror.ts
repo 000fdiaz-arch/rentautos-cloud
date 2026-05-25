@@ -18,7 +18,13 @@ type SingletonKey =
   | "cobrapp.settings.other_charges_retention.v1"
   | "cobrapp.clients.status_filter.v1"
   | "cobrapp.module3.street_management.v1"
-  | "cobrapp.module3.collection_closures.v1";
+  | "cobrapp.module3.collection_closures.v1"
+  | "cobrapp.clients.daily_collection.v1"
+  | "cobrapp.clients.daily_collection_am_seals.v1"
+  | "cobrapp.clients.daily_collection_pm_seals.v1"
+  | "cobrapp.clients.daily_collection_close_seals.v1"
+  | "cobrapp.clients.daily_collection_promises.v1"
+  | "cobrapp.clients.daily_collection_street_actions.v1";
 
 const ARRAY_TABLE_MAP: Record<ArrayKey, string> = {
   "cobrapp.module1.clients.v1": "clients_cloud",
@@ -39,7 +45,13 @@ const SINGLETON_TABLE_MAP: Record<SingletonKey, string> = {
   "cobrapp.settings.other_charges_retention.v1": "other_charges_retention_cloud",
   "cobrapp.clients.status_filter.v1": "client_ui_prefs_cloud",
   "cobrapp.module3.street_management.v1": "street_management_cloud",
-  "cobrapp.module3.collection_closures.v1": "collection_closures_cloud"
+  "cobrapp.module3.collection_closures.v1": "collection_closures_cloud",
+  "cobrapp.clients.daily_collection.v1": "clients_daily_collection_cloud",
+  "cobrapp.clients.daily_collection_am_seals.v1": "clients_daily_collection_am_seals_cloud",
+  "cobrapp.clients.daily_collection_pm_seals.v1": "clients_daily_collection_pm_seals_cloud",
+  "cobrapp.clients.daily_collection_close_seals.v1": "clients_daily_collection_close_seals_cloud",
+  "cobrapp.clients.daily_collection_promises.v1": "clients_daily_collection_promises_cloud",
+  "cobrapp.clients.daily_collection_street_actions.v1": "clients_daily_collection_street_actions_cloud"
 };
 
 const SYNCED_KEYS = new Set<string>([
