@@ -11,6 +11,27 @@ type SingletonDataRow = {
 
 const PAGE_SIZE = 1000;
 
+export type ControlUnitRow = {
+  user_id: string;
+  unit_id: string;
+  company: string | null;
+  brand_model: string | null;
+  engine_serial: string | null;
+  chassis_serial: string | null;
+  plate: string | null;
+  cupo: string | null;
+  observation: string | null;
+  is_exception: boolean | null;
+  exception_note: string | null;
+  client_id: string | null;
+  client_name: string | null;
+  client_cedula: string | null;
+  operational_status: string | null;
+  financial_balance: number | string | null;
+  financial_status: "moroso" | "al_dia" | "sin_cliente" | string;
+  last_payment_date: string | null;
+};
+
 function getClient() {
   if (!supabase) throw new Error("Supabase no esta configurado.");
   return supabase;
@@ -273,4 +294,29 @@ export async function saveCloudCollectionClosures(userId: string, value: Record<
     .from("collection_closures_cloud")
     .upsert({ user_id: userId, data: value }, { onConflict: "user_id" });
   if (error) throw error;
+}
+
+export async function loadControlUnits(userId: string): Promise<ControlUnitRow[]> {
+  const client = getClient();
+  const allRows: ControlUnitRow[] = [];
+  let from = 0;
+
+  while (true) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await client
+      .from("vw_control_unidades")
+      .select("*")
+      .eq("user_id", userId)
+      .order("unit_id", { ascending: true })
+      .range(from, to);
+
+    if (error) throw error;
+
+    const batch = (data ?? []) as ControlUnitRow[];
+    allRows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return allRows;
 }
