@@ -16,7 +16,13 @@ export const LS_KEYS = [
   "cobrapp.module2.cash_closings.v1",
   "cobrapp.module2.cash_closing_audit.v1",
   "cobrapp.module2.charge_runs.v1",
-  "cobrapp.clients.status_filter.v1"
+  "cobrapp.clients.status_filter.v1",
+  "cobrapp.clients.daily_collection.v1",
+  "cobrapp.clients.daily_collection_am_seals.v1",
+  "cobrapp.clients.daily_collection_pm_seals.v1",
+  "cobrapp.clients.daily_collection_close_seals.v1",
+  "cobrapp.clients.daily_collection_promises.v1",
+  "cobrapp.clients.daily_collection_street_actions.v1"
 ];
 
 export const ARRAY_TABLE_MAP = {
@@ -37,7 +43,13 @@ export const SINGLETON_TABLE_MAP = {
   "cobrapp.payments.seq.v1": "receipt_sequences_cloud",
   "cobrapp.settings.late_fee_settings.v1": "late_fee_settings_cloud",
   "cobrapp.settings.other_charges_retention.v1": "other_charges_retention_cloud",
-  "cobrapp.clients.status_filter.v1": "client_ui_prefs_cloud"
+  "cobrapp.clients.status_filter.v1": "client_ui_prefs_cloud",
+  "cobrapp.clients.daily_collection.v1": "clients_daily_collection_cloud",
+  "cobrapp.clients.daily_collection_am_seals.v1": "clients_daily_collection_am_seals_cloud",
+  "cobrapp.clients.daily_collection_pm_seals.v1": "clients_daily_collection_pm_seals_cloud",
+  "cobrapp.clients.daily_collection_close_seals.v1": "clients_daily_collection_close_seals_cloud",
+  "cobrapp.clients.daily_collection_promises.v1": "clients_daily_collection_promises_cloud",
+  "cobrapp.clients.daily_collection_street_actions.v1": "clients_daily_collection_street_actions_cloud"
 };
 
 export function ensureDir(dirPath) {

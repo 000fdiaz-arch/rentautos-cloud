@@ -16,3 +16,5 @@ tmp-backup-retention-check/
 supabase/.temp/
 tests/screenshots/
 tests/validation-output/
+
+.claude/worktrees/

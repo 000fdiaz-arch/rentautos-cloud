@@ -9,6 +9,8 @@ import type {
   ManualBankAssignmentAudit,
   OtherChargesRetentionByClient,
   OtherCharge,
+  PaymentPromise,
+  PaymentPromiseStatus,
   Payment,
   PaymentMethod,
   PendingCardItem,
@@ -18,6 +20,10 @@ import type {
 const CLIENTS_KEY = "cobrapp.module1.clients.v1";
 const PAYMENTS_KEY = "cobrapp.module2.payments.v1";
 const SEQ_KEY = "cobrapp.payments.seq.v1";
+const PAYMENTS_INDEXED_DB_NAME = "cobrapp-storage";
+const PAYMENTS_INDEXED_DB_STORE = "kv";
+const PAYMENTS_INDEXED_DB_KEY = "payments.v1";
+const PAYMENTS_INDEXED_DB_SENTINEL = "__indexeddb__";
 
 const WEEKLY_DAYS = new Set([
   "monday",
@@ -157,6 +163,24 @@ function normalizeClient(item: unknown): Client | null {
     return null;
   }
 
+  const rawStatus = typeof raw.status === "string" ? raw.status.trim().toLowerCase() : "";
+  const status: ClientStatus =
+    rawStatus === "activo" ||
+    rawStatus === "cliente_enfermo" ||
+    rawStatus === "taller" ||
+    rawStatus === "chapisteria" ||
+    rawStatus === "custodia" ||
+    rawStatus === "en_busqueda" ||
+    rawStatus === "archivado"
+      ? rawStatus
+      : rawStatus === "active"
+      ? "activo"
+      : rawStatus === "inactive"
+      ? "archivado"
+      : typeof raw.archivedAt === "string" && raw.archivedAt.trim().length > 0
+      ? "archivado"
+      : "activo";
+
   const normalized: Client = {
     id: raw.id,
     unitId:
@@ -196,7 +220,7 @@ function normalizeClient(item: unknown): Client | null {
       typeof raw.archivedAt === "string" && raw.archivedAt.trim()
         ? raw.archivedAt
         : undefined,
-    status: (raw.status === "inactive" ? "inactive" : "active") as ClientStatus,
+    status,
     statusComment:
       typeof raw.statusComment === "string" && raw.statusComment.trim()
         ? raw.statusComment
@@ -357,6 +381,11 @@ function normalizePayment(item: unknown): Payment | null {
     monthlyChargeDay: (typeof raw.monthlyChargeDay === "number" && raw.monthlyChargeDay >= 1 && raw.monthlyChargeDay <= 31)
       ? raw.monthlyChargeDay
       : undefined,
+    chargeFirstSunday: raw.chargeFirstSunday === true,
+    firstSundayChargedAt:
+      typeof raw.firstSundayChargedAt === "string" && raw.firstSundayChargedAt.trim()
+        ? raw.firstSundayChargedAt.trim()
+        : undefined,
     travelFundAvailableSnapshot: travelFundAvailableSnapshot ?? undefined,
     createdAt: raw.createdAt,
     otherChargesApplied: parseChargeArray(raw.otherChargesApplied),
@@ -367,6 +396,7 @@ function normalizePayment(item: unknown): Payment | null {
 export function loadPayments(): Payment[] {
   const raw = localStorage.getItem(PAYMENTS_KEY);
   if (!raw) return [];
+  if (raw === PAYMENTS_INDEXED_DB_SENTINEL) return [];
 
   try {
     const parsed = JSON.parse(raw) as unknown[];
@@ -380,8 +410,67 @@ export function loadPayments(): Payment[] {
   }
 }
 
+function openPaymentsDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(PAYMENTS_INDEXED_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(PAYMENTS_INDEXED_DB_STORE)) {
+        db.createObjectStore(PAYMENTS_INDEXED_DB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error ?? new Error("No se pudo abrir IndexedDB para pagos."));
+  });
+}
+
+async function writePaymentsIndexedDb(payments: Payment[]): Promise<void> {
+  const db = await openPaymentsDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(PAYMENTS_INDEXED_DB_STORE, "readwrite");
+      const store = tx.objectStore(PAYMENTS_INDEXED_DB_STORE);
+      store.put(payments, PAYMENTS_INDEXED_DB_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("No se pudo guardar pagos en IndexedDB."));
+      tx.onabort = () => reject(tx.error ?? new Error("Se aborto el guardado de pagos en IndexedDB."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function loadPaymentsFromIndexedDb(): Promise<Payment[]> {
+  const db = await openPaymentsDb();
+  try {
+    const value = await new Promise<unknown>((resolve, reject) => {
+      const tx = db.transaction(PAYMENTS_INDEXED_DB_STORE, "readonly");
+      const store = tx.objectStore(PAYMENTS_INDEXED_DB_STORE);
+      const req = store.get(PAYMENTS_INDEXED_DB_KEY);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error ?? new Error("No se pudo leer pagos desde IndexedDB."));
+    });
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((item) => normalizePayment(item))
+      .filter((item): item is Payment => item !== null);
+  } finally {
+    db.close();
+  }
+}
+
 export function savePayments(payments: Payment[]): void {
-  localStorage.setItem(PAYMENTS_KEY, JSON.stringify(payments));
+  // Los historiales grandes de pagos pueden superar el limite de localStorage.
+  // Persistimos canonico en IndexedDB y dejamos una marca ligera en localStorage.
+  void writePaymentsIndexedDb(payments).catch((error) => {
+    console.error("No se pudo guardar pagos en IndexedDB.", error);
+  });
+
+  try {
+    localStorage.setItem(PAYMENTS_KEY, PAYMENTS_INDEXED_DB_SENTINEL);
+  } catch (error) {
+    console.error("No se pudo actualizar marcador de pagos en localStorage.", error);
+  }
 }
 
 // -- Pending Bank Items --
@@ -393,6 +482,7 @@ const MANUAL_ASSIGNMENT_AUDIT_KEY = "cobrapp.module2.manual_assignment_audit.v1"
 const LATE_FEE_SETTINGS_KEY = "cobrapp.settings.late_fee_settings.v1";
 const LATE_FEE_LEDGER_KEY = "cobrapp.module2.late_fee_ledger.v1";
 const OTHER_CHARGES_RETENTION_KEY = "cobrapp.settings.other_charges_retention.v1";
+const PAYMENT_PROMISES_KEY = "cobrapp.module3.payment_promises.v1";
 
 export function loadPendingBankItems(): PendingBankItem[] {
   const raw = localStorage.getItem(PENDING_BANK_KEY);
@@ -684,4 +774,73 @@ export function saveOtherChargesRetentionByClient(settings: OtherChargesRetentio
     normalized[clientId] = { amount, cycle };
   }
   localStorage.setItem(OTHER_CHARGES_RETENTION_KEY, JSON.stringify(normalized));
+}
+
+function normalizePaymentPromiseStatus(value: unknown): PaymentPromiseStatus {
+  return value === "pending" ||
+    value === "fulfilled" ||
+    value === "incomplete" ||
+    value === "overdue" ||
+    value === "rescheduled" ||
+    value === "cancelled" ||
+    value === "fulfilled_late"
+    ? value
+    : "pending";
+}
+
+function normalizePaymentPromise(item: unknown): PaymentPromise | null {
+  if (!item || typeof item !== "object") return null;
+  const raw = item as Record<string, unknown>;
+  if (
+    typeof raw.id !== "string" ||
+    typeof raw.clientId !== "string" ||
+    typeof raw.clientName !== "string" ||
+    typeof raw.clientUnit !== "string" ||
+    typeof raw.dueAt !== "string" ||
+    typeof raw.createdAt !== "string" ||
+    typeof raw.updatedAt !== "string"
+  ) return null;
+
+  const amountPromised = parseNonNegativeNumber(raw.amountPromised);
+  const amountCollectedWithinWindow = parseNonNegativeNumber(raw.amountCollectedWithinWindow);
+  const amountCollectedTotal = parseNonNegativeNumber(raw.amountCollectedTotal);
+  const amountMissing = parseNonNegativeNumber(raw.amountMissing);
+
+  return {
+    id: raw.id,
+    clientId: raw.clientId,
+    clientName: raw.clientName,
+    clientUnit: raw.clientUnit,
+    amountPromised,
+    amountCollectedWithinWindow,
+    amountCollectedTotal,
+    amountMissing,
+    dueAt: raw.dueAt,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+    comment: typeof raw.comment === "string" ? raw.comment : "",
+    status: normalizePaymentPromiseStatus(raw.status),
+    closedAt: typeof raw.closedAt === "string" && raw.closedAt.trim() ? raw.closedAt : undefined,
+    closedReason: typeof raw.closedReason === "string" && raw.closedReason.trim() ? raw.closedReason : undefined,
+    createdBy: typeof raw.createdBy === "string" && raw.createdBy.trim() ? raw.createdBy : undefined
+  };
+}
+
+export function loadPaymentPromises(): PaymentPromise[] {
+  const raw = localStorage.getItem(PAYMENT_PROMISES_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => normalizePaymentPromise(item))
+      .filter((item): item is PaymentPromise => item !== null)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  } catch {
+    return [];
+  }
+}
+
+export function savePaymentPromises(items: PaymentPromise[]): void {
+  localStorage.setItem(PAYMENT_PROMISES_KEY, JSON.stringify(items));
 }

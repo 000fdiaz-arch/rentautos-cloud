@@ -27,8 +27,9 @@ import type {
   PendingCardItem,
   PendingBankItem
 } from "../types";
-import { findNextChargeDay, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../billing";
+import { applyAutomaticCharges, findNextChargeDay, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../billing";
 import { applyLateFeesForClosingDate, subtractOtherCharge } from "../lateFees";
+import { buildReceivableRows } from "../receivables";
 
 const PAYMENT_METHODS: PaymentMethod[] = [
   "Efectivo",
@@ -47,6 +48,8 @@ const NOTIFIED_DAYS_WINDOW = 7;
 const CASH_CLOSINGS_KEY = "cobrapp.module2.cash_closings.v1";
 const CASH_CLOSING_AUDIT_KEY = "cobrapp.module2.cash_closing_audit.v1";
 const CHARGE_RUNS_KEY = "cobrapp.module2.charge_runs.v1";
+const COLLECTION_STATUS_KEY = "cobrapp.module3.street_management.v1";
+const COLLECTION_CLOSURES_KEY = "cobrapp.module3.collection_closures.v1";
 
 const FREQUENCY_LABEL: Record<string, string> = {
   daily: "Diario",
@@ -238,8 +241,48 @@ type Props = {
   onClientsChange: (next: Client[]) => void;
   payments: Payment[];
   onPaymentsChange: (next: Payment[]) => void;
+  onPersistClientPayment?: (nextClients: Client[], nextPayments: Payment[]) => Promise<boolean>;
   onCashClose?: () => void;
+  quickCashPrefill?: {
+    dateApplied: string;
+    clientId: string;
+    reference: string;
+    amountReceived: string;
+    token: number;
+  } | null;
+  onQuickCashPrefillConsumed?: () => void;
 };
+
+type CollectionStatus = "no_answer" | "reminder" | "call_later" | "paid";
+
+type CollectionStatusRecord = {
+  status: CollectionStatus;
+  comment: string;
+  updatedAt: string;
+};
+
+type CollectionClosureItem = {
+  clientId: string;
+  unitId: string;
+  clientName: string;
+  lastPaymentDate: string | null;
+  receivableState: string;
+  totalPending: number;
+  collectionStatus: CollectionStatus;
+  comment: string;
+  autoApplied: boolean;
+};
+
+type CollectionClosureSnapshot = {
+  date: string;
+  closedAt: string;
+  actor: string;
+  reason: string;
+  totals: Record<CollectionStatus, number>;
+  items: CollectionClosureItem[];
+};
+
+type CollectionClosuresByDate = Record<string, CollectionClosureSnapshot>;
 
 function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -339,6 +382,63 @@ function splitWholeAndCents(amount: number): { wholePart: number; centsPart: num
   const wholePart = Math.floor(normalized + Number.EPSILON);
   const centsPart = roundMoney(normalized - wholePart);
   return { wholePart, centsPart };
+}
+
+function parseCollectionStatusesFromStorage(): Record<string, CollectionStatusRecord> {
+  try {
+    const raw = localStorage.getItem(COLLECTION_STATUS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const next: Record<string, CollectionStatusRecord> = {};
+    for (const [clientId, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== "object") continue;
+      const row = value as Record<string, unknown>;
+      const status = row.status;
+      if (status !== "no_answer" && status !== "reminder" && status !== "call_later" && status !== "paid") continue;
+      next[clientId] = {
+        status,
+        comment: typeof row.comment === "string" ? row.comment.slice(0, 5) : "",
+        updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : new Date().toISOString()
+      };
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function loadCollectionClosuresFromStorage(): CollectionClosuresByDate {
+  try {
+    const raw = localStorage.getItem(COLLECTION_CLOSURES_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as CollectionClosuresByDate;
+  } catch {
+    return {};
+  }
+}
+
+function resolveCollectionStatusForClosure(
+  row: { id: string; state: string; lastPaymentDate: string | null },
+  statusesByClient: Record<string, CollectionStatusRecord>,
+  closureDate: string
+): { status: CollectionStatus; comment: string; autoApplied: boolean } {
+  const manual = statusesByClient[row.id];
+  const paidToday = row.lastPaymentDate === closureDate;
+  const autoPaid = row.state === "alDia" || paidToday;
+  if (manual?.status) {
+    return {
+      status: manual.status,
+      comment: manual.status === "call_later" ? (manual.comment ?? "").slice(0, 5) : "",
+      autoApplied: false
+    };
+  }
+  if (autoPaid) {
+    return { status: "paid", comment: "", autoApplied: true };
+  }
+  return { status: "reminder", comment: "", autoApplied: true };
 }
 
 const DEFAULT_OTHER_CHARGES_RETENTION = 5;
@@ -512,10 +612,13 @@ function computeEffectiveOtherChargesAllocation(
 }
 
 type ManualPaymentAllocation = {
+  projectedClient: Client;
   balanceBefore: number;
   appliedToRent: number;
   centavosAhorro: number;
+  advanceBefore: number;
   advanceApplied: number;
+  advanceAfter: number;
   balanceAfter: number;
   installmentsDeducted: number;
   installmentsCoveredByAdvance: number;
@@ -527,6 +630,12 @@ type ManualPaymentAllocation = {
   forcedOtherChargesRuleApplied: boolean;
 };
 
+function projectClientToDate(client: Client, paymentDateKey: string): Client {
+  const paymentDate = parseDateKey(paymentDateKey) ?? startOfDay(new Date());
+  const projected = applyAutomaticCharges([client], paymentDate).clients[0];
+  return projected ?? client;
+}
+
 function computeManualPaymentAllocation(
   client: Client,
   rawAmount: number,
@@ -536,12 +645,13 @@ function computeManualPaymentAllocation(
   paymentDateKey: string,
   allowManualOverrideForForcedRule = false
 ): ManualPaymentAllocation {
+  const projectedClient = projectClientToDate(client, paymentDateKey);
   const amount = roundMoney(Math.max(0, rawAmount));
   const { wholePart, centsPart } = splitWholeAndCents(amount);
-  const balanceBefore = roundMoney(client.balance);
+  const balanceBefore = roundMoney(projectedClient.balance);
 
   const { otherChargesApplied, totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
-    client,
+    projectedClient,
     manualOtherChargesInput,
     wholePart,
     retentionByClient,
@@ -554,8 +664,8 @@ function computeManualPaymentAllocation(
   const advanceApplied = leftover;
   const centavosAhorro = centsPart;
   const balanceAfter = roundMoney(balanceBefore - appliedToRent);
-  const rentAmount = client.rentAmount;
-  const advanceBefore = roundMoney(Math.max(0, client.advanceBalance ?? 0));
+  const rentAmount = projectedClient.rentAmount;
+  const advanceBefore = roundMoney(Math.max(0, projectedClient.advanceBalance ?? 0));
   const advanceAfter = roundMoney(advanceBefore + advanceApplied);
   const pendingBefore = rentAmount > 0 ? Math.ceil(balanceBefore / rentAmount) : 0;
   const pendingAfter = rentAmount > 0 && balanceAfter > 0 ? Math.ceil(balanceAfter / rentAmount) : 0;
@@ -564,10 +674,13 @@ function computeManualPaymentAllocation(
   const installmentsTotalInPayment = installmentsDeducted + installmentsCoveredByAdvance;
 
   return {
+    projectedClient,
     balanceBefore,
     appliedToRent,
     centavosAhorro,
+    advanceBefore,
     advanceApplied,
+    advanceAfter,
     balanceAfter,
     installmentsDeducted,
     installmentsCoveredByAdvance,
@@ -794,7 +907,10 @@ export default function PaymentsPage({
   onClientsChange,
   payments,
   onPaymentsChange,
-  onCashClose
+  onPersistClientPayment,
+  onCashClose,
+  quickCashPrefill,
+  onQuickCashPrefillConsumed
 }: Props) {
   const [form, setForm] = useState<PaymentForm>({
     clientId: "",
@@ -832,6 +948,7 @@ export default function PaymentsPage({
   const [editingNotifiedForm, setEditingNotifiedForm] = useState<NotifiedPaymentForm>({ unitId: "", amount: "" });
   const [notifiedSortField, setNotifiedSortField] = useState<NotifiedSortField>("createdAt");
   const [notifiedSortDirection, setNotifiedSortDirection] = useState<SortDirection>("desc");
+  const [notifiedUntilNoonOnly, setNotifiedUntilNoonOnly] = useState(false);
   const [notifiedErrors, setNotifiedErrors] = useState<string[]>([]);
   const [cashClosings, setCashClosings] = useState<CashClosing[]>(() => loadCashClosings());
   const [cashClosingDate, setCashClosingDate] = useState<string>(toDateKey(new Date()));
@@ -881,6 +998,24 @@ export default function PaymentsPage({
   const pendingSectionRef = useRef<HTMLElement>(null);
   const pendingCardSectionRef = useRef<HTMLElement>(null);
   const historySectionRef = useRef<HTMLElement>(null);
+  const [pendingQuickCashSubmitToken, setPendingQuickCashSubmitToken] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!quickCashPrefill) return;
+    setIsRegisterOpen(true);
+    setForm((prev) => ({
+      ...prev,
+      dateApplied: quickCashPrefill.dateApplied || toDateKey(new Date()),
+      paymentMethod: "Efectivo",
+      clientId: quickCashPrefill.clientId || "",
+      reference: quickCashPrefill.reference || "",
+      amountReceived: quickCashPrefill.amountReceived || ""
+    }));
+    setClientSearch("");
+    setErrors([]);
+    setPendingQuickCashSubmitToken(quickCashPrefill.token);
+    onQuickCashPrefillConsumed?.();
+  }, [quickCashPrefill, onQuickCashPrefillConsumed]);
 
   function finalizeSuccessfulPayment(payment: Payment, options?: { openReceipt?: boolean }): void {
     if (options?.openReceipt) {
@@ -897,7 +1032,7 @@ export default function PaymentsPage({
   }
 
   const activeClients = useMemo(
-    () => clients.filter((c) => !c.archivedAt),
+    () => clients.filter((c) => !c.archivedAt && c.status !== "archivado"),
     [clients]
   );
 
@@ -934,6 +1069,25 @@ export default function PaymentsPage({
       manualOverrideForcedOtherCharges
     );
   }, [form.amountReceived, form.dateApplied, manualOtherChargesInput, otherChargesRetentionByClient, payments, selectedClient, manualOverrideForcedOtherCharges]);
+
+  useEffect(() => {
+    if (!pendingQuickCashSubmitToken) return;
+    if (!selectedClient) return;
+    const amount = parseFloat(form.amountReceived);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    void handleConfirmPayment();
+    setPendingQuickCashSubmitToken(null);
+  }, [pendingQuickCashSubmitToken, selectedClient, form.amountReceived]);
+
+  async function persistClientPaymentState(nextClients: Client[], nextPayments: Payment[]): Promise<boolean> {
+    if (onPersistClientPayment) {
+      return onPersistClientPayment(nextClients, nextPayments);
+    }
+    onClientsChange(nextClients);
+    onPaymentsChange(nextPayments);
+    return true;
+  }
+
   const isForcedOtherChargesRuleClient = useMemo(
     () => (
       selectedClient
@@ -980,6 +1134,15 @@ export default function PaymentsPage({
       return b.createdAt.localeCompare(a.createdAt);
     });
   }, [notifiedPayments, notifiedSortDirection, notifiedSortField, clients]);
+
+  const notifiedRowsFiltered = useMemo(() => {
+    if (!notifiedUntilNoonOnly) return notifiedRows;
+    return notifiedRows.filter((row) => {
+      const created = new Date(row.createdAt);
+      if (Number.isNaN(created.getTime())) return false;
+      return created.getHours() < 12 || (created.getHours() === 12 && created.getMinutes() === 0 && created.getSeconds() === 0);
+    });
+  }, [notifiedRows, notifiedUntilNoonOnly]);
 
   const notifiedClientMatch = useMemo(() => {
     const unit = notifiedForm.unitId.trim().toLowerCase();
@@ -1325,7 +1488,15 @@ export default function PaymentsPage({
     let chargedTotal = 0;
     const rows: ChargeReportRow[] = [];
     const nextClients = clientsWithLateFees.map((client) => {
-      if (client.archivedAt || client.status === "inactive") return client;
+      if (
+        client.archivedAt ||
+        client.status === "archivado" ||
+        client.status === "taller" ||
+        client.status === "chapisteria" ||
+        client.status === "custodia"
+      ) {
+        return client;
+      }
       const clientLastCharge = client.lastChargeDate ? parseDateKey(client.lastChargeDate) : null;
       const alreadyChargedThruTarget = clientLastCharge !== null && clientLastCharge >= targetDate;
       const canCharge = Number.isFinite(client.rentAmount) && client.rentAmount > 0;
@@ -2038,24 +2209,26 @@ export default function PaymentsPage({
       appliedToRent: previewAllocation.appliedToRent,
       centavosAhorro: previewAllocation.centavosAhorro,
       advanceApplied: previewAllocation.advanceApplied > 0 ? previewAllocation.advanceApplied : undefined,
-      advanceBalanceAfter: roundMoney((client.advanceBalance ?? 0) + previewAllocation.advanceApplied),
+      advanceBalanceAfter: previewAllocation.advanceAfter,
       otherChargesApplied: previewAllocation.otherChargesApplied.length > 0 ? previewAllocation.otherChargesApplied : undefined,
-      otherChargesDueAfter: computeOtherChargesDueAfter(client.otherCharges, previewAllocation.otherChargesApplied),
+      otherChargesDueAfter: computeOtherChargesDueAfter(previewAllocation.projectedClient.otherCharges, previewAllocation.otherChargesApplied),
       installmentsDeducted: previewAllocation.installmentsDeducted,
       installmentsFromDebt: previewAllocation.installmentsDeducted,
       installmentsFromAdvance: previewAllocation.installmentsCoveredByAdvance,
       installmentsTotalInPayment: previewAllocation.installmentsTotalInPayment,
       balanceBefore: previewAllocation.balanceBefore,
       balanceAfter: previewAllocation.balanceAfter,
-      savingsBefore: client.savings,
-      savingsAfter: roundMoney(client.savings + previewAllocation.centavosAhorro),
-      installmentsPaidAfter: client.installmentsPaid + previewAllocation.installmentsTotalInPayment,
-      installmentsRemainingAfter: Math.max(0, client.installmentsRemaining - previewAllocation.installmentsTotalInPayment),
-      rentAmount: client.rentAmount,
-      frequency: client.frequency,
-      weeklyChargeDay: client.weeklyChargeDay,
-      monthlyChargeDay: client.monthlyChargeDay,
-      travelFundAvailableSnapshot: roundMoney(Math.max(0, client.travelFundBalance ?? 0)),
+      savingsBefore: previewAllocation.projectedClient.savings,
+      savingsAfter: roundMoney(previewAllocation.projectedClient.savings + previewAllocation.centavosAhorro),
+      installmentsPaidAfter: previewAllocation.projectedClient.installmentsPaid + previewAllocation.installmentsTotalInPayment,
+      installmentsRemainingAfter: Math.max(0, previewAllocation.projectedClient.installmentsRemaining - previewAllocation.installmentsTotalInPayment),
+      rentAmount: previewAllocation.projectedClient.rentAmount,
+      frequency: previewAllocation.projectedClient.frequency,
+      weeklyChargeDay: previewAllocation.projectedClient.weeklyChargeDay,
+      monthlyChargeDay: previewAllocation.projectedClient.monthlyChargeDay,
+      chargeFirstSunday: previewAllocation.projectedClient.chargeFirstSunday,
+      firstSundayChargedAt: previewAllocation.projectedClient.firstSundayChargedAt,
+      travelFundAvailableSnapshot: roundMoney(Math.max(0, previewAllocation.projectedClient.travelFundBalance ?? 0)),
       createdAt: new Date().toISOString()
     };
     finalizeSuccessfulPayment(previewPayment, { openReceipt: true });
@@ -2098,7 +2271,7 @@ export default function PaymentsPage({
     }
   }
 
-  function handleConfirmClassify(): void {
+  async function handleConfirmClassify(): Promise<void> {
     if (!pendingClassifyTarget || !pendingClassifyClientId) return;
     const client = clients.find((c) => c.id === pendingClassifyClientId);
     if (!client) return;
@@ -2179,6 +2352,8 @@ export default function PaymentsPage({
       frequency: client.frequency,
       weeklyChargeDay: client.weeklyChargeDay,
       monthlyChargeDay: client.monthlyChargeDay,
+      chargeFirstSunday: client.chargeFirstSunday,
+      firstSundayChargedAt: client.firstSundayChargedAt,
       travelFundAvailableSnapshot: roundMoney(Math.max(0, client.travelFundBalance ?? 0)),
       createdAt: new Date().toISOString()
     };
@@ -2197,8 +2372,11 @@ export default function PaymentsPage({
       };
     });
 
-    onClientsChange(updatedClients);
-    onPaymentsChange([...payments, payment]);
+    const saved = await persistClientPaymentState(updatedClients, [...payments, payment]);
+    if (!saved) {
+      setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
+      return;
+    }
     finalizeSuccessfulPayment(payment);
     const remainingNotified = removeOneMatchingNotified(notifiedPayments, client.id, item.amountReceived, item.dateApplied);
     setNotifiedPayments(remainingNotified);
@@ -2333,9 +2511,11 @@ export default function PaymentsPage({
       rentAmount: client.rentAmount,
       frequency: client.frequency,
       weeklyChargeDay: client.weeklyChargeDay,
-        monthlyChargeDay: client.monthlyChargeDay,
-        travelFundAvailableSnapshot: roundMoney(Math.max(0, client.travelFundBalance ?? 0)),
-        createdAt: new Date().toISOString()
+      monthlyChargeDay: client.monthlyChargeDay,
+      chargeFirstSunday: client.chargeFirstSunday,
+      firstSundayChargedAt: client.firstSundayChargedAt,
+      travelFundAvailableSnapshot: roundMoney(Math.max(0, client.travelFundBalance ?? 0)),
+      createdAt: new Date().toISOString()
     };
 
     const updatedClient = {
@@ -2350,7 +2530,7 @@ export default function PaymentsPage({
     return { updatedClient, payment };
   }
 
-  function handleQuickApply(item: PendingBankItem): void {
+  async function handleQuickApply(item: PendingBankItem): Promise<void> {
     if (!item.suggestedClientId) return;
     const client = clients.find((c) => c.id === item.suggestedClientId);
     if (!client) return;
@@ -2372,8 +2552,11 @@ export default function PaymentsPage({
     }
     const { updatedClient, payment } = applyPendingItem(item, client);
     const updatedClients = clients.map((c) => (c.id === updatedClient.id ? updatedClient : c));
-    onClientsChange(updatedClients);
-    onPaymentsChange([...payments, payment]);
+    const saved = await persistClientPaymentState(updatedClients, [...payments, payment]);
+    if (!saved) {
+      setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
+      return;
+    }
     finalizeSuccessfulPayment(payment);
     const remainingNotified = removeOneMatchingNotified(notifiedPayments, client.id, item.amountReceived, item.dateApplied);
     setNotifiedPayments(remainingNotified);
@@ -2383,7 +2566,7 @@ export default function PaymentsPage({
     savePendingBankItems(next);
   }
 
-  function handleApplyAllHighSimilarity(): void {
+  async function handleApplyAllHighSimilarity(): Promise<void> {
     const highSim = pendingBankItems.filter((item) => {
       const { score } = getSimilaritySignals(item);
       if (score < 2) return false;
@@ -2432,8 +2615,11 @@ export default function PaymentsPage({
     const appliedFolios = new Set(newPayments.flatMap((p) => extractFoliosFromReference(p.reference ?? "")));
     const remainingPending = pendingBankItems.filter((i) => !appliedFolios.has(normalizeFolioToken(i.folio)));
 
-    onClientsChange([...updatedClientsMap.values()]);
-    onPaymentsChange([...payments, ...newPayments]);
+    const saved = await persistClientPaymentState([...updatedClientsMap.values()], [...payments, ...newPayments]);
+    if (!saved) {
+      setErrors(["No se pudo guardar pagos en nube. No se aplicaron cambios."]);
+      return;
+    }
     for (const payment of newPayments) {
       finalizeSuccessfulPayment(payment);
     }
@@ -2629,6 +2815,51 @@ export default function PaymentsPage({
     const nextAudit = [event, ...cashClosingAudit].slice(0, 300);
     setCashClosingAudit(nextAudit);
     saveCashClosingAudit(nextAudit);
+
+    // Snapshot final de gestion de cobros para consulta historica y bloqueo del dia cerrado.
+    const closureDateRef = parseDateKey(date) ?? startOfDay(new Date());
+    const receivableRows = buildReceivableRows(clients, payments, closureDateRef);
+    const statusesByClient = parseCollectionStatusesFromStorage();
+    const closureTotals: Record<CollectionStatus, number> = {
+      no_answer: 0,
+      reminder: 0,
+      call_later: 0,
+      paid: 0
+    };
+    const closureItems: CollectionClosureItem[] = receivableRows.map((row) => {
+      const resolved = resolveCollectionStatusForClosure(row, statusesByClient, date);
+      closureTotals[resolved.status] += 1;
+      return {
+        clientId: row.id,
+        unitId: row.unitId,
+        clientName: row.name,
+        lastPaymentDate: row.lastPaymentDate,
+        receivableState: row.state,
+        totalPending: row.totalPending,
+        collectionStatus: resolved.status,
+        comment: resolved.comment,
+        autoApplied: resolved.autoApplied
+      };
+    });
+    const collectionClosureSnapshot: CollectionClosureSnapshot = {
+      date,
+      closedAt: new Date().toISOString(),
+      actor,
+      reason,
+      totals: closureTotals,
+      items: closureItems
+    };
+    const existingClosures = loadCollectionClosuresFromStorage();
+    localStorage.setItem(
+      COLLECTION_CLOSURES_KEY,
+      JSON.stringify({
+        ...existingClosures,
+        [date]: collectionClosureSnapshot
+      })
+    );
+    // Reinicia la gestion activa despues del cierre para arrancar el siguiente ciclo en estado base.
+    localStorage.setItem(COLLECTION_STATUS_KEY, JSON.stringify({}));
+
     const chargeInfo = chargeResult.alreadyProcessed
       ? `Cobros de ${chargeResult.targetDate} ya estaban aplicados previamente.`
       : `Cobros aplicados para ${chargeResult.targetDate}: esperados ${chargeResult.expectedClients}, cobrados ${chargeResult.chargedClients}, total ${formatCurrency(chargeResult.chargedTotal)}.`;
@@ -2713,10 +2944,10 @@ export default function PaymentsPage({
     setReopenReason("");
   }
 
-  function handleConfirmPayment(): void {
+  async function handleConfirmPayment(): Promise<boolean> {
     const errs = validate();
-    if (errs.length > 0) { setErrors(errs); return; }
-    if (!selectedClient || !preview) return;
+    if (errs.length > 0) { setErrors(errs); return false; }
+    if (!selectedClient || !preview) return false;
     const amountReceived = roundMoney(parseFloat(form.amountReceived));
     if (form.paymentMethod === "Tarjeta") {
       const allocation = computeManualPaymentAllocation(
@@ -2746,24 +2977,26 @@ export default function PaymentsPage({
         appliedToRent: allocation.appliedToRent,
         centavosAhorro: allocation.centavosAhorro,
         advanceApplied: allocation.advanceApplied > 0 ? allocation.advanceApplied : undefined,
-        advanceBalanceAfter: roundMoney((selectedClient.advanceBalance ?? 0) + allocation.advanceApplied),
+        advanceBalanceAfter: allocation.advanceAfter,
         otherChargesApplied: allocation.otherChargesApplied.length > 0 ? allocation.otherChargesApplied : undefined,
-        otherChargesDueAfter: computeOtherChargesDueAfter(selectedClient.otherCharges, allocation.otherChargesApplied),
+        otherChargesDueAfter: computeOtherChargesDueAfter(allocation.projectedClient.otherCharges, allocation.otherChargesApplied),
         installmentsDeducted: allocation.installmentsDeducted,
         installmentsFromDebt: allocation.installmentsDeducted,
         installmentsFromAdvance: allocation.installmentsCoveredByAdvance,
         installmentsTotalInPayment: allocation.installmentsTotalInPayment,
         balanceBefore: allocation.balanceBefore,
         balanceAfter: allocation.balanceAfter,
-        savingsBefore: selectedClient.savings,
-        savingsAfter: roundMoney(selectedClient.savings + allocation.centavosAhorro),
-        installmentsPaidAfter: selectedClient.installmentsPaid + allocation.installmentsTotalInPayment,
-        installmentsRemainingAfter: Math.max(0, selectedClient.installmentsRemaining - allocation.installmentsTotalInPayment),
-        rentAmount: selectedClient.rentAmount,
-        frequency: selectedClient.frequency,
-        weeklyChargeDay: selectedClient.weeklyChargeDay,
-        monthlyChargeDay: selectedClient.monthlyChargeDay,
-        travelFundAvailableSnapshot: roundMoney(Math.max(0, selectedClient.travelFundBalance ?? 0)),
+        savingsBefore: allocation.projectedClient.savings,
+        savingsAfter: roundMoney(allocation.projectedClient.savings + allocation.centavosAhorro),
+        installmentsPaidAfter: allocation.projectedClient.installmentsPaid + allocation.installmentsTotalInPayment,
+        installmentsRemainingAfter: Math.max(0, allocation.projectedClient.installmentsRemaining - allocation.installmentsTotalInPayment),
+        rentAmount: allocation.projectedClient.rentAmount,
+        frequency: allocation.projectedClient.frequency,
+        weeklyChargeDay: allocation.projectedClient.weeklyChargeDay,
+        monthlyChargeDay: allocation.projectedClient.monthlyChargeDay,
+        chargeFirstSunday: allocation.projectedClient.chargeFirstSunday,
+        firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt,
+        travelFundAvailableSnapshot: roundMoney(Math.max(0, allocation.projectedClient.travelFundBalance ?? 0)),
         createdAt: new Date().toISOString()
       };
 
@@ -2773,11 +3006,13 @@ export default function PaymentsPage({
         return {
           ...c,
           balance: allocation.balanceAfter,
-          advanceBalance: roundMoney((c.advanceBalance ?? 0) + allocation.advanceApplied),
+          advanceBalance: allocation.advanceAfter,
           savings: roundMoney(c.savings + allocation.centavosAhorro),
           installmentsRemaining: Math.max(0, c.installmentsRemaining - allocation.installmentsTotalInPayment),
           installmentsPaid: c.installmentsPaid + allocation.installmentsTotalInPayment,
-          otherCharges: otherChargesDueAfter
+          otherCharges: otherChargesDueAfter,
+          lastChargeDate: allocation.projectedClient.lastChargeDate,
+          firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt
         };
       });
 
@@ -2797,8 +3032,11 @@ export default function PaymentsPage({
       };
       const nextPendingCardItems = [...pendingCardItems, pendingCard];
 
-      onClientsChange(updatedClients);
-      onPaymentsChange([...payments, cardPayment]);
+      const saved = await persistClientPaymentState(updatedClients, [...payments, cardPayment]);
+      if (!saved) {
+        setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
+        return false;
+      }
       setPendingCardItems(nextPendingCardItems);
       savePendingCardItems(nextPendingCardItems);
       setErrors([]);
@@ -2817,7 +3055,7 @@ export default function PaymentsPage({
       });
       setManualOtherChargesInput({});
       setManualOverrideForcedOtherCharges(false);
-      return;
+      return true;
     }
     const allocation = computeManualPaymentAllocation(
       selectedClient,
@@ -2847,24 +3085,26 @@ export default function PaymentsPage({
       appliedToRent: allocation.appliedToRent,
       centavosAhorro: allocation.centavosAhorro,
       advanceApplied: allocation.advanceApplied > 0 ? allocation.advanceApplied : undefined,
-      advanceBalanceAfter: roundMoney((selectedClient.advanceBalance ?? 0) + allocation.advanceApplied),
+      advanceBalanceAfter: allocation.advanceAfter,
       otherChargesApplied: allocation.otherChargesApplied.length > 0 ? allocation.otherChargesApplied : undefined,
-      otherChargesDueAfter: computeOtherChargesDueAfter(selectedClient.otherCharges, allocation.otherChargesApplied),
+      otherChargesDueAfter: computeOtherChargesDueAfter(allocation.projectedClient.otherCharges, allocation.otherChargesApplied),
       installmentsDeducted: allocation.installmentsDeducted,
       installmentsFromDebt: allocation.installmentsDeducted,
       installmentsFromAdvance: allocation.installmentsCoveredByAdvance,
       installmentsTotalInPayment: allocation.installmentsTotalInPayment,
       balanceBefore: allocation.balanceBefore,
       balanceAfter: allocation.balanceAfter,
-      savingsBefore: selectedClient.savings,
-      savingsAfter: roundMoney(selectedClient.savings + allocation.centavosAhorro),
-      installmentsPaidAfter: selectedClient.installmentsPaid + allocation.installmentsTotalInPayment,
-      installmentsRemainingAfter: Math.max(0, selectedClient.installmentsRemaining - allocation.installmentsTotalInPayment),
-      rentAmount: selectedClient.rentAmount,
-      frequency: selectedClient.frequency,
-      weeklyChargeDay: selectedClient.weeklyChargeDay,
-      monthlyChargeDay: selectedClient.monthlyChargeDay,
-      travelFundAvailableSnapshot: roundMoney(Math.max(0, selectedClient.travelFundBalance ?? 0)),
+      savingsBefore: allocation.projectedClient.savings,
+      savingsAfter: roundMoney(allocation.projectedClient.savings + allocation.centavosAhorro),
+      installmentsPaidAfter: allocation.projectedClient.installmentsPaid + allocation.installmentsTotalInPayment,
+      installmentsRemainingAfter: Math.max(0, allocation.projectedClient.installmentsRemaining - allocation.installmentsTotalInPayment),
+      rentAmount: allocation.projectedClient.rentAmount,
+      frequency: allocation.projectedClient.frequency,
+      weeklyChargeDay: allocation.projectedClient.weeklyChargeDay,
+      monthlyChargeDay: allocation.projectedClient.monthlyChargeDay,
+      chargeFirstSunday: allocation.projectedClient.chargeFirstSunday,
+      firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt,
+      travelFundAvailableSnapshot: roundMoney(Math.max(0, allocation.projectedClient.travelFundBalance ?? 0)),
       createdAt: new Date().toISOString()
     };
 
@@ -2874,16 +3114,21 @@ export default function PaymentsPage({
       return {
         ...c,
         balance: allocation.balanceAfter,
-        advanceBalance: roundMoney((c.advanceBalance ?? 0) + allocation.advanceApplied),
+        advanceBalance: allocation.advanceAfter,
         savings: roundMoney(c.savings + allocation.centavosAhorro),
         installmentsRemaining: Math.max(0, c.installmentsRemaining - allocation.installmentsTotalInPayment),
         installmentsPaid: c.installmentsPaid + allocation.installmentsTotalInPayment,
-        otherCharges: otherChargesDueAfter
+        otherCharges: otherChargesDueAfter,
+        lastChargeDate: allocation.projectedClient.lastChargeDate,
+        firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt
       };
     });
 
-    onClientsChange(updatedClients);
-    onPaymentsChange([...payments, payment]);
+    const saved = await persistClientPaymentState(updatedClients, [...payments, payment]);
+    if (!saved) {
+      setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
+      return false;
+    }
     finalizeSuccessfulPayment(payment, { openReceipt: true });
     setForm({
       clientId: "",
@@ -2894,6 +3139,7 @@ export default function PaymentsPage({
     });
     setManualOtherChargesInput({});
     setManualOverrideForcedOtherCharges(false);
+    return true;
   }
 
   function handleDeletePayment(payment: Payment): void {
@@ -3792,7 +4038,7 @@ export default function PaymentsPage({
           <button
             type="button"
             className="button primary"
-            onClick={handleConfirmPayment}
+            onClick={() => void handleConfirmPayment()}
             disabled={!form.clientId || !preview || isDateClosed(operationalDateKey)}
           >
             Confirmar pago y generar recibo
@@ -3855,7 +4101,18 @@ export default function PaymentsPage({
           </button>
         </div>
 
-        {notifiedRows.length === 0 ? (
+        <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={notifiedUntilNoonOnly}
+              onChange={(e) => setNotifiedUntilNoonOnly(e.target.checked)}
+            />
+            Solo registros hasta 12:00 PM
+          </label>
+        </div>
+
+        {notifiedRowsFiltered.length === 0 ? (
           <p className="empty">No hay pagos notificados pendientes.</p>
         ) : (
           <div className="table-scroll" style={{ marginTop: 14 }}>
@@ -3877,11 +4134,16 @@ export default function PaymentsPage({
                       Monto {notifiedSortField === "amount" ? (notifiedSortDirection === "desc" ? "v" : "^") : ""}
                     </button>
                   </th>
+                  <th>
+                    <button type="button" className="button ghost small" onClick={() => handleSortNotified("createdAt")}>
+                      Hora {notifiedSortField === "createdAt" ? (notifiedSortDirection === "desc" ? "v" : "^") : ""}
+                    </button>
+                  </th>
                   <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {notifiedRows.map((row) => {
+                {notifiedRowsFiltered.map((row) => {
                   const client = clients.find((c) => c.id === row.clientId);
                   const isEditing = editingNotifiedId === row.id;
                   return (
@@ -3920,6 +4182,7 @@ export default function PaymentsPage({
                           <span className="amount-good">{formatCurrency(row.amount)}</span>
                         )}
                       </td>
+                      <td>{new Date(row.createdAt).toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })}</td>
                       <td className="actions-cell">
                         {isEditing ? (
                           <>
@@ -4087,7 +4350,7 @@ export default function PaymentsPage({
               const c = clients.find((cl) => cl.id === item.suggestedClientId);
               return c && !(c.otherCharges?.length);
             }) && (
-              <button type="button" className="button primary small" onClick={handleApplyAllHighSimilarity}>
+              <button type="button" className="button primary small" onClick={() => void handleApplyAllHighSimilarity()}>
                 Aplicar alta similitud
               </button>
             )}
@@ -4268,7 +4531,7 @@ export default function PaymentsPage({
                           <td style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.description}>{item.description}</td>
                           <td className="actions-cell">
                             {isHighSim && assignedClient && (
-                              <button type="button" className="button primary small" onClick={() => handleQuickApply(item)}>
+                              <button type="button" className="button primary small" onClick={() => void handleQuickApply(item)}>
                                 Aplicar
                               </button>
                             )}
@@ -4685,7 +4948,7 @@ export default function PaymentsPage({
               >
                 Cancelar
               </button>
-              <button type="button" className="button primary" disabled={!pendingClassifyClientId} onClick={handleConfirmClassify}>
+              <button type="button" className="button primary" disabled={!pendingClassifyClientId} onClick={() => void handleConfirmClassify()}>
                 Confirmar y registrar pago
               </button>
             </div>

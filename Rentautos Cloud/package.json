@@ -14,7 +14,9 @@
     "migrate:dry-run": "node scripts/migrate-import.mjs --mode=dry-run",
     "migrate:apply": "node scripts/migrate-import.mjs --mode=apply",
     "migrate:reconcile": "node scripts/migrate-reconcile.mjs",
-    "test:workflows": "node tests/run-workflows.cjs"
+    "test:workflows": "node tests/run-workflows.cjs",
+    "release:check": "node scripts/release-check.cjs",
+    "release:build": "tsc --noEmit && vite build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.1",

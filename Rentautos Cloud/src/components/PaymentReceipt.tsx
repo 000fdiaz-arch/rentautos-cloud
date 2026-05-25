@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { formatCurrency, formatDate } from "../format";
-import { isChargeDay, startOfDay } from "../billing";
+import { findNextChargeDay, isChargeDay, parseDateKey, startOfDay } from "../billing";
 import type { Payment } from "../types";
 
 type Props = {
@@ -45,17 +45,48 @@ function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-function addDays(date: Date, days: number): Date {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
+function diffDays(fromDate: Date, toDate: Date): number {
+  const from = startOfDay(fromDate);
+  const to = startOfDay(toDate);
+  const ms = to.getTime() - from.getTime();
+  return Math.round(ms / 86400000);
 }
 
-function findNextChargeDateForReceipt(client: Parameters<typeof isChargeDay>[0], fromDate: Date): Date | null {
-  let cursor = addDays(startOfDay(fromDate), 1);
-  for (let i = 0; i < 3660; i += 1) {
-    if (isChargeDay(client, cursor)) return cursor;
-    cursor = addDays(cursor, 1);
+function isSameDate(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function isDebtChargeDayForReceipt(client: Payment, date: Date): boolean {
+  if (client.frequency !== "daily") return isChargeDay(client, date);
+
+  const day = date.getDay();
+  if (day >= 1 && day <= 6) return true;
+  if (day !== 0 || !client.chargeFirstSunday) return false;
+
+  // Para el resumen de deuda, cuando ya existe el primer domingo aplicado,
+  // se debe contar solo esa fecha exacta como cuota dominical.
+  const firstSunday = client.firstSundayChargedAt ? parseDateKey(client.firstSundayChargedAt) : null;
+  if (firstSunday) return isSameDate(date, firstSunday);
+
+  // Fallback para recibos historicos sin snapshot.
+  return true;
+}
+
+function findDebtStartDateForReceipt(client: Payment, referenceDate: Date): Date | null {
+  if (!Number.isFinite(client.rentAmount) || client.rentAmount <= 0) return null;
+  const pending = Math.max(0, Math.ceil(Math.max(0, client.balanceAfter) / client.rentAmount));
+  if (pending === 0) return null;
+
+  let remaining = pending;
+  let cursor = startOfDay(referenceDate);
+  for (let i = 0; i < 36600; i += 1) {
+    if (isDebtChargeDayForReceipt(client, cursor)) {
+      remaining -= 1;
+      if (remaining === 0) return cursor;
+    }
+    const previous = new Date(cursor);
+    previous.setDate(previous.getDate() - 1);
+    cursor = previous;
   }
   return null;
 }
@@ -92,11 +123,12 @@ function extractFolio(reference: string): string {
 async function renderReceiptCanvasFromPayment(payment: Payment): Promise<HTMLCanvasElement> {
   const host = document.createElement("div");
   host.style.position = "fixed";
-  host.style.left = "-10000px";
+  host.style.left = "0";
   host.style.top = "0";
   host.style.width = "760px";
-  host.style.opacity = "0";
+  host.style.visibility = "hidden";
   host.style.pointerEvents = "none";
+  host.style.zIndex = "-1";
   document.body.appendChild(host);
 
   const root = createRoot(host);
@@ -111,6 +143,10 @@ async function renderReceiptCanvasFromPayment(payment: Payment): Promise<HTMLCan
     );
 
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
 
     const target = host.querySelector(".receipt-card") as HTMLDivElement | null;
     if (!target) {
@@ -131,8 +167,31 @@ async function renderReceiptCanvasFromPayment(payment: Payment): Promise<HTMLCan
   }
 }
 
-export async function downloadPaymentReceiptImage(payment: Payment): Promise<void> {
-  const { fileName, blob } = await buildPaymentReceiptImageBlob(payment);
+async function renderReceiptCanvasFromElement(target: HTMLElement): Promise<HTMLCanvasElement> {
+  const html2canvas = (await import("html2canvas")).default;
+  return html2canvas(target, {
+    scale: 2,
+    backgroundColor: "#ffffff",
+    useCORS: true,
+    width: target.scrollWidth,
+    height: target.scrollHeight
+  });
+}
+
+export async function downloadPaymentReceiptImage(payment: Payment, renderedCard?: HTMLElement | null): Promise<void> {
+  const { fileName, blob } = renderedCard
+    ? await (async () => {
+      const canvas = await renderReceiptCanvasFromElement(renderedCard);
+      const fileName = buildReceiptFileName(payment);
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((value) => {
+          if (value) resolve(value);
+          else reject(new Error("No se pudo convertir el recibo a imagen."));
+        }, "image/png");
+      });
+      return { fileName, blob };
+    })()
+    : await buildPaymentReceiptImageBlob(payment);
   const link = document.createElement("a");
   const href = URL.createObjectURL(blob);
   link.download = fileName;
@@ -227,26 +286,50 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   );
   const installmentsPaidIncludingAdvance = Math.max(0, payment.installmentsPaidAfter + installmentsFromAdvance);
   const paymentDate = startOfDay(new Date(payment.dateApplied + "T12:00:00"));
+  const advanceApplied = Math.max(0, payment.advanceApplied ?? 0);
+  const advanceBalanceAfter = roundMoney(Math.max(0, payment.advanceBalanceAfter ?? advanceApplied));
   const minimalClient = {
     balance: payment.balanceAfter,
     rentAmount: payment.rentAmount,
     frequency: payment.frequency,
     weeklyChargeDay: payment.weeklyChargeDay,
     monthlyChargeDay: payment.monthlyChargeDay,
+    chargeFirstSunday: payment.chargeFirstSunday,
+    firstSundayChargedAt: payment.firstSundayChargedAt,
+    advanceBalance: advanceBalanceAfter,
     // campos requeridos por la firma pero no usados en el calculo
     id: "", unitId: "", name: "", installmentsAgreed: 0,
     installmentsRemaining: 0, installmentsPaid: 0,
-    otherCharges: [], advanceBalance: 0, savings: 0, createdAt: ""
+    otherCharges: [], savings: 0, createdAt: ""
+  };
+  const minimalClientWithoutAdvance = {
+    ...minimalClient,
+    advanceBalance: 0
   };
   const otherChargesApplied = payment.otherChargesApplied ?? [];
   const otherChargesDueAfter = payment.otherChargesDueAfter ?? [];
   const otherChargesDueTotal = otherChargesDueAfter.reduce((sum, charge) => sum + charge.amount, 0);
-  const advanceApplied = Math.max(0, payment.advanceApplied ?? 0);
-  const advanceBalanceAfter = roundMoney(Math.max(0, payment.advanceBalanceAfter ?? advanceApplied));
   const moroseBalanceToday = Math.max(0, payment.balanceAfter);
   const hasMoroseBalance = moroseBalanceToday > 0;
   const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
-  const nextChargeDate = normalizedRent > 0 ? findNextChargeDateForReceipt(minimalClient, paymentDate) : null;
+  const nextChargeDate = normalizedRent > 0 ? findNextChargeDay(minimalClientWithoutAdvance, paymentDate) : null;
+  const nextPaymentDate = normalizedRent > 0 ? findNextChargeDay(minimalClient, paymentDate) : null;
+  const debtStartDate = normalizedRent > 0 && hasMoroseBalance ? findDebtStartDateForReceipt(payment, paymentDate) : null;
+  const badgeDate = hasMoroseBalance ? debtStartDate : nextPaymentDate;
+  const badgeDaysDelta = badgeDate ? diffDays(paymentDate, badgeDate) : null;
+  const isDailyPlan = payment.frequency === "daily";
+  const badgeTone =
+    hasMoroseBalance
+      ? "danger"
+      : badgeDate === null
+      ? "neutral"
+      : badgeDaysDelta !== null && badgeDaysDelta < 0
+      ? "danger"
+      : isDailyPlan
+      ? (badgeDaysDelta === 0 ? "warning" : "success")
+      : (badgeDaysDelta !== null && badgeDaysDelta <= 3 ? "warning" : "success");
+  const badgeLabel = hasMoroseBalance ? "Pago vencido desde" : "Proximo pago";
+  const badgeText = badgeDate ? `${badgeLabel}: ${formatDate(badgeDate)}` : `${badgeLabel}: por definir`;
   const advanceAppliedToNextInstallment = normalizedRent > 0 ? roundMoney(Math.min(advanceBalanceAfter, normalizedRent)) : 0;
   const advanceRemainingForNextInstallment = normalizedRent > 0
     ? roundMoney(Math.max(0, normalizedRent - advanceAppliedToNextInstallment))
@@ -306,13 +389,19 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
             <div className="receipt-summary-compact-line">{frequencyLabel}, {formatCurrency(payment.rentAmount)}</div>
             <div className="receipt-summary-compact-line">{installmentsPaidIncludingAdvance} Cuotas Pagadas</div>
           </div>
-          {hasPending && (
-            <div className="receipt-top-action">
-              <span className="receipt-top-action-label">Hoy para bajar 1 cuenta</span>
-              <strong>{formatCurrency(saldoParaBajarHoy)}</strong>
-              <span className="receipt-top-action-note">No cancela el total.</span>
+          <div className="receipt-top-action">
+            <div className={`receipt-next-payment-badge receipt-next-payment-badge--${badgeTone}`} title={badgeText}>
+              <span className="receipt-next-payment-badge-icon" aria-hidden="true">📅</span>
+              <span>{badgeText}</span>
             </div>
-          )}
+            {hasPending && (
+              <>
+                <span className="receipt-top-action-label">Hoy para bajar 1 cuenta</span>
+                <strong>{formatCurrency(saldoParaBajarHoy)}</strong>
+                <span className="receipt-top-action-note">No cancela el total.</span>
+              </>
+            )}
+          </div>
           <div className="receipt-top-right-meta">
             <div className="receipt-number receipt-number--right">{payment.receiptNumber}</div>
             <div className="receipt-date">{formatDateSpanish(payment.dateApplied)}</div>
@@ -509,11 +598,12 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
 
 export default function PaymentReceipt({ payment, onClose, closeLabel = "Registrar otro pago" }: Props) {
   const [isDownloading, setIsDownloading] = useState(false);
+  const cardRef = useRef<HTMLDivElement | null>(null);
 
   async function handleDownload(): Promise<void> {
     setIsDownloading(true);
     try {
-      await downloadPaymentReceiptImage(payment);
+      await downloadPaymentReceiptImage(payment, cardRef.current);
     } catch {
       // silently fail - user still sees the receipt on screen
     } finally {
@@ -532,7 +622,7 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
         </button>
       </div>
 
-      <div className="receipt-card">
+      <div ref={cardRef} className="receipt-card">
         <ReceiptCardContent payment={payment} />
       </div>
     </div>

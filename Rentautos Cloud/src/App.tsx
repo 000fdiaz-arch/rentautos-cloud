@@ -7,7 +7,11 @@ import "./styles.css";
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
+  const [appRole, setAppRole] = useState<"admin" | "operador" | "lectura">("lectura");
+  const [dataOwnerUserId, setDataOwnerUserId] = useState<string | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+  const [authBootError, setAuthBootError] = useState<string>("");
 
   useEffect(() => {
     let mounted = true;
@@ -19,11 +23,23 @@ export default function App() {
       };
     }
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSession(data.session ?? null);
-      setLoadingAuth(false);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data, error }) => {
+        if (!mounted) return;
+        if (error) {
+          setAuthBootError("No se pudo validar la sesion. Revisa tu conexion e intenta de nuevo.");
+          setLoadingAuth(false);
+          return;
+        }
+        setSession(data.session ?? null);
+        setLoadingAuth(false);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setAuthBootError("No se pudo validar la sesion. Revisa tu conexion e intenta de nuevo.");
+        setLoadingAuth(false);
+      });
 
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
@@ -35,6 +51,49 @@ export default function App() {
       subscription.subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRole() {
+      if (!session?.user.id || !supabase) {
+        setAppRole("lectura");
+        setDataOwnerUserId(null);
+        setLoadingProfile(false);
+        return;
+      }
+      setLoadingProfile(true);
+      try {
+        const { data, error } = await supabase
+          .from("user_profiles")
+          .select("role,data_owner_user_id")
+          .eq("id", session.user.id)
+          .maybeSingle();
+        if (error) throw error;
+        if (cancelled) return;
+        const role = data?.role;
+        const ownerId = typeof data?.data_owner_user_id === "string" && data.data_owner_user_id.length > 0
+          ? data.data_owner_user_id
+          : null;
+        setDataOwnerUserId(ownerId);
+        if (role === "admin" || role === "operador" || role === "lectura") {
+          setAppRole(role);
+          return;
+        }
+        setAppRole("lectura");
+      } catch {
+        if (!cancelled) setAppRole("lectura");
+      } finally {
+        if (!cancelled) setLoadingProfile(false);
+      }
+    }
+
+    void loadRole();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user.id]);
 
   if (!isSupabaseConfigured) {
     return (
@@ -58,12 +117,36 @@ export default function App() {
     );
   }
 
+  if (authBootError) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <h1>Rentautos</h1>
+          <p>{authBootError}</p>
+        </section>
+      </main>
+    );
+  }
+
   if (!session) return <AuthPanel />;
+
+  if (loadingProfile) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <h1>Rentautos</h1>
+          <p>Cargando perfil...</p>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <AppShell
       userId={session.user.id}
       userEmail={session.user.email}
+      appRole={appRole}
+      dataOwnerUserId={dataOwnerUserId}
       onSignOut={async () => {
         if (!supabase) return;
         await supabase.auth.signOut();

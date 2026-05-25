@@ -1,16 +1,77 @@
 import { supabase } from "./lib/supabase";
-import type { Client, Payment } from "./types";
+import type { Client, ClientStatus, Payment, PaymentPromise } from "./types";
 
 type DataRow<T> = {
   id: string;
   data: T;
 };
+type SingletonDataRow = {
+  data?: unknown;
+};
 
 const PAGE_SIZE = 1000;
+
+export type ControlUnitRow = {
+  user_id: string;
+  unit_id: string;
+  company: string | null;
+  brand_model: string | null;
+  engine_serial: string | null;
+  chassis_serial: string | null;
+  plate: string | null;
+  cupo: string | null;
+  observation: string | null;
+  is_exception: boolean | null;
+  exception_note: string | null;
+  client_id: string | null;
+  client_name: string | null;
+  client_cedula: string | null;
+  operational_status: string | null;
+  financial_balance: number | string | null;
+  financial_status: "moroso" | "al_dia" | "sin_cliente" | string;
+  last_payment_date: string | null;
+};
 
 function getClient() {
   if (!supabase) throw new Error("Supabase no esta configurado.");
   return supabase;
+}
+
+function normalizeClientStatus(rawStatus: unknown, archivedAt: unknown): ClientStatus {
+  const value = typeof rawStatus === "string" ? rawStatus.trim().toLowerCase() : "";
+  if (
+    value === "activo" ||
+    value === "cliente_enfermo" ||
+    value === "taller" ||
+    value === "chapisteria" ||
+    value === "custodia" ||
+    value === "en_busqueda" ||
+    value === "archivado"
+  ) {
+    return value;
+  }
+  if (value === "active") return "activo";
+  if (value === "inactive") return "archivado";
+  if (typeof archivedAt === "string" && archivedAt.trim().length > 0) return "archivado";
+  return "activo";
+}
+
+function normalizeCloudClient(client: Client): Client {
+  const normalizedStatus = normalizeClientStatus(
+    (client as unknown as { status?: unknown }).status,
+    (client as unknown as { archivedAt?: unknown }).archivedAt
+  );
+  const nextArchivedAt =
+    normalizedStatus === "archivado"
+      ? ((client.archivedAt && client.archivedAt.trim().length > 0)
+          ? client.archivedAt
+          : new Date().toISOString())
+      : undefined;
+  return {
+    ...client,
+    status: normalizedStatus,
+    archivedAt: nextArchivedAt
+  };
 }
 
 function chunkIds(ids: string[], size = 150): string[][] {
@@ -22,7 +83,7 @@ function chunkIds(ids: string[], size = 150): string[][] {
 }
 
 async function deleteStaleRows(
-  table: "clients_cloud" | "payments_cloud",
+  table: "clients_cloud" | "payments_cloud" | "payment_promises_cloud",
   userId: string,
   nextIds: Set<string>
 ): Promise<void> {
@@ -77,7 +138,7 @@ export async function loadCloudClients(userId: string): Promise<Client[]> {
     if (batch.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
   }
-  return allRows.map((row) => row.data);
+  return allRows.map((row) => normalizeCloudClient(row.data));
 }
 
 export async function saveCloudClients(userId: string, clients: Client[]): Promise<void> {
@@ -138,4 +199,124 @@ export async function saveCloudPayments(userId: string, payments: Payment[]): Pr
   }
 
   await deleteStaleRows("payments_cloud", userId, nextIds);
+}
+
+export async function loadCloudPaymentPromises(userId: string): Promise<PaymentPromise[]> {
+  const client = getClient();
+  const allRows: DataRow<PaymentPromise>[] = [];
+  let from = 0;
+  while (true) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await client
+      .from("payment_promises_cloud")
+      .select("id,data")
+      .eq("user_id", userId)
+      .range(from, to);
+    if (error) throw error;
+    const batch = (data ?? []) as DataRow<PaymentPromise>[];
+    allRows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return allRows.map((row) => row.data);
+}
+
+export async function saveCloudPaymentPromises(userId: string, promises: PaymentPromise[]): Promise<void> {
+  const client = getClient();
+  const nextIds = new Set(promises.map((item) => item.id));
+  const rows = promises.map((item) => ({
+    user_id: userId,
+    id: item.id,
+    data: item
+  }));
+
+  if (rows.length > 0) {
+    const { error } = await client
+      .from("payment_promises_cloud")
+      .upsert(rows, { onConflict: "user_id,id" });
+
+    if (error) throw error;
+  }
+
+  await deleteStaleRows("payment_promises_cloud", userId, nextIds);
+}
+
+function normalizeRecord(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return {};
+  return payload as Record<string, unknown>;
+}
+
+function normalizeCloudValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => normalizeCloudValue(item));
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  const next: Record<string, unknown> = {};
+  for (const key of Object.keys(record).sort((a, b) => a.localeCompare(b))) {
+    next[key] = normalizeCloudValue(record[key]);
+  }
+  return next;
+}
+
+export async function loadCloudStreetManagement(userId: string): Promise<Record<string, unknown>> {
+  const client = getClient();
+  const { data, error } = await client
+    .from("street_management_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return normalizeRecord((data as SingletonDataRow | null)?.data);
+}
+
+export async function saveCloudStreetManagement(userId: string, value: Record<string, unknown>): Promise<void> {
+  const client = getClient();
+  const normalized = normalizeCloudValue(value) as Record<string, unknown>;
+  const { error } = await client
+    .from("street_management_cloud")
+    .upsert({ user_id: userId, data: normalized }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export async function loadCloudCollectionClosures(userId: string): Promise<Record<string, unknown>> {
+  const client = getClient();
+  const { data, error } = await client
+    .from("collection_closures_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return normalizeRecord((data as SingletonDataRow | null)?.data);
+}
+
+export async function saveCloudCollectionClosures(userId: string, value: Record<string, unknown>): Promise<void> {
+  const client = getClient();
+  const { error } = await client
+    .from("collection_closures_cloud")
+    .upsert({ user_id: userId, data: value }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export async function loadControlUnits(userId: string): Promise<ControlUnitRow[]> {
+  const client = getClient();
+  const allRows: ControlUnitRow[] = [];
+  let from = 0;
+
+  while (true) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await client
+      .from("vw_control_unidades")
+      .select("*")
+      .eq("user_id", userId)
+      .order("unit_id", { ascending: true })
+      .range(from, to);
+
+    if (error) throw error;
+
+    const batch = (data ?? []) as ControlUnitRow[];
+    allRows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return allRows;
 }

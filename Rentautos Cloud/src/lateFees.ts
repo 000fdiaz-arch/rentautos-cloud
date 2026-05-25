@@ -107,7 +107,15 @@ export function applyLateFeesForClosingDate({
   let lateFeeTotal = 0;
   const newEntries: LateFeeLedgerEntry[] = [];
   const nextClients = clients.map((client) => {
-    if (client.archivedAt || client.status === "inactive") return client;
+    if (
+      client.archivedAt ||
+      client.status === "archivado" ||
+      client.status === "taller" ||
+      client.status === "chapisteria" ||
+      client.status === "custodia"
+    ) {
+      return client;
+    }
     if (!selectedUnits.has(normalizeUnitId(client.unitId))) return client;
 
     let reason: LateFeeLedgerEntry["reason"] | null = null;

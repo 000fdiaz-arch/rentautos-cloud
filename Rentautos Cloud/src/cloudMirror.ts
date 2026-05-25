@@ -2,7 +2,6 @@ import { supabase } from "./lib/supabase";
 
 type ArrayKey =
   | "cobrapp.module1.clients.v1"
-  | "cobrapp.module2.payments.v1"
   | "cobrapp.module2.pending_bank.v1"
   | "cobrapp.module2.pending_card.v1"
   | "cobrapp.settings.bank_rules.v1"
@@ -17,11 +16,18 @@ type SingletonKey =
   | "cobrapp.payments.seq.v1"
   | "cobrapp.settings.late_fee_settings.v1"
   | "cobrapp.settings.other_charges_retention.v1"
-  | "cobrapp.clients.status_filter.v1";
+  | "cobrapp.clients.status_filter.v1"
+  | "cobrapp.module3.street_management.v1"
+  | "cobrapp.module3.collection_closures.v1"
+  | "cobrapp.clients.daily_collection.v1"
+  | "cobrapp.clients.daily_collection_am_seals.v1"
+  | "cobrapp.clients.daily_collection_pm_seals.v1"
+  | "cobrapp.clients.daily_collection_close_seals.v1"
+  | "cobrapp.clients.daily_collection_promises.v1"
+  | "cobrapp.clients.daily_collection_street_actions.v1";
 
 const ARRAY_TABLE_MAP: Record<ArrayKey, string> = {
   "cobrapp.module1.clients.v1": "clients_cloud",
-  "cobrapp.module2.payments.v1": "payments_cloud",
   "cobrapp.module2.pending_bank.v1": "pending_bank_items_cloud",
   "cobrapp.module2.pending_card.v1": "pending_card_items_cloud",
   "cobrapp.settings.bank_rules.v1": "bank_rules_cloud",
@@ -37,7 +43,15 @@ const SINGLETON_TABLE_MAP: Record<SingletonKey, string> = {
   "cobrapp.payments.seq.v1": "receipt_sequences_cloud",
   "cobrapp.settings.late_fee_settings.v1": "late_fee_settings_cloud",
   "cobrapp.settings.other_charges_retention.v1": "other_charges_retention_cloud",
-  "cobrapp.clients.status_filter.v1": "client_ui_prefs_cloud"
+  "cobrapp.clients.status_filter.v1": "client_ui_prefs_cloud",
+  "cobrapp.module3.street_management.v1": "street_management_cloud",
+  "cobrapp.module3.collection_closures.v1": "collection_closures_cloud",
+  "cobrapp.clients.daily_collection.v1": "clients_daily_collection_cloud",
+  "cobrapp.clients.daily_collection_am_seals.v1": "clients_daily_collection_am_seals_cloud",
+  "cobrapp.clients.daily_collection_pm_seals.v1": "clients_daily_collection_pm_seals_cloud",
+  "cobrapp.clients.daily_collection_close_seals.v1": "clients_daily_collection_close_seals_cloud",
+  "cobrapp.clients.daily_collection_promises.v1": "clients_daily_collection_promises_cloud",
+  "cobrapp.clients.daily_collection_street_actions.v1": "clients_daily_collection_street_actions_cloud"
 };
 
 const SYNCED_KEYS = new Set<string>([
