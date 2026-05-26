@@ -2396,6 +2396,15 @@ select.control-op-badge {
   font-weight: 900;
 }
 
+.collection-dashboard-kpi-breakdown {
+  font-size: 0.58rem;
+  line-height: 1.25;
+  color: #36506c;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-weight: 600 !important;
+}
+
 .collection-dashboard-kpi.is-active {
   border-color: rgba(15, 118, 110, 0.6);
   box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.16) inset;
