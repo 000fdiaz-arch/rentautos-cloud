@@ -65,6 +65,12 @@ let patchInstalled = false;
 const pendingTimers = new Map<string, number>();
 const cachedValues = new Map<string, string>();
 const PAGE_SIZE = 1000;
+const DAILY_COLLECTION_KEY = "cobrapp.clients.daily_collection.v1";
+const DAILY_COLLECTION_AM_SEALS_KEY = "cobrapp.clients.daily_collection_am_seals.v1";
+const DAILY_COLLECTION_PM_SEALS_KEY = "cobrapp.clients.daily_collection_pm_seals.v1";
+const DAILY_COLLECTION_CLOSE_SEALS_KEY = "cobrapp.clients.daily_collection_close_seals.v1";
+const DAILY_COLLECTION_PROMISES_KEY = "cobrapp.clients.daily_collection_promises.v1";
+const DAILY_COLLECTION_STREET_ACTIONS_KEY = "cobrapp.clients.daily_collection_street_actions.v1";
 
 function asArrayKey(key: string): ArrayKey | null {
   return key in ARRAY_TABLE_MAP ? (key as ArrayKey) : null;
@@ -170,7 +176,16 @@ async function saveSingletonKey(userId: string, key: SingletonKey, raw: string |
     const statusFilter = typeof raw === "string" && raw.trim().length > 0 ? raw : null;
     row = { user_id: userId, status_filter: statusFilter, data: { status_filter: statusFilter } };
   } else {
-    row = { user_id: userId, data: parseObjectValue(raw) };
+    const incoming = parseObjectValue(raw);
+    const { data, error: selectError } = await supabase
+      .from(table)
+      .select("data")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (selectError) throw selectError;
+    const currentData = (data as { data?: unknown } | null)?.data;
+    const current = isPlainRecord(currentData) ? currentData : {};
+    row = { user_id: userId, data: mergeSingletonPayload(key, current, incoming) };
   }
   const { error } = await supabase.from(table).upsert(row, { onConflict: "user_id" });
   if (error) throw error;
@@ -296,6 +311,90 @@ export async function initializeCloudMirror(userId: string): Promise<void> {
   } finally {
     isHydrating = false;
   }
+}
+
+function newerIso(left?: unknown, right?: unknown): string {
+  const leftText = typeof left === "string" ? left : "";
+  const rightText = typeof right === "string" ? right : "";
+  const leftMs = leftText ? new Date(leftText).getTime() : 0;
+  const rightMs = rightText ? new Date(rightText).getTime() : 0;
+  return (Number.isFinite(leftMs) ? leftMs : 0) >= (Number.isFinite(rightMs) ? rightMs : 0) ? leftText : rightText;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergeDailyCollection(current: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...current };
+  for (const [dateKey, incomingDayValue] of Object.entries(incoming)) {
+    const currentDay = isPlainRecord(merged[dateKey]) ? merged[dateKey] : {};
+    const incomingDay = isPlainRecord(incomingDayValue) ? incomingDayValue : {};
+    const nextDay: Record<string, unknown> = { ...currentDay };
+    for (const runId of ["run1", "run2", "run3"]) {
+      const currentRun = isPlainRecord(currentDay[runId]) ? currentDay[runId] : {};
+      const incomingRun = isPlainRecord(incomingDay[runId]) ? incomingDay[runId] : {};
+      const nextRun: Record<string, unknown> = { ...currentRun };
+      for (const [clientId, incomingEntryValue] of Object.entries(incomingRun)) {
+        if (!isPlainRecord(incomingEntryValue)) continue;
+        const currentEntry = isPlainRecord(nextRun[clientId]) ? nextRun[clientId] : null;
+        if (!currentEntry || newerIso(currentEntry.updatedAt, incomingEntryValue.updatedAt) === incomingEntryValue.updatedAt) {
+          nextRun[clientId] = incomingEntryValue;
+        }
+      }
+      nextDay[runId] = nextRun;
+    }
+    merged[dateKey] = nextDay;
+  }
+  return merged;
+}
+
+function mergeIsoByKey(current: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...current };
+  for (const [key, incomingAt] of Object.entries(incoming)) {
+    if (newerIso(merged[key], incomingAt) === incomingAt) merged[key] = incomingAt;
+  }
+  return merged;
+}
+
+function mergePromises(current: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...current };
+  for (const [clientId, incomingValue] of Object.entries(incoming)) {
+    if (!isPlainRecord(incomingValue)) continue;
+    const currentValue = isPlainRecord(merged[clientId]) ? merged[clientId] : null;
+    const currentAt = currentValue?.resolvedAt ?? currentValue?.createdAt;
+    const incomingAt = incomingValue.resolvedAt ?? incomingValue.createdAt;
+    if (!currentValue || newerIso(currentAt, incomingAt) === incomingAt) merged[clientId] = incomingValue;
+  }
+  return merged;
+}
+
+function mergeStreetActions(current: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...current };
+  for (const [dateKey, incomingByClientValue] of Object.entries(incoming)) {
+    const currentByClient = isPlainRecord(merged[dateKey]) ? merged[dateKey] : {};
+    const incomingByClient = isPlainRecord(incomingByClientValue) ? incomingByClientValue : {};
+    const nextByClient: Record<string, unknown> = { ...currentByClient };
+    for (const [clientId, incomingActionValue] of Object.entries(incomingByClient)) {
+      if (!isPlainRecord(incomingActionValue)) continue;
+      const currentAction = isPlainRecord(nextByClient[clientId]) ? nextByClient[clientId] : null;
+      if (!currentAction || newerIso(currentAction.updatedAt, incomingActionValue.updatedAt) === incomingActionValue.updatedAt) {
+        nextByClient[clientId] = incomingActionValue;
+      }
+    }
+    merged[dateKey] = nextByClient;
+  }
+  return merged;
+}
+
+function mergeSingletonPayload(key: SingletonKey, current: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
+  if (key === DAILY_COLLECTION_KEY) return mergeDailyCollection(current, incoming);
+  if (key === DAILY_COLLECTION_AM_SEALS_KEY || key === DAILY_COLLECTION_PM_SEALS_KEY || key === DAILY_COLLECTION_CLOSE_SEALS_KEY) {
+    return mergeIsoByKey(current, incoming);
+  }
+  if (key === DAILY_COLLECTION_PROMISES_KEY) return mergePromises(current, incoming);
+  if (key === DAILY_COLLECTION_STREET_ACTIONS_KEY) return mergeStreetActions(current, incoming);
+  return incoming;
 }
 
 export function writeLocalStorageFromCloud(key: string, value: string): void {

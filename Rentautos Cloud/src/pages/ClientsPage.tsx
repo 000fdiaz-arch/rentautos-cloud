@@ -593,58 +593,58 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
 
   function applyDailyCollectionCloudValue(key: string, value: Record<string, unknown>): void {
     if (key === DAILY_COLLECTION_KEY) {
+      const next = value as Record<string, CollectionDailyRecord>;
       setDailyCollectionByDate((current) => {
-        const merged = mergeDailyCollectionRecords(current, value as Record<string, CollectionDailyRecord>);
-        const serialized = stableJson(merged);
+        const serialized = stableJson(next);
         if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
         dailyCollectionSnapshotRef.current[key] = serialized;
         writeLocalStorageFromCloud(key, serialized);
-        return merged;
+        return next;
       });
     } else if (key === DAILY_COLLECTION_AM_SEALS_KEY) {
+      const next = value as Record<string, string>;
       setAmSealsByDate((current) => {
-        const merged = mergeSeals(current, value as Record<string, string>);
-        const serialized = stableJson(merged);
+        const serialized = stableJson(next);
         if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
         dailyCollectionSnapshotRef.current[key] = serialized;
         writeLocalStorageFromCloud(key, serialized);
-        return merged;
+        return next;
       });
     } else if (key === DAILY_COLLECTION_PM_SEALS_KEY) {
+      const next = value as Record<string, string>;
       setPmSealsByDate((current) => {
-        const merged = mergeSeals(current, value as Record<string, string>);
-        const serialized = stableJson(merged);
+        const serialized = stableJson(next);
         if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
         dailyCollectionSnapshotRef.current[key] = serialized;
         writeLocalStorageFromCloud(key, serialized);
-        return merged;
+        return next;
       });
     } else if (key === DAILY_COLLECTION_CLOSE_SEALS_KEY) {
+      const next = value as Record<string, string>;
       setCloseSealsByDate((current) => {
-        const merged = mergeSeals(current, value as Record<string, string>);
-        const serialized = stableJson(merged);
+        const serialized = stableJson(next);
         if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
         dailyCollectionSnapshotRef.current[key] = serialized;
         writeLocalStorageFromCloud(key, serialized);
-        return merged;
+        return next;
       });
     } else if (key === DAILY_COLLECTION_PROMISES_KEY) {
+      const next = value as Record<string, PaymentPromiseRecord>;
       setPromiseByClientId((current) => {
-        const merged = mergePromiseRecords(current, value as Record<string, PaymentPromiseRecord>);
-        const serialized = stableJson(merged);
+        const serialized = stableJson(next);
         if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
         dailyCollectionSnapshotRef.current[key] = serialized;
         writeLocalStorageFromCloud(key, serialized);
-        return merged;
+        return next;
       });
     } else if (key === DAILY_COLLECTION_STREET_ACTIONS_KEY) {
+      const next = value as Record<string, Record<string, StreetActionRecord>>;
       setStreetActionsByDate((current) => {
-        const merged = mergeStreetActions(current, value as Record<string, Record<string, StreetActionRecord>>);
-        const serialized = stableJson(merged);
+        const serialized = stableJson(next);
         if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
         dailyCollectionSnapshotRef.current[key] = serialized;
         writeLocalStorageFromCloud(key, serialized);
-        return merged;
+        return next;
       });
     }
   }

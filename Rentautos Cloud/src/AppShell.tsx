@@ -91,6 +91,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     token: number;
   } | null>(null);
   const lastStreetManagementSnapshotRef = useRef<string>("");
+  const cloudCoreReloadTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -290,6 +291,85 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   useEffect(() => {
     recalculateRouteCollectionCount(streetManagementData);
   }, [streetManagementData]);
+
+  useEffect(() => {
+    if (!cloudDataUserId || !cloudReady || !supabase) return;
+    let cancelled = false;
+
+    const reloadCloudCoreData = async () => {
+      try {
+        const [cloudClientsData, cloudPaymentsData] = await Promise.all([
+          loadCloudClients(cloudDataUserId),
+          loadCloudPayments(cloudDataUserId)
+        ]);
+        if (cancelled) return;
+        setClients(cloudClientsData);
+        setPayments(cloudPaymentsData);
+        if (!isSupabaseOnlyMode) {
+          saveClients(cloudClientsData);
+          savePayments(cloudPaymentsData);
+        }
+        setSyncStatus("ok");
+        setSyncErrorMessage("");
+        setLastSyncAt(new Date().toLocaleTimeString());
+      } catch (error) {
+        console.error("No se pudo refrescar clientes/pagos desde nube.", error);
+        if (!cancelled) {
+          setSyncStatus("error");
+          setSyncErrorMessage("Fallo el refresco de clientes/pagos desde nube.");
+        }
+      }
+    };
+
+    const scheduleReload = () => {
+      setSyncStatus("syncing");
+      if (cloudCoreReloadTimerRef.current !== null) {
+        window.clearTimeout(cloudCoreReloadTimerRef.current);
+      }
+      cloudCoreReloadTimerRef.current = window.setTimeout(() => {
+        cloudCoreReloadTimerRef.current = null;
+        void reloadCloudCoreData();
+      }, 200);
+    };
+
+    const channel = supabase
+      .channel(`clients-core-live-${cloudDataUserId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "clients_cloud",
+          filter: `user_id=eq.${cloudDataUserId}`
+        },
+        scheduleReload
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "payments_cloud",
+          filter: `user_id=eq.${cloudDataUserId}`
+        },
+        scheduleReload
+      )
+      .subscribe();
+
+    const fallbackTimer = window.setInterval(() => {
+      void reloadCloudCoreData();
+    }, 15_000);
+
+    return () => {
+      cancelled = true;
+      if (cloudCoreReloadTimerRef.current !== null) {
+        window.clearTimeout(cloudCoreReloadTimerRef.current);
+        cloudCoreReloadTimerRef.current = null;
+      }
+      window.clearInterval(fallbackTimer);
+      void supabase.removeChannel(channel);
+    };
+  }, [cloudDataUserId, cloudReady]);
 
   useEffect(() => {
     if (!cloudDataUserId || !cloudReady || !supabase) return;
