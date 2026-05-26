@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import {
   findNextChargeDay,
   getDebtStartDate,
@@ -10,6 +10,8 @@ import {
 import { exportAmClosureToPdf, exportClientsToExcel, exportClientsToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
 import { loadControlUnits } from "../cloudData";
+import { writeLocalStorageFromCloud } from "../cloudMirror";
+import { supabase } from "../lib/supabase";
 import type { BillingFrequency, Client, OtherCharge, Payment, WeeklyChargeDay } from "../types";
 
 type ExportFieldKey =
@@ -111,6 +113,14 @@ const DAILY_COLLECTION_PM_SEALS_KEY = "cobrapp.clients.daily_collection_pm_seals
 const DAILY_COLLECTION_CLOSE_SEALS_KEY = "cobrapp.clients.daily_collection_close_seals.v1";
 const DAILY_COLLECTION_PROMISES_KEY = "cobrapp.clients.daily_collection_promises.v1";
 const DAILY_COLLECTION_STREET_ACTIONS_KEY = "cobrapp.clients.daily_collection_street_actions.v1";
+const DAILY_COLLECTION_SYNC_TABLES = [
+  { key: DAILY_COLLECTION_KEY, table: "clients_daily_collection_cloud" },
+  { key: DAILY_COLLECTION_AM_SEALS_KEY, table: "clients_daily_collection_am_seals_cloud" },
+  { key: DAILY_COLLECTION_PM_SEALS_KEY, table: "clients_daily_collection_pm_seals_cloud" },
+  { key: DAILY_COLLECTION_CLOSE_SEALS_KEY, table: "clients_daily_collection_close_seals_cloud" },
+  { key: DAILY_COLLECTION_PROMISES_KEY, table: "clients_daily_collection_promises_cloud" },
+  { key: DAILY_COLLECTION_STREET_ACTIONS_KEY, table: "clients_daily_collection_street_actions_cloud" }
+] as const;
 
 function notifyCloudSyncPing(key: string): void {
   window.dispatchEvent(
@@ -118,6 +128,110 @@ function notifyCloudSyncPing(key: string): void {
       detail: { key, at: new Date().toISOString(), source: "clients_daily_collection" }
     })
   );
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(value ?? {});
+}
+
+function parseJsonObject<T extends Record<string, unknown>>(raw: string | null): T | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as T;
+  } catch {
+    // ignore malformed local data
+  }
+  return null;
+}
+
+function loadLocalJsonObject<T extends Record<string, unknown>>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  return parseJsonObject<T>(window.localStorage.getItem(key)) ?? fallback;
+}
+
+function persistLocalJson(key: string, value: unknown, snapshotRef: MutableRefObject<Record<string, string>>): void {
+  const serialized = stableJson(value);
+  if (snapshotRef.current[key] === serialized) return;
+  snapshotRef.current[key] = serialized;
+  window.localStorage.setItem(key, serialized);
+  notifyCloudSyncPing(key);
+}
+
+function newerIso(left?: string, right?: string): string {
+  const leftMs = left ? new Date(left).getTime() : 0;
+  const rightMs = right ? new Date(right).getTime() : 0;
+  return (Number.isFinite(leftMs) ? leftMs : 0) >= (Number.isFinite(rightMs) ? rightMs : 0)
+    ? (left ?? "")
+    : (right ?? "");
+}
+
+function mergeDailyCollectionRecords(
+  current: Record<string, CollectionDailyRecord>,
+  incoming: Record<string, CollectionDailyRecord>
+): Record<string, CollectionDailyRecord> {
+  const merged: Record<string, CollectionDailyRecord> = { ...current };
+  for (const [dateKey, incomingDay] of Object.entries(incoming)) {
+    const currentDay = merged[dateKey] ?? { run1: {}, run2: {}, run3: {} };
+    const nextDay: CollectionDailyRecord = {
+      run1: { ...currentDay.run1 },
+      run2: { ...currentDay.run2 },
+      run3: { ...currentDay.run3 }
+    };
+    for (const runId of ["run1", "run2", "run3"] as CollectionRunId[]) {
+      for (const [clientId, incomingEntry] of Object.entries(incomingDay?.[runId] ?? {})) {
+        const currentEntry = nextDay[runId][clientId];
+        const newest = newerIso(currentEntry?.updatedAt, incomingEntry.updatedAt);
+        if (!currentEntry || newest === incomingEntry.updatedAt) {
+          nextDay[runId][clientId] = incomingEntry;
+        }
+      }
+    }
+    merged[dateKey] = nextDay;
+  }
+  return merged;
+}
+
+function mergeSeals(current: Record<string, string>, incoming: Record<string, string>): Record<string, string> {
+  const merged = { ...current };
+  for (const [dateKey, incomingAt] of Object.entries(incoming)) {
+    const newest = newerIso(merged[dateKey], incomingAt);
+    if (newest === incomingAt) merged[dateKey] = incomingAt;
+  }
+  return merged;
+}
+
+function mergePromiseRecords(
+  current: Record<string, PaymentPromiseRecord>,
+  incoming: Record<string, PaymentPromiseRecord>
+): Record<string, PaymentPromiseRecord> {
+  const merged = { ...current };
+  for (const [clientId, incomingRecord] of Object.entries(incoming)) {
+    const currentRecord = merged[clientId];
+    const currentAt = currentRecord?.resolvedAt ?? currentRecord?.createdAt;
+    const incomingAt = incomingRecord.resolvedAt ?? incomingRecord.createdAt;
+    const newest = newerIso(currentAt, incomingAt);
+    if (!currentRecord || newest === incomingAt) merged[clientId] = incomingRecord;
+  }
+  return merged;
+}
+
+function mergeStreetActions(
+  current: Record<string, Record<string, StreetActionRecord>>,
+  incoming: Record<string, Record<string, StreetActionRecord>>
+): Record<string, Record<string, StreetActionRecord>> {
+  const merged: Record<string, Record<string, StreetActionRecord>> = { ...current };
+  for (const [dateKey, incomingByClient] of Object.entries(incoming)) {
+    const currentByClient = merged[dateKey] ?? {};
+    const nextByClient = { ...currentByClient };
+    for (const [clientId, incomingRecord] of Object.entries(incomingByClient)) {
+      const currentRecord = nextByClient[clientId];
+      const newest = newerIso(currentRecord?.updatedAt, incomingRecord.updatedAt);
+      if (!currentRecord || newest === incomingRecord.updatedAt) nextByClient[clientId] = incomingRecord;
+    }
+    merged[dateKey] = nextByClient;
+  }
+  return merged;
 }
 const STATUS_EDIT_OPTIONS: Client["status"][] = [
   "activo",
@@ -437,13 +551,25 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }>>({});
   const [vehicleInfoUnit, setVehicleInfoUnit] = useState<string | null>(null);
   const [clientInfoId, setClientInfoId] = useState<string | null>(null);
-  const [dailyCollectionByDate, setDailyCollectionByDate] = useState<Record<string, CollectionDailyRecord>>({});
-  const [streetActionsByDate, setStreetActionsByDate] = useState<Record<string, Record<string, StreetActionRecord>>>({});
-  const [promiseByClientId, setPromiseByClientId] = useState<Record<string, PaymentPromiseRecord>>({});
+  const [dailyCollectionByDate, setDailyCollectionByDate] = useState<Record<string, CollectionDailyRecord>>(() =>
+    loadLocalJsonObject<Record<string, CollectionDailyRecord>>(DAILY_COLLECTION_KEY, {})
+  );
+  const [streetActionsByDate, setStreetActionsByDate] = useState<Record<string, Record<string, StreetActionRecord>>>(() =>
+    loadLocalJsonObject<Record<string, Record<string, StreetActionRecord>>>(DAILY_COLLECTION_STREET_ACTIONS_KEY, {})
+  );
+  const [promiseByClientId, setPromiseByClientId] = useState<Record<string, PaymentPromiseRecord>>(() =>
+    loadLocalJsonObject<Record<string, PaymentPromiseRecord>>(DAILY_COLLECTION_PROMISES_KEY, {})
+  );
   const [collectionDrafts, setCollectionDrafts] = useState<Record<string, CollectionDraft>>({});
-  const [amSealsByDate, setAmSealsByDate] = useState<Record<string, string>>({});
-  const [pmSealsByDate, setPmSealsByDate] = useState<Record<string, string>>({});
-  const [closeSealsByDate, setCloseSealsByDate] = useState<Record<string, string>>({});
+  const [amSealsByDate, setAmSealsByDate] = useState<Record<string, string>>(() =>
+    loadLocalJsonObject<Record<string, string>>(DAILY_COLLECTION_AM_SEALS_KEY, {})
+  );
+  const [pmSealsByDate, setPmSealsByDate] = useState<Record<string, string>>(() =>
+    loadLocalJsonObject<Record<string, string>>(DAILY_COLLECTION_PM_SEALS_KEY, {})
+  );
+  const [closeSealsByDate, setCloseSealsByDate] = useState<Record<string, string>>(() =>
+    loadLocalJsonObject<Record<string, string>>(DAILY_COLLECTION_CLOSE_SEALS_KEY, {})
+  );
   const [activeDashboardFilter, setActiveDashboardFilter] = useState<{ cut: DashboardCutKey; metric: DashboardMetricKey } | null>(null);
   const [generalGroupFilter, setGeneralGroupFilter] = useState<GeneralGroupFilterKey>("ALL");
   const [saveFeedbackByKey, setSaveFeedbackByKey] = useState<Record<string, { type: "success" | "error"; text: string }>>({});
@@ -456,6 +582,72 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     minAmount: string;
     note: string;
   } | null>(null);
+  const dailyCollectionSnapshotRef = useRef<Record<string, string>>({
+    [DAILY_COLLECTION_KEY]: stableJson(dailyCollectionByDate),
+    [DAILY_COLLECTION_AM_SEALS_KEY]: stableJson(amSealsByDate),
+    [DAILY_COLLECTION_PM_SEALS_KEY]: stableJson(pmSealsByDate),
+    [DAILY_COLLECTION_CLOSE_SEALS_KEY]: stableJson(closeSealsByDate),
+    [DAILY_COLLECTION_PROMISES_KEY]: stableJson(promiseByClientId),
+    [DAILY_COLLECTION_STREET_ACTIONS_KEY]: stableJson(streetActionsByDate)
+  });
+
+  function applyDailyCollectionCloudValue(key: string, value: Record<string, unknown>): void {
+    if (key === DAILY_COLLECTION_KEY) {
+      setDailyCollectionByDate((current) => {
+        const merged = mergeDailyCollectionRecords(current, value as Record<string, CollectionDailyRecord>);
+        const serialized = stableJson(merged);
+        if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
+        dailyCollectionSnapshotRef.current[key] = serialized;
+        writeLocalStorageFromCloud(key, serialized);
+        return merged;
+      });
+    } else if (key === DAILY_COLLECTION_AM_SEALS_KEY) {
+      setAmSealsByDate((current) => {
+        const merged = mergeSeals(current, value as Record<string, string>);
+        const serialized = stableJson(merged);
+        if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
+        dailyCollectionSnapshotRef.current[key] = serialized;
+        writeLocalStorageFromCloud(key, serialized);
+        return merged;
+      });
+    } else if (key === DAILY_COLLECTION_PM_SEALS_KEY) {
+      setPmSealsByDate((current) => {
+        const merged = mergeSeals(current, value as Record<string, string>);
+        const serialized = stableJson(merged);
+        if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
+        dailyCollectionSnapshotRef.current[key] = serialized;
+        writeLocalStorageFromCloud(key, serialized);
+        return merged;
+      });
+    } else if (key === DAILY_COLLECTION_CLOSE_SEALS_KEY) {
+      setCloseSealsByDate((current) => {
+        const merged = mergeSeals(current, value as Record<string, string>);
+        const serialized = stableJson(merged);
+        if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
+        dailyCollectionSnapshotRef.current[key] = serialized;
+        writeLocalStorageFromCloud(key, serialized);
+        return merged;
+      });
+    } else if (key === DAILY_COLLECTION_PROMISES_KEY) {
+      setPromiseByClientId((current) => {
+        const merged = mergePromiseRecords(current, value as Record<string, PaymentPromiseRecord>);
+        const serialized = stableJson(merged);
+        if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
+        dailyCollectionSnapshotRef.current[key] = serialized;
+        writeLocalStorageFromCloud(key, serialized);
+        return merged;
+      });
+    } else if (key === DAILY_COLLECTION_STREET_ACTIONS_KEY) {
+      setStreetActionsByDate((current) => {
+        const merged = mergeStreetActions(current, value as Record<string, Record<string, StreetActionRecord>>);
+        const serialized = stableJson(merged);
+        if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
+        dailyCollectionSnapshotRef.current[key] = serialized;
+        writeLocalStorageFromCloud(key, serialized);
+        return merged;
+      });
+    }
+  }
 
   const operationalReferenceDate = useMemo(() => getOperationalReferenceDate(now), [now]);
   const todayKey = useMemo(() => toDateKey(now), [now]);
@@ -929,11 +1121,68 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }, [rows]);
 
   useEffect(() => {
+    if (!dataOwnerUserId || !supabase) return;
+    let cancelled = false;
+
+    const loadCloudDailyCollection = async () => {
+      await Promise.all(
+        DAILY_COLLECTION_SYNC_TABLES.map(async ({ key, table }) => {
+          const { data, error } = await supabase
+            .from(table)
+            .select("data")
+            .eq("user_id", dataOwnerUserId)
+            .maybeSingle();
+          if (error) {
+            console.error(`No se pudo cargar ${key} desde nube.`, error);
+            return;
+          }
+          if (cancelled) return;
+          const payload = (data as { data?: unknown } | null)?.data;
+          if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+            applyDailyCollectionCloudValue(key, payload as Record<string, unknown>);
+          }
+        })
+      );
+    };
+
+    void loadCloudDailyCollection();
+
+    const channel = supabase.channel(`clients-daily-collection-live-${dataOwnerUserId}`);
+    for (const { key, table } of DAILY_COLLECTION_SYNC_TABLES) {
+      channel.on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table,
+          filter: `user_id=eq.${dataOwnerUserId}`
+        },
+        (payload) => {
+          const row = payload.new as { data?: unknown } | null;
+          const data = row?.data;
+          if (!data || typeof data !== "object" || Array.isArray(data)) return;
+          applyDailyCollectionCloudValue(key, data as Record<string, unknown>);
+        }
+      );
+    }
+    channel.subscribe();
+    const fallbackTimer = window.setInterval(() => {
+      void loadCloudDailyCollection();
+    }, 10_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(fallbackTimer);
+      void supabase.removeChannel(channel);
+    };
+  }, [dataOwnerUserId]);
+
+  useEffect(() => {
     try {
       const raw = window.localStorage.getItem(DAILY_COLLECTION_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, CollectionDailyRecord>;
-      if (parsed && typeof parsed === "object") {
+      const parsed = parseJsonObject<Record<string, CollectionDailyRecord>>(raw);
+      if (parsed) {
+        dailyCollectionSnapshotRef.current[DAILY_COLLECTION_KEY] = stableJson(parsed);
         setDailyCollectionByDate(parsed);
       }
     } catch {
@@ -943,8 +1192,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(DAILY_COLLECTION_KEY, JSON.stringify(dailyCollectionByDate));
-      notifyCloudSyncPing(DAILY_COLLECTION_KEY);
+      persistLocalJson(DAILY_COLLECTION_KEY, dailyCollectionByDate, dailyCollectionSnapshotRef);
     } catch {
       // ignore
     }
@@ -953,9 +1201,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(DAILY_COLLECTION_AM_SEALS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, string>;
-      if (parsed && typeof parsed === "object") {
+      const parsed = parseJsonObject<Record<string, string>>(raw);
+      if (parsed) {
+        dailyCollectionSnapshotRef.current[DAILY_COLLECTION_AM_SEALS_KEY] = stableJson(parsed);
         setAmSealsByDate(parsed);
       }
     } catch {
@@ -965,8 +1213,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(DAILY_COLLECTION_AM_SEALS_KEY, JSON.stringify(amSealsByDate));
-      notifyCloudSyncPing(DAILY_COLLECTION_AM_SEALS_KEY);
+      persistLocalJson(DAILY_COLLECTION_AM_SEALS_KEY, amSealsByDate, dailyCollectionSnapshotRef);
     } catch {
       // ignore
     }
@@ -974,9 +1221,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(DAILY_COLLECTION_PM_SEALS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, string>;
-      if (parsed && typeof parsed === "object") {
+      const parsed = parseJsonObject<Record<string, string>>(raw);
+      if (parsed) {
+        dailyCollectionSnapshotRef.current[DAILY_COLLECTION_PM_SEALS_KEY] = stableJson(parsed);
         setPmSealsByDate(parsed);
       }
     } catch {
@@ -985,8 +1232,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }, []);
   useEffect(() => {
     try {
-      window.localStorage.setItem(DAILY_COLLECTION_PM_SEALS_KEY, JSON.stringify(pmSealsByDate));
-      notifyCloudSyncPing(DAILY_COLLECTION_PM_SEALS_KEY);
+      persistLocalJson(DAILY_COLLECTION_PM_SEALS_KEY, pmSealsByDate, dailyCollectionSnapshotRef);
     } catch {
       // ignore
     }
@@ -994,9 +1240,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(DAILY_COLLECTION_CLOSE_SEALS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, string>;
-      if (parsed && typeof parsed === "object") {
+      const parsed = parseJsonObject<Record<string, string>>(raw);
+      if (parsed) {
+        dailyCollectionSnapshotRef.current[DAILY_COLLECTION_CLOSE_SEALS_KEY] = stableJson(parsed);
         setCloseSealsByDate(parsed);
       }
     } catch {
@@ -1005,8 +1251,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }, []);
   useEffect(() => {
     try {
-      window.localStorage.setItem(DAILY_COLLECTION_CLOSE_SEALS_KEY, JSON.stringify(closeSealsByDate));
-      notifyCloudSyncPing(DAILY_COLLECTION_CLOSE_SEALS_KEY);
+      persistLocalJson(DAILY_COLLECTION_CLOSE_SEALS_KEY, closeSealsByDate, dailyCollectionSnapshotRef);
     } catch {
       // ignore
     }
@@ -1014,9 +1259,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(DAILY_COLLECTION_PROMISES_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, PaymentPromiseRecord>;
-      if (parsed && typeof parsed === "object") {
+      const parsed = parseJsonObject<Record<string, PaymentPromiseRecord>>(raw);
+      if (parsed) {
+        dailyCollectionSnapshotRef.current[DAILY_COLLECTION_PROMISES_KEY] = stableJson(parsed);
         setPromiseByClientId(parsed);
       }
     } catch {
@@ -1025,8 +1270,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }, []);
   useEffect(() => {
     try {
-      window.localStorage.setItem(DAILY_COLLECTION_PROMISES_KEY, JSON.stringify(promiseByClientId));
-      notifyCloudSyncPing(DAILY_COLLECTION_PROMISES_KEY);
+      persistLocalJson(DAILY_COLLECTION_PROMISES_KEY, promiseByClientId, dailyCollectionSnapshotRef);
     } catch {
       // ignore
     }
@@ -1034,9 +1278,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(DAILY_COLLECTION_STREET_ACTIONS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, Record<string, StreetActionRecord>>;
-      if (parsed && typeof parsed === "object") {
+      const parsed = parseJsonObject<Record<string, Record<string, StreetActionRecord>>>(raw);
+      if (parsed) {
+        dailyCollectionSnapshotRef.current[DAILY_COLLECTION_STREET_ACTIONS_KEY] = stableJson(parsed);
         setStreetActionsByDate(parsed);
       }
     } catch {
@@ -1045,8 +1289,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }, []);
   useEffect(() => {
     try {
-      window.localStorage.setItem(DAILY_COLLECTION_STREET_ACTIONS_KEY, JSON.stringify(streetActionsByDate));
-      notifyCloudSyncPing(DAILY_COLLECTION_STREET_ACTIONS_KEY);
+      persistLocalJson(DAILY_COLLECTION_STREET_ACTIONS_KEY, streetActionsByDate, dailyCollectionSnapshotRef);
     } catch {
       // ignore
     }

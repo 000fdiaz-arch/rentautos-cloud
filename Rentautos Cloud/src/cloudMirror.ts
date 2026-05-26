@@ -298,6 +298,16 @@ export async function initializeCloudMirror(userId: string): Promise<void> {
   }
 }
 
+export function writeLocalStorageFromCloud(key: string, value: string): void {
+  patchLocalStorage();
+  isHydrating = true;
+  try {
+    window.localStorage.setItem(key, value);
+  } finally {
+    isHydrating = false;
+  }
+}
+
 export function disableCloudMirror(): void {
   for (const timer of pendingTimers.values()) {
     window.clearTimeout(timer);
