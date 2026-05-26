@@ -85,7 +85,7 @@ type CollectionDraft = {
 type DashboardCutKey = "am" | "pm" | "close";
 type DashboardMetricKey = "needContact" | "contacted" | "paidDone" | "reminder" | "noResponse" | "callLater" | "promise" | "streetSent" | "streetOnlyCollect" | "streetCollectRemove";
 type GeneralGroupFilterKey = "ALL" | "T" | "A" | "B" | "C" | "D";
-type PromiseDashboardFilter = "all" | "attention";
+type PromiseDashboardFilter = "all" | "attention" | "pending";
 type PromiseResolution = "paid";
 type PromiseState = "vigente" | "proxima" | "vencida" | "incumplida_parcial" | "cumplida";
 type StreetActionType = "cobrar_quitar" | "solo_cobrar";
@@ -1014,6 +1014,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }, [amSealsByDate, isAmSealed, operationalReferenceDate, paidTodayAfterAmSealByClientId, paidTodayAmountByClientId, promiseByClientId, paymentsByClientId, now, todayCollection, todayStreetActions, visibleRows]);
   const promiseAttentionClientIds = useMemo(() => {
     const due = new Set<string>();
+    const pending = new Set<string>();
     const allOpen = new Set<string>();
     for (const row of visibleRows) {
       if (!row.client) continue;
@@ -1022,9 +1023,11 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       allOpen.add(row.client.id);
       if (promise.state === "proxima" || promise.state === "vencida" || promise.state === "incumplida_parcial") {
         due.add(row.client.id);
+      } else if (promise.state === "vigente") {
+        pending.add(row.client.id);
       }
     }
-    return { due, allOpen };
+    return { due, pending, allOpen };
   }, [visibleRows, promiseByClientId, paymentsByClientId, now]);
   const amActionableRows = useMemo(() => {
     return visibleRows
@@ -1105,6 +1108,8 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       : visibleRows.filter((row) => getRowGroup(row.unitId) === generalGroupFilter);
     if (promiseDashboardFilter === "attention") {
       baseRows = baseRows.filter((row) => row.client && promiseAttentionClientIds.due.has(row.client.id));
+    } else if (promiseDashboardFilter === "pending") {
+      baseRows = baseRows.filter((row) => row.client && promiseAttentionClientIds.pending.has(row.client.id));
     }
     if (!activeDashboardFilter) return baseRows;
     if (activeDashboardFilter.metric === "needContact") {
@@ -2682,14 +2687,22 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         )}
         <div className="collection-active-filter">
           <span>
-            Promesas: {promiseAttentionClientIds.allOpen.size} activas · {promiseAttentionClientIds.due.size} con atención
+            Promesas: {promiseAttentionClientIds.allOpen.size} activas · {promiseAttentionClientIds.due.size} con atención · {promiseAttentionClientIds.pending.size} pendientes
           </span>
           <button
             type="button"
             className="button ghost small"
-            onClick={() => setPromiseDashboardFilter((current) => (current === "attention" ? "all" : "attention"))}
+            onClick={() =>
+              setPromiseDashboardFilter((current) =>
+                current === "all" ? "attention" : current === "attention" ? "pending" : "all"
+              )
+            }
           >
-            {promiseDashboardFilter === "attention" ? "Ver todas" : "Filtrar promesas por vencer/vencidas"}
+            {promiseDashboardFilter === "attention"
+              ? "Ver solo pendientes"
+              : promiseDashboardFilter === "pending"
+              ? "Ver todas"
+              : "Filtrar promesas por vencer/vencidas"}
           </button>
         </div>
         {displayedRows.length === 0 ? (
