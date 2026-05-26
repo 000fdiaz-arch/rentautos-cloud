@@ -30,6 +30,15 @@ export type ControlUnitRow = {
   financial_balance: number | string | null;
   financial_status: "moroso" | "al_dia" | "sin_cliente" | string;
   last_payment_date: string | null;
+  year?: number | string | null;
+  model_year?: number | string | null;
+  color?: string | null;
+  transmission?: string | null;
+  transmission_type?: string | null;
+  mileage?: number | string | null;
+  kilometrage?: number | string | null;
+  kilometraje?: number | string | null;
+  [key: string]: unknown;
 };
 
 function getClient() {
@@ -319,4 +328,34 @@ export async function loadControlUnits(userId: string): Promise<ControlUnitRow[]
   }
 
   return allRows;
+}
+
+export type ControlUnitUpsertInput = {
+  user_id: string;
+  unit_id: string;
+  company?: string | null;
+  brand_model?: string | null;
+  engine_serial?: string | null;
+  chassis_serial?: string | null;
+  plate?: string | null;
+  cupo?: string | null;
+  observation?: string | null;
+  operational_status?: string | null;
+  year?: number | string | null;
+  model_year?: number | string | null;
+  color?: string | null;
+  transmission?: string | null;
+  transmission_type?: string | null;
+  mileage?: number | string | null;
+  kilometrage?: number | string | null;
+  kilometraje?: number | string | null;
+  [key: string]: unknown;
+};
+
+export async function saveControlUnit(input: ControlUnitUpsertInput): Promise<void> {
+  const client = getClient();
+  const { error } = await client
+    .from("fleet_units_cloud")
+    .upsert(input, { onConflict: "user_id,unit_id" });
+  if (error) throw error;
 }

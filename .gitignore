@@ -1,0 +1,39 @@
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.vercel/
+**/.vercel/
+.env
+**/.env
+*.local
+*.log
+*.out.log
+*.err.log
+
+# Sensitive operational data
+RESPALDO COBRAPP/
+**/RESPALDO COBRAPP/
+exports/
+**/exports/
+tmp-verify/
+**/tmp-verify/
+tmp-backup-retention-check/
+**/tmp-backup-retention-check/
+supabase/.temp/
+**/supabase/.temp/
+tests/screenshots/
+**/tests/screenshots/
+tests/validation-output/
+**/tests/validation-output/
+tests/.tmp-*
+**/tests/.tmp-*
+**/*_text.txt
+**/tmp-docx-render/
+*.docx
+**/*.docx
+
+.claude/worktrees/
+**/.claude/
+**/.claude/worktrees/
+**/.claude/settings.local.json

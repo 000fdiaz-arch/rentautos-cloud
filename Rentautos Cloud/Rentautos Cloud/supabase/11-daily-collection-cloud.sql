@@ -54,6 +54,51 @@ create index if not exists clients_daily_collection_promises_cloud_user_idx
 create index if not exists clients_daily_collection_street_actions_cloud_user_idx
   on public.clients_daily_collection_street_actions_cloud (user_id);
 
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'clients_daily_collection_cloud'
+  ) then
+    alter publication supabase_realtime add table public.clients_daily_collection_cloud;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'clients_daily_collection_am_seals_cloud'
+  ) then
+    alter publication supabase_realtime add table public.clients_daily_collection_am_seals_cloud;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'clients_daily_collection_pm_seals_cloud'
+  ) then
+    alter publication supabase_realtime add table public.clients_daily_collection_pm_seals_cloud;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'clients_daily_collection_close_seals_cloud'
+  ) then
+    alter publication supabase_realtime add table public.clients_daily_collection_close_seals_cloud;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'clients_daily_collection_promises_cloud'
+  ) then
+    alter publication supabase_realtime add table public.clients_daily_collection_promises_cloud;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'clients_daily_collection_street_actions_cloud'
+  ) then
+    alter publication supabase_realtime add table public.clients_daily_collection_street_actions_cloud;
+  end if;
+end $$;
+
 alter table public.clients_daily_collection_cloud enable row level security;
 alter table public.clients_daily_collection_am_seals_cloud enable row level security;
 alter table public.clients_daily_collection_pm_seals_cloud enable row level security;
@@ -162,3 +207,47 @@ drop policy if exists "clients_daily_collection_street_actions_delete_own" on pu
 create policy "clients_daily_collection_street_actions_delete_own"
   on public.clients_daily_collection_street_actions_cloud
   for delete using (auth.uid() = user_id);
+
+-- Dataset compartido por owner: permite que operadores con data_owner_user_id
+-- vean y actualicen la misma jornada diaria del admin.
+drop policy if exists "clients_daily_collection_shared_owner_access" on public.clients_daily_collection_cloud;
+create policy "clients_daily_collection_shared_owner_access"
+  on public.clients_daily_collection_cloud
+  for all to authenticated
+  using (public.can_access_owner_data(user_id))
+  with check (public.can_access_owner_data(user_id));
+
+drop policy if exists "clients_daily_collection_am_seals_shared_owner_access" on public.clients_daily_collection_am_seals_cloud;
+create policy "clients_daily_collection_am_seals_shared_owner_access"
+  on public.clients_daily_collection_am_seals_cloud
+  for all to authenticated
+  using (public.can_access_owner_data(user_id))
+  with check (public.can_access_owner_data(user_id));
+
+drop policy if exists "clients_daily_collection_pm_seals_shared_owner_access" on public.clients_daily_collection_pm_seals_cloud;
+create policy "clients_daily_collection_pm_seals_shared_owner_access"
+  on public.clients_daily_collection_pm_seals_cloud
+  for all to authenticated
+  using (public.can_access_owner_data(user_id))
+  with check (public.can_access_owner_data(user_id));
+
+drop policy if exists "clients_daily_collection_close_seals_shared_owner_access" on public.clients_daily_collection_close_seals_cloud;
+create policy "clients_daily_collection_close_seals_shared_owner_access"
+  on public.clients_daily_collection_close_seals_cloud
+  for all to authenticated
+  using (public.can_access_owner_data(user_id))
+  with check (public.can_access_owner_data(user_id));
+
+drop policy if exists "clients_daily_collection_promises_shared_owner_access" on public.clients_daily_collection_promises_cloud;
+create policy "clients_daily_collection_promises_shared_owner_access"
+  on public.clients_daily_collection_promises_cloud
+  for all to authenticated
+  using (public.can_access_owner_data(user_id))
+  with check (public.can_access_owner_data(user_id));
+
+drop policy if exists "clients_daily_collection_street_actions_shared_owner_access" on public.clients_daily_collection_street_actions_cloud;
+create policy "clients_daily_collection_street_actions_shared_owner_access"
+  on public.clients_daily_collection_street_actions_cloud
+  for all to authenticated
+  using (public.can_access_owner_data(user_id))
+  with check (public.can_access_owner_data(user_id));

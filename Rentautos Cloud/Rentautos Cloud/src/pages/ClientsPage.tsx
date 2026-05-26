@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import {
   findNextChargeDay,
   getDebtStartDate,
@@ -10,6 +10,8 @@ import {
 import { exportAmClosureToPdf, exportClientsToExcel, exportClientsToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
 import { loadControlUnits } from "../cloudData";
+import { writeLocalStorageFromCloud } from "../cloudMirror";
+import { supabase } from "../lib/supabase";
 import type { BillingFrequency, Client, OtherCharge, Payment, WeeklyChargeDay } from "../types";
 
 type ExportFieldKey =
@@ -111,6 +113,126 @@ const DAILY_COLLECTION_PM_SEALS_KEY = "cobrapp.clients.daily_collection_pm_seals
 const DAILY_COLLECTION_CLOSE_SEALS_KEY = "cobrapp.clients.daily_collection_close_seals.v1";
 const DAILY_COLLECTION_PROMISES_KEY = "cobrapp.clients.daily_collection_promises.v1";
 const DAILY_COLLECTION_STREET_ACTIONS_KEY = "cobrapp.clients.daily_collection_street_actions.v1";
+const DAILY_COLLECTION_SYNC_TABLES = [
+  { key: DAILY_COLLECTION_KEY, table: "clients_daily_collection_cloud" },
+  { key: DAILY_COLLECTION_AM_SEALS_KEY, table: "clients_daily_collection_am_seals_cloud" },
+  { key: DAILY_COLLECTION_PM_SEALS_KEY, table: "clients_daily_collection_pm_seals_cloud" },
+  { key: DAILY_COLLECTION_CLOSE_SEALS_KEY, table: "clients_daily_collection_close_seals_cloud" },
+  { key: DAILY_COLLECTION_PROMISES_KEY, table: "clients_daily_collection_promises_cloud" },
+  { key: DAILY_COLLECTION_STREET_ACTIONS_KEY, table: "clients_daily_collection_street_actions_cloud" }
+] as const;
+
+function notifyCloudSyncPing(key: string): void {
+  window.dispatchEvent(
+    new CustomEvent("cobrapp:cloud-sync-ping", {
+      detail: { key, at: new Date().toISOString(), source: "clients_daily_collection" }
+    })
+  );
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(value ?? {});
+}
+
+function parseJsonObject<T extends Record<string, unknown>>(raw: string | null): T | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as T;
+  } catch {
+    // ignore malformed local data
+  }
+  return null;
+}
+
+function loadLocalJsonObject<T extends Record<string, unknown>>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  return parseJsonObject<T>(window.localStorage.getItem(key)) ?? fallback;
+}
+
+function persistLocalJson(key: string, value: unknown, snapshotRef: MutableRefObject<Record<string, string>>): void {
+  const serialized = stableJson(value);
+  if (snapshotRef.current[key] === serialized) return;
+  snapshotRef.current[key] = serialized;
+  window.localStorage.setItem(key, serialized);
+  notifyCloudSyncPing(key);
+}
+
+function newerIso(left?: string, right?: string): string {
+  const leftMs = left ? new Date(left).getTime() : 0;
+  const rightMs = right ? new Date(right).getTime() : 0;
+  return (Number.isFinite(leftMs) ? leftMs : 0) >= (Number.isFinite(rightMs) ? rightMs : 0)
+    ? (left ?? "")
+    : (right ?? "");
+}
+
+function mergeDailyCollectionRecords(
+  current: Record<string, CollectionDailyRecord>,
+  incoming: Record<string, CollectionDailyRecord>
+): Record<string, CollectionDailyRecord> {
+  const merged: Record<string, CollectionDailyRecord> = { ...current };
+  for (const [dateKey, incomingDay] of Object.entries(incoming)) {
+    const currentDay = merged[dateKey] ?? { run1: {}, run2: {}, run3: {} };
+    const nextDay: CollectionDailyRecord = {
+      run1: { ...currentDay.run1 },
+      run2: { ...currentDay.run2 },
+      run3: { ...currentDay.run3 }
+    };
+    for (const runId of ["run1", "run2", "run3"] as CollectionRunId[]) {
+      for (const [clientId, incomingEntry] of Object.entries(incomingDay?.[runId] ?? {})) {
+        const currentEntry = nextDay[runId][clientId];
+        const newest = newerIso(currentEntry?.updatedAt, incomingEntry.updatedAt);
+        if (!currentEntry || newest === incomingEntry.updatedAt) {
+          nextDay[runId][clientId] = incomingEntry;
+        }
+      }
+    }
+    merged[dateKey] = nextDay;
+  }
+  return merged;
+}
+
+function mergeSeals(current: Record<string, string>, incoming: Record<string, string>): Record<string, string> {
+  const merged = { ...current };
+  for (const [dateKey, incomingAt] of Object.entries(incoming)) {
+    const newest = newerIso(merged[dateKey], incomingAt);
+    if (newest === incomingAt) merged[dateKey] = incomingAt;
+  }
+  return merged;
+}
+
+function mergePromiseRecords(
+  current: Record<string, PaymentPromiseRecord>,
+  incoming: Record<string, PaymentPromiseRecord>
+): Record<string, PaymentPromiseRecord> {
+  const merged = { ...current };
+  for (const [clientId, incomingRecord] of Object.entries(incoming)) {
+    const currentRecord = merged[clientId];
+    const currentAt = currentRecord?.resolvedAt ?? currentRecord?.createdAt;
+    const incomingAt = incomingRecord.resolvedAt ?? incomingRecord.createdAt;
+    const newest = newerIso(currentAt, incomingAt);
+    if (!currentRecord || newest === incomingAt) merged[clientId] = incomingRecord;
+  }
+  return merged;
+}
+
+function mergeStreetActions(
+  current: Record<string, Record<string, StreetActionRecord>>,
+  incoming: Record<string, Record<string, StreetActionRecord>>
+): Record<string, Record<string, StreetActionRecord>> {
+  const merged: Record<string, Record<string, StreetActionRecord>> = { ...current };
+  for (const [dateKey, incomingByClient] of Object.entries(incoming)) {
+    const currentByClient = merged[dateKey] ?? {};
+    const nextByClient = { ...currentByClient };
+    for (const [clientId, incomingRecord] of Object.entries(incomingByClient)) {
+      const currentRecord = nextByClient[clientId];
+      const newest = newerIso(currentRecord?.updatedAt, incomingRecord.updatedAt);
+      if (!currentRecord || newest === incomingRecord.updatedAt) nextByClient[clientId] = incomingRecord;
+    }
+    merged[dateKey] = nextByClient;
+  }
+  return merged;
+}
 const STATUS_EDIT_OPTIONS: Client["status"][] = [
   "activo",
   "cliente_enfermo",
@@ -219,6 +341,10 @@ function operationalToneClass(value: Client["status"]): string {
   if (value === "custodia") return "control-op-badge control-op-badge--custodia";
   if (value === "en_busqueda") return "control-op-badge control-op-badge--busqueda";
   return "control-op-badge control-op-badge--archivado";
+}
+
+function isCollectionBlockedByStatus(status: Client["status"]): boolean {
+  return status !== "activo";
 }
 
 type FinancialTone = "moroso" | "proximo" | "al_dia";
@@ -425,16 +551,29 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }>>({});
   const [vehicleInfoUnit, setVehicleInfoUnit] = useState<string | null>(null);
   const [clientInfoId, setClientInfoId] = useState<string | null>(null);
-  const [dailyCollectionByDate, setDailyCollectionByDate] = useState<Record<string, CollectionDailyRecord>>({});
-  const [streetActionsByDate, setStreetActionsByDate] = useState<Record<string, Record<string, StreetActionRecord>>>({});
-  const [promiseByClientId, setPromiseByClientId] = useState<Record<string, PaymentPromiseRecord>>({});
+  const [dailyCollectionByDate, setDailyCollectionByDate] = useState<Record<string, CollectionDailyRecord>>(() =>
+    loadLocalJsonObject<Record<string, CollectionDailyRecord>>(DAILY_COLLECTION_KEY, {})
+  );
+  const [streetActionsByDate, setStreetActionsByDate] = useState<Record<string, Record<string, StreetActionRecord>>>(() =>
+    loadLocalJsonObject<Record<string, Record<string, StreetActionRecord>>>(DAILY_COLLECTION_STREET_ACTIONS_KEY, {})
+  );
+  const [promiseByClientId, setPromiseByClientId] = useState<Record<string, PaymentPromiseRecord>>(() =>
+    loadLocalJsonObject<Record<string, PaymentPromiseRecord>>(DAILY_COLLECTION_PROMISES_KEY, {})
+  );
   const [collectionDrafts, setCollectionDrafts] = useState<Record<string, CollectionDraft>>({});
-  const [amSealsByDate, setAmSealsByDate] = useState<Record<string, string>>({});
-  const [pmSealsByDate, setPmSealsByDate] = useState<Record<string, string>>({});
-  const [closeSealsByDate, setCloseSealsByDate] = useState<Record<string, string>>({});
+  const [amSealsByDate, setAmSealsByDate] = useState<Record<string, string>>(() =>
+    loadLocalJsonObject<Record<string, string>>(DAILY_COLLECTION_AM_SEALS_KEY, {})
+  );
+  const [pmSealsByDate, setPmSealsByDate] = useState<Record<string, string>>(() =>
+    loadLocalJsonObject<Record<string, string>>(DAILY_COLLECTION_PM_SEALS_KEY, {})
+  );
+  const [closeSealsByDate, setCloseSealsByDate] = useState<Record<string, string>>(() =>
+    loadLocalJsonObject<Record<string, string>>(DAILY_COLLECTION_CLOSE_SEALS_KEY, {})
+  );
   const [activeDashboardFilter, setActiveDashboardFilter] = useState<{ cut: DashboardCutKey; metric: DashboardMetricKey } | null>(null);
   const [generalGroupFilter, setGeneralGroupFilter] = useState<GeneralGroupFilterKey>("ALL");
   const [saveFeedbackByKey, setSaveFeedbackByKey] = useState<Record<string, { type: "success" | "error"; text: string }>>({});
+  const [collectionOverrideByKey, setCollectionOverrideByKey] = useState<Record<string, boolean>>({});
   const [streetActionDialog, setStreetActionDialog] = useState<{
     clientId: string;
     clientName: string;
@@ -443,6 +582,72 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     minAmount: string;
     note: string;
   } | null>(null);
+  const dailyCollectionSnapshotRef = useRef<Record<string, string>>({
+    [DAILY_COLLECTION_KEY]: stableJson(dailyCollectionByDate),
+    [DAILY_COLLECTION_AM_SEALS_KEY]: stableJson(amSealsByDate),
+    [DAILY_COLLECTION_PM_SEALS_KEY]: stableJson(pmSealsByDate),
+    [DAILY_COLLECTION_CLOSE_SEALS_KEY]: stableJson(closeSealsByDate),
+    [DAILY_COLLECTION_PROMISES_KEY]: stableJson(promiseByClientId),
+    [DAILY_COLLECTION_STREET_ACTIONS_KEY]: stableJson(streetActionsByDate)
+  });
+
+  function applyDailyCollectionCloudValue(key: string, value: Record<string, unknown>): void {
+    if (key === DAILY_COLLECTION_KEY) {
+      const next = value as Record<string, CollectionDailyRecord>;
+      setDailyCollectionByDate((current) => {
+        const serialized = stableJson(next);
+        if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
+        dailyCollectionSnapshotRef.current[key] = serialized;
+        writeLocalStorageFromCloud(key, serialized);
+        return next;
+      });
+    } else if (key === DAILY_COLLECTION_AM_SEALS_KEY) {
+      const next = value as Record<string, string>;
+      setAmSealsByDate((current) => {
+        const serialized = stableJson(next);
+        if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
+        dailyCollectionSnapshotRef.current[key] = serialized;
+        writeLocalStorageFromCloud(key, serialized);
+        return next;
+      });
+    } else if (key === DAILY_COLLECTION_PM_SEALS_KEY) {
+      const next = value as Record<string, string>;
+      setPmSealsByDate((current) => {
+        const serialized = stableJson(next);
+        if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
+        dailyCollectionSnapshotRef.current[key] = serialized;
+        writeLocalStorageFromCloud(key, serialized);
+        return next;
+      });
+    } else if (key === DAILY_COLLECTION_CLOSE_SEALS_KEY) {
+      const next = value as Record<string, string>;
+      setCloseSealsByDate((current) => {
+        const serialized = stableJson(next);
+        if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
+        dailyCollectionSnapshotRef.current[key] = serialized;
+        writeLocalStorageFromCloud(key, serialized);
+        return next;
+      });
+    } else if (key === DAILY_COLLECTION_PROMISES_KEY) {
+      const next = value as Record<string, PaymentPromiseRecord>;
+      setPromiseByClientId((current) => {
+        const serialized = stableJson(next);
+        if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
+        dailyCollectionSnapshotRef.current[key] = serialized;
+        writeLocalStorageFromCloud(key, serialized);
+        return next;
+      });
+    } else if (key === DAILY_COLLECTION_STREET_ACTIONS_KEY) {
+      const next = value as Record<string, Record<string, StreetActionRecord>>;
+      setStreetActionsByDate((current) => {
+        const serialized = stableJson(next);
+        if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
+        dailyCollectionSnapshotRef.current[key] = serialized;
+        writeLocalStorageFromCloud(key, serialized);
+        return next;
+      });
+    }
+  }
 
   const operationalReferenceDate = useMemo(() => getOperationalReferenceDate(now), [now]);
   const todayKey = useMemo(() => toDateKey(now), [now]);
@@ -881,14 +1086,21 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     const baseRows = generalGroupFilter === "ALL"
       ? visibleRows
       : visibleRows.filter((row) => getRowGroup(row.unitId) === generalGroupFilter);
-    if (!activeDashboardFilter || activeDashboardFilter.metric === "needContact") return baseRows;
+    if (!activeDashboardFilter) return baseRows;
+    if (activeDashboardFilter.metric === "needContact") {
+      // Pendientes del bloque aplica solo al bloque AM (RUN1).
+      if (activeDashboardFilter.cut !== "am") return baseRows;
+      const ids = new Set(collectionDashboard.am.ids.needContact);
+      return baseRows.filter((row) => row.client && ids.has(row.client.id));
+    }
     const ids = new Set(collectionDashboard[activeDashboardFilter.cut].ids[activeDashboardFilter.metric]);
     return baseRows.filter((row) => row.client && ids.has(row.client.id));
   }, [activeDashboardFilter, collectionDashboard, generalGroupFilter, visibleRows]);
 
   useEffect(() => {
-    if (activeDashboardFilter?.metric !== "needContact") return;
-    setActiveDashboardFilter(null);
+    if (activeDashboardFilter?.metric === "needContact" && activeDashboardFilter.cut !== "am") {
+      setActiveDashboardFilter(null);
+    }
   }, [activeDashboardFilter]);
 
   function persist(next: Client[]): void {
@@ -909,11 +1121,68 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }, [rows]);
 
   useEffect(() => {
+    if (!dataOwnerUserId || !supabase) return;
+    let cancelled = false;
+
+    const loadCloudDailyCollection = async () => {
+      await Promise.all(
+        DAILY_COLLECTION_SYNC_TABLES.map(async ({ key, table }) => {
+          const { data, error } = await supabase
+            .from(table)
+            .select("data")
+            .eq("user_id", dataOwnerUserId)
+            .maybeSingle();
+          if (error) {
+            console.error(`No se pudo cargar ${key} desde nube.`, error);
+            return;
+          }
+          if (cancelled) return;
+          const payload = (data as { data?: unknown } | null)?.data;
+          if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+            applyDailyCollectionCloudValue(key, payload as Record<string, unknown>);
+          }
+        })
+      );
+    };
+
+    void loadCloudDailyCollection();
+
+    const channel = supabase.channel(`clients-daily-collection-live-${dataOwnerUserId}`);
+    for (const { key, table } of DAILY_COLLECTION_SYNC_TABLES) {
+      channel.on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table,
+          filter: `user_id=eq.${dataOwnerUserId}`
+        },
+        (payload) => {
+          const row = payload.new as { data?: unknown } | null;
+          const data = row?.data;
+          if (!data || typeof data !== "object" || Array.isArray(data)) return;
+          applyDailyCollectionCloudValue(key, data as Record<string, unknown>);
+        }
+      );
+    }
+    channel.subscribe();
+    const fallbackTimer = window.setInterval(() => {
+      void loadCloudDailyCollection();
+    }, 10_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(fallbackTimer);
+      void supabase.removeChannel(channel);
+    };
+  }, [dataOwnerUserId]);
+
+  useEffect(() => {
     try {
       const raw = window.localStorage.getItem(DAILY_COLLECTION_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, CollectionDailyRecord>;
-      if (parsed && typeof parsed === "object") {
+      const parsed = parseJsonObject<Record<string, CollectionDailyRecord>>(raw);
+      if (parsed) {
+        dailyCollectionSnapshotRef.current[DAILY_COLLECTION_KEY] = stableJson(parsed);
         setDailyCollectionByDate(parsed);
       }
     } catch {
@@ -923,7 +1192,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(DAILY_COLLECTION_KEY, JSON.stringify(dailyCollectionByDate));
+      persistLocalJson(DAILY_COLLECTION_KEY, dailyCollectionByDate, dailyCollectionSnapshotRef);
     } catch {
       // ignore
     }
@@ -932,9 +1201,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(DAILY_COLLECTION_AM_SEALS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, string>;
-      if (parsed && typeof parsed === "object") {
+      const parsed = parseJsonObject<Record<string, string>>(raw);
+      if (parsed) {
+        dailyCollectionSnapshotRef.current[DAILY_COLLECTION_AM_SEALS_KEY] = stableJson(parsed);
         setAmSealsByDate(parsed);
       }
     } catch {
@@ -944,7 +1213,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(DAILY_COLLECTION_AM_SEALS_KEY, JSON.stringify(amSealsByDate));
+      persistLocalJson(DAILY_COLLECTION_AM_SEALS_KEY, amSealsByDate, dailyCollectionSnapshotRef);
     } catch {
       // ignore
     }
@@ -952,9 +1221,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(DAILY_COLLECTION_PM_SEALS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, string>;
-      if (parsed && typeof parsed === "object") {
+      const parsed = parseJsonObject<Record<string, string>>(raw);
+      if (parsed) {
+        dailyCollectionSnapshotRef.current[DAILY_COLLECTION_PM_SEALS_KEY] = stableJson(parsed);
         setPmSealsByDate(parsed);
       }
     } catch {
@@ -963,7 +1232,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }, []);
   useEffect(() => {
     try {
-      window.localStorage.setItem(DAILY_COLLECTION_PM_SEALS_KEY, JSON.stringify(pmSealsByDate));
+      persistLocalJson(DAILY_COLLECTION_PM_SEALS_KEY, pmSealsByDate, dailyCollectionSnapshotRef);
     } catch {
       // ignore
     }
@@ -971,9 +1240,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(DAILY_COLLECTION_CLOSE_SEALS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, string>;
-      if (parsed && typeof parsed === "object") {
+      const parsed = parseJsonObject<Record<string, string>>(raw);
+      if (parsed) {
+        dailyCollectionSnapshotRef.current[DAILY_COLLECTION_CLOSE_SEALS_KEY] = stableJson(parsed);
         setCloseSealsByDate(parsed);
       }
     } catch {
@@ -982,7 +1251,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }, []);
   useEffect(() => {
     try {
-      window.localStorage.setItem(DAILY_COLLECTION_CLOSE_SEALS_KEY, JSON.stringify(closeSealsByDate));
+      persistLocalJson(DAILY_COLLECTION_CLOSE_SEALS_KEY, closeSealsByDate, dailyCollectionSnapshotRef);
     } catch {
       // ignore
     }
@@ -990,9 +1259,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(DAILY_COLLECTION_PROMISES_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, PaymentPromiseRecord>;
-      if (parsed && typeof parsed === "object") {
+      const parsed = parseJsonObject<Record<string, PaymentPromiseRecord>>(raw);
+      if (parsed) {
+        dailyCollectionSnapshotRef.current[DAILY_COLLECTION_PROMISES_KEY] = stableJson(parsed);
         setPromiseByClientId(parsed);
       }
     } catch {
@@ -1001,7 +1270,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }, []);
   useEffect(() => {
     try {
-      window.localStorage.setItem(DAILY_COLLECTION_PROMISES_KEY, JSON.stringify(promiseByClientId));
+      persistLocalJson(DAILY_COLLECTION_PROMISES_KEY, promiseByClientId, dailyCollectionSnapshotRef);
     } catch {
       // ignore
     }
@@ -1009,9 +1278,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(DAILY_COLLECTION_STREET_ACTIONS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, Record<string, StreetActionRecord>>;
-      if (parsed && typeof parsed === "object") {
+      const parsed = parseJsonObject<Record<string, Record<string, StreetActionRecord>>>(raw);
+      if (parsed) {
+        dailyCollectionSnapshotRef.current[DAILY_COLLECTION_STREET_ACTIONS_KEY] = stableJson(parsed);
         setStreetActionsByDate(parsed);
       }
     } catch {
@@ -1020,7 +1289,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }, []);
   useEffect(() => {
     try {
-      window.localStorage.setItem(DAILY_COLLECTION_STREET_ACTIONS_KEY, JSON.stringify(streetActionsByDate));
+      persistLocalJson(DAILY_COLLECTION_STREET_ACTIONS_KEY, streetActionsByDate, dailyCollectionSnapshotRef);
     } catch {
       // ignore
     }
@@ -1355,6 +1624,27 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     setIsFormOpen(true);
   }
 
+  function handleUnlinkClient(client: Client): void {
+    setConfirmDialog({
+      title: "Desvincular cliente",
+      message: `Se desvinculara ${client.name} de la unidad ${client.unitId}. La unidad quedara libre y el cliente pasara a Clientes 2.0. ¿Deseas continuar?`,
+      variant: "warning",
+      onConfirm: () => {
+        persist(clients.map((current) => {
+          if (current.id !== client.id) return current;
+          return {
+            ...current,
+            unitId: "",
+            status: "archivado",
+            statusComment: `Desvinculado de unidad ${client.unitId} el ${new Date().toLocaleDateString("es-PA")}`,
+            archivedAt: new Date().toISOString()
+          };
+        }));
+        setConfirmDialog(null);
+      }
+    });
+  }
+
   function getRunEntry(clientId: string, runId: CollectionRunId): CollectionEntry | undefined {
     return todayCollection[runId][clientId];
   }
@@ -1395,6 +1685,12 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
 
   function saveCollectionEntry(client: Client, runId: CollectionRunId): void {
     const feedbackKey = `${client.id}:${runId}`;
+    const hasOverride = Boolean(collectionOverrideByKey[feedbackKey]);
+    if (isCollectionBlockedByStatus(client.status) && !hasOverride) {
+      setErrors([`Unidad en estado "${STATUS_LABEL[client.status]}". Habilita cobro manual si necesitas gestionar.`]);
+      setSaveFeedbackByKey((current) => ({ ...current, [feedbackKey]: { type: "error", text: "Requiere habilitar cobro manual" } }));
+      return;
+    }
     const draft = getDraft(client.id, runId);
     const normalizedNote = draft.note.trim() || (draft.status === "no_responde" ? "Sin respuesta" : "");
     if (!draft.status) {
@@ -2409,10 +2705,13 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                     <div className={`collection-dashboard-kpis ${cut.key === "close" ? "collection-dashboard-kpis--close" : ""}`}>
                       <button
                         type="button"
-                        className={`collection-dashboard-kpi collection-dashboard-kpi--need is-disabled ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "needContact" ? "is-active" : ""}`}
-                        onClick={() => undefined}
-                        aria-disabled="true"
-                        title="Filtro inhabilitado por operación"
+                        className={`collection-dashboard-kpi collection-dashboard-kpi--need ${cut.key !== "am" ? "is-disabled" : ""} ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "needContact" ? "is-active" : ""}`}
+                        onClick={() => {
+                          if (cut.key !== "am") return;
+                          setActiveDashboardFilter((current) => current?.cut === "am" && current.metric === "needContact" ? null : { cut: "am", metric: "needContact" });
+                        }}
+                        aria-disabled={cut.key !== "am"}
+                        title={cut.key === "am" ? "Filtrar pendientes del bloque AM (RUN1)" : "Disponible solo en bloque AM (RUN1)"}
                       >
                         <span>Pendientes del bloque</span>
                         <strong>{cut.stats.needContact}</strong>
@@ -2647,8 +2946,51 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                     const financialTone = getFinancialTone(debtStartDate, nextChargeDate, operationalReferenceDate);
                     const financialBadge = financialToneUi(financialTone);
                     const paidTodayAmount = client ? (paidTodayAmountByClientId.get(client.id) ?? 0) : 0;
-                    const remainingAfterTodayPayment = client ? Math.max(0, client.balance) : 0;
                     const lockedByTodayPayment = false;
+                    const clientHasManualCollectionEnabled = Boolean(client) && (["run1", "run2", "run3"] as CollectionRunId[]).some((runId) =>
+                      Boolean(collectionOverrideByKey[`${client.id}:${runId}`])
+                    );
+                    const rowBlockedByStatus = Boolean(client) && isCollectionBlockedByStatus(client.status) && !clientHasManualCollectionEnabled;
+                    const debtLabel = client
+                      ? (debtStartDate ? formatDate(debtStartDate) : nextChargeDate ? `Al dia hasta ${formatPaymentDateKey(toDateKey(nextChargeDate))}` : "Al dia")
+                      : "-";
+                    const lastPaymentLabel = client ? (() => {
+                      const value = lastPaymentByClientId.get(client.id);
+                      return value ? formatPaymentDateKey(value) : "-";
+                    })() : "-";
+
+                    if (rowBlockedByStatus && client) {
+                      return (
+                        <tr key={client.id} className="clients-row--status-alert">
+                          <td className="clients-cell-status-only" colSpan={3}>
+                            <div className="clients-status-alert">
+                              <span className="clients-status-alert__state">{STATUS_LABEL[client.status]}</span>
+                              <span>Unidad: {unitId}</span>
+                              <span>Cliente: {firstNameOf(client.name)}</span>
+                              <span>Saldo: {formatCurrency(client.balance)}</span>
+                              <span>Debe desde: {debtLabel}</span>
+                              <span>Ultimo pago: {lastPaymentLabel}</span>
+                              <span>Otros cargos: {formatCurrency(otherChargesTotal)}</span>
+                              <span>Estado cuenta: {financialBadge.label}</span>
+                              <button
+                                type="button"
+                                className="button primary small clients-status-alert__action"
+                                onClick={() => {
+                                  setCollectionOverrideByKey((current) => ({
+                                    ...current,
+                                    [`${client.id}:run1`]: true,
+                                    [`${client.id}:run2`]: true,
+                                    [`${client.id}:run3`]: true
+                                  }));
+                                }}
+                              >
+                                Generar cobro (excepcion)
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
 
                     return (
                       <tr key={client?.id ?? `fleet-${unitId}`} className={!client ? "clients-row--no-driver" : ""}>
@@ -2688,6 +3030,14 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                   }}
                                 >
                                   Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button ghost small clients-info-btn clients-info-btn--primary"
+                                  onClick={() => handleUnlinkClient(client)}
+                                  title="Desvincular cliente de esta unidad"
+                                >
+                                  Desvincular
                                 </button>
                               </>
                             ) : (
@@ -2827,8 +3177,17 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                       ? "collection-mini-form--pm"
                                       : "collection-mini-form--close";
                                     const hasSavedEntry = Boolean(todayCollection[runId][client.id]?.status);
+                                    const blockedByStatus = isCollectionBlockedByStatus(client.status) && !collectionOverrideByKey[feedbackKey];
                                     return (
                                       <div key={runId} className={`collection-mini-form collection-mini-form--column ${runVariantClass} ${isPreventive ? "collection-mini-form--preventive" : ""} ${showProcessedChip ? "collection-mini-form--has-processed-chip" : ""}`}>
+                                        {blockedByStatus ? (
+                                          <div className="collection-status-lock">
+                                            <span className="badge badge-warning">Estado: {STATUS_LABEL[client.status]}</span>
+                                            <button type="button" className="button primary small" onClick={() => setCollectionOverrideByKey((current) => ({ ...current, [feedbackKey]: true }))}>
+                                              Habilitar cobro manual
+                                            </button>
+                                          </div>
+                                        ) : null}
                                         {promiseNeedsAction && promiseRecord && runId === "run1" ? (
                                           <div className="collection-promise-reactivation">
                                             <span className={`badge ${promiseInfo?.state === "incumplida_parcial" ? "badge-debt" : "badge-warning"}`}>
@@ -2869,7 +3228,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                           }
                                           updateDraft(client.id, runId, { status: nextStatus });
                                         }}
-                                        disabled={pmAutoPaid || lockedByTodayPayment || !runEnabledByInheritance || !runEditable}
+                                        disabled={blockedByStatus || pmAutoPaid || lockedByTodayPayment || !runEnabledByInheritance || !runEditable}
                                       >
                                           {!lockedByTodayPayment && !pmAutoPaid && <option value="">Seleccionar</option>}
                                         {pmAutoPaid ? (
@@ -2935,7 +3294,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                           placeholder="Nota"
                                           value={draft.note}
                                           onChange={(e) => updateDraft(client.id, runId, { note: e.target.value })}
-                                          disabled={pmAutoPaid || lockedByTodayPayment || !runEnabledByInheritance || !runEditable}
+                                          disabled={blockedByStatus || pmAutoPaid || lockedByTodayPayment || !runEnabledByInheritance || !runEditable}
                                         />
                                         {runId === "run3" && (
                                           <div className="collection-form-actions">
@@ -2943,7 +3302,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                               type="button"
                                               className="button ghost small"
                                               onClick={() => openStreetActionDialog(client, unitId)}
-                                              disabled={!closeStreetEligible}
+                                              disabled={blockedByStatus || !closeStreetEligible}
                                               title={closeStreetEligible ? "Enviar a cobrador de calle" : "Disponible para No responde / Llamar más tarde / Promesa de pago"}
                                             >
                                               Enviar a calle
@@ -2955,7 +3314,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                             ) : null}
                                           </div>
                                         )}
-                                        {!pmAutoPaid && !lockedByTodayPayment && runEnabledByInheritance && runEditable && (
+                                        {!blockedByStatus && !pmAutoPaid && !lockedByTodayPayment && runEnabledByInheritance && runEditable && (
                                           <div className="collection-form-actions">
                                             <button
                                               type="button"

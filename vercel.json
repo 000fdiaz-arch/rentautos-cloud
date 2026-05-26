@@ -1,5 +1,5 @@
 {
-  "installCommand": "cd \"Rentautos Cloud\" && npm install",
-  "buildCommand": "cd \"Rentautos Cloud\" && npm run build",
-  "outputDirectory": "Rentautos Cloud/dist"
+  "installCommand": "cd \"Rentautos Cloud/Rentautos Cloud\" && npm install",
+  "buildCommand": "cd \"Rentautos Cloud/Rentautos Cloud\" && npm run build",
+  "outputDirectory": "Rentautos Cloud/Rentautos Cloud/dist"
 }

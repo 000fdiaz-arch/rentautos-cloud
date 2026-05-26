@@ -5,6 +5,7 @@ import PaymentsPage from "./pages/PaymentsPage";
 import ReceivablesPage from "./pages/ReceivablesPage";
 import SettingsPage from "./pages/SettingsPage";
 import CashClosingPage from "./pages/CashClosingPage";
+import ControlUnitsPage from "./pages/ControlUnitsPage";
 import {
   loadClients,
   loadPayments,
@@ -33,6 +34,7 @@ import {
 } from "./cloudData";
 import { supabase } from "./lib/supabase";
 import { disableCloudMirror, flushCloudMirror, initializeCloudMirror } from "./cloudMirror";
+import { isSupabaseOnlyMode } from "./persistenceMode";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
 import {
   autoBackupDetailed,
@@ -46,7 +48,7 @@ import {
 import type { BankRule, Client, LateFeeSettings, OtherChargesRetentionByClient, Payment } from "./types";
 import "./styles.css";
 
-type AppPage = "clients" | "clients_20" | "payments" | "receivables" | "settings" | "cash_closing";
+type AppPage = "clients" | "clients_20" | "payments" | "receivables" | "control_units" | "settings" | "cash_closing";
 
 type AppShellProps = {
   userId?: string;
@@ -61,8 +63,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = dataOwnerUserId ?? userId;
   const [page, setPage] = useState<AppPage>(isReadOnlyReceivables ? "receivables" : "clients");
-  const [clients, setClients] = useState<Client[]>(() => loadClients());
-  const [payments, setPayments] = useState<Payment[]>(() => loadPayments());
+  const [clients, setClients] = useState<Client[]>(() => (isSupabaseOnlyMode ? [] : loadClients()));
+  const [payments, setPayments] = useState<Payment[]>(() => (isSupabaseOnlyMode ? [] : loadPayments()));
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
   const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
   const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>(() => loadOtherChargesRetentionByClient());
@@ -89,6 +91,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     token: number;
   } | null>(null);
   const lastStreetManagementSnapshotRef = useRef<string>("");
+  const cloudCoreReloadTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -242,10 +245,10 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         setCloudLoadError("");
         setSyncErrorMessage("");
         setSyncStatus("syncing");
-        void initializeCloudMirror(cloudDataUserId).catch((error) => {
-          console.error("No se pudo inicializar cloud mirror.", error);
-        });
-        const [cloudClientsData, cloudPaymentsData, cloudStreetManagement, cloudCollectionClosures] = await Promise.all([
+        const [_cloudMirrorReady, cloudClientsData, cloudPaymentsData, cloudStreetManagement, cloudCollectionClosures] = await Promise.all([
+          initializeCloudMirror(cloudDataUserId).catch((error) => {
+            console.error("No se pudo inicializar cloud mirror.", error);
+          }),
           loadCloudClients(cloudDataUserId),
           loadCloudPayments(cloudDataUserId),
           loadCloudStreetManagement(cloudDataUserId),
@@ -257,9 +260,11 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         setBankRules(loadBankRules());
         setLateFeeSettings(loadLateFeeSettings());
         setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
-        // Mantiene compatibilidad con funciones que aun leen localStorage.
-        saveClients(cloudClientsData);
-        savePayments(cloudPaymentsData);
+        // Mantiene cache local opcional cuando no estamos en modo estricto nube.
+        if (!isSupabaseOnlyMode) {
+          saveClients(cloudClientsData);
+          savePayments(cloudPaymentsData);
+        }
         setStreetManagementData(cloudStreetManagement);
         lastStreetManagementSnapshotRef.current = stableSerialize(cloudStreetManagement);
         localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(cloudCollectionClosures));
@@ -286,6 +291,85 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   useEffect(() => {
     recalculateRouteCollectionCount(streetManagementData);
   }, [streetManagementData]);
+
+  useEffect(() => {
+    if (!cloudDataUserId || !cloudReady || !supabase) return;
+    let cancelled = false;
+
+    const reloadCloudCoreData = async () => {
+      try {
+        const [cloudClientsData, cloudPaymentsData] = await Promise.all([
+          loadCloudClients(cloudDataUserId),
+          loadCloudPayments(cloudDataUserId)
+        ]);
+        if (cancelled) return;
+        setClients(cloudClientsData);
+        setPayments(cloudPaymentsData);
+        if (!isSupabaseOnlyMode) {
+          saveClients(cloudClientsData);
+          savePayments(cloudPaymentsData);
+        }
+        setSyncStatus("ok");
+        setSyncErrorMessage("");
+        setLastSyncAt(new Date().toLocaleTimeString());
+      } catch (error) {
+        console.error("No se pudo refrescar clientes/pagos desde nube.", error);
+        if (!cancelled) {
+          setSyncStatus("error");
+          setSyncErrorMessage("Fallo el refresco de clientes/pagos desde nube.");
+        }
+      }
+    };
+
+    const scheduleReload = () => {
+      setSyncStatus("syncing");
+      if (cloudCoreReloadTimerRef.current !== null) {
+        window.clearTimeout(cloudCoreReloadTimerRef.current);
+      }
+      cloudCoreReloadTimerRef.current = window.setTimeout(() => {
+        cloudCoreReloadTimerRef.current = null;
+        void reloadCloudCoreData();
+      }, 200);
+    };
+
+    const channel = supabase
+      .channel(`clients-core-live-${cloudDataUserId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "clients_cloud",
+          filter: `user_id=eq.${cloudDataUserId}`
+        },
+        scheduleReload
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "payments_cloud",
+          filter: `user_id=eq.${cloudDataUserId}`
+        },
+        scheduleReload
+      )
+      .subscribe();
+
+    const fallbackTimer = window.setInterval(() => {
+      void reloadCloudCoreData();
+    }, 15_000);
+
+    return () => {
+      cancelled = true;
+      if (cloudCoreReloadTimerRef.current !== null) {
+        window.clearTimeout(cloudCoreReloadTimerRef.current);
+        cloudCoreReloadTimerRef.current = null;
+      }
+      window.clearInterval(fallbackTimer);
+      void supabase.removeChannel(channel);
+    };
+  }, [cloudDataUserId, cloudReady]);
 
   useEffect(() => {
     if (!cloudDataUserId || !cloudReady || !supabase) return;
@@ -366,6 +450,25 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   }, [cloudDataUserId, cloudReady]);
 
   useEffect(() => {
+    if (!cloudDataUserId || !cloudReady) return;
+    let syncTimer: number | null = null;
+    const handleSyncPing = () => {
+      setSyncStatus("syncing");
+      if (syncTimer !== null) window.clearTimeout(syncTimer);
+      syncTimer = window.setTimeout(() => {
+        setSyncStatus("ok");
+        setSyncErrorMessage("");
+        setLastSyncAt(new Date().toLocaleTimeString());
+      }, 250);
+    };
+    window.addEventListener("cobrapp:cloud-sync-ping", handleSyncPing);
+    return () => {
+      window.removeEventListener("cobrapp:cloud-sync-ping", handleSyncPing);
+      if (syncTimer !== null) window.clearTimeout(syncTimer);
+    };
+  }, [cloudDataUserId, cloudReady]);
+
+  useEffect(() => {
     if (!backupSupported) return;
     let mounted = true;
     (async () => {
@@ -428,7 +531,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         return;
       }
     }
-    saveClients(next);
+    if (!isSupabaseOnlyMode) saveClients(next);
     setHasPendingChanges(true);
   }
 
@@ -452,7 +555,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         return;
       }
     }
-    savePayments(next);
+    if (!isSupabaseOnlyMode) savePayments(next);
     setHasPendingChanges(true);
   }
 
@@ -480,8 +583,10 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         return false;
       }
     }
-    saveClients(nextClients);
-    savePayments(nextPayments);
+    if (!isSupabaseOnlyMode) {
+      saveClients(nextClients);
+      savePayments(nextPayments);
+    }
     setHasPendingChanges(true);
     return true;
   }
@@ -697,6 +802,13 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
               Cuentas por Cobrar
               {routeCollectionCount > 0 && <span className="nav-tab-badge">Ruta: {routeCollectionCount}</span>}
             </button>
+            <button
+              type="button"
+              className={`nav-tab ${page === "control_units" ? "nav-tab--active" : ""}`}
+              onClick={() => setPage("control_units")}
+            >
+              Autos
+            </button>
             {!isReadOnlyReceivables && (
               <button
                 type="button"
@@ -790,6 +902,13 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             hideCollectedThisMonth={isReadOnlyReceivables}
             streetManagementData={streetManagementData}
             onStreetManagementPersist={persistStreetManagement}
+          />
+        )}
+        {page === "control_units" && (
+          <ControlUnitsPage
+            dataOwnerUserId={cloudDataUserId}
+            readOnly={isReadOnlyReceivables}
+            clients={clients}
           />
         )}
         {page === "settings" && (
