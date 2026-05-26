@@ -5,6 +5,7 @@ import PaymentsPage from "./pages/PaymentsPage";
 import ReceivablesPage from "./pages/ReceivablesPage";
 import SettingsPage from "./pages/SettingsPage";
 import CashClosingPage from "./pages/CashClosingPage";
+import ControlUnitsPage from "./pages/ControlUnitsPage";
 import {
   loadClients,
   loadPayments,
@@ -47,7 +48,7 @@ import {
 import type { BankRule, Client, LateFeeSettings, OtherChargesRetentionByClient, Payment } from "./types";
 import "./styles.css";
 
-type AppPage = "clients" | "clients_20" | "payments" | "receivables" | "settings" | "cash_closing";
+type AppPage = "clients" | "clients_20" | "payments" | "receivables" | "control_units" | "settings" | "cash_closing";
 
 type AppShellProps = {
   userId?: string;
@@ -721,6 +722,13 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
               Cuentas por Cobrar
               {routeCollectionCount > 0 && <span className="nav-tab-badge">Ruta: {routeCollectionCount}</span>}
             </button>
+            <button
+              type="button"
+              className={`nav-tab ${page === "control_units" ? "nav-tab--active" : ""}`}
+              onClick={() => setPage("control_units")}
+            >
+              Autos
+            </button>
             {!isReadOnlyReceivables && (
               <button
                 type="button"
@@ -814,6 +822,13 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             hideCollectedThisMonth={isReadOnlyReceivables}
             streetManagementData={streetManagementData}
             onStreetManagementPersist={persistStreetManagement}
+          />
+        )}
+        {page === "control_units" && (
+          <ControlUnitsPage
+            dataOwnerUserId={cloudDataUserId}
+            readOnly={isReadOnlyReceivables}
+            clients={clients}
           />
         )}
         {page === "settings" && (
