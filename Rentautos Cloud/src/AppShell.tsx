@@ -93,6 +93,56 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const lastStreetManagementSnapshotRef = useRef<string>("");
   const cloudCoreReloadTimerRef = useRef<number | null>(null);
 
+  function buildCloudErrorMessage(
+    baseMessage: string,
+    err: unknown,
+    options?: { includeRawFallback?: boolean }
+  ): string {
+    const errRecord = (typeof err === "object" && err !== null ? err as Record<string, unknown> : null);
+    const rawMessage =
+      err instanceof Error
+        ? err.message
+        : typeof errRecord?.message === "string"
+        ? errRecord.message
+        : "";
+    const rawCode = typeof errRecord?.code === "string" ? errRecord.code : "";
+    const rawDetails = typeof errRecord?.details === "string" ? errRecord.details : "";
+    const rawHint = typeof errRecord?.hint === "string" ? errRecord.hint : "";
+    const normalized = `${rawCode} ${rawMessage} ${rawDetails} ${rawHint}`.toLowerCase();
+
+    if (
+      normalized.includes("row-level security") ||
+      normalized.includes("permission denied") ||
+      normalized.includes("42501")
+    ) {
+      return `${baseMessage} Permisos insuficientes (RLS/owner).`;
+    }
+    if (
+      normalized.includes("network") ||
+      normalized.includes("fetch") ||
+      normalized.includes("timeout")
+    ) {
+      return `${baseMessage} Problema de conexion/red.`;
+    }
+    if (
+      normalized.includes("jwt") ||
+      normalized.includes("token") ||
+      normalized.includes("not authenticated") ||
+      normalized.includes("401")
+    ) {
+      return `${baseMessage} Sesion expirada o no autenticada.`;
+    }
+    if (options?.includeRawFallback) {
+      const detailBits = [rawCode, rawMessage, rawDetails, rawHint]
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0);
+      if (detailBits.length > 0) {
+        return `${baseMessage} Motivo: ${detailBits.join(" | ").slice(0, 220)}`;
+      }
+    }
+    return baseMessage;
+  }
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -276,7 +326,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       } catch (err) {
         console.error("No se pudo cargar data cloud.", err);
         setSyncStatus("error");
-        setSyncErrorMessage("Fallo la sincronizacion inicial con nube.");
+        setSyncErrorMessage(buildCloudErrorMessage("Fallo la sincronizacion inicial con nube.", err, { includeRawFallback: true }));
         setCloudLoadError("No se pudo cargar la data de nube. Verifica conexion e intenta de nuevo.");
         setCloudReady(true);
       }
@@ -316,7 +366,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         console.error("No se pudo refrescar clientes/pagos desde nube.", error);
         if (!cancelled) {
           setSyncStatus("error");
-          setSyncErrorMessage("Fallo el refresco de clientes/pagos desde nube.");
+          setSyncErrorMessage(buildCloudErrorMessage("Fallo el refresco de clientes/pagos desde nube.", error, { includeRawFallback: true }));
         }
       }
     };
@@ -569,17 +619,64 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     if (cloudDataUserId) {
       try {
         setSyncStatus("syncing");
-        await saveCloudClients(cloudDataUserId, nextClients);
+        // Best-effort atomicity: write payments first, then clients.
+        // If clients save fails, rollback payments to previous snapshot.
         await saveCloudPayments(cloudDataUserId, nextPayments);
+        await saveCloudClients(cloudDataUserId, nextClients);
         setSyncStatus("ok");
         setSyncErrorMessage("");
         setLastSyncAt(new Date().toLocaleTimeString());
       } catch (err) {
         console.error("No se pudo guardar clientes/pagos en cloud.", err);
+        if (cloudDataUserId) {
+          try {
+            await saveCloudPayments(cloudDataUserId, previousPayments);
+            await saveCloudClients(cloudDataUserId, previousClients);
+          } catch (rollbackError) {
+            console.error("Fallo rollback de clientes/pagos en cloud.", rollbackError);
+          }
+        }
         setClients(previousClients);
         setPayments(previousPayments);
         setSyncStatus("error");
-        setSyncErrorMessage("No se pudo guardar clientes/pagos en nube. El cambio fue revertido.");
+        const errRecord = (typeof err === "object" && err !== null ? err as Record<string, unknown> : null);
+        const rawMessage =
+          err instanceof Error
+            ? err.message
+            : typeof errRecord?.message === "string"
+            ? errRecord.message
+            : "";
+        const rawCode = typeof errRecord?.code === "string" ? errRecord.code : "";
+        const rawDetails = typeof errRecord?.details === "string" ? errRecord.details : "";
+        const rawHint = typeof errRecord?.hint === "string" ? errRecord.hint : "";
+        const normalizedMessage = `${rawCode} ${rawMessage} ${rawDetails} ${rawHint}`.toLowerCase();
+        if (
+          normalizedMessage.includes("payments_cloud_user_folio_uq") ||
+          normalizedMessage.includes("duplicate key") ||
+          normalizedMessage.includes("duplicate")
+        ) {
+          setSyncErrorMessage("No se pudo guardar el pago: el folio ya existe en la base de datos.");
+        } else if (
+          normalizedMessage.includes("row-level security") ||
+          normalizedMessage.includes("permission denied") ||
+          normalizedMessage.includes("42501")
+        ) {
+          setSyncErrorMessage("No se pudo guardar en nube por permisos (RLS). Verifica el usuario y el owner de datos.");
+        } else if (
+          normalizedMessage.includes("network") ||
+          normalizedMessage.includes("fetch") ||
+          normalizedMessage.includes("timeout")
+        ) {
+          setSyncErrorMessage("No se pudo guardar en nube por conexion/red. Reintenta.");
+        } else {
+          const detailBits = [rawCode, rawMessage, rawDetails, rawHint]
+            .map((part) => part.trim())
+            .filter((part) => part.length > 0);
+          const detail = detailBits.length > 0
+            ? ` Motivo: ${detailBits.join(" | ").slice(0, 220)}`
+            : "";
+          setSyncErrorMessage(`No se pudo guardar clientes/pagos en nube. El cambio fue revertido.${detail}`);
+        }
         return false;
       }
     }
