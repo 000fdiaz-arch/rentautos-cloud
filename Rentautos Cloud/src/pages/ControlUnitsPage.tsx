@@ -1,215 +1,171 @@
-﻿import { Fragment, useEffect, useMemo, useState } from "react";
-import { toDateKey } from "../billing";
-import { loadControlUnits, type ControlUnitRow } from "../cloudData";
-import { formatCurrency } from "../format";
+import { useEffect, useMemo, useState } from "react";
+import { loadControlUnits, saveControlUnit, type ControlUnitRow, type ControlUnitUpsertInput } from "../cloudData";
 import type { Client } from "../types";
 
 type Props = {
   dataOwnerUserId?: string | null;
-  clients: Client[];
-  onClientsChange: (next: Client[]) => Promise<void>;
+  readOnly?: boolean;
+  clients?: Client[];
 };
 
-type FinancialFilter = "all" | "moroso" | "al_dia" | "sin_cliente";
+type SortField = "unit_id" | "group" | "operational_status" | "brand_model" | "company" | "plate";
 type SortDirection = "asc" | "desc";
-type SortField = "unit" | "operational" | "cobranza" | "info";
-type InfoSection = "unidad" | "cliente" | "cobranza";
-type BillingDraft = {
-  rentAmount: number;
-  frequency: Client["frequency"];
-  installmentsAgreed: number;
-  installmentsRemaining: number;
-  installmentsPaid: number;
+
+type UnitFormState = {
+  unit_id: string;
+  company: string;
+  brand_model: string;
+  plate: string;
+  engine_serial: string;
+  chassis_serial: string;
+  year: string;
+  color: string;
+  transmission: string;
+  mileage: string;
+  operational_status: string;
+  observation: string;
 };
 
-type OperationalFilter =
-  | "all"
-  | "activo"
-  | "cliente_enfermo"
-  | "taller"
-  | "chapisteria"
-  | "custodia"
-  | "en_busqueda"
-  | "archivado"
-  | "sin_estado";
+const DEFAULT_FORM: UnitFormState = {
+  unit_id: "",
+  company: "",
+  brand_model: "",
+  plate: "",
+  engine_serial: "",
+  chassis_serial: "",
+  year: "",
+  color: "",
+  transmission: "",
+  mileage: "",
+  operational_status: "activo",
+  observation: ""
+};
 
-const OPERATIONAL_OPTIONS: Client["status"][] = [
-  "activo",
-  "cliente_enfermo",
-  "taller",
-  "chapisteria",
-  "custodia",
-  "en_busqueda",
-  "archivado"
+const PIE_COLORS = [
+  "#0f766e",
+  "#f59e0b",
+  "#2563eb",
+  "#dc2626",
+  "#7c3aed",
+  "#0891b2",
+  "#65a30d",
+  "#9333ea",
+  "#ea580c",
+  "#475569"
 ];
 
-function groupFromUnit(unitId: string): string {
-  const cleaned = unitId.trim().toUpperCase();
-  return cleaned.length > 0 ? cleaned[0] : "";
+const UNIT_GROUP_MAX: Record<"A" | "B" | "C" | "D" | "T", number> = {
+  A: 101,
+  B: 100,
+  C: 100,
+  D: 100,
+  T: 37
+};
+
+function toGroup(unitId: string): string {
+  const value = unitId.trim().toUpperCase();
+  return value.length > 0 ? value[0] : "-";
 }
 
-function formatMoney(value: number): string {
-  return formatCurrency(value);
+function normalizeUnitIdInput(raw: string): string {
+  const cleaned = raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!cleaned) return "";
+  const group = cleaned[0];
+  const digits = cleaned.slice(1).replace(/\D/g, "");
+  if (!digits) return group;
+  if (digits.length === 1) return `${group}0${digits}`;
+  return `${group}${digits}`;
 }
 
-function normalizeBalance(value: ControlUnitRow["financial_balance"]): number {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
+function normalizeText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeStatus(value: unknown): string {
+  const text = normalizeText(value);
+  return text.length > 0 ? text.toLowerCase() : "libre";
+}
+
+function optionalString(row: ControlUnitRow, keys: string[]): string {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
   }
-  return 0;
+  return "";
 }
 
-function financialLabel(value: string): string {
-  if (value === "moroso") return "Moroso";
-  if (value === "al_dia") return "Al dia";
-  if (value === "sin_cliente") return "Sin cliente";
-  return value || "Sin estado";
+function statusLabel(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "libre") return "LIBRE";
+  if (normalized === "activo") return "Activo";
+  if (normalized === "cliente_enfermo") return "Cliente enfermo";
+  if (normalized === "taller") return "Taller";
+  if (normalized === "chapisteria") return "Chapisteria";
+  if (normalized === "custodia") return "Custodia";
+  if (normalized === "en_busqueda") return "En busqueda";
+  if (normalized === "archivado") return "Archivado";
+  return normalized.length > 0 ? value : "Sin estado";
 }
 
-function operationalLabel(value: string | null): string {
-  if (!value) return "Sin estado";
-  if (value === "activo") return "Activo";
-  if (value === "cliente_enfermo") return "Cliente enfermo";
-  if (value === "taller") return "Taller";
-  if (value === "chapisteria") return "Chapisteria";
-  if (value === "custodia") return "Custodia";
-  if (value === "en_busqueda") return "En busqueda";
-  if (value === "archivado") return "Archivado";
-  return value;
-}
-
-function frequencyLabel(value: Client["frequency"] | undefined): string {
-  if (!value) return "-";
-  if (value === "daily") return "Diaria";
-  if (value === "weekly") return "Semanal";
-  if (value === "biweekly") return "Quincenal";
-  if (value === "monthly") return "Mensual";
-  return value;
-}
-
-function parseDateOnly(value?: string): Date | null {
-  if (!value) return null;
-  const only = value.slice(0, 10);
-  const dt = new Date(`${only}T00:00:00`);
-  return Number.isNaN(dt.getTime()) ? null : dt;
-}
-
-function daysSince(value?: string): number | null {
-  const dt = parseDateOnly(value);
-  if (!dt) return null;
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return Math.max(0, Math.floor((today.getTime() - dt.getTime()) / 86400000));
-}
-
-function debtSinceTone(days: number | null): string {
-  if (days === null) return "amount-muted";
-  if (days <= 0) return "amount-good";
-  if (days <= 7) return "amount-warning";
-  return "amount-debt";
-}
-
-function operationalToneClass(value: string | null): string {
-  if (value === "activo") return "control-op-badge control-op-badge--activo";
-  if (value === "cliente_enfermo") return "control-op-badge control-op-badge--enfermo";
-  if (value === "taller") return "control-op-badge control-op-badge--taller";
-  if (value === "chapisteria") return "control-op-badge control-op-badge--chapisteria";
-  if (value === "custodia") return "control-op-badge control-op-badge--custodia";
-  if (value === "en_busqueda") return "control-op-badge control-op-badge--busqueda";
-  if (value === "archivado") return "control-op-badge control-op-badge--archivado";
+function statusBadgeClass(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "libre") return "control-op-badge control-op-badge--sin-estado";
+  if (normalized === "activo") return "control-op-badge control-op-badge--activo";
+  if (normalized === "cliente_enfermo") return "control-op-badge control-op-badge--enfermo";
+  if (normalized === "taller") return "control-op-badge control-op-badge--taller";
+  if (normalized === "chapisteria") return "control-op-badge control-op-badge--chapisteria";
+  if (normalized === "custodia") return "control-op-badge control-op-badge--custodia";
+  if (normalized === "en_busqueda") return "control-op-badge control-op-badge--busqueda";
+  if (normalized === "archivado") return "control-op-badge control-op-badge--archivado";
   return "control-op-badge control-op-badge--sin-estado";
 }
 
-function isStatusAllowedForClient(client: Client, nextStatus: Client["status"]): boolean {
-  if (nextStatus !== "cliente_enfermo") return true;
-  return client.frequency === "daily";
-}
-
-function requiresComment(nextStatus: Client["status"]): boolean {
-  return nextStatus === "taller" || nextStatus === "chapisteria" || nextStatus === "custodia" || nextStatus === "archivado";
-}
-
-function applyClientStatusChange(client: Client, nextStatus: Client["status"], comment: string): Client {
-  const normalizedComment = comment.trim() || undefined;
-  if (nextStatus === "activo") {
-    return {
-      ...client,
-      status: "activo",
-      statusComment: undefined,
-      archivedAt: undefined,
-      lastChargeDate: toDateKey(new Date())
-    };
-  }
-  if (nextStatus === "archivado") {
-    return {
-      ...client,
-      status: "archivado",
-      statusComment: normalizedComment,
-      archivedAt: new Date().toISOString()
-    };
-  }
+function toFormState(row?: ControlUnitRow): UnitFormState {
+  if (!row) return { ...DEFAULT_FORM };
   return {
-    ...client,
-    status: nextStatus,
-    statusComment: normalizedComment
+    unit_id: row.unit_id ?? "",
+    company: row.company ?? "",
+    brand_model: row.brand_model ?? "",
+    plate: row.plate ?? "",
+    engine_serial: row.engine_serial ?? "",
+    chassis_serial: row.chassis_serial ?? "",
+    year: optionalString(row, ["year", "model_year"]),
+    color: optionalString(row, ["color"]),
+    transmission: optionalString(row, ["transmission", "transmission_type"]),
+    mileage: optionalString(row, ["mileage", "kilometraje", "kilometrage"]),
+    operational_status: row.operational_status ?? "activo",
+    observation: row.observation ?? ""
   };
 }
 
-export default function ControlUnitsPage({ dataOwnerUserId, clients, onClientsChange }: Props) {
+export default function ControlUnitsPage({ dataOwnerUserId, readOnly = false, clients = [] }: Props) {
   const [rows, setRows] = useState<ControlUnitRow[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string>("");
+  const [saving, setSaving] = useState<boolean>(false);
+  const [saveError, setSaveError] = useState<string>("");
   const [search, setSearch] = useState<string>("");
   const [groupFilter, setGroupFilter] = useState<string>("all");
-  const [operationalFilter, setOperationalFilter] = useState<OperationalFilter>("all");
-  const [financialFilter, setFinancialFilter] = useState<FinancialFilter>("all");
-  const [onlyFree, setOnlyFree] = useState<boolean>(false);
-  const [expandedInfoKey, setExpandedInfoKey] = useState<string | null>(null);
-  const [sortField, setSortField] = useState<SortField>("unit");
+  const [companyFilter, setCompanyFilter] = useState<string>("all");
+  const [modelFilter, setModelFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sortField, setSortField] = useState<SortField>("unit_id");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
-  const [statusDialog, setStatusDialog] = useState<{ clientId: string; nextStatus: Client["status"]; comment: string } | null>(null);
-  const [statusError, setStatusError] = useState<string>("");
-  const [statusSaving, setStatusSaving] = useState<boolean>(false);
-  const [assignDialog, setAssignDialog] = useState<{ unitId: string; name: string; cedula: string }>({
-    unitId: "",
-    name: "",
-    cedula: ""
-  });
-  const [assignError, setAssignError] = useState<string>("");
-  const [assignSaving, setAssignSaving] = useState<boolean>(false);
-  const [billingSavingByClientId, setBillingSavingByClientId] = useState<Record<string, boolean>>({});
-  const [billingErrorByClientId, setBillingErrorByClientId] = useState<Record<string, string>>({});
-  const [billingDraftByClientId, setBillingDraftByClientId] = useState<Record<string, BillingDraft>>({});
-  const [infoSectionByRowKey, setInfoSectionByRowKey] = useState<Record<string, InfoSection>>({});
-
-  function toggleSort(field: SortField): void {
-    if (sortField === field) {
-      setSortDirection((direction) => (direction === "asc" ? "desc" : "asc"));
-      return;
-    }
-    setSortField(field);
-    setSortDirection("asc");
-  }
-
-  function sortIcon(field: SortField): string {
-    if (sortField !== field) return "<>";
-    return sortDirection === "asc" ? "^" : "v";
-  }
+  const [createOpen, setCreateOpen] = useState<boolean>(false);
+  const [editTarget, setEditTarget] = useState<ControlUnitRow | null>(null);
+  const [form, setForm] = useState<UnitFormState>({ ...DEFAULT_FORM });
 
   useEffect(() => {
     if (!dataOwnerUserId) {
       setRows([]);
       setLoading(false);
-      setLoadError("No se encontro owner de datos para cargar Control de Unidades.");
+      setLoadError("No se encontro owner de datos para cargar autos.");
       return;
     }
-
     let cancelled = false;
     setLoading(true);
     setLoadError("");
-
     void (async () => {
       try {
         const data = await loadControlUnits(dataOwnerUserId);
@@ -217,621 +173,473 @@ export default function ControlUnitsPage({ dataOwnerUserId, clients, onClientsCh
         setRows(data);
       } catch (error) {
         if (cancelled) return;
-        console.error("No se pudo cargar Control de Unidades.", error);
-        setLoadError("No se pudo cargar la vista consolidada de unidades.");
+        console.error("No se pudo cargar autos.", error);
+        setLoadError("No se pudo cargar el tablero de autos.");
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
-
     return () => {
       cancelled = true;
     };
   }, [dataOwnerUserId]);
 
-  const groups = useMemo(() => {
-    const set = new Set<string>();
-    for (const row of rows) {
-      const group = groupFromUnit(row.unit_id ?? "");
-      if (group) set.add(group);
+  const groups = useMemo(() => Array.from(new Set(rows.map((item) => toGroup(item.unit_id ?? "")))).sort(), [rows]);
+  const companies = useMemo(() => Array.from(new Set(rows.map((item) => normalizeText(item.company)).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [rows]);
+  const models = useMemo(() => Array.from(new Set(rows.map((item) => normalizeText(item.brand_model)).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [rows]);
+  const clientStatusByUnit = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const client of clients) {
+      const unit = normalizeText(client.unitId).toUpperCase();
+      if (!unit) continue;
+      map.set(unit, normalizeStatus(client.status));
     }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [rows]);
+    return map;
+  }, [clients]);
+  function effectiveStatus(row: ControlUnitRow): string {
+    const unit = normalizeText(row.unit_id).toUpperCase();
+    const fromClient = unit ? clientStatusByUnit.get(unit) : "";
+    if (fromClient && fromClient.length > 0) return fromClient;
+    return normalizeStatus(row.operational_status);
+  }
+  const statuses = useMemo(
+    () => Array.from(new Set(rows.map((item) => effectiveStatus(item)))).sort((a, b) => a.localeCompare(b)),
+    [rows, clientStatusByUnit]
+  );
 
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
-
-    const filtered = rows.filter((row) => {
-      const unit = String(row.unit_id ?? "").trim().toUpperCase();
-      const group = groupFromUnit(unit);
-      const clientName = String(row.client_name ?? "").trim();
-      const plate = String(row.plate ?? "").trim().toUpperCase();
-      const operational = row.operational_status ?? "";
-      const financial = String(row.financial_status ?? "");
-      const isFree = !row.client_id;
-
-      if (groupFilter !== "all" && group !== groupFilter) return false;
-      if (operationalFilter !== "all") {
-        if (operationalFilter === "sin_estado") {
-          if (operational.length > 0) return false;
-        } else if (operational !== operationalFilter) {
-          return false;
-        }
-      }
-      if (financialFilter !== "all" && financial !== financialFilter) return false;
-      if (onlyFree && !isFree) return false;
-
-      if (!query) return true;
-      return `${unit} ${plate} ${clientName}`.toLowerCase().includes(query);
-    });
-
-    return [...filtered].sort((a, b) => {
-      let comparison = 0;
-      if (sortField === "unit") {
-        comparison = String(a.unit_id ?? "").localeCompare(String(b.unit_id ?? ""), undefined, { numeric: true });
-      } else if (sortField === "operational") {
-        comparison = operationalLabel(a.operational_status).localeCompare(operationalLabel(b.operational_status));
-      } else if (sortField === "cobranza") {
-        comparison = financialLabel(String(a.financial_status ?? "")).localeCompare(
-          financialLabel(String(b.financial_status ?? ""))
-        );
-        if (comparison === 0) comparison = normalizeBalance(a.financial_balance) - normalizeBalance(b.financial_balance);
-      } else if (sortField === "info") {
-        const aInfo = `${a.plate ?? ""} ${a.brand_model ?? ""}`.trim();
-        const bInfo = `${b.plate ?? ""} ${b.brand_model ?? ""}`.trim();
-        comparison = aInfo.localeCompare(bInfo);
-      }
-      if (comparison === 0) {
-        comparison = String(a.unit_id ?? "").localeCompare(String(b.unit_id ?? ""), undefined, { numeric: true });
-      }
-      return sortDirection === "asc" ? comparison : -comparison;
-    });
-  }, [rows, search, groupFilter, operationalFilter, financialFilter, onlyFree, sortField, sortDirection]);
-
-  async function handleApplyStatus(clientId: string, nextStatus: Client["status"], comment = ""): Promise<void> {
-    const client = clients.find((item) => item.id === clientId);
-    if (!client) {
-      setStatusError("No se encontro cliente para actualizar estado.");
-      return;
-    }
-    if (!isStatusAllowedForClient(client, nextStatus)) {
-      setStatusError("'Cliente enfermo' solo aplica para clientes con frecuencia diaria.");
-      return;
-    }
-
-    const nextClients = clients.map((item) => (
-      item.id === clientId ? applyClientStatusChange(item, nextStatus, comment) : item
-    ));
-
-    setStatusSaving(true);
-    setStatusError("");
-    try {
-      await onClientsChange(nextClients);
-      setRows((current) => current.map((row) => (
-        row.client_id === clientId ? { ...row, operational_status: nextStatus } : row
-      )));
-      setStatusDialog(null);
-    } catch (error) {
-      console.error("No se pudo actualizar estado operativo desde Control de Unidades.", error);
-      setStatusError("No se pudo guardar el estado. Intenta nuevamente.");
-    } finally {
-      setStatusSaving(false);
-    }
-  }
-
-  async function handleStatusSelection(clientId: string, nextStatusRaw: string): Promise<void> {
-    const nextStatus = nextStatusRaw as Client["status"];
-    const client = clients.find((item) => item.id === clientId);
-    if (!client) {
-      setStatusError("No se encontro cliente para actualizar estado.");
-      return;
-    }
-    if (client.status === nextStatus) return;
-
-    if (requiresComment(nextStatus)) {
-      setStatusDialog({ clientId, nextStatus, comment: "" });
-      setStatusError("");
-      return;
-    }
-
-    await handleApplyStatus(clientId, nextStatus, "");
-  }
-
-  async function handleAssignClientToUnit(): Promise<void> {
-    const unitId = assignDialog.unitId.trim();
-    const name = assignDialog.name.trim();
-    const cedula = assignDialog.cedula.trim();
-
-    if (!unitId || !name) {
-      setAssignError("El nombre del cliente es obligatorio.");
-      return;
-    }
-
-    const duplicatedCedula = cedula.length > 0 && clients.some((client) => (client.cedula ?? "").trim().toLowerCase() === cedula.toLowerCase());
-    if (duplicatedCedula) {
-      setAssignError("Ya existe un cliente con esa cedula.");
-      return;
-    }
-
-    setAssignSaving(true);
-    setAssignError("");
-    try {
-      const today = toDateKey(new Date());
-      const newClient: Client = {
-        id: crypto.randomUUID(),
-        unitId,
-        name,
-        cedula: cedula || undefined,
-        rentAmount: 0,
-        frequency: "monthly",
-        monthlyChargeDay: 1,
-        installmentsAgreed: 0,
-        installmentsRemaining: 0,
-        installmentsPaid: 0,
-        otherCharges: [],
-        balance: 0,
-        advanceBalance: 0,
-        savings: 0,
-        travelFundBalance: 0,
-        createdAt: new Date().toISOString(),
-        firstChargeDate: today,
-        lastChargeDate: today,
-        status: "activo",
-        statusComment: undefined
-      };
-
-      const next = clients.map((client) => {
-        if (client.unitId === unitId) {
-          return {
-            ...client,
-            status: "archivado" as const,
-            statusComment: "Inactivado por reasignacion de unidad.",
-            archivedAt: client.archivedAt ?? new Date().toISOString()
-          };
-        }
-        return client;
+    return rows
+      .filter((row) => {
+        if (groupFilter !== "all" && toGroup(row.unit_id ?? "") !== groupFilter) return false;
+        if (companyFilter !== "all" && normalizeText(row.company) !== companyFilter) return false;
+        if (modelFilter !== "all" && normalizeText(row.brand_model) !== modelFilter) return false;
+        if (statusFilter !== "all" && effectiveStatus(row) !== statusFilter) return false;
+        if (!query) return true;
+        const composed = [
+          row.unit_id,
+          row.company,
+          row.brand_model,
+          row.plate,
+          row.engine_serial,
+          row.chassis_serial,
+          optionalString(row, ["color"]),
+          optionalString(row, ["transmission", "transmission_type"])
+        ]
+          .map((item) => normalizeText(item).toLowerCase())
+          .join(" ");
+        return composed.includes(query);
+      })
+      .sort((a, b) => {
+        const left = sortField === "group" ? toGroup(a.unit_id ?? "") : normalizeText(a[sortField]);
+        const right = sortField === "group" ? toGroup(b.unit_id ?? "") : normalizeText(b[sortField]);
+        const result = left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+        return sortDirection === "asc" ? result : -result;
       });
-      await onClientsChange([...next, newClient]);
-      setRows((current) =>
-        current.map((row) => {
-          if (row.unit_id !== unitId) return row;
-          return {
-            ...row,
-            client_id: newClient.id,
-            client_name: newClient.name,
-            client_cedula: newClient.cedula ?? null,
-            operational_status: "activo"
-          };
-        })
-      );
-      setAssignDialog({ unitId: "", name: "", cedula: "" });
-    } catch (error) {
-      console.error("No se pudo asignar cliente a unidad libre.", error);
-      setAssignError("No se pudo guardar la asignacion. Intenta nuevamente.");
-    } finally {
-      setAssignSaving(false);
+  }, [rows, search, groupFilter, companyFilter, modelFilter, statusFilter, sortField, sortDirection, clientStatusByUnit]);
+
+  function toggleSort(nextField: SortField): void {
+    if (sortField === nextField) {
+      setSortDirection((value) => (value === "asc" ? "desc" : "asc"));
+      return;
     }
+    setSortField(nextField);
+    setSortDirection("asc");
   }
 
-  async function handleSaveBilling(client: Client): Promise<void> {
-    const draft = billingDraftByClientId[client.id];
-    if (!draft) return;
-    setBillingSavingByClientId((current) => ({ ...current, [client.id]: true }));
-    setBillingErrorByClientId((current) => ({ ...current, [client.id]: "" }));
+  async function persistUnit(state: UnitFormState, previousUnitId?: string): Promise<void> {
+    if (!dataOwnerUserId) return;
+    const unitId = normalizeUnitIdInput(state.unit_id);
+    if (!unitId) {
+      setSaveError("La unidad es obligatoria.");
+      return;
+    }
+    if (!/^[ABCDT][0-9]{2,3}$/.test(unitId)) {
+      setSaveError("Formato de unidad invalido. Usa grupos A/B/C/D/T y formato como A01, B12, C101 o T99.");
+      return;
+    }
+    const group = unitId[0] as "A" | "B" | "C" | "D" | "T";
+    const numericPart = Number(unitId.slice(1));
+    const maxAllowed = UNIT_GROUP_MAX[group];
+    if (!Number.isFinite(numericPart) || numericPart < 1 || numericPart > maxAllowed) {
+      setSaveError(`Unidad fuera de rango para grupo ${group}. Rango permitido: ${group}01 a ${group}${String(maxAllowed).padStart(2, "0")}.`);
+      return;
+    }
+    setSaving(true);
+    setSaveError("");
+    const payload: ControlUnitUpsertInput = {
+      user_id: dataOwnerUserId,
+      unit_id: unitId,
+      company: state.company.trim() || null,
+      brand_model: state.brand_model.trim() || null,
+      plate: state.plate.trim().toUpperCase() || null,
+      engine_serial: state.engine_serial.trim() || null,
+      chassis_serial: state.chassis_serial.trim() || null,
+      observation: state.observation.trim() || null
+    };
     try {
-      const nextClients = clients.map((item) => (item.id === client.id ? { ...item, ...draft } : item));
-      await onClientsChange(nextClients);
-      setBillingDraftByClientId((current) => {
-        const next = { ...current };
-        delete next[client.id];
+      await saveControlUnit(payload);
+      setRows((current) => {
+        const next = [...current];
+        const key = previousUnitId ?? unitId;
+        const index = next.findIndex((item) => item.unit_id === key);
+        const merged: ControlUnitRow = {
+          ...(index >= 0 ? next[index] : ({} as ControlUnitRow)),
+          ...payload,
+          unit_id: unitId
+        } as ControlUnitRow;
+        if (index >= 0) next[index] = merged;
+        else next.unshift(merged);
         return next;
       });
+      setCreateOpen(false);
+      setEditTarget(null);
+      setForm({ ...DEFAULT_FORM });
     } catch (error) {
-      console.error("No se pudo guardar datos de cobranza.", error);
-      setBillingErrorByClientId((current) => ({ ...current, [client.id]: "No se pudo guardar cobranza." }));
+      console.error("No se pudo guardar auto.", error);
+      let message = "Error desconocido";
+      if (error instanceof Error && error.message) {
+        message = error.message;
+      } else if (error && typeof error === "object") {
+        const row = error as Record<string, unknown>;
+        const parts = [
+          typeof row.message === "string" ? row.message : "",
+          typeof row.code === "string" ? `code=${row.code}` : "",
+          typeof row.details === "string" ? row.details : "",
+          typeof row.hint === "string" ? `hint=${row.hint}` : ""
+        ].filter((value) => value.trim().length > 0);
+        if (parts.length > 0) message = parts.join(" | ");
+      } else if (typeof error === "string" && error.trim().length > 0) {
+        message = error;
+      }
+      setSaveError(`No se pudo guardar en Supabase (fleet_units_cloud). Detalle: ${message}`);
     } finally {
-      setBillingSavingByClientId((current) => ({ ...current, [client.id]: false }));
+      setSaving(false);
     }
   }
+
+  const kpiTotal = rows.length;
+  const statusDashboard = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      const key = effectiveStatus(row);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([key, count]) => ({
+        key,
+        label: key === "libre" ? "LIBRE" : statusLabel(key),
+        count
+      }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  }, [rows, clientStatusByUnit]);
+
+  const pieData = useMemo(() => {
+    const total = statusDashboard.reduce((acc, item) => acc + item.count, 0);
+    if (total <= 0) return { slices: [] as Array<{ key: string; label: string; count: number; percent: number; color: string; path: string }>, total };
+    const cx = 120;
+    const cy = 120;
+    const r = 92;
+    let startAngle = -Math.PI / 2;
+
+    const slices = statusDashboard.map((item, index) => {
+      const ratio = item.count / total;
+      const sweep = ratio * Math.PI * 2;
+      const endAngle = startAngle + sweep;
+      const x1 = cx + r * Math.cos(startAngle);
+      const y1 = cy + r * Math.sin(startAngle);
+      const x2 = cx + r * Math.cos(endAngle);
+      const y2 = cy + r * Math.sin(endAngle);
+      const largeArcFlag = sweep > Math.PI ? 1 : 0;
+      const path = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArcFlag} 1 ${x2} ${y2} Z`;
+      const slice = {
+        key: item.key,
+        label: item.label,
+        count: item.count,
+        percent: ratio * 100,
+        color: PIE_COLORS[index % PIE_COLORS.length],
+        path
+      };
+      startAngle = endAngle;
+      return slice;
+    });
+
+    return { slices, total };
+  }, [statusDashboard]);
 
   return (
     <section className="panel">
       <div className="panel-head">
-        <h2>Control de Unidades</h2>
+        <h2>Autos</h2>
+        {!readOnly && (
+          <button
+            type="button"
+            className="button primary"
+            onClick={() => {
+              setForm({ ...DEFAULT_FORM });
+              setSaveError("");
+              setCreateOpen(true);
+            }}
+          >
+            Nuevo auto
+          </button>
+        )}
       </div>
 
-      <p className="hint" style={{ marginTop: 6 }}>
-        Vista consolidada operativa + financiera. Total unidades: {rows.length}
-      </p>
+      <p className="hint">Dashboard de flota con enfoque solo vehicular.</p>
 
-      <div className="filters-bar" style={{ gridTemplateColumns: "1.5fr 1fr 1fr 1fr auto", marginTop: 10 }}>
+      <div className="summary-grid" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
+        <article className="summary-card">
+          <span>Total flota</span>
+          <strong>{kpiTotal}</strong>
+          <p className="hint" style={{ marginTop: 6 }}>
+            Click en una porcion para filtrar por estado.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 14, alignItems: "center", marginTop: 10 }}>
+            <div style={{ position: "relative", width: 240, height: 240 }}>
+              <svg viewBox="0 0 240 240" width="240" height="240" role="img" aria-label="Distribucion de estados de flota">
+                {pieData.slices.map((slice) => {
+                  const active = statusFilter === slice.key;
+                  return (
+                    <path
+                      key={slice.key}
+                      d={slice.path}
+                      fill={slice.color}
+                      stroke={active ? "#0f172a" : "#ffffff"}
+                      strokeWidth={active ? 3 : 1.5}
+                      style={{ cursor: "pointer", opacity: statusFilter === "all" || active ? 1 : 0.45 }}
+                      onClick={() => setStatusFilter((current) => (current === slice.key ? "all" : slice.key))}
+                    />
+                  );
+                })}
+                <circle cx="120" cy="120" r="46" fill="#ffffff" />
+                <text x="120" y="113" textAnchor="middle" fontSize="12" fill="#64748b">Estados</text>
+                <text x="120" y="132" textAnchor="middle" fontSize="20" fontWeight="700" fill="#0f172a">{pieData.total}</text>
+              </svg>
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+              <button
+                type="button"
+                className={`button ghost small ${statusFilter === "all" ? "cash-tab-active" : ""}`}
+                style={{ justifySelf: "start" }}
+                onClick={() => setStatusFilter("all")}
+              >
+                Ver todos
+              </button>
+              {pieData.slices.map((slice) => (
+                <button
+                  key={slice.key}
+                  type="button"
+                  className={`button ghost small ${statusFilter === slice.key ? "cash-tab-active" : ""}`}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}
+                  onClick={() => setStatusFilter((current) => (current === slice.key ? "all" : slice.key))}
+                >
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 999, background: slice.color, display: "inline-block" }} />
+                    {slice.label}
+                  </span>
+                  <strong>{slice.count} ({slice.percent.toFixed(1)}%)</strong>
+                </button>
+              ))}
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div className="filters-bar" style={{ gridTemplateColumns: "1.5fr 0.8fr 1fr 1fr 1fr" }}>
         <input
           type="text"
-          placeholder="Buscar por unidad, placa o cliente"
           value={search}
+          placeholder="Buscar por unidad, placa, serial, modelo..."
           onChange={(event) => setSearch(event.target.value)}
         />
-
         <select value={groupFilter} onChange={(event) => setGroupFilter(event.target.value)}>
-          <option value="all">Todos los grupos</option>
-          {groups.map((group) => (
-            <option key={group} value={group}>Grupo {group}</option>
-          ))}
+          <option value="all">Grupo (todos)</option>
+          {groups.map((group) => <option key={group} value={group}>{group}</option>)}
         </select>
-
-        <select
-          value={operationalFilter}
-          onChange={(event) => setOperationalFilter(event.target.value as OperationalFilter)}
-        >
-          <option value="all">Estado operativo (todos)</option>
-          <option value="activo">Activo</option>
-          <option value="cliente_enfermo">Cliente enfermo</option>
-          <option value="taller">Taller</option>
-          <option value="chapisteria">Chapisteria</option>
-          <option value="custodia">Custodia</option>
-          <option value="en_busqueda">En busqueda</option>
-          <option value="archivado">Archivado</option>
-          <option value="sin_estado">Sin estado</option>
+        <select value={modelFilter} onChange={(event) => setModelFilter(event.target.value)}>
+          <option value="all">Modelo (todos)</option>
+          {models.map((model) => <option key={model} value={model}>{model}</option>)}
         </select>
-
-        <select value={financialFilter} onChange={(event) => setFinancialFilter(event.target.value as FinancialFilter)}>
-          <option value="all">Estado financiero (todos)</option>
-          <option value="moroso">Moroso</option>
-          <option value="al_dia">Al dia</option>
-          <option value="sin_cliente">Sin cliente</option>
+        <select value={companyFilter} onChange={(event) => setCompanyFilter(event.target.value)}>
+          <option value="all">Empresa (todas)</option>
+          {companies.map((company) => <option key={company} value={company}>{company}</option>)}
         </select>
-
-        <label style={{ textTransform: "none", letterSpacing: "normal", fontWeight: 600, fontSize: "0.85rem" }}>
-          <input
-            type="checkbox"
-            checked={onlyFree}
-            onChange={(event) => setOnlyFree(event.target.checked)}
-            style={{ marginRight: 8 }}
-          />
-          Solo libres
-        </label>
+        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          <option value="all">Estado (todos)</option>
+          {statuses.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
+        </select>
       </div>
 
       {loadError && <p className="hint error-text">{loadError}</p>}
+      {saveError && <p className="hint error-text">{saveError}</p>}
 
       {loading ? (
-        <p className="hint">Cargando unidades...</p>
+        <p className="hint">Cargando flota...</p>
       ) : (
-        <>
-          <p className="hint">Mostrando {filteredRows.length} unidades.</p>
-          <div className="table-scroll" style={{ borderTop: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)" }}>
-            <table className="ar-table ar-table--compact">
-              <thead>
+        <div className="table-scroll" style={{ borderTop: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)" }}>
+          <table className="ar-table">
+            <thead>
+              <tr>
+                <th><button type="button" className="sort-button" onClick={() => toggleSort("unit_id")}>Unidad</button></th>
+                <th><button type="button" className="sort-button" onClick={() => toggleSort("group")}>Grupo</button></th>
+                <th><button type="button" className="sort-button" onClick={() => toggleSort("operational_status")}>Estado</button></th>
+                <th><button type="button" className="sort-button" onClick={() => toggleSort("brand_model")}>Marca / Modelo</button></th>
+                <th>Ano</th>
+                <th><button type="button" className="sort-button" onClick={() => toggleSort("company")}>Empresa</button></th>
+                <th><button type="button" className="sort-button" onClick={() => toggleSort("plate")}>Placa</button></th>
+                <th>Motor</th>
+                <th>Chasis</th>
+                <th>Color</th>
+                <th>Transmision</th>
+                <th>Kilometraje</th>
+                <th>Observacion</th>
+                {!readOnly && <th>Acciones</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRows.length === 0 ? (
                 <tr>
-                  <th>
-                    <button type="button" className="sort-button" onClick={() => toggleSort("unit")}>
-                      Unidad <span className={`sort-icon ${sortField === "unit" ? "active" : ""}`}>{sortIcon("unit")}</span>
-                    </button>
-                  </th>
-                  <th>
-                    <button type="button" className="sort-button" onClick={() => toggleSort("operational")}>
-                      Estado operativo <span className={`sort-icon ${sortField === "operational" ? "active" : ""}`}>{sortIcon("operational")}</span>
-                    </button>
-                  </th>
-                  <th>
-                    <button type="button" className="sort-button" onClick={() => toggleSort("cobranza")}>
-                      Cobranza <span className={`sort-icon ${sortField === "cobranza" ? "active" : ""}`}>{sortIcon("cobranza")}</span>
-                    </button>
-                  </th>
-                  <th>
-                    <button type="button" className="sort-button" onClick={() => toggleSort("info")}>
-                      +Info <span className={`sort-icon ${sortField === "info" ? "active" : ""}`}>{sortIcon("info")}</span>
-                    </button>
-                  </th>
+                  <td colSpan={readOnly ? 13 : 14}><span className="hint">No hay unidades para los filtros seleccionados.</span></td>
                 </tr>
-              </thead>
-              <tbody>
-                {filteredRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="empty" style={{ textAlign: "center" }}>
-                      No hay resultados para los filtros seleccionados.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredRows.map((row) => {
-                    const isFree = !row.client_id;
-                    const balance = normalizeBalance(row.financial_balance);
-                    const rowKey = `${row.user_id}-${row.unit_id}`;
-                    const isExpanded = expandedInfoKey === rowKey;
-                    const activeInfoSection = infoSectionByRowKey[rowKey] ?? "unidad";
-                    const linkedClient = row.client_id ? clients.find((item) => item.id === row.client_id) : undefined;
-                    const otherChargesTotal = linkedClient?.otherCharges?.reduce((sum, item) => sum + (item.amount || 0), 0) ?? 0;
-                    const billingDraft = linkedClient ? billingDraftByClientId[linkedClient.id] : undefined;
-                    const currentBilling = linkedClient ? {
-                      rentAmount: billingDraft?.rentAmount ?? linkedClient.rentAmount,
-                      frequency: billingDraft?.frequency ?? linkedClient.frequency,
-                      installmentsAgreed: billingDraft?.installmentsAgreed ?? linkedClient.installmentsAgreed,
-                      installmentsRemaining: billingDraft?.installmentsRemaining ?? linkedClient.installmentsRemaining,
-                      installmentsPaid: billingDraft?.installmentsPaid ?? linkedClient.installmentsPaid
-                    } : undefined;
-                    const debtSince = linkedClient ? (linkedClient.lastChargeDate ?? linkedClient.firstChargeDate) : undefined;
-                    const debtDays = daysSince(debtSince);
-                    return (
-                      <Fragment key={rowKey}>
-                        <tr key={rowKey} className={isFree ? "control-unit-row--free" : ""}>
-                          <td>
-                            <strong>{row.unit_id}</strong>
-                            {isFree && <span className="badge control-unit-badge-free">Libre</span>}
-                            <div className="debt-meta ar-truncate-line" title={row.client_name ?? "Sin cliente"} style={{ cursor: "help" }}>
-                              {row.client_name ?? "Sin cliente"}
-                            </div>
-                          </td>
-                          <td>
-                            <span className={operationalToneClass(row.operational_status)}>
-                              {operationalLabel(row.operational_status)}
-                            </span>
-                          </td>
-                          <td>
-                            <span className={`badge ${row.financial_status === "moroso" ? "badge-debt" : row.financial_status === "al_dia" ? "badge-good" : "badge-warning"}`}>
-                              {financialLabel(row.financial_status)}
-                            </span>
-                            <div style={{ marginTop: 6 }}>
-                              <span className={balance > 0 ? "amount-debt" : "amount-good"}>{formatMoney(balance)}</span>
-                            </div>
-                          </td>
-                          <td>
-                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                              {isFree && (
-                                <button
-                                  type="button"
-                                  className="button primary small"
-                                  onClick={() => {
-                                    setAssignDialog({ unitId: row.unit_id, name: "", cedula: "" });
-                                    setAssignError("");
-                                  }}
-                                >
-                                  Agregar cliente
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                className="button ghost small"
-                                onClick={() => {
-                                  setExpandedInfoKey((current) => (current === rowKey ? null : rowKey));
-                                  setInfoSectionByRowKey((current) => ({ ...current, [rowKey]: current[rowKey] ?? "unidad" }));
-                                }}
-                              >
-                                {isExpanded ? "-info" : "+info"}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                        {isExpanded && (
-                          <tr className="control-unit-info-row" key={`${rowKey}-info`}>
-                            <td colSpan={4}>
-                              <div className="cash-view-tabs" style={{ marginBottom: 12 }}>
-                                <button
-                                  type="button"
-                                  className={`button ghost small ${activeInfoSection === "unidad" ? "cash-tab-active" : ""}`}
-                                  onClick={() => setInfoSectionByRowKey((current) => ({ ...current, [rowKey]: "unidad" }))}
-                                >
-                                  Sobre la unidad
-                                </button>
-                                <button
-                                  type="button"
-                                  className={`button ghost small ${activeInfoSection === "cliente" ? "cash-tab-active" : ""}`}
-                                  onClick={() => setInfoSectionByRowKey((current) => ({ ...current, [rowKey]: "cliente" }))}
-                                >
-                                  Sobre el cliente
-                                </button>
-                                <button
-                                  type="button"
-                                  className={`button ghost small ${activeInfoSection === "cobranza" ? "cash-tab-active" : ""}`}
-                                  onClick={() => setInfoSectionByRowKey((current) => ({ ...current, [rowKey]: "cobranza" }))}
-                                >
-                                  Sobre cobranza
-                                </button>
-                              </div>
-
-                              {activeInfoSection === "unidad" ? (
-                                <div className="control-unit-info-grid">
-                                  <div><span className="hint">Placa</span><p>{row.plate ?? "-"}</p></div>
-                                  <div><span className="hint">Marca/Modelo</span><p>{row.brand_model ?? "-"}</p></div>
-                                  <div><span className="hint">Empresa</span><p>{row.company ?? "-"}</p></div>
-                                  <div><span className="hint">Serial Motor</span><p>{row.engine_serial ?? "-"}</p></div>
-                                  <div><span className="hint">Serial Chasis</span><p>{row.chassis_serial ?? "-"}</p></div>
-                                  <div><span className="hint">Cupo</span><p>{row.cupo ?? "-"}</p></div>
-                                  <div style={{ gridColumn: "1 / -1" }}><span className="hint">Observacion</span><p>{row.observation ?? "-"}</p></div>
-                                </div>
-                              ) : null}
-
-                              {activeInfoSection === "cliente" ? (
-                                <div className="control-unit-info-grid">
-                                  <div><span className="hint">Nombre</span><p>{row.client_name ?? "-"}</p></div>
-                                  <div><span className="hint">Cedula</span><p>{row.client_cedula ?? "-"}</p></div>
-                                  <div><span className="hint">Estado operativo</span><p>{operationalLabel(row.operational_status)}</p></div>
-                                </div>
-                              ) : null}
-
-                              {activeInfoSection === "cobranza" ? (
-                                <div style={{ display: "grid", gap: 12 }}>
-                                  <div className="cash-subpanel control-billing-kpis">
-                                    <div className="control-billing-kpi-grid">
-                                      <div className="control-billing-kpi-card">
-                                        <span className="hint">Estado financiero</span>
-                                        <p style={{ marginTop: 6 }}>
-                                          <span className={`badge ${row.financial_status === "moroso" ? "badge-debt" : row.financial_status === "al_dia" ? "badge-good" : "badge-warning"}`}>
-                                            {financialLabel(row.financial_status)}
-                                          </span>
-                                        </p>
-                                      </div>
-                                      <div className="control-billing-kpi-card">
-                                        <span className="hint">Saldo</span>
-                                        <p style={{ marginTop: 6 }} className={balance > 0 ? "amount-debt" : "amount-good"}>{formatMoney(balance)}</p>
-                                      </div>
-                                      <div className="control-billing-kpi-card">
-                                        <span className="hint">Debe desde</span>
-                                        <p style={{ marginTop: 6 }} className={debtSinceTone(debtDays)}>
-                                          {debtSince ?? "-"}{debtDays !== null ? ` (${debtDays} dias)` : ""}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="cash-subpanel">
-                                    <h3>Editable</h3>
-                                    <div className="control-billing-edit-grid">
-                                      {linkedClient && currentBilling ? (
-                                        <>
-                                          <div className="control-field">
-                                            <span className="hint">Renta</span>
-                                            <input
-                                              type="number"
-                                              value={currentBilling.rentAmount}
-                                              onChange={(event) => {
-                                                const value = Number(event.target.value || "0");
-                                                setBillingDraftByClientId((current) => ({
-                                                  ...current,
-                                                  [linkedClient.id]: {
-                                                    ...currentBilling,
-                                                    rentAmount: Number.isFinite(value) ? value : 0
-                                                  }
-                                                }));
-                                              }}
-                                              disabled={billingSavingByClientId[linkedClient.id]}
-                                            />
-                                          </div>
-                                          <div className="control-field">
-                                            <span className="hint">Frecuencia</span>
-                                            <select
-                                              value={currentBilling.frequency}
-                                              onChange={(event) => setBillingDraftByClientId((current) => ({
-                                                ...current,
-                                                [linkedClient.id]: { ...currentBilling, frequency: event.target.value as Client["frequency"] }
-                                              }))}
-                                              disabled={billingSavingByClientId[linkedClient.id]}
-                                            >
-                                              <option value="daily">Diaria</option>
-                                              <option value="weekly">Semanal</option>
-                                              <option value="biweekly">Quincenal</option>
-                                              <option value="monthly">Mensual</option>
-                                            </select>
-                                          </div>
-                                          <div className="control-field">
-                                            <span className="hint">Cuotas pactadas</span>
-                                            <input type="number" value={currentBilling.installmentsAgreed} onChange={(event) => setBillingDraftByClientId((current) => ({ ...current, [linkedClient.id]: { ...currentBilling, installmentsAgreed: Number(event.target.value || "0") } }))} disabled={billingSavingByClientId[linkedClient.id]} />
-                                          </div>
-                                          <div className="control-field">
-                                            <span className="hint">Cuotas restantes</span>
-                                            <input type="number" value={currentBilling.installmentsRemaining} onChange={(event) => setBillingDraftByClientId((current) => ({ ...current, [linkedClient.id]: { ...currentBilling, installmentsRemaining: Number(event.target.value || "0") } }))} disabled={billingSavingByClientId[linkedClient.id]} />
-                                          </div>
-                                          <div className="control-field">
-                                            <span className="hint">Cuotas pagadas</span>
-                                            <input type="number" value={currentBilling.installmentsPaid} onChange={(event) => setBillingDraftByClientId((current) => ({ ...current, [linkedClient.id]: { ...currentBilling, installmentsPaid: Number(event.target.value || "0") } }))} disabled={billingSavingByClientId[linkedClient.id]} />
-                                          </div>
-                                          <div className="control-billing-save-row">
-                                            <button type="button" className="button primary" onClick={() => void handleSaveBilling(linkedClient)} disabled={billingSavingByClientId[linkedClient.id]}>
-                                              {billingSavingByClientId[linkedClient.id] ? "Guardando..." : "Guardar cambios"}
-                                            </button>
-                                          </div>
-                                        </>
-                                      ) : (
-                                        <div style={{ gridColumn: "1 / -1" }}><p className="hint">No hay cliente asignado para editar cobranza.</p></div>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="cash-subpanel">
-                                    <h3>Solo lectura</h3>
-                                    <div className="control-unit-info-grid">
-                                      <div><span className="hint">Otros cargos</span><p>{linkedClient ? `${linkedClient.otherCharges.length} (${formatMoney(otherChargesTotal)})` : "-"}</p></div>
-                                      <div><span className="hint">Ahorro de siniestros</span><p>{linkedClient ? formatMoney(linkedClient.savings) : "-"}</p></div>
-                                    </div>
-                                  </div>
-                                  {linkedClient && billingErrorByClientId[linkedClient.id] ? <p className="hint error-text">{billingErrorByClientId[linkedClient.id]}</p> : null}
-                                </div>
-                              ) : null}
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </>
+              ) : (
+                filteredRows.map((row) => {
+                  const year = optionalString(row, ["year", "model_year"]);
+                  const color = optionalString(row, ["color"]);
+                  const transmission = optionalString(row, ["transmission", "transmission_type"]);
+                  const mileage = optionalString(row, ["mileage", "kilometraje", "kilometrage"]);
+                  return (
+                    <tr key={`${row.user_id}-${row.unit_id}`}>
+                      <td><strong>{row.unit_id}</strong></td>
+                      <td>{toGroup(row.unit_id ?? "")}</td>
+                      <td>
+                        <span className={statusBadgeClass(effectiveStatus(row))}>{statusLabel(effectiveStatus(row))}</span>
+                      </td>
+                      <td>{row.brand_model ?? "-"}</td>
+                      <td>{year || "-"}</td>
+                      <td>{row.company ?? "-"}</td>
+                      <td>{row.plate ?? "-"}</td>
+                      <td>{row.engine_serial ?? "-"}</td>
+                      <td>{row.chassis_serial ?? "-"}</td>
+                      <td>{color || "-"}</td>
+                      <td>{transmission || "-"}</td>
+                      <td>{mileage || "-"}</td>
+                      <td className="ar-truncate-line" title={row.observation ?? ""}>{row.observation ?? "-"}</td>
+                      {!readOnly && (
+                        <td>
+                          <button
+                            type="button"
+                            className="button ghost small"
+                            onClick={() => {
+                              setForm(toFormState(row));
+                              setSaveError("");
+                              setEditTarget(row);
+                            }}
+                          >
+                            Editar
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
 
-      {statusError && <p className="hint error-text">{statusError}</p>}
-
-      {statusDialog && (
+      {(createOpen || editTarget) && !readOnly && (
         <div className="modal-overlay">
-          <div className="modal" style={{ maxWidth: 520 }}>
+          <div className="modal" style={{ maxWidth: 980 }}>
             <div className="modal-header">
-              <h2>Confirmar cambio de estado</h2>
-              <button type="button" className="modal-close" onClick={() => setStatusDialog(null)}>X</button>
+              <h2>{editTarget ? `Editar auto ${editTarget.unit_id}` : "Nuevo auto"}</h2>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => {
+                  setCreateOpen(false);
+                  setEditTarget(null);
+                  setSaveError("");
+                }}
+              >
+                X
+              </button>
             </div>
             <div className="modal-body">
-              <p className="hint" style={{ marginTop: 0 }}>
-                Este estado requiere motivo. Completa el comentario para continuar.
-              </p>
-              <label style={{ textTransform: "none", letterSpacing: "normal", fontWeight: 600 }}>
-                Motivo
-                <textarea
-                  className="pause-comment-input"
-                  rows={3}
-                  maxLength={200}
-                  value={statusDialog.comment}
-                  onChange={(event) => setStatusDialog((current) => (current ? { ...current, comment: event.target.value } : current))}
-                  placeholder="Escribe el motivo del cambio"
-                />
-              </label>
+              <div className="form-grid">
+                <label>Unidad
+                  <input
+                    value={form.unit_id}
+                    onChange={(event) => setForm((s) => ({ ...s, unit_id: normalizeUnitIdInput(event.target.value) }))}
+                    placeholder="Ejemplo: A01"
+                  />
+                </label>
+                <label>Marca / Modelo
+                  <input value={form.brand_model} onChange={(event) => setForm((s) => ({ ...s, brand_model: event.target.value }))} />
+                </label>
+                <label>Ano
+                  <input value={form.year} onChange={(event) => setForm((s) => ({ ...s, year: event.target.value }))} />
+                </label>
+                <label>Empresa
+                  <input
+                    list="fleet-company-options"
+                    value={form.company}
+                    onChange={(event) => setForm((s) => ({ ...s, company: event.target.value }))}
+                    placeholder="Selecciona o escribe empresa"
+                  />
+                </label>
+                <label>Placa
+                  <input value={form.plate} onChange={(event) => setForm((s) => ({ ...s, plate: event.target.value }))} />
+                </label>
+                <label>Serial Motor
+                  <input value={form.engine_serial} onChange={(event) => setForm((s) => ({ ...s, engine_serial: event.target.value }))} />
+                </label>
+                <label>Serial Chasis
+                  <input value={form.chassis_serial} onChange={(event) => setForm((s) => ({ ...s, chassis_serial: event.target.value }))} />
+                </label>
+                <label>Color
+                  <input value={form.color} onChange={(event) => setForm((s) => ({ ...s, color: event.target.value }))} />
+                </label>
+                <label>Transmision
+                  <input value={form.transmission} onChange={(event) => setForm((s) => ({ ...s, transmission: event.target.value }))} />
+                </label>
+                <label>Kilometraje
+                  <input value={form.mileage} onChange={(event) => setForm((s) => ({ ...s, mileage: event.target.value }))} />
+                </label>
+                <label>Estado operativo
+                  <select value={form.operational_status} onChange={(event) => setForm((s) => ({ ...s, operational_status: event.target.value }))}>
+                    <option value="libre">LIBRE</option>
+                    <option value="activo">Activo</option>
+                    <option value="cliente_enfermo">Cliente enfermo</option>
+                    <option value="taller">Taller</option>
+                    <option value="chapisteria">Chapisteria</option>
+                    <option value="custodia">Custodia</option>
+                    <option value="en_busqueda">En busqueda</option>
+                    <option value="archivado">Archivado</option>
+                  </select>
+                </label>
+                <label style={{ gridColumn: "1 / -1" }}>Observaciones
+                  <input value={form.observation} onChange={(event) => setForm((s) => ({ ...s, observation: event.target.value }))} />
+                </label>
+              </div>
+              <datalist id="fleet-company-options">
+                {companies.map((company) => (
+                  <option key={company} value={company} />
+                ))}
+              </datalist>
+
               <div className="modal-actions" style={{ marginTop: 14 }}>
-                <button type="button" className="button ghost" onClick={() => setStatusDialog(null)} disabled={statusSaving}>
+                <button type="button" className="button ghost" onClick={() => { setCreateOpen(false); setEditTarget(null); }}>
                   Cancelar
                 </button>
                 <button
                   type="button"
                   className="button primary"
-                  disabled={statusSaving || statusDialog.comment.trim().length === 0}
-                  onClick={() => void handleApplyStatus(statusDialog.clientId, statusDialog.nextStatus, statusDialog.comment)}
+                  disabled={saving}
+                  onClick={() => void persistUnit(form, editTarget?.unit_id)}
                 >
-                  {statusSaving ? "Guardando..." : "Confirmar"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {assignDialog.unitId && (
-        <div className="modal-overlay">
-          <div className="modal" style={{ maxWidth: 520 }}>
-            <div className="modal-header">
-              <h2>Agregar cliente unidad {assignDialog.unitId}</h2>
-              <button type="button" className="modal-close" onClick={() => setAssignDialog({ unitId: "", name: "", cedula: "" })}>X</button>
-            </div>
-            <div className="modal-body">
-              <label style={{ textTransform: "none", letterSpacing: "normal", fontWeight: 600 }}>
-                Nombre del cliente
-                <input
-                  type="text"
-                  value={assignDialog.name}
-                  onChange={(event) => setAssignDialog((current) => ({ ...current, name: event.target.value }))}
-                  placeholder="Ejemplo: Juan Perez"
-                />
-              </label>
-              <label style={{ textTransform: "none", letterSpacing: "normal", fontWeight: 600, marginTop: 10, display: "block" }}>
-                Cedula (opcional)
-                <input
-                  type="text"
-                  value={assignDialog.cedula}
-                  onChange={(event) => setAssignDialog((current) => ({ ...current, cedula: event.target.value }))}
-                  placeholder="Ejemplo: 8-123-456"
-                />
-              </label>
-              {assignError && <p className="hint error-text">{assignError}</p>}
-              <div className="modal-actions" style={{ marginTop: 14 }}>
-                <button type="button" className="button ghost" onClick={() => setAssignDialog({ unitId: "", name: "", cedula: "" })} disabled={assignSaving}>
-                  Cancelar
-                </button>
-                <button type="button" className="button primary" onClick={() => void handleAssignClientToUnit()} disabled={assignSaving || assignDialog.name.trim().length === 0}>
-                  {assignSaving ? "Guardando..." : "Confirmar"}
+                  {saving ? "Guardando..." : "Guardar"}
                 </button>
               </div>
             </div>
@@ -841,9 +649,3 @@ export default function ControlUnitsPage({ dataOwnerUserId, clients, onClientsCh
     </section>
   );
 }
-
-
-
-
-
-
