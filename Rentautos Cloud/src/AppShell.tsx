@@ -62,8 +62,8 @@ type PendingCoreSyncSnapshot = {
 
 const PENDING_CORE_SYNC_KEY = "cobrapp.cloud.pending_core_sync.v1";
 const INITIAL_CLOUD_BOOTSTRAP_LIMIT = 200;
-const CORE_DATA_FALLBACK_POLL_MS = 60_000;
-const RECEIVABLES_FALLBACK_POLL_MS = 90_000;
+const CORE_DATA_FALLBACK_POLL_MS = 180_000;
+const RECEIVABLES_FALLBACK_POLL_MS = 300_000;
 const PREFERRED_BOOTSTRAP_GROUP = "T";
 
 type AppShellProps = {
@@ -113,6 +113,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const coreSyncRetryTimerRef = useRef<number | null>(null);
   const coreSyncInFlightRef = useRef<boolean>(false);
   const coreDeltaTimerRef = useRef<number | null>(null);
+  const coreRealtimeSubscribedRef = useRef<boolean>(false);
+  const receivablesRealtimeSubscribedRef = useRef<boolean>(false);
 
   function buildCloudErrorMessage(
     baseMessage: string,
@@ -324,7 +326,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     coreDeltaTimerRef.current = window.setTimeout(() => {
       coreDeltaTimerRef.current = null;
       void syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
-    }, 400);
+    }, 1000);
   }
 
   useEffect(() => {
@@ -605,6 +607,66 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       }
     };
 
+    const applyClientRowDelta = (payload: { eventType?: string; new?: unknown; old?: unknown }) => {
+      const eventType = payload.eventType ?? "";
+      const oldRow = payload.old as { id?: unknown } | null;
+      const newRow = payload.new as { id?: unknown; data?: unknown } | null;
+      const oldId = typeof oldRow?.id === "string" ? oldRow.id : "";
+      const newId = typeof newRow?.id === "string" ? newRow.id : "";
+      if (eventType === "DELETE" && oldId) {
+        setClients((current) => {
+          const next = current.filter((item) => item.id !== oldId);
+          if (!isSupabaseOnlyMode) saveClients(next);
+          return next;
+        });
+        return;
+      }
+      if (!newId || !newRow || !newRow.data || typeof newRow.data !== "object" || Array.isArray(newRow.data)) return;
+      setClients((current) => {
+        const incoming = newRow.data as Client;
+        const idx = current.findIndex((item) => item.id === newId);
+        let next: Client[];
+        if (idx < 0) {
+          next = [incoming, ...current];
+        } else {
+          next = [...current];
+          next[idx] = incoming;
+        }
+        if (!isSupabaseOnlyMode) saveClients(next);
+        return next;
+      });
+    };
+
+    const applyPaymentRowDelta = (payload: { eventType?: string; new?: unknown; old?: unknown }) => {
+      const eventType = payload.eventType ?? "";
+      const oldRow = payload.old as { id?: unknown } | null;
+      const newRow = payload.new as { id?: unknown; data?: unknown } | null;
+      const oldId = typeof oldRow?.id === "string" ? oldRow.id : "";
+      const newId = typeof newRow?.id === "string" ? newRow.id : "";
+      if (eventType === "DELETE" && oldId) {
+        setPayments((current) => {
+          const next = current.filter((item) => item.id !== oldId);
+          if (!isSupabaseOnlyMode) savePayments(next);
+          return next;
+        });
+        return;
+      }
+      if (!newId || !newRow || !newRow.data || typeof newRow.data !== "object" || Array.isArray(newRow.data)) return;
+      setPayments((current) => {
+        const incoming = newRow.data as Payment;
+        const idx = current.findIndex((item) => item.id === newId);
+        let next: Payment[];
+        if (idx < 0) {
+          next = [incoming, ...current];
+        } else {
+          next = [...current];
+          next[idx] = incoming;
+        }
+        if (!isSupabaseOnlyMode) savePayments(next);
+        return next;
+      });
+    };
+
     const scheduleReload = () => {
       setSyncStatus("syncing");
       if (cloudCoreReloadTimerRef.current !== null) {
@@ -626,7 +688,12 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           table: "clients_cloud",
           filter: `user_id=eq.${cloudDataUserId}`
         },
-        scheduleReload
+        (payload) => {
+          applyClientRowDelta(payload as { eventType?: string; new?: unknown; old?: unknown });
+          setSyncStatus("ok");
+          setSyncErrorMessage("");
+          setLastSyncAt(new Date().toLocaleTimeString());
+        }
       )
       .on(
         "postgres_changes",
@@ -636,12 +703,23 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           table: "payments_cloud",
           filter: `user_id=eq.${cloudDataUserId}`
         },
-        scheduleReload
+        (payload) => {
+          applyPaymentRowDelta(payload as { eventType?: string; new?: unknown; old?: unknown });
+          setSyncStatus("ok");
+          setSyncErrorMessage("");
+          setLastSyncAt(new Date().toLocaleTimeString());
+        }
       )
-      .subscribe();
+      .subscribe((status) => {
+        coreRealtimeSubscribedRef.current = status === "SUBSCRIBED";
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          scheduleReload();
+        }
+      });
 
     const fallbackTimer = window.setInterval(() => {
       if (document.hidden) return;
+      if (coreRealtimeSubscribedRef.current) return;
       void reloadCloudCoreData();
     }, CORE_DATA_FALLBACK_POLL_MS);
 
@@ -651,6 +729,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         window.clearTimeout(cloudCoreReloadTimerRef.current);
         cloudCoreReloadTimerRef.current = null;
       }
+      coreRealtimeSubscribedRef.current = false;
       window.clearInterval(fallbackTimer);
       void supabase.removeChannel(channel);
     };
@@ -715,11 +794,14 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           setLastSyncAt(new Date().toLocaleTimeString());
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        receivablesRealtimeSubscribedRef.current = status === "SUBSCRIBED";
+      });
 
     // Fallback poll in case realtime is briefly interrupted.
     const fallbackTimer = window.setInterval(() => {
       if (document.hidden) return;
+      if (receivablesRealtimeSubscribedRef.current) return;
       void (async () => {
         try {
           const [streetManagement, collectionClosures] = await Promise.all([
@@ -745,6 +827,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
 
     return () => {
       window.clearInterval(fallbackTimer);
+      receivablesRealtimeSubscribedRef.current = false;
       void supabase.removeChannel(channel);
     };
   }, [cloudDataUserId, cloudReady]);
