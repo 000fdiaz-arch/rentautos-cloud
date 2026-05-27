@@ -1081,7 +1081,21 @@ export default function PaymentsPage({
 
   async function persistClientPaymentState(nextClients: Client[], nextPayments: Payment[]): Promise<boolean> {
     if (onPersistClientPayment) {
-      return onPersistClientPayment(nextClients, nextPayments);
+      try {
+        const saved = await onPersistClientPayment(nextClients, nextPayments);
+        if (saved) return true;
+        // Fallback defensivo: en modo offline-first no bloqueamos el flujo por nube.
+        onClientsChange(nextClients);
+        onPaymentsChange(nextPayments);
+        setPaymentInfo("Pago guardado localmente. Se sincronizara con la nube en segundo plano.");
+        return true;
+      } catch (error) {
+        console.error("Persistencia cloud no disponible. Se aplica guardado local.", error);
+        onClientsChange(nextClients);
+        onPaymentsChange(nextPayments);
+        setPaymentInfo("Pago guardado localmente. Se sincronizara con la nube cuando haya conexion.");
+        return true;
+      }
     }
     onClientsChange(nextClients);
     onPaymentsChange(nextPayments);
