@@ -1,5 +1,6 @@
 import { supabase } from "./lib/supabase";
 import type { Client, ClientStatus, Payment, PaymentPromise } from "./types";
+import { logCloudSync } from "./cloudSyncLogger";
 
 type DataRow<T> = {
   id: string;
@@ -10,6 +11,59 @@ type SingletonDataRow = {
 };
 
 const PAGE_SIZE = 1000;
+
+type CloudOperationContext = {
+  operation: string;
+  userId: string;
+  table?: string;
+  payloadSummary?: string;
+  requestCount: number;
+  startedAt: number;
+};
+
+function startCloudOp(
+  operation: string,
+  userId: string,
+  table?: string,
+  payloadSummary?: string
+): CloudOperationContext {
+  return {
+    operation,
+    userId,
+    table,
+    payloadSummary,
+    requestCount: 0,
+    startedAt: performance.now()
+  };
+}
+
+function markCloudRequest(ctx: CloudOperationContext): void {
+  ctx.requestCount += 1;
+}
+
+function finishCloudOp(ctx: CloudOperationContext, responseSummary?: string): void {
+  logCloudSync("info", {
+    operation: ctx.operation,
+    table: ctx.table,
+    userId: ctx.userId,
+    durationMs: performance.now() - ctx.startedAt,
+    requestCount: ctx.requestCount,
+    payloadSummary: ctx.payloadSummary,
+    responseSummary
+  });
+}
+
+function failCloudOp(ctx: CloudOperationContext, error: unknown): void {
+  logCloudSync("error", {
+    operation: ctx.operation,
+    table: ctx.table,
+    userId: ctx.userId,
+    durationMs: performance.now() - ctx.startedAt,
+    requestCount: ctx.requestCount,
+    payloadSummary: ctx.payloadSummary,
+    error
+  });
+}
 
 export type ControlUnitRow = {
   user_id: string;
@@ -91,10 +145,21 @@ function chunkIds(ids: string[], size = 150): string[][] {
   return chunks;
 }
 
+function dedupeRowsById<T extends { id: string }>(rows: T[]): T[] {
+  const byId = new Map<string, T>();
+  for (const row of rows) {
+    if (!row.id) continue;
+    // Conserva la ultima version por id dentro del mismo lote.
+    byId.set(row.id, row);
+  }
+  return Array.from(byId.values());
+}
+
 async function deleteStaleRows(
   table: "clients_cloud" | "payments_cloud" | "payment_promises_cloud",
   userId: string,
-  nextIds: Set<string>
+  nextIds: Set<string>,
+  ctx?: CloudOperationContext
 ): Promise<void> {
   const client = getClient();
   const allIds: string[] = [];
@@ -106,6 +171,7 @@ async function deleteStaleRows(
       .select("id")
       .eq("user_id", userId)
       .range(from, to);
+    if (ctx) markCloudRequest(ctx);
     if (error) throw error;
     const batch = (data ?? [])
       .map((row) => String((row as { id?: unknown }).id ?? ""))
@@ -125,6 +191,7 @@ async function deleteStaleRows(
       .delete()
       .eq("user_id", userId)
       .in("id", idsChunk);
+    if (ctx) markCloudRequest(ctx);
 
     if (deleteError) throw deleteError;
   }
@@ -150,10 +217,31 @@ export async function loadCloudClients(userId: string): Promise<Client[]> {
   return allRows.map((row) => normalizeCloudClient(row.data));
 }
 
-export async function saveCloudClients(userId: string, clients: Client[]): Promise<void> {
+export async function loadCloudClientsPage(
+  userId: string,
+  options?: { limit?: number; offset?: number }
+): Promise<Client[]> {
   const client = getClient();
-  const nextIds = new Set(clients.map((item) => item.id));
-  const rows = clients.map((item) => ({
+  const limit = Math.max(1, Math.min(PAGE_SIZE, Math.floor(options?.limit ?? 200)));
+  const offset = Math.max(0, Math.floor(options?.offset ?? 0));
+  const to = offset + limit - 1;
+  const { data, error } = await client
+    .from("clients_cloud")
+    .select("id,data")
+    .eq("user_id", userId)
+    .range(offset, to);
+  if (error) throw error;
+  const rows = (data ?? []) as DataRow<Client>[];
+  return rows.map((row) => normalizeCloudClient(row.data));
+}
+
+export async function saveCloudClients(userId: string, clients: Client[]): Promise<void> {
+  const ctx = startCloudOp("save_cloud_clients", userId, "clients_cloud", `rows=${clients.length}`);
+  try {
+  const client = getClient();
+  const dedupedClients = dedupeRowsById(clients);
+  const nextIds = new Set(dedupedClients.map((item) => item.id));
+  const rows = dedupedClients.map((item) => ({
     user_id: userId,
     id: item.id,
     data: item
@@ -163,11 +251,70 @@ export async function saveCloudClients(userId: string, clients: Client[]): Promi
     const { error } = await client
       .from("clients_cloud")
       .upsert(rows, { onConflict: "user_id,id" });
+    markCloudRequest(ctx);
 
     if (error) throw error;
   }
 
-  await deleteStaleRows("clients_cloud", userId, nextIds);
+  await deleteStaleRows("clients_cloud", userId, nextIds, ctx);
+  finishCloudOp(ctx, `upsert_rows=${rows.length}`);
+  } catch (error) {
+    failCloudOp(ctx, error);
+    throw error;
+  }
+}
+
+export async function syncCloudClientsDelta(
+  userId: string,
+  previousClients: Client[],
+  nextClients: Client[]
+): Promise<void> {
+  const ctx = startCloudOp("sync_cloud_clients_delta", userId, "clients_cloud", `prev=${previousClients.length},next=${nextClients.length}`);
+  try {
+  const client = getClient();
+  const prevById = new Map(previousClients.map((item) => [item.id, item]));
+  const nextById = new Map(nextClients.map((item) => [item.id, item]));
+
+  const upsertRows = dedupeRowsById(nextClients
+    .filter((item) => {
+      const prev = prevById.get(item.id);
+      if (!prev) return true;
+      return JSON.stringify(prev) !== JSON.stringify(item);
+    })
+    .map((item) => ({
+      user_id: userId,
+      id: item.id,
+      data: item
+    })));
+
+  if (upsertRows.length > 0) {
+    const { error } = await client
+      .from("clients_cloud")
+      .upsert(upsertRows, { onConflict: "user_id,id" });
+    markCloudRequest(ctx);
+    if (error) throw error;
+  }
+
+  const removedIds = previousClients
+    .map((item) => item.id)
+    .filter((id) => !nextById.has(id));
+
+  if (removedIds.length > 0) {
+    for (const idsChunk of chunkIds(removedIds)) {
+      const { error } = await client
+        .from("clients_cloud")
+        .delete()
+        .eq("user_id", userId)
+        .in("id", idsChunk);
+      markCloudRequest(ctx);
+      if (error) throw error;
+    }
+  }
+  finishCloudOp(ctx, `upsert_rows=${upsertRows.length},removed_ids=${removedIds.length}`);
+  } catch (error) {
+    failCloudOp(ctx, error);
+    throw error;
+  }
 }
 
 export async function loadCloudPayments(userId: string): Promise<Payment[]> {
@@ -190,10 +337,31 @@ export async function loadCloudPayments(userId: string): Promise<Payment[]> {
   return allRows.map((row) => row.data);
 }
 
-export async function saveCloudPayments(userId: string, payments: Payment[]): Promise<void> {
+export async function loadCloudPaymentsPage(
+  userId: string,
+  options?: { limit?: number; offset?: number }
+): Promise<Payment[]> {
   const client = getClient();
-  const nextIds = new Set(payments.map((item) => item.id));
-  const rows = payments.map((item) => ({
+  const limit = Math.max(1, Math.min(PAGE_SIZE, Math.floor(options?.limit ?? 200)));
+  const offset = Math.max(0, Math.floor(options?.offset ?? 0));
+  const to = offset + limit - 1;
+  const { data, error } = await client
+    .from("payments_cloud")
+    .select("id,data")
+    .eq("user_id", userId)
+    .range(offset, to);
+  if (error) throw error;
+  const rows = (data ?? []) as DataRow<Payment>[];
+  return rows.map((row) => row.data);
+}
+
+export async function saveCloudPayments(userId: string, payments: Payment[]): Promise<void> {
+  const ctx = startCloudOp("save_cloud_payments", userId, "payments_cloud", `rows=${payments.length}`);
+  try {
+  const client = getClient();
+  const dedupedPayments = dedupeRowsById(payments);
+  const nextIds = new Set(dedupedPayments.map((item) => item.id));
+  const rows = dedupedPayments.map((item) => ({
     user_id: userId,
     id: item.id,
     data: item
@@ -203,11 +371,70 @@ export async function saveCloudPayments(userId: string, payments: Payment[]): Pr
     const { error } = await client
       .from("payments_cloud")
       .upsert(rows, { onConflict: "user_id,id" });
+    markCloudRequest(ctx);
 
     if (error) throw error;
   }
 
-  await deleteStaleRows("payments_cloud", userId, nextIds);
+  await deleteStaleRows("payments_cloud", userId, nextIds, ctx);
+  finishCloudOp(ctx, `upsert_rows=${rows.length}`);
+  } catch (error) {
+    failCloudOp(ctx, error);
+    throw error;
+  }
+}
+
+export async function syncCloudPaymentsDelta(
+  userId: string,
+  previousPayments: Payment[],
+  nextPayments: Payment[]
+): Promise<void> {
+  const ctx = startCloudOp("sync_cloud_payments_delta", userId, "payments_cloud", `prev=${previousPayments.length},next=${nextPayments.length}`);
+  try {
+  const client = getClient();
+  const prevById = new Map(previousPayments.map((item) => [item.id, item]));
+  const nextById = new Map(nextPayments.map((item) => [item.id, item]));
+
+  const upsertRows = dedupeRowsById(nextPayments
+    .filter((item) => {
+      const prev = prevById.get(item.id);
+      if (!prev) return true;
+      return JSON.stringify(prev) !== JSON.stringify(item);
+    })
+    .map((item) => ({
+      user_id: userId,
+      id: item.id,
+      data: item
+    })));
+
+  if (upsertRows.length > 0) {
+    const { error } = await client
+      .from("payments_cloud")
+      .upsert(upsertRows, { onConflict: "user_id,id" });
+    markCloudRequest(ctx);
+    if (error) throw error;
+  }
+
+  const removedIds = previousPayments
+    .map((item) => item.id)
+    .filter((id) => !nextById.has(id));
+
+  if (removedIds.length > 0) {
+    for (const idsChunk of chunkIds(removedIds)) {
+      const { error } = await client
+        .from("payments_cloud")
+        .delete()
+        .eq("user_id", userId)
+        .in("id", idsChunk);
+      markCloudRequest(ctx);
+      if (error) throw error;
+    }
+  }
+  finishCloudOp(ctx, `upsert_rows=${upsertRows.length},removed_ids=${removedIds.length}`);
+  } catch (error) {
+    failCloudOp(ctx, error);
+    throw error;
+  }
 }
 
 export async function loadCloudPaymentPromises(userId: string): Promise<PaymentPromise[]> {
@@ -232,8 +459,9 @@ export async function loadCloudPaymentPromises(userId: string): Promise<PaymentP
 
 export async function saveCloudPaymentPromises(userId: string, promises: PaymentPromise[]): Promise<void> {
   const client = getClient();
-  const nextIds = new Set(promises.map((item) => item.id));
-  const rows = promises.map((item) => ({
+  const dedupedPromises = dedupeRowsById(promises);
+  const nextIds = new Set(dedupedPromises.map((item) => item.id));
+  const rows = dedupedPromises.map((item) => ({
     user_id: userId,
     id: item.id,
     data: item
@@ -284,6 +512,93 @@ export async function saveCloudStreetManagement(userId: string, value: Record<st
     .from("street_management_cloud")
     .upsert({ user_id: userId, data: normalized }, { onConflict: "user_id" });
   if (error) throw error;
+}
+
+function toIsoTimestamp(value: unknown): number {
+  if (typeof value !== "string") return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function rowTimestamp(value: unknown): number {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
+  const row = value as Record<string, unknown>;
+  return Math.max(toIsoTimestamp(row.updatedAt), toIsoTimestamp(row.managementUpdatedAt));
+}
+
+export async function syncCloudStreetManagementDelta(
+  userId: string,
+  previousValue: Record<string, unknown>,
+  nextValue: Record<string, unknown>
+): Promise<void> {
+  const ctx = startCloudOp(
+    "sync_cloud_street_management_delta",
+    userId,
+    "street_management_cloud",
+    `prev_keys=${Object.keys(previousValue ?? {}).length},next_keys=${Object.keys(nextValue ?? {}).length}`
+  );
+  try {
+  const client = getClient();
+  const prev = normalizeRecord(previousValue);
+  const next = normalizeRecord(nextValue);
+  const changedPatch: Record<string, unknown> = {};
+  let hasPatch = false;
+
+  for (const [clientId, nextRow] of Object.entries(next)) {
+    const prevRow = prev[clientId];
+    const nextTs = rowTimestamp(nextRow);
+    const prevTs = rowTimestamp(prevRow);
+    if (!prevRow || nextTs >= prevTs) {
+      if (JSON.stringify(prevRow) !== JSON.stringify(nextRow)) {
+        changedPatch[clientId] = nextRow;
+        hasPatch = true;
+      }
+    }
+  }
+
+  for (const clientId of Object.keys(prev)) {
+    if (!(clientId in next)) {
+      changedPatch[clientId] = null;
+      hasPatch = true;
+    }
+  }
+
+  if (!hasPatch) return;
+
+  const { data, error: selectError } = await client
+    .from("street_management_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .maybeSingle();
+  markCloudRequest(ctx);
+  if (selectError) throw selectError;
+  const currentData = normalizeRecord((data as { data?: unknown } | null)?.data);
+  const merged: Record<string, unknown> = { ...currentData };
+
+  for (const [clientId, patchValue] of Object.entries(changedPatch)) {
+    if (patchValue === null) {
+      delete merged[clientId];
+      continue;
+    }
+    const currentRow = merged[clientId];
+    const patchTs = rowTimestamp(patchValue);
+    const currentTs = rowTimestamp(currentRow);
+    if (!currentRow || patchTs >= currentTs) {
+      merged[clientId] = patchValue;
+    }
+  }
+
+  const normalized = normalizeCloudValue(merged) as Record<string, unknown>;
+  const { error } = await client
+    .from("street_management_cloud")
+    .upsert({ user_id: userId, data: normalized }, { onConflict: "user_id" });
+  markCloudRequest(ctx);
+  if (error) throw error;
+  finishCloudOp(ctx, `patched_keys=${Object.keys(changedPatch).length}`);
+  } catch (error) {
+    failCloudOp(ctx, error);
+    throw error;
+  }
 }
 
 export async function loadCloudCollectionClosures(userId: string): Promise<Record<string, unknown>> {
