@@ -1756,6 +1756,40 @@ select.control-op-badge {
   text-align: center;
 }
 
+.collection-confirmed-suggestion-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 158, 11, 0.42);
+  background: linear-gradient(140deg, rgba(254, 243, 199, 0.96) 0%, rgba(255, 251, 235, 0.96) 100%);
+  color: #92400e;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+
+.collection-payment-detected-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+  font-size: 0.68rem;
+  color: #065f46;
+  font-weight: 800;
+}
+
+.collection-payment-detected-indicator__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
+}
+
 .collection-paid-processed-chip::after {
   content: "";
   position: absolute;

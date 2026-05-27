@@ -106,6 +106,16 @@ type PaymentPromiseRecord = {
   resolution?: PromiseResolution;
 };
 
+function isRunPaidConfirmed(entry?: CollectionEntry): boolean {
+  return entry?.status === "pago_confirmado";
+}
+
+function shouldHideRun(clientId: string, runId: CollectionRunId, todayCollection: CollectionDailyRecord): boolean {
+  if (runId === "run1") return false;
+  if (runId === "run2") return isRunPaidConfirmed(todayCollection.run1[clientId]);
+  return isRunPaidConfirmed(todayCollection.run1[clientId]) || isRunPaidConfirmed(todayCollection.run2[clientId]);
+}
+
 type EditClientTab = "identidad" | "plan" | "cargos" | "estado";
 const CASH_CLOSINGS_KEY = "cobrapp.module2.cash_closings.v1";
 const DAILY_COLLECTION_KEY = "cobrapp.clients.daily_collection.v1";
@@ -790,7 +800,19 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       clientByUnit.set(key, client);
     }
 
-    const baseRows = fleetUnitOptions.map((unitId) => {
+    const fleetUnitsNormalized = fleetUnitOptions
+      .map((unitId) => unitId.trim().toUpperCase())
+      .filter((unitId) => unitId.length > 0);
+    const fallbackUnitsFromClients = Array.from(
+      new Set(
+        activeClients
+          .map((client) => client.unitId.trim().toUpperCase())
+          .filter((unitId) => unitId.length > 0)
+      )
+    );
+    const unitsForRows = fleetUnitsNormalized.length > 0 ? fleetUnitsNormalized : fallbackUnitsFromClients;
+
+    const baseRows = unitsForRows.map((unitId) => {
       const client = clientByUnit.get(unitId) ?? null;
       if (!client) {
         return { unitId, client: null, debtStartDate: null, nextChargeDate: null, pendingInstallments: 0 };
@@ -801,7 +823,23 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       return { unitId, client, debtStartDate, nextChargeDate, pendingInstallments };
     });
 
-    const filtered = baseRows;
+    // Si un cliente no tiene unidad asignada, no debe desaparecer de la vista.
+    const clientsWithoutUnitRows = activeClients
+      .filter((client) => client.unitId.trim().length === 0)
+      .map((client) => {
+        const debtStartDate = getDebtStartDate(client, operationalReferenceDate);
+        const nextChargeDate = debtStartDate ? null : findNextChargeDay(client, operationalReferenceDate);
+        const pendingInstallments = getPendingInstallments(client);
+        return {
+          unitId: `SIN-UNIDAD-${client.id.slice(0, 8).toUpperCase()}`,
+          client,
+          debtStartDate,
+          nextChargeDate,
+          pendingInstallments
+        };
+      });
+
+    const filtered = [...baseRows, ...clientsWithoutUnitRows];
 
     filtered.sort((a, b) => a.unitId.localeCompare(b.unitId, undefined, { numeric: true }));
 
@@ -879,6 +917,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       const streetOnlyCollectIds = new Set<string>();
       const streetCollectRemoveIds = new Set<string>();
       for (const clientId of scope) {
+        if (shouldHideRun(clientId, runId, todayCollection)) continue;
         const client = clientById.get(clientId);
         const promiseState = client ? getPromiseState(client) : null;
         if (promiseState && promiseState.state !== "cumplida" && promiseState.state === "vigente") {
@@ -1018,6 +1057,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     const allOpen = new Set<string>();
     for (const row of visibleRows) {
       if (!row.client) continue;
+      if (row.client.status !== "activo") continue;
       const promise = getPromiseState(row.client);
       if (!promise || promise.state === "cumplida") continue;
       allOpen.add(row.client.id);
@@ -1033,6 +1073,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     return visibleRows
       .filter((row): row is (typeof row & { client: Client }) => Boolean(row.client))
       .filter((row) => {
+        if (row.client.status !== "activo") return false;
         if (row.debtStartDate) return true;
         if (!row.nextChargeDate) return false;
         const MS_PER_DAY = 86_400_000;
@@ -2686,23 +2727,17 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
           </div>
         )}
         <div className="collection-active-filter">
-          <span>
-            Promesas: {promiseAttentionClientIds.allOpen.size} activas · {promiseAttentionClientIds.due.size} con atención · {promiseAttentionClientIds.pending.size} pendientes
+          <span className={promiseAttentionClientIds.due.size > 0 ? "badge badge-warning" : "badge"}>
+            Promesas: {promiseAttentionClientIds.allOpen.size} activas · {promiseAttentionClientIds.due.size} por vencer/vencidas · {promiseAttentionClientIds.pending.size} vigentes
           </span>
-          <button
-            type="button"
-            className="button ghost small"
-            onClick={() =>
-              setPromiseDashboardFilter((current) =>
-                current === "all" ? "attention" : current === "attention" ? "pending" : "all"
-              )
-            }
-          >
-            {promiseDashboardFilter === "attention"
-              ? "Ver solo pendientes"
-              : promiseDashboardFilter === "pending"
-              ? "Ver todas"
-              : "Filtrar promesas por vencer/vencidas"}
+          <button type="button" className={`button ghost small ${promiseDashboardFilter === "all" ? "is-active" : ""}`} onClick={() => setPromiseDashboardFilter("all")}>
+            Ver todas
+          </button>
+          <button type="button" className={`button ghost small ${promiseDashboardFilter === "attention" ? "is-active" : ""}`} onClick={() => setPromiseDashboardFilter("attention")}>
+            Por vencer/vencidas
+          </button>
+          <button type="button" className={`button ghost small ${promiseDashboardFilter === "pending" ? "is-active" : ""}`} onClick={() => setPromiseDashboardFilter("pending")}>
+            Vigentes
           </button>
         </div>
         {displayedRows.length === 0 ? (
@@ -3135,8 +3170,19 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                     const amStatusPreview: CollectionDailyStatus | "" = lockedByTodayPayment
                                       ? "pago_confirmado"
                                       : (amDraft.status || amBaseEntry?.status || "");
+                                    const run2BaseEntry = todayCollection.run2[client.id];
+                                    const run2Draft = getDraft(client.id, "run2");
+                                    const run2StatusPreview: CollectionDailyStatus | "" = run2Draft.status || run2BaseEntry?.status || "";
                                     const showOnlyAm = amStatusPreview === "recordatorio" || amStatusPreview === "promesa_pago";
-                                    const runIdsToRender: CollectionRunId[] = showOnlyAm ? ["run1"] : ["run1", "run2", "run3"];
+                                    const hideRun2 = amStatusPreview === "pago_confirmado";
+                                    const hideRun3 = hideRun2 || run2StatusPreview === "pago_confirmado";
+                                    const runIdsToRender: CollectionRunId[] = showOnlyAm
+                                      ? ["run1"]
+                                      : (["run1", "run2", "run3"] as CollectionRunId[]).filter((runId) => {
+                                        if (runId === "run2" && hideRun2) return false;
+                                        if (runId === "run3" && hideRun3) return false;
+                                        return true;
+                                      });
                                     if (promiseBlocksRuns && promiseRecord && promiseInfo) {
                                       return (
                                         <div key={`${client.id}-promise`} className="collection-promise-lock">
@@ -3210,8 +3256,14 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                             <strong className="collection-paid-processed-chip__time">{paidTodayTimeLabel}</strong>
                                           </span>
                                         ) : null}
+                                        {runId === "run1" && paidTodayAmount > 0 ? (
+                                          <span className="collection-payment-detected-indicator">
+                                            <span className="collection-payment-detected-indicator__dot" />
+                                            Pago detectado hoy
+                                          </span>
+                                        ) : null}
                                         {runId === "run1" && paidTodayAmount > 0 && !pmAutoPaid && effectiveStatus !== "pago_confirmado" ? (
-                                          <span className="hint">Sugerido: confirmar "Pago confirmado".</span>
+                                          <span className="collection-confirmed-suggestion-chip">Recomendado ahora: Pago confirmado</span>
                                         ) : null}
                                         <span className={`badge ${isPreventive ? "badge-warning" : "badge-debt"} collection-action-badge`}>
                                           {lockedByTodayPayment ? "Pago confirmado automático" : isPreventive ? "Acción preventiva" : "Acción prioritaria"}
@@ -3236,11 +3288,11 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                         {pmAutoPaid ? (
                                           <option value="pago_realizado">Pago realizado</option>
                                         ) : lockedByTodayPayment ? (
-                                          <option value="pago_confirmado">{paidTodayAmount > 0 ? "Pago confirmado (Sugerido)" : "Pago confirmado"}</option>
+                                          <option value="pago_confirmado">Pago confirmado</option>
                                         ) : runId === "run1" ? (
                                           <>
                                             {paidTodayAmount > 0 ? (
-                                              <option value="pago_confirmado">Pago confirmado (Sugerido)</option>
+                                              <option value="pago_confirmado">Pago confirmado</option>
                                             ) : null}
                                             <option value="no_responde">No responde</option>
                                             <option value="recordatorio">Recordatorio</option>

@@ -42,6 +42,7 @@ export default function Clients20Page({ clients, dataOwnerUserId }: Props) {
   const rows = useMemo(() => {
     return clients
       .filter((client) => {
+        if (client.status === "archivado") return true;
         const unit = String(client.unitId ?? "").trim().toUpperCase();
         if (!unit) return true;
         return !fleetUnits.has(unit);
@@ -55,7 +56,7 @@ export default function Clients20Page({ clients, dataOwnerUserId }: Props) {
         <h2>Clientes 2.0</h2>
       </div>
       <p className="hint" style={{ marginTop: 6 }}>
-        Clientes sin unidad asignada o con unidad no registrada en flota. Estado aplicado: Inactivo.
+        Clientes archivados, sin unidad asignada o con unidad no registrada en flota.
       </p>
       {loadingFleet && <p className="hint">Cargando flota...</p>}
       <p className="hint">Mostrando {rows.length} clientes.</p>
@@ -81,7 +82,7 @@ export default function Clients20Page({ clients, dataOwnerUserId }: Props) {
                   <td><strong>{client.name}</strong></td>
                   <td>{client.cedula ?? "-"}</td>
                   <td>{client.unitId?.trim() ? client.unitId : "-"}</td>
-                  <td><span className="badge badge-warning">Inactivo</span></td>
+                  <td><span className={`badge ${client.status === "archivado" ? "badge-debt" : "badge-warning"}`}>{client.status === "archivado" ? "Archivado" : "Inactivo"}</span></td>
                 </tr>
               ))
             )}
