@@ -88,7 +88,7 @@ type NoActionConfirmEntry = { reason: NoActionReason; confirmedAt: string };
 type NoActionConfirmRunMap = Record<string, NoActionConfirmEntry>;
 type NoActionConfirmByDate = Record<string, Record<CollectionRunId, NoActionConfirmRunMap>>;
 type DashboardCutKey = "am" | "pm" | "close";
-type DashboardMetricKey = "needContact" | "contacted" | "paidDone" | "reminder" | "noResponse" | "callLater" | "promise" | "streetSent" | "streetOnlyCollect" | "streetCollectRemove";
+type DashboardMetricKey = "needContact" | "contacted" | "paidDone" | "reminder" | "noResponse" | "callLater" | "promise" | "noAction" | "promiseAttention" | "streetSent" | "streetOnlyCollect" | "streetCollectRemove";
 type GeneralGroupFilterKey = "ALL" | "T" | "A" | "B" | "C" | "D";
 type PromiseDashboardFilter = "all" | "attention" | "pending";
 type PromiseResolution = "paid";
@@ -1073,18 +1073,19 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         streetOnlyCollect,
         streetCollectRemove,
         streetMinTotal,
-        ids: {
-          needContact: Array.from(needContactIds),
-          contacted: Array.from(contactedIds),
-          paidDone: Array.from(paidDoneIds),
-          reminder: Array.from(reminderIds),
-          noResponse: Array.from(noResponseIds),
-          callLater: Array.from(callLaterIds),
-          promise: Array.from(promiseIds),
-          streetSent: Array.from(streetSentIds),
-          streetOnlyCollect: Array.from(streetOnlyCollectIds),
-          streetCollectRemove: Array.from(streetCollectRemoveIds)
-        }
+          ids: {
+            needContact: Array.from(needContactIds),
+            contacted: Array.from(contactedIds),
+            paidDone: Array.from(paidDoneIds),
+            reminder: Array.from(reminderIds),
+            noResponse: Array.from(noResponseIds),
+            callLater: Array.from(callLaterIds),
+            promise: Array.from(promiseIds),
+            noAction: [],
+            streetSent: Array.from(streetSentIds),
+            streetOnlyCollect: Array.from(streetOnlyCollectIds),
+            streetCollectRemove: Array.from(streetCollectRemoveIds)
+          }
       };
     }
 
@@ -1149,7 +1150,8 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
           needContact: Array.from(amNeedContactIds),
           contacted: Array.from(amContactedIds),
           paidDone: Array.from(amPaidIds),
-          promise: Array.from(amPromiseIds)
+          promise: Array.from(amPromiseIds),
+          noAction: Object.keys(todayNoActionConfirms.run1 ?? {})
         }
       },
       pm: statsFor("run2", pmNeedContact, pmAutoPaidIds),
@@ -1173,6 +1175,10 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     }
     return { due, pending, allOpen };
   }, [visibleRows, promiseByClientId, paymentsByClientId, now]);
+  const promiseAttentionRun2Ids = useMemo(() => {
+    const pmNeedContactIds = new Set(collectionDashboard.pm.ids.needContact);
+    return Array.from(promiseAttentionClientIds.due).filter((id) => pmNeedContactIds.has(id));
+  }, [collectionDashboard.pm.ids.needContact, promiseAttentionClientIds.due]);
   const amActionableRows = useMemo(() => {
     const todayAmSealAt = amSealsByDate[todayKey];
     const todayPmSealAt = pmSealsByDate[todayKey];
@@ -1307,9 +1313,19 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       const ids = new Set(collectionDashboard.am.ids.needContact);
       return baseRows.filter((row) => ids.has(noActionEntityId(row.client, row.unitId)));
     }
-    const ids = new Set(collectionDashboard[activeDashboardFilter.cut].ids[activeDashboardFilter.metric]);
+    if (activeDashboardFilter.metric === "promiseAttention") {
+      if (activeDashboardFilter.cut !== "pm") return baseRows;
+      const ids = new Set(promiseAttentionRun2Ids);
+      return baseRows.filter((row) => row.client && ids.has(row.client.id));
+    }
+    const metricKey = activeDashboardFilter.metric as Exclude<DashboardMetricKey, "promiseAttention">;
+    const ids = new Set(collectionDashboard[activeDashboardFilter.cut].ids[metricKey]);
+    if (activeDashboardFilter.cut === "am" && activeDashboardFilter.metric === "contacted") {
+      // RUN1 puede mezclar ids de cliente y ids de unidad libre (free:UNIDAD).
+      return baseRows.filter((row) => ids.has(noActionEntityId(row.client, row.unitId)));
+    }
     return baseRows.filter((row) => row.client && ids.has(row.client.id));
-  }, [activeDashboardFilter, collectionDashboard, generalGroupFilter, visibleRows, promiseDashboardFilter, promiseAttentionClientIds, unitSearchFilter, clientNameSearchFilter]);
+  }, [activeDashboardFilter, collectionDashboard, generalGroupFilter, visibleRows, promiseDashboardFilter, promiseAttentionClientIds, unitSearchFilter, clientNameSearchFilter, promiseAttentionRun2Ids]);
 
   useEffect(() => {
     if (activeDashboardFilter?.metric === "needContact" && activeDashboardFilter.cut !== "am") {
@@ -2077,6 +2093,59 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
           [runId]: nextRunMap
         }
       };
+    });
+  }
+
+  function undoPromiseForClient(client: Client): void {
+    const currentPromise = promiseByClientId[client.id];
+    if (!currentPromise) return;
+    setConfirmDialog({
+      title: "Deshacer promesa",
+      message: `Se eliminará la promesa vigente de ${firstNameOf(client.name)} y se reactivará su gestión normal. ¿Deseas continuar?`,
+      variant: "warning",
+      onConfirm: () => {
+        setPromiseByClientId((current) => {
+          if (!current[client.id]) return current;
+          const next = { ...current };
+          delete next[client.id];
+          return next;
+        });
+        // Limpiar cualquier promesa guardada en el día para este cliente (RUN 1/2/3).
+        setDailyCollectionByDate((current) => {
+          const day = current[todayKey];
+          if (!day) return current;
+          const nextDay: CollectionDailyRecord = {
+            run1: { ...day.run1 },
+            run2: { ...day.run2 },
+            run3: { ...day.run3 }
+          };
+          let changed = false;
+          for (const runId of ["run1", "run2", "run3"] as CollectionRunId[]) {
+            const entry = nextDay[runId][client.id];
+            if (entry?.status === "promesa_pago") {
+              delete nextDay[runId][client.id];
+              changed = true;
+            }
+          }
+          if (!changed) return current;
+          return {
+            ...current,
+            [todayKey]: nextDay
+          };
+        });
+        // Limpiar borradores de todos los RUN para evitar estado visual "pegado".
+        resetDraft(client.id, "run1");
+        resetDraft(client.id, "run2");
+        resetDraft(client.id, "run3");
+        setSaveFeedbackByKey((current) => {
+          const next = { ...current };
+          delete next[`${client.id}:run1`];
+          delete next[`${client.id}:run2`];
+          delete next[`${client.id}:run3`];
+          return next;
+        });
+        setConfirmDialog(null);
+      }
     });
   }
 
@@ -3048,8 +3117,13 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                 activeDashboardFilter.metric === "streetSent" ? "Enviados a calle" :
                 activeDashboardFilter.metric === "streetOnlyCollect" ? "Solo cobrar" :
                 activeDashboardFilter.metric === "streetCollectRemove" ? "Cobrar / quitar" :
+                activeDashboardFilter.metric === "promiseAttention" ? "Promesa con atención" :
+                activeDashboardFilter.metric === "paidDone" ? "Pago realizado" :
+                activeDashboardFilter.metric === "promise" ? "Promesa" :
                 activeDashboardFilter.metric === "reminder" ? "Recordatorio" :
-                activeDashboardFilter.metric === "noResponse" ? "No responde" : "Llamar más tarde"
+                activeDashboardFilter.metric === "noResponse" ? "No responde" :
+                activeDashboardFilter.metric === "callLater" ? "Llamar más tarde" :
+                "Sin cobro hoy"
               }
             </span>
             <button type="button" className="button ghost small" onClick={() => setActiveDashboardFilter(null)}>Quitar filtro</button>
@@ -3137,26 +3211,56 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                         <span>Gestionados</span>
                         <strong>{cut.stats.contacted}</strong>
                         <div className="collection-dashboard-kpi-breakdown-grid">
-                          <span className="collection-dashboard-kpi-breakdown-item">
+                          <button
+                            type="button"
+                            className={`collection-dashboard-kpi-breakdown-item ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "paidDone" ? "is-active" : ""}`}
+                            onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "paidDone" ? null : { cut: cut.key, metric: "paidDone" })}
+                          >
                             <b>{cut.stats.paidDone}</b>
                             <small>Pago realizado</small>
-                          </span>
-                          <span className="collection-dashboard-kpi-breakdown-item">
+                          </button>
+                          <button
+                            type="button"
+                            className={`collection-dashboard-kpi-breakdown-item ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "promise" ? "is-active" : ""}`}
+                            onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "promise" ? null : { cut: cut.key, metric: "promise" })}
+                          >
                             <b>{cut.stats.promise}</b>
                             <small>Promesa</small>
-                          </span>
-                          <span className="collection-dashboard-kpi-breakdown-item">
+                          </button>
+                          <button
+                            type="button"
+                            className={`collection-dashboard-kpi-breakdown-item ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "reminder" ? "is-active" : ""}`}
+                            onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "reminder" ? null : { cut: cut.key, metric: "reminder" })}
+                          >
                             <b>{cut.stats.reminder}</b>
                             <small>Recordatorio</small>
-                          </span>
-                          <span className="collection-dashboard-kpi-breakdown-item">
+                          </button>
+                          <button
+                            type="button"
+                            className={`collection-dashboard-kpi-breakdown-item ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "noResponse" ? "is-active" : ""}`}
+                            onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "noResponse" ? null : { cut: cut.key, metric: "noResponse" })}
+                          >
                             <b>{cut.stats.noResponse}</b>
                             <small>No responde</small>
-                          </span>
-                          <span className="collection-dashboard-kpi-breakdown-item collection-dashboard-kpi-breakdown-item--full">
+                          </button>
+                          <button
+                            type="button"
+                            className={`collection-dashboard-kpi-breakdown-item collection-dashboard-kpi-breakdown-item--full ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "callLater" ? "is-active" : ""}`}
+                            onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "callLater" ? null : { cut: cut.key, metric: "callLater" })}
+                          >
                             <b>{cut.stats.callLater}</b>
                             <small>Llamar más tarde</small>
-                          </span>
+                          </button>
+                          {cut.key === "am" && (
+                            <button
+                              type="button"
+                              className={`collection-dashboard-kpi-breakdown-item collection-dashboard-kpi-breakdown-item--full ${activeDashboardFilter?.cut === "am" && activeDashboardFilter?.metric === "noAction" ? "is-active" : ""}`}
+                              onClick={() => setActiveDashboardFilter((current) => current?.cut === "am" && current.metric === "noAction" ? null : { cut: "am", metric: "noAction" })}
+                            >
+                              <b>{Object.keys(todayNoActionConfirms.run1 ?? {}).length}</b>
+                              <small>Sin cobro hoy</small>
+                            </button>
+                          )}
                         </div>
                       </button>
                       {(cut.key === "am" || cut.key === "pm" || cut.key === "close") && (
@@ -3170,6 +3274,17 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                               : (!isPmSealed ? "Pendiente" : isCloseSealed ? "Finalizado" : "En curso")}
                           </strong>
                         </article>
+                      )}
+                      {cut.key === "pm" && (
+                        <button
+                          type="button"
+                          className={`collection-dashboard-kpi collection-dashboard-kpi--promise ${activeDashboardFilter?.cut === "pm" && activeDashboardFilter?.metric === "promiseAttention" ? "is-active" : ""}`}
+                          onClick={() => setActiveDashboardFilter((current) => current?.cut === "pm" && current.metric === "promiseAttention" ? null : { cut: "pm", metric: "promiseAttention" })}
+                          title="Filtrar promesas próximas, vencidas o incumplidas parciales"
+                        >
+                          <span>Promesa con atención</span>
+                          <strong>{promiseAttentionRun2Ids.length}</strong>
+                        </button>
                       )}
                     </div>
                     {cut.key === "am" && (
@@ -3716,11 +3831,14 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                     const promiseNeedsAction = hasActivePromise && (promiseInfo?.state === "proxima" || promiseInfo?.state === "vencida" || promiseInfo?.state === "incumplida_parcial");
                                     const amBaseEntry = todayCollection.run1[client.id];
                                     const amDraft = getDraft(client.id, "run1");
+                                    const amStatusSeed = isAmSealed ? (amBaseEntry?.status || "") : (amDraft.status || amBaseEntry?.status || "");
                                     const amStatusPreview: CollectionDailyStatus | "" = lockedByTodayPayment
                                       ? "pago_confirmado"
-                                      : (amDraft.status || amBaseEntry?.status || "");
-                                    const showOnlyAm = amStatusPreview === "recordatorio" || amStatusPreview === "promesa_pago";
+                                      : amStatusSeed;
+                                    const showOnlyAm = (amStatusPreview === "recordatorio" || amStatusPreview === "promesa_pago") && !isAmSealed;
                                     const showOnlyAmByPaidConfirm = amStatusPreview === "pago_confirmado";
+                                    const forceRun2Current = isAmSealed && !todayCollection.run1[client.id]?.status;
+                                    const noActionHandledInAm = Boolean(todayNoActionConfirms.run1?.[client.id]);
                                     const allRunIds: CollectionRunId[] = ["run1", "run2", "run3"];
                                     const isRunHiddenByCreation = (runId: CollectionRunId): boolean => {
                                       if (startRun === "run3") return runId === "run1" || runId === "run2";
@@ -3728,11 +3846,19 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                       return false;
                                     };
                                     const isRunHidden = (runId: CollectionRunId): boolean => {
+                                      if (noActionHandledInAm && runId !== "run1") return true;
+                                      if (forceRun2Current) return runId === "run1";
                                       if (showOnlyAmByPaidConfirm && startRun === "run1") return runId !== "run1";
                                       if (showOnlyAm && startRun === "run1") return runId !== "run1";
                                       return isRunHiddenByCreation(runId);
                                     };
                                     const hiddenReasonForRun = (runId: CollectionRunId): string => {
+                                      if (noActionHandledInAm && runId !== "run1") {
+                                        return "Gestionado en AM como 'sin cobro hoy'.";
+                                      }
+                                      if (forceRun2Current && runId === "run1") {
+                                        return "Oculto: AM cerrada sin gestión en RUN 1. Continúa en RUN 2.";
+                                      }
                                       if (showOnlyAmByPaidConfirm && startRun === "run1" && runId !== "run1") {
                                         return "Oculto por pago confirmado en RUN 1.";
                                       }
@@ -3756,6 +3882,16 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                           <strong>Prometió pagar el {formatDateTimeForUi(promiseRecord.promisedAt)}</strong>
                                           <p>Monto prometido: {formatCurrency(promiseRecord.promisedAmount)}</p>
                                           <p className="hint">Gestión pausada hasta la fecha pactada.</p>
+                                          <div className="collection-form-actions">
+                                            <button
+                                              type="button"
+                                              className="button small collection-promise-lock__undo"
+                                              onClick={() => undoPromiseForClient(client)}
+                                              title="Eliminar promesa y reactivar gestión"
+                                            >
+                                              Deshacer promesa
+                                            </button>
+                                          </div>
                                         </div>
                                       );
                                     }
@@ -3770,8 +3906,12 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                       return (
                                         <div key={runId} className={`collection-mini-form collection-mini-form--column collection-mini-form--hidden ${runVariantClass}`}>
                                           <div className="collection-hidden-state">
-                                            <span className="collection-hidden-state__pill">No aplica</span>
-                                            <strong className="collection-hidden-state__title">Run oculto por flujo diario</strong>
+                                            <span className={`collection-hidden-state__pill ${noActionHandledInAm && runId !== "run1" ? "badge badge-good" : ""}`}>
+                                              {noActionHandledInAm && runId !== "run1" ? "Gestionado" : "No aplica"}
+                                            </span>
+                                            <strong className="collection-hidden-state__title">
+                                              {noActionHandledInAm && runId !== "run1" ? "Atendido en RUN 1" : "Run oculto por flujo diario"}
+                                            </strong>
                                             <p className="collection-hidden-state__reason">{hiddenReasonForRun(runId)}</p>
                                           </div>
                                         </div>
@@ -3785,7 +3925,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                     const inheritedFromPm = pmEntry?.status === "no_responde" || pmEntry?.status === "llamar_mas_tarde";
                                     const runEnabledByInheritance =
                                       runId === "run1" ? true :
-                                      runId === "run2" ? (isAmSealed && inheritedFromAm) :
+                                      runId === "run2" ? (forceRun2Current || (isAmSealed && inheritedFromAm)) :
                                       inheritedFromPm;
                                     const runEditable = runId !== "run1" || !isAmSealed;
                                     const feedbackKey = `${client.id}:${runId}`;

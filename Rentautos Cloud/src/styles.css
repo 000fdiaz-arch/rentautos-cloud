@@ -2124,6 +2124,25 @@ select.control-op-badge {
   display: grid;
   gap: 6px;
 }
+
+.collection-promise-lock__undo {
+  border: 1px solid rgba(239, 68, 68, 0.42) !important;
+  background:
+    radial-gradient(120% 150% at 0% 0%, rgba(255, 255, 255, 0.74) 0%, rgba(255, 255, 255, 0) 62%),
+    linear-gradient(180deg, rgba(255, 241, 242, 0.96) 0%, rgba(254, 226, 226, 0.84) 100%) !important;
+  color: #7f1d1d !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+  box-shadow:
+    0 10px 18px rgba(239, 68, 68, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86) !important;
+}
+
+.collection-promise-lock__undo:hover {
+  transform: translateY(-1px);
+  filter: saturate(1.05) brightness(1.02);
+}
 .collection-promise-reactivation {
   border: 1px dashed #fca5a5;
   background: #fff7ed;
