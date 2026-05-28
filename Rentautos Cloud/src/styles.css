@@ -6327,6 +6327,53 @@ select.control-op-badge {
     inset 0 1px 0 rgba(255, 255, 255, 0.78);
 }
 
+.clients-status-review-cta {
+  grid-column: 1 / span 2;
+  border: 1px solid rgba(14, 165, 160, 0.46);
+  border-radius: 14px;
+  padding: 10px;
+  background:
+    radial-gradient(135% 170% at 0% 0%, rgba(255, 255, 255, 0.84) 0%, rgba(255, 255, 255, 0) 58%),
+    linear-gradient(160deg, rgba(240, 253, 250, 0.95) 0%, rgba(204, 251, 241, 0.8) 100%);
+  box-shadow:
+    0 16px 28px rgba(13, 148, 136, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.clients-status-review-cta .hint {
+  margin: 0;
+  font-size: 0.96rem;
+  line-height: 1.22;
+  border-radius: 12px;
+}
+
+.clients-status-review-cta .collection-form-actions {
+  margin-top: 10px !important;
+}
+
+.clients-status-review-cta .collection-form-actions .button {
+  min-width: 260px;
+  min-height: 50px;
+  font-size: 0.84rem;
+}
+
+.clients-no-action-undo-btn {
+  border: 1px solid rgba(239, 68, 68, 0.42) !important;
+  background:
+    radial-gradient(120% 150% at 0% 0%, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0) 62%),
+    linear-gradient(180deg, rgba(254, 242, 242, 0.96) 0%, rgba(254, 226, 226, 0.84) 100%) !important;
+  color: #7f1d1d !important;
+  min-width: 220px;
+  box-shadow:
+    0 10px 18px rgba(239, 68, 68, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+}
+
+.clients-no-action-undo-btn:hover {
+  filter: saturate(1.05) brightness(1.02);
+  transform: translateY(-1px);
+}
+
 .clients-status-alert .collection-form-actions .button,
 .collection-no-action-wrap .collection-form-actions .button {
   min-height: 48px;
@@ -6360,5 +6407,32 @@ select.control-op-badge {
   box-shadow:
     0 12px 22px rgba(16, 185, 129, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+/* Uniform alignment for "Sin accion hoy" review block */
+.collection-no-action-wrap {
+  align-content: start;
+  justify-items: center;
+  gap: 8px;
+}
+
+.collection-no-action-wrap .collection-no-action {
+  min-height: 40px;
+  width: 100%;
+}
+
+.collection-no-action-wrap .collection-form-actions {
+  width: min(100%, 520px);
+  display: grid;
+  grid-template-columns: 1fr;
+  justify-items: stretch;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.collection-no-action-wrap .collection-form-actions .button {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
 }
 

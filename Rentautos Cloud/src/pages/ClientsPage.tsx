@@ -83,7 +83,7 @@ type CollectionDraft = {
   note: string;
 };
 type ClientCollectionStartRun = CollectionRunId;
-type NoActionReason = "al_dia" | "no_activo";
+type NoActionReason = "al_dia" | "no_activo" | "libre";
 type NoActionConfirmEntry = { reason: NoActionReason; confirmedAt: string };
 type NoActionConfirmRunMap = Record<string, NoActionConfirmEntry>;
 type NoActionConfirmByDate = Record<string, Record<CollectionRunId, NoActionConfirmRunMap>>;
@@ -128,6 +128,15 @@ const DAILY_COLLECTION_SYNC_TABLES = [
   { key: DAILY_COLLECTION_PROMISES_KEY, table: "clients_daily_collection_promises_cloud" },
   { key: DAILY_COLLECTION_STREET_ACTIONS_KEY, table: "clients_daily_collection_street_actions_cloud" }
 ] as const;
+const DAILY_COLLECTION_LOCAL_ONLY_KEYS = new Set<string>([
+  DAILY_COLLECTION_KEY,
+  DAILY_COLLECTION_AM_SEALS_KEY,
+  DAILY_COLLECTION_PM_SEALS_KEY,
+  DAILY_COLLECTION_CLOSE_SEALS_KEY,
+  DAILY_COLLECTION_PROMISES_KEY,
+  DAILY_COLLECTION_STREET_ACTIONS_KEY,
+  DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY
+]);
 
 function notifyCloudSyncPing(key: string): void {
   window.dispatchEvent(
@@ -162,7 +171,15 @@ function persistLocalJson(key: string, value: unknown, snapshotRef: MutableRefOb
   if (snapshotRef.current[key] === serialized) return;
   snapshotRef.current[key] = serialized;
   window.localStorage.setItem(key, serialized);
-  notifyCloudSyncPing(key);
+  if (!DAILY_COLLECTION_LOCAL_ONLY_KEYS.has(key)) {
+    notifyCloudSyncPing(key);
+  }
+}
+
+function flushDailyCollectionCloudSync(): void {
+  for (const { key } of DAILY_COLLECTION_SYNC_TABLES) {
+    notifyCloudSyncPing(key);
+  }
 }
 
 function newerIso(left?: string, right?: string): string {
@@ -439,7 +456,7 @@ function sanitizeNoActionConfirms(input: unknown): NoActionConfirmByDate {
         const e = entry as Record<string, unknown>;
         const reason = e.reason;
         const confirmedAt = e.confirmedAt;
-        if ((reason === "al_dia" || reason === "no_activo") && typeof confirmedAt === "string") {
+        if ((reason === "al_dia" || reason === "no_activo" || reason === "libre") && typeof confirmedAt === "string") {
           runMap[clientId] = { reason, confirmedAt };
         }
       }
@@ -448,6 +465,10 @@ function sanitizeNoActionConfirms(input: unknown): NoActionConfirmByDate {
     next[dateKey] = day;
   }
   return next;
+}
+
+function noActionEntityId(client: Client | null, unitId: string): string {
+  return client ? client.id : `free:${unitId.trim().toUpperCase()}`;
 }
 
 function collectionStatusLabel(status: CollectionDailyStatus | ""): string {
@@ -652,8 +673,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
 
   function applyDailyCollectionCloudValue(key: string, value: Record<string, unknown>): void {
     if (key === DAILY_COLLECTION_KEY) {
-      const next = value as Record<string, CollectionDailyRecord>;
+      const incoming = value as Record<string, CollectionDailyRecord>;
       setDailyCollectionByDate((current) => {
+        const next = mergeDailyCollectionRecords(current, incoming);
         const serialized = stableJson(next);
         if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
         dailyCollectionSnapshotRef.current[key] = serialized;
@@ -661,8 +683,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         return next;
       });
     } else if (key === DAILY_COLLECTION_AM_SEALS_KEY) {
-      const next = value as Record<string, string>;
+      const incoming = value as Record<string, string>;
       setAmSealsByDate((current) => {
+        const next = mergeSeals(current, incoming);
         const serialized = stableJson(next);
         if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
         dailyCollectionSnapshotRef.current[key] = serialized;
@@ -670,8 +693,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         return next;
       });
     } else if (key === DAILY_COLLECTION_PM_SEALS_KEY) {
-      const next = value as Record<string, string>;
+      const incoming = value as Record<string, string>;
       setPmSealsByDate((current) => {
+        const next = mergeSeals(current, incoming);
         const serialized = stableJson(next);
         if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
         dailyCollectionSnapshotRef.current[key] = serialized;
@@ -679,8 +703,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         return next;
       });
     } else if (key === DAILY_COLLECTION_CLOSE_SEALS_KEY) {
-      const next = value as Record<string, string>;
+      const incoming = value as Record<string, string>;
       setCloseSealsByDate((current) => {
+        const next = mergeSeals(current, incoming);
         const serialized = stableJson(next);
         if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
         dailyCollectionSnapshotRef.current[key] = serialized;
@@ -688,8 +713,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         return next;
       });
     } else if (key === DAILY_COLLECTION_PROMISES_KEY) {
-      const next = value as Record<string, PaymentPromiseRecord>;
+      const incoming = value as Record<string, PaymentPromiseRecord>;
       setPromiseByClientId((current) => {
+        const next = mergePromiseRecords(current, incoming);
         const serialized = stableJson(next);
         if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
         dailyCollectionSnapshotRef.current[key] = serialized;
@@ -697,8 +723,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         return next;
       });
     } else if (key === DAILY_COLLECTION_STREET_ACTIONS_KEY) {
-      const next = value as Record<string, Record<string, StreetActionRecord>>;
+      const incoming = value as Record<string, Record<string, StreetActionRecord>>;
       setStreetActionsByDate((current) => {
+        const next = mergeStreetActions(current, incoming);
         const serialized = stableJson(next);
         if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
         dailyCollectionSnapshotRef.current[key] = serialized;
@@ -900,6 +927,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   const visibleRows = rows;
   const collectionDashboard = useMemo(() => {
     const clientRows = visibleRows.filter((row): row is (typeof row & { client: Client }) => Boolean(row.client));
+    const freeRows = visibleRows.filter((row) => !row.client);
     const clientById = new Map(clientRows.map((row) => [row.client.id, row.client]));
     const todayAmSealAt = amSealsByDate[todayKey];
     const todayPmSealAt = pmSealsByDate[todayKey];
@@ -911,6 +939,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         .filter((row) => startRunByClientId.get(row.client.id) === "run1")
         .map((row) => row.client.id)
     );
+    for (const row of freeRows) {
+      amNeedContact.add(noActionEntityId(null, row.unitId));
+    }
     const pmNeedContact = new Set<string>();
     const closeNeedContact = new Set<string>();
 
@@ -1216,7 +1247,12 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     const runOrder: Record<CollectionRunId, number> = { run1: 1, run2: 2, run3: 3 };
     for (const row of visibleRows) {
       const client = row.client;
-      if (!client) continue;
+      const entityId = noActionEntityId(client, row.unitId);
+      if (!client) {
+        if (todayNoActionConfirms.run1?.[entityId]) continue;
+        missing.run1.push(row.unitId);
+        continue;
+      }
       const startRun = getClientCollectionStartRun(client, todayAmSealAt, todayPmSealAt);
       const startOrder = runOrder[startRun];
       const debtStartDate = row.debtStartDate;
@@ -1224,14 +1260,15 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       const tone = getFinancialTone(debtStartDate, nextChargeDate, operationalReferenceDate);
       const reason: NoActionReason | null = (() => {
         const hasAnyOverride = ["run1", "run2", "run3"].some((run) => collectionOverrideByKey[`${client.id}:${run}`]);
+        if (client.status === "libre") return "libre";
         if (isCollectionBlockedByStatus(client.status) && !hasAnyOverride) return "no_activo";
         if (tone === "al_dia") return "al_dia";
         return null;
       })();
       if (!reason) continue;
       if (startOrder > runOrder.run1) continue;
-      if (todayCollection.run1[client.id]?.status) continue;
-      if (todayNoActionConfirms.run1?.[client.id]) continue;
+      if (todayCollection.run1[entityId]?.status) continue;
+      if (todayNoActionConfirms.run1?.[entityId]) continue;
       missing.run1.push(row.unitId);
     }
     return missing;
@@ -2015,6 +2052,24 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     });
   }
 
+  function undoNoActionConfirmation(clientId: string, runId: CollectionRunId): void {
+    setNoActionConfirmsByDate((current) => {
+      const day = current[todayKey];
+      if (!day) return current;
+      const runMap = day[runId] ?? {};
+      if (!runMap[clientId]) return current;
+      const nextRunMap = { ...runMap };
+      delete nextRunMap[clientId];
+      return {
+        ...current,
+        [todayKey]: {
+          ...day,
+          [runId]: nextRunMap
+        }
+      };
+    });
+  }
+
   async function downloadAmClosureReport(): Promise<void> {
     try {
       const amScopeIds = new Set(amActionableRows.map((row) => row.client.id));
@@ -2256,6 +2311,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       return;
     }
     setAmSealsByDate((current) => ({ ...current, [todayKey]: new Date().toISOString() }));
+    window.setTimeout(() => flushDailyCollectionCloudSync(), 0);
   }
   function closePmRun(): void {
     if (!isAmSealed) {
@@ -2269,6 +2325,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       return;
     }
     setPmSealsByDate((current) => ({ ...current, [todayKey]: new Date().toISOString() }));
+    window.setTimeout(() => flushDailyCollectionCloudSync(), 0);
   }
   function closeCloseRun(): void {
     if (!isPmSealed) {
@@ -2288,6 +2345,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       return;
     }
     setCloseSealsByDate((current) => ({ ...current, [todayKey]: new Date().toISOString() }));
+    window.setTimeout(() => flushDailyCollectionCloudSync(), 0);
   }
 
   function openStreetActionDialog(client: Client, unitId: string): void {
@@ -3323,7 +3381,24 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                     const clientHasManualCollectionEnabled = Boolean(client) && (["run1", "run2", "run3"] as CollectionRunId[]).some((runId) =>
                       Boolean(collectionOverrideByKey[`${client.id}:${runId}`])
                     );
-                    const rowBlockedByStatus = Boolean(client) && isCollectionBlockedByStatus(client.status) && !clientHasManualCollectionEnabled;
+                    const rowBlockedByStatus = Boolean(client) && (
+                      client.status === "libre" ||
+                      (isCollectionBlockedByStatus(client.status) && !clientHasManualCollectionEnabled)
+                    );
+                    const noActionReasonForStatus: NoActionReason | null = client
+                      ? (client.status === "libre"
+                        ? "libre"
+                        : rowBlockedByStatus
+                        ? "no_activo"
+                        : financialTone === "al_dia"
+                        ? "al_dia"
+                        : null)
+                      : null;
+                    const statusReviewQuestion = client
+                      ? (client.status === "libre"
+                        ? `¿La unidad ${unitId} sigue libre y disponible?`
+                        : `¿La unidad ${unitId} sigue en ${(STATUS_LABEL[client.status] ?? "estado no definido").toLowerCase()}? ¿Ya revisaste?`)
+                      : "";
                     const debtLabel = client
                       ? (debtStartDate ? formatDate(debtStartDate) : nextChargeDate ? `Al dia hasta ${formatPaymentDateKey(toDateKey(nextChargeDate))}` : "Al dia")
                       : "-";
@@ -3348,21 +3423,35 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                               <span>Ultimo pago: {lastPaymentLabel}</span>
                               <span>Otros cargos: {formatCurrency(otherChargesTotal)}</span>
                               <span>Estado cuenta: {financialBadge.label}</span>
-                              <span className="hint">¿La unidad {unitId} sigue en {(STATUS_LABEL[client.status] ?? "estado no definido").toLowerCase()}? ¿Ya revisaste?</span>
-                              <div className="collection-form-actions" style={{ marginTop: 8 }}>
-                                {(() => {
-                                  const confirmed = Boolean(todayNoActionConfirms.run1?.[client.id]);
-                                  return (
-                                    <button
-                                      type="button"
-                                      className={`button small ${confirmed ? "ghost" : "primary"}`}
-                                      onClick={() => confirmNoAction(client.id, "run1", "no_activo")}
-                                      title="Confirmar revisión de estado"
-                                    >
-                                      {confirmed ? "Revisión confirmada" : "Sí, confirmar revisión"}
-                                    </button>
-                                  );
-                                })()}
+                              <div className="clients-status-review-cta">
+                                <span className="hint">{statusReviewQuestion}</span>
+                                <div className="collection-form-actions" style={{ marginTop: 8 }}>
+                                  {(() => {
+                                    const confirmed = Boolean(todayNoActionConfirms.run1?.[client.id]);
+                                    return (
+                                      <>
+                                        <button
+                                          type="button"
+                                          className={`button small ${confirmed ? "ghost" : "primary"}`}
+                                          onClick={() => confirmNoAction(client.id, "run1", noActionReasonForStatus ?? "no_activo")}
+                                          title="Confirmar revisión de estado"
+                                        >
+                                          {confirmed ? "Revisión confirmada" : "Sí, confirmar revisión"}
+                                        </button>
+                                        {confirmed && (
+                                          <button
+                                            type="button"
+                                            className="button small clients-no-action-undo-btn"
+                                            onClick={() => undoNoActionConfirmation(client.id, "run1")}
+                                            title="Deshacer confirmación de revisión"
+                                          >
+                                            Deshacer revisión
+                                          </button>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
+                                </div>
                               </div>
                               <button
                                 type="button"
@@ -3512,7 +3601,44 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                           </div>
                         </td>
                         <td className="clients-cell-runs">
-                          {client && (
+                          {!client ? (
+                            <div className="collection-no-action-wrap">
+                              <div className="collection-no-action">
+                                <span className="badge">Sin acción hoy</span>
+                              </div>
+                              <div className="collection-no-action">
+                                <span className="hint">¿La unidad {unitId} sigue libre y disponible?</span>
+                              </div>
+                              <div className="collection-form-actions">
+                                {(() => {
+                                  const entityId = noActionEntityId(null, unitId);
+                                  const confirmed = Boolean(todayNoActionConfirms.run1?.[entityId]);
+                                  return (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className={`button small ${confirmed ? "ghost" : "primary"}`}
+                                        onClick={() => confirmNoAction(entityId, "run1", "libre")}
+                                        title="Confirmar revisión de unidad libre"
+                                      >
+                                        {confirmed ? "Revisión confirmada" : "Sí, confirmar revisión"}
+                                      </button>
+                                      {confirmed && (
+                                        <button
+                                          type="button"
+                                          className="button small clients-no-action-undo-btn"
+                                          onClick={() => undoNoActionConfirmation(entityId, "run1")}
+                                          title="Deshacer confirmación de revisión"
+                                        >
+                                          Deshacer revisión
+                                        </button>
+                                      )}
+                                    </>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                          ) : (
                             financialTone === "al_dia" ? (
                               <div className="collection-no-action-wrap">
                                 <div className="collection-no-action">
@@ -3525,17 +3651,29 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                   {(() => {
                                     const confirmed = client ? Boolean(todayNoActionConfirms.run1?.[client.id]) : false;
                                     return (
-                                      <button
-                                        type="button"
-                                        className={`button small ${confirmed ? "ghost" : "primary"}`}
-                                        onClick={() => {
-                                          if (!client) return;
-                                          confirmNoAction(client.id, "run1", "al_dia");
-                                        }}
-                                        title="Confirmar revisión de unidad"
-                                      >
-                                        {confirmed ? "Revisión confirmada" : "Sí, confirmar revisión"}
-                                      </button>
+                                      <>
+                                        <button
+                                          type="button"
+                                          className={`button small ${confirmed ? "ghost" : "primary"}`}
+                                          onClick={() => {
+                                            if (!client) return;
+                                            confirmNoAction(client.id, "run1", "al_dia");
+                                          }}
+                                          title="Confirmar revisión de unidad"
+                                        >
+                                          {confirmed ? "Revisión confirmada" : "Sí, confirmar revisión"}
+                                        </button>
+                                        {confirmed && client && (
+                                          <button
+                                            type="button"
+                                            className="button small clients-no-action-undo-btn"
+                                            onClick={() => undoNoActionConfirmation(client.id, "run1")}
+                                            title="Deshacer confirmación de revisión"
+                                          >
+                                            Deshacer revisión
+                                          </button>
+                                        )}
+                                      </>
                                     );
                                   })()}
                                 </div>
@@ -3694,11 +3832,11 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                         {pmAutoPaid ? (
                                           <option value="pago_realizado">Pago realizado</option>
                                         ) : lockedByTodayPayment ? (
-                                          <option value="pago_confirmado">{paidTodayAmount > 0 ? "Pago confirmado (Sugerido)" : "Pago confirmado"}</option>
+                                          <option value="pago_confirmado">Pago confirmado</option>
                                         ) : runId === "run1" ? (
                                           <>
                                             {paidTodayAmount > 0 ? (
-                                              <option value="pago_confirmado">Pago confirmado (Sugerido)</option>
+                                              <option value="pago_confirmado">Pago confirmado</option>
                                             ) : null}
                                             <option value="no_responde">No responde</option>
                                             <option value="recordatorio">Recordatorio</option>
