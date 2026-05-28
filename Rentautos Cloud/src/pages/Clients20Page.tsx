@@ -7,6 +7,14 @@ type Props = {
   dataOwnerUserId?: string | null;
 };
 
+function resolveReferenceUnit(client: Client): string {
+  const explicitUnit = String(client.unitId ?? "").trim().toUpperCase();
+  if (explicitUnit) return explicitUnit;
+  const comment = String(client.statusComment ?? "");
+  const match = comment.match(/desvinculado\s+de\s+unidad\s+([A-Za-z0-9-]+)/i);
+  return match ? match[1].toUpperCase() : "-";
+}
+
 export default function Clients20Page({ clients, dataOwnerUserId }: Props) {
   const [fleetUnits, setFleetUnits] = useState<Set<string>>(new Set());
   const [loadingFleet, setLoadingFleet] = useState<boolean>(false);
@@ -42,7 +50,6 @@ export default function Clients20Page({ clients, dataOwnerUserId }: Props) {
   const rows = useMemo(() => {
     return clients
       .filter((client) => {
-        if (client.status === "archivado") return true;
         const unit = String(client.unitId ?? "").trim().toUpperCase();
         if (!unit) return true;
         return !fleetUnits.has(unit);
@@ -56,7 +63,7 @@ export default function Clients20Page({ clients, dataOwnerUserId }: Props) {
         <h2>Clientes 2.0</h2>
       </div>
       <p className="hint" style={{ marginTop: 6 }}>
-        Clientes archivados, sin unidad asignada o con unidad no registrada en flota.
+        Clientes sin unidad asignada o con unidad no registrada en flota. Estado aplicado: Inactivo.
       </p>
       {loadingFleet && <p className="hint">Cargando flota...</p>}
       <p className="hint">Mostrando {rows.length} clientes.</p>
@@ -81,8 +88,8 @@ export default function Clients20Page({ clients, dataOwnerUserId }: Props) {
                 <tr key={client.id}>
                   <td><strong>{client.name}</strong></td>
                   <td>{client.cedula ?? "-"}</td>
-                  <td>{client.unitId?.trim() ? client.unitId : "-"}</td>
-                  <td><span className={`badge ${client.status === "archivado" ? "badge-debt" : "badge-warning"}`}>{client.status === "archivado" ? "Archivado" : "Inactivo"}</span></td>
+                  <td>{resolveReferenceUnit(client)}</td>
+                  <td><span className="badge badge-warning">Inactivo</span></td>
                 </tr>
               ))
             )}

@@ -82,6 +82,11 @@ type CollectionDraft = {
   promisedAmount: string;
   note: string;
 };
+type ClientCollectionStartRun = CollectionRunId;
+type NoActionReason = "al_dia" | "no_activo";
+type NoActionConfirmEntry = { reason: NoActionReason; confirmedAt: string };
+type NoActionConfirmRunMap = Record<string, NoActionConfirmEntry>;
+type NoActionConfirmByDate = Record<string, Record<CollectionRunId, NoActionConfirmRunMap>>;
 type DashboardCutKey = "am" | "pm" | "close";
 type DashboardMetricKey = "needContact" | "contacted" | "paidDone" | "reminder" | "noResponse" | "callLater" | "promise" | "streetSent" | "streetOnlyCollect" | "streetCollectRemove";
 type GeneralGroupFilterKey = "ALL" | "T" | "A" | "B" | "C" | "D";
@@ -106,16 +111,6 @@ type PaymentPromiseRecord = {
   resolution?: PromiseResolution;
 };
 
-function isRunPaidConfirmed(entry?: CollectionEntry): boolean {
-  return entry?.status === "pago_confirmado";
-}
-
-function shouldHideRun(clientId: string, runId: CollectionRunId, todayCollection: CollectionDailyRecord): boolean {
-  if (runId === "run1") return false;
-  if (runId === "run2") return isRunPaidConfirmed(todayCollection.run1[clientId]);
-  return isRunPaidConfirmed(todayCollection.run1[clientId]) || isRunPaidConfirmed(todayCollection.run2[clientId]);
-}
-
 type EditClientTab = "identidad" | "plan" | "cargos" | "estado";
 const CASH_CLOSINGS_KEY = "cobrapp.module2.cash_closings.v1";
 const DAILY_COLLECTION_KEY = "cobrapp.clients.daily_collection.v1";
@@ -124,6 +119,7 @@ const DAILY_COLLECTION_PM_SEALS_KEY = "cobrapp.clients.daily_collection_pm_seals
 const DAILY_COLLECTION_CLOSE_SEALS_KEY = "cobrapp.clients.daily_collection_close_seals.v1";
 const DAILY_COLLECTION_PROMISES_KEY = "cobrapp.clients.daily_collection_promises.v1";
 const DAILY_COLLECTION_STREET_ACTIONS_KEY = "cobrapp.clients.daily_collection_street_actions.v1";
+const DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY = "cobrapp.clients.daily_collection_no_action_confirms.v1";
 const DAILY_COLLECTION_SYNC_TABLES = [
   { key: DAILY_COLLECTION_KEY, table: "clients_daily_collection_cloud" },
   { key: DAILY_COLLECTION_AM_SEALS_KEY, table: "clients_daily_collection_am_seals_cloud" },
@@ -270,6 +266,10 @@ const STATUS_LABEL: Record<Client["status"], string> = {
   archivado: "Archivado"
 };
 
+function isClientActiveForCollection(client: Client): boolean {
+  return client.status === "activo";
+}
+
 const initialForm: ClientForm = {
   unitId: "",
   cedula: "",
@@ -396,15 +396,58 @@ function financialToneUi(tone: FinancialTone): { label: string; className: strin
 }
 
 function runLabel(runId: CollectionRunId): string {
-  if (runId === "run1") return "AM · Gestión Inicial";
-  if (runId === "run2") return "PM · Seguimiento";
-  return "Cierre · Gestión Final";
+  if (runId === "run1") return "RUN 1";
+  if (runId === "run2") return "RUN 2";
+  return "RUN 3";
 }
 
 function runTimeLabel(runId: CollectionRunId): string {
-  if (runId === "run1") return "8:30 a.m. - 1:30 p.m.";
-  if (runId === "run2") return "3:00 p.m.";
-  return "6:00 p.m.";
+  if (runId === "run1") return "Bloque inicial";
+  if (runId === "run2") return "Bloque seguimiento";
+  return "Bloque cierre";
+}
+
+function getClientCollectionStartRun(
+  client: Client,
+  todayAmSealAt?: string,
+  todayPmSealAt?: string
+): ClientCollectionStartRun {
+  const createdAtMs = new Date(client.createdAt).getTime();
+  if (!Number.isFinite(createdAtMs)) return "run1";
+  const pmSealMs = todayPmSealAt ? new Date(todayPmSealAt).getTime() : Number.NaN;
+  const amSealMs = todayAmSealAt ? new Date(todayAmSealAt).getTime() : Number.NaN;
+  if (Number.isFinite(pmSealMs) && createdAtMs > pmSealMs) return "run3";
+  if (Number.isFinite(amSealMs) && createdAtMs > amSealMs) return "run2";
+  return "run1";
+}
+
+function sanitizeNoActionConfirms(input: unknown): NoActionConfirmByDate {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const raw = input as Record<string, unknown>;
+  const next: NoActionConfirmByDate = {};
+  for (const [dateKey, dayValue] of Object.entries(raw)) {
+    if (!dayValue || typeof dayValue !== "object" || Array.isArray(dayValue)) continue;
+    const dayRaw = dayValue as Record<string, unknown>;
+    const day: Record<CollectionRunId, NoActionConfirmRunMap> = { run1: {}, run2: {}, run3: {} };
+    for (const runId of ["run1", "run2", "run3"] as CollectionRunId[]) {
+      const runValue = dayRaw[runId];
+      if (!runValue || typeof runValue !== "object" || Array.isArray(runValue)) continue;
+      const runRaw = runValue as Record<string, unknown>;
+      const runMap: NoActionConfirmRunMap = {};
+      for (const [clientId, entry] of Object.entries(runRaw)) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+        const e = entry as Record<string, unknown>;
+        const reason = e.reason;
+        const confirmedAt = e.confirmedAt;
+        if ((reason === "al_dia" || reason === "no_activo") && typeof confirmedAt === "string") {
+          runMap[clientId] = { reason, confirmedAt };
+        }
+      }
+      day[runId] = runMap;
+    }
+    next[dateKey] = day;
+  }
+  return next;
 }
 
 function collectionStatusLabel(status: CollectionDailyStatus | ""): string {
@@ -571,6 +614,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   const [promiseByClientId, setPromiseByClientId] = useState<Record<string, PaymentPromiseRecord>>(() =>
     loadLocalJsonObject<Record<string, PaymentPromiseRecord>>(DAILY_COLLECTION_PROMISES_KEY, {})
   );
+  const [noActionConfirmsByDate, setNoActionConfirmsByDate] = useState<NoActionConfirmByDate>(() =>
+    sanitizeNoActionConfirms(loadLocalJsonObject<Record<string, unknown>>(DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY, {}))
+  );
   const [collectionDrafts, setCollectionDrafts] = useState<Record<string, CollectionDraft>>({});
   const [amSealsByDate, setAmSealsByDate] = useState<Record<string, string>>(() =>
     loadLocalJsonObject<Record<string, string>>(DAILY_COLLECTION_AM_SEALS_KEY, {})
@@ -600,7 +646,8 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     [DAILY_COLLECTION_PM_SEALS_KEY]: stableJson(pmSealsByDate),
     [DAILY_COLLECTION_CLOSE_SEALS_KEY]: stableJson(closeSealsByDate),
     [DAILY_COLLECTION_PROMISES_KEY]: stableJson(promiseByClientId),
-    [DAILY_COLLECTION_STREET_ACTIONS_KEY]: stableJson(streetActionsByDate)
+    [DAILY_COLLECTION_STREET_ACTIONS_KEY]: stableJson(streetActionsByDate),
+    [DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY]: stableJson(noActionConfirmsByDate)
   });
 
   function applyDailyCollectionCloudValue(key: string, value: Record<string, unknown>): void {
@@ -658,6 +705,15 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         writeLocalStorageFromCloud(key, serialized);
         return next;
       });
+    } else if (key === DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY) {
+      const next = value as NoActionConfirmByDate;
+      setNoActionConfirmsByDate((current) => {
+        const serialized = stableJson(next);
+        if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
+        dailyCollectionSnapshotRef.current[key] = serialized;
+        writeLocalStorageFromCloud(key, serialized);
+        return next;
+      });
     }
   }
 
@@ -672,6 +728,15 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   const todayStreetActions = useMemo<Record<string, StreetActionRecord>>(() => {
     return streetActionsByDate[todayKey] ?? {};
   }, [streetActionsByDate, todayKey]);
+  const todayNoActionConfirms = useMemo<Record<CollectionRunId, NoActionConfirmRunMap>>(() => {
+    const day = noActionConfirmsByDate[todayKey];
+    if (!day || typeof day !== "object" || Array.isArray(day)) return { run1: {}, run2: {}, run3: {} };
+    return {
+      run1: (day.run1 && typeof day.run1 === "object" ? day.run1 : {}) as NoActionConfirmRunMap,
+      run2: (day.run2 && typeof day.run2 === "object" ? day.run2 : {}) as NoActionConfirmRunMap,
+      run3: (day.run3 && typeof day.run3 === "object" ? day.run3 : {}) as NoActionConfirmRunMap
+    };
+  }, [noActionConfirmsByDate, todayKey]);
   const occupiedUnitSet = useMemo(() => {
     const set = new Set<string>();
     for (const client of clients) {
@@ -792,7 +857,8 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }
 
   const rows = useMemo(() => {
-    const activeClients = clients.filter((client) => client.status !== "archivado");
+    // Carga completa en la tabla: no excluir clientes por estado al iniciar.
+    const activeClients = clients;
     const clientByUnit = new Map<string, Client>();
     for (const client of activeClients) {
       const key = client.unitId.trim().toUpperCase();
@@ -823,23 +889,8 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       return { unitId, client, debtStartDate, nextChargeDate, pendingInstallments };
     });
 
-    // Si un cliente no tiene unidad asignada, no debe desaparecer de la vista.
-    const clientsWithoutUnitRows = activeClients
-      .filter((client) => client.unitId.trim().length === 0)
-      .map((client) => {
-        const debtStartDate = getDebtStartDate(client, operationalReferenceDate);
-        const nextChargeDate = debtStartDate ? null : findNextChargeDay(client, operationalReferenceDate);
-        const pendingInstallments = getPendingInstallments(client);
-        return {
-          unitId: `SIN-UNIDAD-${client.id.slice(0, 8).toUpperCase()}`,
-          client,
-          debtStartDate,
-          nextChargeDate,
-          pendingInstallments
-        };
-      });
-
-    const filtered = [...baseRows, ...clientsWithoutUnitRows];
+    // Los clientes sin unidad se atienden en Clientes 2.0.
+    const filtered = [...baseRows];
 
     filtered.sort((a, b) => a.unitId.localeCompare(b.unitId, undefined, { numeric: true }));
 
@@ -850,16 +901,14 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   const collectionDashboard = useMemo(() => {
     const clientRows = visibleRows.filter((row): row is (typeof row & { client: Client }) => Boolean(row.client));
     const clientById = new Map(clientRows.map((row) => [row.client.id, row.client]));
+    const todayAmSealAt = amSealsByDate[todayKey];
+    const todayPmSealAt = pmSealsByDate[todayKey];
+    const startRunByClientId = new Map<string, ClientCollectionStartRun>(
+      clientRows.map((row) => [row.client.id, getClientCollectionStartRun(row.client, todayAmSealAt, todayPmSealAt)])
+    );
     const amNeedContact = new Set(
       clientRows
-        .filter((row) => {
-          if (row.client.status !== "activo") return false;
-          if (row.debtStartDate) return true;
-          if (!row.nextChargeDate) return false;
-          const MS_PER_DAY = 86_400_000;
-          const daysUntilNext = Math.ceil((startOfDay(row.nextChargeDate).getTime() - startOfDay(operationalReferenceDate).getTime()) / MS_PER_DAY);
-          return daysUntilNext <= 1;
-        })
+        .filter((row) => startRunByClientId.get(row.client.id) === "run1")
         .map((row) => row.client.id)
     );
     const pmNeedContact = new Set<string>();
@@ -878,6 +927,12 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       }
       // Promesas que requieren gestión (próxima, vencida, incumplida parcial) también entran al scope PM/Cierre
       for (const row of clientRows) {
+        if (startRunByClientId.get(row.client.id) === "run2") {
+          pmNeedContact.add(row.client.id);
+        }
+        if (startRunByClientId.get(row.client.id) === "run3") {
+          closeNeedContact.add(row.client.id);
+        }
         const promiseState = getPromiseState(row.client);
         if (!promiseState) continue;
         if (
@@ -917,7 +972,6 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       const streetOnlyCollectIds = new Set<string>();
       const streetCollectRemoveIds = new Set<string>();
       for (const clientId of scope) {
-        if (shouldHideRun(clientId, runId, todayCollection)) continue;
         const client = clientById.get(clientId);
         const promiseState = client ? getPromiseState(client) : null;
         if (promiseState && promiseState.state !== "cumplida" && promiseState.state === "vigente") {
@@ -1020,14 +1074,30 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         amPaidIds.add(clientId);
       }
     }
-    // En AM, "Ya gestionados" debe cuadrar exactamente con la suma de estados visibles.
+    const amPausedByVigentePromiseIds = new Set<string>();
+    for (const clientId of amNeedContact) {
+      const client = clientById.get(clientId);
+      if (!client) continue;
+      const promiseState = getPromiseState(client);
+      if (promiseState?.state === "vigente") {
+        amPausedByVigentePromiseIds.add(clientId);
+      }
+    }
+    // En AM, "Ya gestionados" debe cubrir el universo accionable (incluyendo promesas vigentes pausadas).
     // Si "Pago realizado" incluye pagos reales detectados hoy, esos ids también deben contarse como gestionados.
     const amContactedIds = new Set<string>([
       ...amStats.ids.reminder,
       ...amStats.ids.noResponse,
       ...amStats.ids.callLater,
       ...amStats.ids.promise,
-      ...Array.from(amPaidIds)
+      ...amStats.ids.paidDone,
+      ...Array.from(amPausedByVigentePromiseIds),
+      ...Array.from(amPaidIds),
+      ...Object.keys(todayNoActionConfirms.run1 ?? {})
+    ]);
+    const amPromiseIds = new Set<string>([
+      ...amStats.ids.promise,
+      ...Array.from(amPausedByVigentePromiseIds)
     ]);
     const amNeedContactIds = new Set(amStats.ids.needContact);
     for (const id of amContactedIds) {
@@ -1040,24 +1110,25 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         contacted: amContactedIds.size,
         needContact: amNeedContactIds.size,
         paidDone: amPaidIds.size,
+        promise: amPromiseIds.size,
         ids: {
           ...amStats.ids,
           needContact: Array.from(amNeedContactIds),
           contacted: Array.from(amContactedIds),
-          paidDone: Array.from(amPaidIds)
+          paidDone: Array.from(amPaidIds),
+          promise: Array.from(amPromiseIds)
         }
       },
       pm: statsFor("run2", pmNeedContact, pmAutoPaidIds),
       close: statsFor("run3", closeNeedContact)
     };
-  }, [amSealsByDate, isAmSealed, operationalReferenceDate, paidTodayAfterAmSealByClientId, paidTodayAmountByClientId, promiseByClientId, paymentsByClientId, now, todayCollection, todayStreetActions, visibleRows]);
+  }, [amSealsByDate, pmSealsByDate, todayKey, isAmSealed, operationalReferenceDate, paidTodayAfterAmSealByClientId, paidTodayAmountByClientId, promiseByClientId, paymentsByClientId, now, todayCollection, todayStreetActions, todayNoActionConfirms, visibleRows]);
   const promiseAttentionClientIds = useMemo(() => {
     const due = new Set<string>();
     const pending = new Set<string>();
     const allOpen = new Set<string>();
     for (const row of visibleRows) {
       if (!row.client) continue;
-      if (row.client.status !== "activo") continue;
       const promise = getPromiseState(row.client);
       if (!promise || promise.state === "cumplida") continue;
       allOpen.add(row.client.id);
@@ -1070,17 +1141,20 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     return { due, pending, allOpen };
   }, [visibleRows, promiseByClientId, paymentsByClientId, now]);
   const amActionableRows = useMemo(() => {
+    const todayAmSealAt = amSealsByDate[todayKey];
+    const todayPmSealAt = pmSealsByDate[todayKey];
     return visibleRows
       .filter((row): row is (typeof row & { client: Client }) => Boolean(row.client))
+      .filter((row) => isClientActiveForCollection(row.client))
+      .filter((row) => getClientCollectionStartRun(row.client, todayAmSealAt, todayPmSealAt) === "run1")
       .filter((row) => {
-        if (row.client.status !== "activo") return false;
         if (row.debtStartDate) return true;
         if (!row.nextChargeDate) return false;
         const MS_PER_DAY = 86_400_000;
         const daysUntilNext = Math.ceil((startOfDay(row.nextChargeDate).getTime() - startOfDay(operationalReferenceDate).getTime()) / MS_PER_DAY);
         return daysUntilNext <= 1;
       });
-  }, [operationalReferenceDate, visibleRows]);
+  }, [amSealsByDate, pmSealsByDate, todayKey, operationalReferenceDate, visibleRows]);
   const amCompletion = useMemo(() => {
     const actionable = amActionableRows;
 
@@ -1135,6 +1209,33 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       streetReady: missingStreetUnits.length === 0
     };
   }, [collectionDashboard.close.ids.needContact, todayCollection.run3, todayStreetActions, visibleRows]);
+  const missingNoActionConfirmationByRun = useMemo(() => {
+    const missing: Record<CollectionRunId, string[]> = { run1: [], run2: [], run3: [] };
+    const todayAmSealAt = amSealsByDate[todayKey];
+    const todayPmSealAt = pmSealsByDate[todayKey];
+    const runOrder: Record<CollectionRunId, number> = { run1: 1, run2: 2, run3: 3 };
+    for (const row of visibleRows) {
+      const client = row.client;
+      if (!client) continue;
+      const startRun = getClientCollectionStartRun(client, todayAmSealAt, todayPmSealAt);
+      const startOrder = runOrder[startRun];
+      const debtStartDate = row.debtStartDate;
+      const nextChargeDate = row.nextChargeDate;
+      const tone = getFinancialTone(debtStartDate, nextChargeDate, operationalReferenceDate);
+      const reason: NoActionReason | null = (() => {
+        const hasAnyOverride = ["run1", "run2", "run3"].some((run) => collectionOverrideByKey[`${client.id}:${run}`]);
+        if (isCollectionBlockedByStatus(client.status) && !hasAnyOverride) return "no_activo";
+        if (tone === "al_dia") return "al_dia";
+        return null;
+      })();
+      if (!reason) continue;
+      if (startOrder > runOrder.run1) continue;
+      if (todayCollection.run1[client.id]?.status) continue;
+      if (todayNoActionConfirms.run1?.[client.id]) continue;
+      missing.run1.push(row.unitId);
+    }
+    return missing;
+  }, [amSealsByDate, pmSealsByDate, todayKey, visibleRows, collectionOverrideByKey, operationalReferenceDate, todayCollection, todayNoActionConfirms]);
   function getRowGroup(unitId: string): Exclude<GeneralGroupFilterKey, "T"> | "T" {
     const normalized = unitId.trim().toUpperCase();
     if (normalized.startsWith("A")) return "A";
@@ -1360,6 +1461,29 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       // ignore
     }
   }, [streetActionsByDate]);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY);
+      const parsed = parseJsonObject<Record<string, unknown>>(raw);
+      if (parsed) {
+        const sanitized = sanitizeNoActionConfirms(parsed);
+        dailyCollectionSnapshotRef.current[DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY] = stableJson(sanitized);
+        setNoActionConfirmsByDate(sanitized);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      const serialized = stableJson(noActionConfirmsByDate);
+      if (dailyCollectionSnapshotRef.current[DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY] === serialized) return;
+      dailyCollectionSnapshotRef.current[DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY] = serialized;
+      window.localStorage.setItem(DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY, serialized);
+    } catch {
+      // ignore
+    }
+  }, [noActionConfirmsByDate]);
   useEffect(() => {
     setPromiseByClientId((current) => {
       let changed = false;
@@ -1872,79 +1996,98 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     setSaveFeedbackByKey((current) => ({ ...current, [feedbackKey]: { type: "success", text: "Gestión deshecha" } }));
   }
 
-  async function downloadAmClosureReport(): Promise<void> {
-    if (!isAmSealed) {
-      setErrors(["Primero debes culminar AM para descargar el reporte."]);
-      return;
-    }
+  function confirmNoAction(clientId: string, runId: CollectionRunId, reason: NoActionReason): void {
+    setNoActionConfirmsByDate((current) => {
+      const day = current[todayKey] ?? { run1: {}, run2: {}, run3: {} };
+      const runMap = day[runId] ?? {};
+      const existing = runMap[clientId];
+      if (existing && existing.reason === reason) return current;
+      return {
+        ...current,
+        [todayKey]: {
+          ...day,
+          [runId]: {
+            ...runMap,
+            [clientId]: { reason, confirmedAt: new Date().toISOString() }
+          }
+        }
+      };
+    });
+  }
 
-    const amScopeIds = new Set(amActionableRows.map((row) => row.client.id));
-    const summaryNoResponde = amActionableRows.filter((row) => todayCollection.run1[row.client.id]?.status === "no_responde").length;
-    const summaryRecordatorio = amActionableRows.filter((row) => todayCollection.run1[row.client.id]?.status === "recordatorio").length;
-    const summaryLlamarMasTarde = amActionableRows.filter((row) => todayCollection.run1[row.client.id]?.status === "llamar_mas_tarde").length;
-    let promiseActive = 0;
-    let promiseDueOrNear = 0;
-    let promisePartialBreach = 0;
-    for (const row of amActionableRows) {
-      const promise = getPromiseState(row.client);
-      if (!promise || promise.state === "cumplida") continue;
-      promiseActive += 1;
-      if (promise.state === "proxima" || promise.state === "vencida") promiseDueOrNear += 1;
-      if (promise.state === "incumplida_parcial") promisePartialBreach += 1;
-    }
-    const generatedAt = new Date();
-    const paymentsUntilClose = payments
-      .filter((payment) => payment.dateApplied === todayKey)
-      .filter((payment) => new Date(payment.createdAt).getTime() <= generatedAt.getTime())
-      .filter((payment) => amScopeIds.has(String(payment.clientId ?? "").trim()));
-    const paymentEntriesAtClose = paymentsUntilClose.length;
-    const paidClientsAtClose = new Set(
-      paymentsUntilClose
-        .map((payment) => String(payment.clientId ?? "").trim())
-        .filter((id) => id.length > 0)
-    );
-    for (const row of amActionableRows) {
-      const st = todayCollection.run1[row.client.id]?.status;
-      if (st === "pago_confirmado" || st === "pago_realizado") {
-        paidClientsAtClose.add(row.client.id);
+  async function downloadAmClosureReport(): Promise<void> {
+    try {
+      const amScopeIds = new Set(amActionableRows.map((row) => row.client.id));
+      const summaryNoResponde = amActionableRows.filter((row) => todayCollection.run1[row.client.id]?.status === "no_responde").length;
+      const summaryRecordatorio = amActionableRows.filter((row) => todayCollection.run1[row.client.id]?.status === "recordatorio").length;
+      const summaryLlamarMasTarde = amActionableRows.filter((row) => todayCollection.run1[row.client.id]?.status === "llamar_mas_tarde").length;
+      let promiseActive = 0;
+      let promiseDueOrNear = 0;
+      let promisePartialBreach = 0;
+      for (const row of amActionableRows) {
+        const promise = getPromiseState(row.client);
+        if (!promise || promise.state === "cumplida") continue;
+        promiseActive += 1;
+        if (promise.state === "proxima" || promise.state === "vencida") promiseDueOrNear += 1;
+        if (promise.state === "incumplida_parcial") promisePartialBreach += 1;
       }
+      const generatedAt = new Date();
+      const paymentsUntilClose = payments
+        .filter((payment) => payment.dateApplied === todayKey)
+        .filter((payment) => new Date(payment.createdAt).getTime() <= generatedAt.getTime())
+        .filter((payment) => amScopeIds.has(String(payment.clientId ?? "").trim()));
+      const paymentEntriesAtClose = paymentsUntilClose.length;
+      const paidClientsAtClose = new Set(
+        paymentsUntilClose
+          .map((payment) => String(payment.clientId ?? "").trim())
+          .filter((id) => id.length > 0)
+      );
+      for (const row of amActionableRows) {
+        const st = todayCollection.run1[row.client.id]?.status;
+        if (st === "pago_confirmado" || st === "pago_realizado") {
+          paidClientsAtClose.add(row.client.id);
+        }
+      }
+      const details = amActionableRows
+        .slice()
+        .sort((a, b) => a.unitId.localeCompare(b.unitId, undefined, { numeric: true }))
+        .map((row) => {
+          const entry = todayCollection.run1[row.client.id];
+          return {
+            unitId: row.unitId,
+            client: row.client.name,
+            amStatus: collectionStatusLabel(entry?.status ?? ""),
+            comment: entry?.note ?? "",
+            promiseNote: (() => {
+              const promiseRecord = promiseByClientId[row.client.id];
+              const promiseState = getPromiseState(row.client);
+              if (!promiseRecord || !promiseState || promiseState.state === "cumplida") return "";
+              return `Prometió pagar el ${formatDateTimeForUi(promiseRecord.promisedAt)} por ${formatCurrency(promiseRecord.promisedAmount)} (${promiseState.state}).`;
+            })(),
+            inheritToPm: entry?.status === "no_responde" || entry?.status === "llamar_mas_tarde" ? "Si" : "No"
+          };
+        });
+      await exportAmClosureToPdf(
+        "AM",
+        {
+          date: toDateKey(generatedAt),
+          time: generatedAt.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" }),
+          totalUnits: amActionableRows.length,
+          noResponse: summaryNoResponde,
+          reminder: summaryRecordatorio,
+          callLater: summaryLlamarMasTarde,
+          paidClientsAtClose: paidClientsAtClose.size,
+          paymentEntriesAtClose,
+          promiseActive,
+          promiseDueOrNear,
+          promisePartialBreach
+        },
+        details
+      );
+    } catch (error) {
+      console.error("No se pudo descargar el reporte AM.", error);
+      setErrors(["No se pudo descargar el reporte AM. Intenta nuevamente."]);
     }
-    const details = amActionableRows
-      .slice()
-      .sort((a, b) => a.unitId.localeCompare(b.unitId, undefined, { numeric: true }))
-      .map((row) => {
-        const entry = todayCollection.run1[row.client.id];
-        return {
-          unitId: row.unitId,
-          client: row.client.name,
-          amStatus: collectionStatusLabel(entry?.status ?? ""),
-          comment: entry?.note ?? "",
-          promiseNote: (() => {
-            const promiseRecord = promiseByClientId[row.client.id];
-            const promiseState = getPromiseState(row.client);
-            if (!promiseRecord || !promiseState || promiseState.state === "cumplida") return "";
-            return `Prometió pagar el ${formatDateTimeForUi(promiseRecord.promisedAt)} por ${formatCurrency(promiseRecord.promisedAmount)} (${promiseState.state}).`;
-          })(),
-          inheritToPm: entry?.status === "no_responde" || entry?.status === "llamar_mas_tarde" ? "Si" : "No"
-        };
-      });
-    await exportAmClosureToPdf(
-      "AM",
-      {
-        date: toDateKey(generatedAt),
-        time: generatedAt.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" }),
-        totalUnits: amActionableRows.length,
-        noResponse: summaryNoResponde,
-        reminder: summaryRecordatorio,
-        callLater: summaryLlamarMasTarde,
-        paidClientsAtClose: paidClientsAtClose.size,
-        paymentEntriesAtClose,
-        promiseActive,
-        promiseDueOrNear,
-        promisePartialBreach
-      },
-      details
-    );
   }
   async function downloadPmClosureReport(): Promise<void> {
     if (!isAmSealed) {
@@ -2106,6 +2249,12 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       setErrors([`No puedes culminar AM. Faltan unidades sin estado en AM: ${preview}${suffix}`]);
       return;
     }
+    if (missingNoActionConfirmationByRun.run1.length > 0) {
+      const preview = missingNoActionConfirmationByRun.run1.slice(0, 8).join(", ");
+      const suffix = missingNoActionConfirmationByRun.run1.length > 8 ? "..." : "";
+      setErrors([`No puedes culminar RUN 1. Faltan confirmaciones "sin acción": ${preview}${suffix}`]);
+      return;
+    }
     setAmSealsByDate((current) => ({ ...current, [todayKey]: new Date().toISOString() }));
   }
   function closePmRun(): void {
@@ -2179,13 +2328,125 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     setStreetActionDialog(null);
   }
 
-  function reopenAmCollection(): void {
+  function undoRunBlock(runId: CollectionRunId): void {
+    const runLabelText = runId === "run1" ? "RUN 1" : runId === "run2" ? "RUN 2" : "RUN 3";
     setConfirmDialog({
-      title: "Reabrir Gestión AM",
-      message: "Se habilitará nuevamente la edición de AM para hoy. ¿Deseas continuar?",
+      title: `Deshacer ${runLabelText}`,
+      message: `Se borrará toda la gestión del ${runLabelText} de hoy.${runId === "run1" ? " También se limpiarán RUN 2 y RUN 3 para mantener consistencia." : runId === "run2" ? " También se limpiará RUN 3 para mantener consistencia." : ""} ¿Deseas continuar?`,
       variant: "warning",
       onConfirm: () => {
+        setDailyCollectionByDate((current) => {
+          const today = current[todayKey];
+          if (!today) return current;
+          const nextDay: CollectionDailyRecord = {
+            run1: { ...today.run1 },
+            run2: { ...today.run2 },
+            run3: { ...today.run3 }
+          };
+          if (runId === "run1") {
+            nextDay.run1 = {};
+            nextDay.run2 = {};
+            nextDay.run3 = {};
+          } else if (runId === "run2") {
+            nextDay.run2 = {};
+            nextDay.run3 = {};
+          } else {
+            nextDay.run3 = {};
+          }
+          return { ...current, [todayKey]: nextDay };
+        });
+        setStreetActionsByDate((current) => {
+          if (runId !== "run1" && runId !== "run2" && runId !== "run3") return current;
+          if (runId === "run3" || runId === "run2" || runId === "run1") {
+            const next = { ...current };
+            next[todayKey] = {};
+            return next;
+          }
+          return current;
+        });
+        setPromiseByClientId((current) => {
+          const next: Record<string, PaymentPromiseRecord> = {};
+          for (const [clientId, record] of Object.entries(current)) {
+            if (record.resolution === "paid") {
+              next[clientId] = record;
+              continue;
+            }
+            const remove =
+              runId === "run1"
+                ? record.sourceRun === "run1" || record.sourceRun === "run2" || record.sourceRun === "run3"
+                : runId === "run2"
+                ? record.sourceRun === "run2" || record.sourceRun === "run3"
+                : record.sourceRun === "run3";
+            if (!remove) next[clientId] = record;
+          }
+          return next;
+        });
         setAmSealsByDate((current) => {
+          if (runId !== "run1") return current;
+          const next = { ...current };
+          delete next[todayKey];
+          return next;
+        });
+        setPmSealsByDate((current) => {
+          if (runId === "run3") return current;
+          const next = { ...current };
+          delete next[todayKey];
+          return next;
+        });
+        setCloseSealsByDate((current) => {
+          const next = { ...current };
+          delete next[todayKey];
+          return next;
+        });
+        setNoActionConfirmsByDate((current) => {
+          const day = current[todayKey];
+          if (!day) return current;
+          const nextDay = {
+            run1: { ...day.run1 },
+            run2: { ...day.run2 },
+            run3: { ...day.run3 }
+          };
+          if (runId === "run1") {
+            nextDay.run1 = {};
+            nextDay.run2 = {};
+            nextDay.run3 = {};
+          } else if (runId === "run2") {
+            nextDay.run2 = {};
+            nextDay.run3 = {};
+          } else {
+            nextDay.run3 = {};
+          }
+          return { ...current, [todayKey]: nextDay };
+        });
+        setSaveFeedbackByKey({});
+      }
+    });
+  }
+
+  function reopenRunSeal(runId: CollectionRunId): void {
+    const runLabelText = runId === "run1" ? "RUN 1" : runId === "run2" ? "RUN 2" : "RUN 3";
+    setConfirmDialog({
+      title: `Reabrir ${runLabelText}`,
+      message: `Se quitará el cierre de ${runLabelText} para hoy sin borrar gestiones guardadas. ¿Deseas continuar?`,
+      variant: "warning",
+      onConfirm: () => {
+        if (runId === "run1") {
+          setAmSealsByDate((current) => {
+            const next = { ...current };
+            delete next[todayKey];
+            return next;
+          });
+          return;
+        }
+        if (runId === "run2") {
+          setPmSealsByDate((current) => {
+            const next = { ...current };
+            delete next[todayKey];
+            return next;
+          });
+          return;
+        }
+        setCloseSealsByDate((current) => {
           const next = { ...current };
           delete next[todayKey];
           return next;
@@ -2714,8 +2975,8 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
           <div className="collection-active-filter">
             <span>
               Filtro activo: {activeDashboardFilter.cut.toUpperCase()} · {
-                activeDashboardFilter.metric === "needContact" ? "Pendientes del bloque" :
-                activeDashboardFilter.metric === "contacted" ? "Ya gestionados" :
+                activeDashboardFilter.metric === "needContact" ? "Pendientes" :
+                activeDashboardFilter.metric === "contacted" ? "Gestionados" :
                 activeDashboardFilter.metric === "streetSent" ? "Enviados a calle" :
                 activeDashboardFilter.metric === "streetOnlyCollect" ? "Solo cobrar" :
                 activeDashboardFilter.metric === "streetCollectRemove" ? "Cobrar / quitar" :
@@ -2727,17 +2988,23 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
           </div>
         )}
         <div className="collection-active-filter">
-          <span className={promiseAttentionClientIds.due.size > 0 ? "badge badge-warning" : "badge"}>
-            Promesas: {promiseAttentionClientIds.allOpen.size} activas · {promiseAttentionClientIds.due.size} por vencer/vencidas · {promiseAttentionClientIds.pending.size} vigentes
+          <span>
+            Promesas: {promiseAttentionClientIds.allOpen.size} activas · {promiseAttentionClientIds.due.size} con atención · {promiseAttentionClientIds.pending.size} pendientes
           </span>
-          <button type="button" className={`button ghost small ${promiseDashboardFilter === "all" ? "is-active" : ""}`} onClick={() => setPromiseDashboardFilter("all")}>
-            Ver todas
-          </button>
-          <button type="button" className={`button ghost small ${promiseDashboardFilter === "attention" ? "is-active" : ""}`} onClick={() => setPromiseDashboardFilter("attention")}>
-            Por vencer/vencidas
-          </button>
-          <button type="button" className={`button ghost small ${promiseDashboardFilter === "pending" ? "is-active" : ""}`} onClick={() => setPromiseDashboardFilter("pending")}>
-            Vigentes
+          <button
+            type="button"
+            className="button ghost small"
+            onClick={() =>
+              setPromiseDashboardFilter((current) =>
+                current === "all" ? "attention" : current === "attention" ? "pending" : "all"
+              )
+            }
+          >
+            {promiseDashboardFilter === "attention"
+              ? "Ver solo pendientes"
+              : promiseDashboardFilter === "pending"
+              ? "Ver todas"
+              : "Filtrar promesas por vencer/vencidas"}
           </button>
         </div>
         {displayedRows.length === 0 ? (
@@ -2747,9 +3014,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
             <section className="daily-exec-board">
               <div className="collection-dashboard-cuts">
                 {([
-                  { key: "am", title: "AM", stats: collectionDashboard.am },
-                  { key: "pm", title: "PM", stats: collectionDashboard.pm },
-                  { key: "close", title: "CIERRE", stats: collectionDashboard.close }
+                  { key: "am", title: "RUN 1", stats: collectionDashboard.am },
+                  { key: "pm", title: "RUN 2", stats: collectionDashboard.pm },
+                  { key: "close", title: "RUN 3", stats: collectionDashboard.close }
                 ] as const).map((cut) => (
                   <article key={cut.key} className="collection-dashboard-cut-card">
                     <header className="collection-dashboard-cut-head">
@@ -2775,10 +3042,10 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                     </header>
                     <p className="collection-dashboard-cut-help">
                       {cut.key === "am"
-                        ? "Prioriza cartera pendiente y documenta cada contacto."
+                        ? "Bloque inicial: cartera pendiente y trazabilidad del contacto."
                         : cut.key === "pm"
-                        ? "Seguimiento a heredados del bloque AM."
-                        : "Cierre final de heredados del bloque PM."}
+                        ? "Bloque seguimiento: continuidad de casos heredados."
+                        : "Bloque cierre: resolución final y envío a calle."}
                     </p>
                     <div className={`collection-dashboard-kpis ${cut.key === "close" ? "collection-dashboard-kpis--close" : ""}`}>
                       <button
@@ -2791,7 +3058,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                         aria-disabled={cut.key !== "am"}
                         title={cut.key === "am" ? "Filtrar pendientes del bloque AM (RUN1)" : "Disponible solo en bloque AM (RUN1)"}
                       >
-                        <span>Pendientes del bloque</span>
+                        <span>Pendientes</span>
                         <strong>{cut.stats.needContact}</strong>
                       </button>
                       <button
@@ -2799,11 +3066,30 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                         className={`collection-dashboard-kpi collection-dashboard-kpi--contacted ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "contacted" ? "is-active" : ""}`}
                         onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "contacted" ? null : { cut: cut.key, metric: "contacted" })}
                       >
-                        <span>Ya gestionados</span>
+                        <span>Gestionados</span>
                         <strong>{cut.stats.contacted}</strong>
-                        <span className="collection-dashboard-kpi-breakdown">
-                          {cut.stats.paidDone} pago realizado · {cut.stats.promise} promesa · {cut.stats.reminder} recordatorio · {cut.stats.noResponse} no responde · {cut.stats.callLater} llamar más tarde
-                        </span>
+                        <div className="collection-dashboard-kpi-breakdown-grid">
+                          <span className="collection-dashboard-kpi-breakdown-item">
+                            <b>{cut.stats.paidDone}</b>
+                            <small>Pago realizado</small>
+                          </span>
+                          <span className="collection-dashboard-kpi-breakdown-item">
+                            <b>{cut.stats.promise}</b>
+                            <small>Promesa</small>
+                          </span>
+                          <span className="collection-dashboard-kpi-breakdown-item">
+                            <b>{cut.stats.reminder}</b>
+                            <small>Recordatorio</small>
+                          </span>
+                          <span className="collection-dashboard-kpi-breakdown-item">
+                            <b>{cut.stats.noResponse}</b>
+                            <small>No responde</small>
+                          </span>
+                          <span className="collection-dashboard-kpi-breakdown-item collection-dashboard-kpi-breakdown-item--full">
+                            <b>{cut.stats.callLater}</b>
+                            <small>Llamar más tarde</small>
+                          </span>
+                        </div>
                       </button>
                       {cut.key === "close" && (
                         <div className="collection-dashboard-street-group">
@@ -2863,11 +3149,19 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                           <>
                             <button
                               type="button"
-                              className="button ghost small daily-exec-am-close-btn"
-                              onClick={reopenAmCollection}
-                              title="Reabrir edici?n de AM"
+                              className="button ghost small daily-exec-am-close-btn daily-exec-am-close-btn--lux-reopen"
+                              onClick={() => reopenRunSeal("run1")}
+                              title="Reabrir RUN 1 sin borrar gestiones"
                             >
-                              Abrir AM de nuevo
+                              Reabrir RUN 1
+                            </button>
+                            <button
+                              type="button"
+                              className="button ghost small daily-exec-am-close-btn daily-exec-am-close-btn--lux-danger"
+                              onClick={() => undoRunBlock("run1")}
+                              title="Borrar la gestión del RUN 1 de hoy"
+                            >
+                              Deshacer RUN 1
                             </button>
                           </>
                         ) : (
@@ -2885,46 +3179,88 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                     )}
                     {cut.key === "pm" && (
                       <div className="collection-dashboard-am-action">
-                        <button
-                          type="button"
-                          className="button primary small daily-exec-am-close-btn"
-                          onClick={closePmRun}
-                          disabled={!isAmSealed || !pmCompletion.isComplete || isPmSealed}
-                          title={
-                            !isAmSealed
-                              ? "Debes culminar AM para cerrar PM"
-                              : isPmSealed
-                              ? "PM ya está culminado"
-                              : pmCompletion.isComplete
-                              ? "Culminar bloque PM"
-                              : "Completa todas las unidades de PM para culminar"
-                          }
-                        >
-                          {isPmSealed ? "PM culminado" : "Terminar bloque PM"}
-                        </button>
+                        {isPmSealed ? (
+                          <>
+                            <button
+                              type="button"
+                              className="button ghost small daily-exec-am-close-btn daily-exec-am-close-btn--lux-reopen"
+                              onClick={() => reopenRunSeal("run2")}
+                              title="Reabrir RUN 2 sin borrar gestiones"
+                            >
+                              Reabrir RUN 2
+                            </button>
+                            <button
+                              type="button"
+                              className="button ghost small daily-exec-am-close-btn daily-exec-am-close-btn--lux-danger"
+                              onClick={() => undoRunBlock("run2")}
+                              title="Borrar la gestión del RUN 2 (y RUN 3) de hoy"
+                            >
+                              Deshacer RUN 2
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="button primary small daily-exec-am-close-btn"
+                            onClick={closePmRun}
+                            disabled={!isAmSealed || !pmCompletion.isComplete || isPmSealed}
+                            title={
+                              !isAmSealed
+                                ? "Debes culminar RUN 1 para cerrar RUN 2"
+                                : isPmSealed
+                                ? "RUN 2 ya está culminado"
+                                : pmCompletion.isComplete
+                                ? "Culminar RUN 2"
+                                : "Completa todas las unidades de RUN 2 para culminar"
+                            }
+                          >
+                            Terminar RUN 2
+                          </button>
+                        )}
                       </div>
                     )}
                     {cut.key === "close" && (
                       <div className="collection-dashboard-am-action">
-                        <button
-                          type="button"
-                          className="button primary small daily-exec-am-close-btn"
-                          onClick={closeCloseRun}
-                          disabled={!isPmSealed || !closeCompletion.isComplete || !closeCompletion.streetReady || isCloseSealed}
-                          title={
-                            !isPmSealed
-                              ? "Debes culminar PM para cerrar Cierre"
-                              : isCloseSealed
-                              ? "Cierre ya está culminado"
-                              : !closeCompletion.streetReady
-                              ? "Debes completar 'Enviar a calle' en todos los casos elegibles"
-                              : closeCompletion.isComplete
-                              ? "Culminar bloque Cierre"
-                              : "Completa todas las unidades de Cierre para culminar"
-                          }
-                        >
-                          {isCloseSealed ? "Cierre culminado" : "Terminar bloque Cierre"}
-                        </button>
+                        {isCloseSealed ? (
+                          <>
+                            <button
+                              type="button"
+                              className="button ghost small daily-exec-am-close-btn daily-exec-am-close-btn--lux-reopen"
+                              onClick={() => reopenRunSeal("run3")}
+                              title="Reabrir RUN 3 sin borrar gestiones"
+                            >
+                              Reabrir RUN 3
+                            </button>
+                            <button
+                              type="button"
+                              className="button ghost small daily-exec-am-close-btn daily-exec-am-close-btn--lux-danger"
+                              onClick={() => undoRunBlock("run3")}
+                              title="Borrar la gestión del RUN 3 de hoy"
+                            >
+                              Deshacer RUN 3
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="button primary small daily-exec-am-close-btn"
+                            onClick={closeCloseRun}
+                            disabled={!isPmSealed || !closeCompletion.isComplete || !closeCompletion.streetReady || isCloseSealed}
+                            title={
+                              !isPmSealed
+                                ? "Debes culminar RUN 2 para cerrar RUN 3"
+                                : isCloseSealed
+                                ? "RUN 3 ya está culminado"
+                                : !closeCompletion.streetReady
+                                ? "Debes completar 'Enviar a calle' en todos los casos elegibles"
+                                : closeCompletion.isComplete
+                                ? "Culminar RUN 3"
+                                : "Completa todas las unidades de RUN 3 para culminar"
+                            }
+                          >
+                            Terminar RUN 3
+                          </button>
+                        )}
                       </div>
                     )}
                   </article>
@@ -2966,16 +3302,16 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                       <div className="collection-header-daily">
                         <span className="collection-header-title">JORNADA DE GESTION</span>
                         <div className="collection-header-lanes" aria-hidden="true">
-                          <span>Inicial</span>
-                          <span>Seguimiento</span>
-                          <span>Cierre</span>
+                          <span>RUN 1</span>
+                          <span>RUN 2</span>
+                          <span>RUN 3</span>
                         </div>
                       </div>
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {displayedRows.map(({ client, unitId, debtStartDate, nextChargeDate }) => {
+                  {displayedRows.map(({ client, unitId, debtStartDate, nextChargeDate, pendingInstallments }) => {
                     const otherChargeText = client && client.otherCharges.length > 0
                       ? client.otherCharges.map((c) => `${c.label}: ${formatCurrency(c.amount)}`).join(" | ")
                       : null;
@@ -2991,6 +3327,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                     const debtLabel = client
                       ? (debtStartDate ? formatDate(debtStartDate) : nextChargeDate ? `Al dia hasta ${formatPaymentDateKey(toDateKey(nextChargeDate))}` : "Al dia")
                       : "-";
+                    const overdueInstallmentsLabel = pendingInstallments > 0
+                      ? `${pendingInstallments} cuota${pendingInstallments === 1 ? "" : "s"} atrasada${pendingInstallments === 1 ? "" : "s"}`
+                      : "Sin cuotas atrasadas";
                     const lastPaymentLabel = client ? (() => {
                       const value = lastPaymentByClientId.get(client.id);
                       return value ? formatPaymentDateKey(value) : "-";
@@ -3009,6 +3348,22 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                               <span>Ultimo pago: {lastPaymentLabel}</span>
                               <span>Otros cargos: {formatCurrency(otherChargesTotal)}</span>
                               <span>Estado cuenta: {financialBadge.label}</span>
+                              <span className="hint">¿La unidad {unitId} sigue en {(STATUS_LABEL[client.status] ?? "estado no definido").toLowerCase()}? ¿Ya revisaste?</span>
+                              <div className="collection-form-actions" style={{ marginTop: 8 }}>
+                                {(() => {
+                                  const confirmed = Boolean(todayNoActionConfirms.run1?.[client.id]);
+                                  return (
+                                    <button
+                                      type="button"
+                                      className={`button small ${confirmed ? "ghost" : "primary"}`}
+                                      onClick={() => confirmNoAction(client.id, "run1", "no_activo")}
+                                      title="Confirmar revisión de estado"
+                                    >
+                                      {confirmed ? "Revisión confirmada" : "Sí, confirmar revisión"}
+                                    </button>
+                                  );
+                                })()}
+                              </div>
                               <button
                                 type="button"
                                 className="button primary small clients-status-alert__action"
@@ -3121,6 +3476,14 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                               <span>Debe desde</span>
                               <strong>{client ? (debtStartDate ? formatDate(debtStartDate) : nextChargeDate ? `Al día hasta ${formatPaymentDateKey(toDateKey(nextChargeDate))}` : "Al día") : "-"}</strong>
                             </div>
+                            <div className="clients-collection-line">
+                              <span>Atraso</span>
+                              <strong>
+                                <span className={`badge clients-overdue-badge ${pendingInstallments > 0 ? "clients-overdue-badge--due" : "clients-overdue-badge--ok"}`}>
+                                  {overdueInstallmentsLabel}
+                                </span>
+                              </strong>
+                            </div>
                             <div className={`clients-collection-line ${paidTodayAmount > 0 ? "clients-collection-line--last-payment-paid" : ""}`}>
                               <span>Ultimo pago</span>
                               <strong>{client ? (() => {
@@ -3153,13 +3516,35 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                             financialTone === "al_dia" ? (
                               <div className="collection-no-action-wrap">
                                 <div className="collection-no-action">
-                                  <span className="badge">Sin accion hoy</span>
+                                  <span className="badge">Sin acción hoy</span>
+                                </div>
+                                <div className="collection-no-action">
+                                  <span className="hint">¿Cuándo fue la última vez que revisaste si la unidad {unitId} está bien?</span>
+                                </div>
+                                <div className="collection-form-actions">
+                                  {(() => {
+                                    const confirmed = client ? Boolean(todayNoActionConfirms.run1?.[client.id]) : false;
+                                    return (
+                                      <button
+                                        type="button"
+                                        className={`button small ${confirmed ? "ghost" : "primary"}`}
+                                        onClick={() => {
+                                          if (!client) return;
+                                          confirmNoAction(client.id, "run1", "al_dia");
+                                        }}
+                                        title="Confirmar revisión de unidad"
+                                      >
+                                        {confirmed ? "Revisión confirmada" : "Sí, confirmar revisión"}
+                                      </button>
+                                    );
+                                  })()}
                                 </div>
                               </div>
                             ) : (
                               <div className="collection-runs-wrap">
                                 <div className="collection-runs-columns">
                                   {(() => {
+                                    const startRun = getClientCollectionStartRun(client, amSealsByDate[todayKey], pmSealsByDate[todayKey]);
                                     const promiseInfo = getPromiseState(client);
                                     const promiseRecord = promiseByClientId[client.id];
                                     const hasActivePromise = Boolean(promiseInfo) && promiseInfo?.state !== "cumplida";
@@ -3170,19 +3555,29 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                     const amStatusPreview: CollectionDailyStatus | "" = lockedByTodayPayment
                                       ? "pago_confirmado"
                                       : (amDraft.status || amBaseEntry?.status || "");
-                                    const run2BaseEntry = todayCollection.run2[client.id];
-                                    const run2Draft = getDraft(client.id, "run2");
-                                    const run2StatusPreview: CollectionDailyStatus | "" = run2Draft.status || run2BaseEntry?.status || "";
                                     const showOnlyAm = amStatusPreview === "recordatorio" || amStatusPreview === "promesa_pago";
-                                    const hideRun2 = amStatusPreview === "pago_confirmado";
-                                    const hideRun3 = hideRun2 || run2StatusPreview === "pago_confirmado";
-                                    const runIdsToRender: CollectionRunId[] = showOnlyAm
-                                      ? ["run1"]
-                                      : (["run1", "run2", "run3"] as CollectionRunId[]).filter((runId) => {
-                                        if (runId === "run2" && hideRun2) return false;
-                                        if (runId === "run3" && hideRun3) return false;
-                                        return true;
-                                      });
+                                    const allRunIds: CollectionRunId[] = ["run1", "run2", "run3"];
+                                    const isRunHiddenByCreation = (runId: CollectionRunId): boolean => {
+                                      if (startRun === "run3") return runId === "run1" || runId === "run2";
+                                      if (startRun === "run2") return runId === "run1";
+                                      return false;
+                                    };
+                                    const isRunHidden = (runId: CollectionRunId): boolean => {
+                                      if (showOnlyAm && startRun === "run1") return runId !== "run1";
+                                      return isRunHiddenByCreation(runId);
+                                    };
+                                    const hiddenReasonForRun = (runId: CollectionRunId): string => {
+                                      if (showOnlyAm && startRun === "run1" && runId !== "run1") {
+                                        return "Oculto por gestión AM actual.";
+                                      }
+                                      if (startRun === "run3" && (runId === "run1" || runId === "run2")) {
+                                        return "Oculto: cliente creado después del cierre PM.";
+                                      }
+                                      if (startRun === "run2" && runId === "run1") {
+                                        return "Oculto: cliente creado después del cierre AM.";
+                                      }
+                                      return "";
+                                    };
                                     if (promiseBlocksRuns && promiseRecord && promiseInfo) {
                                       return (
                                         <div key={`${client.id}-promise`} className="collection-promise-lock">
@@ -3195,7 +3590,24 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                         </div>
                                       );
                                     }
-                                    return runIdsToRender.map((runId) => {
+                                    return allRunIds.map((runId) => {
+                                    const runHidden = isRunHidden(runId);
+                                    if (runHidden) {
+                                      const runVariantClass = runId === "run1"
+                                        ? "collection-mini-form--am"
+                                        : runId === "run2"
+                                          ? "collection-mini-form--pm"
+                                          : "collection-mini-form--close";
+                                      return (
+                                        <div key={runId} className={`collection-mini-form collection-mini-form--column collection-mini-form--hidden ${runVariantClass}`}>
+                                          <div className="collection-hidden-state">
+                                            <span className="collection-hidden-state__pill">No aplica</span>
+                                            <strong className="collection-hidden-state__title">Run oculto por flujo diario</strong>
+                                            <p className="collection-hidden-state__reason">{hiddenReasonForRun(runId)}</p>
+                                          </div>
+                                        </div>
+                                      );
+                                    }
                                     const draft = getDraft(client.id, runId);
                                     const isPreventive = financialTone === "proximo";
                                     const amEntry = todayCollection.run1[client.id];
@@ -3256,14 +3668,8 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                             <strong className="collection-paid-processed-chip__time">{paidTodayTimeLabel}</strong>
                                           </span>
                                         ) : null}
-                                        {runId === "run1" && paidTodayAmount > 0 ? (
-                                          <span className="collection-payment-detected-indicator">
-                                            <span className="collection-payment-detected-indicator__dot" />
-                                            Pago detectado hoy
-                                          </span>
-                                        ) : null}
                                         {runId === "run1" && paidTodayAmount > 0 && !pmAutoPaid && effectiveStatus !== "pago_confirmado" ? (
-                                          <span className="collection-confirmed-suggestion-chip">Recomendado ahora: Pago confirmado</span>
+                                          <span className="hint">Sugerido: confirmar "Pago confirmado".</span>
                                         ) : null}
                                         <span className={`badge ${isPreventive ? "badge-warning" : "badge-debt"} collection-action-badge`}>
                                           {lockedByTodayPayment ? "Pago confirmado automático" : isPreventive ? "Acción preventiva" : "Acción prioritaria"}
@@ -3288,11 +3694,11 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                         {pmAutoPaid ? (
                                           <option value="pago_realizado">Pago realizado</option>
                                         ) : lockedByTodayPayment ? (
-                                          <option value="pago_confirmado">Pago confirmado</option>
+                                          <option value="pago_confirmado">{paidTodayAmount > 0 ? "Pago confirmado (Sugerido)" : "Pago confirmado"}</option>
                                         ) : runId === "run1" ? (
                                           <>
                                             {paidTodayAmount > 0 ? (
-                                              <option value="pago_confirmado">Pago confirmado</option>
+                                              <option value="pago_confirmado">Pago confirmado (Sugerido)</option>
                                             ) : null}
                                             <option value="no_responde">No responde</option>
                                             <option value="recordatorio">Recordatorio</option>

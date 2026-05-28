@@ -65,6 +65,8 @@ let patchInstalled = false;
 const pendingTimers = new Map<string, number>();
 const cachedValues = new Map<string, string>();
 const PAGE_SIZE = 1000;
+const BASE_SYNC_DEBOUNCE_MS = 3000;
+const HEAVY_SYNC_DEBOUNCE_MS = 8000;
 const DAILY_COLLECTION_KEY = "cobrapp.clients.daily_collection.v1";
 const DAILY_COLLECTION_AM_SEALS_KEY = "cobrapp.clients.daily_collection_am_seals.v1";
 const DAILY_COLLECTION_PM_SEALS_KEY = "cobrapp.clients.daily_collection_pm_seals.v1";
@@ -121,14 +123,26 @@ function makeRowId(key: ArrayKey, rec: unknown, idx: number): string {
   return `row-${idx + 1}`;
 }
 
+function dedupeRowsById(
+  rows: Array<{ user_id: string; id: string; data: unknown }>
+): Array<{ user_id: string; id: string; data: unknown }> {
+  const byId = new Map<string, { user_id: string; id: string; data: unknown }>();
+  for (const row of rows) {
+    if (!row.id) continue;
+    // Conserva la ultima version del mismo id dentro del mismo lote.
+    byId.set(row.id, row);
+  }
+  return Array.from(byId.values());
+}
+
 async function saveArrayKey(userId: string, key: ArrayKey, raw: string | null): Promise<void> {
   if (!supabase) return;
   const table = ARRAY_TABLE_MAP[key];
-  const rows = parseArrayValue(raw).map((rec, idx) => ({
+  const rows = dedupeRowsById(parseArrayValue(raw).map((rec, idx) => ({
     user_id: userId,
     id: makeRowId(key, rec, idx),
     data: rec
-  }));
+  })));
   const nextIds = new Set(rows.map((r) => r.id));
 
   if (rows.length > 0) {
@@ -204,15 +218,21 @@ async function saveKeyToCloud(key: string, raw: string | null): Promise<void> {
 
 function scheduleSync(key: string, raw: string | null): void {
   if (!currentUserId || !SYNCED_KEYS.has(key)) return;
-  cachedValues.set(key, raw ?? "");
+  const nextValue = raw ?? "";
+  const previousValue = cachedValues.get(key);
+  if (previousValue === nextValue && !pendingTimers.has(key)) return;
+  cachedValues.set(key, nextValue);
   const existing = pendingTimers.get(key);
   if (existing) window.clearTimeout(existing);
+  const debounceMs = key.startsWith("cobrapp.clients.daily_collection")
+    ? HEAVY_SYNC_DEBOUNCE_MS
+    : BASE_SYNC_DEBOUNCE_MS;
   const timer = window.setTimeout(() => {
     pendingTimers.delete(key);
     void saveKeyToCloud(key, cachedValues.get(key) ?? null).catch((error) => {
       console.error(`Cloud mirror sync failed for key "${key}"`, error);
     });
-  }, 250);
+  }, debounceMs);
   pendingTimers.set(key, timer);
 }
 

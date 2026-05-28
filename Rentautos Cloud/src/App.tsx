@@ -54,6 +54,7 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    let profileLoadingGuardTimer: number | null = null;
 
     async function loadRole() {
       if (!session?.user.id || !supabase) {
@@ -63,6 +64,10 @@ export default function App() {
         return;
       }
       setLoadingProfile(true);
+      // Evita bloquear la app cuando la consulta de perfil tarda por red/base.
+      profileLoadingGuardTimer = window.setTimeout(() => {
+        if (!cancelled) setLoadingProfile(false);
+      }, 2500);
       try {
         const { data, error } = await supabase
           .from("user_profiles")
@@ -84,6 +89,10 @@ export default function App() {
       } catch {
         if (!cancelled) setAppRole("lectura");
       } finally {
+        if (profileLoadingGuardTimer !== null) {
+          window.clearTimeout(profileLoadingGuardTimer);
+          profileLoadingGuardTimer = null;
+        }
         if (!cancelled) setLoadingProfile(false);
       }
     }
@@ -92,6 +101,10 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      if (profileLoadingGuardTimer !== null) {
+        window.clearTimeout(profileLoadingGuardTimer);
+        profileLoadingGuardTimer = null;
+      }
     };
   }, [session?.user.id]);
 

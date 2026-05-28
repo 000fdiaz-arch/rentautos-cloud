@@ -1,4 +1,12 @@
 {
+  "name": "rentautos-cloud-root",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix \"./Rentautos Cloud\" run dev",
+    "build": "npm --prefix \"./Rentautos Cloud\" run build",
+    "preview": "npm --prefix \"./Rentautos Cloud\" run preview",
+    "test:validation": "npm --prefix \"./Rentautos Cloud\" run test:validation"
+  },
   "dependencies": {
     "xlsx": "^0.18.5"
   }
