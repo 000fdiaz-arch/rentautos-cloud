@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap");
+ï»¿@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap");
 
 :root {
   --font: "Plus Jakarta Sans", "Avenir Next", "Segoe UI", sans-serif;
@@ -4610,29 +4610,59 @@ select.control-op-badge {
 }
 
 .receipt-section--panel:first-child .receipt-subrow span:first-child::before {
-  content: "?";
+  content: "";
+  display: inline-block;
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #6aaad2 0%, #0d5678 100%);
   color: #0d5678;
-  font-size: 0.88rem;
-  line-height: 1;
-  margin-right: 2px;
+  font-size: 0;
+  line-height: 0;
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
 .receipt-section--panel:nth-child(2) .receipt-row:nth-child(2) span:first-child::before {
-  content: "•";
+  content: "";
+  display: inline-block;
+  width: 0.34rem;
+  height: 0.34rem;
+  border-radius: 999px;
+  background: #0d5678;
   color: #0d5678;
-  font-size: 0.68rem;
+  font-size: 0;
+  line-height: 0;
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
 .receipt-section--panel:nth-child(2) .receipt-row:nth-child(3) span:first-child::before {
-  content: "•";
+  content: "";
+  display: inline-block;
+  width: 0.34rem;
+  height: 0.34rem;
+  border-radius: 999px;
+  background: #0d5678;
   color: #0d5678;
-  font-size: 0.68rem;
+  font-size: 0;
+  line-height: 0;
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
 .receipt-section--panel:nth-child(2) .receipt-row:nth-child(4) span:first-child::before {
-  content: "•";
+  content: "";
+  display: inline-block;
+  width: 0.34rem;
+  height: 0.34rem;
+  border-radius: 999px;
+  background: #0d5678;
   color: #0d5678;
-  font-size: 0.68rem;
+  font-size: 0;
+  line-height: 0;
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
 .receipt-top-balance-grid {
@@ -6331,3 +6361,4 @@ select.control-op-badge {
     0 12px 22px rgba(16, 185, 129, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.86);
 }
+
