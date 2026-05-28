@@ -1318,6 +1318,11 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       const ids = new Set(promiseAttentionRun2Ids);
       return baseRows.filter((row) => row.client && ids.has(row.client.id));
     }
+    if (activeDashboardFilter.metric === "noAction") {
+      if (activeDashboardFilter.cut !== "am") return baseRows;
+      const ids = new Set(collectionDashboard.am.ids.noAction);
+      return baseRows.filter((row) => ids.has(noActionEntityId(row.client, row.unitId)));
+    }
     const metricKey = activeDashboardFilter.metric as Exclude<DashboardMetricKey, "promiseAttention">;
     const ids = new Set(collectionDashboard[activeDashboardFilter.cut].ids[metricKey]);
     if (activeDashboardFilter.cut === "am" && activeDashboardFilter.metric === "contacted") {
@@ -3203,10 +3208,17 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                         <span>Pendientes</span>
                         <strong>{cut.stats.needContact}</strong>
                       </button>
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabIndex={0}
                         className={`collection-dashboard-kpi collection-dashboard-kpi--contacted ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "contacted" ? "is-active" : ""}`}
                         onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "contacted" ? null : { cut: cut.key, metric: "contacted" })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "contacted" ? null : { cut: cut.key, metric: "contacted" });
+                          }
+                        }}
                       >
                         <span>Gestionados</span>
                         <strong>{cut.stats.contacted}</strong>
@@ -3214,7 +3226,10 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                           <button
                             type="button"
                             className={`collection-dashboard-kpi-breakdown-item ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "paidDone" ? "is-active" : ""}`}
-                            onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "paidDone" ? null : { cut: cut.key, metric: "paidDone" })}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "paidDone" ? null : { cut: cut.key, metric: "paidDone" });
+                            }}
                           >
                             <b>{cut.stats.paidDone}</b>
                             <small>Pago realizado</small>
@@ -3222,7 +3237,10 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                           <button
                             type="button"
                             className={`collection-dashboard-kpi-breakdown-item ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "promise" ? "is-active" : ""}`}
-                            onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "promise" ? null : { cut: cut.key, metric: "promise" })}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "promise" ? null : { cut: cut.key, metric: "promise" });
+                            }}
                           >
                             <b>{cut.stats.promise}</b>
                             <small>Promesa</small>
@@ -3230,7 +3248,10 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                           <button
                             type="button"
                             className={`collection-dashboard-kpi-breakdown-item ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "reminder" ? "is-active" : ""}`}
-                            onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "reminder" ? null : { cut: cut.key, metric: "reminder" })}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "reminder" ? null : { cut: cut.key, metric: "reminder" });
+                            }}
                           >
                             <b>{cut.stats.reminder}</b>
                             <small>Recordatorio</small>
@@ -3238,7 +3259,10 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                           <button
                             type="button"
                             className={`collection-dashboard-kpi-breakdown-item ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "noResponse" ? "is-active" : ""}`}
-                            onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "noResponse" ? null : { cut: cut.key, metric: "noResponse" })}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "noResponse" ? null : { cut: cut.key, metric: "noResponse" });
+                            }}
                           >
                             <b>{cut.stats.noResponse}</b>
                             <small>No responde</small>
@@ -3246,7 +3270,10 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                           <button
                             type="button"
                             className={`collection-dashboard-kpi-breakdown-item collection-dashboard-kpi-breakdown-item--full ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "callLater" ? "is-active" : ""}`}
-                            onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "callLater" ? null : { cut: cut.key, metric: "callLater" })}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "callLater" ? null : { cut: cut.key, metric: "callLater" });
+                            }}
                           >
                             <b>{cut.stats.callLater}</b>
                             <small>Llamar más tarde</small>
@@ -3255,14 +3282,17 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                             <button
                               type="button"
                               className={`collection-dashboard-kpi-breakdown-item collection-dashboard-kpi-breakdown-item--full ${activeDashboardFilter?.cut === "am" && activeDashboardFilter?.metric === "noAction" ? "is-active" : ""}`}
-                              onClick={() => setActiveDashboardFilter((current) => current?.cut === "am" && current.metric === "noAction" ? null : { cut: "am", metric: "noAction" })}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveDashboardFilter((current) => current?.cut === "am" && current.metric === "noAction" ? null : { cut: "am", metric: "noAction" });
+                              }}
                             >
                               <b>{Object.keys(todayNoActionConfirms.run1 ?? {}).length}</b>
                               <small>Sin cobro hoy</small>
                             </button>
                           )}
                         </div>
-                      </button>
+                      </div>
                       {(cut.key === "am" || cut.key === "pm" || cut.key === "close") && (
                         <article className="collection-dashboard-kpi collection-dashboard-kpi--action-label">
                           <span>Estado operativo</span>
