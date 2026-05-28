@@ -3091,54 +3091,15 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                           </span>
                         </div>
                       </button>
-                      {cut.key === "close" && (
-                        <div className="collection-dashboard-street-group">
-                          <p className="collection-dashboard-street-group__title">Envio a calle</p>
-                          <button
-                            type="button"
-                            className={`collection-dashboard-kpi collection-dashboard-kpi--contacted collection-dashboard-kpi--street-main ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "streetSent" ? "is-active" : ""}`}
-                            onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "streetSent" ? null : { cut: cut.key, metric: "streetSent" })}
-                          >
-                            <span>Enviados a calle</span>
-                            <strong>{cut.stats.streetSent}</strong>
-                          </button>
-                          <div className="collection-dashboard-street-group__subs">
-                            <button
-                              type="button"
-                              className={`collection-dashboard-kpi collection-dashboard-kpi--promise ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "streetOnlyCollect" ? "is-active" : ""}`}
-                              onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "streetOnlyCollect" ? null : { cut: cut.key, metric: "streetOnlyCollect" })}
-                            >
-                              <span>Solo cobrar</span>
-                              <strong>{cut.stats.streetOnlyCollect}</strong>
-                            </button>
-                            <button
-                              type="button"
-                              className={`collection-dashboard-kpi collection-dashboard-kpi--noresponse ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "streetCollectRemove" ? "is-active" : ""}`}
-                              onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "streetCollectRemove" ? null : { cut: cut.key, metric: "streetCollectRemove" })}
-                            >
-                              <span>Cobrar / quitar</span>
-                              <strong>{cut.stats.streetCollectRemove}</strong>
-                            </button>
-                          </div>
-                          <div className="collection-dashboard-street-group__footer">
-                            <article className="collection-dashboard-kpi collection-dashboard-kpi--action-label">
-                              <span>Mínimo total calle</span>
-                              <strong>{formatCurrency(cut.stats.streetMinTotal)}</strong>
-                            </article>
-                            <article className="collection-dashboard-kpi collection-dashboard-kpi--action-label">
-                              <span>Estado operativo</span>
-                              <strong>{!isPmSealed ? "Pendiente" : isCloseSealed ? "Finalizado" : "En curso"}</strong>
-                            </article>
-                          </div>
-                        </div>
-                      )}
-                      {(cut.key === "am" || cut.key === "pm") && (
+                      {(cut.key === "am" || cut.key === "pm" || cut.key === "close") && (
                         <article className="collection-dashboard-kpi collection-dashboard-kpi--action-label">
                           <span>Estado operativo</span>
                           <strong>
                             {cut.key === "am"
                               ? (isAmSealed ? "Finalizado" : "En curso")
-                              : (!isAmSealed ? "Pendiente" : isPmSealed ? "Finalizado" : "En curso")}
+                              : cut.key === "pm"
+                              ? (!isAmSealed ? "Pendiente" : isPmSealed ? "Finalizado" : "En curso")
+                              : (!isPmSealed ? "Pendiente" : isCloseSealed ? "Finalizado" : "En curso")}
                           </strong>
                         </article>
                       )}
@@ -3265,6 +3226,45 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                     )}
                   </article>
                 ))}
+                <article className="collection-dashboard-cut-card">
+                  <header className="collection-dashboard-cut-head">
+                    <strong>ENVIO A CALLE</strong>
+                  </header>
+                  <div className="collection-dashboard-street-group">
+                    <button
+                      type="button"
+                      className={`collection-dashboard-kpi collection-dashboard-kpi--contacted collection-dashboard-kpi--street-main ${activeDashboardFilter?.cut === "close" && activeDashboardFilter?.metric === "streetSent" ? "is-active" : ""}`}
+                      onClick={() => setActiveDashboardFilter((current) => current?.cut === "close" && current.metric === "streetSent" ? null : { cut: "close", metric: "streetSent" })}
+                    >
+                      <span>Enviados a calle</span>
+                      <strong>{collectionDashboard.close.streetSent}</strong>
+                    </button>
+                    <div className="collection-dashboard-street-group__subs">
+                      <button
+                        type="button"
+                        className={`collection-dashboard-kpi collection-dashboard-kpi--promise ${activeDashboardFilter?.cut === "close" && activeDashboardFilter?.metric === "streetOnlyCollect" ? "is-active" : ""}`}
+                        onClick={() => setActiveDashboardFilter((current) => current?.cut === "close" && current.metric === "streetOnlyCollect" ? null : { cut: "close", metric: "streetOnlyCollect" })}
+                      >
+                        <span>Solo cobrar</span>
+                        <strong>{collectionDashboard.close.streetOnlyCollect}</strong>
+                      </button>
+                      <button
+                        type="button"
+                        className={`collection-dashboard-kpi collection-dashboard-kpi--noresponse ${activeDashboardFilter?.cut === "close" && activeDashboardFilter?.metric === "streetCollectRemove" ? "is-active" : ""}`}
+                        onClick={() => setActiveDashboardFilter((current) => current?.cut === "close" && current.metric === "streetCollectRemove" ? null : { cut: "close", metric: "streetCollectRemove" })}
+                      >
+                        <span>Cobrar / quitar</span>
+                        <strong>{collectionDashboard.close.streetCollectRemove}</strong>
+                      </button>
+                    </div>
+                    <div className="collection-dashboard-street-group__footer">
+                      <article className="collection-dashboard-kpi collection-dashboard-kpi--action-label">
+                        <span>Mínimo total calle</span>
+                        <strong>{formatCurrency(collectionDashboard.close.streetMinTotal)}</strong>
+                      </article>
+                    </div>
+                  </div>
+                </article>
               </div>
             </section>
             <div className="top-scroll" ref={topScrollRef} onScroll={handleTopScroll}>
