@@ -651,6 +651,8 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   const [activeDashboardFilter, setActiveDashboardFilter] = useState<{ cut: DashboardCutKey; metric: DashboardMetricKey } | null>(null);
   const [promiseDashboardFilter, setPromiseDashboardFilter] = useState<PromiseDashboardFilter>("all");
   const [generalGroupFilter, setGeneralGroupFilter] = useState<GeneralGroupFilterKey>("ALL");
+  const [unitSearchFilter, setUnitSearchFilter] = useState<string>("");
+  const [clientNameSearchFilter, setClientNameSearchFilter] = useState<string>("");
   const [saveFeedbackByKey, setSaveFeedbackByKey] = useState<Record<string, { type: "success" | "error"; text: string }>>({});
   const [collectionOverrideByKey, setCollectionOverrideByKey] = useState<Record<string, boolean>>({});
   const [streetActionDialog, setStreetActionDialog] = useState<{
@@ -1285,6 +1287,14 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     let baseRows = generalGroupFilter === "ALL"
       ? visibleRows
       : visibleRows.filter((row) => getRowGroup(row.unitId) === generalGroupFilter);
+    const unitQuery = unitSearchFilter.trim().toUpperCase();
+    const clientQuery = clientNameSearchFilter.trim().toLowerCase();
+    if (unitQuery.length > 0) {
+      baseRows = baseRows.filter((row) => row.unitId.trim().toUpperCase().includes(unitQuery));
+    }
+    if (clientQuery.length > 0) {
+      baseRows = baseRows.filter((row) => row.client && row.client.name.trim().toLowerCase().includes(clientQuery));
+    }
     if (promiseDashboardFilter === "attention") {
       baseRows = baseRows.filter((row) => row.client && promiseAttentionClientIds.due.has(row.client.id));
     } else if (promiseDashboardFilter === "pending") {
@@ -1295,11 +1305,11 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       // Pendientes del bloque aplica solo al bloque AM (RUN1).
       if (activeDashboardFilter.cut !== "am") return baseRows;
       const ids = new Set(collectionDashboard.am.ids.needContact);
-      return baseRows.filter((row) => row.client && ids.has(row.client.id));
+      return baseRows.filter((row) => ids.has(noActionEntityId(row.client, row.unitId)));
     }
     const ids = new Set(collectionDashboard[activeDashboardFilter.cut].ids[activeDashboardFilter.metric]);
     return baseRows.filter((row) => row.client && ids.has(row.client.id));
-  }, [activeDashboardFilter, collectionDashboard, generalGroupFilter, visibleRows, promiseDashboardFilter, promiseAttentionClientIds]);
+  }, [activeDashboardFilter, collectionDashboard, generalGroupFilter, visibleRows, promiseDashboardFilter, promiseAttentionClientIds, unitSearchFilter, clientNameSearchFilter]);
 
   useEffect(() => {
     if (activeDashboardFilter?.metric === "needContact" && activeDashboardFilter.cut !== "am") {
@@ -3350,6 +3360,22 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                           <option value="D">Grupo D</option>
                         </select>
                       </div>
+                      <div className="clients-header-search-grid">
+                        <input
+                          type="text"
+                          className="clients-header-search-input"
+                          placeholder="Filtrar por unidad (Ej: A54)"
+                          value={unitSearchFilter}
+                          onChange={(e) => setUnitSearchFilter(e.target.value)}
+                        />
+                        <input
+                          type="text"
+                          className="clients-header-search-input"
+                          placeholder="Filtrar por cliente"
+                          value={clientNameSearchFilter}
+                          onChange={(e) => setClientNameSearchFilter(e.target.value)}
+                        />
+                      </div>
                     </th>
                     <th>
                       <div className="collection-header-inline">
@@ -3694,6 +3720,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                       ? "pago_confirmado"
                                       : (amDraft.status || amBaseEntry?.status || "");
                                     const showOnlyAm = amStatusPreview === "recordatorio" || amStatusPreview === "promesa_pago";
+                                    const showOnlyAmByPaidConfirm = amStatusPreview === "pago_confirmado";
                                     const allRunIds: CollectionRunId[] = ["run1", "run2", "run3"];
                                     const isRunHiddenByCreation = (runId: CollectionRunId): boolean => {
                                       if (startRun === "run3") return runId === "run1" || runId === "run2";
@@ -3701,10 +3728,14 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                       return false;
                                     };
                                     const isRunHidden = (runId: CollectionRunId): boolean => {
+                                      if (showOnlyAmByPaidConfirm && startRun === "run1") return runId !== "run1";
                                       if (showOnlyAm && startRun === "run1") return runId !== "run1";
                                       return isRunHiddenByCreation(runId);
                                     };
                                     const hiddenReasonForRun = (runId: CollectionRunId): string => {
+                                      if (showOnlyAmByPaidConfirm && startRun === "run1" && runId !== "run1") {
+                                        return "Oculto por pago confirmado en RUN 1.";
+                                      }
                                       if (showOnlyAm && startRun === "run1" && runId !== "run1") {
                                         return "Oculto por gestión AM actual.";
                                       }
