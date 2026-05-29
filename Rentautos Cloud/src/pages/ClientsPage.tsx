@@ -2836,6 +2836,25 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     return { headers, body };
   }
 
+  function buildFieldManagementExportData(): { headers: string[]; body: (string | number)[][] } {
+    const headers = ["UNIDAD", "CLIENTE", "Cuotas pendientes", "Acción", "Monto mínimo"];
+    const body = visibleRows
+      .filter((row): row is (typeof row & { client: Client }) => Boolean(row.client))
+      .filter((row) => Boolean(todayStreetActions[row.client.id]))
+      .map((row) => {
+        const action = todayStreetActions[row.client.id];
+        const actionLabel = action.type === "solo_cobrar" ? "Solo cobrar" : "Cobrar / quitar";
+        return [
+          row.client.unitId,
+          row.client.name,
+          row.pendingInstallments,
+          actionLabel,
+          Number(action.minAmount || 0)
+        ];
+      });
+    return { headers, body };
+  }
+
   async function handleExportExcel(): Promise<void> {
     const { headers, body } = buildExportData();
     setIsExporting(true);
@@ -2857,6 +2876,174 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       await exportClientsToPdf(headers, body, new Date());
     } catch {
       setExportError("No fue posible generar el archivo PDF.");
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  async function handleExportFieldManagementExcel(): Promise<void> {
+    const { headers, body } = buildFieldManagementExportData();
+    if (body.length === 0) {
+      setExportError("No hay unidades en Gestión de campo para exportar.");
+      return;
+    }
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      await exportClientsToExcel(headers, body, new Date());
+    } catch {
+      setExportError("No fue posible generar el reporte de Gestión de campo en Excel.");
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  function downloadCanvasAsJpg(canvas: HTMLCanvasElement, filename: string): void {
+    const link = document.createElement("a");
+    link.href = canvas.toDataURL("image/jpeg", 0.95);
+    link.download = filename;
+    link.click();
+  }
+
+  function drawWrappedText(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    x: number,
+    y: number,
+    maxWidth: number,
+    lineHeight: number
+  ): number {
+    const words = text.split(" ");
+    let line = "";
+    let lines = 0;
+    for (let i = 0; i < words.length; i += 1) {
+      const test = line ? `${line} ${words[i]}` : words[i];
+      if (ctx.measureText(test).width > maxWidth && line) {
+        ctx.fillText(line, x, y + lines * lineHeight);
+        line = words[i];
+        lines += 1;
+      } else {
+        line = test;
+      }
+    }
+    if (line) {
+      ctx.fillText(line, x, y + lines * lineHeight);
+      lines += 1;
+    }
+    return lines;
+  }
+
+  async function handleExportFieldManagementJpg(): Promise<void> {
+    const { body } = buildFieldManagementExportData();
+    if (body.length === 0) {
+      setExportError("No hay unidades en Gestión de campo para generar reporte JPG.");
+      return;
+    }
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      const rowHeight = 46;
+      const headerHeight = 190;
+      const footerHeight = 40;
+      const contentHeight = body.length * rowHeight;
+      const width = 1680;
+      const height = Math.max(900, headerHeight + contentHeight + footerHeight);
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("No se pudo crear canvas");
+
+      const bg = ctx.createLinearGradient(0, 0, width, height);
+      bg.addColorStop(0, "#f5fbff");
+      bg.addColorStop(0.5, "#edf6ff");
+      bg.addColorStop(1, "#eefaf8");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, width, height);
+
+      const topBar = ctx.createLinearGradient(0, 0, width, 0);
+      topBar.addColorStop(0, "#0f2c64");
+      topBar.addColorStop(1, "#1d4f91");
+      ctx.fillStyle = topBar;
+      ctx.fillRect(48, 36, width - 96, 72);
+
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "700 34px 'Segoe UI', Arial, sans-serif";
+      ctx.fillText("REPORTE · GESTION DE CAMPO", 78, 82);
+      ctx.font = "600 18px 'Segoe UI', Arial, sans-serif";
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.fillText(`Fecha: ${new Date().toLocaleDateString("es-PA")}  ·  Registros: ${body.length}`, 80, 104);
+
+      const cols = [
+        { key: "unidad", label: "UNIDAD", w: 190 },
+        { key: "cliente", label: "CLIENTE", w: 520 },
+        { key: "cuotas", label: "CUOTAS PENDIENTES", w: 240 },
+        { key: "accion", label: "ACCION", w: 350 },
+        { key: "monto", label: "MONTO MINIMO (USD)", w: 260 }
+      ];
+      const tableX = 48;
+      let cursorX = tableX;
+      const tableY = 150;
+
+      ctx.fillStyle = "#dbeafe";
+      ctx.fillRect(tableX, tableY, width - 96, 46);
+      ctx.strokeStyle = "rgba(22, 78, 99, 0.2)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(tableX, tableY, width - 96, 46);
+
+      ctx.font = "700 16px 'Segoe UI', Arial, sans-serif";
+      ctx.fillStyle = "#12345b";
+      cols.forEach((col) => {
+        ctx.fillText(col.label, cursorX + 12, tableY + 29);
+        cursorX += col.w;
+      });
+
+      let y = tableY + 46;
+      body.forEach((row, index) => {
+        const isEven = index % 2 === 0;
+        ctx.fillStyle = isEven ? "rgba(255,255,255,0.92)" : "rgba(240,249,255,0.92)";
+        ctx.fillRect(tableX, y, width - 96, rowHeight);
+        ctx.strokeStyle = "rgba(30, 64, 175, 0.12)";
+        ctx.strokeRect(tableX, y, width - 96, rowHeight);
+
+        const [unidad, cliente, cuotas, accion, monto] = row;
+        cursorX = tableX;
+
+        ctx.fillStyle = "#0f172a";
+        ctx.font = "700 18px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText(String(unidad), cursorX + 12, y + 30);
+        cursorX += cols[0].w;
+
+        ctx.font = "600 17px 'Segoe UI', Arial, sans-serif";
+        drawWrappedText(ctx, String(cliente), cursorX + 12, y + 21, cols[1].w - 24, 18);
+        cursorX += cols[1].w;
+
+        ctx.font = "700 18px 'Segoe UI', Arial, sans-serif";
+        ctx.fillStyle = Number(cuotas) > 0 ? "#b91c1c" : "#166534";
+        ctx.fillText(String(cuotas), cursorX + 12, y + 30);
+        cursorX += cols[2].w;
+
+        const actionText = String(accion);
+        const actionBg = actionText === "Solo cobrar" ? "#dcfce7" : "#ffedd5";
+        const actionFg = actionText === "Solo cobrar" ? "#166534" : "#9a3412";
+        ctx.fillStyle = actionBg;
+        ctx.fillRect(cursorX + 8, y + 7, cols[3].w - 16, 32);
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.12)";
+        ctx.strokeRect(cursorX + 8, y + 7, cols[3].w - 16, 32);
+        ctx.fillStyle = actionFg;
+        ctx.font = "700 16px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText(actionText.toUpperCase(), cursorX + 18, y + 29);
+        cursorX += cols[3].w;
+
+        ctx.fillStyle = "#0f172a";
+        ctx.font = "800 18px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText(formatCurrency(Number(monto) || 0), cursorX + 12, y + 30);
+        y += rowHeight;
+      });
+
+      downloadCanvasAsJpg(canvas, `reporte-gestion-campo-${toDateKey(new Date())}.jpg`);
+    } catch {
+      setExportError("No fue posible generar el reporte JPG de Gestión de campo.");
     } finally {
       setIsExporting(false);
     }
@@ -3270,6 +3457,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
               <button type="button" className="button ghost" onClick={handleExportPDF} disabled={isExporting}>
                 Descargar PDF
               </button>
+              <button type="button" className="button ghost" onClick={handleExportFieldManagementExcel} disabled={isExporting}>
+                Reporte Gestión de campo (Excel)
+              </button>
             </div>
             {exportError !== null && <p className="hint error-text">{exportError}</p>}
             <p className="hint">Se exportan los {rows.length} clientes visibles con los filtros actuales.</p>
@@ -3483,10 +3673,14 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                             </button>
                           </div>
                           <div className="collection-dashboard-street-group__footer">
-                            <article className="collection-dashboard-kpi collection-dashboard-kpi--action-label">
-                              <span>Mínimo gestión campo</span>
-                              <strong>{formatCurrency(collectionDashboard.close.streetMinTotal)}</strong>
-                            </article>
+                            <button
+                              type="button"
+                              className="button primary small collection-dashboard-street-report-btn"
+                              onClick={handleExportFieldManagementJpg}
+                              disabled={isExporting}
+                            >
+                              {isExporting ? "Generando..." : "Reporte"}
+                            </button>
                           </div>
                         </div>
                       )}

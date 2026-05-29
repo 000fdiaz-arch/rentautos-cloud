@@ -3320,6 +3320,14 @@ select.control-op-badge {
   grid-template-columns: 1fr;
 }
 
+.collection-dashboard-street-report-btn {
+  width: 100%;
+  min-height: 44px;
+  border-radius: 14px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.02em;
+}
+
 .collection-mini-form .hint {
   font-size: 0.74rem;
   line-height: 1.15;
