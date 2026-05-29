@@ -64,7 +64,7 @@ type ClientForm = {
 };
 
 type CollectionRunId = "run1" | "run2" | "run3";
-type CollectionDailyStatus = "pago_confirmado" | "pago_realizado" | "no_responde" | "recordatorio" | "llamar_mas_tarde" | "promesa_pago";
+type CollectionDailyStatus = "pago_confirmado" | "pago_realizado" | "no_responde" | "recordatorio" | "llamar_mas_tarde" | "hold" | "promesa_pago";
 type CollectionEntry = {
   status: CollectionDailyStatus;
   amountPaid?: number;
@@ -88,7 +88,7 @@ type NoActionConfirmEntry = { reason: NoActionReason; confirmedAt: string };
 type NoActionConfirmRunMap = Record<string, NoActionConfirmEntry>;
 type NoActionConfirmByDate = Record<string, Record<CollectionRunId, NoActionConfirmRunMap>>;
 type DashboardCutKey = "am" | "pm" | "close";
-type DashboardMetricKey = "needContact" | "contacted" | "paidDone" | "reminder" | "noResponse" | "callLater" | "promise" | "noAction" | "promiseAttention" | "streetSent" | "streetOnlyCollect" | "streetCollectRemove";
+type DashboardMetricKey = "needContact" | "contacted" | "paidDone" | "reminder" | "noResponse" | "callLater" | "hold" | "promise" | "noAction" | "promiseAttention" | "streetSent" | "streetOnlyCollect" | "streetCollectRemove";
 type GeneralGroupFilterKey = "ALL" | "T" | "A" | "B" | "C" | "D";
 type PromiseDashboardFilter = "all" | "attention" | "pending";
 type PromiseResolution = "paid";
@@ -100,6 +100,10 @@ type StreetActionRecord = {
   note?: string;
   createdAt: string;
   updatedAt: string;
+};
+type StreetActionDraft = {
+  type: StreetActionType;
+  minAmount: string;
 };
 type DayNotesByDate = Record<string, Record<string, string>>;
 type PaymentPromiseRecord = {
@@ -510,6 +514,7 @@ function collectionStatusLabel(status: CollectionDailyStatus | ""): string {
   if (status === "no_responde") return "No responde";
   if (status === "recordatorio") return "Recordatorio";
   if (status === "llamar_mas_tarde") return "Llamar más tarde";
+  if (status === "hold") return "Hold";
   if (status === "promesa_pago") return "Promesa de pago";
   if (status === "pago_realizado") return "Pago realizado";
   if (status === "pago_confirmado") return "Pago confirmado";
@@ -693,14 +698,8 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   const [isFiltersPanelOpen, setIsFiltersPanelOpen] = useState<boolean>(false);
   const [saveFeedbackByKey, setSaveFeedbackByKey] = useState<Record<string, { type: "success" | "error"; text: string }>>({});
   const [collectionOverrideByKey, setCollectionOverrideByKey] = useState<Record<string, boolean>>({});
-  const [streetActionDialog, setStreetActionDialog] = useState<{
-    clientId: string;
-    clientName: string;
-    unitId: string;
-    type: StreetActionType;
-    minAmount: string;
-    note: string;
-  } | null>(null);
+  const [streetActionDraftByClientId, setStreetActionDraftByClientId] = useState<Record<string, StreetActionDraft>>({});
+  const [run3FieldPanelByClientId, setRun3FieldPanelByClientId] = useState<Record<string, boolean>>({});
   const dailyCollectionSnapshotRef = useRef<Record<string, string>>({
     [DAILY_COLLECTION_KEY]: stableJson(dailyCollectionByDate),
     [DAILY_COLLECTION_AM_SEALS_KEY]: stableJson(amSealsByDate),
@@ -1016,6 +1015,8 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
 
     if (isAmSealed) {
       for (const clientId of amNeedContact) {
+        // Si ya fue confirmado en AM como "sin acción hoy", no debe escalar a RUN 2.
+        if (todayNoActionConfirms.run1?.[clientId]) continue;
         const amStatus = todayCollection.run1[clientId]?.status;
         if (amStatus === "no_responde" || amStatus === "llamar_mas_tarde") {
           pmNeedContact.add(clientId);
@@ -1028,7 +1029,10 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       // Promesas que requieren gestión (próxima, vencida, incumplida parcial) también entran al scope PM/Cierre
       for (const row of clientRows) {
         if (startRunByClientId.get(row.client.id) === "run2") {
-          pmNeedContact.add(row.client.id);
+          const tone = getFinancialTone(row.debtStartDate, row.nextChargeDate, operationalReferenceDate);
+          if (tone !== "al_dia") {
+            pmNeedContact.add(row.client.id);
+          }
         }
         if (startRunByClientId.get(row.client.id) === "run3") {
           closeNeedContact.add(row.client.id);
@@ -1044,6 +1048,11 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
           closeNeedContact.add(row.client.id);
         }
       }
+      // Cualquier cliente marcado para gestión de campo debe contarse en RUN 3
+      // aunque no esté en el scope heredado por estado.
+      for (const clientId of Object.keys(todayStreetActions)) {
+        closeNeedContact.add(clientId);
+      }
     }
 
     function statsFor(
@@ -1056,6 +1065,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       let reminder = 0;
       let noResponse = 0;
       let callLater = 0;
+      let hold = 0;
       let promise = 0;
       let streetSent = 0;
       let streetOnlyCollect = 0;
@@ -1067,6 +1077,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       const reminderIds = new Set<string>();
       const noResponseIds = new Set<string>();
       const callLaterIds = new Set<string>();
+      const holdIds = new Set<string>();
       const promiseIds = new Set<string>();
       const streetSentIds = new Set<string>();
       const streetOnlyCollectIds = new Set<string>();
@@ -1078,6 +1089,22 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
           // Promesa vigente: se pausa del pendiente del día, pero no cuenta como "gestionado".
           needContactIds.delete(clientId);
           continue;
+        }
+        if (runId === "run3") {
+          const street = todayStreetActions[clientId];
+          if (street) {
+            needContactIds.delete(clientId);
+            streetSent += 1;
+            streetMinTotal += Number(street.minAmount || 0);
+            streetSentIds.add(clientId);
+            if (street.type === "solo_cobrar") {
+              streetOnlyCollect += 1;
+              streetOnlyCollectIds.add(clientId);
+            } else {
+              streetCollectRemove += 1;
+              streetCollectRemoveIds.add(clientId);
+            }
+          }
         }
         if (autoPaidIds?.has(clientId)) {
           contacted += 1;
@@ -1108,24 +1135,13 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
           callLater += 1;
           callLaterIds.add(clientId);
         }
+        if (entry.status === "hold") {
+          hold += 1;
+          holdIds.add(clientId);
+        }
         if (entry.status === "promesa_pago") {
           promise += 1;
           promiseIds.add(clientId);
-        }
-        if (runId === "run3") {
-          const street = todayStreetActions[clientId];
-          if (street) {
-            streetSent += 1;
-            streetMinTotal += Number(street.minAmount || 0);
-            streetSentIds.add(clientId);
-            if (street.type === "solo_cobrar") {
-              streetOnlyCollect += 1;
-              streetOnlyCollectIds.add(clientId);
-            } else {
-              streetCollectRemove += 1;
-              streetCollectRemoveIds.add(clientId);
-            }
-          }
         }
       }
       return {
@@ -1135,6 +1151,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         reminder,
         noResponse,
         callLater,
+        hold,
         promise,
         streetSent,
         streetOnlyCollect,
@@ -1147,6 +1164,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
             reminder: Array.from(reminderIds),
             noResponse: Array.from(noResponseIds),
             callLater: Array.from(callLaterIds),
+            hold: Array.from(holdIds),
             promise: Array.from(promiseIds),
             noAction: [],
             streetSent: Array.from(streetSentIds),
@@ -1296,7 +1314,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       .filter((row): row is (typeof row & { client: Client }) => Boolean(row.client))
       .filter((row) => closeScopeIds.includes(row.client.id));
     const missing = rows
-      .filter((row) => !todayCollection.run3[row.client.id]?.status)
+      .filter((row) => !todayCollection.run3[row.client.id]?.status && !todayStreetActions[row.client.id])
       .map((row) => row.unitId);
     const eligibleForStreet = rows.filter((row) => {
       const status = todayCollection.run3[row.client.id]?.status;
@@ -2076,7 +2094,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     }));
   }
 
-  function saveCollectionEntry(client: Client, runId: CollectionRunId): void {
+  function saveCollectionEntry(client: Client, runId: CollectionRunId, draftOverride?: Partial<CollectionDraft>): void {
     const feedbackKey = `${client.id}:${runId}`;
     const hasOverride = Boolean(collectionOverrideByKey[feedbackKey]);
     if (isCollectionBlockedByStatus(client.status) && !hasOverride) {
@@ -2084,7 +2102,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       setSaveFeedbackByKey((current) => ({ ...current, [feedbackKey]: { type: "error", text: "Requiere habilitar cobro manual" } }));
       return;
     }
-    const draft = getDraft(client.id, runId);
+    const draft = { ...getDraft(client.id, runId), ...(draftOverride ?? {}) };
     const normalizedNote = draft.note.trim() || (draft.status === "no_responde" ? "Sin respuesta" : "");
     if (!draft.status) {
       setErrors(["Debes seleccionar un estado de cobranza para guardar la gestion."]);
@@ -2171,6 +2189,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     }
     const timeLabel = new Date().toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" });
     setSaveFeedbackByKey((current) => ({ ...current, [feedbackKey]: { type: "success", text: `Guardado ${timeLabel}` } }));
+    if (draftOverride) {
+      updateDraft(client.id, runId, draftOverride);
+    }
   }
 
   function undoCollectionEntry(clientId: string, runId: CollectionRunId): void {
@@ -2567,23 +2588,29 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     window.setTimeout(() => flushDailyCollectionCloudSync(), 0);
   }
 
-  function openStreetActionDialog(client: Client, unitId: string): void {
+  function getStreetActionDraft(client: Client): StreetActionDraft {
+    const draft = streetActionDraftByClientId[client.id];
+    if (draft) return draft;
     const existing = todayStreetActions[client.id];
-    setStreetActionDialog({
-      clientId: client.id,
-      clientName: client.name,
-      unitId,
-      type: existing?.type ?? "cobrar_quitar",
-      minAmount: existing?.minAmount ? String(existing.minAmount) : "",
-      note: existing?.note ?? ""
+    if (existing) {
+      return { type: existing.type, minAmount: String(existing.minAmount) };
+    }
+    const fallbackAmount = Math.max(0.01, Number((client.balance ?? 0).toFixed(2)));
+    return { type: "cobrar_quitar", minAmount: String(fallbackAmount) };
+  }
+
+  function updateStreetActionDraft(clientId: string, patch: Partial<StreetActionDraft>): void {
+    setStreetActionDraftByClientId((current) => {
+      const existing = current[clientId] ?? { type: "cobrar_quitar", minAmount: "" };
+      return { ...current, [clientId]: { ...existing, ...patch } };
     });
   }
 
-  function saveStreetAction(): void {
-    if (!streetActionDialog) return;
-    const minAmount = Number(streetActionDialog.minAmount);
+  function activateFieldCollection(client: Client): void {
+    const draft = getStreetActionDraft(client);
+    const minAmount = Number(draft.minAmount);
     if (!Number.isFinite(minAmount) || minAmount <= 0) {
-      setErrors(["En 'Enviar a calle' debes indicar un monto mínimo válido (> 0)."]);
+      setErrors(["En gestión de campo debes indicar un monto válido (> 0)."]);
       return;
     }
     setStreetActionsByDate((current) => {
@@ -2592,17 +2619,60 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         ...current,
         [todayKey]: {
           ...today,
-          [streetActionDialog.clientId]: {
-            type: streetActionDialog.type,
+          [client.id]: {
+            type: draft.type,
             minAmount,
-            note: streetActionDialog.note.trim() || undefined,
-            createdAt: today[streetActionDialog.clientId]?.createdAt ?? new Date().toISOString(),
+            note: today[client.id]?.note,
+            createdAt: today[client.id]?.createdAt ?? new Date().toISOString(),
             updatedAt: new Date().toISOString()
           }
         }
       };
     });
-    setStreetActionDialog(null);
+    const feedbackKey = `${client.id}:run3`;
+    const timeLabel = new Date().toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" });
+    setSaveFeedbackByKey((current) => ({ ...current, [feedbackKey]: { type: "success", text: `Enviado a campo ${timeLabel}` } }));
+    setRun3FieldPanelByClientId((current) => ({ ...current, [client.id]: false }));
+  }
+
+  function undoFieldCollection(clientId: string): void {
+    setStreetActionsByDate((current) => {
+      const today = current[todayKey];
+      if (!today || !today[clientId]) return current;
+      const nextToday = { ...today };
+      delete nextToday[clientId];
+      return { ...current, [todayKey]: nextToday };
+    });
+    setDailyCollectionByDate((current) => {
+      const day = current[todayKey];
+      if (!day || !day.run3[clientId]) return current;
+      const nextRun3 = { ...day.run3 };
+      delete nextRun3[clientId];
+      return {
+        ...current,
+        [todayKey]: {
+          ...day,
+          run3: nextRun3
+        }
+      };
+    });
+    setCollectionDrafts((current) => {
+      const key = `${clientId}:run3`;
+      return {
+        ...current,
+        [key]: {
+          status: "",
+          amountPaid: "",
+          followUpAt: "",
+          promisedAmount: "",
+          note: ""
+        }
+      };
+    });
+    setRun3FieldPanelByClientId((current) => ({ ...current, [clientId]: false }));
+    const feedbackKey = `${clientId}:run3`;
+    const timeLabel = new Date().toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" });
+    setSaveFeedbackByKey((current) => ({ ...current, [feedbackKey]: { type: "success", text: `Deshacer aplicado ${timeLabel}` } }));
   }
 
   function undoRunBlock(runId: CollectionRunId): void {
@@ -2989,48 +3059,6 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
           </div>
         </div>
       )}
-      {streetActionDialog !== null && (
-        <div className="modal-overlay" onClick={() => setStreetActionDialog(null)}>
-          <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Enviar a calle · {streetActionDialog.unitId}</h2>
-              <button type="button" className="modal-close" onClick={() => setStreetActionDialog(null)}>X</button>
-            </div>
-            <div className="confirm-modal-body">
-              <p><strong>{streetActionDialog.clientName}</strong></p>
-              <label className="field-label">Tipo de gestión</label>
-              <select
-                value={streetActionDialog.type}
-                onChange={(e) => setStreetActionDialog((current) => current ? { ...current, type: e.target.value as StreetActionType } : current)}
-              >
-                <option value="cobrar_quitar">COBRAR / QUITAR</option>
-                <option value="solo_cobrar">SOLO COBRAR</option>
-              </select>
-              <label className="field-label">Monto mínimo a pagar</label>
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                placeholder="0.00"
-                value={streetActionDialog.minAmount}
-                onChange={(e) => setStreetActionDialog((current) => current ? { ...current, minAmount: e.target.value } : current)}
-              />
-              <label className="field-label">Nota (opcional)</label>
-              <input
-                type="text"
-                placeholder="Detalle para cobradora"
-                value={streetActionDialog.note}
-                onChange={(e) => setStreetActionDialog((current) => current ? { ...current, note: e.target.value } : current)}
-              />
-              <div className="confirm-modal-actions" style={{ marginTop: 16 }}>
-                <button type="button" className="button primary" onClick={saveStreetAction}>Guardar</button>
-                <button type="button" className="button ghost" onClick={() => setStreetActionDialog(null)}>Cancelar</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {vehicleInfoUnit !== null && (
         <div className="modal-overlay" onClick={() => setVehicleInfoUnit(null)}>
           <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
@@ -3254,15 +3282,14 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
               Filtro activo: {activeDashboardFilter.cut.toUpperCase()} · {
                 activeDashboardFilter.metric === "needContact" ? "Pendientes" :
                 activeDashboardFilter.metric === "contacted" ? "Gestionados" :
-                activeDashboardFilter.metric === "streetSent" ? "Enviados a calle" :
+                activeDashboardFilter.metric === "streetSent" ? "Gestión de campo" :
                 activeDashboardFilter.metric === "streetOnlyCollect" ? "Solo cobrar" :
                 activeDashboardFilter.metric === "streetCollectRemove" ? "Cobrar / quitar" :
-                activeDashboardFilter.metric === "promiseAttention" ? "Promesa con atención" :
                 activeDashboardFilter.metric === "paidDone" ? "Pago realizado" :
-                activeDashboardFilter.metric === "promise" ? "Promesa" :
                 activeDashboardFilter.metric === "reminder" ? "Recordatorio" :
                 activeDashboardFilter.metric === "noResponse" ? "No responde" :
                 activeDashboardFilter.metric === "callLater" ? "Llamar más tarde" :
+                activeDashboardFilter.metric === "hold" ? "Hold" :
                 "Sin cobro hoy"
               }
             </span>
@@ -3325,18 +3352,30 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                         <span>Pendientes</span>
                         <strong>{cut.stats.needContact}</strong>
                       </button>
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        className={`collection-dashboard-kpi collection-dashboard-kpi--contacted ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "contacted" ? "is-active" : ""}`}
-                        onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "contacted" ? null : { cut: cut.key, metric: "contacted" })}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "contacted" ? null : { cut: cut.key, metric: "contacted" });
-                          }
-                        }}
-                      >
+                      {cut.key === "close" && (
+                        <button
+                          type="button"
+                          className={`collection-dashboard-kpi collection-dashboard-kpi--later ${activeDashboardFilter?.cut === "close" && activeDashboardFilter?.metric === "hold" ? "is-active" : ""}`}
+                          onClick={() => setActiveDashboardFilter((current) => current?.cut === "close" && current.metric === "hold" ? null : { cut: "close", metric: "hold" })}
+                          title="Filtrar lista marcada en HOLD"
+                        >
+                          <span>Hold</span>
+                          <strong>{cut.stats.hold}</strong>
+                        </button>
+                      )}
+                      {cut.key !== "close" && (
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className={`collection-dashboard-kpi collection-dashboard-kpi--contacted ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "contacted" ? "is-active" : ""}`}
+                          onClick={() => setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "contacted" ? null : { cut: cut.key, metric: "contacted" })}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "contacted" ? null : { cut: cut.key, metric: "contacted" });
+                            }
+                          }}
+                        >
                         <span>Gestionados</span>
                         <strong>{cut.stats.contacted}</strong>
                         <div className="collection-dashboard-kpi-breakdown-grid">
@@ -3351,28 +3390,19 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                             <b>{cut.stats.paidDone}</b>
                             <small>Pago realizado</small>
                           </button>
-                          <button
-                            type="button"
-                            className={`collection-dashboard-kpi-breakdown-item ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "promise" ? "is-active" : ""}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "promise" ? null : { cut: cut.key, metric: "promise" });
-                            }}
-                          >
-                            <b>{cut.stats.promise}</b>
-                            <small>Promesa</small>
-                          </button>
-                          <button
-                            type="button"
-                            className={`collection-dashboard-kpi-breakdown-item ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "reminder" ? "is-active" : ""}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "reminder" ? null : { cut: cut.key, metric: "reminder" });
-                            }}
-                          >
-                            <b>{cut.stats.reminder}</b>
-                            <small>Recordatorio</small>
-                          </button>
+                          {cut.key !== "pm" && (
+                            <button
+                              type="button"
+                              className={`collection-dashboard-kpi-breakdown-item ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "reminder" ? "is-active" : ""}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "reminder" ? null : { cut: cut.key, metric: "reminder" });
+                              }}
+                            >
+                              <b>{cut.stats.reminder}</b>
+                              <small>Recordatorio</small>
+                            </button>
+                          )}
                           <button
                             type="button"
                             className={`collection-dashboard-kpi-breakdown-item ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "noResponse" ? "is-active" : ""}`}
@@ -3384,9 +3414,22 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                             <b>{cut.stats.noResponse}</b>
                             <small>No responde</small>
                           </button>
+                          {cut.key === "close" && (
+                            <button
+                              type="button"
+                              className={`collection-dashboard-kpi-breakdown-item ${activeDashboardFilter?.cut === "close" && activeDashboardFilter?.metric === "hold" ? "is-active" : ""}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveDashboardFilter((current) => current?.cut === "close" && current.metric === "hold" ? null : { cut: "close", metric: "hold" });
+                              }}
+                            >
+                              <b>{cut.stats.hold}</b>
+                              <small>Hold</small>
+                            </button>
+                          )}
                           <button
                             type="button"
-                            className={`collection-dashboard-kpi-breakdown-item collection-dashboard-kpi-breakdown-item--full ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "callLater" ? "is-active" : ""}`}
+                            className={`collection-dashboard-kpi-breakdown-item ${cut.key === "pm" ? "collection-dashboard-kpi-breakdown-item--full" : ""} ${activeDashboardFilter?.cut === cut.key && activeDashboardFilter?.metric === "callLater" ? "is-active" : ""}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               setActiveDashboardFilter((current) => current?.cut === cut.key && current.metric === "callLater" ? null : { cut: cut.key, metric: "callLater" });
@@ -3409,7 +3452,44 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                             </button>
                           )}
                         </div>
-                      </div>
+                        </div>
+                      )}
+                      {cut.key === "close" && (
+                        <div className="collection-dashboard-street-group">
+                          <button
+                            type="button"
+                            className={`collection-dashboard-kpi collection-dashboard-kpi--contacted collection-dashboard-kpi--street-main ${activeDashboardFilter?.cut === "close" && activeDashboardFilter?.metric === "streetSent" ? "is-active" : ""}`}
+                            onClick={() => setActiveDashboardFilter((current) => current?.cut === "close" && current.metric === "streetSent" ? null : { cut: "close", metric: "streetSent" })}
+                          >
+                            <span>Gestión de campo</span>
+                            <strong>{collectionDashboard.close.streetSent}</strong>
+                          </button>
+                          <div className="collection-dashboard-street-group__subs">
+                            <button
+                              type="button"
+                              className={`collection-dashboard-kpi collection-dashboard-kpi--promise ${activeDashboardFilter?.cut === "close" && activeDashboardFilter?.metric === "streetOnlyCollect" ? "is-active" : ""}`}
+                              onClick={() => setActiveDashboardFilter((current) => current?.cut === "close" && current.metric === "streetOnlyCollect" ? null : { cut: "close", metric: "streetOnlyCollect" })}
+                            >
+                              <span>Solo cobrar</span>
+                              <strong>{collectionDashboard.close.streetOnlyCollect}</strong>
+                            </button>
+                            <button
+                              type="button"
+                              className={`collection-dashboard-kpi collection-dashboard-kpi--noresponse ${activeDashboardFilter?.cut === "close" && activeDashboardFilter?.metric === "streetCollectRemove" ? "is-active" : ""}`}
+                              onClick={() => setActiveDashboardFilter((current) => current?.cut === "close" && current.metric === "streetCollectRemove" ? null : { cut: "close", metric: "streetCollectRemove" })}
+                            >
+                              <span>Cobrar / quitar</span>
+                              <strong>{collectionDashboard.close.streetCollectRemove}</strong>
+                            </button>
+                          </div>
+                          <div className="collection-dashboard-street-group__footer">
+                            <article className="collection-dashboard-kpi collection-dashboard-kpi--action-label">
+                              <span>Mínimo gestión campo</span>
+                              <strong>{formatCurrency(collectionDashboard.close.streetMinTotal)}</strong>
+                            </article>
+                          </div>
+                        </div>
+                      )}
                       {(cut.key === "am" || cut.key === "pm" || cut.key === "close") && (
                         <article className="collection-dashboard-kpi collection-dashboard-kpi--action-label">
                           <span>Estado operativo</span>
@@ -3421,17 +3501,6 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                               : (!isPmSealed ? "Pendiente" : isCloseSealed ? "Finalizado" : "En curso")}
                           </strong>
                         </article>
-                      )}
-                      {PROMISES_ENABLED && cut.key === "pm" && (
-                        <button
-                          type="button"
-                          className={`collection-dashboard-kpi collection-dashboard-kpi--promise ${activeDashboardFilter?.cut === "pm" && activeDashboardFilter?.metric === "promiseAttention" ? "is-active" : ""}`}
-                          onClick={() => setActiveDashboardFilter((current) => current?.cut === "pm" && current.metric === "promiseAttention" ? null : { cut: "pm", metric: "promiseAttention" })}
-                          title="Filtrar promesas próximas, vencidas o incumplidas parciales"
-                        >
-                          <span>Promesa con atención</span>
-                          <strong>{promiseAttentionRun2Ids.length}</strong>
-                        </button>
                       )}
                     </div>
                     {cut.key === "am" && (
@@ -3556,45 +3625,6 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                     )}
                   </article>
                 ))}
-                <article className="collection-dashboard-cut-card">
-                  <header className="collection-dashboard-cut-head">
-                    <strong>ENVIO A CALLE</strong>
-                  </header>
-                  <div className="collection-dashboard-street-group">
-                    <button
-                      type="button"
-                      className={`collection-dashboard-kpi collection-dashboard-kpi--contacted collection-dashboard-kpi--street-main ${activeDashboardFilter?.cut === "close" && activeDashboardFilter?.metric === "streetSent" ? "is-active" : ""}`}
-                      onClick={() => setActiveDashboardFilter((current) => current?.cut === "close" && current.metric === "streetSent" ? null : { cut: "close", metric: "streetSent" })}
-                    >
-                      <span>Enviados a calle</span>
-                      <strong>{collectionDashboard.close.streetSent}</strong>
-                    </button>
-                    <div className="collection-dashboard-street-group__subs">
-                      <button
-                        type="button"
-                        className={`collection-dashboard-kpi collection-dashboard-kpi--promise ${activeDashboardFilter?.cut === "close" && activeDashboardFilter?.metric === "streetOnlyCollect" ? "is-active" : ""}`}
-                        onClick={() => setActiveDashboardFilter((current) => current?.cut === "close" && current.metric === "streetOnlyCollect" ? null : { cut: "close", metric: "streetOnlyCollect" })}
-                      >
-                        <span>Solo cobrar</span>
-                        <strong>{collectionDashboard.close.streetOnlyCollect}</strong>
-                      </button>
-                      <button
-                        type="button"
-                        className={`collection-dashboard-kpi collection-dashboard-kpi--noresponse ${activeDashboardFilter?.cut === "close" && activeDashboardFilter?.metric === "streetCollectRemove" ? "is-active" : ""}`}
-                        onClick={() => setActiveDashboardFilter((current) => current?.cut === "close" && current.metric === "streetCollectRemove" ? null : { cut: "close", metric: "streetCollectRemove" })}
-                      >
-                        <span>Cobrar / quitar</span>
-                        <strong>{collectionDashboard.close.streetCollectRemove}</strong>
-                      </button>
-                    </div>
-                    <div className="collection-dashboard-street-group__footer">
-                      <article className="collection-dashboard-kpi collection-dashboard-kpi--action-label">
-                        <span>Mínimo total calle</span>
-                        <strong>{formatCurrency(collectionDashboard.close.streetMinTotal)}</strong>
-                      </article>
-                    </div>
-                  </div>
-                </article>
               </div>
             </section>
             <div className={`clients-filters-drawer ${isFiltersPanelOpen ? "is-open" : ""}`}>
@@ -3641,9 +3671,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                 <thead>
                   <tr>
                     <th>
-                      <div className="collection-header-inline">
-                        <span className="collection-header-title">Ficha Ejecutiva</span>
-                        <button type="button" className="button ghost small" onClick={() => setIsFiltersPanelOpen((v) => !v)}>
+                      <div className="collection-header-inline collection-header-inline--executive">
+                        <span className="collection-header-title">FICHA EJECUTIVA</span>
+                        <button type="button" className="button ghost small collection-header-filter-btn" onClick={() => setIsFiltersPanelOpen((v) => !v)}>
                           {isFiltersPanelOpen ? "Ocultar filtros" : "Ajustar filtros"}
                         </button>
                       </div>
@@ -3706,7 +3736,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
 
                     if (rowBlockedByStatus && client) {
                       return (
-                        <tr key={client.id} className="clients-row--status-alert">
+                        <tr key={client.id} className="clients-row--entity clients-row--status-alert">
                           <td className="clients-cell-status-only" colSpan={2}>
                             <div className="clients-status-alert">
                               <span className="clients-status-alert__state">{STATUS_LABEL[client.status]}</span>
@@ -3768,7 +3798,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                     }
 
                     return (
-                      <tr key={client?.id ?? `fleet-${unitId}`} className={!client ? "clients-row--no-driver" : ""}>
+                      <tr key={client?.id ?? `fleet-${unitId}`} className={`clients-row--entity${!client ? " clients-row--no-driver" : ""}`}>
                         <td className="clients-cell-unit clients-cell-unit--merged">
                           <div className="clients-unit-merged">
                             <div className="clients-unit-main">
@@ -4119,6 +4149,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                     const effectiveStatus: CollectionDailyStatus | "" = lockedByTodayPayment ? "pago_confirmado" : draft.status;
                                     const closeStreetEligible = runId === "run3" && (effectiveStatus === "no_responde" || effectiveStatus === "llamar_mas_tarde");
                                     const streetAction = runId === "run3" ? todayStreetActions[client.id] : undefined;
+                                    const run3FieldPanelOpen = runId === "run3" ? Boolean(run3FieldPanelByClientId[client.id]) : false;
                                     const processedPayment = lastPaymentProcessedByRunByClientId.get(client.id);
                                     const paidTodayTimeLabel = processedPayment ? formatIsoTimeLabel(processedPayment.at) : "";
                                     const showProcessedChip = Boolean(processedPayment) && processedPayment.runId === runId && paidTodayTimeLabel.length > 0;
@@ -4201,50 +4232,54 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                         {runId === "run1" && paidTodayAmount > 0 && !pmAutoPaid && effectiveStatus !== "pago_confirmado" ? (
                                           <span className="hint">Sugerido: confirmar "Pago confirmado".</span>
                                         ) : null}
-                                        <span className={`badge ${isPreventive ? "badge-warning" : "badge-debt"} collection-action-badge`}>
-                                          {lockedByTodayPayment ? "Pago confirmado automático" : isPreventive ? "Acción preventiva" : "Acción prioritaria"}
+                                        {runId !== "run3" && (
+                                        <span className={`badge ${isPreventive ? "badge-warning" : "badge-debt"} collection-action-badge ${(runId === "run1" || runId === "run2") ? "collection-action-badge--run12" : ""}`}>
+                                          {lockedByTodayPayment
+                                            ? "Pago confirmado automático"
+                                            : isPreventive
+                                            ? ((runId === "run1" || runId === "run2") ? "Acción\nPreventiva" : "Acción preventiva")
+                                            : ((runId === "run1" || runId === "run2") ? "Acción\nPrioritaria" : "Acción prioritaria")}
                                         </span>
-                                      <select
-                                        value={effectiveStatus}
-                                        onChange={(e) => {
-                                          const nextStatus = e.target.value as CollectionDailyStatus | "";
-                                          if (nextStatus === "llamar_mas_tarde" && !draft.followUpAt) {
-                                            updateDraft(client.id, runId, { status: nextStatus, followUpAt: getNowDateTimeLocalValue() });
-                                            return;
-                                          }
-                                          updateDraft(client.id, runId, { status: nextStatus });
-                                        }}
-                                        disabled={blockedByStatus || lockedByTodayPayment || !runEnabledByInheritance || !runEditable}
-                                      >
+                                        )}
+                                      {runId !== "run3" && (
+                                        <select
+                                          value={effectiveStatus}
+                                          onChange={(e) => {
+                                            const nextStatus = e.target.value as CollectionDailyStatus | "";
+                                            if (nextStatus === "llamar_mas_tarde" && !draft.followUpAt) {
+                                              updateDraft(client.id, runId, { status: nextStatus, followUpAt: getNowDateTimeLocalValue() });
+                                              return;
+                                            }
+                                            updateDraft(client.id, runId, { status: nextStatus });
+                                          }}
+                                          disabled={blockedByStatus || lockedByTodayPayment || !runEnabledByInheritance || !runEditable}
+                                        >
                                           {!lockedByTodayPayment && <option value="">Seleccionar</option>}
-                                        {lockedByTodayPayment ? (
-                                          <option value="pago_confirmado">Pago confirmado</option>
-                                        ) : runId === "run1" ? (
-                                          <>
-                                            {paidTodayAmount > 0 ? (
-                                              <option value="pago_confirmado">Pago confirmado</option>
-                                            ) : null}
-                                            <option value="no_responde">No responde</option>
-                                            <option value="recordatorio">Recordatorio</option>
-                                            <option value="llamar_mas_tarde">Llamar más tarde</option>
-                                          </>
-                                        ) : isPreventive ? (
-                                          <>
-                                            {paidTodayAmount > 0 ? <option value="pago_realizado">Pago realizado</option> : null}
-                                            <option value="llamar_mas_tarde">Llamar más tarde</option>
-                                          </>
-                                        ) : runId === "run3" ? (
-                                          <>
-                                            {paidTodayAmount > 0 ? <option value="pago_realizado">Pago realizado</option> : null}
-                                          </>
-                                        ) : (
-                                          <>
-                                            {paidTodayAmount > 0 ? <option value="pago_realizado">Pago realizado</option> : null}
-                                            <option value="no_responde">No responde</option>
-                                            <option value="llamar_mas_tarde">Llamar más tarde</option>
-                                          </>
+                                          {lockedByTodayPayment ? (
+                                            <option value="pago_confirmado">Pago confirmado</option>
+                                          ) : runId === "run1" ? (
+                                            <>
+                                              {paidTodayAmount > 0 ? (
+                                                <option value="pago_confirmado">Pago confirmado</option>
+                                              ) : null}
+                                              <option value="no_responde">No responde</option>
+                                              <option value="recordatorio">Recordatorio</option>
+                                              <option value="llamar_mas_tarde">Llamar más tarde</option>
+                                            </>
+                                          ) : isPreventive ? (
+                                            <>
+                                              {paidTodayAmount > 0 ? <option value="pago_realizado">Pago realizado</option> : null}
+                                              <option value="llamar_mas_tarde">Llamar más tarde</option>
+                                            </>
+                                          ) : (
+                                            <>
+                                              {paidTodayAmount > 0 ? <option value="pago_realizado">Pago realizado</option> : null}
+                                              <option value="no_responde">No responde</option>
+                                              <option value="llamar_mas_tarde">Llamar más tarde</option>
+                                            </>
                                           )}
                                         </select>
+                                      )}
                                         {effectiveStatus === "llamar_mas_tarde" && (
                                           <input
                                             type="datetime-local"
@@ -4253,24 +4288,104 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                           />
                                         )}
                                         {runId === "run3" && (
-                                          <div className="collection-form-actions">
-                                            <button
-                                              type="button"
-                                              className="button ghost small"
-                                              onClick={() => openStreetActionDialog(client, unitId)}
-                                              disabled={blockedByStatus || !closeStreetEligible}
-                                              title={closeStreetEligible ? "Enviar a cobrador de calle" : "Disponible para No responde / Llamar más tarde / Promesa de pago"}
-                                            >
-                                              Enviar a calle
-                                            </button>
-                                            {streetAction ? (
-                                              <span className="hint">
-                                                {streetAction.type === "solo_cobrar" ? "SOLO COBRAR" : "COBRAR / QUITAR"} · Min {formatCurrency(streetAction.minAmount)}
+                                          <div className="collection-form-actions collection-form-actions--run3">
+                                            {!blockedByStatus && runEnabledByInheritance && runEditable && !streetAction && !run3FieldPanelOpen && (
+                                              <>
+                                                <button
+                                                  type="button"
+                                                  className="button small collection-run3-action-btn"
+                                                  onClick={() => setRun3FieldPanelByClientId((current) => ({ ...current, [client.id]: true }))}
+                                                  title="Abrir gestión de campo"
+                                                >
+                                                  Gestión de campo
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  className="button small collection-run3-action-btn collection-run3-action-btn--hold"
+                                                  onClick={() => {
+                                                    saveCollectionEntry(client, "run3", { status: "hold", note: "HOLD RUN3" });
+                                                    setRun3FieldPanelByClientId((current) => ({ ...current, [client.id]: false }));
+                                                  }}
+                                                  title="Marcar HOLD en RUN3"
+                                                >
+                                                  HOLD
+                                                </button>
+                                              </>
+                                            )}
+                                            {!blockedByStatus && runEnabledByInheritance && runEditable && !streetAction && run3FieldPanelOpen && (
+                                              <>
+                                                <input
+                                                  type="number"
+                                                  min="0.01"
+                                                  step="0.01"
+                                                  className="collection-run3-inline-control collection-run3-span-full"
+                                                  value={getStreetActionDraft(client).minAmount}
+                                                  onChange={(e) => updateStreetActionDraft(client.id, { minAmount: e.target.value })}
+                                                  placeholder="Monto mínimo a cobrar (USD)"
+                                                />
+                                                <button
+                                                  type="button"
+                                                  className="button small collection-run3-action-btn collection-run3-action-btn--collect-remove"
+                                                  onClick={() => {
+                                                    updateStreetActionDraft(client.id, { type: "cobrar_quitar" });
+                                                    activateFieldCollection(client);
+                                                  }}
+                                                  title="Enviar a gestión de campo como cobrar / quitar"
+                                                >
+                                                  Cobrar / quitar
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  className="button small collection-run3-action-btn collection-run3-action-btn--collect-only"
+                                                  onClick={() => {
+                                                    updateStreetActionDraft(client.id, { type: "solo_cobrar" });
+                                                    activateFieldCollection(client);
+                                                  }}
+                                                  title="Enviar a gestión de campo como solo cobrar"
+                                                >
+                                                  Solo cobrar
+                                                </button>
+                                              </>
+                                            )}
+                                            {!blockedByStatus && runEnabledByInheritance && runEditable && streetAction && (
+                                              <span
+                                                className={`collection-run3-sent-chip ${
+                                                  streetAction.type === "solo_cobrar"
+                                                    ? "collection-run3-sent-chip--collect-only"
+                                                    : "collection-run3-sent-chip--collect-remove"
+                                                }`}
+                                              >
+                                                <span className="collection-run3-sent-chip__title">Gestión de campo</span>
+                                                <span className="collection-run3-sent-chip__mode">{streetAction.type === "solo_cobrar" ? "Solo cobrar" : "Cobrar / quitar"}</span>
+                                                <span className="collection-run3-sent-chip__amount">Min {formatCurrency(streetAction.minAmount)}</span>
                                               </span>
-                                            ) : null}
+                                            )}
+                                            {!blockedByStatus && runEnabledByInheritance && runEditable && streetAction && (
+                                              <button
+                                                type="button"
+                                                className="button small collection-run3-action-btn collection-run3-action-btn--undo collection-run3-span-full"
+                                                onClick={() => {
+                                                  undoFieldCollection(client.id);
+                                                  setRun3FieldPanelByClientId((current) => ({ ...current, [client.id]: false }));
+                                                }}
+                                                title="Deshacer gestión de campo"
+                                              >
+                                                Deshacer
+                                              </button>
+                                            )}
+                                            {!blockedByStatus && runEnabledByInheritance && runEditable && !streetAction && todayCollection.run3[client.id]?.status === "hold" && (
+                                              <button
+                                                type="button"
+                                                className="button small collection-run3-action-btn collection-run3-action-btn--undo collection-run3-span-full"
+                                                onClick={() => undoCollectionEntry(client.id, "run3")}
+                                                title="Deshacer HOLD"
+                                              >
+                                                Deshacer
+                                              </button>
+                                            )}
                                           </div>
                                         )}
-                                        {!blockedByStatus && !lockedByTodayPayment && runEnabledByInheritance && runEditable && (
+                                        {runId !== "run3" && !blockedByStatus && !lockedByTodayPayment && runEnabledByInheritance && runEditable && (
                                           <div className="collection-form-actions">
                                             <button
                                               type="button"
