@@ -101,6 +101,7 @@ type StreetActionRecord = {
   createdAt: string;
   updatedAt: string;
 };
+type DayNotesByDate = Record<string, Record<string, string>>;
 type PaymentPromiseRecord = {
   promisedAt: string;
   promisedAmount: number;
@@ -120,6 +121,7 @@ const DAILY_COLLECTION_CLOSE_SEALS_KEY = "cobrapp.clients.daily_collection_close
 const DAILY_COLLECTION_PROMISES_KEY = "cobrapp.clients.daily_collection_promises.v1";
 const DAILY_COLLECTION_STREET_ACTIONS_KEY = "cobrapp.clients.daily_collection_street_actions.v1";
 const DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY = "cobrapp.clients.daily_collection_no_action_confirms.v1";
+const DAILY_COLLECTION_DAY_NOTES_KEY = "cobrapp.clients.daily_collection_day_notes.v1";
 const PROMISES_ENABLED = false;
 const DAILY_COLLECTION_SYNC_TABLES = [
   { key: DAILY_COLLECTION_KEY, table: "clients_daily_collection_cloud" },
@@ -127,7 +129,8 @@ const DAILY_COLLECTION_SYNC_TABLES = [
   { key: DAILY_COLLECTION_PM_SEALS_KEY, table: "clients_daily_collection_pm_seals_cloud" },
   { key: DAILY_COLLECTION_CLOSE_SEALS_KEY, table: "clients_daily_collection_close_seals_cloud" },
   { key: DAILY_COLLECTION_PROMISES_KEY, table: "clients_daily_collection_promises_cloud" },
-  { key: DAILY_COLLECTION_STREET_ACTIONS_KEY, table: "clients_daily_collection_street_actions_cloud" }
+  { key: DAILY_COLLECTION_STREET_ACTIONS_KEY, table: "clients_daily_collection_street_actions_cloud" },
+  { key: DAILY_COLLECTION_DAY_NOTES_KEY, table: "clients_daily_collection_day_notes_cloud" }
 ] as const;
 const DAILY_COLLECTION_LOCAL_ONLY_KEYS = new Set<string>([
   DAILY_COLLECTION_KEY,
@@ -136,7 +139,8 @@ const DAILY_COLLECTION_LOCAL_ONLY_KEYS = new Set<string>([
   DAILY_COLLECTION_CLOSE_SEALS_KEY,
   DAILY_COLLECTION_PROMISES_KEY,
   DAILY_COLLECTION_STREET_ACTIONS_KEY,
-  DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY
+  DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY,
+  DAILY_COLLECTION_DAY_NOTES_KEY
 ]);
 
 function notifyCloudSyncPing(key: string): void {
@@ -663,6 +667,10 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   const [streetActionsByDate, setStreetActionsByDate] = useState<Record<string, Record<string, StreetActionRecord>>>(() =>
     loadLocalJsonObject<Record<string, Record<string, StreetActionRecord>>>(DAILY_COLLECTION_STREET_ACTIONS_KEY, {})
   );
+  const [dayNotesByDate, setDayNotesByDate] = useState<DayNotesByDate>(() =>
+    loadLocalJsonObject<DayNotesByDate>(DAILY_COLLECTION_DAY_NOTES_KEY, {})
+  );
+  const [dayNoteDraftByEntity, setDayNoteDraftByEntity] = useState<Record<string, string>>({});
   const [promiseByClientId, setPromiseByClientId] = useState<Record<string, PaymentPromiseRecord>>({});
   const [noActionConfirmsByDate, setNoActionConfirmsByDate] = useState<NoActionConfirmByDate>(() =>
     sanitizeNoActionConfirms(loadLocalJsonObject<Record<string, unknown>>(DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY, {}))
@@ -682,6 +690,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   const [generalGroupFilter, setGeneralGroupFilter] = useState<GeneralGroupFilterKey>("ALL");
   const [unitSearchFilter, setUnitSearchFilter] = useState<string>("");
   const [clientNameSearchFilter, setClientNameSearchFilter] = useState<string>("");
+  const [isFiltersPanelOpen, setIsFiltersPanelOpen] = useState<boolean>(false);
   const [saveFeedbackByKey, setSaveFeedbackByKey] = useState<Record<string, { type: "success" | "error"; text: string }>>({});
   const [collectionOverrideByKey, setCollectionOverrideByKey] = useState<Record<string, boolean>>({});
   const [streetActionDialog, setStreetActionDialog] = useState<{
@@ -699,7 +708,8 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     [DAILY_COLLECTION_CLOSE_SEALS_KEY]: stableJson(closeSealsByDate),
     [DAILY_COLLECTION_PROMISES_KEY]: stableJson({}),
     [DAILY_COLLECTION_STREET_ACTIONS_KEY]: stableJson(streetActionsByDate),
-    [DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY]: stableJson(noActionConfirmsByDate)
+    [DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY]: stableJson(noActionConfirmsByDate),
+    [DAILY_COLLECTION_DAY_NOTES_KEY]: stableJson(dayNotesByDate)
   });
 
   function applyDailyCollectionCloudValue(key: string, value: Record<string, unknown>): void {
@@ -763,6 +773,19 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         writeLocalStorageFromCloud(key, serialized);
         return next;
       });
+    } else if (key === DAILY_COLLECTION_DAY_NOTES_KEY) {
+      const incoming = value as DayNotesByDate;
+      setDayNotesByDate((current) => {
+        const next: DayNotesByDate = { ...current };
+        for (const [dateKey, notes] of Object.entries(incoming)) {
+          next[dateKey] = { ...(next[dateKey] ?? {}), ...(notes ?? {}) };
+        }
+        const serialized = stableJson(next);
+        if (dailyCollectionSnapshotRef.current[key] === serialized) return current;
+        dailyCollectionSnapshotRef.current[key] = serialized;
+        writeLocalStorageFromCloud(key, serialized);
+        return next;
+      });
     } else if (key === DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY) {
       const next = value as NoActionConfirmByDate;
       setNoActionConfirmsByDate((current) => {
@@ -786,6 +809,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   const todayStreetActions = useMemo<Record<string, StreetActionRecord>>(() => {
     return streetActionsByDate[todayKey] ?? {};
   }, [streetActionsByDate, todayKey]);
+  const todayDayNotes = useMemo<Record<string, string>>(() => {
+    return dayNotesByDate[todayKey] ?? {};
+  }, [dayNotesByDate, todayKey]);
   const todayNoActionConfirms = useMemo<Record<CollectionRunId, NoActionConfirmRunMap>>(() => {
     const day = noActionConfirmsByDate[todayKey];
     if (!day || typeof day !== "object" || Array.isArray(day)) return { run1: {}, run2: {}, run3: {} };
@@ -795,6 +821,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       run3: (day.run3 && typeof day.run3 === "object" ? day.run3 : {}) as NoActionConfirmRunMap
     };
   }, [noActionConfirmsByDate, todayKey]);
+  useEffect(() => {
+    setDayNoteDraftByEntity(todayDayNotes);
+  }, [todayDayNotes, todayKey]);
   const occupiedUnitSet = useMemo(() => {
     const set = new Set<string>();
     for (const client of clients) {
@@ -1371,6 +1400,23 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     return baseRows.filter((row) => row.client && ids.has(row.client.id));
   }, [activeDashboardFilter, collectionDashboard, generalGroupFilter, visibleRows, promiseDashboardFilter, promiseAttentionClientIds, unitSearchFilter, clientNameSearchFilter, promiseAttentionRun2Ids]);
 
+  function updateDayNoteDraft(entityId: string, value: string): void {
+    setDayNoteDraftByEntity((current) => ({ ...current, [entityId]: value }));
+  }
+
+  function saveDayNote(entityId: string): void {
+    const note = (dayNoteDraftByEntity[entityId] ?? "").trim();
+    setDayNotesByDate((current) => {
+      const dayNotes = { ...(current[todayKey] ?? {}) };
+      if (note.length === 0) {
+        delete dayNotes[entityId];
+      } else {
+        dayNotes[entityId] = note;
+      }
+      return { ...current, [todayKey]: dayNotes };
+    });
+  }
+
   function persist(next: Client[]): void {
     onClientsChange(next);
   }
@@ -1599,6 +1645,25 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       // ignore
     }
   }, [streetActionsByDate]);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(DAILY_COLLECTION_DAY_NOTES_KEY);
+      const parsed = parseJsonObject<DayNotesByDate>(raw);
+      if (parsed) {
+        dailyCollectionSnapshotRef.current[DAILY_COLLECTION_DAY_NOTES_KEY] = stableJson(parsed);
+        setDayNotesByDate(parsed);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      persistLocalJson(DAILY_COLLECTION_DAY_NOTES_KEY, dayNotesByDate, dailyCollectionSnapshotRef);
+    } catch {
+      // ignore
+    }
+  }, [dayNotesByDate]);
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY);
@@ -3532,6 +3597,42 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                 </article>
               </div>
             </section>
+            <div className={`clients-filters-drawer ${isFiltersPanelOpen ? "is-open" : ""}`}>
+              <div className="clients-filters-drawer__head">
+                <strong>Filtros</strong>
+                <button type="button" className="button ghost small" onClick={() => setIsFiltersPanelOpen(false)}>
+                  Cerrar
+                </button>
+              </div>
+              <div className="clients-filters-drawer__body">
+                <select
+                  value={generalGroupFilter}
+                  onChange={(e) => setGeneralGroupFilter(e.target.value as GeneralGroupFilterKey)}
+                  title="Filtrar por grupo"
+                >
+                  <option value="ALL">Todos</option>
+                  <option value="T">Grupo T</option>
+                  <option value="A">Grupo A</option>
+                  <option value="B">Grupo B</option>
+                  <option value="C">Grupo C</option>
+                  <option value="D">Grupo D</option>
+                </select>
+                <input
+                  type="text"
+                  className="clients-header-search-input"
+                  placeholder="Filtrar por unidad (Ej: A54)"
+                  value={unitSearchFilter}
+                  onChange={(e) => setUnitSearchFilter(e.target.value)}
+                />
+                <input
+                  type="text"
+                  className="clients-header-search-input"
+                  placeholder="Filtrar por cliente"
+                  value={clientNameSearchFilter}
+                  onChange={(e) => setClientNameSearchFilter(e.target.value)}
+                />
+              </div>
+            </div>
             <div className="top-scroll" ref={topScrollRef} onScroll={handleTopScroll}>
               <div ref={topScrollInnerRef} style={{ height: 1 }} />
             </div>
@@ -3541,42 +3642,10 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                   <tr>
                     <th>
                       <div className="collection-header-inline">
-                        <span className="collection-header-title">GENERALES</span>
-                      </div>
-                      <div style={{ marginTop: 6 }}>
-                        <select
-                          value={generalGroupFilter}
-                          onChange={(e) => setGeneralGroupFilter(e.target.value as GeneralGroupFilterKey)}
-                          title="Filtrar por grupo"
-                        >
-                          <option value="ALL">Todos</option>
-                          <option value="T">Grupo T</option>
-                          <option value="A">Grupo A</option>
-                          <option value="B">Grupo B</option>
-                          <option value="C">Grupo C</option>
-                          <option value="D">Grupo D</option>
-                        </select>
-                      </div>
-                      <div className="clients-header-search-grid">
-                        <input
-                          type="text"
-                          className="clients-header-search-input"
-                          placeholder="Filtrar por unidad (Ej: A54)"
-                          value={unitSearchFilter}
-                          onChange={(e) => setUnitSearchFilter(e.target.value)}
-                        />
-                        <input
-                          type="text"
-                          className="clients-header-search-input"
-                          placeholder="Filtrar por cliente"
-                          value={clientNameSearchFilter}
-                          onChange={(e) => setClientNameSearchFilter(e.target.value)}
-                        />
-                      </div>
-                    </th>
-                    <th>
-                      <div className="collection-header-inline">
-                        <span className="collection-header-title">ESTADO DE CUENTA</span>
+                        <span className="collection-header-title">Ficha Ejecutiva</span>
+                        <button type="button" className="button ghost small" onClick={() => setIsFiltersPanelOpen((v) => !v)}>
+                          {isFiltersPanelOpen ? "Ocultar filtros" : "Ajustar filtros"}
+                        </button>
                       </div>
                     </th>
                     <th>
@@ -3601,6 +3670,8 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                     const financialBadge = financialToneUi(financialTone);
                     const paidTodayAmount = client ? (paidTodayAmountByClientId.get(client.id) ?? 0) : 0;
                     const lockedByTodayPayment = false;
+                    const dayNoteEntityId = noActionEntityId(client, unitId);
+                    const dayNoteDraft = dayNoteDraftByEntity[dayNoteEntityId] ?? todayDayNotes[dayNoteEntityId] ?? "";
                     const clientHasManualCollectionEnabled = Boolean(client) && (["run1", "run2", "run3"] as CollectionRunId[]).some((runId) =>
                       Boolean(collectionOverrideByKey[`${client.id}:${runId}`])
                     );
@@ -3636,7 +3707,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                     if (rowBlockedByStatus && client) {
                       return (
                         <tr key={client.id} className="clients-row--status-alert">
-                          <td className="clients-cell-status-only" colSpan={3}>
+                          <td className="clients-cell-status-only" colSpan={2}>
                             <div className="clients-status-alert">
                               <span className="clients-status-alert__state">{STATUS_LABEL[client.status]}</span>
                               <span>Unidad: {unitId}</span>
@@ -3698,132 +3769,153 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
 
                     return (
                       <tr key={client?.id ?? `fleet-${unitId}`} className={!client ? "clients-row--no-driver" : ""}>
-                        <td className="clients-cell-unit">
-                          <strong className="clients-unit-id">{unitId}</strong>
-                          <div className="debt-meta ar-truncate-line clients-unit-name" title={client?.name ?? "Sin chofer"}>
-                            {client ? firstNameOf(client.name) : "Sin chofer"}
-                          </div>
-                          <div className="clients-unit-plan">
-                            {client ? (
-                              <>
-                                <strong className="clients-plan-amount">{formatCurrency(client.rentAmount)}</strong>
-                                <span className={`badge ${client.frequency === "daily" ? "badge-good" : client.frequency === "weekly" ? "badge-warning" : client.frequency === "biweekly" ? "badge-debt" : "badge-good"}`}>{FREQUENCY_LABEL[client.frequency]}</span>
-                              </>
-                            ) : <span className="badge badge-warning">Libre</span>}
-                          </div>
-                          {otherChargeText ? (
-                            <div className="debt-meta" title={otherChargeText} style={{ cursor: "help" }}>
-                              Ver detalle cargos
-                            </div>
-                          ) : null}
-                          <div className="clients-info-actions">
-                            <button type="button" className="button ghost small clients-info-btn clients-info-btn--util" onClick={() => setVehicleInfoUnit(unitId)}>
-                              Ver unidad
-                            </button>
-                            {client ? (
-                              <>
-                                <button type="button" className="button ghost small clients-info-btn clients-info-btn--util" onClick={() => setClientInfoId(client.id)}>
-                                  Ver cliente
+                        <td className="clients-cell-unit clients-cell-unit--merged">
+                          <div className="clients-unit-merged">
+                            <div className="clients-unit-main">
+                              <div className="clients-unit-main-top">
+                                <strong className="clients-unit-id">{unitId}</strong>
+                                <div className="debt-meta ar-truncate-line clients-unit-name" title={client?.name ?? "Sin chofer"}>
+                                  {client ? firstNameOf(client.name) : "Sin chofer"}
+                                </div>
+                                <div className="clients-unit-plan">
+                                  {client ? (
+                                    <>
+                                      <strong className="clients-plan-amount">{formatCurrency(client.rentAmount)}</strong>
+                                      <span className={`badge ${client.frequency === "daily" ? "badge-good" : client.frequency === "weekly" ? "badge-warning" : client.frequency === "biweekly" ? "badge-debt" : "badge-good"}`}>{FREQUENCY_LABEL[client.frequency]}</span>
+                                    </>
+                                  ) : <span className="badge badge-warning">Libre</span>}
+                                </div>
+                                {otherChargeText ? (
+                                  <div className="debt-meta" title={otherChargeText} style={{ cursor: "help" }}>
+                                    Ver detalle cargos
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="clients-info-actions">
+                                <button type="button" className="button ghost small clients-info-btn clients-info-btn--util" onClick={() => setVehicleInfoUnit(unitId)}>
+                                  Ver unidad
                                 </button>
-                                <button
-                                  type="button"
-                                  className="button ghost small clients-info-btn clients-info-btn--primary"
-                                  onClick={() => {
-                                    handleStartEditClient(client);
-                                    setEditClientTab("identidad");
-                                  }}
-                                >
-                                  Editar
-                                </button>
-                                <button
-                                  type="button"
-                                  className="button ghost small clients-info-btn clients-info-btn--primary"
-                                  onClick={() => handleUnlinkClient(client)}
-                                  title="Desvincular cliente de esta unidad"
-                                >
-                                  Desvincular
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                type="button"
-                                className="button primary small clients-info-btn clients-info-btn--primary"
-                                onClick={() => handleCreateClientFromUnit(unitId)}
-                              >
-                                Crear Cliente
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                        <td className="clients-cell-collection">
-                          <div className="clients-collection-status-row">
-                            {client ? (
-                              <select
-                                className={operationalToneClass(client.status)}
-                                value={client.status}
-                                onChange={(e) => handleStatusSelection(client, e.target.value as Client["status"])}
-                                title={client.statusComment ? `Motivo: ${client.statusComment}` : undefined}
-                              >
-                                {STATUS_EDIT_OPTIONS.map((status) => (
-                                  <option
-                                    key={status}
-                                    value={status}
-                                    disabled={status === "cliente_enfermo" && client.frequency !== "daily"}
+                                {client ? (
+                                  <>
+                                    <button type="button" className="button ghost small clients-info-btn clients-info-btn--util" onClick={() => setClientInfoId(client.id)}>
+                                      Ver cliente
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="button ghost small clients-info-btn clients-info-btn--primary"
+                                      onClick={() => {
+                                        handleStartEditClient(client);
+                                        setEditClientTab("identidad");
+                                      }}
+                                    >
+                                      Editar cliente
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="button ghost small clients-info-btn clients-info-btn--danger"
+                                      onClick={() => handleUnlinkClient(client)}
+                                      title="Desvincular cliente de esta unidad"
+                                    >
+                                      Desvincular cliente
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="button primary small clients-info-btn clients-info-btn--primary"
+                                    onClick={() => handleCreateClientFromUnit(unitId)}
                                   >
-                                    {STATUS_LABEL[status]}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : <span className="badge badge-warning">Inactivo</span>}
-                            <span className={`${financialBadge.className} clients-financial-badge`} title={financialBadge.tooltip}>{financialBadge.label}</span>
-                          </div>
-                          <div className="clients-collection-card">
-                            <div className="clients-collection-head">
-                              <span className="clients-collection-head-label">Saldo</span>
-                              <span className={`clients-collection-balance ${client && client.balance <= 0 ? "amount-good" : "amount-debt"}`}>
-                                {client ? formatCurrency(client.balance) : "-"}
-                              </span>
-                            </div>
-                            <div className="clients-collection-line">
-                              <span>Debe desde</span>
-                              <strong>{client ? (debtStartDate ? formatDate(debtStartDate) : nextChargeDate ? `Al día hasta ${formatPaymentDateKey(toDateKey(nextChargeDate))}` : "Al día") : "-"}</strong>
-                            </div>
-                            <div className="clients-collection-line">
-                              <span>Atraso</span>
-                              <strong>
-                                <span className={`badge clients-overdue-badge ${pendingInstallments > 0 ? "clients-overdue-badge--due" : "clients-overdue-badge--ok"}`}>
-                                  {overdueInstallmentsLabel}
-                                </span>
-                              </strong>
-                            </div>
-                            <div className={`clients-collection-line ${paidTodayAmount > 0 ? "clients-collection-line--last-payment-paid" : ""}`}>
-                              <span>Ultimo pago</span>
-                              <strong>{client ? (() => {
-                                const value = lastPaymentByClientId.get(client.id);
-                                return value ? formatPaymentDateKey(value) : "-";
-                              })() : "-"}{paidTodayAmount > 0 ? <span className="clients-paid-today-inline">PAGÓ HOY</span> : null}</strong>
-                            </div>
-                            <div className="clients-collection-line">
-                              <span>Otros cargos</span>
-                              <strong>{formatCurrency(otherChargesTotal)}</strong>
-                            </div>
-                            <div className="clients-collection-quota-grid">
-                              <div className="quota-chip quota-chip--pactadas">
-                                <span>Pactadas</span>
-                                <strong>{client ? client.installmentsAgreed : "-"}</strong>
+                                    Crear Cliente
+                                  </button>
+                                )}
                               </div>
-                              <div className="quota-chip quota-chip--restantes">
-                                <span>Restantes</span>
-                                <strong>{client ? client.installmentsRemaining : "-"}</strong>
-                              </div>
-                              <div className="quota-chip quota-chip--pagadas">
-                                <span>Pagadas</span>
-                                <strong>{client ? client.installmentsPaid : "-"}</strong>
+                            </div>
+                            <div className="clients-unit-account">
+                              <div className="clients-collection-card">
+                                <div className="clients-collection-status-row">
+                                  {client ? (
+                                    <select
+                                      className={operationalToneClass(client.status)}
+                                      value={client.status}
+                                      onChange={(e) => handleStatusSelection(client, e.target.value as Client["status"])}
+                                      title={client.statusComment ? `Motivo: ${client.statusComment}` : undefined}
+                                    >
+                                      {STATUS_EDIT_OPTIONS.map((status) => (
+                                        <option
+                                          key={status}
+                                          value={status}
+                                          disabled={status === "cliente_enfermo" && client.frequency !== "daily"}
+                                        >
+                                          {STATUS_LABEL[status]}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : <span className="badge badge-warning">Inactivo</span>}
+                                  <span className={`${financialBadge.className} clients-financial-badge`} title={financialBadge.tooltip}>{financialBadge.label}</span>
+                                </div>
+                                <div className="clients-collection-head">
+                                  <span className="clients-collection-head-label">Saldo</span>
+                                  <span className={`clients-collection-balance ${client && client.balance <= 0 ? "amount-good" : "amount-debt"}`}>
+                                    {client ? formatCurrency(client.balance) : "-"}
+                                  </span>
+                                </div>
+                                <div className="clients-collection-line">
+                                  <span>Debe desde</span>
+                                  <strong>{client ? (debtStartDate ? formatDate(debtStartDate) : nextChargeDate ? `Al día hasta ${formatPaymentDateKey(toDateKey(nextChargeDate))}` : "Al día") : "-"}</strong>
+                                </div>
+                                <div className="clients-collection-line">
+                                  <span>Atraso</span>
+                                  <strong>
+                                    <span className={`badge clients-overdue-badge ${pendingInstallments > 0 ? "clients-overdue-badge--due" : "clients-overdue-badge--ok"}`}>
+                                      {overdueInstallmentsLabel}
+                                    </span>
+                                  </strong>
+                                </div>
+                                <div className={`clients-collection-line ${paidTodayAmount > 0 ? "clients-collection-line--last-payment-paid" : ""}`}>
+                                  <span>Ultimo pago</span>
+                                  <strong>{client ? (() => {
+                                    const value = lastPaymentByClientId.get(client.id);
+                                    return value ? formatPaymentDateKey(value) : "-";
+                                  })() : "-"}{paidTodayAmount > 0 ? <span className="clients-paid-today-inline">PAGÓ HOY</span> : null}</strong>
+                                </div>
+                                <div className="clients-collection-line">
+                                  <span>Otros cargos</span>
+                                  <strong>{formatCurrency(otherChargesTotal)}</strong>
+                                </div>
+                                <div className="clients-collection-quota-grid">
+                                  <div className="quota-chip quota-chip--pactadas">
+                                    <span>Pactadas</span>
+                                    <strong>{client ? client.installmentsAgreed : "-"}</strong>
+                                  </div>
+                                  <div className="quota-chip quota-chip--restantes">
+                                    <span>Restantes</span>
+                                    <strong>{client ? client.installmentsRemaining : "-"}</strong>
+                                  </div>
+                                  <div className="quota-chip quota-chip--pagadas">
+                                    <span>Pagadas</span>
+                                    <strong>{client ? client.installmentsPaid : "-"}</strong>
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           </div>
                         </td>
                         <td className="clients-cell-runs">
+                          <div className="collection-day-note-wrap">
+                            <label className="hint" htmlFor={`day-note-${dayNoteEntityId}`}>Notas del día</label>
+                            <textarea
+                              id={`day-note-${dayNoteEntityId}`}
+                              value={dayNoteDraft}
+                              onChange={(e) => updateDayNoteDraft(dayNoteEntityId, e.target.value)}
+                              rows={2}
+                              placeholder="Apuntes de hoy para seguimiento..."
+                            />
+                            <div className="collection-form-actions">
+                              <button type="button" className="button small ghost" onClick={() => saveDayNote(dayNoteEntityId)}>
+                                Guardar nota
+                              </button>
+                            </div>
+                          </div>
                           {!client ? (
                             <div className="collection-no-action-wrap">
                               <div className="collection-no-action">
@@ -4160,13 +4252,6 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                             onChange={(e) => updateDraft(client.id, runId, { followUpAt: e.target.value })}
                                           />
                                         )}
-                                        <input
-                                          type="text"
-                                          placeholder="Nota"
-                                          value={draft.note}
-                                          onChange={(e) => updateDraft(client.id, runId, { note: e.target.value })}
-                                          disabled={blockedByStatus || lockedByTodayPayment || !runEnabledByInheritance || !runEditable}
-                                        />
                                         {runId === "run3" && (
                                           <div className="collection-form-actions">
                                             <button
