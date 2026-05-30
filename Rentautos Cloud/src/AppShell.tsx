@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import ClientsPage from "./pages/ClientsPage";
 import Clients20Page from "./pages/Clients20Page";
 import PaymentsPage from "./pages/PaymentsPage";
-import ReceivablesPage from "./pages/ReceivablesPage";
 import SettingsPage from "./pages/SettingsPage";
 import CashClosingPage from "./pages/CashClosingPage";
 import ControlUnitsPage from "./pages/ControlUnitsPage";
+import CollisionsPage from "./pages/CollisionsPage";
 import {
   loadClients,
   loadPayments,
@@ -22,6 +22,10 @@ import {
   savePendingCardItems,
   saveManualBankAssignmentAudit,
   saveLateFeeLedger,
+  loadCollisions,
+  saveCollisions,
+  loadCollisionsSettings,
+  saveCollisionsSettings,
 } from "./storage";
 import {
   loadCloudClients,
@@ -35,7 +39,11 @@ import {
   saveCloudStreetManagement,
   syncCloudStreetManagementDelta,
   syncCloudClientsDelta,
-  syncCloudPaymentsDelta
+  syncCloudPaymentsDelta,
+  loadCloudCollisions,
+  saveCloudCollisions,
+  loadCloudCollisionsSettings,
+  saveCloudCollisionsSettings
 } from "./cloudData";
 import { supabase } from "./lib/supabase";
 import { isSupabaseOnlyMode } from "./persistenceMode";
@@ -50,10 +58,10 @@ import {
   type BackupExtraData,
   type BackupTrigger
 } from "./autobackup";
-import type { BankRule, Client, LateFeeSettings, OtherChargesRetentionByClient, Payment } from "./types";
+import type { BankRule, Client, CollisionRecord, CollisionsSettings, LateFeeSettings, OtherChargesRetentionByClient, Payment } from "./types";
 import "./styles.css";
 
-type AppPage = "clients" | "clients_20" | "payments" | "receivables" | "control_units" | "settings" | "cash_closing";
+type AppPage = "clients" | "clients_20" | "payments" | "control_units" | "settings" | "cash_closing" | "collisions";
 type PendingCoreSyncSnapshot = {
   userId: string;
   token: number;
@@ -66,6 +74,7 @@ const INITIAL_CLOUD_BOOTSTRAP_LIMIT = 200;
 const CORE_DATA_FALLBACK_POLL_MS = 180_000;
 const RECEIVABLES_FALLBACK_POLL_MS = 300_000;
 const PREFERRED_BOOTSTRAP_GROUP = "T";
+const TELEGRAM_SENT_ALERTS_KEY = "cobrapp.module4.collisions.telegram_sent.v1";
 
 type AppShellProps = {
   userId?: string;
@@ -79,7 +88,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const isReadOnlyReceivables = appRole === "lectura";
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = dataOwnerUserId ?? userId;
-  const [page, setPage] = useState<AppPage>(isReadOnlyReceivables ? "receivables" : "clients");
+  const [page, setPage] = useState<AppPage>("clients");
   const [clients, setClients] = useState<Client[]>(() => (isSupabaseOnlyMode ? [] : loadClients()));
   const [payments, setPayments] = useState<Payment[]>(() => (isSupabaseOnlyMode ? [] : loadPayments()));
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
@@ -101,6 +110,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const [routeCollectionCount, setRouteCollectionCount] = useState<number>(0);
   const [isProgressiveCloudLoading, setIsProgressiveCloudLoading] = useState<boolean>(false);
   const [streetManagementData, setStreetManagementData] = useState<Record<string, unknown>>({});
+  const [collisions, setCollisions] = useState<CollisionRecord[]>(() => loadCollisions());
+  const [collisionsSettings, setCollisionsSettings] = useState<CollisionsSettings>(() => loadCollisionsSettings());
   const [cashPaymentPrefill, setCashPaymentPrefill] = useState<{
     dateApplied: string;
     clientId: string;
@@ -116,6 +127,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const coreDeltaTimerRef = useRef<number | null>(null);
   const coreRealtimeSubscribedRef = useRef<boolean>(false);
   const receivablesRealtimeSubscribedRef = useRef<boolean>(false);
+  const lastTelegramSweepMinuteRef = useRef<string>("");
 
   function buildCloudErrorMessage(
     baseMessage: string,
@@ -356,6 +368,33 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     setSyncErrorMessage("Hay cambios pendientes por sincronizar. Se reintentara automaticamente.");
   }, []);
 
+  useEffect(() => {
+    if (!cloudDataUserId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [cloudRows, cloudSettings] = await Promise.all([
+          loadCloudCollisions(cloudDataUserId),
+          loadCloudCollisionsSettings(cloudDataUserId)
+        ]);
+        if (cancelled) return;
+        if (Array.isArray(cloudRows) && cloudRows.length > 0) {
+          setCollisions(cloudRows);
+          saveCollisions(cloudRows);
+        }
+        if (cloudSettings) {
+          setCollisionsSettings(cloudSettings);
+          saveCollisionsSettings(cloudSettings);
+        }
+      } catch (error) {
+        console.error("No se pudo cargar Colisiones desde nube.", error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudDataUserId]);
+
   function parseLocalJson(key: string, fallback: unknown): unknown {
     try {
       const raw = localStorage.getItem(key);
@@ -454,6 +493,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       cashClosingAudit: parseLocalJson("cobrapp.module2.cash_closing_audit.v1", []) as unknown[],
       chargeRuns: parseLocalJson("cobrapp.module2.charge_runs.v1", []) as unknown[],
       streetManagement: streetManagementData,
+      collisions,
+      collisionsSettings,
       statusFilter: String(localStorage.getItem("cobrapp.clients.status_filter.v1") ?? "active")
     };
   }
@@ -881,6 +922,81 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   }, [cloudDataUserId, cloudReady]);
 
   useEffect(() => {
+    const canSend = appRole === "admin" && collisionsSettings.telegramEnabled &&
+      collisionsSettings.telegramBotToken.trim().length > 0 &&
+      collisionsSettings.telegramChatId.trim().length > 0;
+    if (!canSend) return;
+
+    function asDateOnly(value: string): string {
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return "";
+      return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).toISOString().slice(0, 10);
+    }
+
+    function dayDiff(dateIsoLike: string): number | null {
+      const target = asDateOnly(dateIsoLike);
+      const today = asDateOnly(new Date().toISOString());
+      if (!target || !today) return null;
+      const targetMs = Date.parse(`${target}T00:00:00`);
+      const todayMs = Date.parse(`${today}T00:00:00`);
+      if (!Number.isFinite(targetMs) || !Number.isFinite(todayMs)) return null;
+      return Math.round((targetMs - todayMs) / 86_400_000);
+    }
+
+    function loadSentMap(): Record<string, true> {
+      try {
+        const raw = localStorage.getItem(TELEGRAM_SENT_ALERTS_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw) as Record<string, true>;
+        return parsed && typeof parsed === "object" ? parsed : {};
+      } catch {
+        return {};
+      }
+    }
+
+    function saveSentMap(value: Record<string, true>): void {
+      localStorage.setItem(TELEGRAM_SENT_ALERTS_KEY, JSON.stringify(value));
+    }
+
+    async function runSweep(): Promise<void> {
+      const minuteKey = new Date().toISOString().slice(0, 16);
+      if (minuteKey === lastTelegramSweepMinuteRef.current) return;
+      lastTelegramSweepMinuteRef.current = minuteKey;
+
+      const sentMap = loadSentMap();
+      const daysBefore = Array.from(new Set((collisionsSettings.reminderDaysBefore ?? []).filter((d) => Number.isFinite(d))));
+      for (const reminder of listCollisionReminderCandidates()) {
+        const days = dayDiff(reminder.date);
+        if (days === null || !daysBefore.includes(days)) continue;
+        const reminderDateOnly = asDateOnly(reminder.date);
+        const id = `${reminder.id}|${reminder.label}|${reminderDateOnly}|${days}`;
+        if (sentMap[id]) continue;
+        try {
+          const whenText = days === 0 ? "hoy" : `en ${days} dia(s)`;
+          const message = `Rentautos Colisiones\nUnidad ${reminder.unitId}\n${reminder.label}: ${reminderDateOnly}\nRecordatorio: ${whenText}`;
+          const response = await fetch(`https://api.telegram.org/bot${collisionsSettings.telegramBotToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: collisionsSettings.telegramChatId,
+              text: message
+            })
+          });
+          if (!response.ok) continue;
+          sentMap[id] = true;
+          saveSentMap(sentMap);
+        } catch (error) {
+          console.error("No se pudo enviar alerta de Colisiones a Telegram.", error);
+        }
+      }
+    }
+
+    void runSweep();
+    const timer = window.setInterval(() => { void runSweep(); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [appRole, collisions, collisionsSettings]);
+
+  useEffect(() => {
     if (!backupSupported) return;
     let mounted = true;
     (async () => {
@@ -1009,6 +1125,51 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     }
   }
 
+  async function persistCollisions(next: CollisionRecord[]): Promise<void> {
+    setCollisions(next);
+    saveCollisions(next);
+    setHasPendingChanges(true);
+    if (!cloudDataUserId || !cloudReady) return;
+    try {
+      setSyncStatus("syncing");
+      await saveCloudCollisions(cloudDataUserId, next);
+      setSyncStatus("ok");
+      setSyncErrorMessage("");
+      setLastSyncAt(new Date().toLocaleTimeString());
+    } catch (error) {
+      console.error("No se pudo sincronizar Colisiones en nube.", error);
+      setSyncStatus("error");
+      setSyncErrorMessage("No se pudo sincronizar Colisiones. Se conserva local.");
+    }
+  }
+
+  async function persistCollisionsSettings(next: CollisionsSettings): Promise<void> {
+    setCollisionsSettings(next);
+    saveCollisionsSettings(next);
+    if (!cloudDataUserId || !cloudReady) return;
+    try {
+      await saveCloudCollisionsSettings(cloudDataUserId, next);
+    } catch (error) {
+      console.error("No se pudo sincronizar configuracion de Colisiones en nube.", error);
+    }
+  }
+
+  function listCollisionReminderCandidates(): Array<{ id: string; date: string; unitId: string; label: string }> {
+    const rows: Array<{ id: string; date: string; unitId: string; label: string }> = [];
+    for (const item of collisions) {
+      rows.push({ id: item.id, date: item.hearingAt, unitId: item.unitId, label: "Juicio" });
+      if (item.resolutionDate) rows.push({ id: item.id, date: item.resolutionDate, unitId: item.unitId, label: "Resolucion" });
+      if (item.resolutionWithdrawalDate) rows.push({ id: item.id, date: item.resolutionWithdrawalDate, unitId: item.unitId, label: "Retiro de resolucion" });
+      if (item.outcome === "ganado" && item.insurerRecoveryStatus !== "pagado" && item.insurerInvoiceDate) {
+        rows.push({ id: item.id, date: item.insurerInvoiceDate, unitId: item.unitId, label: "Seguimiento aseguradora" });
+      }
+      if (item.outcome === "perdido" && item.driverChargeStatus !== "cobrado" && item.resolutionDate) {
+        rows.push({ id: item.id, date: item.resolutionDate, unitId: item.unitId, label: "Cobro conductor" });
+      }
+    }
+    return rows;
+  }
+
   async function validateBackupFile(file: File): Promise<BackupImportReport> {
     const content = await file.text();
     return analyzeBackupFileContent(file.name, content);
@@ -1049,8 +1210,12 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       localStorage.setItem("cobrapp.module2.cash_closing_audit.v1", JSON.stringify(report.normalizedData["cobrapp.module2.cash_closing_audit.v1"] ?? []));
       localStorage.setItem("cobrapp.module2.charge_runs.v1", JSON.stringify(report.normalizedData["cobrapp.module2.charge_runs.v1"] ?? []));
       localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(report.normalizedData["cobrapp.module3.street_management.v1"] ?? {}));
+      localStorage.setItem("cobrapp.module4.collisions.v1", JSON.stringify(report.normalizedData["cobrapp.module4.collisions.v1"] ?? []));
+      localStorage.setItem("cobrapp.module4.collisions_settings.v1", JSON.stringify(report.normalizedData["cobrapp.module4.collisions_settings.v1"] ?? {}));
       localStorage.setItem("cobrapp.payments.seq.v1", String(Number(report.normalizedData["cobrapp.payments.seq.v1"] ?? 0) || 0));
       localStorage.setItem("cobrapp.clients.status_filter.v1", String(report.normalizedData["cobrapp.clients.status_filter.v1"] ?? ""));
+      setCollisions(loadCollisions());
+      setCollisionsSettings(loadCollisionsSettings());
       setHasPendingChanges(true);
 
       return { ok: true, message: "Respaldo importado correctamente. Ya puedes continuar con la migracion cloud." };
@@ -1126,18 +1291,17 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             </button>
             <button
               type="button"
-              className={`nav-tab ${page === "receivables" ? "nav-tab--active" : ""}`}
-              onClick={() => setPage("receivables")}
-            >
-              Cuentas por Cobrar
-              {routeCollectionCount > 0 && <span className="nav-tab-badge">Ruta: {routeCollectionCount}</span>}
-            </button>
-            <button
-              type="button"
               className={`nav-tab ${page === "control_units" ? "nav-tab--active" : ""}`}
               onClick={() => setPage("control_units")}
             >
               Autos
+            </button>
+            <button
+              type="button"
+              className={`nav-tab ${page === "collisions" ? "nav-tab--active" : ""}`}
+              onClick={() => setPage("collisions")}
+            >
+              Colisiones
             </button>
             <button
               type="button"
@@ -1231,15 +1395,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         {page === "clients_20" && (
           <Clients20Page clients={clients} dataOwnerUserId={cloudDataUserId} />
         )}
-        {page === "receivables" && (
-          <ReceivablesPage
-            clients={clients}
-            payments={payments}
-            hideCollectedThisMonth={isReadOnlyReceivables}
-            streetManagementData={streetManagementData}
-            onStreetManagementPersist={persistStreetManagement}
-          />
-        )}
         {page === "control_units" && (
           <ControlUnitsPage
             dataOwnerUserId={cloudDataUserId}
@@ -1267,6 +1422,16 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             backupStatus={backupStatus}
             hasPendingChanges={hasPendingChanges}
             lastBackupAt={lastBackupAt}
+          />
+        )}
+        {page === "collisions" && (
+          <CollisionsPage
+            clients={clients}
+            collisions={collisions}
+            settings={collisionsSettings}
+            canEdit={appRole === "admin"}
+            onCollisionsChange={persistCollisions}
+            onSettingsChange={persistCollisionsSettings}
           />
         )}
         {page === "cash_closing" && (
