@@ -1001,6 +1001,18 @@ export default function PaymentsPage({
   const [pendingQuickCashSubmitToken, setPendingQuickCashSubmitToken] = useState<number | null>(null);
 
   useEffect(() => {
+    const refreshCashStateFromStorage = () => {
+      setCashClosings(loadCashClosings());
+      setCashClosingAudit(loadCashClosingAudit());
+      setChargeRuns(loadChargeRuns());
+    };
+    window.addEventListener("cobrapp:cloud-hydrated", refreshCashStateFromStorage);
+    return () => {
+      window.removeEventListener("cobrapp:cloud-hydrated", refreshCashStateFromStorage);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!quickCashPrefill) return;
     setIsRegisterOpen(true);
     setForm((prev) => ({

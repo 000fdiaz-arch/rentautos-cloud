@@ -586,6 +586,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         setBankRules(loadBankRules());
         setLateFeeSettings(loadLateFeeSettings());
         setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
+        window.dispatchEvent(new CustomEvent("cobrapp:cloud-hydrated"));
       } catch (error) {
         console.error("No se pudo inicializar cloud mirror.", error);
       }
