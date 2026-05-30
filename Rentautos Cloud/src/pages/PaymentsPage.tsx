@@ -1289,11 +1289,6 @@ export default function PaymentsPage({
     setPendingFilters({ ...EMPTY_PENDING_FILTERS });
   }
 
-  function normalizeToOperationalDate(dateKey: string): string {
-    if (!dateKey) return operationalDateKey;
-    return dateKey > operationalDateKey ? operationalDateKey : dateKey;
-  }
-
   useEffect(() => {
     setForm((prev) => (prev.dateApplied === operationalDateKey ? prev : { ...prev, dateApplied: operationalDateKey }));
   }, [operationalDateKey]);
@@ -1302,27 +1297,8 @@ export default function PaymentsPage({
     setCashClosingDate((prev) => (prev === operationalDateKey ? prev : operationalDateKey));
   }, [operationalDateKey]);
 
-  useEffect(() => {
-    if (reconcilingCardRef.current) return;
-    const normalizedPayments = payments.map((p) => {
-      const nextDateApplied = normalizeToOperationalDate(p.dateApplied);
-      return nextDateApplied === p.dateApplied ? p : { ...p, dateApplied: nextDateApplied };
-    });
-    const changedPayments = normalizedPayments.some((p, idx) => p.dateApplied !== payments[idx].dateApplied);
-    if (changedPayments) {
-      onPaymentsChange(normalizedPayments);
-    }
-
-    const normalizedPending = pendingBankItems.map((item) => {
-      const nextDateApplied = normalizeToOperationalDate(item.dateApplied);
-      return nextDateApplied === item.dateApplied ? item : { ...item, dateApplied: nextDateApplied };
-    });
-    const changedPending = normalizedPending.some((item, idx) => item.dateApplied !== pendingBankItems[idx].dateApplied);
-    if (changedPending) {
-      setPendingBankItems(normalizedPending);
-      savePendingBankItems(normalizedPending);
-    }
-  }, [operationalDateKey, payments, pendingBankItems, onPaymentsChange]);
+  // No reescribimos fechas historicas automaticamente.
+  // Forzar dateApplied al dia operativo puede corromper cierres previos.
 
   useEffect(() => {
     if (reconcilingCardRef.current) return;
