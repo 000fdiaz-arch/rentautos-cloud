@@ -39,6 +39,7 @@ import {
 } from "./cloudData";
 import { supabase } from "./lib/supabase";
 import { isSupabaseOnlyMode } from "./persistenceMode";
+import { disableCloudMirror, flushCloudMirror, initializeCloudMirror } from "./cloudMirror";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
 import {
   autoBackupDetailed,
@@ -492,13 +493,18 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         setSyncStatus("syncing");
         setIsProgressiveCloudLoading(true);
         const [cloudClientsData, cloudPaymentsData, cloudStreetManagement, cloudCollectionClosures] = await Promise.all([
-          loadCloudClientsPage(cloudDataUserId, { limit: INITIAL_CLOUD_BOOTSTRAP_LIMIT }),
-          loadCloudPaymentsPage(cloudDataUserId, { limit: INITIAL_CLOUD_BOOTSTRAP_LIMIT }),
+          appRole === "admin"
+            ? loadCloudClients(cloudDataUserId)
+            : loadCloudClientsPage(cloudDataUserId, { limit: INITIAL_CLOUD_BOOTSTRAP_LIMIT }),
+          appRole === "admin"
+            ? loadCloudPayments(cloudDataUserId)
+            : loadCloudPaymentsPage(cloudDataUserId, { limit: INITIAL_CLOUD_BOOTSTRAP_LIMIT }),
           loadCloudStreetManagement(cloudDataUserId),
           loadCloudCollectionClosures(cloudDataUserId)
         ]);
         if (cancelled) return;
-        let prioritizedCloudClients: Client[] = cloudClientsData.filter((client) => isPreferredBootstrapGroupClient(client));
+        const prioritizedCloudClients: Client[] =
+          appRole === "admin" ? [] : cloudClientsData.filter((client) => isPreferredBootstrapGroupClient(client));
         const bootstrapClients =
           prioritizedCloudClients.length > 0
             ? prioritizedCloudClients
@@ -568,6 +574,28 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       }
     };
   }, [cloudDataUserId, cloudReloadTick, isReadOnlyReceivables]);
+
+  useEffect(() => {
+    if (!cloudDataUserId) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        await initializeCloudMirror(cloudDataUserId);
+        if (cancelled) return;
+        setBankRules(loadBankRules());
+        setLateFeeSettings(loadLateFeeSettings());
+        setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
+      } catch (error) {
+        console.error("No se pudo inicializar cloud mirror.", error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      disableCloudMirror();
+    };
+  }, [cloudDataUserId]);
 
   useEffect(() => {
     recalculateRouteCollectionCount(streetManagementData);
@@ -1051,6 +1079,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     if (cloudDataUserId && !isReadOnlyReceivables) {
       try {
         setSyncStatus("syncing");
+        await flushCloudMirror();
         await flushPendingCoreSync();
         setSyncStatus("ok");
         setLastSyncAt(new Date().toLocaleTimeString());
@@ -1149,6 +1178,11 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             {syncStatus === "error" && syncErrorMessage && (
               <span className="hint" style={{ marginLeft: 8, color: "#b42318" }}>
                 {syncErrorMessage}
+              </span>
+            )}
+            {cloudLoadError && (
+              <span className="hint" style={{ marginLeft: 8, color: "#b42318" }}>
+                {cloudLoadError}
               </span>
             )}
           </div>
