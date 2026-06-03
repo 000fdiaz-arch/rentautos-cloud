@@ -2091,9 +2091,35 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     setAmSealsByDate((current) => ({ ...current, [todayKey]: new Date().toISOString() }));
   }
   function closePmRun(): void {
+    if (!isAmSealed) {
+      setErrors(["Debes culminar AM primero para cerrar PM."]);
+      return;
+    }
+    if (!pmCompletion.isComplete) {
+      const preview = pmCompletion.missingUnits.slice(0, 8).join(", ");
+      const suffix = pmCompletion.missingUnits.length > 8 ? "..." : "";
+      setErrors([`No puedes culminar PM. Faltan unidades sin estado en PM: ${preview}${suffix}`]);
+      return;
+    }
     setPmSealsByDate((current) => ({ ...current, [todayKey]: new Date().toISOString() }));
   }
   function closeCloseRun(): void {
+    if (!isPmSealed) {
+      setErrors(["Debes culminar PM primero para cerrar Cierre."]);
+      return;
+    }
+    if (!closeCompletion.isComplete) {
+      const preview = closeCompletion.missingUnits.slice(0, 8).join(", ");
+      const suffix = closeCompletion.missingUnits.length > 8 ? "..." : "";
+      setErrors([`No puedes culminar Cierre. Faltan unidades sin estado en Cierre: ${preview}${suffix}`]);
+      return;
+    }
+    if (!closeCompletion.streetReady) {
+      const preview = closeCompletion.missingStreetUnits.slice(0, 8).join(", ");
+      const suffix = closeCompletion.missingStreetUnits.length > 8 ? "..." : "";
+      setErrors([`No puedes culminar Cierre. Falta "Enviar a calle" en unidades elegibles: ${preview}${suffix}`]);
+      return;
+    }
     setCloseSealsByDate((current) => ({ ...current, [todayKey]: new Date().toISOString() }));
   }
 
@@ -2847,7 +2873,16 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                           type="button"
                           className="button primary small daily-exec-am-close-btn"
                           onClick={closePmRun}
-                          title="Culminar bloque RUN 2"
+                          disabled={!isAmSealed || !pmCompletion.isComplete || isPmSealed}
+                          title={
+                            !isAmSealed
+                              ? "Debes culminar AM para cerrar PM"
+                              : isPmSealed
+                              ? "PM ya está culminado"
+                              : pmCompletion.isComplete
+                              ? "Culminar bloque PM"
+                              : "Completa todas las unidades de PM para culminar"
+                          }
                         >
                           {isPmSealed ? "RUN 2 culminado" : "Terminar RUN 2"}
                         </button>
@@ -2859,7 +2894,18 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                           type="button"
                           className="button primary small daily-exec-am-close-btn"
                           onClick={closeCloseRun}
-                          title="Culminar bloque RUN 3"
+                          disabled={!isPmSealed || !closeCompletion.isComplete || !closeCompletion.streetReady || isCloseSealed}
+                          title={
+                            !isPmSealed
+                              ? "Debes culminar PM para cerrar Cierre"
+                              : isCloseSealed
+                              ? "Cierre ya está culminado"
+                              : !closeCompletion.streetReady
+                              ? "Debes completar 'Enviar a calle' en todos los casos elegibles"
+                              : closeCompletion.isComplete
+                              ? "Culminar bloque Cierre"
+                              : "Completa todas las unidades de Cierre para culminar"
+                          }
                         >
                           {isCloseSealed ? "RUN 3 culminado" : "Terminar RUN 3"}
                         </button>
@@ -3345,7 +3391,6 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     </div>
   );
 }
-
 
 
 
