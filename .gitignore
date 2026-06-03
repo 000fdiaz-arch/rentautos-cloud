@@ -1,0 +1,21 @@
+node_modules
+dist
+.DS_Store
+.env
+*.local
+dev.log
+*.log
+*.out.log
+*.err.log
+
+# Sensitive operational data (must stay local)
+RESPALDO COBRAPP/
+exports/
+tmp-verify/
+tmp-backup-retention-check/
+supabase/.temp/
+tests/screenshots/
+tests/validation-output/
+
+.claude/worktrees/
+.vercel
