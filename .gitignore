@@ -1,0 +1,13 @@
+/.vercel/
+/node_modules/
+/RESPALDOS/
+/tmp-docx-render/
+/Rentautos Cloud/Rentautos Cloud/
+/Rentautos Cloud/.env
+/Rentautos Cloud/.vercel/
+/Rentautos Cloud/RESPALDOS/
+/Rentautos Cloud/tmp-docx-render/
+/Rentautos Cloud/node_modules/
+/Rentautos Cloud/dist/
+/Rentautos Cloud/*.log
+/Rentautos Cloud/**/*.log

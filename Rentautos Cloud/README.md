@@ -51,7 +51,7 @@ npm install
 
 ## Variables de entorno
 
-Crear `.env` en la raiz:
+Crear `.env` en la raiz del proyecto, es decir en `Rentautos Cloud/`:
 
 ```env
 VITE_SUPABASE_URL=https://TU-PROYECTO.supabase.co
@@ -62,6 +62,7 @@ VITE_PERSISTENCE_MODE=LOCAL_ONLY
 Notas:
 - `VITE_PERSISTENCE_MODE=SUPABASE_ONLY` aun no esta habilitado en este flujo.
 - Sin `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`, la app no puede iniciar autenticacion cloud.
+- No abras ni uses una copia anidada del proyecto dentro de `Rentautos Cloud/Rentautos Cloud/`; la app valida el `.env` solo desde la raiz real del proyecto.
 
 ## Ejecutar en desarrollo
 
