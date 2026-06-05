@@ -334,6 +334,19 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   const advanceRemainingForNextInstallment = normalizedRent > 0
     ? roundMoney(Math.max(0, normalizedRent - advanceAppliedToNextInstallment))
     : 0;
+  const advanceOverflowAfterNextInstallment = normalizedRent > 0
+    ? roundMoney(Math.max(0, advanceBalanceAfter - advanceAppliedToNextInstallment))
+    : 0;
+  const hasAdvanceForFollowingInstallment = advanceOverflowAfterNextInstallment > 0;
+  const followingChargeDate = nextChargeDate
+    ? findNextChargeDay({ ...minimalClientWithoutAdvance, advanceBalance: 0 }, nextChargeDate)
+    : null;
+  const advanceAppliedToFollowingInstallment = normalizedRent > 0
+    ? roundMoney(Math.min(advanceOverflowAfterNextInstallment, normalizedRent))
+    : 0;
+  const advanceRemainingForFollowingInstallment = normalizedRent > 0
+    ? roundMoney(Math.max(0, normalizedRent - advanceAppliedToFollowingInstallment))
+    : 0;
   const hasAdvancePanel = advanceApplied > 0 && normalizedRent > 0;
   const hasAdvancePendingForNextInstallment = hasAdvancePanel && advanceRemainingForNextInstallment > 0;
   const appliedToCurrentRent = roundMoney(Math.max(0, payment.appliedToRent));
@@ -498,6 +511,24 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
             <div className="receipt-advance-row receipt-advance-row--ok">
               <span>Estado de esa letra</span>
               <strong>PAGADA</strong>
+            </div>
+          )}
+          {hasAdvanceForFollowingInstallment && (
+            <div className="receipt-advance-row">
+              <span>
+                Abonado a la siguiente letra
+                {followingChargeDate ? ` (${formatDate(followingChargeDate)})` : ""}
+              </span>
+              <strong>{formatCurrency(advanceAppliedToFollowingInstallment)}</strong>
+            </div>
+          )}
+          {hasAdvanceForFollowingInstallment && advanceRemainingForFollowingInstallment > 0 && (
+            <div className="receipt-advance-row receipt-advance-row--pending">
+              <span>
+                Faltan para esa siguiente letra
+                {followingChargeDate ? ` (${formatDate(followingChargeDate)})` : ""}
+              </span>
+              <strong>{formatCurrency(advanceRemainingForFollowingInstallment)}</strong>
             </div>
           )}
         </div>

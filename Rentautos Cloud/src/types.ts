@@ -210,3 +210,64 @@ export type PaymentPromise = {
   closedReason?: string;
   createdBy?: string;
 };
+
+export type CollisionOutcome = "pendiente" | "ganado" | "perdido";
+export type RecoveryStatus = "pendiente" | "facturado" | "pagado";
+export type DriverChargeStatus = "pendiente" | "cobrado";
+export type CollisionRoute = "juicio" | "reclamo_aseguradora";
+
+export type CollisionRecord = {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  incidentDriverName?: string;
+  plateSnapshot?: string;
+  brandModelSnapshot?: string;
+  collisionDate: string;
+  unitId: string;
+  colilla: string;
+  juzgado: string;
+  courtNumber?: string;
+  hearingAt: string;
+  outcome: CollisionOutcome;
+  routeType?: CollisionRoute;
+  eventLocation?: string;
+  damageDescription?: string;
+  resultNotes?: string;
+  resolutionDate?: string;
+  resolutionWithdrawalDate?: string;
+  internalInvoiceNumber?: string;
+  internalInvoiceAttachmentName?: string;
+  internalInvoiceAttachmentDataUrl?: string;
+  cedulaAttachmentName?: string;
+  cedulaAttachmentDataUrl?: string;
+  licenseAttachmentName?: string;
+  licenseAttachmentDataUrl?: string;
+  damagePhotos?: Array<{ name: string; dataUrl: string }>;
+  insurerName?: string;
+  insurerInvoiceNumber?: string;
+  insurerInvoiceDate?: string;
+  insurerInvoiceAmount?: number;
+  insurerRecoveryStatus?: RecoveryStatus;
+  insurerPaymentDate?: string;
+  driverName?: string;
+  driverChargeAmount?: number;
+  driverChargeStatus?: DriverChargeStatus;
+  driverChargePaymentDate?: string;
+};
+
+export type CollisionReminderEventType =
+  | "juicio"
+  | "resolucion"
+  | "retiro_resolucion"
+  | "seguimiento_aseguradora"
+  | "cobro_conductor";
+
+export type CollisionsSettings = {
+  reminderDaysBefore: number[];
+  telegramBotToken: string;
+  telegramChatId: string;
+  telegramEnabled: boolean;
+  courtOptions?: string[];
+  insurerOptions?: string[];
+};

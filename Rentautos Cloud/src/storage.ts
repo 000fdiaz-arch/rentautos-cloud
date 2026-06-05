@@ -9,6 +9,8 @@ import type {
   ManualBankAssignmentAudit,
   OtherChargesRetentionByClient,
   OtherCharge,
+  CollisionsSettings,
+  CollisionRecord,
   PaymentPromise,
   PaymentPromiseStatus,
   Payment,
@@ -483,6 +485,8 @@ const LATE_FEE_SETTINGS_KEY = "cobrapp.settings.late_fee_settings.v1";
 const LATE_FEE_LEDGER_KEY = "cobrapp.module2.late_fee_ledger.v1";
 const OTHER_CHARGES_RETENTION_KEY = "cobrapp.settings.other_charges_retention.v1";
 const PAYMENT_PROMISES_KEY = "cobrapp.module3.payment_promises.v1";
+const COLLISIONS_KEY = "cobrapp.module4.collisions.v1";
+const COLLISIONS_SETTINGS_KEY = "cobrapp.module4.collisions_settings.v1";
 
 export function loadPendingBankItems(): PendingBankItem[] {
   const raw = localStorage.getItem(PENDING_BANK_KEY);
@@ -843,4 +847,166 @@ export function loadPaymentPromises(): PaymentPromise[] {
 
 export function savePaymentPromises(items: PaymentPromise[]): void {
   localStorage.setItem(PAYMENT_PROMISES_KEY, JSON.stringify(items));
+}
+
+function normalizeCollisionOutcome(value: unknown): CollisionRecord["outcome"] {
+  if (value === "ganado" || value === "perdido" || value === "pendiente") return value;
+  return "pendiente";
+}
+
+function normalizeRecoveryStatus(value: unknown): CollisionRecord["insurerRecoveryStatus"] {
+  if (value === "pendiente" || value === "facturado" || value === "pagado") return value;
+  return "pendiente";
+}
+
+function normalizeDriverChargeStatus(value: unknown): CollisionRecord["driverChargeStatus"] {
+  if (value === "pendiente" || value === "cobrado") return value;
+  return "pendiente";
+}
+
+function normalizeCollisionRoute(value: unknown): CollisionRecord["routeType"] {
+  if (value === "juicio" || value === "reclamo_aseguradora") return value;
+  return undefined;
+}
+
+function normalizeCollisionRecord(item: unknown): CollisionRecord | null {
+  if (!item || typeof item !== "object") return null;
+  const raw = item as Record<string, unknown>;
+  if (
+    typeof raw.id !== "string" ||
+    typeof raw.createdAt !== "string" ||
+    typeof raw.updatedAt !== "string" ||
+    typeof raw.collisionDate !== "string" ||
+    typeof raw.unitId !== "string" ||
+    typeof raw.colilla !== "string" ||
+    typeof raw.juzgado !== "string" ||
+    typeof raw.hearingAt !== "string"
+  ) return null;
+
+  const insurerInvoiceAmount = parseFiniteNumber(raw.insurerInvoiceAmount);
+  const driverChargeAmount = parseFiniteNumber(raw.driverChargeAmount);
+
+  return {
+    id: raw.id,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+    incidentDriverName: typeof raw.incidentDriverName === "string" ? raw.incidentDriverName.trim() : undefined,
+    plateSnapshot: typeof raw.plateSnapshot === "string" ? raw.plateSnapshot.trim().toUpperCase() : undefined,
+    brandModelSnapshot: typeof raw.brandModelSnapshot === "string" ? raw.brandModelSnapshot.trim() : undefined,
+    collisionDate: raw.collisionDate,
+    unitId: normalizeUnitId(raw.unitId),
+    colilla: raw.colilla.trim(),
+    juzgado: raw.juzgado.trim(),
+    courtNumber: typeof raw.courtNumber === "string" ? raw.courtNumber.trim() : undefined,
+    hearingAt: raw.hearingAt,
+    outcome: normalizeCollisionOutcome(raw.outcome),
+    routeType: normalizeCollisionRoute(raw.routeType),
+    eventLocation: typeof raw.eventLocation === "string" ? raw.eventLocation.trim() : undefined,
+    damageDescription: typeof raw.damageDescription === "string" ? raw.damageDescription.trim() : undefined,
+    resultNotes: typeof raw.resultNotes === "string" ? raw.resultNotes.trim() : undefined,
+    resolutionDate: typeof raw.resolutionDate === "string" ? raw.resolutionDate : undefined,
+    resolutionWithdrawalDate: typeof raw.resolutionWithdrawalDate === "string" ? raw.resolutionWithdrawalDate : undefined,
+    internalInvoiceNumber: typeof raw.internalInvoiceNumber === "string" ? raw.internalInvoiceNumber.trim() : undefined,
+    internalInvoiceAttachmentName: typeof raw.internalInvoiceAttachmentName === "string" ? raw.internalInvoiceAttachmentName.trim() : undefined,
+    internalInvoiceAttachmentDataUrl: typeof raw.internalInvoiceAttachmentDataUrl === "string" ? raw.internalInvoiceAttachmentDataUrl : undefined,
+    cedulaAttachmentName: typeof raw.cedulaAttachmentName === "string" ? raw.cedulaAttachmentName.trim() : undefined,
+    cedulaAttachmentDataUrl: typeof raw.cedulaAttachmentDataUrl === "string" ? raw.cedulaAttachmentDataUrl : undefined,
+    licenseAttachmentName: typeof raw.licenseAttachmentName === "string" ? raw.licenseAttachmentName.trim() : undefined,
+    licenseAttachmentDataUrl: typeof raw.licenseAttachmentDataUrl === "string" ? raw.licenseAttachmentDataUrl : undefined,
+    damagePhotos: Array.isArray(raw.damagePhotos)
+      ? raw.damagePhotos
+          .filter((photo) => photo && typeof photo === "object")
+          .map((photo) => {
+            const row = photo as Record<string, unknown>;
+            return {
+              name: typeof row.name === "string" ? row.name.trim() : "",
+              dataUrl: typeof row.dataUrl === "string" ? row.dataUrl : ""
+            };
+          })
+          .filter((photo) => photo.name.length > 0 && photo.dataUrl.length > 0)
+          .slice(0, 20)
+      : undefined,
+    insurerName: typeof raw.insurerName === "string" ? raw.insurerName.trim() : undefined,
+    insurerInvoiceNumber: typeof raw.insurerInvoiceNumber === "string" ? raw.insurerInvoiceNumber.trim() : undefined,
+    insurerInvoiceDate: typeof raw.insurerInvoiceDate === "string" ? raw.insurerInvoiceDate : undefined,
+    insurerInvoiceAmount: insurerInvoiceAmount !== null && insurerInvoiceAmount >= 0 ? insurerInvoiceAmount : undefined,
+    insurerRecoveryStatus: normalizeRecoveryStatus(raw.insurerRecoveryStatus),
+    insurerPaymentDate: typeof raw.insurerPaymentDate === "string" ? raw.insurerPaymentDate : undefined,
+    driverName: typeof raw.driverName === "string" ? raw.driverName.trim() : undefined,
+    driverChargeAmount: driverChargeAmount !== null && driverChargeAmount >= 0 ? driverChargeAmount : undefined,
+    driverChargeStatus: normalizeDriverChargeStatus(raw.driverChargeStatus),
+    driverChargePaymentDate: typeof raw.driverChargePaymentDate === "string" ? raw.driverChargePaymentDate : undefined
+  };
+}
+
+export function loadCollisions(): CollisionRecord[] {
+  const raw = localStorage.getItem(COLLISIONS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => normalizeCollisionRecord(item))
+      .filter((item): item is CollisionRecord => item !== null)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  } catch {
+    return [];
+  }
+}
+
+export function saveCollisions(items: CollisionRecord[]): void {
+  localStorage.setItem(COLLISIONS_KEY, JSON.stringify(items));
+}
+
+export function defaultCollisionsSettings(): CollisionsSettings {
+  return {
+    reminderDaysBefore: [7, 3, 1, 0],
+    telegramBotToken: "",
+    telegramChatId: "",
+    telegramEnabled: false,
+    courtOptions: [],
+    insurerOptions: []
+  };
+}
+
+export function loadCollisionsSettings(): CollisionsSettings {
+  const raw = localStorage.getItem(COLLISIONS_SETTINGS_KEY);
+  if (!raw) return defaultCollisionsSettings();
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const daysRaw = Array.isArray(parsed.reminderDaysBefore) ? parsed.reminderDaysBefore : [];
+    const reminderDaysBefore = Array.from(new Set(daysRaw
+      .map((day) => parseNonNegativeInteger(day))
+      .filter((day) => day <= 60)))
+      .sort((a, b) => b - a);
+    return {
+      reminderDaysBefore: reminderDaysBefore.length > 0 ? reminderDaysBefore : [7, 3, 1, 0],
+      telegramBotToken: typeof parsed.telegramBotToken === "string" ? parsed.telegramBotToken.trim() : "",
+      telegramChatId: typeof parsed.telegramChatId === "string" ? parsed.telegramChatId.trim() : "",
+      telegramEnabled: parsed.telegramEnabled === true,
+      courtOptions: Array.isArray(parsed.courtOptions)
+        ? Array.from(new Set(parsed.courtOptions.map((item) => typeof item === "string" ? item.trim() : "").filter(Boolean))).sort((a, b) => a.localeCompare(b))
+        : [],
+      insurerOptions: Array.isArray(parsed.insurerOptions)
+        ? Array.from(new Set(parsed.insurerOptions.map((item) => typeof item === "string" ? item.trim() : "").filter(Boolean))).sort((a, b) => a.localeCompare(b))
+        : []
+    };
+  } catch {
+    return defaultCollisionsSettings();
+  }
+}
+
+export function saveCollisionsSettings(settings: CollisionsSettings): void {
+  const normalizedDays = Array.from(new Set((settings.reminderDaysBefore ?? [])
+    .map((day) => parseNonNegativeInteger(day))
+    .filter((day) => day <= 60)))
+    .sort((a, b) => b - a);
+  localStorage.setItem(COLLISIONS_SETTINGS_KEY, JSON.stringify({
+    reminderDaysBefore: normalizedDays.length > 0 ? normalizedDays : [7, 3, 1, 0],
+    telegramBotToken: settings.telegramBotToken?.trim() ?? "",
+    telegramChatId: settings.telegramChatId?.trim() ?? "",
+    telegramEnabled: settings.telegramEnabled === true,
+    courtOptions: Array.from(new Set((settings.courtOptions ?? []).map((item) => item.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    insurerOptions: Array.from(new Set((settings.insurerOptions ?? []).map((item) => item.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b))
+  }));
 }

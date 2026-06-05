@@ -1,4 +1,4 @@
--- Rentautos: asignar operadora de caja diaria (ambar) al dataset del admin.
+-- Rentautos: asignar AMBAR con acceso completo (admin).
 -- Ejecutar en Supabase SQL Editor despues de 01, 07, 08 y 09.
 
 do $$
@@ -28,8 +28,8 @@ begin
 
   update public.user_profiles
   set
-    role = 'operador',
-    data_owner_user_id = v_admin_id,
+    role = 'admin',
+    data_owner_user_id = null,
     updated_at = now()
   where id = v_operator_id;
 end

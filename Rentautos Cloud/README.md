@@ -16,6 +16,7 @@ Aplicacion web para gestion operativa de rentas: clientes, pagos, cuentas por co
 - `Cuentas por Cobrar`: vista de deuda y gestion de cobro en ruta.
 - `Configuraciones`: reglas bancarias, recargos, respaldos e importacion de backup.
 - `Cuadre de Caja`: flujo de cierre diario y enlace rapido a pago en efectivo.
+- `Colisiones`: gestion de choques, juicio, resolucion, facturacion y seguimiento de cobro.
 
 ## Arquitectura (resumen)
 
@@ -91,6 +92,7 @@ Ejecutar en SQL Editor (orden recomendado):
 5. `supabase/05-payment-promises-cloud.sql`
 6. `supabase/06-collection-closures-cloud.sql`
 7. `supabase/07-shared-data-owner-rls.sql`
+8. `supabase/15-collisions-cloud.sql`
 
 Despues:
 - Crear usuario desde UI de login/registro.
