@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import PaymentReceipt, { downloadPaymentReceiptImage, downloadPaymentsReceiptsZip } from "../components/PaymentReceipt";
+import PaymentReceipt, { downloadPaymentsReceiptsZip } from "../components/PaymentReceipt";
 import {
   loadCloudCollectionRows,
   loadCloudSingletonData,
@@ -183,6 +183,10 @@ type HistoryColumnFilters = {
   installments: string;
   method: string;
 };
+
+type PaymentTab = "all" | "cash" | "register" | "notified" | "pending" | "card" | "history";
+
+const HISTORY_INITIAL_LIMIT = 5;
 
 const EMPTY_PENDING_FILTERS: PendingColumnFilters = {
   folio: "",
@@ -781,10 +785,7 @@ export default function PaymentsPage({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [confirmedPayment, setConfirmedPayment] = useState<Payment | null>(null);
-  const [isRegisterOpen, setIsRegisterOpen] = useState(true);
-  const [isNotifiedOpen, setIsNotifiedOpen] = useState(false);
-  const [isCashClosingOpen, setIsCashClosingOpen] = useState(false);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [activePaymentTab, setActivePaymentTab] = useState<PaymentTab>("register");
   const [historyClientId, setHistoryClientId] = useState<string>("all");
   const [historyGroupFilter, setHistoryGroupFilter] = useState<string>("all");
   const [historyDateFrom, setHistoryDateFrom] = useState<string>("");
@@ -793,6 +794,7 @@ export default function PaymentsPage({
   const [historySortField, setHistorySortField] = useState<HistorySortField>("date");
   const [historySortDirection, setHistorySortDirection] = useState<SortDirection>("desc");
   const [historySelectedPaymentIds, setHistorySelectedPaymentIds] = useState<string[]>([]);
+  const [historyVisibleCount, setHistoryVisibleCount] = useState(HISTORY_INITIAL_LIMIT);
   const [isHistoryBulkDownloading, setIsHistoryBulkDownloading] = useState(false);
   const [historyBulkDownloadError, setHistoryBulkDownloadError] = useState("");
   const [historyPreviewPayment, setHistoryPreviewPayment] = useState<Payment | null>(null);
@@ -822,8 +824,6 @@ export default function PaymentsPage({
   const [reopenReason, setReopenReason] = useState<string>("");
   const [pendingBankItems, setPendingBankItems] = useState<PendingBankItem[]>([]);
   const [pendingCardItems, setPendingCardItems] = useState<PendingCardItem[]>([]);
-  const [isPendingOpen, setIsPendingOpen] = useState(true);
-  const [isCardPendingOpen, setIsCardPendingOpen] = useState(false);
   const [pendingClassifyTarget, setPendingClassifyTarget] = useState<PendingBankItem | null>(null);
   const [pendingClassifyClientId, setPendingClassifyClientId] = useState("");
   const [pendingClassifySearch, setPendingClassifySearch] = useState("");
@@ -848,7 +848,6 @@ export default function PaymentsPage({
   const historyTopScrollRef = useRef<HTMLDivElement>(null);
   const historyTopInnerRef = useRef<HTMLDivElement>(null);
   const historyBottomScrollRef = useRef<HTMLDivElement>(null);
-  const autoDownloadedPaymentIdsRef = useRef<Set<string>>(new Set());
   const reconcilingCardRef = useRef(false);
   const cashSectionRef = useRef<HTMLElement>(null);
   const registerSectionRef = useRef<HTMLElement>(null);
@@ -978,7 +977,7 @@ export default function PaymentsPage({
 
   useEffect(() => {
     if (!quickCashPrefill) return;
-    setIsRegisterOpen(true);
+    setActivePaymentTab("register");
     setForm((prev) => ({
       ...prev,
       dateApplied: quickCashPrefill.dateApplied || toDateKey(new Date()),
@@ -997,14 +996,6 @@ export default function PaymentsPage({
     if (options?.openReceipt) {
       setConfirmedPayment(payment);
     }
-    if (autoDownloadedPaymentIdsRef.current.has(payment.id)) return;
-    autoDownloadedPaymentIdsRef.current.add(payment.id);
-    void downloadPaymentReceiptImage(payment).catch(() => {
-      setErrors((prev) => {
-        const msg = "Pago registrado, pero no se pudo descargar el recibo automaticamente. Intenta descargarlo manualmente.";
-        return prev.includes(msg) ? prev : [...prev, msg];
-      });
-    });
   }
 
   const activeClients = useMemo(
@@ -1330,7 +1321,7 @@ export default function PaymentsPage({
   }, [pendingCardItems, pendingBankItems, payments, operationalDateKey, onPaymentsChange]);
 
   useEffect(() => {
-    if (!isPendingOpen) return;
+    if (activePaymentTab !== "pending" && activePaymentTab !== "all") return;
     const top = pendingTopScrollRef.current;
     const bottom = pendingBottomScrollRef.current;
     if (!top || !bottom) return;
@@ -1355,10 +1346,10 @@ export default function PaymentsPage({
       top.removeEventListener("scroll", onTopScroll);
       bottom.removeEventListener("scroll", onBottomScroll);
     };
-  }, [isPendingOpen, pendingBankItems.length]);
+  }, [activePaymentTab, pendingBankItems.length]);
 
   useEffect(() => {
-    if (!isPendingOpen) return;
+    if (activePaymentTab !== "pending" && activePaymentTab !== "all") return;
     const top = pendingTopScrollRef.current;
     const topInner = pendingTopInnerRef.current;
     const bottom = pendingBottomScrollRef.current;
@@ -1376,7 +1367,7 @@ export default function PaymentsPage({
     return () => {
       window.removeEventListener("resize", updateTopWidth);
     };
-  }, [isPendingOpen, pendingBankItems.length, activeClients.length]);
+  }, [activePaymentTab, pendingBankItems.length, activeClients.length]);
 
   function isDateClosed(dateKey: string): boolean {
     return closedDateSet.has(dateKey);
@@ -1995,7 +1986,7 @@ export default function PaymentsPage({
         const next = [...pendingBankItems, ...newPendingItems];
         setPendingBankItems(next);
         savePendingBankItems(next);
-        setIsPendingOpen(true);
+        setActivePaymentTab("pending");
       }
     }
 
@@ -3300,8 +3291,13 @@ export default function PaymentsPage({
     return sorted;
   }, [payments, historyClientId, historyGroupFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
 
+  const historyVisibleRows = useMemo(
+    () => historyRows.slice(0, Math.max(HISTORY_INITIAL_LIMIT, historyVisibleCount)),
+    [historyRows, historyVisibleCount]
+  );
+
   useEffect(() => {
-    if (!isHistoryOpen) return;
+    if (activePaymentTab !== "history" && activePaymentTab !== "all") return;
     const top = historyTopScrollRef.current;
     const bottom = historyBottomScrollRef.current;
     if (!top || !bottom) return;
@@ -3326,10 +3322,10 @@ export default function PaymentsPage({
       top.removeEventListener("scroll", onTopScroll);
       bottom.removeEventListener("scroll", onBottomScroll);
     };
-  }, [isHistoryOpen, historyRows.length]);
+  }, [activePaymentTab, historyVisibleRows.length]);
 
   useEffect(() => {
-    if (!isHistoryOpen) return;
+    if (activePaymentTab !== "history" && activePaymentTab !== "all") return;
     const top = historyTopScrollRef.current;
     const topInner = historyTopInnerRef.current;
     const bottom = historyBottomScrollRef.current;
@@ -3347,11 +3343,11 @@ export default function PaymentsPage({
     return () => {
       window.removeEventListener("resize", updateTopWidth);
     };
-  }, [isHistoryOpen, historyRows.length]);
+  }, [activePaymentTab, historyVisibleRows.length]);
 
   const historyRowsById = useMemo(() => {
-    return new Map(historyRows.map((row) => [row.id, row]));
-  }, [historyRows]);
+    return new Map(historyVisibleRows.map((row) => [row.id, row]));
+  }, [historyVisibleRows]);
   const historySelectedIdSet = useMemo(() => new Set(historySelectedPaymentIds), [historySelectedPaymentIds]);
 
   const historySelectedRows = useMemo(() => {
@@ -3360,7 +3356,7 @@ export default function PaymentsPage({
       .filter((row): row is Payment => Boolean(row));
   }, [historySelectedPaymentIds, historyRowsById]);
 
-  const isAllHistoryRowsSelected = historyRows.length > 0 && historySelectedRows.length === historyRows.length;
+  const isAllHistoryRowsSelected = historyVisibleRows.length > 0 && historySelectedRows.length === historyVisibleRows.length;
 
   useEffect(() => {
     setHistorySelectedPaymentIds((previous) => previous.filter((id) => historyRowsById.has(id)));
@@ -3375,7 +3371,7 @@ export default function PaymentsPage({
   }
 
   function toggleSelectAllHistoryRows(): void {
-    if (historyRows.length === 0) {
+    if (historyVisibleRows.length === 0) {
       setHistorySelectedPaymentIds([]);
       return;
     }
@@ -3383,7 +3379,7 @@ export default function PaymentsPage({
       setHistorySelectedPaymentIds([]);
       return;
     }
-    setHistorySelectedPaymentIds(historyRows.map((row) => row.id));
+    setHistorySelectedPaymentIds(historyVisibleRows.map((row) => row.id));
   }
 
   async function handleDownloadHistorySelection(): Promise<void> {
@@ -3420,26 +3416,23 @@ export default function PaymentsPage({
     });
   }
 
-  function handleQuickToggleSection(
-    isOpen: boolean,
-    setOpen: React.Dispatch<React.SetStateAction<boolean>>,
-    sectionRef: React.RefObject<HTMLElement>
-  ): void {
-    if (isOpen) {
-      setOpen(false);
-      return;
+  function activatePaymentTab(tab: PaymentTab, sectionRef?: React.RefObject<HTMLElement>): void {
+    setActivePaymentTab(tab);
+    if (sectionRef) {
+      scrollToWorkSection(sectionRef);
     }
-    setOpen(true);
-    scrollToWorkSection(sectionRef);
   }
 
   function handleQuickImportCSV(): void {
-    if (!isPendingOpen) {
-      setIsPendingOpen(true);
-    }
-    scrollToWorkSection(pendingSectionRef);
+    activatePaymentTab("pending", pendingSectionRef);
     void handleImportBankCSV();
   }
+
+  useEffect(() => {
+    if (activePaymentTab === "history") {
+      setHistoryVisibleCount(HISTORY_INITIAL_LIMIT);
+    }
+  }, [activePaymentTab]);
 
 
   if (confirmedPayment) {
@@ -3457,11 +3450,11 @@ export default function PaymentsPage({
   return (
     <div className="page-inner">
       {/* -- Payment form -- */}
-      <section ref={cashSectionRef} className="panel" style={{ display: isCashClosingOpen ? undefined : "none" }}>
+      <section ref={cashSectionRef} className="panel" style={{ display: activePaymentTab === "all" || activePaymentTab === "cash" ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Cierre de caja</h2>
         </div>
-        {isCashClosingOpen && (
+        {(activePaymentTab === "all" || activePaymentTab === "cash") && (
         <>
         <div className="payment-form-grid" style={{ marginTop: 12 }}>
           <div className="payment-field-group">
@@ -3636,81 +3629,87 @@ export default function PaymentsPage({
         )}
       </section>
 
-      <section className="panel payment-quick-actions-panel">
-        <div className="payment-quick-actions-grid">
+      <section className="panel payment-tabs-panel">
+        <div className="payment-tabs" role="tablist" aria-label="Secciones de pagos">
           <button
             type="button"
-            className={`payment-quick-action${isCashClosingOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isCashClosingOpen, setIsCashClosingOpen, cashSectionRef)}
+            role="tab"
+            aria-selected={activePaymentTab === "all"}
+            className={`payment-tab${activePaymentTab === "all" ? " payment-tab--active" : ""}`}
+            onClick={() => setActivePaymentTab("all")}
           >
-            <span className="payment-quick-action-title">Cierre de caja</span>
-            <span className="payment-quick-action-state">{isCashClosingOpen ? "Ocultar" : "Abrir"}</span>
+            <span className="payment-tab-title">Todas</span>
+            <span className="payment-tab-state">Vista completa</span>
           </button>
-
           <button
             type="button"
-            className={`payment-quick-action${isRegisterOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isRegisterOpen, setIsRegisterOpen, registerSectionRef)}
+            role="tab"
+            aria-selected={activePaymentTab === "cash"}
+            className={`payment-tab${activePaymentTab === "cash" ? " payment-tab--active" : ""}`}
+            onClick={() => activatePaymentTab("cash", cashSectionRef)}
           >
-            <span className="payment-quick-action-title">Registrar pago</span>
-            <span className="payment-quick-action-state">{isRegisterOpen ? "Ocultar" : "Abrir"}</span>
+            <span className="payment-tab-title">Cierre de caja</span>
+            <span className="payment-tab-state">Ajustes</span>
           </button>
-
           <button
             type="button"
-            className={`payment-quick-action${isNotifiedOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isNotifiedOpen, setIsNotifiedOpen, notifiedSectionRef)}
+            role="tab"
+            aria-selected={activePaymentTab === "register"}
+            className={`payment-tab${activePaymentTab === "register" ? " payment-tab--active" : ""}`}
+            onClick={() => activatePaymentTab("register", registerSectionRef)}
           >
-            <span className="payment-quick-action-title">Pago notificado</span>
-            <span className="payment-quick-action-state">{isNotifiedOpen ? "Ocultar" : "Abrir"}</span>
+            <span className="payment-tab-title">Registrar pago</span>
+            <span className="payment-tab-state">Nuevo recibo</span>
           </button>
-
           <button
             type="button"
-            className="payment-quick-action"
-            onClick={handleQuickImportCSV}
+            role="tab"
+            aria-selected={activePaymentTab === "notified"}
+            className={`payment-tab${activePaymentTab === "notified" ? " payment-tab--active" : ""}`}
+            onClick={() => activatePaymentTab("notified", notifiedSectionRef)}
           >
-            <span className="payment-quick-action-title">Importar CSV</span>
-            <span className="payment-quick-action-state">Banco</span>
+            <span className="payment-tab-title">Pago notificado</span>
+            <span className="payment-tab-state">Pendientes</span>
           </button>
-
-
           <button
             type="button"
-            className={`payment-quick-action${isPendingOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isPendingOpen, setIsPendingOpen, pendingSectionRef)}
+            role="tab"
+            aria-selected={activePaymentTab === "pending"}
+            className={`payment-tab${activePaymentTab === "pending" ? " payment-tab--active" : ""}`}
+            onClick={() => activatePaymentTab("pending", pendingSectionRef)}
           >
-            <span className="payment-quick-action-title">Ver pendientes</span>
-            <span className="payment-quick-action-state">{isPendingOpen ? "Ocultar" : "Abrir"}</span>
+            <span className="payment-tab-title">Importar CSV</span>
+            <span className="payment-tab-state">Banco</span>
           </button>
-
           <button
             type="button"
-            className={`payment-quick-action${isCardPendingOpen ? " payment-quick-action--active" : ""}`}
-            aria-label="Pendientes de conciliacion TDC"
-            onClick={() => handleQuickToggleSection(isCardPendingOpen, setIsCardPendingOpen, pendingCardSectionRef)}
+            role="tab"
+            aria-selected={activePaymentTab === "card"}
+            className={`payment-tab${activePaymentTab === "card" ? " payment-tab--active" : ""}`}
+            onClick={() => activatePaymentTab("card", pendingCardSectionRef)}
           >
-            <span className="payment-quick-action-title">Pendientes tarjeta</span>
-            <span className="payment-quick-action-state">{isCardPendingOpen ? "Ocultar" : "Abrir"}</span>
+            <span className="payment-tab-title">Pendientes tarjeta</span>
+            <span className="payment-tab-state">Folio</span>
           </button>
-
           <button
             type="button"
-            className={`payment-quick-action${isHistoryOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isHistoryOpen, setIsHistoryOpen, historySectionRef)}
+            role="tab"
+            aria-selected={activePaymentTab === "history"}
+            className={`payment-tab${activePaymentTab === "history" ? " payment-tab--active" : ""}`}
+            onClick={() => activatePaymentTab("history", historySectionRef)}
           >
-            <span className="payment-quick-action-title">Historial pagos</span>
-            <span className="payment-quick-action-state">{isHistoryOpen ? "Ocultar" : "Abrir"}</span>
+            <span className="payment-tab-title">Historial de pagos</span>
+            <span className="payment-tab-state">Recibos recientes</span>
           </button>
         </div>
       </section>
 
-      <section ref={registerSectionRef} className="panel" style={{ display: isRegisterOpen ? undefined : "none" }}>
+      <section ref={registerSectionRef} className="panel" style={{ display: activePaymentTab === "all" || activePaymentTab === "register" ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Registrar pago</h2>
         </div>
 
-        {isRegisterOpen && (
+        {(activePaymentTab === "all" || activePaymentTab === "register") && (
         <>
         {/* Client selector */}
         <div className="payment-form-grid" style={{ marginTop: 16 }}>
@@ -3995,12 +3994,12 @@ export default function PaymentsPage({
         )}
       </section>
 
-      <section ref={notifiedSectionRef} className="panel" style={{ display: isNotifiedOpen ? undefined : "none" }}>
+      <section ref={notifiedSectionRef} className="panel" style={{ display: activePaymentTab === "all" || activePaymentTab === "notified" ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Pagos notificados (pendientes)</h2>
         </div>
 
-        {isNotifiedOpen && (
+        {(activePaymentTab === "all" || activePaymentTab === "notified") && (
         <>
         <p className="hint">Ingresa la unidad y el monto. El sistema trae automaticamente el cliente.</p>
 
@@ -4176,11 +4175,11 @@ export default function PaymentsPage({
         )}
       </section>
 
-      <section ref={pendingCardSectionRef} className="panel" style={{ display: isCardPendingOpen ? undefined : "none" }}>
+      <section ref={pendingCardSectionRef} className="panel" style={{ display: activePaymentTab === "all" || activePaymentTab === "card" ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Pendientes por folio (Tarjeta)</h2>
         </div>
-        {isCardPendingOpen && (
+        {(activePaymentTab === "all" || activePaymentTab === "card") && (
           <>
             <p className="hint">Estos pagos ya fueron aplicados al cliente. Este panel es solo para conciliacion bancaria por lote/folio.</p>
             {cardPendingMessage && (
@@ -4282,7 +4281,7 @@ export default function PaymentsPage({
       </section>
 
       {/* -- Pending bank items -- */}
-      <section ref={pendingSectionRef} className="panel" style={{ display: isPendingOpen ? undefined : "none" }}>
+      <section ref={pendingSectionRef} className="panel" style={{ display: activePaymentTab === "all" || activePaymentTab === "pending" ? undefined : "none" }}>
         <div className="panel-head">
           <h2>
             Pendientes del banco
@@ -4291,6 +4290,9 @@ export default function PaymentsPage({
             )}
           </h2>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button type="button" className="button primary small" onClick={handleQuickImportCSV}>
+              Importar CSV
+            </button>
             {pendingBankItems.some((item) => {
               const { score } = getSimilaritySignals(item);
               if (score < 2) return false;
@@ -4315,7 +4317,7 @@ export default function PaymentsPage({
           </p>
         )}
 
-        {isPendingOpen && (
+        {(activePaymentTab === "all" || activePaymentTab === "pending") && (
           <>
             <p className="hint" style={{ marginTop: 8 }}>
               La importacion aplica regla automatica por cuenta y grupo. En edicion manual puedes asignar cualquier cliente.
@@ -4511,11 +4513,11 @@ export default function PaymentsPage({
       </section>
 
       {/* -- Payment history -- */}
-      <section ref={historySectionRef} className="panel" style={{ display: isHistoryOpen ? undefined : "none" }}>
+      <section ref={historySectionRef} className="panel" style={{ display: activePaymentTab === "all" || activePaymentTab === "history" ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Historial de pagos</h2>
         </div>
-        {isHistoryOpen && (
+        {(activePaymentTab === "all" || activePaymentTab === "history") && (
         <>
         <div className="panel-head" style={{ marginTop: 10, gap: 8, flexWrap: "wrap" }}>
           <select
@@ -4577,8 +4579,8 @@ export default function PaymentsPage({
           <div className="history-bulk-bar">
             <div className="history-bulk-summary">
               {historySelectedRows.length > 0
-                ? `${historySelectedRows.length} seleccionados de ${historyRows.length}`
-                : `${historyRows.length} recibos filtrados`}
+                ? `${historySelectedRows.length} seleccionados de ${historyVisibleRows.length}`
+                : `${historyVisibleRows.length} de ${historyRows.length} recibos visibles`}
             </div>
             <div className="history-bulk-actions">
               <button
@@ -4607,6 +4609,15 @@ export default function PaymentsPage({
               >
                 Descargar filtrados ({historyRows.length})
               </button>
+              {historyRows.length > historyVisibleRows.length && (
+                <button
+                  type="button"
+                  className="button ghost small"
+                  onClick={() => setHistoryVisibleCount(historyRows.length)}
+                >
+                  Mostrar todos
+                </button>
+              )}
           </div>
           </div>
           {historyBulkDownloadError && <p className="hint error-text">{historyBulkDownloadError}</p>}
@@ -4659,7 +4670,7 @@ export default function PaymentsPage({
                 </tr>
               </thead>
               <tbody>
-                {historyRows.map((p) => (
+                {historyVisibleRows.map((p) => (
                   <tr key={p.id} className={historySelectedIdSet.has(p.id) ? "history-row--selected" : ""}>
                     <td>
                       <input
@@ -4702,7 +4713,9 @@ export default function PaymentsPage({
           </>
         )}
         {historyRows.length > 0 && (
-          <p className="hint">Mostrando {historyRows.length} pagos filtrados.</p>
+          <p className="hint">
+            Mostrando {historyVisibleRows.length} de {historyRows.length} pagos filtrados.
+          </p>
         )}
         </>
         )}
