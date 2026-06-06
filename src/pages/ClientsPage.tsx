@@ -9,7 +9,7 @@ import {
 } from "../billing";
 import { exportAmClosureToPdf, exportClientsToExcel, exportClientsToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
-import { loadCloudCollectionRows, loadControlUnits } from "../cloudData";
+import { loadCloudCollectionRows, loadControlUnits, upsertCloudCollectionRow } from "../cloudData";
 import { writeLocalStorageFromCloud } from "../cloudMirror";
 import { supabase } from "../lib/supabase";
 import type { BillingFrequency, Client, OtherCharge, Payment, WeeklyChargeDay } from "../types";
@@ -121,6 +121,88 @@ type PaymentPromiseRecord = {
   resolution?: PromiseResolution;
 };
 
+type DailyCollectionDeltaBase = {
+  id: string;
+  deletedAt?: string;
+};
+
+type DailyCollectionEntryDelta = DailyCollectionDeltaBase & {
+  kind: "collection_entry";
+  dateKey: string;
+  runId: CollectionRunId;
+  clientId: string;
+  status: CollectionDailyStatus;
+  amountPaid?: number;
+  followUpAt?: string;
+  promisedAmount?: number;
+  note?: string;
+  updatedAt: string;
+};
+
+type DailyNoActionDelta = DailyCollectionDeltaBase & {
+  kind: "no_action_confirm";
+  dateKey: string;
+  runId: CollectionRunId;
+  clientId: string;
+  reason: NoActionReason;
+  confirmedAt: string;
+};
+
+type DailyOverrideDelta = DailyCollectionDeltaBase & {
+  kind: "collection_override";
+  clientId: string;
+  runId: CollectionRunId;
+  enabled: boolean;
+  updatedAt: string;
+};
+
+type DailyStreetActionDelta = DailyCollectionDeltaBase & {
+  kind: "street_action";
+  dateKey: string;
+  clientId: string;
+  actionType: StreetActionType;
+  minAmount: number;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type DailyDayNoteDelta = DailyCollectionDeltaBase & {
+  kind: "day_note";
+  dateKey: string;
+  entityId: string;
+  note: string;
+  updatedAt: string;
+};
+
+type DailySealDelta = DailyCollectionDeltaBase & {
+  kind: "seal";
+  sealKind: "am" | "pm" | "close";
+  dateKey: string;
+  sealedAt: string;
+};
+
+type DailyPromiseDelta = DailyCollectionDeltaBase & {
+  kind: "promise";
+  clientId: string;
+  promisedAt: string;
+  promisedAmount: number;
+  sourceRun: CollectionRunId;
+  createdAt: string;
+  note?: string;
+  resolvedAt?: string;
+  resolution?: PromiseResolution;
+};
+
+type DailyCollectionDelta =
+  | DailyCollectionEntryDelta
+  | DailyNoActionDelta
+  | DailyOverrideDelta
+  | DailyStreetActionDelta
+  | DailyDayNoteDelta
+  | DailySealDelta
+  | DailyPromiseDelta;
+
 type EditClientTab = "identidad" | "plan" | "cargos" | "estado";
 const DAILY_COLLECTION_KEY = "cobrapp.clients.daily_collection.v1";
 const DAILY_COLLECTION_AM_SEALS_KEY = "cobrapp.clients.daily_collection_am_seals.v1";
@@ -130,6 +212,7 @@ const DAILY_COLLECTION_PROMISES_KEY = "cobrapp.clients.daily_collection_promises
 const DAILY_COLLECTION_STREET_ACTIONS_KEY = "cobrapp.clients.daily_collection_street_actions.v1";
 const DAILY_COLLECTION_NO_ACTION_CONFIRMS_KEY = "cobrapp.clients.daily_collection_no_action_confirms.v1";
 const DAILY_COLLECTION_DAY_NOTES_KEY = "cobrapp.clients.daily_collection_day_notes.v1";
+const DAILY_COLLECTION_DELTA_TABLE = "clients_daily_collection_deltas_cloud";
 const PROMISES_ENABLED = false;
 const DAILY_COLLECTION_SYNC_TABLES = [
   { key: DAILY_COLLECTION_KEY, table: "clients_daily_collection_cloud" },
@@ -140,22 +223,100 @@ const DAILY_COLLECTION_SYNC_TABLES = [
   { key: DAILY_COLLECTION_STREET_ACTIONS_KEY, table: "clients_daily_collection_street_actions_cloud" },
   { key: DAILY_COLLECTION_DAY_NOTES_KEY, table: "clients_daily_collection_day_notes_cloud" }
 ] as const;
-function notifyCloudSyncPing(key: string): void {
-  window.dispatchEvent(
-    new CustomEvent("cobrapp:cloud-sync-ping", {
-      detail: { key, at: new Date().toISOString(), source: "clients_daily_collection" }
-    })
-  );
-}
-
 function stableJson(value: unknown): string {
   return JSON.stringify(value ?? {});
 }
 
-function flushDailyCollectionCloudSync(): void {
-  for (const { key } of DAILY_COLLECTION_SYNC_TABLES) {
-    notifyCloudSyncPing(key);
-  }
+function isDailyCollectionDelta(value: unknown): value is DailyCollectionDelta {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return typeof (value as { kind?: unknown }).kind === "string";
+}
+
+function collectionEntryRowId(dateKey: string, runId: CollectionRunId, clientId: string): string {
+  return `entry::${dateKey}::${runId}::${clientId}`;
+}
+
+function noActionConfirmRowId(dateKey: string, runId: CollectionRunId, clientId: string): string {
+  return `no_action::${dateKey}::${runId}::${clientId}`;
+}
+
+function collectionOverrideRowId(clientId: string, runId: CollectionRunId): string {
+  return `override::${clientId}::${runId}`;
+}
+
+function streetActionRowId(dateKey: string, clientId: string): string {
+  return `street_action::${dateKey}::${clientId}`;
+}
+
+function dayNoteRowId(dateKey: string, entityId: string): string {
+  return `day_note::${dateKey}::${entityId}`;
+}
+
+function sealRowId(dateKey: string, sealKind: "am" | "pm" | "close"): string {
+  return `seal::${sealKind}::${dateKey}`;
+}
+
+function promiseRowId(clientId: string): string {
+  return `promise::${clientId}`;
+}
+
+function parseCollectionEntryRowId(id: string): { dateKey: string; runId: CollectionRunId; clientId: string } | null {
+  const parts = id.split("::");
+  if (parts.length < 3) return null;
+  const [dateKey, runIdRaw, ...rest] = parts;
+  if (!dateKey || !rest.length) return null;
+  if (runIdRaw !== "run1" && runIdRaw !== "run2" && runIdRaw !== "run3") return null;
+  return { dateKey, runId: runIdRaw, clientId: rest.join("::") };
+}
+
+function parseOverrideRowId(id: string): { clientId: string; runId: CollectionRunId } | null {
+  const parts = id.split("::");
+  if (parts.length < 2) return null;
+  const [clientId, runIdRaw, ...rest] = parts;
+  if (!clientId || rest.length > 0) return null;
+  if (runIdRaw !== "run1" && runIdRaw !== "run2" && runIdRaw !== "run3") return null;
+  return { clientId, runId: runIdRaw };
+}
+
+function parseOverrideStateKey(key: string): { clientId: string; runId: CollectionRunId } | null {
+  const parts = key.split(":");
+  if (parts.length !== 2) return null;
+  const [clientId, runIdRaw] = parts;
+  if (!clientId || (runIdRaw !== "run1" && runIdRaw !== "run2" && runIdRaw !== "run3")) return null;
+  return { clientId, runId: runIdRaw };
+}
+
+function parseStreetActionRowId(id: string): { dateKey: string; clientId: string } | null {
+  const parts = id.split("::");
+  if (parts.length < 2) return null;
+  const [dateKey, ...rest] = parts;
+  if (!dateKey || !rest.length) return null;
+  return { dateKey, clientId: rest.join("::") };
+}
+
+function parseDayNoteRowId(id: string): { dateKey: string; entityId: string } | null {
+  const parts = id.split("::");
+  if (parts.length < 2) return null;
+  const [dateKey, ...rest] = parts;
+  if (!dateKey || !rest.length) return null;
+  return { dateKey, entityId: rest.join("::") };
+}
+
+function parseSealRowId(id: string): { sealKind: "am" | "pm" | "close"; dateKey: string } | null {
+  const parts = id.split("::");
+  if (parts.length !== 2) return null;
+  const [sealKind, dateKey] = parts;
+  if (sealKind !== "am" && sealKind !== "pm" && sealKind !== "close") return null;
+  if (!dateKey) return null;
+  return { sealKind, dateKey };
+}
+
+function parsePromiseRowId(id: string): { clientId: string } | null {
+  const parts = id.split("::");
+  if (parts.length < 2) return null;
+  const [prefix, ...rest] = parts;
+  if (prefix !== "promise" || !rest.length) return null;
+  return { clientId: rest.join("::") };
 }
 
 function newerIso(left?: string, right?: string): string {
@@ -736,6 +897,174 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         return next;
       });
     }
+  }
+
+  function persistDailyCollectionDelta(delta: DailyCollectionDelta): Promise<void> | undefined {
+    if (!dataOwnerUserId) return undefined;
+    return upsertCloudCollectionRow(DAILY_COLLECTION_DELTA_TABLE, dataOwnerUserId, delta).catch((error) => {
+      console.error("No se pudo guardar delta diario en Supabase.", error);
+    });
+  }
+
+  function applyDailyCollectionDelta(delta: DailyCollectionDelta): void {
+    if (delta.kind === "collection_entry") {
+      setDailyCollectionByDate((current) => {
+        const next = { ...current };
+        const day = next[delta.dateKey] ?? { run1: {}, run2: {}, run3: {} };
+        const runMap = { ...(day[delta.runId] ?? {}) };
+        if (delta.deletedAt) {
+          delete runMap[delta.clientId];
+        } else {
+          runMap[delta.clientId] = {
+            status: delta.status,
+            amountPaid: delta.amountPaid,
+            followUpAt: delta.followUpAt,
+            promisedAmount: delta.promisedAmount,
+            note: delta.note,
+            updatedAt: delta.updatedAt
+          };
+        }
+        next[delta.dateKey] = {
+          ...day,
+          [delta.runId]: runMap
+        };
+        return next;
+      });
+      return;
+    }
+
+    if (delta.kind === "no_action_confirm") {
+      setNoActionConfirmsByDate((current) => {
+        const next = { ...current };
+        const day = next[delta.dateKey] ?? { run1: {}, run2: {}, run3: {} };
+        const runMap = { ...(day[delta.runId] ?? {}) };
+        if (delta.deletedAt) {
+          delete runMap[delta.clientId];
+        } else {
+          runMap[delta.clientId] = {
+            reason: delta.reason,
+            confirmedAt: delta.confirmedAt
+          };
+        }
+        next[delta.dateKey] = {
+          ...day,
+          [delta.runId]: runMap
+        };
+        return next;
+      });
+      return;
+    }
+
+    if (delta.kind === "collection_override") {
+      setCollectionOverrideByKey((current) => {
+        const key = `${delta.clientId}:${delta.runId}`;
+        if (delta.deletedAt) {
+          if (!current[key]) return current;
+          const next = { ...current };
+          delete next[key];
+          return next;
+        }
+        if (current[key] === delta.enabled) return current;
+        return { ...current, [key]: delta.enabled };
+      });
+      return;
+    }
+
+    if (delta.kind === "street_action") {
+      setStreetActionsByDate((current) => {
+        const next = { ...current };
+        const day = next[delta.dateKey] ?? {};
+        const dayNext = { ...day };
+        if (delta.deletedAt) {
+          delete dayNext[delta.clientId];
+        } else {
+          dayNext[delta.clientId] = {
+            type: delta.actionType,
+            minAmount: delta.minAmount,
+            note: delta.note,
+            createdAt: delta.createdAt,
+            updatedAt: delta.updatedAt
+          };
+        }
+        next[delta.dateKey] = dayNext;
+        return next;
+      });
+      return;
+    }
+
+    if (delta.kind === "day_note") {
+      setDayNotesByDate((current) => {
+        const next = { ...current };
+        const day = next[delta.dateKey] ?? {};
+        const dayNext = { ...day };
+        if (delta.deletedAt) {
+          delete dayNext[delta.entityId];
+        } else {
+          dayNext[delta.entityId] = delta.note;
+        }
+        next[delta.dateKey] = dayNext;
+        return next;
+      });
+      return;
+    }
+
+    if (delta.kind === "seal") {
+      const sealMapSetter =
+        delta.sealKind === "am"
+          ? setAmSealsByDate
+          : delta.sealKind === "pm"
+          ? setPmSealsByDate
+          : setCloseSealsByDate;
+      sealMapSetter((current) => {
+        const next = { ...current };
+        if (delta.deletedAt) {
+          delete next[delta.dateKey];
+          return next;
+        }
+        next[delta.dateKey] = delta.sealedAt;
+        return next;
+      });
+      return;
+    }
+
+    if (delta.kind === "promise") {
+      setPromiseByClientId((current) => {
+        if (delta.deletedAt) {
+          if (!current[delta.clientId]) return current;
+          const next = { ...current };
+          delete next[delta.clientId];
+          return next;
+        }
+        return {
+          ...current,
+          [delta.clientId]: {
+            promisedAt: delta.promisedAt,
+            promisedAmount: delta.promisedAmount,
+            sourceRun: delta.sourceRun,
+            createdAt: delta.createdAt,
+            note: delta.note,
+            resolvedAt: delta.resolvedAt,
+            resolution: delta.resolution
+          }
+        };
+      });
+    }
+  }
+
+  function setCollectionOverridePersisted(clientId: string, runId: CollectionRunId, enabled: boolean): void {
+    const key = `${clientId}:${runId}`;
+    setCollectionOverrideByKey((current) => {
+      if (current[key] === enabled) return current;
+      return { ...current, [key]: enabled };
+    });
+    void persistDailyCollectionDelta({
+      id: collectionOverrideRowId(clientId, runId),
+      kind: "collection_override",
+      clientId,
+      runId,
+      enabled,
+      updatedAt: new Date().toISOString()
+    });
   }
 
   const operationalReferenceDate = useMemo(() => getOperationalReferenceDate(now, cashClosings), [cashClosings, now]);
@@ -1374,6 +1703,15 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       }
       return { ...current, [todayKey]: dayNotes };
     });
+    void persistDailyCollectionDelta({
+      id: dayNoteRowId(todayKey, entityId),
+      kind: "day_note",
+      dateKey: todayKey,
+      entityId,
+      note,
+      updatedAt: new Date().toISOString(),
+      deletedAt: note.length === 0 ? new Date().toISOString() : undefined
+    });
   }
 
   function persist(next: Client[]): void {
@@ -1416,6 +1754,13 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
           }
         })
       );
+      const deltaRows = await loadCloudCollectionRows<DailyCollectionDelta>(DAILY_COLLECTION_DELTA_TABLE, dataOwnerUserId);
+      if (cancelled) return;
+      for (const row of deltaRows) {
+        if (isDailyCollectionDelta(row)) {
+          applyDailyCollectionDelta(row);
+        }
+      }
     };
 
     void loadCloudDailyCollection();
@@ -1438,6 +1783,21 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         }
       );
     }
+    channel.on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: DAILY_COLLECTION_DELTA_TABLE,
+        filter: `user_id=eq.${dataOwnerUserId}`
+      },
+      (payload) => {
+        const row = payload.new as { data?: unknown } | null;
+        const data = row?.data;
+        if (!isDailyCollectionDelta(data)) return;
+        applyDailyCollectionDelta(data);
+      }
+    );
     channel.subscribe();
     const fallbackTimer = window.setInterval(() => {
       void loadCloudDailyCollection();
@@ -1976,6 +2336,19 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         }
       };
     });
+    void persistDailyCollectionDelta({
+      id: collectionEntryRowId(todayKey, runId, client.id),
+      kind: "collection_entry",
+      dateKey: todayKey,
+      runId,
+      clientId: client.id,
+      status: draft.status,
+      amountPaid,
+      followUpAt: draft.followUpAt.trim() || undefined,
+      promisedAmount: draft.status === "promesa_pago" ? Number(draft.promisedAmount) : undefined,
+      note: normalizedNote || undefined,
+      updatedAt: new Date().toISOString()
+    });
     if (draft.status === "promesa_pago") {
       const promisedAt = draft.followUpAt.trim();
       const promisedAmount = Number(draft.promisedAmount);
@@ -1989,6 +2362,39 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
           note: normalizedNote || undefined
         }
       }));
+      void persistDailyCollectionDelta({
+        id: promiseRowId(client.id),
+        kind: "promise",
+        clientId: client.id,
+        promisedAt,
+        promisedAmount,
+        sourceRun: runId,
+        createdAt: new Date().toISOString(),
+        note: normalizedNote || undefined
+      });
+    } else {
+      const currentPromise = promiseByClientId[client.id];
+      if (currentPromise && currentPromise.sourceRun === runId) {
+        setPromiseByClientId((current) => {
+          if (!current[client.id] || current[client.id].sourceRun !== runId) return current;
+          const next = { ...current };
+          delete next[client.id];
+          return next;
+        });
+        void persistDailyCollectionDelta({
+          id: promiseRowId(client.id),
+          kind: "promise",
+          clientId: client.id,
+          promisedAt: currentPromise.promisedAt,
+          promisedAmount: currentPromise.promisedAmount,
+          sourceRun: currentPromise.sourceRun,
+          createdAt: currentPromise.createdAt,
+          note: currentPromise.note,
+          resolvedAt: currentPromise.resolvedAt,
+          resolution: currentPromise.resolution,
+          deletedAt: new Date().toISOString()
+        } as DailyPromiseDelta);
+      }
     }
     if (draft.note.trim() !== normalizedNote) {
       updateDraft(client.id, runId, { note: normalizedNote });
@@ -2022,6 +2428,26 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       delete next[clientId];
       return next;
     });
+    void persistDailyCollectionDelta({
+      id: collectionEntryRowId(todayKey, runId, clientId),
+      kind: "collection_entry",
+      dateKey: todayKey,
+      runId,
+      clientId,
+      status: "no_responde",
+      updatedAt: new Date().toISOString(),
+      deletedAt: new Date().toISOString()
+    } as DailyCollectionEntryDelta);
+    void persistDailyCollectionDelta({
+      id: promiseRowId(clientId),
+      kind: "promise",
+      clientId,
+      promisedAt: new Date().toISOString(),
+      promisedAmount: 0,
+      sourceRun: runId,
+      createdAt: new Date().toISOString(),
+      deletedAt: new Date().toISOString()
+    } as DailyPromiseDelta);
     resetDraft(clientId, runId);
     setSaveFeedbackByKey((current) => ({ ...current, [feedbackKey]: { type: "success", text: "Gestión deshecha" } }));
   }
@@ -2043,6 +2469,15 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         }
       };
     });
+    void persistDailyCollectionDelta({
+      id: noActionConfirmRowId(todayKey, runId, clientId),
+      kind: "no_action_confirm",
+      dateKey: todayKey,
+      runId,
+      clientId,
+      reason,
+      confirmedAt: new Date().toISOString()
+    });
   }
 
   function undoNoActionConfirmation(clientId: string, runId: CollectionRunId): void {
@@ -2061,11 +2496,22 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         }
       };
     });
+    void persistDailyCollectionDelta({
+      id: noActionConfirmRowId(todayKey, runId, clientId),
+      kind: "no_action_confirm",
+      dateKey: todayKey,
+      runId,
+      clientId,
+      reason: "al_dia",
+      confirmedAt: new Date().toISOString(),
+      deletedAt: new Date().toISOString()
+    } as DailyNoActionDelta);
   }
 
   function undoPromiseForClient(client: Client): void {
     const currentPromise = promiseByClientId[client.id];
     if (!currentPromise) return;
+    const affectedRuns = ["run1", "run2", "run3"].filter((runId) => todayCollection[runId][client.id]?.status === "promesa_pago") as CollectionRunId[];
     setConfirmDialog({
       title: "Deshacer promesa",
       message: `Se eliminará la promesa vigente de ${firstNameOf(client.name)} y se reactivará su gestión normal. ¿Deseas continuar?`,
@@ -2100,6 +2546,31 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
             [todayKey]: nextDay
           };
         });
+        for (const runId of affectedRuns) {
+          void persistDailyCollectionDelta({
+            id: collectionEntryRowId(todayKey, runId, client.id),
+            kind: "collection_entry",
+            dateKey: todayKey,
+            runId,
+            clientId: client.id,
+            status: "promesa_pago",
+            updatedAt: new Date().toISOString(),
+            deletedAt: new Date().toISOString()
+          } as DailyCollectionEntryDelta);
+        }
+        void persistDailyCollectionDelta({
+          id: promiseRowId(client.id),
+          kind: "promise",
+          clientId: client.id,
+          promisedAt: currentPromise.promisedAt,
+          promisedAmount: currentPromise.promisedAmount,
+          sourceRun: currentPromise.sourceRun,
+          createdAt: currentPromise.createdAt,
+          note: currentPromise.note,
+          resolvedAt: currentPromise.resolvedAt,
+          resolution: currentPromise.resolution,
+          deletedAt: new Date().toISOString()
+        } as DailyPromiseDelta);
         // Limpiar borradores de todos los RUN para evitar estado visual "pegado".
         resetDraft(client.id, "run1");
         resetDraft(client.id, "run2");
@@ -2356,8 +2827,15 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       setErrors([`No puedes culminar RUN 1. Faltan confirmaciones "sin acción": ${preview}${suffix}`]);
       return;
     }
-    setAmSealsByDate((current) => ({ ...current, [todayKey]: new Date().toISOString() }));
-    window.setTimeout(() => flushDailyCollectionCloudSync(), 0);
+    const sealedAt = new Date().toISOString();
+    setAmSealsByDate((current) => ({ ...current, [todayKey]: sealedAt }));
+    void persistDailyCollectionDelta({
+      id: sealRowId(todayKey, "am"),
+      kind: "seal",
+      sealKind: "am",
+      dateKey: todayKey,
+      sealedAt
+    });
   }
   function closePmRun(): void {
     if (!isAmSealed) {
@@ -2370,8 +2848,15 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       setErrors([`No puedes culminar PM. Faltan unidades sin estado en PM: ${preview}${suffix}`]);
       return;
     }
-    setPmSealsByDate((current) => ({ ...current, [todayKey]: new Date().toISOString() }));
-    window.setTimeout(() => flushDailyCollectionCloudSync(), 0);
+    const sealedAt = new Date().toISOString();
+    setPmSealsByDate((current) => ({ ...current, [todayKey]: sealedAt }));
+    void persistDailyCollectionDelta({
+      id: sealRowId(todayKey, "pm"),
+      kind: "seal",
+      sealKind: "pm",
+      dateKey: todayKey,
+      sealedAt
+    });
   }
   function closeCloseRun(): void {
     if (!isPmSealed) {
@@ -2390,8 +2875,15 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       setErrors([`No puedes culminar Cierre. Falta "Enviar a calle" en unidades elegibles: ${preview}${suffix}`]);
       return;
     }
-    setCloseSealsByDate((current) => ({ ...current, [todayKey]: new Date().toISOString() }));
-    window.setTimeout(() => flushDailyCollectionCloudSync(), 0);
+    const sealedAt = new Date().toISOString();
+    setCloseSealsByDate((current) => ({ ...current, [todayKey]: sealedAt }));
+    void persistDailyCollectionDelta({
+      id: sealRowId(todayKey, "close"),
+      kind: "seal",
+      sealKind: "close",
+      dateKey: todayKey,
+      sealedAt
+    });
   }
 
   function getStreetActionDraft(client: Client): StreetActionDraft {
@@ -2435,6 +2927,17 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         }
       };
     });
+    void persistDailyCollectionDelta({
+      id: streetActionRowId(todayKey, client.id),
+      kind: "street_action",
+      dateKey: todayKey,
+      clientId: client.id,
+      actionType: draft.type,
+      minAmount,
+      note: todayStreetActions[client.id]?.note,
+      createdAt: todayStreetActions[client.id]?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
     const feedbackKey = `${client.id}:run3`;
     const timeLabel = new Date().toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" });
     setSaveFeedbackByKey((current) => ({ ...current, [feedbackKey]: { type: "success", text: `Enviado a campo ${timeLabel}` } }));
@@ -2442,6 +2945,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   }
 
   function undoFieldCollection(clientId: string): void {
+    const existingEntry = todayCollection.run3[clientId];
     setStreetActionsByDate((current) => {
       const today = current[todayKey];
       if (!today || !today[clientId]) return current;
@@ -2462,6 +2966,32 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
         }
       };
     });
+    if (existingEntry) {
+      void persistDailyCollectionDelta({
+        id: collectionEntryRowId(todayKey, "run3", clientId),
+        kind: "collection_entry",
+        dateKey: todayKey,
+        runId: "run3",
+        clientId,
+        status: existingEntry.status,
+        amountPaid: existingEntry.amountPaid,
+        followUpAt: existingEntry.followUpAt,
+        promisedAmount: existingEntry.promisedAmount,
+        note: existingEntry.note,
+        updatedAt: existingEntry.updatedAt ?? new Date().toISOString(),
+        deletedAt: new Date().toISOString()
+      });
+    }
+    void persistDailyCollectionDelta({
+      id: streetActionRowId(todayKey, clientId),
+      kind: "street_action",
+      dateKey: todayKey,
+      clientId,
+      actionType: "cobrar_quitar",
+      minAmount: 0,
+      updatedAt: new Date().toISOString(),
+      deletedAt: new Date().toISOString()
+    } as DailyStreetActionDelta);
     setCollectionDrafts((current) => {
       const key = `${clientId}:run3`;
       return {
@@ -2571,6 +3101,115 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
           }
           return { ...current, [todayKey]: nextDay };
         });
+        const overrideKeysToClear = Object.keys(collectionOverrideByKey).filter((key) => {
+          const parsed = parseOverrideStateKey(key);
+          if (!parsed) return false;
+          return runId === "run1"
+            ? parsed.runId === "run1" || parsed.runId === "run2" || parsed.runId === "run3"
+            : runId === "run2"
+            ? parsed.runId === "run2" || parsed.runId === "run3"
+            : parsed.runId === "run3";
+        });
+        if (overrideKeysToClear.length > 0) {
+          setCollectionOverrideByKey((current) => {
+            const next = { ...current };
+            for (const key of overrideKeysToClear) delete next[key];
+            return next;
+          });
+          for (const key of overrideKeysToClear) {
+            const parsed = parseOverrideStateKey(key);
+            if (!parsed) continue;
+            void persistDailyCollectionDelta({
+              id: collectionOverrideRowId(parsed.clientId, parsed.runId),
+              kind: "collection_override",
+              clientId: parsed.clientId,
+              runId: parsed.runId,
+              enabled: false,
+              updatedAt: new Date().toISOString(),
+              deletedAt: new Date().toISOString()
+            });
+          }
+        }
+        const affectedRuns = runId === "run1"
+          ? ["run1", "run2", "run3"]
+          : runId === "run2"
+          ? ["run2", "run3"]
+          : ["run3"];
+        for (const affectedRun of affectedRuns as CollectionRunId[]) {
+          const affectedEntries = todayCollection[affectedRun];
+          for (const [clientId, entry] of Object.entries(affectedEntries)) {
+            void persistDailyCollectionDelta({
+              id: collectionEntryRowId(todayKey, affectedRun, clientId),
+              kind: "collection_entry",
+              dateKey: todayKey,
+              runId: affectedRun,
+              clientId,
+              status: entry.status,
+              amountPaid: entry.amountPaid,
+              followUpAt: entry.followUpAt,
+              promisedAmount: entry.promisedAmount,
+              note: entry.note,
+              updatedAt: entry.updatedAt ?? new Date().toISOString(),
+              deletedAt: new Date().toISOString()
+            });
+          }
+          const confirmMap = todayNoActionConfirms[affectedRun] ?? {};
+          for (const clientId of Object.keys(confirmMap)) {
+            void persistDailyCollectionDelta({
+              id: noActionConfirmRowId(todayKey, affectedRun, clientId),
+              kind: "no_action_confirm",
+              dateKey: todayKey,
+              runId: affectedRun,
+              clientId,
+              reason: confirmMap[clientId].reason,
+              confirmedAt: confirmMap[clientId].confirmedAt,
+              deletedAt: new Date().toISOString()
+            });
+          }
+        }
+        for (const [clientId, promise] of Object.entries(promiseByClientId)) {
+          const remove =
+            runId === "run1"
+              ? promise.sourceRun === "run1" || promise.sourceRun === "run2" || promise.sourceRun === "run3"
+              : runId === "run2"
+              ? promise.sourceRun === "run2" || promise.sourceRun === "run3"
+              : promise.sourceRun === "run3";
+          if (!remove) continue;
+          void persistDailyCollectionDelta({
+            id: promiseRowId(clientId),
+            kind: "promise",
+            clientId,
+            promisedAt: promise.promisedAt,
+            promisedAmount: promise.promisedAmount,
+            sourceRun: promise.sourceRun,
+            createdAt: promise.createdAt,
+            note: promise.note,
+            resolvedAt: promise.resolvedAt,
+            resolution: promise.resolution,
+            deletedAt: new Date().toISOString()
+          });
+        }
+        for (const [clientId, streetAction] of Object.entries(todayStreetActions)) {
+          void persistDailyCollectionDelta({
+            id: streetActionRowId(todayKey, clientId),
+            kind: "street_action",
+            dateKey: todayKey,
+            clientId,
+            actionType: streetAction.type,
+            minAmount: streetAction.minAmount,
+            note: streetAction.note,
+            createdAt: streetAction.createdAt,
+            updatedAt: streetAction.updatedAt,
+            deletedAt: new Date().toISOString()
+          });
+        }
+        if (runId === "run1") {
+          void persistDailyCollectionDelta({ id: sealRowId(todayKey, "am"), kind: "seal", sealKind: "am", dateKey: todayKey, sealedAt: new Date().toISOString(), deletedAt: new Date().toISOString() });
+        }
+        if (runId === "run1" || runId === "run2") {
+          void persistDailyCollectionDelta({ id: sealRowId(todayKey, "pm"), kind: "seal", sealKind: "pm", dateKey: todayKey, sealedAt: new Date().toISOString(), deletedAt: new Date().toISOString() });
+        }
+        void persistDailyCollectionDelta({ id: sealRowId(todayKey, "close"), kind: "seal", sealKind: "close", dateKey: todayKey, sealedAt: new Date().toISOString(), deletedAt: new Date().toISOString() });
         setSaveFeedbackByKey({});
       }
     });
@@ -2589,6 +3228,14 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
             delete next[todayKey];
             return next;
           });
+          void persistDailyCollectionDelta({
+            id: sealRowId(todayKey, "am"),
+            kind: "seal",
+            sealKind: "am",
+            dateKey: todayKey,
+            sealedAt: new Date().toISOString(),
+            deletedAt: new Date().toISOString()
+          } as DailySealDelta);
           return;
         }
         if (runId === "run2") {
@@ -2597,6 +3244,14 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
             delete next[todayKey];
             return next;
           });
+          void persistDailyCollectionDelta({
+            id: sealRowId(todayKey, "pm"),
+            kind: "seal",
+            sealKind: "pm",
+            dateKey: todayKey,
+            sealedAt: new Date().toISOString(),
+            deletedAt: new Date().toISOString()
+          } as DailySealDelta);
           return;
         }
         setCloseSealsByDate((current) => {
@@ -2604,6 +3259,14 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
           delete next[todayKey];
           return next;
         });
+        void persistDailyCollectionDelta({
+          id: sealRowId(todayKey, "close"),
+          kind: "seal",
+          sealKind: "close",
+          dateKey: todayKey,
+          sealedAt: new Date().toISOString(),
+          deletedAt: new Date().toISOString()
+        } as DailySealDelta);
       }
     });
   }
@@ -3781,12 +4444,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                 type="button"
                                 className="button primary small clients-status-alert__action"
                                 onClick={() => {
-                                  setCollectionOverrideByKey((current) => ({
-                                    ...current,
-                                    [`${client.id}:run1`]: true,
-                                    [`${client.id}:run2`]: true,
-                                    [`${client.id}:run3`]: true
-                                  }));
+                                  setCollectionOverridePersisted(client.id, "run1", true);
+                                  setCollectionOverridePersisted(client.id, "run2", true);
+                                  setCollectionOverridePersisted(client.id, "run3", true);
                                 }}
                               >
                                 Generar cobro (excepcion)
@@ -4165,7 +4825,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                                         {blockedByStatus ? (
                                           <div className="collection-status-lock">
                                             <span className="badge badge-warning">Estado: {STATUS_LABEL[client.status]}</span>
-                                            <button type="button" className="button primary small" onClick={() => setCollectionOverrideByKey((current) => ({ ...current, [feedbackKey]: true }))}>
+                                            <button type="button" className="button primary small" onClick={() => setCollectionOverridePersisted(client.id, runId, true)}>
                                               Habilitar cobro manual
                                             </button>
                                           </div>

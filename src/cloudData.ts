@@ -215,6 +215,23 @@ function dedupeRowsById<T extends { id: string }>(rows: T[]): T[] {
   return Array.from(byId.values());
 }
 
+function assertCollectionRows<T>(rows: T[] | null | undefined, table: string): T[] {
+  if (!Array.isArray(rows)) {
+    throw new Error(`La coleccion ${table} recibio un payload invalido. Se esperaba un arreglo.`);
+  }
+  return rows.filter((row): row is T => row !== null && row !== undefined);
+}
+
+function normalizeCollectionRowsWithIds<T extends Record<string, unknown>>(
+  table: string,
+  rows: T[]
+): Array<T & { id: string }> {
+  return rows.map((row, index) => {
+    const id = normalizeCollectionRowId(table, row, index);
+    return { ...row, id };
+  });
+}
+
 function stableJsonStringify(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
@@ -255,7 +272,7 @@ function diffRowsById<T extends { id: string }>(previousRows: T[], nextRows: T[]
 
   const staleIds = previousRows
     .map((row) => row.id)
-    .filter((id) => id.length > 0 && !nextIds.has(id));
+    .filter((id) => String(id ?? "").trim().length > 0 && !nextIds.has(id));
 
   return { changedRows, staleIds };
 }
@@ -295,7 +312,9 @@ export async function loadCloudCollectionRows<T>(table: string, userId: string):
         if (batch.length < PAGE_SIZE) break;
         from += PAGE_SIZE;
       }
-      return rows.map((row) => row.data);
+      return rows
+        .map((row) => row?.data)
+        .filter((value): value is T => value !== null && value !== undefined);
     });
     await saveCloudSnapshot(userId, cacheKey, result);
     return result;
@@ -323,8 +342,10 @@ export async function loadCloudCollectionRowsPage<T>(
         .eq("user_id", userId)
         .range(offset, to);
       if (error) throw error;
-      const rows = (data ?? []) as DataRow<T>[];
-      return rows.map((row) => row.data);
+      const rows = (data ?? []) as Array<DataRow<T> | null | undefined>;
+      return rows
+        .map((row) => row?.data)
+        .filter((value): value is T => value !== null && value !== undefined);
     });
   } catch {
     const cached = await loadCloudSnapshot<T[]>(userId, `collection:${table}`);
@@ -340,17 +361,17 @@ export async function saveCloudCollectionRows<T extends { id: string }>(
   options?: { fromQueue?: boolean }
 ): Promise<void> {
   const cacheKey = `collection:${table}`;
-  const normalizedRows = rows.map((item, index) => {
-    const base = item as unknown as Record<string, unknown>;
-    const id = normalizeCollectionRowId(table, base, index);
-    return { ...item, id } as T & { id: string };
-  });
+  const safeRows = assertCollectionRows(rows, table);
+  const normalizedRows = normalizeCollectionRowsWithIds(table, safeRows as Array<T & Record<string, unknown>>);
   const dedupedRows = dedupeRowsById(normalizedRows);
 
   try {
     await runWithRetry(`save_${table}`, async () => {
       const client = getClient();
-      const previousRows = (await loadCloudSnapshot<T[]>(userId, cacheKey)) ?? [];
+      const previousRows = normalizeCollectionRowsWithIds(
+        table,
+        ((await loadCloudSnapshot<T[]>(userId, cacheKey)) ?? []) as Array<T & Record<string, unknown>>
+      );
       const { changedRows, staleIds } = diffRowsById(previousRows, dedupedRows);
 
       if (changedRows.length > 0) {
@@ -386,6 +407,50 @@ export async function saveCloudCollectionRows<T extends { id: string }>(
         entity_id: table,
         action: "upsert",
         payload: JSON.stringify(dedupedRows)
+      });
+    }
+    throw error;
+  }
+}
+
+async function updateCachedCollectionRow<T extends { id: string }>(
+  userId: string,
+  table: string,
+  row: T
+): Promise<void> {
+  const cacheKey = `collection:${table}`;
+  const cached = (await loadCloudSnapshot<T[]>(userId, cacheKey)) ?? [];
+  const next = new Map<string, T>();
+  for (const item of cached) {
+    if (item?.id) next.set(item.id, item);
+  }
+  next.set(row.id, row);
+  await saveCloudSnapshot(userId, cacheKey, Array.from(next.values()));
+}
+
+export async function upsertCloudCollectionRow<T extends { id: string }>(
+  table: string,
+  userId: string,
+  row: T,
+  options?: { fromQueue?: boolean }
+): Promise<void> {
+  try {
+    await runWithRetry(`upsert_row_${table}`, async () => {
+      const client = getClient();
+      const { error } = await client
+        .from(table)
+        .upsert({ user_id: userId, id: row.id, data: row, updated_at: new Date().toISOString() }, { onConflict: "user_id,id" });
+      if (error) throw error;
+    });
+    await updateCachedCollectionRow(userId, table, row);
+  } catch (error) {
+    if (!options?.fromQueue) {
+      await enqueueCloudSyncItem({
+        user_id: userId,
+        entity_type: "collection_row",
+        entity_id: `${table}:${row.id}`,
+        action: "upsert",
+        payload: JSON.stringify(row)
       });
     }
     throw error;
@@ -674,8 +739,11 @@ export async function flushCloudSyncQueue(userId: string): Promise<number> {
     try {
       await upsertCloudSyncItemStatus(item.id, { status: "pending" });
       if (item.entity_type === "collection") {
-        const rows = JSON.parse(item.payload) as unknown[];
-        await saveCloudCollectionRows(item.entity_id, userId, rows as Array<{ id: string }>, { fromQueue: true });
+        const parsed = JSON.parse(item.payload) as unknown;
+        if (!Array.isArray(parsed)) {
+          throw new Error(`Payload invalido para ${item.entity_id}. Se esperaba un arreglo.`);
+        }
+        await saveCloudCollectionRows(item.entity_id, userId, parsed as Array<{ id: string }>, { fromQueue: true });
       } else if (item.entity_type === "singleton") {
         const value = JSON.parse(item.payload) as unknown;
         await saveCloudSingletonData(item.entity_id, userId, value, { fromQueue: true });
@@ -683,11 +751,15 @@ export async function flushCloudSyncQueue(userId: string): Promise<number> {
       await removeCloudSyncItem(item.id);
       processed += 1;
     } catch (error) {
+      const lastError = error instanceof Error ? error.message : String(error);
       await upsertCloudSyncItemStatus(item.id, {
         status: "error",
         retry_count: item.retry_count + 1,
-        last_error: error instanceof Error ? error.message : String(error)
+        last_error: lastError
       });
+      if (lastError.toLowerCase().includes("payload invalido")) {
+        await removeCloudSyncItem(item.id);
+      }
     }
   }
   return processed;

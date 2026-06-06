@@ -94,6 +94,8 @@ Ejecutar en SQL Editor (orden recomendado):
 6. `supabase/06-collection-closures-cloud.sql`
 7. `supabase/07-shared-data-owner-rls.sql`
 8. `supabase/15-collisions-cloud.sql`
+9. `supabase/11-daily-collection-cloud.sql`
+10. `supabase/15-daily-collection-deltas-cloud.sql`
 
 Despues:
 - Crear usuario desde UI de login/registro.
