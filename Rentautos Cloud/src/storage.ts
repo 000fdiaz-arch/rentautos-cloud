@@ -395,6 +395,18 @@ function normalizePayment(item: unknown): Payment | null {
   };
 }
 
+export function dedupePaymentsByReceiptNumber(payments: Payment[]): Payment[] {
+  const rowsByReceipt = new Map<string, Payment>();
+  for (const payment of payments) {
+    if (!payment || typeof payment !== "object") continue;
+    const receipt = typeof payment.receiptNumber === "string" ? payment.receiptNumber.trim() : "";
+    const key = receipt.length > 0 ? receipt : payment.id;
+    if (!key) continue;
+    rowsByReceipt.set(key, payment);
+  }
+  return Array.from(rowsByReceipt.values());
+}
+
 export function loadPayments(): Payment[] {
   const raw = localStorage.getItem(PAYMENTS_KEY);
   if (!raw) return [];
@@ -404,9 +416,9 @@ export function loadPayments(): Payment[] {
     const parsed = JSON.parse(raw) as unknown[];
     if (!Array.isArray(parsed)) return [];
 
-    return parsed
+    return dedupePaymentsByReceiptNumber(parsed
       .map((item) => normalizePayment(item))
-      .filter((item): item is Payment => item !== null);
+      .filter((item): item is Payment => item !== null));
   } catch {
     return [];
   }
@@ -453,18 +465,19 @@ export async function loadPaymentsFromIndexedDb(): Promise<Payment[]> {
       req.onerror = () => reject(req.error ?? new Error("No se pudo leer pagos desde IndexedDB."));
     });
     if (!Array.isArray(value)) return [];
-    return value
+    return dedupePaymentsByReceiptNumber(value
       .map((item) => normalizePayment(item))
-      .filter((item): item is Payment => item !== null);
+      .filter((item): item is Payment => item !== null));
   } finally {
     db.close();
   }
 }
 
 export function savePayments(payments: Payment[]): void {
+  const normalizedPayments = dedupePaymentsByReceiptNumber(payments);
   // Los historiales grandes de pagos pueden superar el limite de localStorage.
   // Persistimos canonico en IndexedDB y dejamos una marca ligera en localStorage.
-  void writePaymentsIndexedDb(payments).catch((error) => {
+  void writePaymentsIndexedDb(normalizedPayments).catch((error) => {
     console.error("No se pudo guardar pagos en IndexedDB.", error);
   });
 

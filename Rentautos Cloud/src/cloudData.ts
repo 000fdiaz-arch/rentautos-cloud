@@ -1,4 +1,5 @@
 import { supabase } from "./lib/supabase";
+import { dedupePaymentsByReceiptNumber } from "./storage";
 import type { Client, ClientStatus, CollisionRecord, CollisionsSettings, Payment, PaymentPromise } from "./types";
 import { logCloudSync } from "./cloudSyncLogger";
 import {
@@ -653,17 +654,19 @@ export async function syncCloudClientsDelta(
 }
 
 export async function loadCloudPayments(userId: string): Promise<Payment[]> {
-  return loadCloudCollectionRows<Payment>("payments_cloud", userId);
+  const rows = await loadCloudCollectionRows<Payment>("payments_cloud", userId);
+  return dedupePaymentsByReceiptNumber(rows);
 }
 
 export async function loadCloudPaymentsPage(
   userId: string,
   options?: { limit?: number; offset?: number }
 ): Promise<Payment[]> {
-  return loadCloudCollectionRowsPage<Payment>("payments_cloud", userId, {
+  const rows = await loadCloudCollectionRowsPage<Payment>("payments_cloud", userId, {
     limit: options?.limit ?? 100,
     offset: options?.offset ?? 0
   });
+  return dedupePaymentsByReceiptNumber(rows);
 }
 
 export async function loadCloudAppliedPaymentFolioSet(userId: string): Promise<Set<string>> {
@@ -695,10 +698,11 @@ export async function loadCloudAppliedPaymentFolioSet(userId: string): Promise<S
 }
 
 export async function saveCloudPayments(userId: string, payments: Payment[]): Promise<void> {
-  const ctx = startCloudOp("save_cloud_payments", userId, "payments_cloud", `rows=${payments.length}`);
+  const normalizedPayments = dedupePaymentsByReceiptNumber(payments);
+  const ctx = startCloudOp("save_cloud_payments", userId, "payments_cloud", `rows=${normalizedPayments.length}`);
   try {
-    await saveCloudCollectionRows("payments_cloud", userId, payments);
-    finishCloudOp(ctx, `upsert_rows=${payments.length}`);
+    await saveCloudCollectionRows("payments_cloud", userId, normalizedPayments);
+    finishCloudOp(ctx, `upsert_rows=${normalizedPayments.length}`);
   } catch (error) {
     failCloudOp(ctx, error);
     throw error;

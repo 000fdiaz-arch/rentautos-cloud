@@ -10,6 +10,7 @@ import {
   loadBankRules,
   loadLateFeeSettings,
   loadOtherChargesRetentionByClient,
+  dedupePaymentsByReceiptNumber,
   saveBankRules,
   saveLateFeeSettings,
   saveOtherChargesRetentionByClient,
@@ -444,7 +445,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             ? cloudClientsData
             : cloudClientsData.filter((client) => isPreferredBootstrapGroupClient(client));
         setClients(bootstrapClients);
-        setPayments(cloudPaymentsData);
+        setPayments(dedupePaymentsByReceiptNumber(cloudPaymentsData));
         setBankRules(cloudBankRules.length > 0 ? cloudBankRules : loadBankRules());
         setLateFeeSettings(cloudLateFeeSettings ?? loadLateFeeSettings());
         setOtherChargesRetentionByClient(cloudOtherChargesRetention ?? loadOtherChargesRetentionByClient());
@@ -464,7 +465,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         }
         if (queuedPaymentsRaw) {
           try {
-            setPayments(JSON.parse(queuedPaymentsRaw) as Payment[]);
+            setPayments(dedupePaymentsByReceiptNumber(JSON.parse(queuedPaymentsRaw) as Payment[]));
           } catch {
             // ignore malformed queue payloads
           }
@@ -485,7 +486,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             ]);
             if (cancelled) return;
             setClients(fullClients);
-            setPayments(fullPayments);
+            setPayments(dedupePaymentsByReceiptNumber(fullPayments));
             setLastSyncAt(new Date().toLocaleTimeString());
           } catch (error) {
             console.error("No se pudo completar la carga progresiva total.", error);
@@ -545,7 +546,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         ]);
         if (cancelled) return;
         setClients(cloudClientsData);
-        setPayments(cloudPaymentsData);
+        setPayments(dedupePaymentsByReceiptNumber(cloudPaymentsData));
         const pendingCount = await countPendingCloudSyncItems(cloudDataUserId);
         setPendingSyncCount(pendingCount);
         setSyncStatus(pendingCount > 0 ? "pending" : "ok");
@@ -964,12 +965,13 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
 
   async function persistPayments(next: Payment[]): Promise<void> {
     if (isReadOnlyReceivables) return;
-    setPayments(next);
+    const normalizedPayments = dedupePaymentsByReceiptNumber(next);
+    setPayments(normalizedPayments);
     setHasPendingChanges(true);
     if (!cloudDataUserId) return;
     try {
       setSyncStatus("syncing");
-      await saveCloudPayments(cloudDataUserId, next);
+      await saveCloudPayments(cloudDataUserId, normalizedPayments);
       await refreshPendingSyncStatus();
       setLastSyncAt(new Date().toLocaleTimeString());
     } catch (error) {
@@ -983,14 +985,15 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   async function persistClientsAndPayments(nextClients: Client[], nextPayments: Payment[]): Promise<boolean> {
     if (isReadOnlyReceivables) return false;
     setClients(nextClients);
-    setPayments(nextPayments);
+    const normalizedPayments = dedupePaymentsByReceiptNumber(nextPayments);
+    setPayments(normalizedPayments);
     setHasPendingChanges(true);
     if (!cloudDataUserId) return true;
     try {
       setSyncStatus("syncing");
       await Promise.all([
         saveCloudClients(cloudDataUserId, nextClients),
-        saveCloudPayments(cloudDataUserId, nextPayments)
+        saveCloudPayments(cloudDataUserId, normalizedPayments)
       ]);
       await refreshPendingSyncStatus();
       setLastSyncAt(new Date().toLocaleTimeString());

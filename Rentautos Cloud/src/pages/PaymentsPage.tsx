@@ -188,6 +188,7 @@ type HistoryColumnFilters = {
 type PaymentTab = "all" | "cash" | "register" | "notified" | "pending" | "card" | "history";
 
 const HISTORY_INITIAL_LIMIT = 5;
+const HISTORY_LOAD_MORE_STEP = 5;
 
 const EMPTY_PENDING_FILTERS: PendingColumnFilters = {
   folio: "",
@@ -800,6 +801,7 @@ export default function PaymentsPage({
   const [historyBulkDownloadError, setHistoryBulkDownloadError] = useState("");
   const [historyPreviewPayment, setHistoryPreviewPayment] = useState<Payment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
+  const isConfirmingPaymentRef = useRef(false);
   const [notifiedForm, setNotifiedForm] = useState<NotifiedPaymentForm>({
     unitId: "",
     amount: ""
@@ -2904,8 +2906,118 @@ export default function PaymentsPage({
     const errs = validate();
     if (errs.length > 0) { setErrors(errs); return false; }
     if (!selectedClient || !preview) return false;
+    if (isConfirmingPaymentRef.current) return false;
+    isConfirmingPaymentRef.current = true;
     const amountReceived = roundMoney(parseFloat(form.amountReceived));
-    if (form.paymentMethod === "Tarjeta") {
+    try {
+      if (form.paymentMethod === "Tarjeta") {
+        const allocation = computeManualPaymentAllocation(
+          selectedClient,
+          amountReceived,
+          manualOtherChargesInput,
+          otherChargesRetentionByClient,
+          payments,
+          operationalDateKey,
+          manualOverrideForcedOtherCharges
+        );
+
+        const enteredFolios = extractFoliosFromReference(form.reference);
+        const normalizedFolio = enteredFolios[0] ?? buildTemporaryCardFolio(operationalDateKey);
+        const receiptNumber = nextReceiptNumber();
+        const cardPayment: Payment = {
+          id: crypto.randomUUID(),
+          receiptNumber,
+          clientId: selectedClient.id,
+          clientName: selectedClient.name,
+          clientUnit: selectedClient.unitId,
+          clientCedula: selectedClient.cedula,
+          dateApplied: operationalDateKey,
+          paymentMethod: "Tarjeta",
+          reference: `FOLIO:${normalizedFolio} | TARJETA-PENDIENTE-CONCILIACION | ${form.reference.trim() || "PENDIENTE-FOLIO"}`,
+          amountReceived,
+          appliedToRent: allocation.appliedToRent,
+          centavosAhorro: allocation.centavosAhorro,
+          advanceApplied: allocation.advanceApplied > 0 ? allocation.advanceApplied : undefined,
+          advanceBalanceAfter: allocation.advanceAfter,
+          otherChargesApplied: allocation.otherChargesApplied.length > 0 ? allocation.otherChargesApplied : undefined,
+          otherChargesDueAfter: computeOtherChargesDueAfter(allocation.projectedClient.otherCharges, allocation.otherChargesApplied),
+          installmentsDeducted: allocation.installmentsDeducted,
+          installmentsFromDebt: allocation.installmentsDeducted,
+          installmentsFromAdvance: allocation.installmentsCoveredByAdvance,
+          installmentsTotalInPayment: allocation.installmentsTotalInPayment,
+          balanceBefore: allocation.balanceBefore,
+          balanceAfter: allocation.balanceAfter,
+          savingsBefore: allocation.projectedClient.savings,
+          savingsAfter: roundMoney(allocation.projectedClient.savings + allocation.centavosAhorro),
+          installmentsPaidAfter: allocation.projectedClient.installmentsPaid + allocation.installmentsTotalInPayment,
+          installmentsRemainingAfter: Math.max(0, allocation.projectedClient.installmentsRemaining - allocation.installmentsTotalInPayment),
+          rentAmount: allocation.projectedClient.rentAmount,
+          frequency: allocation.projectedClient.frequency,
+          weeklyChargeDay: allocation.projectedClient.weeklyChargeDay,
+          monthlyChargeDay: allocation.projectedClient.monthlyChargeDay,
+          chargeFirstSunday: allocation.projectedClient.chargeFirstSunday,
+          firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt,
+          travelFundAvailableSnapshot: roundMoney(Math.max(0, allocation.projectedClient.travelFundBalance ?? 0)),
+          createdAt: new Date().toISOString()
+        };
+
+        const updatedClients = clients.map((c) => {
+          if (c.id !== selectedClient.id) return c;
+          const otherChargesDueAfter = computeOtherChargesDueAfter(c.otherCharges, allocation.otherChargesApplied) ?? [];
+          return {
+            ...c,
+            balance: allocation.balanceAfter,
+            advanceBalance: allocation.advanceAfter,
+            savings: roundMoney(c.savings + allocation.centavosAhorro),
+            installmentsRemaining: Math.max(0, c.installmentsRemaining - allocation.installmentsTotalInPayment),
+            installmentsPaid: c.installmentsPaid + allocation.installmentsTotalInPayment,
+            otherCharges: otherChargesDueAfter,
+            lastChargeDate: allocation.projectedClient.lastChargeDate,
+            firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt
+          };
+        });
+
+        const pendingCard: PendingCardItem = {
+          id: crypto.randomUUID(),
+          appliedPaymentId: cardPayment.id,
+          folio: normalizedFolio,
+          clientId: selectedClient.id,
+          clientName: selectedClient.name,
+          clientUnit: selectedClient.unitId,
+          clientCedula: selectedClient.cedula,
+          amountExpected: amountReceived,
+          dateRegistered: operationalDateKey,
+          expectedSettlementDate: getNextDateKey(operationalDateKey),
+          reference: form.reference.trim() || undefined,
+          createdAt: new Date().toISOString()
+        };
+        const nextPendingCardItems = [...pendingCardItems, pendingCard];
+
+        const saved = await persistClientPaymentState(updatedClients, [...payments, cardPayment]);
+        if (!saved) {
+          setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
+          return false;
+        }
+        setPendingCardItems(nextPendingCardItems);
+        savePendingCardItems(nextPendingCardItems);
+        setErrors([]);
+        setPaymentInfo(
+          enteredFolios.length > 0
+            ? `Pago en tarjeta aplicado. Pendiente de conciliacion bancaria con folio ${normalizedFolio} para ${pendingCard.expectedSettlementDate}.`
+            : `Pago en tarjeta aplicado con folio temporal ${normalizedFolio}. Debes corregirlo manana para conciliar con el CSV.`
+        );
+        finalizeSuccessfulPayment(cardPayment, { openReceipt: true });
+        setForm({
+          clientId: "",
+          dateApplied: operationalDateKey,
+          paymentMethod: "Efectivo",
+          reference: "",
+          amountReceived: ""
+        });
+        setManualOtherChargesInput({});
+        setManualOverrideForcedOtherCharges(false);
+        return true;
+      }
       const allocation = computeManualPaymentAllocation(
         selectedClient,
         amountReceived,
@@ -2916,10 +3028,11 @@ export default function PaymentsPage({
         manualOverrideForcedOtherCharges
       );
 
-      const enteredFolios = extractFoliosFromReference(form.reference);
-      const normalizedFolio = enteredFolios[0] ?? buildTemporaryCardFolio(operationalDateKey);
+      setErrors([]);
+      setPaymentInfo("");
       const receiptNumber = nextReceiptNumber();
-      const cardPayment: Payment = {
+
+      const payment: Payment = {
         id: crypto.randomUUID(),
         receiptNumber,
         clientId: selectedClient.id,
@@ -2927,8 +3040,8 @@ export default function PaymentsPage({
         clientUnit: selectedClient.unitId,
         clientCedula: selectedClient.cedula,
         dateApplied: operationalDateKey,
-        paymentMethod: "Tarjeta",
-        reference: `FOLIO:${normalizedFolio} | TARJETA-PENDIENTE-CONCILIACION | ${form.reference.trim() || "PENDIENTE-FOLIO"}`,
+        paymentMethod: form.paymentMethod,
+        reference: form.reference.trim() || undefined,
         amountReceived,
         appliedToRent: allocation.appliedToRent,
         centavosAhorro: allocation.centavosAhorro,
@@ -2972,36 +3085,12 @@ export default function PaymentsPage({
         };
       });
 
-      const pendingCard: PendingCardItem = {
-        id: crypto.randomUUID(),
-        appliedPaymentId: cardPayment.id,
-        folio: normalizedFolio,
-        clientId: selectedClient.id,
-        clientName: selectedClient.name,
-        clientUnit: selectedClient.unitId,
-        clientCedula: selectedClient.cedula,
-        amountExpected: amountReceived,
-        dateRegistered: operationalDateKey,
-        expectedSettlementDate: getNextDateKey(operationalDateKey),
-        reference: form.reference.trim() || undefined,
-        createdAt: new Date().toISOString()
-      };
-      const nextPendingCardItems = [...pendingCardItems, pendingCard];
-
-      const saved = await persistClientPaymentState(updatedClients, [...payments, cardPayment]);
+      const saved = await persistClientPaymentState(updatedClients, [...payments, payment]);
       if (!saved) {
         setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
         return false;
       }
-      setPendingCardItems(nextPendingCardItems);
-      savePendingCardItems(nextPendingCardItems);
-      setErrors([]);
-      setPaymentInfo(
-        enteredFolios.length > 0
-          ? `Pago en tarjeta aplicado. Pendiente de conciliacion bancaria con folio ${normalizedFolio} para ${pendingCard.expectedSettlementDate}.`
-          : `Pago en tarjeta aplicado con folio temporal ${normalizedFolio}. Debes corregirlo manana para conciliar con el CSV.`
-      );
-      finalizeSuccessfulPayment(cardPayment, { openReceipt: true });
+      finalizeSuccessfulPayment(payment, { openReceipt: true });
       setForm({
         clientId: "",
         dateApplied: operationalDateKey,
@@ -3012,90 +3101,9 @@ export default function PaymentsPage({
       setManualOtherChargesInput({});
       setManualOverrideForcedOtherCharges(false);
       return true;
+    } finally {
+      isConfirmingPaymentRef.current = false;
     }
-    const allocation = computeManualPaymentAllocation(
-      selectedClient,
-      amountReceived,
-      manualOtherChargesInput,
-      otherChargesRetentionByClient,
-      payments,
-      operationalDateKey,
-      manualOverrideForcedOtherCharges
-    );
-
-    setErrors([]);
-    setPaymentInfo("");
-    const receiptNumber = nextReceiptNumber();
-
-    const payment: Payment = {
-      id: crypto.randomUUID(),
-      receiptNumber,
-      clientId: selectedClient.id,
-      clientName: selectedClient.name,
-      clientUnit: selectedClient.unitId,
-      clientCedula: selectedClient.cedula,
-      dateApplied: operationalDateKey,
-      paymentMethod: form.paymentMethod,
-      reference: form.reference.trim() || undefined,
-      amountReceived,
-      appliedToRent: allocation.appliedToRent,
-      centavosAhorro: allocation.centavosAhorro,
-      advanceApplied: allocation.advanceApplied > 0 ? allocation.advanceApplied : undefined,
-      advanceBalanceAfter: allocation.advanceAfter,
-      otherChargesApplied: allocation.otherChargesApplied.length > 0 ? allocation.otherChargesApplied : undefined,
-      otherChargesDueAfter: computeOtherChargesDueAfter(allocation.projectedClient.otherCharges, allocation.otherChargesApplied),
-      installmentsDeducted: allocation.installmentsDeducted,
-      installmentsFromDebt: allocation.installmentsDeducted,
-      installmentsFromAdvance: allocation.installmentsCoveredByAdvance,
-      installmentsTotalInPayment: allocation.installmentsTotalInPayment,
-      balanceBefore: allocation.balanceBefore,
-      balanceAfter: allocation.balanceAfter,
-      savingsBefore: allocation.projectedClient.savings,
-      savingsAfter: roundMoney(allocation.projectedClient.savings + allocation.centavosAhorro),
-      installmentsPaidAfter: allocation.projectedClient.installmentsPaid + allocation.installmentsTotalInPayment,
-      installmentsRemainingAfter: Math.max(0, allocation.projectedClient.installmentsRemaining - allocation.installmentsTotalInPayment),
-      rentAmount: allocation.projectedClient.rentAmount,
-      frequency: allocation.projectedClient.frequency,
-      weeklyChargeDay: allocation.projectedClient.weeklyChargeDay,
-      monthlyChargeDay: allocation.projectedClient.monthlyChargeDay,
-      chargeFirstSunday: allocation.projectedClient.chargeFirstSunday,
-      firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt,
-      travelFundAvailableSnapshot: roundMoney(Math.max(0, allocation.projectedClient.travelFundBalance ?? 0)),
-      createdAt: new Date().toISOString()
-    };
-
-    const updatedClients = clients.map((c) => {
-      if (c.id !== selectedClient.id) return c;
-      const otherChargesDueAfter = computeOtherChargesDueAfter(c.otherCharges, allocation.otherChargesApplied) ?? [];
-      return {
-        ...c,
-        balance: allocation.balanceAfter,
-        advanceBalance: allocation.advanceAfter,
-        savings: roundMoney(c.savings + allocation.centavosAhorro),
-        installmentsRemaining: Math.max(0, c.installmentsRemaining - allocation.installmentsTotalInPayment),
-        installmentsPaid: c.installmentsPaid + allocation.installmentsTotalInPayment,
-        otherCharges: otherChargesDueAfter,
-        lastChargeDate: allocation.projectedClient.lastChargeDate,
-        firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt
-      };
-    });
-
-    const saved = await persistClientPaymentState(updatedClients, [...payments, payment]);
-    if (!saved) {
-      setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
-      return false;
-    }
-    finalizeSuccessfulPayment(payment, { openReceipt: true });
-    setForm({
-      clientId: "",
-      dateApplied: operationalDateKey,
-      paymentMethod: "Efectivo",
-      reference: "",
-      amountReceived: ""
-    });
-    setManualOtherChargesInput({});
-    setManualOverrideForcedOtherCharges(false);
-    return true;
   }
 
   function handleDeletePayment(payment: Payment): void {
@@ -3398,6 +3406,10 @@ export default function PaymentsPage({
       return;
     }
     setHistorySelectedPaymentIds(historyVisibleRows.map((row) => row.id));
+  }
+
+  function handleLoadMoreHistoryRows(): void {
+    setHistoryVisibleCount((previous) => Math.min(historyRows.length, previous + HISTORY_LOAD_MORE_STEP));
   }
 
   async function handleDownloadHistorySelection(): Promise<void> {
@@ -4627,6 +4639,16 @@ export default function PaymentsPage({
               >
                 Descargar filtrados ({historyRows.length})
               </button>
+              {historyRows.length > historyVisibleRows.length && (
+                <button
+                  type="button"
+                  className="button ghost small"
+                  onClick={handleLoadMoreHistoryRows}
+                  title={`Trae ${HISTORY_LOAD_MORE_STEP} recibos más a la vista`}
+                >
+                  Más
+                </button>
+              )}
               {historyRows.length > historyVisibleRows.length && (
                 <button
                   type="button"
