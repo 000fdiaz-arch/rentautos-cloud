@@ -7,11 +7,6 @@ import CashClosingPage from "./pages/CashClosingPage";
 import ControlUnitsPage from "./pages/ControlUnitsPage";
 import CollisionsPage from "./pages/CollisionsPage";
 import {
-  loadClients,
-  loadPayments,
-  loadPaymentsFromIndexedDb,
-  saveClients,
-  savePayments,
   loadBankRules,
   loadLateFeeSettings,
   loadOtherChargesRetentionByClient,
@@ -28,6 +23,8 @@ import {
   saveCollisionsSettings,
 } from "./storage";
 import {
+  loadCloudCollectionRows,
+  loadCloudSingletonData,
   loadCloudClients,
   loadCloudClientsPage,
   loadCloudCollectionClosures,
@@ -37,16 +34,20 @@ import {
   saveCloudClients,
   saveCloudPayments,
   saveCloudStreetManagement,
+  flushCloudSyncQueue,
   syncCloudStreetManagementDelta,
-  syncCloudClientsDelta,
-  syncCloudPaymentsDelta,
   loadCloudCollisions,
   saveCloudCollisions,
   loadCloudCollisionsSettings,
   saveCloudCollisionsSettings
 } from "./cloudData";
+import {
+  countPendingCloudSyncItems,
+  listCloudSyncItems,
+  loadQueuedCloudPayload
+} from "./cloudOffline";
+import { saveCloudSnapshot } from "./cloudOffline";
 import { supabase } from "./lib/supabase";
-import { isSupabaseOnlyMode } from "./persistenceMode";
 import { disableCloudMirror, flushCloudMirror, initializeCloudMirror } from "./cloudMirror";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
 import {
@@ -62,14 +63,6 @@ import type { BankRule, Client, CollisionRecord, CollisionsSettings, LateFeeSett
 import "./styles.css";
 
 type AppPage = "clients" | "clients_20" | "payments" | "control_units" | "settings" | "cash_closing" | "collisions";
-type PendingCoreSyncSnapshot = {
-  userId: string;
-  token: number;
-  clients: Client[];
-  payments: Payment[];
-};
-
-const PENDING_CORE_SYNC_KEY = "cobrapp.cloud.pending_core_sync.v1";
 const INITIAL_CLOUD_BOOTSTRAP_LIMIT = 200;
 const CORE_DATA_FALLBACK_POLL_MS = 180_000;
 const RECEIVABLES_FALLBACK_POLL_MS = 300_000;
@@ -89,16 +82,28 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = dataOwnerUserId ?? userId;
   const [page, setPage] = useState<AppPage>("clients");
-  const [clients, setClients] = useState<Client[]>(() => (isSupabaseOnlyMode ? [] : loadClients()));
-  const [payments, setPayments] = useState<Payment[]>(() => (isSupabaseOnlyMode ? [] : loadPayments()));
+  const [clients, setClients] = useState<Client[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
   const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
   const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>(() => loadOtherChargesRetentionByClient());
   const [cloudReady, setCloudReady] = useState<boolean>(false);
   const [cloudLoadError, setCloudLoadError] = useState<string>("");
-  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "ok" | "error">("idle");
+  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "ok" | "error" | "pending">("idle");
   const [syncErrorMessage, setSyncErrorMessage] = useState<string>("");
   const [lastSyncAt, setLastSyncAt] = useState<string>("");
+  const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
+  const [pendingSyncItems, setPendingSyncItems] = useState<Array<{
+    id: string;
+    entity_type: string;
+    entity_id: string;
+    action: string;
+    status: string;
+    retry_count: number;
+    last_error: string;
+    created_at: string;
+    updated_at: string;
+  }>>([]);
   const [backupSupported] = useState<boolean>(isAutoBackupSupported());
   const [backupConfigured, setBackupConfigured] = useState<boolean>(false);
   const [backupStatus, setBackupStatus] = useState<string>("Sin respaldo configurado.");
@@ -110,8 +115,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const [routeCollectionCount, setRouteCollectionCount] = useState<number>(0);
   const [isProgressiveCloudLoading, setIsProgressiveCloudLoading] = useState<boolean>(false);
   const [streetManagementData, setStreetManagementData] = useState<Record<string, unknown>>({});
-  const [collisions, setCollisions] = useState<CollisionRecord[]>(() => loadCollisions());
-  const [collisionsSettings, setCollisionsSettings] = useState<CollisionsSettings>(() => loadCollisionsSettings());
+  const [collisions, setCollisions] = useState<CollisionRecord[]>([]);
+  const [collisionsSettings, setCollisionsSettings] = useState<CollisionsSettings>({});
   const [cashPaymentPrefill, setCashPaymentPrefill] = useState<{
     dateApplied: string;
     clientId: string;
@@ -121,10 +126,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   } | null>(null);
   const lastStreetManagementSnapshotRef = useRef<string>("");
   const cloudCoreReloadTimerRef = useRef<number | null>(null);
-  const pendingCoreSyncRef = useRef<PendingCoreSyncSnapshot | null>(null);
-  const coreSyncRetryTimerRef = useRef<number | null>(null);
-  const coreSyncInFlightRef = useRef<boolean>(false);
-  const coreDeltaTimerRef = useRef<number | null>(null);
+  const cloudSyncFlushInFlightRef = useRef<boolean>(false);
   const coreRealtimeSubscribedRef = useRef<boolean>(false);
   const receivablesRealtimeSubscribedRef = useRef<boolean>(false);
   const lastTelegramSweepMinuteRef = useRef<string>("");
@@ -179,46 +181,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     return baseMessage;
   }
 
-  function serializePendingCoreSync(snapshot: PendingCoreSyncSnapshot): string {
-    return JSON.stringify({
-      token: snapshot.token,
-      userId: snapshot.userId,
-      clients: snapshot.clients,
-      payments: snapshot.payments
-    });
-  }
-
-  function savePendingCoreSyncSnapshot(snapshot: PendingCoreSyncSnapshot | null): void {
-    pendingCoreSyncRef.current = snapshot;
-    if (!snapshot) {
-      localStorage.removeItem(PENDING_CORE_SYNC_KEY);
-      return;
-    }
-    localStorage.setItem(PENDING_CORE_SYNC_KEY, serializePendingCoreSync(snapshot));
-  }
-
-  function loadPendingCoreSyncSnapshot(): PendingCoreSyncSnapshot | null {
-    const raw = localStorage.getItem(PENDING_CORE_SYNC_KEY);
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      if (!Array.isArray(parsed.clients) || !Array.isArray(parsed.payments)) return null;
-      const token = typeof parsed.token === "number" && Number.isFinite(parsed.token)
-        ? parsed.token
-        : Date.now();
-      const ownerId = typeof parsed.userId === "string" ? parsed.userId : "";
-      if (!ownerId || ownerId !== cloudDataUserId) return null;
-      return {
-        userId: ownerId,
-        token,
-        clients: parsed.clients as Client[],
-        payments: parsed.payments as Payment[]
-      };
-    } catch {
-      return null;
-    }
-  }
-
   function getCloudSaveErrorMessage(err: unknown): string {
     const errRecord = (typeof err === "object" && err !== null ? err as Record<string, unknown> : null);
     const rawMessage =
@@ -256,117 +218,43 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     return "Sincronizacion pendiente. Se reintentara automaticamente.";
   }
 
-  function schedulePendingCoreSyncRetry(delayMs = 4000): void {
-    if (coreSyncRetryTimerRef.current !== null) {
-      window.clearTimeout(coreSyncRetryTimerRef.current);
-    }
-    coreSyncRetryTimerRef.current = window.setTimeout(() => {
-      coreSyncRetryTimerRef.current = null;
-      void flushPendingCoreSync();
-    }, delayMs);
+  async function refreshPendingSyncStatus(): Promise<number> {
+    if (!cloudDataUserId) return 0;
+    const pendingCount = await countPendingCloudSyncItems(cloudDataUserId);
+    setPendingSyncCount(pendingCount);
+    setSyncStatus(pendingCount > 0 ? "pending" : "ok");
+    setSyncErrorMessage(pendingCount > 0 ? "Hay cambios pendientes por sincronizar." : "");
+    return pendingCount;
   }
 
-  async function flushPendingCoreSync(): Promise<boolean> {
-    if (!cloudDataUserId || !cloudReady) return false;
-    const snapshot = pendingCoreSyncRef.current;
-    if (!snapshot) return true;
-    if (coreSyncInFlightRef.current) return false;
+  async function refreshPendingSyncItems(): Promise<void> {
+    if (!cloudDataUserId) {
+      setPendingSyncItems([]);
+      return;
+    }
+    try {
+      const items = await listCloudSyncItems(cloudDataUserId);
+      setPendingSyncItems(items);
+    } catch (error) {
+      console.error("No se pudo leer el detalle de la cola cloud.", error);
+      setPendingSyncItems([]);
+    }
+  }
 
-    coreSyncInFlightRef.current = true;
+  async function flushCloudQueueSafely(): Promise<number> {
+    if (!cloudDataUserId) return 0;
+    if (cloudSyncFlushInFlightRef.current) return 0;
+    cloudSyncFlushInFlightRef.current = true;
     try {
       setSyncStatus("syncing");
-      await saveCloudPayments(cloudDataUserId, snapshot.payments);
-      await saveCloudClients(cloudDataUserId, snapshot.clients);
-      if (pendingCoreSyncRef.current?.token === snapshot.token) {
-        savePendingCoreSyncSnapshot(null);
-      }
-      setSyncStatus("ok");
-      setSyncErrorMessage("");
-      setLastSyncAt(new Date().toLocaleTimeString());
-      return true;
-    } catch (error) {
-      console.error("No se pudo sincronizar clientes/pagos pendientes en cloud.", error);
-      setSyncStatus("error");
-      setSyncErrorMessage(getCloudSaveErrorMessage(error));
-      schedulePendingCoreSyncRetry(5000);
-      return false;
+      const processed = await flushCloudSyncQueue(cloudDataUserId);
+      await refreshPendingSyncStatus();
+      await refreshPendingSyncItems();
+      return processed;
     } finally {
-      coreSyncInFlightRef.current = false;
+      cloudSyncFlushInFlightRef.current = false;
     }
   }
-
-  function queueCoreSync(nextClients: Client[], nextPayments: Payment[]): void {
-    if (!cloudDataUserId) return;
-    const snapshot: PendingCoreSyncSnapshot = {
-      userId: cloudDataUserId,
-      token: Date.now() + Math.random(),
-      clients: nextClients,
-      payments: nextPayments
-    };
-    savePendingCoreSyncSnapshot(snapshot);
-    void flushPendingCoreSync();
-  }
-
-  async function syncCoreDeltaOrQueue(
-    previousClients: Client[],
-    nextClients: Client[],
-    previousPayments: Payment[],
-    nextPayments: Payment[]
-  ): Promise<void> {
-    if (!cloudDataUserId) return;
-    try {
-      setSyncStatus("syncing");
-      await syncCloudPaymentsDelta(cloudDataUserId, previousPayments, nextPayments);
-      await syncCloudClientsDelta(cloudDataUserId, previousClients, nextClients);
-      setSyncStatus("ok");
-      setSyncErrorMessage("");
-      setLastSyncAt(new Date().toLocaleTimeString());
-    } catch (error) {
-      console.error("No se pudo sincronizar delta en cloud. Se encola snapshot completo.", error);
-      queueCoreSync(nextClients, nextPayments);
-    }
-  }
-
-  function scheduleCoreDeltaSync(
-    previousClients: Client[],
-    nextClients: Client[],
-    previousPayments: Payment[],
-    nextPayments: Payment[]
-  ): void {
-    if (coreDeltaTimerRef.current !== null) {
-      window.clearTimeout(coreDeltaTimerRef.current);
-    }
-    coreDeltaTimerRef.current = window.setTimeout(() => {
-      coreDeltaTimerRef.current = null;
-      void syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
-    }, 1000);
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const indexedPayments = await loadPaymentsFromIndexedDb();
-        if (cancelled || indexedPayments.length === 0) return;
-        setPayments((current) => (current.length > 0 ? current : indexedPayments));
-      } catch (error) {
-        console.error("No se pudo hidratar pagos desde IndexedDB.", error);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    const pendingSnapshot = loadPendingCoreSyncSnapshot();
-    if (!pendingSnapshot) return;
-    pendingCoreSyncRef.current = pendingSnapshot;
-    setClients(pendingSnapshot.clients);
-    setPayments(pendingSnapshot.payments);
-    setSyncStatus("error");
-    setSyncErrorMessage("Hay cambios pendientes por sincronizar. Se reintentara automaticamente.");
-  }, []);
 
   useEffect(() => {
     if (!cloudDataUserId) return;
@@ -380,11 +268,9 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         if (cancelled) return;
         if (Array.isArray(cloudRows) && cloudRows.length > 0) {
           setCollisions(cloudRows);
-          saveCollisions(cloudRows);
         }
         if (cloudSettings) {
           setCollisionsSettings(cloudSettings);
-          saveCollisionsSettings(cloudSettings);
         }
       } catch (error) {
         console.error("No se pudo cargar Colisiones desde nube.", error);
@@ -437,40 +323,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     const row = value as Record<string, unknown>;
     const keys = Object.keys(row).sort((a, b) => a.localeCompare(b));
     return `{${keys.map((key) => `${JSON.stringify(key)}:${stableSerialize(row[key])}`).join(",")}}`;
-  }
-
-  function parseChargeDate(value?: string): number {
-    if (!value) return Number.NEGATIVE_INFINITY;
-    const parsed = parseDateKey(value);
-    return parsed ? parsed.getTime() : Number.NEGATIVE_INFINITY;
-  }
-
-  function mergeCloudClientsWithLocal(current: Client[], incoming: Client[]): Client[] {
-    const currentById = new Map(current.map((client) => [client.id, client]));
-    const incomingById = new Map(incoming.map((client) => [client.id, client]));
-    const merged: Client[] = [];
-    const seen = new Set<string>();
-
-    for (const client of incoming) {
-      const local = currentById.get(client.id);
-      if (!local) {
-        merged.push(client);
-        seen.add(client.id);
-        continue;
-      }
-      seen.add(client.id);
-      const localChargeDate = parseChargeDate(local.lastChargeDate);
-      const incomingChargeDate = parseChargeDate(client.lastChargeDate);
-      merged.push(incomingChargeDate > localChargeDate ? client : local);
-    }
-
-    for (const client of current) {
-      if (!seen.has(client.id) && !incomingById.has(client.id)) {
-        merged.push(client);
-      }
-    }
-
-    return merged;
   }
 
   function isPreferredBootstrapGroupClient(client: Client): boolean {
@@ -560,14 +412,20 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
 
     (async () => {
       try {
-        const localClientsFallback = loadClients();
-        const localPaymentsFallback = loadPayments();
         setCloudReady(false);
         setCloudLoadError("");
         setSyncErrorMessage("");
         setSyncStatus("syncing");
         setIsProgressiveCloudLoading(true);
-        const [cloudClientsData, cloudPaymentsData, cloudStreetManagement, cloudCollectionClosures] = await Promise.all([
+        const [
+          cloudClientsData,
+          cloudPaymentsData,
+          cloudStreetManagement,
+          cloudCollectionClosures,
+          cloudBankRules,
+          cloudLateFeeSettings,
+          cloudOtherChargesRetention
+        ] = await Promise.all([
           appRole === "admin"
             ? loadCloudClients(cloudDataUserId)
             : loadCloudClientsPage(cloudDataUserId, { limit: INITIAL_CLOUD_BOOTSTRAP_LIMIT }),
@@ -575,37 +433,46 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             ? loadCloudPayments(cloudDataUserId)
             : loadCloudPaymentsPage(cloudDataUserId, { limit: INITIAL_CLOUD_BOOTSTRAP_LIMIT }),
           loadCloudStreetManagement(cloudDataUserId),
-          loadCloudCollectionClosures(cloudDataUserId)
+          loadCloudCollectionClosures(cloudDataUserId),
+          loadCloudCollectionRows<BankRule>("bank_rules_cloud", cloudDataUserId),
+          loadCloudSingletonData<LateFeeSettings>("late_fee_settings_cloud", cloudDataUserId),
+          loadCloudSingletonData<OtherChargesRetentionByClient>("other_charges_retention_cloud", cloudDataUserId)
         ]);
         if (cancelled) return;
-        const prioritizedCloudClients: Client[] =
-          appRole === "admin" ? [] : cloudClientsData.filter((client) => isPreferredBootstrapGroupClient(client));
         const bootstrapClients =
-          prioritizedCloudClients.length > 0
-            ? prioritizedCloudClients
-            : cloudClientsData.length > 0
+          appRole === "admin"
             ? cloudClientsData
-            : (clients.length > 0 ? clients : localClientsFallback);
-        const bootstrapPayments =
-          cloudPaymentsData.length > 0
-            ? cloudPaymentsData
-            : (payments.length > 0 ? payments : localPaymentsFallback);
+            : cloudClientsData.filter((client) => isPreferredBootstrapGroupClient(client));
         setClients(bootstrapClients);
-        setPayments(bootstrapPayments);
-        setBankRules(loadBankRules());
-        setLateFeeSettings(loadLateFeeSettings());
-        setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
-        // Mantiene cache local opcional cuando no estamos en modo estricto nube.
-        if (!isSupabaseOnlyMode) {
-          saveClients(bootstrapClients);
-          savePayments(bootstrapPayments);
-        }
+        setPayments(cloudPaymentsData);
+        setBankRules(cloudBankRules.length > 0 ? cloudBankRules : loadBankRules());
+        setLateFeeSettings(cloudLateFeeSettings ?? loadLateFeeSettings());
+        setOtherChargesRetentionByClient(cloudOtherChargesRetention ?? loadOtherChargesRetentionByClient());
         setStreetManagementData(cloudStreetManagement);
         lastStreetManagementSnapshotRef.current = stableSerialize(cloudStreetManagement);
-        localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(cloudCollectionClosures));
         recalculateRouteCollectionCount(cloudStreetManagement);
-        setSyncStatus("ok");
-        setSyncErrorMessage("");
+        const [queuedClientsRaw, queuedPaymentsRaw] = await Promise.all([
+          loadQueuedCloudPayload(cloudDataUserId, "collection", "clients_cloud", "upsert"),
+          loadQueuedCloudPayload(cloudDataUserId, "collection", "payments_cloud", "upsert")
+        ]);
+        if (queuedClientsRaw) {
+          try {
+            setClients(JSON.parse(queuedClientsRaw) as Client[]);
+          } catch {
+            // ignore malformed queue payloads
+          }
+        }
+        if (queuedPaymentsRaw) {
+          try {
+            setPayments(JSON.parse(queuedPaymentsRaw) as Payment[]);
+          } catch {
+            // ignore malformed queue payloads
+          }
+        }
+        const pendingCount = await countPendingCloudSyncItems(cloudDataUserId);
+        setPendingSyncCount(pendingCount);
+        setSyncStatus(pendingCount > 0 ? "pending" : "ok");
+        setSyncErrorMessage(pendingCount > 0 ? "Hay cambios pendientes por sincronizar." : "");
         setLastSyncAt(new Date().toLocaleTimeString());
         setCloudReady(true);
 
@@ -616,13 +483,9 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
               loadCloudClients(cloudDataUserId),
               loadCloudPayments(cloudDataUserId)
             ]);
-            if (cancelled || pendingCoreSyncRef.current) return;
+            if (cancelled) return;
             setClients(fullClients);
             setPayments(fullPayments);
-            if (!isSupabaseOnlyMode) {
-              saveClients(fullClients);
-              savePayments(fullPayments);
-            }
             setLastSyncAt(new Date().toLocaleTimeString());
           } catch (error) {
             console.error("No se pudo completar la carga progresiva total.", error);
@@ -643,10 +506,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     return () => {
       cancelled = true;
       setIsProgressiveCloudLoading(false);
-      if (coreDeltaTimerRef.current !== null) {
-        window.clearTimeout(coreDeltaTimerRef.current);
-        coreDeltaTimerRef.current = null;
-      }
     };
   }, [cloudDataUserId, cloudReloadTick, isReadOnlyReceivables]);
 
@@ -658,9 +517,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       try {
         await initializeCloudMirror(cloudDataUserId);
         if (cancelled) return;
-        setBankRules(loadBankRules());
-        setLateFeeSettings(loadLateFeeSettings());
-        setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
         window.dispatchEvent(new CustomEvent("cobrapp:cloud-hydrated"));
       } catch (error) {
         console.error("No se pudo inicializar cloud mirror.", error);
@@ -682,26 +538,18 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     let cancelled = false;
 
     const reloadCloudCoreData = async () => {
-      if (pendingCoreSyncRef.current) {
-        setSyncStatus("syncing");
-        void flushPendingCoreSync();
-        return;
-      }
       try {
         const [cloudClientsData, cloudPaymentsData] = await Promise.all([
           loadCloudClients(cloudDataUserId),
           loadCloudPayments(cloudDataUserId)
         ]);
         if (cancelled) return;
-        setClients((current) => {
-          const merged = mergeCloudClientsWithLocal(current, cloudClientsData);
-          if (!isSupabaseOnlyMode) saveClients(merged);
-          return merged;
-        });
+        setClients(cloudClientsData);
         setPayments(cloudPaymentsData);
-        if (!isSupabaseOnlyMode) savePayments(cloudPaymentsData);
-        setSyncStatus("ok");
-        setSyncErrorMessage("");
+        const pendingCount = await countPendingCloudSyncItems(cloudDataUserId);
+        setPendingSyncCount(pendingCount);
+        setSyncStatus(pendingCount > 0 ? "pending" : "ok");
+        setSyncErrorMessage(pendingCount > 0 ? "Hay cambios pendientes por sincronizar." : "");
         setLastSyncAt(new Date().toLocaleTimeString());
       } catch (error) {
         console.error("No se pudo refrescar clientes/pagos desde nube.", error);
@@ -719,11 +567,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       const oldId = typeof oldRow?.id === "string" ? oldRow.id : "";
       const newId = typeof newRow?.id === "string" ? newRow.id : "";
       if (eventType === "DELETE" && oldId) {
-        setClients((current) => {
-          const next = current.filter((item) => item.id !== oldId);
-          if (!isSupabaseOnlyMode) saveClients(next);
-          return next;
-        });
+        setClients((current) => current.filter((item) => item.id !== oldId));
         return;
       }
       if (!newId || !newRow || !newRow.data || typeof newRow.data !== "object" || Array.isArray(newRow.data)) return;
@@ -737,7 +581,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           next = [...current];
           next[idx] = incoming;
         }
-        if (!isSupabaseOnlyMode) saveClients(next);
         return next;
       });
     };
@@ -749,11 +592,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       const oldId = typeof oldRow?.id === "string" ? oldRow.id : "";
       const newId = typeof newRow?.id === "string" ? newRow.id : "";
       if (eventType === "DELETE" && oldId) {
-        setPayments((current) => {
-          const next = current.filter((item) => item.id !== oldId);
-          if (!isSupabaseOnlyMode) savePayments(next);
-          return next;
-        });
+        setPayments((current) => current.filter((item) => item.id !== oldId));
         return;
       }
       if (!newId || !newRow || !newRow.data || typeof newRow.data !== "object" || Array.isArray(newRow.data)) return;
@@ -767,7 +606,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           next = [...current];
           next[idx] = incoming;
         }
-        if (!isSupabaseOnlyMode) savePayments(next);
         return next;
       });
     };
@@ -842,15 +680,43 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
 
   useEffect(() => {
     const handleOnline = () => {
-      void flushPendingCoreSync();
+      if (!cloudDataUserId) return;
+      void (async () => {
+        try {
+          await flushCloudQueueSafely();
+          setLastSyncAt(new Date().toLocaleTimeString());
+        } catch (error) {
+          console.error("No se pudo vaciar la cola cloud.", error);
+          setSyncStatus("error");
+          setSyncErrorMessage(getCloudSaveErrorMessage(error));
+        }
+      })();
     };
     window.addEventListener("online", handleOnline);
     return () => {
       window.removeEventListener("online", handleOnline);
-      if (coreSyncRetryTimerRef.current !== null) {
-        window.clearTimeout(coreSyncRetryTimerRef.current);
-        coreSyncRetryTimerRef.current = null;
+    };
+  }, [cloudDataUserId, cloudReady]);
+
+  useEffect(() => {
+    if (!cloudDataUserId || !cloudReady) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        await flushCloudQueueSafely();
+        if (cancelled) return;
+        await refreshPendingSyncItems();
+      } catch (error) {
+        console.error("No se pudo revisar la cola cloud.", error);
       }
+    };
+    void tick();
+    const timer = window.setInterval(() => {
+      void tick();
+    }, 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
     };
   }, [cloudDataUserId, cloudReady]);
 
@@ -895,7 +761,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           const row = payload.new as { data?: unknown } | null;
           const data = row?.data;
           if (!data || typeof data !== "object" || Array.isArray(data)) return;
-          localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(data));
+          void saveCloudSnapshot(cloudDataUserId, "singleton:collection_closures_cloud", data);
           setLastSyncAt(new Date().toLocaleTimeString());
         }
       )
@@ -923,7 +789,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             }
             return current;
           });
-          localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(collectionClosures));
+          void saveCloudSnapshot(cloudDataUserId, "singleton:collection_closures_cloud", collectionClosures);
         } catch (error) {
           console.error("No se pudo refrescar Cobro en Ruta desde nube.", error);
         }
@@ -935,6 +801,10 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       receivablesRealtimeSubscribedRef.current = false;
       void supabase.removeChannel(channel);
     };
+  }, [cloudDataUserId, cloudReady]);
+
+  useEffect(() => {
+    void refreshPendingSyncItems();
   }, [cloudDataUserId, cloudReady]);
 
   useEffect(() => {
@@ -1076,59 +946,122 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
 
   async function persistClients(next: Client[]): Promise<void> {
     if (isReadOnlyReceivables) return;
-    const previousClients = clients;
-    const previousPayments = payments;
     setClients(next);
-    if (cloudDataUserId) {
-      scheduleCoreDeltaSync(previousClients, next, previousPayments, previousPayments);
-    }
-    if (!isSupabaseOnlyMode) saveClients(next);
     setHasPendingChanges(true);
+    if (!cloudDataUserId) return;
+    try {
+      setSyncStatus("syncing");
+      await saveCloudClients(cloudDataUserId, next);
+      await refreshPendingSyncStatus();
+      setLastSyncAt(new Date().toLocaleTimeString());
+    } catch (error) {
+      console.error("No se pudo sincronizar clientes en cloud.", error);
+      setSyncStatus("error");
+      setSyncErrorMessage(getCloudSaveErrorMessage(error));
+      await refreshPendingSyncStatus();
+    }
   }
 
   async function persistPayments(next: Payment[]): Promise<void> {
     if (isReadOnlyReceivables) return;
-    const previousClients = clients;
-    const previousPayments = payments;
     setPayments(next);
-    if (cloudDataUserId) {
-      scheduleCoreDeltaSync(previousClients, previousClients, previousPayments, next);
-    }
-    if (!isSupabaseOnlyMode) savePayments(next);
     setHasPendingChanges(true);
+    if (!cloudDataUserId) return;
+    try {
+      setSyncStatus("syncing");
+      await saveCloudPayments(cloudDataUserId, next);
+      await refreshPendingSyncStatus();
+      setLastSyncAt(new Date().toLocaleTimeString());
+    } catch (error) {
+      console.error("No se pudo sincronizar pagos en cloud.", error);
+      setSyncStatus("error");
+      setSyncErrorMessage(getCloudSaveErrorMessage(error));
+      await refreshPendingSyncStatus();
+    }
   }
 
   async function persistClientsAndPayments(nextClients: Client[], nextPayments: Payment[]): Promise<boolean> {
     if (isReadOnlyReceivables) return false;
     setClients(nextClients);
     setPayments(nextPayments);
-    if (cloudDataUserId) {
-      queueCoreSync(nextClients, nextPayments);
-    }
-    if (!isSupabaseOnlyMode) {
-      saveClients(nextClients);
-      savePayments(nextPayments);
-    }
     setHasPendingChanges(true);
-    return true;
+    if (!cloudDataUserId) return true;
+    try {
+      setSyncStatus("syncing");
+      await Promise.all([
+        saveCloudClients(cloudDataUserId, nextClients),
+        saveCloudPayments(cloudDataUserId, nextPayments)
+      ]);
+      await refreshPendingSyncStatus();
+      setLastSyncAt(new Date().toLocaleTimeString());
+      return true;
+    } catch (error) {
+      console.error("No se pudo sincronizar clientes/pagos en cloud.", error);
+      setSyncStatus("error");
+      setSyncErrorMessage(getCloudSaveErrorMessage(error));
+      await refreshPendingSyncStatus();
+      return false;
+    }
   }
 
   function persistBankRules(next: BankRule[]): void {
     setBankRules(next);
-    saveBankRules(next);
     setHasPendingChanges(true);
+    if (cloudDataUserId) {
+      void (async () => {
+        try {
+          setSyncStatus("syncing");
+          await saveCloudCollectionRows("bank_rules_cloud", cloudDataUserId, next);
+          await refreshPendingSyncStatus();
+          setLastSyncAt(new Date().toLocaleTimeString());
+        } catch (error) {
+          console.error("No se pudo sincronizar reglas bancarias en cloud.", error);
+          setSyncStatus("error");
+          setSyncErrorMessage(getCloudSaveErrorMessage(error));
+          await refreshPendingSyncStatus();
+        }
+      })();
+    }
   }
 
   function persistLateFeeSettings(next: LateFeeSettings): void {
     setLateFeeSettings(next);
-    saveLateFeeSettings(next);
     setHasPendingChanges(true);
+    if (cloudDataUserId) {
+      void (async () => {
+        try {
+          setSyncStatus("syncing");
+          await saveCloudSingletonData("late_fee_settings_cloud", cloudDataUserId, next);
+          await refreshPendingSyncStatus();
+          setLastSyncAt(new Date().toLocaleTimeString());
+        } catch (error) {
+          console.error("No se pudo sincronizar configuracion de mora en cloud.", error);
+          setSyncStatus("error");
+          setSyncErrorMessage(getCloudSaveErrorMessage(error));
+          await refreshPendingSyncStatus();
+        }
+      })();
+    }
   }
 
   function persistOtherChargesRetentionByClient(next: OtherChargesRetentionByClient): void {
     setOtherChargesRetentionByClient(next);
-    saveOtherChargesRetentionByClient(next);
     setHasPendingChanges(true);
+    if (cloudDataUserId) {
+      void (async () => {
+        try {
+          setSyncStatus("syncing");
+          await saveCloudSingletonData("other_charges_retention_cloud", cloudDataUserId, next);
+          await refreshPendingSyncStatus();
+          setLastSyncAt(new Date().toLocaleTimeString());
+        } catch (error) {
+          console.error("No se pudo sincronizar retenciones de otros cargos en cloud.", error);
+          setSyncStatus("error");
+          setSyncErrorMessage(getCloudSaveErrorMessage(error));
+          await refreshPendingSyncStatus();
+        }
+      })();
+    }
   }
 
   async function persistStreetManagement(next: Record<string, unknown>): Promise<boolean> {
@@ -1160,30 +1093,37 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
 
   async function persistCollisions(next: CollisionRecord[]): Promise<void> {
     setCollisions(next);
-    saveCollisions(next);
     setHasPendingChanges(true);
     if (!cloudDataUserId || !cloudReady) return;
     try {
       setSyncStatus("syncing");
       await saveCloudCollisions(cloudDataUserId, next);
+      await refreshPendingSyncStatus();
       setSyncStatus("ok");
       setSyncErrorMessage("");
       setLastSyncAt(new Date().toLocaleTimeString());
     } catch (error) {
       console.error("No se pudo sincronizar Colisiones en nube.", error);
       setSyncStatus("error");
-      setSyncErrorMessage("No se pudo sincronizar Colisiones. Se conserva local.");
+      setSyncErrorMessage(getCloudSaveErrorMessage(error));
+      await refreshPendingSyncStatus();
     }
   }
 
   async function persistCollisionsSettings(next: CollisionsSettings): Promise<void> {
     setCollisionsSettings(next);
-    saveCollisionsSettings(next);
     if (!cloudDataUserId || !cloudReady) return;
     try {
+      setSyncStatus("syncing");
       await saveCloudCollisionsSettings(cloudDataUserId, next);
+      await refreshPendingSyncStatus();
+      setSyncStatus("ok");
+      setSyncErrorMessage("");
     } catch (error) {
       console.error("No se pudo sincronizar configuracion de Colisiones en nube.", error);
+      setSyncStatus("error");
+      setSyncErrorMessage(getCloudSaveErrorMessage(error));
+      await refreshPendingSyncStatus();
     }
   }
 
@@ -1247,8 +1187,10 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       localStorage.setItem("cobrapp.module4.collisions_settings.v1", JSON.stringify(report.normalizedData["cobrapp.module4.collisions_settings.v1"] ?? {}));
       localStorage.setItem("cobrapp.payments.seq.v1", String(Number(report.normalizedData["cobrapp.payments.seq.v1"] ?? 0) || 0));
       localStorage.setItem("cobrapp.clients.status_filter.v1", String(report.normalizedData["cobrapp.clients.status_filter.v1"] ?? ""));
-      setCollisions(loadCollisions());
-      setCollisionsSettings(loadCollisionsSettings());
+      setCollisions(Array.isArray(report.normalizedData["cobrapp.module4.collisions.v1"]) ? report.normalizedData["cobrapp.module4.collisions.v1"] as CollisionRecord[] : []);
+      setCollisionsSettings((report.normalizedData["cobrapp.module4.collisions_settings.v1"] && typeof report.normalizedData["cobrapp.module4.collisions_settings.v1"] === "object")
+        ? report.normalizedData["cobrapp.module4.collisions_settings.v1"] as CollisionsSettings
+        : {});
       setHasPendingChanges(true);
 
       return { ok: true, message: "Respaldo importado correctamente. Ya puedes continuar con la migracion cloud." };
@@ -1277,9 +1219,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   async function handleSignOutWithBackup(): Promise<void> {
     if (cloudDataUserId && !isReadOnlyReceivables) {
       try {
-        setSyncStatus("syncing");
         await flushCloudMirror();
-        await flushPendingCoreSync();
+        await flushCloudQueueSafely();
         setSyncStatus("ok");
         setLastSyncAt(new Date().toLocaleTimeString());
       } catch (error) {
@@ -1357,12 +1298,80 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
               Estado nube:{" "}
               {syncStatus === "syncing"
                 ? "Sincronizando..."
+                : syncStatus === "pending"
+                ? "Pendientes por subir"
                 : syncStatus === "ok"
                 ? "En nube"
                 : syncStatus === "error"
                 ? "Error"
                 : "Listo"}
             </span>
+            {pendingSyncCount > 0 && (
+              <details style={{ marginLeft: 8, display: "inline-block" }}>
+                <summary className="hint" style={{ cursor: "pointer" }}>
+                  Pendientes: {pendingSyncCount}
+                </summary>
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: 12,
+                    minWidth: 420,
+                    maxWidth: 760,
+                    background: "rgba(255,255,255,0.96)",
+                    border: "1px solid rgba(15,23,42,0.12)",
+                    borderRadius: 12,
+                    boxShadow: "0 12px 28px rgba(15,23,42,0.12)",
+                    color: "#0f172a"
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Detalle de pendientes</div>
+                  {pendingSyncItems.length === 0 ? (
+                    <div className="hint">No hay detalle disponible por ahora.</div>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {pendingSyncItems.slice(0, 12).map((item) => (
+                        <div
+                          key={item.id}
+                          style={{
+                            padding: 10,
+                            borderRadius: 10,
+                            background: "#f8fafc",
+                            border: "1px solid rgba(15,23,42,0.08)"
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12 }}>
+                            <strong>{item.entity_type}</strong>
+                            <span>{item.action}</span>
+                          </div>
+                          <div style={{ fontSize: 12, marginTop: 4, wordBreak: "break-word" }}>
+                            <span style={{ fontWeight: 600 }}>ID:</span> {item.entity_id}
+                          </div>
+                          <div style={{ fontSize: 12, marginTop: 4 }}>
+                            <span style={{ fontWeight: 600 }}>Intentos:</span> {item.retry_count}
+                          </div>
+                          <div style={{ fontSize: 12, marginTop: 4 }}>
+                            <span style={{ fontWeight: 600 }}>Estado:</span> {item.status}
+                          </div>
+                          {item.status === "rejected" && (
+                            <div style={{ fontSize: 12, marginTop: 4, color: "#7c2d12", fontWeight: 600 }}>
+                              Rechazado definitivamente. No se volvera a reintentar.
+                            </div>
+                          )}
+                          {item.last_error && (
+                            <div style={{ fontSize: 12, marginTop: 4, color: "#b42318" }}>
+                              <span style={{ fontWeight: 600 }}>Error:</span> {item.last_error}
+                            </div>
+                          )}
+                          <div style={{ fontSize: 11, marginTop: 4, color: "#475569" }}>
+                            Creado: {item.created_at}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </details>
+            )}
             {lastSyncAt && (
               <span className="hint" style={{ marginLeft: 8 }}>
                 Ultima sync: {lastSyncAt}
@@ -1416,6 +1425,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             bankRules={bankRules}
             lateFeeSettings={lateFeeSettings}
             otherChargesRetentionByClient={otherChargesRetentionByClient}
+            dataOwnerUserId={cloudDataUserId}
             onClientsChange={persistClients}
             payments={payments}
             onPaymentsChange={persistPayments}

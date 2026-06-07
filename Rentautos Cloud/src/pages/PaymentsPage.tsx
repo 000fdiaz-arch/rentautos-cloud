@@ -1,17 +1,14 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import PaymentReceipt, { downloadPaymentReceiptImage, downloadPaymentsReceiptsZip } from "../components/PaymentReceipt";
-import { formatCurrency, formatDate } from "../format";
+import PaymentReceipt, { downloadPaymentsReceiptsZip } from "../components/PaymentReceipt";
 import {
-  loadLateFeeLedger,
-  loadPendingCardItems,
-  loadManualBankAssignmentAudit,
-  loadPendingBankItems,
-  nextReceiptNumber,
-  saveLateFeeLedger,
-  savePendingCardItems,
-  saveManualBankAssignmentAudit,
-  savePendingBankItems
-} from "../storage";
+  loadCloudCollectionRows,
+  loadCloudSingletonData,
+  loadCloudAppliedPaymentFolioSet,
+  saveCloudCollectionRows,
+  saveCloudSingletonData
+} from "../cloudData";
+import { formatCurrency, formatDate } from "../format";
+import { nextReceiptNumber } from "../storage";
 import type {
   BankRule,
   BillingFrequency,
@@ -42,14 +39,8 @@ const PAYMENT_METHODS: PaymentMethod[] = [
   "Descuento"
 ];
 const BANK_PAYMENT_METHODS = new Set<PaymentMethod>(["ACH Express", "Deposito Bancario", "Transferencia Bancaria"]);
-const NOTIFIED_PAYMENTS_KEY = "cobrapp.module2.notified.v1";
 const NOTIFIED_AMOUNT_TOLERANCE = 0.02;
 const NOTIFIED_DAYS_WINDOW = 7;
-const CASH_CLOSINGS_KEY = "cobrapp.module2.cash_closings.v1";
-const CASH_CLOSING_AUDIT_KEY = "cobrapp.module2.cash_closing_audit.v1";
-const CHARGE_RUNS_KEY = "cobrapp.module2.charge_runs.v1";
-const COLLECTION_STATUS_KEY = "cobrapp.module3.street_management.v1";
-const COLLECTION_CLOSURES_KEY = "cobrapp.module3.collection_closures.v1";
 
 const FREQUENCY_LABEL: Record<string, string> = {
   daily: "Diario",
@@ -88,6 +79,7 @@ type SortDirection = "asc" | "desc";
 type HistorySortField = "receipt" | "date" | "unit" | "client" | "amount" | "applied" | "savings" | "installments" | "method";
 
 type CashClosing = {
+  id: string;
   date: string;
   closedAt: string;
 };
@@ -193,6 +185,10 @@ type HistoryColumnFilters = {
   method: string;
 };
 
+type PaymentTab = "all" | "cash" | "register" | "notified" | "pending" | "card" | "history";
+
+const HISTORY_INITIAL_LIMIT = 5;
+
 const EMPTY_PENDING_FILTERS: PendingColumnFilters = {
   folio: "",
   account: "",
@@ -238,6 +234,7 @@ type Props = {
   bankRules: BankRule[];
   lateFeeSettings: LateFeeSettings;
   otherChargesRetentionByClient: OtherChargesRetentionByClient;
+  dataOwnerUserId?: string | null;
   onClientsChange: (next: Client[]) => void;
   payments: Payment[];
   onPaymentsChange: (next: Payment[]) => void;
@@ -384,40 +381,22 @@ function splitWholeAndCents(amount: number): { wholePart: number; centsPart: num
   return { wholePart, centsPart };
 }
 
-function parseCollectionStatusesFromStorage(): Record<string, CollectionStatusRecord> {
-  try {
-    const raw = localStorage.getItem(COLLECTION_STATUS_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    const next: Record<string, CollectionStatusRecord> = {};
-    for (const [clientId, value] of Object.entries(parsed)) {
-      if (!value || typeof value !== "object") continue;
-      const row = value as Record<string, unknown>;
-      const status = row.status;
-      if (status !== "no_answer" && status !== "reminder" && status !== "call_later" && status !== "paid") continue;
-      next[clientId] = {
-        status,
-        comment: typeof row.comment === "string" ? row.comment.slice(0, 5) : "",
-        updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : new Date().toISOString()
-      };
-    }
-    return next;
-  } catch {
-    return {};
+async function loadCollectionStatusesFromCloud(userId: string): Promise<Record<string, CollectionStatusRecord>> {
+  const payload = await loadCloudSingletonData<Record<string, unknown>>("street_management_cloud", userId);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return {};
+  const next: Record<string, CollectionStatusRecord> = {};
+  for (const [clientId, value] of Object.entries(payload)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const row = value as Record<string, unknown>;
+    const status = row.status;
+    if (status !== "no_answer" && status !== "reminder" && status !== "call_later" && status !== "paid") continue;
+    next[clientId] = {
+      status,
+      comment: typeof row.comment === "string" ? row.comment.slice(0, 5) : "",
+      updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : new Date().toISOString()
+    };
   }
-}
-
-function loadCollectionClosuresFromStorage(): CollectionClosuresByDate {
-  try {
-    const raw = localStorage.getItem(COLLECTION_CLOSURES_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return parsed as CollectionClosuresByDate;
-  } catch {
-    return {};
-  }
+  return next;
 }
 
 function resolveCollectionStatusForClosure(
@@ -736,123 +715,6 @@ function restoreOtherChargesAfterDelete(current: OtherCharge[] | undefined, appl
   return [...totals.values()].filter((charge) => charge.amount > 0);
 }
 
-function loadNotifiedPayments(): NotifiedPayment[] {
-  const raw = localStorage.getItem(NOTIFIED_PAYMENTS_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((item): item is NotifiedPayment => {
-        if (!item || typeof item !== "object") return false;
-        const rec = item as Record<string, unknown>;
-        return (
-          typeof rec.id === "string" &&
-          typeof rec.clientId === "string" &&
-          typeof rec.amount === "number" &&
-          Number.isFinite(rec.amount) &&
-          typeof rec.createdAt === "string"
-        );
-      });
-  } catch {
-    return [];
-  }
-}
-
-function saveNotifiedPayments(rows: NotifiedPayment[]): void {
-  localStorage.setItem(NOTIFIED_PAYMENTS_KEY, JSON.stringify(rows));
-}
-
-function loadCashClosings(): CashClosing[] {
-  const raw = localStorage.getItem(CASH_CLOSINGS_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is CashClosing => {
-      if (!item || typeof item !== "object") return false;
-      const rec = item as Record<string, unknown>;
-      return typeof rec.date === "string" && typeof rec.closedAt === "string";
-    });
-  } catch {
-    return [];
-  }
-}
-
-function saveCashClosings(rows: CashClosing[]): void {
-  localStorage.setItem(CASH_CLOSINGS_KEY, JSON.stringify(rows));
-}
-
-function loadCashClosingAudit(): CashClosingAuditEvent[] {
-  const raw = localStorage.getItem(CASH_CLOSING_AUDIT_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is CashClosingAuditEvent => {
-      if (!item || typeof item !== "object") return false;
-      const rec = item as Record<string, unknown>;
-      return (
-        typeof rec.id === "string" &&
-        typeof rec.date === "string" &&
-        (rec.action === "close" || rec.action === "reopen") &&
-        typeof rec.actor === "string" &&
-        typeof rec.reason === "string" &&
-        typeof rec.createdAt === "string"
-      );
-    });
-  } catch {
-    return [];
-  }
-}
-
-function saveCashClosingAudit(rows: CashClosingAuditEvent[]): void {
-  localStorage.setItem(CASH_CLOSING_AUDIT_KEY, JSON.stringify(rows));
-}
-
-function loadChargeRuns(): ChargeRun[] {
-  const raw = localStorage.getItem(CHARGE_RUNS_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((item) => {
-        if (!item || typeof item !== "object") return null;
-        const rec = item as Record<string, unknown>;
-        if (
-          typeof rec.id !== "string" ||
-          typeof rec.closingDate !== "string" ||
-          typeof rec.targetDate !== "string" ||
-          typeof rec.chargedClients !== "number" ||
-          typeof rec.chargedTotal !== "number" ||
-          typeof rec.createdAt !== "string"
-        ) return null;
-        const expectedClients = typeof rec.expectedClients === "number"
-          ? rec.expectedClients
-          : rec.chargedClients;
-        const anomalyClients = typeof rec.anomalyClients === "number" ? rec.anomalyClients : 0;
-        return {
-          id: rec.id,
-          closingDate: rec.closingDate,
-          targetDate: rec.targetDate,
-          expectedClients,
-          chargedClients: rec.chargedClients,
-          anomalyClients,
-          chargedTotal: rec.chargedTotal,
-          createdAt: rec.createdAt
-        } satisfies ChargeRun;
-      })
-      .filter((item): item is ChargeRun => item !== null);
-  } catch {
-    return [];
-  }
-}
-
-function saveChargeRuns(rows: ChargeRun[]): void {
-  localStorage.setItem(CHARGE_RUNS_KEY, JSON.stringify(rows));
-}
-
 function escapeCsvCell(value: string | number | boolean): string {
   const raw = String(value ?? "");
   if (/[",\n]/.test(raw)) return `"${raw.replace(/"/g, "\"\"")}"`;
@@ -904,6 +766,7 @@ export default function PaymentsPage({
   bankRules,
   lateFeeSettings,
   otherChargesRetentionByClient,
+  dataOwnerUserId,
   onClientsChange,
   payments,
   onPaymentsChange,
@@ -923,10 +786,7 @@ export default function PaymentsPage({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [confirmedPayment, setConfirmedPayment] = useState<Payment | null>(null);
-  const [isRegisterOpen, setIsRegisterOpen] = useState(true);
-  const [isNotifiedOpen, setIsNotifiedOpen] = useState(false);
-  const [isCashClosingOpen, setIsCashClosingOpen] = useState(false);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [activePaymentTab, setActivePaymentTab] = useState<PaymentTab>("register");
   const [historyClientId, setHistoryClientId] = useState<string>("all");
   const [historyGroupFilter, setHistoryGroupFilter] = useState<string>("all");
   const [historyDateFrom, setHistoryDateFrom] = useState<string>("");
@@ -935,6 +795,7 @@ export default function PaymentsPage({
   const [historySortField, setHistorySortField] = useState<HistorySortField>("date");
   const [historySortDirection, setHistorySortDirection] = useState<SortDirection>("desc");
   const [historySelectedPaymentIds, setHistorySelectedPaymentIds] = useState<string[]>([]);
+  const [historyVisibleCount, setHistoryVisibleCount] = useState(HISTORY_INITIAL_LIMIT);
   const [isHistoryBulkDownloading, setIsHistoryBulkDownloading] = useState(false);
   const [historyBulkDownloadError, setHistoryBulkDownloadError] = useState("");
   const [historyPreviewPayment, setHistoryPreviewPayment] = useState<Payment | null>(null);
@@ -943,29 +804,27 @@ export default function PaymentsPage({
     unitId: "",
     amount: ""
   });
-  const [notifiedPayments, setNotifiedPayments] = useState<NotifiedPayment[]>(() => loadNotifiedPayments());
+  const [notifiedPayments, setNotifiedPayments] = useState<NotifiedPayment[]>([]);
   const [editingNotifiedId, setEditingNotifiedId] = useState<string | null>(null);
   const [editingNotifiedForm, setEditingNotifiedForm] = useState<NotifiedPaymentForm>({ unitId: "", amount: "" });
   const [notifiedSortField, setNotifiedSortField] = useState<NotifiedSortField>("createdAt");
   const [notifiedSortDirection, setNotifiedSortDirection] = useState<SortDirection>("desc");
   const [notifiedUntilNoonOnly, setNotifiedUntilNoonOnly] = useState(false);
   const [notifiedErrors, setNotifiedErrors] = useState<string[]>([]);
-  const [cashClosings, setCashClosings] = useState<CashClosing[]>(() => loadCashClosings());
+  const [cashClosings, setCashClosings] = useState<CashClosing[]>([]);
   const [cashClosingDate, setCashClosingDate] = useState<string>(toDateKey(new Date()));
   const [cashClosingActor, setCashClosingActor] = useState<string>("Operador");
   const [cashClosingReason, setCashClosingReason] = useState<string>("");
   const [cashClosingInfo, setCashClosingInfo] = useState<string>("");
   const [cashClosingError, setCashClosingError] = useState<string>("");
-  const [cashClosingAudit, setCashClosingAudit] = useState<CashClosingAuditEvent[]>(() => loadCashClosingAudit());
-  const [chargeRuns, setChargeRuns] = useState<ChargeRun[]>(() => loadChargeRuns());
-  const [lateFeeLedger, setLateFeeLedger] = useState<LateFeeLedgerEntry[]>(() => loadLateFeeLedger());
+  const [cashClosingAudit, setCashClosingAudit] = useState<CashClosingAuditEvent[]>([]);
+  const [chargeRuns, setChargeRuns] = useState<ChargeRun[]>([]);
+  const [lateFeeLedger, setLateFeeLedger] = useState<LateFeeLedgerEntry[]>([]);
   const [lastCloseReport, setLastCloseReport] = useState<ChargeCloseReport | null>(null);
   const [reopenTargetDate, setReopenTargetDate] = useState<string | null>(null);
   const [reopenReason, setReopenReason] = useState<string>("");
-  const [pendingBankItems, setPendingBankItems] = useState<PendingBankItem[]>(() => loadPendingBankItems());
-  const [pendingCardItems, setPendingCardItems] = useState<PendingCardItem[]>(() => loadPendingCardItems());
-  const [isPendingOpen, setIsPendingOpen] = useState(true);
-  const [isCardPendingOpen, setIsCardPendingOpen] = useState(false);
+  const [pendingBankItems, setPendingBankItems] = useState<PendingBankItem[]>([]);
+  const [pendingCardItems, setPendingCardItems] = useState<PendingCardItem[]>([]);
   const [pendingClassifyTarget, setPendingClassifyTarget] = useState<PendingBankItem | null>(null);
   const [pendingClassifyClientId, setPendingClassifyClientId] = useState("");
   const [pendingClassifySearch, setPendingClassifySearch] = useState("");
@@ -974,7 +833,7 @@ export default function PaymentsPage({
   const [pendingOtherChargesInput, setPendingOtherChargesInput] = useState<Record<string, string>>({});
   const [manualOverrideForcedOtherCharges, setManualOverrideForcedOtherCharges] = useState(false);
   const [pendingManualOverrideForcedOtherCharges, setPendingManualOverrideForcedOtherCharges] = useState(false);
-  const [manualAssignmentAudit, setManualAssignmentAudit] = useState<ManualBankAssignmentAudit[]>(() => loadManualBankAssignmentAudit());
+  const [manualAssignmentAudit, setManualAssignmentAudit] = useState<ManualBankAssignmentAudit[]>([]);
   const [autoAmountInfo, setAutoAmountInfo] = useState("");
   const [paymentInfo, setPaymentInfo] = useState("");
   const [editingPendingCardId, setEditingPendingCardId] = useState<string | null>(null);
@@ -990,7 +849,6 @@ export default function PaymentsPage({
   const historyTopScrollRef = useRef<HTMLDivElement>(null);
   const historyTopInnerRef = useRef<HTMLDivElement>(null);
   const historyBottomScrollRef = useRef<HTMLDivElement>(null);
-  const autoDownloadedPaymentIdsRef = useRef<Set<string>>(new Set());
   const reconcilingCardRef = useRef(false);
   const cashSectionRef = useRef<HTMLElement>(null);
   const registerSectionRef = useRef<HTMLElement>(null);
@@ -999,22 +857,128 @@ export default function PaymentsPage({
   const pendingCardSectionRef = useRef<HTMLElement>(null);
   const historySectionRef = useRef<HTMLElement>(null);
   const [pendingQuickCashSubmitToken, setPendingQuickCashSubmitToken] = useState<number | null>(null);
+  const cloudUserId = dataOwnerUserId ?? null;
+
+  async function refreshCloudModuleState(): Promise<void> {
+    if (!cloudUserId) return;
+    try {
+      const [
+        notifiedRows,
+        cashClosingRows,
+        cashClosingAuditRows,
+        chargeRunRows,
+        lateFeeLedgerRows,
+        pendingBankRows,
+        pendingCardRows,
+        manualAuditRows
+      ] = await Promise.all([
+        loadCloudCollectionRows<NotifiedPayment>("notified_payments_cloud", cloudUserId),
+        loadCloudCollectionRows<CashClosing>("cash_closings_cloud", cloudUserId),
+        loadCloudCollectionRows<CashClosingAuditEvent>("cash_closing_audit_cloud", cloudUserId),
+        loadCloudCollectionRows<ChargeRun>("charge_runs_cloud", cloudUserId),
+        loadCloudCollectionRows<LateFeeLedgerEntry>("late_fee_ledger_cloud", cloudUserId),
+        loadCloudCollectionRows<PendingBankItem>("pending_bank_items_cloud", cloudUserId),
+        loadCloudCollectionRows<PendingCardItem>("pending_card_items_cloud", cloudUserId),
+        loadCloudCollectionRows<ManualBankAssignmentAudit>("manual_assignment_audit_cloud", cloudUserId),
+      ]);
+
+      setNotifiedPayments(notifiedRows);
+      setCashClosings(
+        cashClosingRows.map((row, index) => ({
+          id:
+            typeof row?.id === "string" && row.id.trim().length > 0
+              ? row.id.trim()
+              : `${String(row?.date ?? "").trim()}__${String(row?.closedAt ?? "").trim() || `row-${index + 1}`}`,
+          date: String(row?.date ?? "").trim(),
+          closedAt: String(row?.closedAt ?? "").trim()
+        }))
+      );
+      setCashClosingAudit(cashClosingAuditRows);
+      setChargeRuns(chargeRunRows);
+      setLateFeeLedger(lateFeeLedgerRows);
+      setPendingBankItems(pendingBankRows);
+      setPendingCardItems(pendingCardRows);
+      setManualAssignmentAudit(manualAuditRows);
+    } catch (error) {
+      console.error("No se pudo cargar el estado de cobros desde Supabase.", error);
+    }
+  }
+
+  async function saveNotifiedPayments(rows: NotifiedPayment[]): Promise<void> {
+    setNotifiedPayments(rows);
+    if (!cloudUserId) return;
+    await saveCloudCollectionRows("notified_payments_cloud", cloudUserId, rows);
+  }
+
+  async function saveCashClosings(rows: CashClosing[]): Promise<void> {
+    const normalizedRows = rows.map((row, index) => ({
+      id: row.id?.trim?.() ? row.id.trim() : `${row.date}__${row.closedAt || `row-${index + 1}`}`,
+      date: row.date,
+      closedAt: row.closedAt
+    }));
+    setCashClosings(normalizedRows);
+    if (!cloudUserId) return;
+    await saveCloudCollectionRows("cash_closings_cloud", cloudUserId, normalizedRows);
+  }
+
+  async function saveCashClosingAudit(rows: CashClosingAuditEvent[]): Promise<void> {
+    setCashClosingAudit(rows);
+    if (!cloudUserId) return;
+    await saveCloudCollectionRows("cash_closing_audit_cloud", cloudUserId, rows);
+  }
+
+  async function saveChargeRuns(rows: ChargeRun[]): Promise<void> {
+    setChargeRuns(rows);
+    if (!cloudUserId) return;
+    await saveCloudCollectionRows("charge_runs_cloud", cloudUserId, rows);
+  }
+
+  async function saveLateFeeLedger(rows: LateFeeLedgerEntry[]): Promise<void> {
+    setLateFeeLedger(rows);
+    if (!cloudUserId) return;
+    await saveCloudCollectionRows("late_fee_ledger_cloud", cloudUserId, rows);
+  }
+
+  async function savePendingBankItems(rows: PendingBankItem[]): Promise<void> {
+    setPendingBankItems(rows);
+    if (!cloudUserId) return;
+    await saveCloudCollectionRows("pending_bank_items_cloud", cloudUserId, rows);
+  }
+
+  async function savePendingCardItems(rows: PendingCardItem[]): Promise<void> {
+    setPendingCardItems(rows);
+    if (!cloudUserId) return;
+    await saveCloudCollectionRows("pending_card_items_cloud", cloudUserId, rows);
+  }
+
+  async function saveManualBankAssignmentAudit(rows: ManualBankAssignmentAudit[]): Promise<void> {
+    setManualAssignmentAudit(rows);
+    if (!cloudUserId) return;
+    await saveCloudCollectionRows("manual_assignment_audit_cloud", cloudUserId, rows);
+  }
+
+  async function saveCollectionClosures(next: CollectionClosuresByDate): Promise<void> {
+    if (!cloudUserId) return;
+    await saveCloudSingletonData("collection_closures_cloud", cloudUserId, next);
+  }
 
   useEffect(() => {
-    const refreshCashStateFromStorage = () => {
-      setCashClosings(loadCashClosings());
-      setCashClosingAudit(loadCashClosingAudit());
-      setChargeRuns(loadChargeRuns());
+    void refreshCloudModuleState();
+  }, [cloudUserId]);
+
+  useEffect(() => {
+    const refreshCashState = () => {
+      void refreshCloudModuleState();
     };
-    window.addEventListener("cobrapp:cloud-hydrated", refreshCashStateFromStorage);
+    window.addEventListener("cobrapp:cloud-hydrated", refreshCashState);
     return () => {
-      window.removeEventListener("cobrapp:cloud-hydrated", refreshCashStateFromStorage);
+      window.removeEventListener("cobrapp:cloud-hydrated", refreshCashState);
     };
-  }, []);
+  }, [cloudUserId]);
 
   useEffect(() => {
     if (!quickCashPrefill) return;
-    setIsRegisterOpen(true);
+    setActivePaymentTab("register");
     setForm((prev) => ({
       ...prev,
       dateApplied: quickCashPrefill.dateApplied || toDateKey(new Date()),
@@ -1033,14 +997,6 @@ export default function PaymentsPage({
     if (options?.openReceipt) {
       setConfirmedPayment(payment);
     }
-    if (autoDownloadedPaymentIdsRef.current.has(payment.id)) return;
-    autoDownloadedPaymentIdsRef.current.add(payment.id);
-    void downloadPaymentReceiptImage(payment).catch(() => {
-      setErrors((prev) => {
-        const msg = "Pago registrado, pero no se pudo descargar el recibo automaticamente. Intenta descargarlo manualmente.";
-        return prev.includes(msg) ? prev : [...prev, msg];
-      });
-    });
   }
 
   const activeClients = useMemo(
@@ -1366,7 +1322,7 @@ export default function PaymentsPage({
   }, [pendingCardItems, pendingBankItems, payments, operationalDateKey, onPaymentsChange]);
 
   useEffect(() => {
-    if (!isPendingOpen) return;
+    if (activePaymentTab !== "pending" && activePaymentTab !== "all") return;
     const top = pendingTopScrollRef.current;
     const bottom = pendingBottomScrollRef.current;
     if (!top || !bottom) return;
@@ -1391,10 +1347,10 @@ export default function PaymentsPage({
       top.removeEventListener("scroll", onTopScroll);
       bottom.removeEventListener("scroll", onBottomScroll);
     };
-  }, [isPendingOpen, pendingBankItems.length]);
+  }, [activePaymentTab, pendingBankItems.length]);
 
   useEffect(() => {
-    if (!isPendingOpen) return;
+    if (activePaymentTab !== "pending" && activePaymentTab !== "all") return;
     const top = pendingTopScrollRef.current;
     const topInner = pendingTopInnerRef.current;
     const bottom = pendingBottomScrollRef.current;
@@ -1412,7 +1368,7 @@ export default function PaymentsPage({
     return () => {
       window.removeEventListener("resize", updateTopWidth);
     };
-  }, [isPendingOpen, pendingBankItems.length, activeClients.length]);
+  }, [activePaymentTab, pendingBankItems.length, activeClients.length]);
 
   function isDateClosed(dateKey: string): boolean {
     return closedDateSet.has(dateKey);
@@ -1907,8 +1863,25 @@ export default function PaymentsPage({
       return;
     }
 
-    const existingFoliosInPayments = buildExistingProcessedFolioSetForCsvImport(payments);
-    const existingFoliosInPending = new Set(pendingBankItems.map((i) => normalizeFolioToken(i.folio)));
+    let cloudFolios = new Set<string>();
+    if (cloudUserId) {
+      try {
+        cloudFolios = await loadCloudAppliedPaymentFolioSet(cloudUserId);
+      } catch {
+        setPendingImportError("No se pudo leer el historial oficial de folios. Intenta importar de nuevo.");
+        return;
+      }
+    }
+
+    const existingFoliosInPayments = new Set<string>([
+      ...cloudFolios,
+      ...buildExistingProcessedFolioSetForCsvImport(payments),
+      ...buildExistingCardPendingFolioSet(pendingCardItems)
+    ]);
+    const existingFoliosInPending = new Set([
+      ...pendingBankItems.map((i) => normalizeFolioToken(i.folio)),
+      ...pendingCardItems.map((i) => normalizeFolioToken(i.folio))
+    ]);
 
     const accountsInFile = new Set<string>();
     let invalidRows = 0;
@@ -2031,7 +2004,7 @@ export default function PaymentsPage({
         const next = [...pendingBankItems, ...newPendingItems];
         setPendingBankItems(next);
         savePendingBankItems(next);
-        setIsPendingOpen(true);
+        setActivePaymentTab("pending");
       }
     }
 
@@ -2745,7 +2718,7 @@ export default function PaymentsPage({
     return errs;
   }
 
-  function handleCloseCashForDate(): void {
+  async function handleCloseCashForDate(): Promise<void> {
     const date = cashClosingDate.trim();
     const actor = cashClosingActor.trim() || "Operador";
     const reason = cashClosingReason.trim();
@@ -2785,10 +2758,9 @@ export default function PaymentsPage({
       return;
     }
 
-    const closing: CashClosing = { date, closedAt: new Date().toISOString() };
+    const closing: CashClosing = { id: crypto.randomUUID(), date, closedAt: new Date().toISOString() };
     const nextClosings = [...cashClosings, closing].sort((a, b) => b.date.localeCompare(a.date));
-    setCashClosings(nextClosings);
-    saveCashClosings(nextClosings);
+    await saveCashClosings(nextClosings);
 
     const paymentsOfDay = payments.filter((p) => p.dateApplied === date);
     const dayTotal = roundMoney(paymentsOfDay.reduce((acc, p) => acc + p.amountReceived, 0));
@@ -2801,13 +2773,12 @@ export default function PaymentsPage({
       createdAt: new Date().toISOString()
     };
     const nextAudit = [event, ...cashClosingAudit].slice(0, 300);
-    setCashClosingAudit(nextAudit);
-    saveCashClosingAudit(nextAudit);
+    await saveCashClosingAudit(nextAudit);
 
     // Snapshot final de gestion de cobros para consulta historica y bloqueo del dia cerrado.
     const closureDateRef = parseDateKey(date) ?? startOfDay(new Date());
     const receivableRows = buildReceivableRows(clients, payments, closureDateRef);
-    const statusesByClient = parseCollectionStatusesFromStorage();
+    const statusesByClient = cloudUserId ? await loadCollectionStatusesFromCloud(cloudUserId) : {};
     const closureTotals: Record<CollectionStatus, number> = {
       no_answer: 0,
       reminder: 0,
@@ -2837,16 +2808,16 @@ export default function PaymentsPage({
       totals: closureTotals,
       items: closureItems
     };
-    const existingClosures = loadCollectionClosuresFromStorage();
-    localStorage.setItem(
-      COLLECTION_CLOSURES_KEY,
-      JSON.stringify({
-        ...existingClosures,
-        [date]: collectionClosureSnapshot
-      })
-    );
+    const existingClosures =
+      (await loadCloudSingletonData<CollectionClosuresByDate>("collection_closures_cloud", cloudUserId)) ?? {};
+    await saveCollectionClosures({
+      ...existingClosures,
+      [date]: collectionClosureSnapshot
+    });
     // Reinicia la gestion activa despues del cierre para arrancar el siguiente ciclo en estado base.
-    localStorage.setItem(COLLECTION_STATUS_KEY, JSON.stringify({}));
+    if (cloudUserId) {
+      await saveCloudSingletonData("street_management_cloud", cloudUserId, {});
+    }
 
     const chargeInfo = chargeResult.alreadyProcessed
       ? `Cobros de ${chargeResult.targetDate} ya estaban aplicados previamente.`
@@ -2868,7 +2839,7 @@ export default function PaymentsPage({
     setCashClosingError("");
   }
 
-  function handleConfirmReopen(): void {
+  async function handleConfirmReopen(): Promise<void> {
     if (!reopenTargetDate) return;
     const reason = reopenReason.trim();
     const actor = cashClosingActor.trim() || "Operador";
@@ -2883,8 +2854,7 @@ export default function PaymentsPage({
     }
 
     const nextClosings = cashClosings.filter((c) => c.date !== reopenTargetDate);
-    setCashClosings(nextClosings);
-    saveCashClosings(nextClosings);
+    await saveCashClosings(nextClosings);
 
     const feesFromDate = lateFeeLedger.filter((entry) => entry.date === reopenTargetDate);
     if (feesFromDate.length > 0) {
@@ -2905,8 +2875,7 @@ export default function PaymentsPage({
       });
       onClientsChange(revertedClients);
       const nextLedger = lateFeeLedger.filter((entry) => entry.date !== reopenTargetDate);
-      setLateFeeLedger(nextLedger);
-      saveLateFeeLedger(nextLedger);
+      await saveLateFeeLedger(nextLedger);
     }
 
     const event: CashClosingAuditEvent = {
@@ -2918,8 +2887,7 @@ export default function PaymentsPage({
       createdAt: new Date().toISOString()
     };
     const nextAudit = [event, ...cashClosingAudit].slice(0, 300);
-    setCashClosingAudit(nextAudit);
-    saveCashClosingAudit(nextAudit);
+    await saveCashClosingAudit(nextAudit);
 
     const rollbackCount = lateFeeLedger.filter((entry) => entry.date === reopenTargetDate).length;
     setCashClosingInfo(
@@ -3341,8 +3309,13 @@ export default function PaymentsPage({
     return sorted;
   }, [payments, historyClientId, historyGroupFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
 
+  const historyVisibleRows = useMemo(
+    () => historyRows.slice(0, Math.max(HISTORY_INITIAL_LIMIT, historyVisibleCount)),
+    [historyRows, historyVisibleCount]
+  );
+
   useEffect(() => {
-    if (!isHistoryOpen) return;
+    if (activePaymentTab !== "history" && activePaymentTab !== "all") return;
     const top = historyTopScrollRef.current;
     const bottom = historyBottomScrollRef.current;
     if (!top || !bottom) return;
@@ -3367,10 +3340,10 @@ export default function PaymentsPage({
       top.removeEventListener("scroll", onTopScroll);
       bottom.removeEventListener("scroll", onBottomScroll);
     };
-  }, [isHistoryOpen, historyRows.length]);
+  }, [activePaymentTab, historyVisibleRows.length]);
 
   useEffect(() => {
-    if (!isHistoryOpen) return;
+    if (activePaymentTab !== "history" && activePaymentTab !== "all") return;
     const top = historyTopScrollRef.current;
     const topInner = historyTopInnerRef.current;
     const bottom = historyBottomScrollRef.current;
@@ -3388,11 +3361,11 @@ export default function PaymentsPage({
     return () => {
       window.removeEventListener("resize", updateTopWidth);
     };
-  }, [isHistoryOpen, historyRows.length]);
+  }, [activePaymentTab, historyVisibleRows.length]);
 
   const historyRowsById = useMemo(() => {
-    return new Map(historyRows.map((row) => [row.id, row]));
-  }, [historyRows]);
+    return new Map(historyVisibleRows.map((row) => [row.id, row]));
+  }, [historyVisibleRows]);
   const historySelectedIdSet = useMemo(() => new Set(historySelectedPaymentIds), [historySelectedPaymentIds]);
 
   const historySelectedRows = useMemo(() => {
@@ -3401,7 +3374,7 @@ export default function PaymentsPage({
       .filter((row): row is Payment => Boolean(row));
   }, [historySelectedPaymentIds, historyRowsById]);
 
-  const isAllHistoryRowsSelected = historyRows.length > 0 && historySelectedRows.length === historyRows.length;
+  const isAllHistoryRowsSelected = historyVisibleRows.length > 0 && historySelectedRows.length === historyVisibleRows.length;
 
   useEffect(() => {
     setHistorySelectedPaymentIds((previous) => previous.filter((id) => historyRowsById.has(id)));
@@ -3416,7 +3389,7 @@ export default function PaymentsPage({
   }
 
   function toggleSelectAllHistoryRows(): void {
-    if (historyRows.length === 0) {
+    if (historyVisibleRows.length === 0) {
       setHistorySelectedPaymentIds([]);
       return;
     }
@@ -3424,7 +3397,7 @@ export default function PaymentsPage({
       setHistorySelectedPaymentIds([]);
       return;
     }
-    setHistorySelectedPaymentIds(historyRows.map((row) => row.id));
+    setHistorySelectedPaymentIds(historyVisibleRows.map((row) => row.id));
   }
 
   async function handleDownloadHistorySelection(): Promise<void> {
@@ -3461,26 +3434,23 @@ export default function PaymentsPage({
     });
   }
 
-  function handleQuickToggleSection(
-    isOpen: boolean,
-    setOpen: React.Dispatch<React.SetStateAction<boolean>>,
-    sectionRef: React.RefObject<HTMLElement>
-  ): void {
-    if (isOpen) {
-      setOpen(false);
-      return;
+  function activatePaymentTab(tab: PaymentTab, sectionRef?: React.RefObject<HTMLElement>): void {
+    setActivePaymentTab(tab);
+    if (sectionRef) {
+      scrollToWorkSection(sectionRef);
     }
-    setOpen(true);
-    scrollToWorkSection(sectionRef);
   }
 
   function handleQuickImportCSV(): void {
-    if (!isPendingOpen) {
-      setIsPendingOpen(true);
-    }
-    scrollToWorkSection(pendingSectionRef);
+    activatePaymentTab("pending", pendingSectionRef);
     void handleImportBankCSV();
   }
+
+  useEffect(() => {
+    if (activePaymentTab === "history") {
+      setHistoryVisibleCount(HISTORY_INITIAL_LIMIT);
+    }
+  }, [activePaymentTab]);
 
 
   if (confirmedPayment) {
@@ -3498,11 +3468,11 @@ export default function PaymentsPage({
   return (
     <div className="page-inner">
       {/* -- Payment form -- */}
-      <section ref={cashSectionRef} className="panel" style={{ display: isCashClosingOpen ? undefined : "none" }}>
+      <section ref={cashSectionRef} className="panel" style={{ display: activePaymentTab === "all" || activePaymentTab === "cash" ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Cierre de caja</h2>
         </div>
-        {isCashClosingOpen && (
+        {(activePaymentTab === "all" || activePaymentTab === "cash") && (
         <>
         <div className="payment-form-grid" style={{ marginTop: 12 }}>
           <div className="payment-field-group">
@@ -3677,81 +3647,87 @@ export default function PaymentsPage({
         )}
       </section>
 
-      <section className="panel payment-quick-actions-panel">
-        <div className="payment-quick-actions-grid">
+      <section className="panel payment-tabs-panel">
+        <div className="payment-tabs" role="tablist" aria-label="Secciones de pagos">
           <button
             type="button"
-            className={`payment-quick-action${isCashClosingOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isCashClosingOpen, setIsCashClosingOpen, cashSectionRef)}
+            role="tab"
+            aria-selected={activePaymentTab === "all"}
+            className={`payment-tab${activePaymentTab === "all" ? " payment-tab--active" : ""}`}
+            onClick={() => setActivePaymentTab("all")}
           >
-            <span className="payment-quick-action-title">Cierre de caja</span>
-            <span className="payment-quick-action-state">{isCashClosingOpen ? "Ocultar" : "Abrir"}</span>
+            <span className="payment-tab-title">Todas</span>
+            <span className="payment-tab-state">Vista completa</span>
           </button>
-
           <button
             type="button"
-            className={`payment-quick-action${isRegisterOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isRegisterOpen, setIsRegisterOpen, registerSectionRef)}
+            role="tab"
+            aria-selected={activePaymentTab === "cash"}
+            className={`payment-tab${activePaymentTab === "cash" ? " payment-tab--active" : ""}`}
+            onClick={() => activatePaymentTab("cash", cashSectionRef)}
           >
-            <span className="payment-quick-action-title">Registrar pago</span>
-            <span className="payment-quick-action-state">{isRegisterOpen ? "Ocultar" : "Abrir"}</span>
+            <span className="payment-tab-title">Cierre de caja</span>
+            <span className="payment-tab-state">Ajustes</span>
           </button>
-
           <button
             type="button"
-            className={`payment-quick-action${isNotifiedOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isNotifiedOpen, setIsNotifiedOpen, notifiedSectionRef)}
+            role="tab"
+            aria-selected={activePaymentTab === "register"}
+            className={`payment-tab${activePaymentTab === "register" ? " payment-tab--active" : ""}`}
+            onClick={() => activatePaymentTab("register", registerSectionRef)}
           >
-            <span className="payment-quick-action-title">Pago notificado</span>
-            <span className="payment-quick-action-state">{isNotifiedOpen ? "Ocultar" : "Abrir"}</span>
+            <span className="payment-tab-title">Registrar pago</span>
+            <span className="payment-tab-state">Nuevo recibo</span>
           </button>
-
           <button
             type="button"
-            className="payment-quick-action"
-            onClick={handleQuickImportCSV}
+            role="tab"
+            aria-selected={activePaymentTab === "notified"}
+            className={`payment-tab${activePaymentTab === "notified" ? " payment-tab--active" : ""}`}
+            onClick={() => activatePaymentTab("notified", notifiedSectionRef)}
           >
-            <span className="payment-quick-action-title">Importar CSV</span>
-            <span className="payment-quick-action-state">Banco</span>
+            <span className="payment-tab-title">Pago notificado</span>
+            <span className="payment-tab-state">Pendientes</span>
           </button>
-
-
           <button
             type="button"
-            className={`payment-quick-action${isPendingOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isPendingOpen, setIsPendingOpen, pendingSectionRef)}
+            role="tab"
+            aria-selected={activePaymentTab === "pending"}
+            className={`payment-tab${activePaymentTab === "pending" ? " payment-tab--active" : ""}`}
+            onClick={() => activatePaymentTab("pending", pendingSectionRef)}
           >
-            <span className="payment-quick-action-title">Ver pendientes</span>
-            <span className="payment-quick-action-state">{isPendingOpen ? "Ocultar" : "Abrir"}</span>
+            <span className="payment-tab-title">Importar CSV</span>
+            <span className="payment-tab-state">Banco</span>
           </button>
-
           <button
             type="button"
-            className={`payment-quick-action${isCardPendingOpen ? " payment-quick-action--active" : ""}`}
-            aria-label="Pendientes de conciliacion TDC"
-            onClick={() => handleQuickToggleSection(isCardPendingOpen, setIsCardPendingOpen, pendingCardSectionRef)}
+            role="tab"
+            aria-selected={activePaymentTab === "card"}
+            className={`payment-tab${activePaymentTab === "card" ? " payment-tab--active" : ""}`}
+            onClick={() => activatePaymentTab("card", pendingCardSectionRef)}
           >
-            <span className="payment-quick-action-title">Pendientes tarjeta</span>
-            <span className="payment-quick-action-state">{isCardPendingOpen ? "Ocultar" : "Abrir"}</span>
+            <span className="payment-tab-title">Pendientes tarjeta</span>
+            <span className="payment-tab-state">Folio</span>
           </button>
-
           <button
             type="button"
-            className={`payment-quick-action${isHistoryOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isHistoryOpen, setIsHistoryOpen, historySectionRef)}
+            role="tab"
+            aria-selected={activePaymentTab === "history"}
+            className={`payment-tab${activePaymentTab === "history" ? " payment-tab--active" : ""}`}
+            onClick={() => activatePaymentTab("history", historySectionRef)}
           >
-            <span className="payment-quick-action-title">Historial pagos</span>
-            <span className="payment-quick-action-state">{isHistoryOpen ? "Ocultar" : "Abrir"}</span>
+            <span className="payment-tab-title">Historial de pagos</span>
+            <span className="payment-tab-state">Recibos recientes</span>
           </button>
         </div>
       </section>
 
-      <section ref={registerSectionRef} className="panel" style={{ display: isRegisterOpen ? undefined : "none" }}>
+      <section ref={registerSectionRef} className="panel" style={{ display: activePaymentTab === "all" || activePaymentTab === "register" ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Registrar pago</h2>
         </div>
 
-        {isRegisterOpen && (
+        {(activePaymentTab === "all" || activePaymentTab === "register") && (
         <>
         {/* Client selector */}
         <div className="payment-form-grid" style={{ marginTop: 16 }}>
@@ -4036,12 +4012,12 @@ export default function PaymentsPage({
         )}
       </section>
 
-      <section ref={notifiedSectionRef} className="panel" style={{ display: isNotifiedOpen ? undefined : "none" }}>
+      <section ref={notifiedSectionRef} className="panel" style={{ display: activePaymentTab === "all" || activePaymentTab === "notified" ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Pagos notificados (pendientes)</h2>
         </div>
 
-        {isNotifiedOpen && (
+        {(activePaymentTab === "all" || activePaymentTab === "notified") && (
         <>
         <p className="hint">Ingresa la unidad y el monto. El sistema trae automaticamente el cliente.</p>
 
@@ -4217,11 +4193,11 @@ export default function PaymentsPage({
         )}
       </section>
 
-      <section ref={pendingCardSectionRef} className="panel" style={{ display: isCardPendingOpen ? undefined : "none" }}>
+      <section ref={pendingCardSectionRef} className="panel" style={{ display: activePaymentTab === "all" || activePaymentTab === "card" ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Pendientes por folio (Tarjeta)</h2>
         </div>
-        {isCardPendingOpen && (
+        {(activePaymentTab === "all" || activePaymentTab === "card") && (
           <>
             <p className="hint">Estos pagos ya fueron aplicados al cliente. Este panel es solo para conciliacion bancaria por lote/folio.</p>
             {cardPendingMessage && (
@@ -4323,7 +4299,7 @@ export default function PaymentsPage({
       </section>
 
       {/* -- Pending bank items -- */}
-      <section ref={pendingSectionRef} className="panel" style={{ display: isPendingOpen ? undefined : "none" }}>
+      <section ref={pendingSectionRef} className="panel" style={{ display: activePaymentTab === "all" || activePaymentTab === "pending" ? undefined : "none" }}>
         <div className="panel-head">
           <h2>
             Pendientes del banco
@@ -4332,6 +4308,9 @@ export default function PaymentsPage({
             )}
           </h2>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button type="button" className="button primary small" onClick={handleQuickImportCSV}>
+              Importar CSV
+            </button>
             {pendingBankItems.some((item) => {
               const { score } = getSimilaritySignals(item);
               if (score < 2) return false;
@@ -4356,7 +4335,7 @@ export default function PaymentsPage({
           </p>
         )}
 
-        {isPendingOpen && (
+        {(activePaymentTab === "all" || activePaymentTab === "pending") && (
           <>
             <p className="hint" style={{ marginTop: 8 }}>
               La importacion aplica regla automatica por cuenta y grupo. En edicion manual puedes asignar cualquier cliente.
@@ -4552,11 +4531,11 @@ export default function PaymentsPage({
       </section>
 
       {/* -- Payment history -- */}
-      <section ref={historySectionRef} className="panel" style={{ display: isHistoryOpen ? undefined : "none" }}>
+      <section ref={historySectionRef} className="panel" style={{ display: activePaymentTab === "all" || activePaymentTab === "history" ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Historial de pagos</h2>
         </div>
-        {isHistoryOpen && (
+        {(activePaymentTab === "all" || activePaymentTab === "history") && (
         <>
         <div className="panel-head" style={{ marginTop: 10, gap: 8, flexWrap: "wrap" }}>
           <select
@@ -4618,8 +4597,8 @@ export default function PaymentsPage({
           <div className="history-bulk-bar">
             <div className="history-bulk-summary">
               {historySelectedRows.length > 0
-                ? `${historySelectedRows.length} seleccionados de ${historyRows.length}`
-                : `${historyRows.length} recibos filtrados`}
+                ? `${historySelectedRows.length} seleccionados de ${historyVisibleRows.length}`
+                : `${historyVisibleRows.length} de ${historyRows.length} recibos visibles`}
             </div>
             <div className="history-bulk-actions">
               <button
@@ -4648,6 +4627,15 @@ export default function PaymentsPage({
               >
                 Descargar filtrados ({historyRows.length})
               </button>
+              {historyRows.length > historyVisibleRows.length && (
+                <button
+                  type="button"
+                  className="button ghost small"
+                  onClick={() => setHistoryVisibleCount(historyRows.length)}
+                >
+                  Mostrar todos
+                </button>
+              )}
           </div>
           </div>
           {historyBulkDownloadError && <p className="hint error-text">{historyBulkDownloadError}</p>}
@@ -4700,7 +4688,7 @@ export default function PaymentsPage({
                 </tr>
               </thead>
               <tbody>
-                {historyRows.map((p) => (
+                {historyVisibleRows.map((p) => (
                   <tr key={p.id} className={historySelectedIdSet.has(p.id) ? "history-row--selected" : ""}>
                     <td>
                       <input
@@ -4743,7 +4731,9 @@ export default function PaymentsPage({
           </>
         )}
         {historyRows.length > 0 && (
-          <p className="hint">Mostrando {historyRows.length} pagos filtrados.</p>
+          <p className="hint">
+            Mostrando {historyVisibleRows.length} de {historyRows.length} pagos filtrados.
+          </p>
         )}
         </>
         )}
