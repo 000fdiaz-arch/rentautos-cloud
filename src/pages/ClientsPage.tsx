@@ -1553,7 +1553,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     const actionable = amActionableRows;
 
     const missing = actionable
-      .filter((row) => !todayCollection.run1[row.client.id]?.status)
+      .filter((row) => !todayCollection.run1[row.client.id]?.status && !todayNoActionConfirms.run1?.[row.client.id])
       .map((row) => row.unitId);
 
     return {
