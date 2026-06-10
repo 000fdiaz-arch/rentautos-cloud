@@ -1,0 +1,12 @@
+node_modules/
+RESPALDOS/
+tmp-docx-render/
+*.docx
+*.log
+admin_text.txt
+ambar_text.txt
+Rentautos Cloud/node_modules/
+Rentautos Cloud/RESPALDOS/
+Rentautos Cloud/tmp-docx-render/
+Rentautos Cloud/dist/
+Rentautos Cloud/Rentautos Cloud/

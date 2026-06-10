@@ -7,21 +7,11 @@ import CashClosingPage from "./pages/CashClosingPage";
 import ControlUnitsPage from "./pages/ControlUnitsPage";
 import CollisionsPage from "./pages/CollisionsPage";
 import {
-  loadBankRules,
-  loadLateFeeSettings,
-  loadOtherChargesRetentionByClient,
   dedupePaymentsByReceiptNumber,
-  saveBankRules,
-  saveLateFeeSettings,
-  saveOtherChargesRetentionByClient,
   savePendingBankItems,
   savePendingCardItems,
   saveManualBankAssignmentAudit,
   saveLateFeeLedger,
-  loadCollisions,
-  saveCollisions,
-  loadCollisionsSettings,
-  saveCollisionsSettings,
 } from "./storage";
 import {
   loadCloudCollectionRows,
@@ -49,7 +39,6 @@ import {
 } from "./cloudOffline";
 import { saveCloudSnapshot } from "./cloudOffline";
 import { supabase } from "./lib/supabase";
-import { disableCloudMirror, flushCloudMirror, initializeCloudMirror } from "./cloudMirror";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
 import {
   autoBackupDetailed,
@@ -69,6 +58,7 @@ const CORE_DATA_FALLBACK_POLL_MS = 180_000;
 const RECEIVABLES_FALLBACK_POLL_MS = 300_000;
 const PREFERRED_BOOTSTRAP_GROUP = "T";
 const TELEGRAM_SENT_ALERTS_KEY = "cobrapp.module4.collisions.telegram_sent.v1";
+const telegramSentAlertIds = new Set<string>();
 
 type AppShellProps = {
   userId?: string;
@@ -85,9 +75,14 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const [page, setPage] = useState<AppPage>("clients");
   const [clients, setClients] = useState<Client[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
-  const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
-  const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>(() => loadOtherChargesRetentionByClient());
+  const [bankRules, setBankRules] = useState<BankRule[]>([]);
+  const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>({
+    active: false,
+    dailyAmount: 5,
+    chargeLabel: "RECARGO POR TARDANZA DE PAGO",
+    selectedUnits: []
+  });
+  const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>({});
   const [cloudReady, setCloudReady] = useState<boolean>(false);
   const [cloudLoadError, setCloudLoadError] = useState<string>("");
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "ok" | "error" | "pending">("idle");
@@ -282,14 +277,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     };
   }, [cloudDataUserId]);
 
-  function parseLocalJson(key: string, fallback: unknown): unknown {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return fallback;
-      return JSON.parse(raw);
-    } catch {
-      return fallback;
-    }
+  function parseLocalJson(_key: string, fallback: unknown): unknown {
+    return fallback;
   }
 
   function recalculateRouteCollectionCount(source?: Record<string, unknown>): void {
@@ -367,22 +356,22 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
 
   function buildBackupExtraData(): BackupExtraData {
     return {
-      seq: Number(localStorage.getItem("cobrapp.payments.seq.v1") ?? "0") || 0,
-      pendingBankItems: parseLocalJson("cobrapp.module2.pending_bank.v1", []) as unknown[],
-      pendingCardItems: parseLocalJson("cobrapp.module2.pending_card.v1", []) as unknown[],
-      bankRules: parseLocalJson("cobrapp.settings.bank_rules.v1", []) as unknown[],
-      manualAssignmentAudit: parseLocalJson("cobrapp.module2.manual_assignment_audit.v1", []) as unknown[],
-      lateFeeSettings: parseLocalJson("cobrapp.settings.late_fee_settings.v1", {}) as Record<string, unknown>,
-      lateFeeLedger: parseLocalJson("cobrapp.module2.late_fee_ledger.v1", []) as unknown[],
-      otherChargesRetentionByClient: parseLocalJson("cobrapp.settings.other_charges_retention.v1", {}) as Record<string, unknown>,
-      notifiedPayments: parseLocalJson("cobrapp.module2.notified.v1", []) as unknown[],
-      cashClosings: parseLocalJson("cobrapp.module2.cash_closings.v1", []) as unknown[],
-      cashClosingAudit: parseLocalJson("cobrapp.module2.cash_closing_audit.v1", []) as unknown[],
-      chargeRuns: parseLocalJson("cobrapp.module2.charge_runs.v1", []) as unknown[],
+      seq: 0,
+      pendingBankItems: [],
+      pendingCardItems: [],
+      bankRules: [],
+      manualAssignmentAudit: [],
+      lateFeeSettings: {},
+      lateFeeLedger: [],
+      otherChargesRetentionByClient: {},
+      notifiedPayments: [],
+      cashClosings: [],
+      cashClosingAudit: [],
+      chargeRuns: [],
       streetManagement: streetManagementData,
       collisions,
       collisionsSettings,
-      statusFilter: String(localStorage.getItem("cobrapp.clients.status_filter.v1") ?? "active")
+      statusFilter: "active"
     };
   }
 
@@ -446,9 +435,14 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             : cloudClientsData.filter((client) => isPreferredBootstrapGroupClient(client));
         setClients(bootstrapClients);
         setPayments(dedupePaymentsByReceiptNumber(cloudPaymentsData));
-        setBankRules(cloudBankRules.length > 0 ? cloudBankRules : loadBankRules());
-        setLateFeeSettings(cloudLateFeeSettings ?? loadLateFeeSettings());
-        setOtherChargesRetentionByClient(cloudOtherChargesRetention ?? loadOtherChargesRetentionByClient());
+        setBankRules(cloudBankRules);
+        setLateFeeSettings(cloudLateFeeSettings ?? {
+          active: false,
+          dailyAmount: 5,
+          chargeLabel: "RECARGO POR TARDANZA DE PAGO",
+          selectedUnits: []
+        });
+        setOtherChargesRetentionByClient(cloudOtherChargesRetention ?? {});
         setStreetManagementData(cloudStreetManagement);
         lastStreetManagementSnapshotRef.current = stableSerialize(cloudStreetManagement);
         recalculateRouteCollectionCount(cloudStreetManagement);
@@ -509,26 +503,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       setIsProgressiveCloudLoading(false);
     };
   }, [cloudDataUserId, cloudReloadTick, isReadOnlyReceivables]);
-
-  useEffect(() => {
-    if (!cloudDataUserId) return;
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        await initializeCloudMirror(cloudDataUserId);
-        if (cancelled) return;
-        window.dispatchEvent(new CustomEvent("cobrapp:cloud-hydrated"));
-      } catch (error) {
-        console.error("No se pudo inicializar cloud mirror.", error);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      disableCloudMirror();
-    };
-  }, [cloudDataUserId]);
 
   useEffect(() => {
     recalculateRouteCollectionCount(streetManagementData);
@@ -850,18 +824,14 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     }
 
     function loadSentMap(): Record<string, true> {
-      try {
-        const raw = localStorage.getItem(TELEGRAM_SENT_ALERTS_KEY);
-        if (!raw) return {};
-        const parsed = JSON.parse(raw) as Record<string, true>;
-        return parsed && typeof parsed === "object" ? parsed : {};
-      } catch {
-        return {};
-      }
+      const next: Record<string, true> = {};
+      for (const id of telegramSentAlertIds) next[id] = true;
+      return next;
     }
 
     function saveSentMap(value: Record<string, true>): void {
-      localStorage.setItem(TELEGRAM_SENT_ALERTS_KEY, JSON.stringify(value));
+      telegramSentAlertIds.clear();
+      for (const id of Object.keys(value)) telegramSentAlertIds.add(id);
     }
 
     async function runSweep(): Promise<void> {
@@ -1181,15 +1151,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       saveManualBankAssignmentAudit(Array.isArray(report.normalizedData["cobrapp.module2.manual_assignment_audit.v1"]) ? report.normalizedData["cobrapp.module2.manual_assignment_audit.v1"] as never[] : []);
       saveLateFeeLedger(Array.isArray(report.normalizedData["cobrapp.module2.late_fee_ledger.v1"]) ? report.normalizedData["cobrapp.module2.late_fee_ledger.v1"] as never[] : []);
 
-      localStorage.setItem("cobrapp.module2.notified.v1", JSON.stringify(report.normalizedData["cobrapp.module2.notified.v1"] ?? []));
-      localStorage.setItem("cobrapp.module2.cash_closings.v1", JSON.stringify(report.normalizedData["cobrapp.module2.cash_closings.v1"] ?? []));
-      localStorage.setItem("cobrapp.module2.cash_closing_audit.v1", JSON.stringify(report.normalizedData["cobrapp.module2.cash_closing_audit.v1"] ?? []));
-      localStorage.setItem("cobrapp.module2.charge_runs.v1", JSON.stringify(report.normalizedData["cobrapp.module2.charge_runs.v1"] ?? []));
-      localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(report.normalizedData["cobrapp.module3.street_management.v1"] ?? {}));
-      localStorage.setItem("cobrapp.module4.collisions.v1", JSON.stringify(report.normalizedData["cobrapp.module4.collisions.v1"] ?? []));
-      localStorage.setItem("cobrapp.module4.collisions_settings.v1", JSON.stringify(report.normalizedData["cobrapp.module4.collisions_settings.v1"] ?? {}));
-      localStorage.setItem("cobrapp.payments.seq.v1", String(Number(report.normalizedData["cobrapp.payments.seq.v1"] ?? 0) || 0));
-      localStorage.setItem("cobrapp.clients.status_filter.v1", String(report.normalizedData["cobrapp.clients.status_filter.v1"] ?? ""));
       setCollisions(Array.isArray(report.normalizedData["cobrapp.module4.collisions.v1"]) ? report.normalizedData["cobrapp.module4.collisions.v1"] as CollisionRecord[] : []);
       setCollisionsSettings((report.normalizedData["cobrapp.module4.collisions_settings.v1"] && typeof report.normalizedData["cobrapp.module4.collisions_settings.v1"] === "object")
         ? report.normalizedData["cobrapp.module4.collisions_settings.v1"] as CollisionsSettings
@@ -1222,7 +1183,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   async function handleSignOutWithBackup(): Promise<void> {
     if (cloudDataUserId && !isReadOnlyReceivables) {
       try {
-        await flushCloudMirror();
         await flushCloudQueueSafely();
         setSyncStatus("ok");
         setLastSyncAt(new Date().toLocaleTimeString());

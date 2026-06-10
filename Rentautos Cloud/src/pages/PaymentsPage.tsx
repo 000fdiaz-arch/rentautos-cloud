@@ -8,7 +8,6 @@ import {
   saveCloudSingletonData
 } from "../cloudData";
 import { formatCurrency, formatDate } from "../format";
-import { nextReceiptNumber } from "../storage";
 import type {
   BankRule,
   BillingFrequency,
@@ -228,6 +227,20 @@ function buildTemporaryCardFolio(dateKey: string): string {
   const compactDate = dateKey.replace(/-/g, "");
   const token = String(Date.now()).slice(-6);
   return `TMP-${compactDate}-${token}`;
+}
+
+function buildNextReceiptNumber(payments: Payment[]): string {
+  let maxNumber = 0;
+  for (const payment of payments) {
+    const receiptNumber = typeof payment.receiptNumber === "string" ? payment.receiptNumber.trim() : "";
+    const match = receiptNumber.match(/^REC-(\d+)$/i);
+    if (!match) continue;
+    const value = Number(match[1]);
+    if (Number.isFinite(value) && value > maxNumber) {
+      maxNumber = value;
+    }
+  }
+  return `REC-${String(maxNumber + 1).padStart(4, "0")}`;
 }
 
 type Props = {
@@ -2286,7 +2299,7 @@ export default function PaymentsPage({
 
     const payment: Payment = {
       id: crypto.randomUUID(),
-      receiptNumber: nextReceiptNumber(),
+      receiptNumber: buildNextReceiptNumber(payments),
       clientId: client.id,
       clientName: client.name,
       clientUnit: client.unitId,
@@ -2446,7 +2459,7 @@ export default function PaymentsPage({
 
     const payment: Payment = {
       id: crypto.randomUUID(),
-      receiptNumber: nextReceiptNumber(),
+      receiptNumber: buildNextReceiptNumber(payments),
       clientId: client.id,
       clientName: client.name,
       clientUnit: client.unitId,
@@ -2923,7 +2936,7 @@ export default function PaymentsPage({
 
         const enteredFolios = extractFoliosFromReference(form.reference);
         const normalizedFolio = enteredFolios[0] ?? buildTemporaryCardFolio(operationalDateKey);
-        const receiptNumber = nextReceiptNumber();
+        const receiptNumber = buildNextReceiptNumber(payments);
         const cardPayment: Payment = {
           id: crypto.randomUUID(),
           receiptNumber,
@@ -3030,7 +3043,7 @@ export default function PaymentsPage({
 
       setErrors([]);
       setPaymentInfo("");
-      const receiptNumber = nextReceiptNumber();
+      const receiptNumber = buildNextReceiptNumber(payments);
 
       const payment: Payment = {
         id: crypto.randomUUID(),
