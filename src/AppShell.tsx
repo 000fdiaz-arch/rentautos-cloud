@@ -7,11 +7,6 @@ import SettingsPage from "./pages/SettingsPage";
 import CashClosingPage from "./pages/CashClosingPage";
 import ControlUnitsPage from "./pages/ControlUnitsPage";
 import {
-  loadClients,
-  loadPayments,
-  loadPaymentsFromIndexedDb,
-  saveClients,
-  savePayments,
   loadBankRules,
   loadLateFeeSettings,
   loadOtherChargesRetentionByClient,
@@ -39,7 +34,6 @@ import {
 } from "./cloudData";
 import { supabase } from "./lib/supabase";
 import { disableCloudMirror, flushCloudMirror, initializeCloudMirror } from "./cloudMirror";
-import { isSupabaseOnlyMode } from "./persistenceMode";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
 import {
   autoBackupDetailed,
@@ -61,7 +55,20 @@ type PendingCoreSyncSnapshot = {
   payments: Payment[];
 };
 
-const PENDING_CORE_SYNC_KEY = "cobrapp.cloud.pending_core_sync.v1";
+function getMaxReceiptSequence(payments: Payment[]): number {
+  let maxNumber = 0;
+  for (const payment of payments) {
+    const receiptNumber = typeof payment.receiptNumber === "string" ? payment.receiptNumber.trim() : "";
+    const match = receiptNumber.match(/^REC-(\d+)$/i);
+    if (!match) continue;
+    const value = Number(match[1]);
+    if (Number.isFinite(value) && value > maxNumber) {
+      maxNumber = value;
+    }
+  }
+  return maxNumber;
+}
+
 const INITIAL_CLOUD_BOOTSTRAP_LIMIT = 200;
 const CORE_DATA_FALLBACK_POLL_MS = 60_000;
 const RECEIVABLES_FALLBACK_POLL_MS = 90_000;
@@ -80,8 +87,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = dataOwnerUserId ?? userId;
   const [page, setPage] = useState<AppPage>(isReadOnlyReceivables ? "receivables" : "clients");
-  const [clients, setClients] = useState<Client[]>(() => (isSupabaseOnlyMode ? [] : loadClients()));
-  const [payments, setPayments] = useState<Payment[]>(() => (isSupabaseOnlyMode ? [] : loadPayments()));
+  const [clients, setClients] = useState<Client[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
   const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
   const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>(() => loadOtherChargesRetentionByClient());
@@ -113,6 +120,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const pendingCoreSyncRef = useRef<PendingCoreSyncSnapshot | null>(null);
   const coreSyncRetryTimerRef = useRef<number | null>(null);
   const coreSyncInFlightRef = useRef<boolean>(false);
+  const receiptSequenceRef = useRef<number>(0);
 
   function buildCloudErrorMessage(
     baseMessage: string,
@@ -164,44 +172,12 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     return baseMessage;
   }
 
-  function serializePendingCoreSync(snapshot: PendingCoreSyncSnapshot): string {
-    return JSON.stringify({
-      token: snapshot.token,
-      userId: snapshot.userId,
-      clients: snapshot.clients,
-      payments: snapshot.payments
-    });
-  }
-
   function savePendingCoreSyncSnapshot(snapshot: PendingCoreSyncSnapshot | null): void {
     pendingCoreSyncRef.current = snapshot;
-    if (!snapshot) {
-      localStorage.removeItem(PENDING_CORE_SYNC_KEY);
-      return;
-    }
-    localStorage.setItem(PENDING_CORE_SYNC_KEY, serializePendingCoreSync(snapshot));
   }
 
   function loadPendingCoreSyncSnapshot(): PendingCoreSyncSnapshot | null {
-    const raw = localStorage.getItem(PENDING_CORE_SYNC_KEY);
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      if (!Array.isArray(parsed.clients) || !Array.isArray(parsed.payments)) return null;
-      const token = typeof parsed.token === "number" && Number.isFinite(parsed.token)
-        ? parsed.token
-        : Date.now();
-      const ownerId = typeof parsed.userId === "string" ? parsed.userId : "";
-      if (!ownerId || ownerId !== cloudDataUserId) return null;
-      return {
-        userId: ownerId,
-        token,
-        clients: parsed.clients as Client[],
-        payments: parsed.payments as Payment[]
-      };
-    } catch {
-      return null;
-    }
+    return pendingCoreSyncRef.current;
   }
 
   function getCloudSaveErrorMessage(err: unknown): string {
@@ -313,22 +289,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   }
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const indexedPayments = await loadPaymentsFromIndexedDb();
-        if (cancelled || indexedPayments.length === 0) return;
-        setPayments((current) => (current.length > 0 ? current : indexedPayments));
-      } catch (error) {
-        console.error("No se pudo hidratar pagos desde IndexedDB.", error);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     const pendingSnapshot = loadPendingCoreSyncSnapshot();
     if (!pendingSnapshot) return;
     pendingCoreSyncRef.current = pendingSnapshot;
@@ -423,7 +383,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
 
   function buildBackupExtraData(): BackupExtraData {
     return {
-      seq: Number(localStorage.getItem("cobrapp.payments.seq.v1") ?? "0") || 0,
+      seq: getMaxReceiptSequence(payments),
       pendingBankItems: parseLocalJson("cobrapp.module2.pending_bank.v1", []) as unknown[],
       pendingCardItems: parseLocalJson("cobrapp.module2.pending_card.v1", []) as unknown[],
       bankRules: parseLocalJson("cobrapp.settings.bank_rules.v1", []) as unknown[],
@@ -467,8 +427,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
 
     (async () => {
       try {
-        const localClientsFallback = loadClients();
-        const localPaymentsFallback = loadPayments();
         setCloudReady(false);
         setCloudLoadError("");
         setSyncErrorMessage("");
@@ -490,21 +448,17 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             ? prioritizedCloudClients
             : cloudClientsData.length > 0
             ? cloudClientsData
-            : (clients.length > 0 ? clients : localClientsFallback);
+            : clients;
         const bootstrapPayments =
           cloudPaymentsData.length > 0
             ? cloudPaymentsData
-            : (payments.length > 0 ? payments : localPaymentsFallback);
+            : payments;
         setClients(bootstrapClients);
         setPayments(bootstrapPayments);
+        receiptSequenceRef.current = Math.max(receiptSequenceRef.current, getMaxReceiptSequence(bootstrapPayments));
         setBankRules(loadBankRules());
         setLateFeeSettings(loadLateFeeSettings());
         setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
-        // Mantiene cache local opcional cuando no estamos en modo estricto nube.
-        if (!isSupabaseOnlyMode) {
-          saveClients(bootstrapClients);
-          savePayments(bootstrapPayments);
-        }
         setStreetManagementData(cloudStreetManagement);
         lastStreetManagementSnapshotRef.current = stableSerialize(cloudStreetManagement);
         localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(cloudCollectionClosures));
@@ -524,10 +478,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             if (cancelled || pendingCoreSyncRef.current) return;
             setClients(fullClients);
             setPayments(fullPayments);
-            if (!isSupabaseOnlyMode) {
-              saveClients(fullClients);
-              savePayments(fullPayments);
-            }
+            receiptSequenceRef.current = Math.max(receiptSequenceRef.current, getMaxReceiptSequence(fullPayments));
             setLastSyncAt(new Date().toLocaleTimeString());
           } catch (error) {
             console.error("No se pudo completar la carga progresiva total.", error);
@@ -574,10 +525,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         if (cancelled) return;
         setClients(cloudClientsData);
         setPayments(cloudPaymentsData);
-        if (!isSupabaseOnlyMode) {
-          saveClients(cloudClientsData);
-          savePayments(cloudPaymentsData);
-        }
+        receiptSequenceRef.current = Math.max(receiptSequenceRef.current, getMaxReceiptSequence(cloudPaymentsData));
         setSyncStatus("ok");
         setSyncErrorMessage("");
         setLastSyncAt(new Date().toLocaleTimeString());
@@ -801,10 +749,10 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     const previousClients = clients;
     const previousPayments = payments;
     setClients(next);
+    receiptSequenceRef.current = Math.max(receiptSequenceRef.current, getMaxReceiptSequence(previousPayments));
     if (cloudDataUserId) {
       void syncCoreDeltaOrQueue(previousClients, next, previousPayments, previousPayments);
     }
-    if (!isSupabaseOnlyMode) saveClients(next);
     setHasPendingChanges(true);
   }
 
@@ -813,10 +761,10 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     const previousClients = clients;
     const previousPayments = payments;
     setPayments(next);
+    receiptSequenceRef.current = Math.max(receiptSequenceRef.current, getMaxReceiptSequence(next));
     if (cloudDataUserId) {
       void syncCoreDeltaOrQueue(previousClients, previousClients, previousPayments, next);
     }
-    if (!isSupabaseOnlyMode) savePayments(next);
     setHasPendingChanges(true);
   }
 
@@ -826,12 +774,9 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     const previousPayments = payments;
     setClients(nextClients);
     setPayments(nextPayments);
+    receiptSequenceRef.current = Math.max(receiptSequenceRef.current, getMaxReceiptSequence(nextPayments));
     if (cloudDataUserId) {
       void syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
-    }
-    if (!isSupabaseOnlyMode) {
-      saveClients(nextClients);
-      savePayments(nextPayments);
     }
     setHasPendingChanges(true);
     return true;
@@ -853,6 +798,12 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     setOtherChargesRetentionByClient(next);
     saveOtherChargesRetentionByClient(next);
     setHasPendingChanges(true);
+  }
+
+  function allocateNextReceiptNumber(): string {
+    receiptSequenceRef.current = Math.max(receiptSequenceRef.current, getMaxReceiptSequence(payments));
+    receiptSequenceRef.current += 1;
+    return `REC-${String(receiptSequenceRef.current).padStart(4, "0")}`;
   }
 
   async function persistStreetManagement(next: Record<string, unknown>): Promise<boolean> {
@@ -922,7 +873,10 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       localStorage.setItem("cobrapp.module2.cash_closing_audit.v1", JSON.stringify(report.normalizedData["cobrapp.module2.cash_closing_audit.v1"] ?? []));
       localStorage.setItem("cobrapp.module2.charge_runs.v1", JSON.stringify(report.normalizedData["cobrapp.module2.charge_runs.v1"] ?? []));
       localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(report.normalizedData["cobrapp.module3.street_management.v1"] ?? {}));
-      localStorage.setItem("cobrapp.payments.seq.v1", String(Number(report.normalizedData["cobrapp.payments.seq.v1"] ?? 0) || 0));
+      receiptSequenceRef.current = Math.max(
+        receiptSequenceRef.current,
+        Number(report.normalizedData["cobrapp.payments.seq.v1"] ?? 0) || 0
+      );
       localStorage.setItem("cobrapp.clients.status_filter.v1", String(report.normalizedData["cobrapp.clients.status_filter.v1"] ?? ""));
       setHasPendingChanges(true);
 
@@ -1091,6 +1045,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             payments={payments}
             onPaymentsChange={persistPayments}
             onPersistClientPayment={persistClientsAndPayments}
+            nextReceiptNumber={allocateNextReceiptNumber}
             onCashClose={() => void runBackup("cash_closing", true)}
             quickCashPrefill={cashPaymentPrefill}
             onQuickCashPrefillConsumed={() => setCashPaymentPrefill(null)}

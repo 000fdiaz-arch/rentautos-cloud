@@ -6,7 +6,6 @@ import {
   loadPendingCardItems,
   loadManualBankAssignmentAudit,
   loadPendingBankItems,
-  nextReceiptNumber,
   saveLateFeeLedger,
   savePendingCardItems,
   saveManualBankAssignmentAudit,
@@ -242,6 +241,7 @@ type Props = {
   payments: Payment[];
   onPaymentsChange: (next: Payment[]) => void;
   onPersistClientPayment?: (nextClients: Client[], nextPayments: Payment[]) => Promise<boolean>;
+  nextReceiptNumber: () => string;
   onCashClose?: () => void;
   quickCashPrefill?: {
     dateApplied: string;
@@ -908,6 +908,7 @@ export default function PaymentsPage({
   payments,
   onPaymentsChange,
   onPersistClientPayment,
+  nextReceiptNumber,
   onCashClose,
   quickCashPrefill,
   onQuickCashPrefillConsumed
