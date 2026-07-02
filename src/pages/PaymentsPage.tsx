@@ -997,6 +997,7 @@ export default function PaymentsPage({
   const [pendingImportError, setPendingImportError] = useState("");
   const [pendingClassifyError, setPendingClassifyError] = useState("");
   const [isPendingClassifySaving, setIsPendingClassifySaving] = useState(false);
+  const [pendingApplyingFolio, setPendingApplyingFolio] = useState<string | null>(null);
   const [pendingFilters, setPendingFilters] = useState<PendingColumnFilters>(() => ({ ...EMPTY_PENDING_FILTERS }));
   const [pendingOtherChargesInput, setPendingOtherChargesInput] = useState<Record<string, string>>({});
   const [manualOverrideForcedOtherCharges, setManualOverrideForcedOtherCharges] = useState(false);
@@ -2128,6 +2129,12 @@ export default function PaymentsPage({
     await handlePickAndProcessBankCSV();
   }
   function handleOpenClassify(item: PendingBankItem): void {
+    if (pendingClassifyTarget?.folio === item.folio) {
+      setPendingClassifyTarget(null);
+      setPendingClassifyError("");
+      setPendingManualOverrideForcedOtherCharges(false);
+      return;
+    }
     setPendingClassifyError("");
     setIsPendingClassifySaving(false);
     setPendingClassifyTarget(item);
@@ -2459,13 +2466,149 @@ export default function PaymentsPage({
     savePendingBankItems(next);
     setPendingClassifyTarget(null);
     setPendingManualOverrideForcedOtherCharges(false);
-    finalizeSuccessfulPayment(payment, { openReceipt: true });
+    finalizeSuccessfulPayment(payment);
+    setPendingImportError(`Pago ${item.folio} aplicado a ${client.unitId} - ${client.name}.`);
     } catch (error) {
       console.error("No se pudo confirmar el pago bancario clasificado.", error);
       setPendingClassifyError("Ocurrió un error al registrar el pago. Intenta nuevamente.");
     } finally {
       setIsPendingClassifySaving(false);
     }
+  }
+
+  function renderPendingInlineReview(item: PendingBankItem) {
+    const client = clients.find((candidate) => candidate.id === pendingClassifyClientId);
+    if (!client) {
+      return (
+        <div className="pending-inline-review">
+          <p className="hint error-text">El cliente asignado ya no está disponible. Selecciona otro cliente en la fila.</p>
+        </div>
+      );
+    }
+
+    const wholePart = roundMoney(item.capitalPart);
+    const centsPart = roundMoney(item.centsPart);
+    const retentionConfig = getConfiguredOtherChargesRetentionConfig(client, otherChargesRetentionByClient);
+    const hasForcedRule = shouldForceRetentionToOtherCharges(
+      client,
+      otherChargesRetentionByClient,
+      payments,
+      item.dateApplied
+    );
+    const forcedRuleActive = hasForcedRule && !pendingManualOverrideForcedOtherCharges;
+    const { totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
+      client,
+      pendingOtherChargesInput,
+      wholePart,
+      otherChargesRetentionByClient,
+      payments,
+      item.dateApplied,
+      pendingManualOverrideForcedOtherCharges
+    );
+    const capitalForRent = roundMoney(Math.max(0, wholePart - totalOtherCharges));
+    const appliedToRent = roundMoney(Math.min(capitalForRent, Math.max(0, client.balance)));
+    const advanceApplied = roundMoney(Math.max(0, wholePart - appliedToRent - totalOtherCharges));
+    const balanceAfter = roundMoney(Math.max(0, client.balance - appliedToRent));
+    const advanceLetterLabel = getAdvanceLetterLabel(client, advanceApplied);
+    const previewReferenceDate = parseDateKey(item.dateApplied) ?? startOfDay(new Date());
+    const projectedClient: Client = {
+      ...client,
+      balance: balanceAfter,
+      advanceBalance: roundMoney((client.advanceBalance ?? 0) + advanceApplied),
+      savings: roundMoney((client.savings ?? 0) + centsPart)
+    };
+    const projectedNextPayDate = findNextChargeDay(projectedClient, previewReferenceDate);
+
+    return (
+      <div className="pending-inline-review">
+        <div className="pending-inline-review__header">
+          <div>
+            <strong>Revisión de cargos</strong>
+            <span>{item.folio} · {client.unitId} - {client.name} · {formatCurrency(item.amountReceived)}</span>
+          </div>
+          <button type="button" className="button ghost small" onClick={() => handleOpenClassify(item)}>
+            Cerrar
+          </button>
+        </div>
+
+        {(client.otherCharges ?? []).length > 0 && (
+          <div className="other-charges-section">
+            <div className="other-charges-title">Otros cargos</div>
+            {hasForcedRule && (
+              <div className="pending-inline-review__rule">
+                <p className="hint">
+                  {forcedRuleActive
+                    ? `Aplicación automática (${getRetentionCycleLabel(retentionConfig.cycle)}): ${formatCurrency(retentionConfig.amount)}.`
+                    : "Edición manual activa para este pago."}
+                </p>
+                <button
+                  type="button"
+                  className="button ghost small"
+                  onClick={() => setPendingManualOverrideForcedOtherCharges((current) => !current)}
+                >
+                  {forcedRuleActive ? "Editar monto" : "Volver a automático"}
+                </button>
+              </div>
+            )}
+            {(client.otherCharges ?? []).map((charge, index) => (
+              <div key={getOtherChargeKey(charge, index)} className="other-charges-row">
+                <label className="payment-label">
+                  {charge.label} <span className="amount-muted">({formatCurrency(charge.amount)})</span>
+                </label>
+                {forcedRuleActive ? (
+                  <div className="payment-input">Aplicación automática</div>
+                ) : (
+                  <input
+                    type="number"
+                    className="payment-input"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={pendingOtherChargesInput[getOtherChargeKey(charge, index)] ?? ""}
+                    onChange={(event) =>
+                      setPendingOtherChargesInput((previous) => ({
+                        ...previous,
+                        [getOtherChargeKey(charge, index)]: event.target.value
+                      }))
+                    }
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="payment-preview pending-inline-review__preview">
+          <div className="payment-preview-title">Resultado del pago</div>
+          <div className="payment-preview-body">
+            <div className="payment-preview-col">
+              <div className="payment-preview-row"><span>Saldo actual</span><strong className="amount-debt">{formatCurrency(client.balance)}</strong></div>
+              <div className="payment-preview-row"><span>Aplicado a renta</span><strong>{formatCurrency(appliedToRent)}</strong></div>
+              {totalOtherCharges > 0 && <div className="payment-preview-row"><span>{forcedRuleApplied ? "Otros cargos (automático)" : "Otros cargos (manual)"}</span><strong className="amount-warning">{formatCurrency(totalOtherCharges)}</strong></div>}
+              {centsPart > 0 && <div className="payment-preview-row"><span>Ahorro</span><strong>{formatCurrency(centsPart)}</strong></div>}
+              {advanceApplied > 0 && <div className="payment-preview-row"><span>Pago adelantado</span><strong>{formatCurrency(advanceApplied)}</strong></div>}
+              {advanceLetterLabel && <div className="payment-preview-row"><span>Adelanto aplica a</span><strong>{advanceLetterLabel}</strong></div>}
+            </div>
+            <div className="payment-preview-col">
+              <div className="payment-preview-row"><span>Nuevo saldo</span><strong className={balanceAfter <= 0 ? "amount-good" : "amount-debt"}>{formatCurrency(balanceAfter)}</strong></div>
+              {projectedNextPayDate && <div className="payment-preview-row"><span>Próxima fecha de pago</span><strong>{formatDate(projectedNextPayDate)}</strong></div>}
+            </div>
+          </div>
+        </div>
+
+        {pendingClassifyError && <p className="error-banner" role="alert">{pendingClassifyError}</p>}
+        <div className="pending-inline-review__actions">
+          <button
+            type="button"
+            className="button primary"
+            disabled={isPendingClassifySaving}
+            onClick={() => void handleConfirmClassify()}
+          >
+            {isPendingClassifySaving ? "Aplicando..." : "Aplicar pago"}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   function getSimilaritySignals(item: PendingBankItem): { nombre: boolean; centavos: boolean; notificado: boolean; score: number } {
@@ -2611,39 +2754,44 @@ export default function PaymentsPage({
   }
 
   async function handleQuickApply(item: PendingBankItem): Promise<void> {
-    if (!item.suggestedClientId) return;
-    const client = clients.find((c) => c.id === item.suggestedClientId);
-    if (!client) return;
-    const normalizedFolio = normalizeFolioToken(item.folio);
-    const takenFolios = buildTakenFolioSet(
-      payments,
-      pendingBankItems,
-      pendingCardItems,
-      { excludePendingBankFolios: new Set([normalizedFolio]) }
-    );
-    if (takenFolios.has(normalizedFolio)) {
-      setErrors([`No se puede registrar el folio ${normalizedFolio}: ya fue utilizado.`]);
-      return;
+    if (!item.suggestedClientId || pendingApplyingFolio) return;
+    setPendingApplyingFolio(item.folio);
+    try {
+      const client = clients.find((c) => c.id === item.suggestedClientId);
+      if (!client) return;
+      const normalizedFolio = normalizeFolioToken(item.folio);
+      const takenFolios = buildTakenFolioSet(
+        payments,
+        pendingBankItems,
+        pendingCardItems,
+        { excludePendingBankFolios: new Set([normalizedFolio]) }
+      );
+      if (takenFolios.has(normalizedFolio)) {
+        setErrors([`No se puede registrar el folio ${normalizedFolio}: ya fue utilizado.`]);
+        return;
+      }
+      if (client.otherCharges && client.otherCharges.length > 0) {
+        handleOpenClassify(item);
+        return;
+      }
+      const { updatedClient, payment } = applyPendingItem(item, client);
+      const updatedClients = clients.map((c) => (c.id === updatedClient.id ? updatedClient : c));
+      const saved = await persistClientPaymentState(updatedClients, [...payments, payment]);
+      if (!saved) {
+        setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
+        return;
+      }
+      finalizeSuccessfulPayment(payment);
+      const remainingNotified = removeOneMatchingNotified(notifiedPayments, client.id, item.amountReceived, item.dateApplied);
+      setNotifiedPayments(remainingNotified);
+      saveNotifiedPayments(remainingNotified);
+      const next = pendingBankItems.filter((i) => i.folio !== item.folio);
+      setPendingBankItems(next);
+      savePendingBankItems(next);
+      setPendingImportError(`Pago ${item.folio} aplicado a ${client.unitId} - ${client.name}.`);
+    } finally {
+      setPendingApplyingFolio(null);
     }
-    // If has otros cargos, open classify modal instead
-    if (client.otherCharges && client.otherCharges.length > 0) {
-      handleOpenClassify(item);
-      return;
-    }
-    const { updatedClient, payment } = applyPendingItem(item, client);
-    const updatedClients = clients.map((c) => (c.id === updatedClient.id ? updatedClient : c));
-    const saved = await persistClientPaymentState(updatedClients, [...payments, payment]);
-    if (!saved) {
-      setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
-      return;
-    }
-    finalizeSuccessfulPayment(payment);
-    const remainingNotified = removeOneMatchingNotified(notifiedPayments, client.id, item.amountReceived, item.dateApplied);
-    setNotifiedPayments(remainingNotified);
-    saveNotifiedPayments(remainingNotified);
-    const next = pendingBankItems.filter((i) => i.folio !== item.folio);
-    setPendingBankItems(next);
-    savePendingBankItems(next);
   }
 
   async function handleApplyAllHighSimilarity(): Promise<void> {
@@ -4544,8 +4692,9 @@ export default function PaymentsPage({
                         ? parseDateKey(pendingPreview.upToDateUntil)
                         : null;
                       const installmentsImpact = (pendingPreview?.installmentsDeducted ?? 0) + (pendingPreview?.installmentsCoveredByAdvance ?? 0);
-                      return (
-                        <tr key={item.folio} className={rowClass}>
+                      const isInlineReviewOpen = pendingClassifyTarget?.folio === item.folio;
+                      return [
+                        <tr key={`${item.folio}-row`} className={rowClass}>
                           <td><code>{item.folio}</code></td>
                           <td>{item.accountNumber ? <code>{item.accountNumber}</code> : <span className="amount-muted">-</span>}</td>
                           <td>{item.mappedGroup ? `Grupo ${item.mappedGroup}` : <span className="amount-muted">-</span>}</td>
@@ -4578,7 +4727,10 @@ export default function PaymentsPage({
                             <select
                               className="payment-input pending-unit-select"
                               value={item.suggestedClientId ?? ""}
-                              onChange={(e) => handlePendingUnitChange(item, e.target.value)}
+                              onChange={(e) => {
+                                if (isInlineReviewOpen) handleOpenClassify(item);
+                                handlePendingUnitChange(item, e.target.value);
+                              }}
                             >
                               <option value="">Asignar cliente</option>
                               {activeClients.map((c) => (
@@ -4643,22 +4795,32 @@ export default function PaymentsPage({
                           </td>
                           <td style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.description}>{item.description}</td>
                           <td className="actions-cell">
-                            {isHighSim && assignedClient && (
-                              <button type="button" className="button primary small" onClick={() => void handleQuickApply(item)}>
-                                Aplicar
+                            {assignedClient && !hasOtherCharges && (
+                              <button
+                                type="button"
+                                className="button primary small"
+                                disabled={pendingApplyingFolio !== null || isPendingClassifySaving}
+                                onClick={() => void handleQuickApply(item)}
+                              >
+                                {pendingApplyingFolio === item.folio ? "Aplicando..." : "Aplicar"}
                               </button>
                             )}
-                            {assignedClient && (!isHighSim || hasOtherCharges) && (
+                            {assignedClient && hasOtherCharges && (
                               <button type="button" className="button ghost small" onClick={() => handleOpenClassify(item)}>
-                                {hasOtherCharges ? "Revisar cargos" : "Revisar"}
+                                {isInlineReviewOpen ? "Cerrar revisión" : "Revisar cargos"}
                               </button>
                             )}
                             <button type="button" className="button danger small" onClick={() => handleDismissPending(item.folio)}>
                               Ignorar
                             </button>
                           </td>
-                        </tr>
-                      );
+                        </tr>,
+                        isInlineReviewOpen ? (
+                          <tr key={`${item.folio}-review`} className="pending-inline-review-row">
+                            <td colSpan={11}>{renderPendingInlineReview(item)}</td>
+                          </tr>
+                        ) : null
+                      ];
                     })}
                     {filteredPendingBankItems.length === 0 && (
                       <tr>
@@ -5007,7 +5169,7 @@ export default function PaymentsPage({
         </div>
       )}
 
-      {pendingClassifyTarget && (
+      {false && pendingClassifyTarget && (
         <div className="modal-overlay">
           <div className="modal">
             <h3 className="modal-title">Asignar cliente</h3>

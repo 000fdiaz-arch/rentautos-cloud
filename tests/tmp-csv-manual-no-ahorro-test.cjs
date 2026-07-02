@@ -55,7 +55,7 @@ const { chromium } = require('playwright');
 
   // Open manual review due to other charges
   await page.getByRole('button', { name: /Revisar cargos/i }).click();
-  await page.getByRole('button', { name: /Confirmar y registrar pago/i }).click();
+  await page.getByRole('button', { name: /Aplicar pago/i }).click();
 
   // Verify stored data
   const state = await page.evaluate(() => {
