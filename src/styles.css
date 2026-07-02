@@ -3446,6 +3446,26 @@ select.control-op-badge {
   outline: none;
 }
 
+.history-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-refresh-icon {
+  display: inline-block;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.history-refresh-icon--spinning {
+  animation: history-refresh-spin 800ms linear infinite;
+}
+
+@keyframes history-refresh-spin {
+  to { transform: rotate(360deg); }
+}
+
 .history-bulk-bar {
   margin: 10px 0 8px;
   padding: 10px 12px;
@@ -3493,6 +3513,92 @@ select.control-op-badge {
   min-width: 96px;
   font-size: 0.8rem;
   padding: 6px 8px;
+}
+
+.history-send-column,
+.history-send-cell {
+  min-width: 118px;
+}
+
+.history-send-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 104px;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.history-send-button--pending {
+  border-color: #f0c36b;
+  background: #fff8e7;
+  color: #8a4b08;
+}
+
+.history-send-button--pending:hover:not(:disabled) {
+  border-color: #d99a2b;
+  background: #fff0c7;
+}
+
+.history-send-button--sent {
+  border-color: #8bc8b8;
+  background: #eaf8f4;
+  color: #08745f;
+}
+
+.history-send-button--sent:hover:not(:disabled) {
+  border-color: #4aa78f;
+  background: #d9f2eb;
+}
+
+.history-send-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.history-send-button:focus-visible {
+  outline: 3px solid rgba(21, 128, 111, 0.25);
+  outline-offset: 2px;
+}
+
+.history-send-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.history-copy-feedback {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.history-copy-feedback--info {
+  border-color: #9cc7ea;
+  background: #edf7ff;
+  color: #155b8d;
+}
+
+.history-copy-feedback--success {
+  border-color: #8bc8b8;
+  background: #eaf8f4;
+  color: #08745f;
+}
+
+.history-copy-feedback--error {
+  border-color: #efaaaa;
+  background: #fff1f1;
+  color: #a51d1d;
 }
 
 .payment-receipt-modal {

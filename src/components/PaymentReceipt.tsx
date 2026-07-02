@@ -123,12 +123,12 @@ function extractFolio(reference: string): string {
 async function renderReceiptCanvasFromPayment(payment: Payment): Promise<HTMLCanvasElement> {
   const host = document.createElement("div");
   host.style.position = "fixed";
-  host.style.left = "0";
+  host.style.left = "-10000px";
   host.style.top = "0";
   host.style.width = "760px";
-  host.style.visibility = "hidden";
   host.style.pointerEvents = "none";
   host.style.zIndex = "-1";
+  host.setAttribute("aria-hidden", "true");
   document.body.appendChild(host);
 
   const root = createRoot(host);
@@ -213,6 +213,20 @@ export async function buildPaymentReceiptImageBlob(payment: Payment): Promise<{ 
     }, "image/png");
   });
   return { fileName, blob };
+}
+
+export async function copyPaymentReceiptImage(payment: Payment): Promise<void> {
+  if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+    throw new Error("El navegador no permite copiar imagenes al portapapeles.");
+  }
+
+  // Se inicia durante el clic para conservar el permiso mientras se renderiza.
+  const receiptBlob = buildPaymentReceiptImageBlob(payment).then(({ blob }) => blob);
+  await navigator.clipboard.write([
+    new ClipboardItem({
+      "image/png": receiptBlob
+    })
+  ]);
 }
 
 export async function downloadPaymentsReceiptsZip(payments: Payment[]): Promise<void> {
