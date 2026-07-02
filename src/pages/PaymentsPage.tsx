@@ -972,6 +972,8 @@ export default function PaymentsPage({
   const [pendingClassifyClientId, setPendingClassifyClientId] = useState("");
   const [pendingClassifySearch, setPendingClassifySearch] = useState("");
   const [pendingImportError, setPendingImportError] = useState("");
+  const [pendingClassifyError, setPendingClassifyError] = useState("");
+  const [isPendingClassifySaving, setIsPendingClassifySaving] = useState(false);
   const [pendingFilters, setPendingFilters] = useState<PendingColumnFilters>(() => ({ ...EMPTY_PENDING_FILTERS }));
   const [pendingOtherChargesInput, setPendingOtherChargesInput] = useState<Record<string, string>>({});
   const [manualOverrideForcedOtherCharges, setManualOverrideForcedOtherCharges] = useState(false);
@@ -2091,6 +2093,8 @@ export default function PaymentsPage({
     await handlePickAndProcessBankCSV();
   }
   function handleOpenClassify(item: PendingBankItem): void {
+    setPendingClassifyError("");
+    setIsPendingClassifySaving(false);
     setPendingClassifyTarget(item);
     setPendingManualOverrideForcedOtherCharges(roundMoney(item.centsPart) > 0);
     if (item.suggestedClientId) {
@@ -2293,9 +2297,20 @@ export default function PaymentsPage({
   }
 
   async function handleConfirmClassify(): Promise<void> {
-    if (!pendingClassifyTarget || !pendingClassifyClientId) return;
+    if (isPendingClassifySaving) return;
+    if (!pendingClassifyTarget || !pendingClassifyClientId) {
+      setPendingClassifyError("Selecciona un cliente antes de confirmar el pago.");
+      return;
+    }
+    setPendingClassifyError("");
+    setErrors([]);
+    setIsPendingClassifySaving(true);
+    try {
     const client = clients.find((c) => c.id === pendingClassifyClientId);
-    if (!client) return;
+    if (!client) {
+      setPendingClassifyError("El cliente seleccionado ya no está disponible. Selecciónalo nuevamente.");
+      return;
+    }
     const normalizedFolio = normalizeFolioToken(pendingClassifyTarget.folio);
     const takenFolios = buildTakenFolioSet(
       payments,
@@ -2304,7 +2319,7 @@ export default function PaymentsPage({
       { excludePendingBankFolios: new Set([normalizedFolio]) }
     );
     if (takenFolios.has(normalizedFolio)) {
-      setErrors([`No se puede registrar el folio ${normalizedFolio}: ya fue utilizado.`]);
+      setPendingClassifyError(`No se puede registrar el folio ${normalizedFolio}: ya fue utilizado.`);
       return;
     }
 
@@ -2395,10 +2410,9 @@ export default function PaymentsPage({
 
     const saved = await persistClientPaymentState(updatedClients, [...payments, payment]);
     if (!saved) {
-      setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
+      setPendingClassifyError("No se pudo guardar el pago. No se aplicaron cambios.");
       return;
     }
-    finalizeSuccessfulPayment(payment);
     const remainingNotified = removeOneMatchingNotified(notifiedPayments, client.id, item.amountReceived, item.dateApplied);
     setNotifiedPayments(remainingNotified);
     saveNotifiedPayments(remainingNotified);
@@ -2408,6 +2422,13 @@ export default function PaymentsPage({
     savePendingBankItems(next);
     setPendingClassifyTarget(null);
     setPendingManualOverrideForcedOtherCharges(false);
+    finalizeSuccessfulPayment(payment, { openReceipt: true });
+    } catch (error) {
+      console.error("No se pudo confirmar el pago bancario clasificado.", error);
+      setPendingClassifyError("Ocurrió un error al registrar el pago. Intenta nuevamente.");
+    } finally {
+      setIsPendingClassifySaving(false);
+    }
   }
 
   function getSimilaritySignals(item: PendingBankItem): { nombre: boolean; centavos: boolean; notificado: boolean; score: number } {
@@ -4917,19 +4938,31 @@ export default function PaymentsPage({
                 );
               })()}
             </div>
+            {pendingClassifyError && (
+              <p className="error-banner" role="alert">
+                {pendingClassifyError}
+              </p>
+            )}
             <div className="modal-actions">
               <button
                 type="button"
                 className="button ghost"
+                disabled={isPendingClassifySaving}
                 onClick={() => {
                   setPendingClassifyTarget(null);
                   setPendingManualOverrideForcedOtherCharges(false);
+                  setPendingClassifyError("");
                 }}
               >
                 Cancelar
               </button>
-              <button type="button" className="button primary" disabled={!pendingClassifyClientId} onClick={() => void handleConfirmClassify()}>
-                Confirmar y registrar pago
+              <button
+                type="button"
+                className="button primary"
+                disabled={!pendingClassifyClientId || isPendingClassifySaving}
+                onClick={() => void handleConfirmClassify()}
+              >
+                {isPendingClassifySaving ? "Registrando pago..." : "Confirmar y registrar pago"}
               </button>
             </div>
           </div>
