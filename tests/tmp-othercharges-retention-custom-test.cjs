@@ -53,7 +53,7 @@ const { chromium } = require("playwright");
   await page.getByRole("button", { name: /^Pagos$/i }).click();
   await page.locator("button:has-text('Ver pendientes')").first().click();
   await page.locator("button:has-text('Revisar cargos')").first().click();
-  await page.locator("button:has-text('Confirmar y registrar pago')").first().click();
+  await page.locator("button:has-text('Aplicar pago')").first().click();
 
   const state = await page.evaluate(() => {
     const clients = JSON.parse(localStorage.getItem("cobrapp.module1.clients.v1") || "[]");

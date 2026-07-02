@@ -56,7 +56,7 @@ const { chromium } = require('playwright');
 
   const amountInput = page.locator('.other-charges-section input.payment-input').first();
   await amountInput.fill('120');
-  await page.getByRole('button', { name: /Confirmar y registrar pago/i }).click();
+  await page.getByRole('button', { name: /Aplicar pago/i }).click();
 
   const state = await page.evaluate(() => {
     const clients = JSON.parse(localStorage.getItem('cobrapp.module1.clients.v1') || '[]');
