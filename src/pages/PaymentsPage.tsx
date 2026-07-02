@@ -1,5 +1,9 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import PaymentReceipt, { downloadPaymentReceiptImage, downloadPaymentsReceiptsZip } from "../components/PaymentReceipt";
+import PaymentReceipt, {
+  copyPaymentReceiptImage,
+  downloadPaymentReceiptImage,
+  downloadPaymentsReceiptsZip
+} from "../components/PaymentReceipt";
 import { formatCurrency, formatDate } from "../format";
 import {
   loadLateFeeLedger,
@@ -88,6 +92,7 @@ type PendingCardEditForm = {
 type NotifiedSortField = "unit" | "client" | "amount" | "createdAt";
 type SortDirection = "asc" | "desc";
 type HistorySortField = "receipt" | "date" | "unit" | "client" | "amount" | "applied" | "savings" | "installments" | "method";
+type HistoryDeliveryFilter = "all" | "pending" | "sent";
 
 type CashClosing = {
   date: string;
@@ -195,6 +200,12 @@ type HistoryColumnFilters = {
   method: string;
 };
 
+type HistoryCopyFeedback = {
+  paymentId: string;
+  message: string;
+  tone: "info" | "success" | "error";
+};
+
 const EMPTY_PENDING_FILTERS: PendingColumnFilters = {
   folio: "",
   account: "",
@@ -244,6 +255,7 @@ type Props = {
   payments: Payment[];
   onPaymentsChange: (next: Payment[]) => void;
   onPersistClientPayment?: (nextClients: Client[], nextPayments: Payment[]) => Promise<boolean>;
+  onRefreshPayments?: () => Promise<void>;
   onCashClose?: () => void;
   quickCashPrefill?: {
     dateApplied: string;
@@ -910,6 +922,7 @@ export default function PaymentsPage({
   payments,
   onPaymentsChange,
   onPersistClientPayment,
+  onRefreshPayments,
   onCashClose,
   quickCashPrefill,
   onQuickCashPrefillConsumed
@@ -931,6 +944,7 @@ export default function PaymentsPage({
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyClientId, setHistoryClientId] = useState<string>("all");
   const [historyGroupFilter, setHistoryGroupFilter] = useState<string>("all");
+  const [historyDeliveryFilter, setHistoryDeliveryFilter] = useState<HistoryDeliveryFilter>("all");
   const [historyDateFrom, setHistoryDateFrom] = useState<string>("");
   const [historyDateTo, setHistoryDateTo] = useState<string>("");
   const [historyColumnFilters, setHistoryColumnFilters] = useState<HistoryColumnFilters>({ ...EMPTY_HISTORY_COLUMN_FILTERS });
@@ -941,6 +955,14 @@ export default function PaymentsPage({
   const [isHistoryBulkDownloading, setIsHistoryBulkDownloading] = useState(false);
   const [historyBulkDownloadError, setHistoryBulkDownloadError] = useState("");
   const [historyPreviewPayment, setHistoryPreviewPayment] = useState<Payment | null>(null);
+  const [historyCopiedPaymentIds, setHistoryCopiedPaymentIds] = useState<Set<string>>(() => new Set());
+  const [historyCopyingPaymentId, setHistoryCopyingPaymentId] = useState<string | null>(null);
+  const [historyCopyFeedback, setHistoryCopyFeedback] = useState<HistoryCopyFeedback | null>(null);
+  const [isHistoryRefreshing, setIsHistoryRefreshing] = useState(false);
+  const [historyRefreshFeedback, setHistoryRefreshFeedback] = useState<{
+    message: string;
+    tone: "success" | "error";
+  } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
   const [notifiedForm, setNotifiedForm] = useState<NotifiedPaymentForm>({
     unitId: "",
@@ -1004,6 +1026,18 @@ export default function PaymentsPage({
   const pendingCardSectionRef = useRef<HTMLElement>(null);
   const historySectionRef = useRef<HTMLElement>(null);
   const [pendingQuickCashSubmitToken, setPendingQuickCashSubmitToken] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!historyCopyFeedback || historyCopyFeedback.tone === "info") return;
+    const timeoutId = window.setTimeout(() => setHistoryCopyFeedback(null), 5000);
+    return () => window.clearTimeout(timeoutId);
+  }, [historyCopyFeedback]);
+
+  useEffect(() => {
+    if (!historyRefreshFeedback) return;
+    const timeoutId = window.setTimeout(() => setHistoryRefreshFeedback(null), 5000);
+    return () => window.clearTimeout(timeoutId);
+  }, [historyRefreshFeedback]);
 
   useEffect(() => {
     if (!quickCashPrefill) return;
@@ -2224,6 +2258,7 @@ export default function PaymentsPage({
     const previewPayment: Payment = {
       id: crypto.randomUUID(),
       receiptNumber: `T-PEND-${new Date().getTime()}`,
+      receiptDeliveryStatus: "pending",
       clientId: client.id,
       clientName: client.name,
       clientUnit: client.unitId,
@@ -2361,6 +2396,7 @@ export default function PaymentsPage({
     const payment: Payment = {
       id: crypto.randomUUID(),
       receiptNumber: nextReceiptNumber(),
+      receiptDeliveryStatus: "pending",
       clientId: client.id,
       clientName: client.name,
       clientUnit: client.unitId,
@@ -2527,6 +2563,7 @@ export default function PaymentsPage({
     const payment: Payment = {
       id: crypto.randomUUID(),
       receiptNumber: nextReceiptNumber(),
+      receiptDeliveryStatus: "pending",
       clientId: client.id,
       clientName: client.name,
       clientUnit: client.unitId,
@@ -3009,6 +3046,7 @@ export default function PaymentsPage({
       const cardPayment: Payment = {
         id: crypto.randomUUID(),
         receiptNumber,
+        receiptDeliveryStatus: "pending",
         clientId: selectedClient.id,
         clientName: selectedClient.name,
         clientUnit: selectedClient.unitId,
@@ -3117,6 +3155,7 @@ export default function PaymentsPage({
     const payment: Payment = {
       id: crypto.randomUUID(),
       receiptNumber,
+      receiptDeliveryStatus: "pending",
       clientId: selectedClient.id,
       clientName: selectedClient.name,
       clientUnit: selectedClient.unitId,
@@ -3351,7 +3390,12 @@ export default function PaymentsPage({
     const byGroup = historyGroupFilter === "all"
       ? byClient
       : byClient.filter((p) => extractGroupCodeFromUnit(p.clientUnit) === historyGroupFilter);
-    const filteredByDate = byGroup.filter((p) => {
+    const byDeliveryStatus = byGroup.filter((p) => {
+      if (historyDeliveryFilter === "all") return true;
+      const status = p.receiptDeliveryStatus === "pending" ? "pending" : "sent";
+      return status === historyDeliveryFilter;
+    });
+    const filteredByDate = byDeliveryStatus.filter((p) => {
       if (historyDateFrom && p.dateApplied < historyDateFrom) return false;
       if (historyDateTo && p.dateApplied > historyDateTo) return false;
       return true;
@@ -3396,7 +3440,7 @@ export default function PaymentsPage({
       return b.createdAt.localeCompare(a.createdAt);
     });
     return sorted;
-  }, [payments, historyClientId, historyGroupFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
+  }, [payments, historyClientId, historyGroupFilter, historyDeliveryFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
 
   const historyRows = useMemo(
     () => filteredHistoryRows.slice(0, historyVisibleLimit),
@@ -3488,6 +3532,72 @@ export default function PaymentsPage({
       return;
     }
     setHistorySelectedPaymentIds(historyRows.map((row) => row.id));
+  }
+
+  async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
+    if (historyCopyingPaymentId) return;
+
+    const wasAlreadySent = payment.receiptDeliveryStatus !== "pending" || historyCopiedPaymentIds.has(payment.id);
+    setHistoryCopyingPaymentId(payment.id);
+    setHistoryCopyFeedback({
+      paymentId: payment.id,
+      tone: "info",
+      message: `Preparando ${payment.receiptNumber} para copiar...`
+    });
+
+    try {
+      await copyPaymentReceiptImage(payment);
+      setHistoryCopiedPaymentIds((previous) => {
+        if (previous.has(payment.id)) return previous;
+        const next = new Set(previous);
+        next.add(payment.id);
+        return next;
+      });
+      if (payment.receiptDeliveryStatus === "pending") {
+        onPaymentsChange(
+          payments.map((row) =>
+            row.id === payment.id
+              ? { ...row, receiptDeliveryStatus: "sent" }
+              : row
+          )
+        );
+      }
+      setHistoryCopyFeedback({
+        paymentId: payment.id,
+        tone: "success",
+        message: wasAlreadySent
+          ? `${payment.receiptNumber} se copió nuevamente. El estado se mantiene en “Enviado”.`
+          : `${payment.receiptNumber} copiado. El estado cambió a “Enviado”.`
+      });
+    } catch {
+      setHistoryCopyFeedback({
+        paymentId: payment.id,
+        tone: "error",
+        message: `No se pudo copiar ${payment.receiptNumber}. Permite el acceso al portapapeles e intenta nuevamente.`
+      });
+    } finally {
+      setHistoryCopyingPaymentId(null);
+    }
+  }
+
+  async function handleRefreshHistory(): Promise<void> {
+    if (isHistoryRefreshing || !onRefreshPayments) return;
+    setIsHistoryRefreshing(true);
+    setHistoryRefreshFeedback(null);
+    try {
+      await onRefreshPayments();
+      setHistoryRefreshFeedback({
+        tone: "success",
+        message: "Historial de pagos actualizado."
+      });
+    } catch {
+      setHistoryRefreshFeedback({
+        tone: "error",
+        message: "No se pudo actualizar el historial. Verifica la conexión e intenta nuevamente."
+      });
+    } finally {
+      setIsHistoryRefreshing(false);
+    }
   }
 
   async function handleDownloadHistorySelection(): Promise<void> {
@@ -4570,6 +4680,16 @@ export default function PaymentsPage({
       <section id="payment-panel-history" role="tabpanel" aria-labelledby="payment-tab-history" ref={historySectionRef} className="panel" style={{ display: isHistoryOpen ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Historial de pagos</h2>
+          <button
+            type="button"
+            className="button ghost small history-refresh-button"
+            onClick={() => void handleRefreshHistory()}
+            disabled={isHistoryRefreshing || !onRefreshPayments}
+            title="Recargar los pagos desde la fuente de datos"
+          >
+            <span className={isHistoryRefreshing ? "history-refresh-icon history-refresh-icon--spinning" : "history-refresh-icon"} aria-hidden="true">↻</span>
+            {isHistoryRefreshing ? "Actualizando..." : "Actualizar"}
+          </button>
         </div>
         {isHistoryOpen && (
         <>
@@ -4599,6 +4719,19 @@ export default function PaymentsPage({
             {historyAvailableGroups.map((group) => (
               <option key={group} value={group}>Grupo {group}</option>
             ))}
+          </select>
+          <select
+            value={historyDeliveryFilter}
+            onChange={(e) => {
+              setHistoryDeliveryFilter(e.target.value as HistoryDeliveryFilter);
+              setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
+            }}
+            className="history-filter-select"
+            aria-label="Filtrar por estado de envío"
+          >
+            <option value="all">Todos los estados</option>
+            <option value="pending">Por enviar</option>
+            <option value="sent">Enviados</option>
           </select>
           <input
             type="date"
@@ -4638,9 +4771,31 @@ export default function PaymentsPage({
         </div>
 
         {historyDateRangeError && <p className="hint error-text">{historyDateRangeError}</p>}
+        {historyRefreshFeedback && (
+          <div
+            className={`history-copy-feedback history-copy-feedback--${historyRefreshFeedback.tone}`}
+            role={historyRefreshFeedback.tone === "error" ? "alert" : "status"}
+            aria-live="polite"
+          >
+            {historyRefreshFeedback.message}
+          </div>
+        )}
+        {historyCopyFeedback && (
+          <div
+            className={`history-copy-feedback history-copy-feedback--${historyCopyFeedback.tone}`}
+            role={historyCopyFeedback.tone === "error" ? "alert" : "status"}
+            aria-live="polite"
+          >
+            {historyCopyFeedback.message}
+          </div>
+        )}
 
         {historyRows.length === 0 ? (
-          <p className="empty">No hay pagos registrados aun.</p>
+          <p className="empty">
+            {payments.length === 0
+              ? "No hay pagos registrados aun."
+              : "No hay recibos que coincidan con los filtros actuales."}
+          </p>
         ) : (
           <>
           <div className="history-bulk-bar">
@@ -4693,6 +4848,7 @@ export default function PaymentsPage({
             <table>
               <thead>
                 <tr>
+                  <th className="history-send-column">Estado</th>
                   <th>
                     <input
                       type="checkbox"
@@ -4715,6 +4871,7 @@ export default function PaymentsPage({
                 </tr>
                 <tr>
                   <th></th>
+                  <th></th>
                   <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.receipt} onChange={(e) => updateHistoryColumnFilter("receipt", e.target.value)} /></th>
                   <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.date} onChange={(e) => updateHistoryColumnFilter("date", e.target.value)} /></th>
                   <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.unit} onChange={(e) => updateHistoryColumnFilter("unit", e.target.value)} /></th>
@@ -4728,8 +4885,30 @@ export default function PaymentsPage({
                 </tr>
               </thead>
               <tbody>
-                {historyRows.map((p) => (
+                {historyRows.map((p) => {
+                  const isSent = p.receiptDeliveryStatus !== "pending" || historyCopiedPaymentIds.has(p.id);
+                  const isCopying = historyCopyingPaymentId === p.id;
+                  return (
                   <tr key={p.id} className={historySelectedIdSet.has(p.id) ? "history-row--selected" : ""}>
+                    <td className="history-send-cell">
+                      <button
+                        type="button"
+                        className={`history-send-button ${isSent ? "history-send-button--sent" : "history-send-button--pending"}`}
+                        onClick={() => void handleCopyHistoryReceipt(p)}
+                        disabled={historyCopyingPaymentId !== null}
+                        aria-label={`${isSent ? "Copiar nuevamente" : "Copiar"} el recibo ${p.receiptNumber}`}
+                        aria-describedby={historyCopyFeedback?.paymentId === p.id ? `copy-feedback-${p.id}` : undefined}
+                        title={isSent ? "Copiar nuevamente el recibo" : "Copiar el recibo y marcarlo como enviado"}
+                      >
+                        <span aria-hidden="true">{isSent ? "✓" : "↗"}</span>
+                        {isCopying ? "Por enviar" : isSent ? "Enviado" : "Por enviar"}
+                      </button>
+                      {historyCopyFeedback?.paymentId === p.id && (
+                        <span id={`copy-feedback-${p.id}`} className="sr-only">
+                          {historyCopyFeedback.message}
+                        </span>
+                      )}
+                    </td>
                     <td>
                       <input
                         type="checkbox"
@@ -4764,7 +4943,8 @@ export default function PaymentsPage({
                       >X</button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

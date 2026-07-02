@@ -820,6 +820,37 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     setHasPendingChanges(true);
   }
 
+  async function refreshPaymentsFromSource(): Promise<void> {
+    if (pendingCoreSyncRef.current) {
+      const flushed = await flushPendingCoreSync();
+      if (!flushed) {
+        throw new Error("No se pudieron sincronizar los cambios pendientes.");
+      }
+    }
+
+    setSyncStatus("syncing");
+    try {
+      let refreshedPayments: Payment[];
+      if (cloudDataUserId) {
+        refreshedPayments = await loadCloudPayments(cloudDataUserId);
+      } else {
+        const indexedPayments = await loadPaymentsFromIndexedDb();
+        refreshedPayments = indexedPayments.length > 0 ? indexedPayments : loadPayments();
+      }
+
+      setPayments(refreshedPayments);
+      if (!isSupabaseOnlyMode) savePayments(refreshedPayments);
+      setSyncStatus("ok");
+      setSyncErrorMessage("");
+      setLastSyncAt(new Date().toLocaleTimeString());
+    } catch (error) {
+      console.error("No se pudo actualizar manualmente el historial de pagos.", error);
+      setSyncStatus("error");
+      setSyncErrorMessage(buildCloudErrorMessage("Fallo la actualización manual de pagos.", error, { includeRawFallback: true }));
+      throw error;
+    }
+  }
+
   async function persistClientsAndPayments(nextClients: Client[], nextPayments: Payment[]): Promise<boolean> {
     if (isReadOnlyReceivables) return false;
     const previousClients = clients;
@@ -1091,6 +1122,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             payments={payments}
             onPaymentsChange={persistPayments}
             onPersistClientPayment={persistClientsAndPayments}
+            onRefreshPayments={refreshPaymentsFromSource}
             onCashClose={() => void runBackup("cash_closing", true)}
             quickCashPrefill={cashPaymentPrefill}
             onQuickCashPrefillConsumed={() => setCashPaymentPrefill(null)}

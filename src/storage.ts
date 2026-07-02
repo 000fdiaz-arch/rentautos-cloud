@@ -343,6 +343,10 @@ function normalizePayment(item: unknown): Payment | null {
   return {
     id: raw.id,
     receiptNumber: raw.receiptNumber,
+    receiptDeliveryStatus:
+      raw.receiptDeliveryStatus === "pending" || raw.receiptDeliveryStatus === "sent"
+        ? raw.receiptDeliveryStatus
+        : undefined,
     clientId: raw.clientId,
     clientName: raw.clientName,
     clientUnit: raw.clientUnit,

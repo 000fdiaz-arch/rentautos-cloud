@@ -148,6 +148,7 @@ export type ManualBankAssignmentAudit = {
 export type Payment = {
   id: string;
   receiptNumber: string;
+  receiptDeliveryStatus?: "pending" | "sent";
   otherChargesApplied?: OtherCharge[];
   otherChargesDueAfter?: OtherCharge[];
   advanceApplied?: number;
