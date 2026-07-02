@@ -30,6 +30,8 @@ import type {
 import { applyAutomaticCharges, findNextChargeDay, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../billing";
 import { applyLateFeesForClosingDate, subtractOtherCharge } from "../lateFees";
 import { buildReceivableRows } from "../receivables";
+import PaymentsTabs, { type PaymentTabId } from "./payments/PaymentsTabs";
+import { PAYMENT_HISTORY_LIMIT, selectLatestPayments } from "./payments/paymentHistory";
 
 const PAYMENT_METHODS: PaymentMethod[] = [
   "Efectivo",
@@ -964,7 +966,7 @@ export default function PaymentsPage({
   const [reopenReason, setReopenReason] = useState<string>("");
   const [pendingBankItems, setPendingBankItems] = useState<PendingBankItem[]>(() => loadPendingBankItems());
   const [pendingCardItems, setPendingCardItems] = useState<PendingCardItem[]>(() => loadPendingCardItems());
-  const [isPendingOpen, setIsPendingOpen] = useState(true);
+  const [isPendingOpen, setIsPendingOpen] = useState(false);
   const [isCardPendingOpen, setIsCardPendingOpen] = useState(false);
   const [pendingClassifyTarget, setPendingClassifyTarget] = useState<PendingBankItem | null>(null);
   const [pendingClassifyClientId, setPendingClassifyClientId] = useState("");
@@ -1003,6 +1005,11 @@ export default function PaymentsPage({
   useEffect(() => {
     if (!quickCashPrefill) return;
     setIsRegisterOpen(true);
+    setIsNotifiedOpen(false);
+    setIsCashClosingOpen(false);
+    setIsHistoryOpen(false);
+    setIsPendingOpen(false);
+    setIsCardPendingOpen(false);
     setForm((prev) => ({
       ...prev,
       dateApplied: quickCashPrefill.dateApplied || toDateKey(new Date()),
@@ -3291,13 +3298,18 @@ export default function PaymentsPage({
     setHistoryColumnFilters({ ...EMPTY_HISTORY_COLUMN_FILTERS });
   }
 
+  const recentPayments = useMemo(
+    () => selectLatestPayments(payments),
+    [payments]
+  );
+
   const historyAvailableGroups = useMemo(() => {
     return [...new Set(
-      payments
+      recentPayments
         .map((p) => extractGroupCodeFromUnit(p.clientUnit))
         .filter((group) => group.length > 0)
     )].sort((a, b) => a.localeCompare(b));
-  }, [payments]);
+  }, [recentPayments]);
 
   const historyDateRangeError = useMemo(() => {
     if (historyDateFrom && historyDateTo && historyDateFrom > historyDateTo) {
@@ -3315,8 +3327,8 @@ export default function PaymentsPage({
     if (historyDateRangeError) return [];
 
     const byClient = historyClientId === "all"
-      ? payments
-      : payments.filter((p) => p.clientId === historyClientId);
+      ? recentPayments
+      : recentPayments.filter((p) => p.clientId === historyClientId);
     const byGroup = historyGroupFilter === "all"
       ? byClient
       : byClient.filter((p) => extractGroupCodeFromUnit(p.clientUnit) === historyGroupFilter);
@@ -3365,7 +3377,7 @@ export default function PaymentsPage({
       return b.createdAt.localeCompare(a.createdAt);
     });
     return sorted;
-  }, [payments, historyClientId, historyGroupFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
+  }, [recentPayments, historyClientId, historyGroupFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
 
   useEffect(() => {
     if (!isHistoryOpen) return;
@@ -3487,26 +3499,41 @@ export default function PaymentsPage({
     });
   }
 
-  function handleQuickToggleSection(
-    isOpen: boolean,
-    setOpen: React.Dispatch<React.SetStateAction<boolean>>,
-    sectionRef: React.RefObject<HTMLElement>
-  ): void {
-    if (isOpen) {
-      setOpen(false);
-      return;
-    }
-    setOpen(true);
-    scrollToWorkSection(sectionRef);
+  function handleSelectPaymentTab(tab: PaymentTabId): void {
+    setIsRegisterOpen(tab === "register");
+    setIsNotifiedOpen(tab === "notified");
+    setIsPendingOpen(tab === "pending");
+    setIsCardPendingOpen(tab === "cards");
+    setIsHistoryOpen(tab === "history");
+    setIsCashClosingOpen(tab === "cash");
+
+    const targetByTab: Record<PaymentTabId, React.RefObject<HTMLElement>> = {
+      register: registerSectionRef,
+      notified: notifiedSectionRef,
+      pending: pendingSectionRef,
+      cards: pendingCardSectionRef,
+      history: historySectionRef,
+      cash: cashSectionRef
+    };
+    scrollToWorkSection(targetByTab[tab]);
   }
 
   function handleQuickImportCSV(): void {
-    if (!isPendingOpen) {
-      setIsPendingOpen(true);
-    }
-    scrollToWorkSection(pendingSectionRef);
+    handleSelectPaymentTab("pending");
     void handleImportBankCSV();
   }
+
+  const activePaymentTab: PaymentTabId = isCashClosingOpen
+    ? "cash"
+    : isNotifiedOpen
+      ? "notified"
+      : isPendingOpen
+        ? "pending"
+        : isCardPendingOpen
+          ? "cards"
+          : isHistoryOpen
+            ? "history"
+            : "register";
 
 
   if (confirmedPayment) {
@@ -3523,8 +3550,14 @@ export default function PaymentsPage({
 
   return (
     <div className="page-inner">
+      <PaymentsTabs
+        activeTab={activePaymentTab}
+        onSelect={handleSelectPaymentTab}
+        onImportCsv={handleQuickImportCSV}
+      />
+
       {/* -- Payment form -- */}
-      <section ref={cashSectionRef} className="panel" style={{ display: isCashClosingOpen ? undefined : "none" }}>
+      <section id="payment-panel-cash" role="tabpanel" aria-labelledby="payment-tab-cash" ref={cashSectionRef} className="panel" style={{ display: isCashClosingOpen ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Cierre de caja</h2>
         </div>
@@ -3703,76 +3736,7 @@ export default function PaymentsPage({
         )}
       </section>
 
-      <section className="panel payment-quick-actions-panel">
-        <div className="payment-quick-actions-grid">
-          <button
-            type="button"
-            className={`payment-quick-action${isCashClosingOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isCashClosingOpen, setIsCashClosingOpen, cashSectionRef)}
-          >
-            <span className="payment-quick-action-title">Cierre de caja</span>
-            <span className="payment-quick-action-state">{isCashClosingOpen ? "Ocultar" : "Abrir"}</span>
-          </button>
-
-          <button
-            type="button"
-            className={`payment-quick-action${isRegisterOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isRegisterOpen, setIsRegisterOpen, registerSectionRef)}
-          >
-            <span className="payment-quick-action-title">Registrar pago</span>
-            <span className="payment-quick-action-state">{isRegisterOpen ? "Ocultar" : "Abrir"}</span>
-          </button>
-
-          <button
-            type="button"
-            className={`payment-quick-action${isNotifiedOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isNotifiedOpen, setIsNotifiedOpen, notifiedSectionRef)}
-          >
-            <span className="payment-quick-action-title">Pago notificado</span>
-            <span className="payment-quick-action-state">{isNotifiedOpen ? "Ocultar" : "Abrir"}</span>
-          </button>
-
-          <button
-            type="button"
-            className="payment-quick-action"
-            onClick={handleQuickImportCSV}
-          >
-            <span className="payment-quick-action-title">Importar CSV</span>
-            <span className="payment-quick-action-state">Banco</span>
-          </button>
-
-
-          <button
-            type="button"
-            className={`payment-quick-action${isPendingOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isPendingOpen, setIsPendingOpen, pendingSectionRef)}
-          >
-            <span className="payment-quick-action-title">Ver pendientes</span>
-            <span className="payment-quick-action-state">{isPendingOpen ? "Ocultar" : "Abrir"}</span>
-          </button>
-
-          <button
-            type="button"
-            className={`payment-quick-action${isCardPendingOpen ? " payment-quick-action--active" : ""}`}
-            aria-label="Pendientes de conciliacion TDC"
-            onClick={() => handleQuickToggleSection(isCardPendingOpen, setIsCardPendingOpen, pendingCardSectionRef)}
-          >
-            <span className="payment-quick-action-title">Pendientes tarjeta</span>
-            <span className="payment-quick-action-state">{isCardPendingOpen ? "Ocultar" : "Abrir"}</span>
-          </button>
-
-          <button
-            type="button"
-            className={`payment-quick-action${isHistoryOpen ? " payment-quick-action--active" : ""}`}
-            onClick={() => handleQuickToggleSection(isHistoryOpen, setIsHistoryOpen, historySectionRef)}
-          >
-            <span className="payment-quick-action-title">Historial pagos</span>
-            <span className="payment-quick-action-state">{isHistoryOpen ? "Ocultar" : "Abrir"}</span>
-          </button>
-        </div>
-      </section>
-
-      <section ref={registerSectionRef} className="panel" style={{ display: isRegisterOpen ? undefined : "none" }}>
+      <section id="payment-panel-register" role="tabpanel" aria-labelledby="payment-tab-register" ref={registerSectionRef} className="panel" style={{ display: isRegisterOpen ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Registrar pago</h2>
         </div>
@@ -4062,7 +4026,7 @@ export default function PaymentsPage({
         )}
       </section>
 
-      <section ref={notifiedSectionRef} className="panel" style={{ display: isNotifiedOpen ? undefined : "none" }}>
+      <section id="payment-panel-notified" role="tabpanel" aria-labelledby="payment-tab-notified" ref={notifiedSectionRef} className="panel" style={{ display: isNotifiedOpen ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Pagos notificados (pendientes)</h2>
         </div>
@@ -4243,7 +4207,7 @@ export default function PaymentsPage({
         )}
       </section>
 
-      <section ref={pendingCardSectionRef} className="panel" style={{ display: isCardPendingOpen ? undefined : "none" }}>
+      <section id="payment-panel-cards" role="tabpanel" aria-labelledby="payment-tab-cards" ref={pendingCardSectionRef} className="panel" style={{ display: isCardPendingOpen ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Pendientes por folio (Tarjeta)</h2>
         </div>
@@ -4349,7 +4313,7 @@ export default function PaymentsPage({
       </section>
 
       {/* -- Pending bank items -- */}
-      <section ref={pendingSectionRef} className="panel" style={{ display: isPendingOpen ? undefined : "none" }}>
+      <section id="payment-panel-pending" role="tabpanel" aria-labelledby="payment-tab-pending" ref={pendingSectionRef} className="panel" style={{ display: isPendingOpen ? undefined : "none" }}>
         <div className="panel-head">
           <h2>
             Pendientes del banco
@@ -4578,7 +4542,7 @@ export default function PaymentsPage({
       </section>
 
       {/* -- Payment history -- */}
-      <section ref={historySectionRef} className="panel" style={{ display: isHistoryOpen ? undefined : "none" }}>
+      <section id="payment-panel-history" role="tabpanel" aria-labelledby="payment-tab-history" ref={historySectionRef} className="panel" style={{ display: isHistoryOpen ? undefined : "none" }}>
         <div className="panel-head">
           <h2>Historial de pagos</h2>
         </div>
@@ -4769,7 +4733,9 @@ export default function PaymentsPage({
           </>
         )}
         {historyRows.length > 0 && (
-          <p className="hint">Mostrando {historyRows.length} pagos filtrados.</p>
+          <p className="hint">
+            Mostrando {historyRows.length} de los últimos {Math.min(PAYMENT_HISTORY_LIMIT, payments.length)} pagos.
+          </p>
         )}
         </>
         )}
@@ -5003,5 +4969,3 @@ export default function PaymentsPage({
     </div>
   );
 }
-
-

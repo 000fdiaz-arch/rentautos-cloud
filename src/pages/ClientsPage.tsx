@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { useDeferredValue } from "react";
 import {
   findNextChargeDay,
   getDebtStartDate,
@@ -574,6 +575,10 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
   const [activeDashboardFilter, setActiveDashboardFilter] = useState<{ cut: DashboardCutKey; metric: DashboardMetricKey } | null>(null);
   const [promiseDashboardFilter, setPromiseDashboardFilter] = useState<PromiseDashboardFilter>("all");
   const [generalGroupFilter, setGeneralGroupFilter] = useState<GeneralGroupFilterKey>("ALL");
+  const [unitSearchFilter, setUnitSearchFilter] = useState("");
+  const [clientNameSearchFilter, setClientNameSearchFilter] = useState("");
+  const deferredUnitSearchFilter = useDeferredValue(unitSearchFilter);
+  const deferredClientNameSearchFilter = useDeferredValue(clientNameSearchFilter);
   const [saveFeedbackByKey, setSaveFeedbackByKey] = useState<Record<string, { type: "success" | "error"; text: string }>>({});
   const [collectionOverrideByKey, setCollectionOverrideByKey] = useState<Record<string, boolean>>({});
   const [streetActionDialog, setStreetActionDialog] = useState<{
@@ -1135,6 +1140,16 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     let baseRows = generalGroupFilter === "ALL"
       ? visibleRows
       : visibleRows.filter((row) => getRowGroup(row.unitId) === generalGroupFilter);
+    const normalizedUnitQuery = normalizePersonName(deferredUnitSearchFilter);
+    const normalizedNameQuery = normalizePersonName(deferredClientNameSearchFilter);
+    if (normalizedUnitQuery) {
+      baseRows = baseRows.filter((row) => normalizePersonName(row.unitId).includes(normalizedUnitQuery));
+    }
+    if (normalizedNameQuery) {
+      baseRows = baseRows.filter((row) =>
+        Boolean(row.client) && normalizePersonName(row.client?.name ?? "").includes(normalizedNameQuery)
+      );
+    }
     if (promiseDashboardFilter === "attention") {
       baseRows = baseRows.filter((row) => row.client && promiseAttentionClientIds.due.has(row.client.id));
     } else if (promiseDashboardFilter === "pending") {
@@ -1149,7 +1164,16 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     }
     const ids = new Set(collectionDashboard[activeDashboardFilter.cut].ids[activeDashboardFilter.metric]);
     return baseRows.filter((row) => row.client && ids.has(row.client.id));
-  }, [activeDashboardFilter, collectionDashboard, generalGroupFilter, visibleRows, promiseDashboardFilter, promiseAttentionClientIds]);
+  }, [
+    activeDashboardFilter,
+    collectionDashboard,
+    deferredClientNameSearchFilter,
+    deferredUnitSearchFilter,
+    generalGroupFilter,
+    visibleRows,
+    promiseDashboardFilter,
+    promiseAttentionClientIds
+  ]);
 
   useEffect(() => {
     if (activeDashboardFilter?.metric === "needContact" && activeDashboardFilter.cut !== "am") {
@@ -2926,7 +2950,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                       <div className="collection-header-inline">
                         <span className="collection-header-title">GENERALES</span>
                       </div>
-                      <div style={{ marginTop: 6 }}>
+                      <div className="clients-general-filters">
                         <select
                           value={generalGroupFilter}
                           onChange={(e) => setGeneralGroupFilter(e.target.value as GeneralGroupFilterKey)}
@@ -2939,6 +2963,32 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
                           <option value="C">Grupo C</option>
                           <option value="D">Grupo D</option>
                         </select>
+                        <input
+                          type="search"
+                          value={unitSearchFilter}
+                          onChange={(event) => setUnitSearchFilter(event.target.value)}
+                          placeholder="Buscar unidad"
+                          aria-label="Buscar por número de unidad"
+                        />
+                        <input
+                          type="search"
+                          value={clientNameSearchFilter}
+                          onChange={(event) => setClientNameSearchFilter(event.target.value)}
+                          placeholder="Buscar cliente"
+                          aria-label="Buscar por nombre del cliente"
+                        />
+                        {(unitSearchFilter || clientNameSearchFilter) && (
+                          <button
+                            type="button"
+                            className="clients-filter-clear"
+                            onClick={() => {
+                              setUnitSearchFilter("");
+                              setClientNameSearchFilter("");
+                            }}
+                          >
+                            Limpiar
+                          </button>
+                        )}
                       </div>
                     </th>
                     <th>
@@ -3391,8 +3441,4 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     </div>
   );
 }
-
-
-
-
 
