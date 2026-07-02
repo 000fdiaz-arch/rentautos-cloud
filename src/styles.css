@@ -3483,6 +3483,12 @@ select.control-op-badge {
   background: #e6fffb !important;
 }
 
+.history-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 14px 0 4px;
+}
+
 .history-column-filter-input {
   min-width: 96px;
   font-size: 0.8rem;

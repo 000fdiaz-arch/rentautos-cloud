@@ -31,7 +31,7 @@ import { applyAutomaticCharges, findNextChargeDay, isChargeDay, parseDateKey, st
 import { applyLateFeesForClosingDate, subtractOtherCharge } from "../lateFees";
 import { buildReceivableRows } from "../receivables";
 import PaymentsTabs, { type PaymentTabId } from "./payments/PaymentsTabs";
-import { PAYMENT_HISTORY_LIMIT, selectLatestPayments } from "./payments/paymentHistory";
+import { PAYMENT_HISTORY_LIMIT } from "./payments/paymentHistory";
 
 const PAYMENT_METHODS: PaymentMethod[] = [
   "Efectivo",
@@ -936,6 +936,7 @@ export default function PaymentsPage({
   const [historyColumnFilters, setHistoryColumnFilters] = useState<HistoryColumnFilters>({ ...EMPTY_HISTORY_COLUMN_FILTERS });
   const [historySortField, setHistorySortField] = useState<HistorySortField>("date");
   const [historySortDirection, setHistorySortDirection] = useState<SortDirection>("desc");
+  const [historyVisibleLimit, setHistoryVisibleLimit] = useState(PAYMENT_HISTORY_LIMIT);
   const [historySelectedPaymentIds, setHistorySelectedPaymentIds] = useState<string[]>([]);
   const [isHistoryBulkDownloading, setIsHistoryBulkDownloading] = useState(false);
   const [historyBulkDownloadError, setHistoryBulkDownloadError] = useState("");
@@ -3312,25 +3313,22 @@ export default function PaymentsPage({
   }
 
   function updateHistoryColumnFilter(field: keyof HistoryColumnFilters, value: string): void {
+    setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
     setHistoryColumnFilters((prev) => ({ ...prev, [field]: value }));
   }
 
   function clearHistoryColumnFilters(): void {
+    setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
     setHistoryColumnFilters({ ...EMPTY_HISTORY_COLUMN_FILTERS });
   }
 
-  const recentPayments = useMemo(
-    () => selectLatestPayments(payments),
-    [payments]
-  );
-
   const historyAvailableGroups = useMemo(() => {
     return [...new Set(
-      recentPayments
+      payments
         .map((p) => extractGroupCodeFromUnit(p.clientUnit))
         .filter((group) => group.length > 0)
     )].sort((a, b) => a.localeCompare(b));
-  }, [recentPayments]);
+  }, [payments]);
 
   const historyDateRangeError = useMemo(() => {
     if (historyDateFrom && historyDateTo && historyDateFrom > historyDateTo) {
@@ -3344,12 +3342,12 @@ export default function PaymentsPage({
     [historyColumnFilters]
   );
 
-  const historyRows = useMemo(() => {
+  const filteredHistoryRows = useMemo(() => {
     if (historyDateRangeError) return [];
 
     const byClient = historyClientId === "all"
-      ? recentPayments
-      : recentPayments.filter((p) => p.clientId === historyClientId);
+      ? payments
+      : payments.filter((p) => p.clientId === historyClientId);
     const byGroup = historyGroupFilter === "all"
       ? byClient
       : byClient.filter((p) => extractGroupCodeFromUnit(p.clientUnit) === historyGroupFilter);
@@ -3398,7 +3396,13 @@ export default function PaymentsPage({
       return b.createdAt.localeCompare(a.createdAt);
     });
     return sorted;
-  }, [recentPayments, historyClientId, historyGroupFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
+  }, [payments, historyClientId, historyGroupFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
+
+  const historyRows = useMemo(
+    () => filteredHistoryRows.slice(0, historyVisibleLimit),
+    [filteredHistoryRows, historyVisibleLimit]
+  );
+  const hasMoreHistoryRows = historyRows.length < filteredHistoryRows.length;
 
   useEffect(() => {
     if (!isHistoryOpen) return;
@@ -3500,11 +3504,11 @@ export default function PaymentsPage({
   }
 
   async function handleDownloadFilteredHistory(): Promise<void> {
-    if (historyRows.length === 0 || isHistoryBulkDownloading) return;
+    if (filteredHistoryRows.length === 0 || isHistoryBulkDownloading) return;
     setHistoryBulkDownloadError("");
     setIsHistoryBulkDownloading(true);
     try {
-      await downloadPaymentsReceiptsZip(historyRows);
+      await downloadPaymentsReceiptsZip(filteredHistoryRows);
     } catch {
       setHistoryBulkDownloadError("No se pudo generar el ZIP de recibos. Intenta nuevamente.");
     } finally {
@@ -4572,7 +4576,10 @@ export default function PaymentsPage({
         <div className="panel-head" style={{ marginTop: 10, gap: 8, flexWrap: "wrap" }}>
           <select
             value={historyClientId}
-            onChange={(e) => setHistoryClientId(e.target.value)}
+            onChange={(e) => {
+              setHistoryClientId(e.target.value);
+              setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
+            }}
             className="history-filter-select"
           >
             <option value="all">Todos los clientes</option>
@@ -4582,7 +4589,10 @@ export default function PaymentsPage({
           </select>
           <select
             value={historyGroupFilter}
-            onChange={(e) => setHistoryGroupFilter(e.target.value)}
+            onChange={(e) => {
+              setHistoryGroupFilter(e.target.value);
+              setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
+            }}
             className="history-filter-select"
           >
             <option value="all">Todos los grupos</option>
@@ -4594,7 +4604,10 @@ export default function PaymentsPage({
             type="date"
             className="payment-input"
             value={historyDateFrom}
-            onChange={(e) => setHistoryDateFrom(e.target.value)}
+            onChange={(e) => {
+              setHistoryDateFrom(e.target.value);
+              setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
+            }}
             title="Filtrar desde fecha"
             style={{ width: 180 }}
           />
@@ -4602,7 +4615,10 @@ export default function PaymentsPage({
             type="date"
             className="payment-input"
             value={historyDateTo}
-            onChange={(e) => setHistoryDateTo(e.target.value)}
+            onChange={(e) => {
+              setHistoryDateTo(e.target.value);
+              setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
+            }}
             title="Filtrar hasta fecha"
             style={{ width: 180 }}
           />
@@ -4613,6 +4629,7 @@ export default function PaymentsPage({
               onClick={() => {
                 setHistoryDateFrom("");
                 setHistoryDateTo("");
+                setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
               }}
             >
               Limpiar fechas
@@ -4630,7 +4647,7 @@ export default function PaymentsPage({
             <div className="history-bulk-summary">
               {historySelectedRows.length > 0
                 ? `${historySelectedRows.length} seleccionados de ${historyRows.length}`
-                : `${historyRows.length} recibos filtrados`}
+                : `${historyRows.length} visibles de ${filteredHistoryRows.length} filtrados`}
             </div>
             <div className="history-bulk-actions">
               <button
@@ -4657,7 +4674,7 @@ export default function PaymentsPage({
                 disabled={isHistoryBulkDownloading}
                 title="Descarga todos los recibos del filtro actual en un ZIP"
               >
-                Descargar filtrados ({historyRows.length})
+                Descargar filtrados ({filteredHistoryRows.length})
               </button>
           </div>
           </div>
@@ -4751,11 +4768,22 @@ export default function PaymentsPage({
               </tbody>
             </table>
           </div>
+          {hasMoreHistoryRows && (
+            <div className="history-load-more">
+              <button
+                type="button"
+                className="button ghost"
+                onClick={() => setHistoryVisibleLimit((current) => current + PAYMENT_HISTORY_LIMIT)}
+              >
+                Cargar {Math.min(PAYMENT_HISTORY_LIMIT, filteredHistoryRows.length - historyRows.length)} recibos más
+              </button>
+            </div>
+          )}
           </>
         )}
         {historyRows.length > 0 && (
           <p className="hint">
-            Mostrando {historyRows.length} de los últimos {Math.min(PAYMENT_HISTORY_LIMIT, payments.length)} pagos.
+            Mostrando {historyRows.length} de {filteredHistoryRows.length} pagos que coinciden con los filtros.
           </p>
         )}
         </>
