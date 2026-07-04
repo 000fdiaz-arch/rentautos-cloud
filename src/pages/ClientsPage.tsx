@@ -123,6 +123,7 @@ const DAILY_COLLECTION_SYNC_TABLES = [
   { key: DAILY_COLLECTION_PROMISES_KEY, table: "clients_daily_collection_promises_cloud" },
   { key: DAILY_COLLECTION_STREET_ACTIONS_KEY, table: "clients_daily_collection_street_actions_cloud" }
 ] as const;
+const DAILY_COLLECTION_FALLBACK_POLL_MS = 60_000;
 
 function notifyCloudSyncPing(key: string): void {
   window.dispatchEvent(
@@ -1245,8 +1246,9 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     }
     channel.subscribe();
     const fallbackTimer = window.setInterval(() => {
+      if (document.hidden) return;
       void loadCloudDailyCollection();
-    }, 10_000);
+    }, DAILY_COLLECTION_FALLBACK_POLL_MS);
 
     return () => {
       cancelled = true;
@@ -3441,4 +3443,3 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     </div>
   );
 }
-

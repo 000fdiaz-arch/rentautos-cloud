@@ -10,7 +10,6 @@ type SingletonDataRow = {
 };
 
 const PAGE_SIZE = 1000;
-
 export type ControlUnitRow = {
   user_id: string;
   unit_id: string;
@@ -65,7 +64,7 @@ function normalizeClientStatus(rawStatus: unknown, archivedAt: unknown): ClientS
   return "activo";
 }
 
-function normalizeCloudClient(client: Client): Client {
+export function normalizeCloudClient(client: Client): Client {
   const normalizedStatus = normalizeClientStatus(
     (client as unknown as { status?: unknown }).status,
     (client as unknown as { archivedAt?: unknown }).archivedAt
@@ -133,19 +132,22 @@ async function deleteStaleRows(
 export async function loadCloudClients(userId: string): Promise<Client[]> {
   const client = getClient();
   const allRows: DataRow<Client>[] = [];
-  let from = 0;
+  let lastId = "";
   while (true) {
-    const to = from + PAGE_SIZE - 1;
-    const { data, error } = await client
+    let query = client
       .from("clients_cloud")
       .select("id,data")
       .eq("user_id", userId)
-      .range(from, to);
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (lastId) query = query.gt("id", lastId);
+    const { data, error } = await query;
     if (error) throw error;
     const batch = (data ?? []) as DataRow<Client>[];
     allRows.push(...batch);
     if (batch.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
+    lastId = batch[batch.length - 1]?.id ?? lastId;
+    if (!lastId) break;
   }
   return allRows.map((row) => normalizeCloudClient(row.data));
 }
@@ -162,6 +164,7 @@ export async function loadCloudClientsPage(
     .from("clients_cloud")
     .select("id,data")
     .eq("user_id", userId)
+    .order("id", { ascending: true })
     .range(offset, to);
   if (error) throw error;
   const rows = (data ?? []) as DataRow<Client>[];
@@ -235,19 +238,22 @@ export async function syncCloudClientsDelta(
 export async function loadCloudPayments(userId: string): Promise<Payment[]> {
   const client = getClient();
   const allRows: DataRow<Payment>[] = [];
-  let from = 0;
+  let lastId = "";
   while (true) {
-    const to = from + PAGE_SIZE - 1;
-    const { data, error } = await client
+    let query = client
       .from("payments_cloud")
       .select("id,data")
       .eq("user_id", userId)
-      .range(from, to);
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (lastId) query = query.gt("id", lastId);
+    const { data, error } = await query;
     if (error) throw error;
     const batch = (data ?? []) as DataRow<Payment>[];
     allRows.push(...batch);
     if (batch.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
+    lastId = batch[batch.length - 1]?.id ?? lastId;
+    if (!lastId) break;
   }
   return allRows.map((row) => row.data);
 }
@@ -264,6 +270,7 @@ export async function loadCloudPaymentsPage(
     .from("payments_cloud")
     .select("id,data")
     .eq("user_id", userId)
+    .order("updated_at", { ascending: false })
     .range(offset, to);
   if (error) throw error;
   const rows = (data ?? []) as DataRow<Payment>[];
@@ -337,19 +344,22 @@ export async function syncCloudPaymentsDelta(
 export async function loadCloudPaymentPromises(userId: string): Promise<PaymentPromise[]> {
   const client = getClient();
   const allRows: DataRow<PaymentPromise>[] = [];
-  let from = 0;
+  let lastId = "";
   while (true) {
-    const to = from + PAGE_SIZE - 1;
-    const { data, error } = await client
+    let query = client
       .from("payment_promises_cloud")
       .select("id,data")
       .eq("user_id", userId)
-      .range(from, to);
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (lastId) query = query.gt("id", lastId);
+    const { data, error } = await query;
     if (error) throw error;
     const batch = (data ?? []) as DataRow<PaymentPromise>[];
     allRows.push(...batch);
     if (batch.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
+    lastId = batch[batch.length - 1]?.id ?? lastId;
+    if (!lastId) break;
   }
   return allRows.map((row) => row.data);
 }

@@ -30,6 +30,7 @@ import {
   loadCloudPayments,
   loadCloudPaymentsPage,
   loadCloudStreetManagement,
+  normalizeCloudClient,
   saveCloudClients,
   saveCloudPayments,
   saveCloudStreetManagement,
@@ -63,9 +64,20 @@ type PendingCoreSyncSnapshot = {
 
 const PENDING_CORE_SYNC_KEY = "cobrapp.cloud.pending_core_sync.v1";
 const INITIAL_CLOUD_BOOTSTRAP_LIMIT = 200;
-const CORE_DATA_FALLBACK_POLL_MS = 60_000;
-const RECEIVABLES_FALLBACK_POLL_MS = 90_000;
+const CORE_DATA_FALLBACK_POLL_MS = 5 * 60_000;
+const RECEIVABLES_FALLBACK_POLL_MS = 5 * 60_000;
 const PREFERRED_BOOTSTRAP_GROUP = "T";
+const CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS = [
+  "cobrapp.module1.clients.v1",
+  "cobrapp.module3.street_management.v1",
+  "cobrapp.module3.collection_closures.v1",
+  "cobrapp.clients.daily_collection.v1",
+  "cobrapp.clients.daily_collection_am_seals.v1",
+  "cobrapp.clients.daily_collection_pm_seals.v1",
+  "cobrapp.clients.daily_collection_close_seals.v1",
+  "cobrapp.clients.daily_collection_promises.v1",
+  "cobrapp.clients.daily_collection_street_actions.v1"
+];
 
 type AppShellProps = {
   userId?: string;
@@ -99,7 +111,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const [lastDailyBackupKey, setLastDailyBackupKey] = useState<string>("");
   const [cloudReloadTick, setCloudReloadTick] = useState<number>(0);
   const [routeCollectionCount, setRouteCollectionCount] = useState<number>(0);
-  const [isProgressiveCloudLoading, setIsProgressiveCloudLoading] = useState<boolean>(false);
   const [streetManagementData, setStreetManagementData] = useState<Record<string, unknown>>({});
   const [cashPaymentPrefill, setCashPaymentPrefill] = useState<{
     dateApplied: string;
@@ -411,6 +422,91 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     return merged;
   }
 
+  function saveCoreCache(nextClients: Client[], nextPayments: Payment[]): void {
+    if (isSupabaseOnlyMode) return;
+    saveClients(nextClients);
+    savePayments(nextPayments);
+  }
+
+  function mergeById<T extends { id: string }>(baseRows: T[], incomingRows: T[]): T[] {
+    if (baseRows.length === 0) return incomingRows;
+    if (incomingRows.length === 0) return baseRows;
+    const incomingById = new Map(incomingRows.map((row) => [row.id, row]));
+    const merged = baseRows.map((row) => incomingById.get(row.id) ?? row);
+    const baseIds = new Set(baseRows.map((row) => row.id));
+    for (const row of incomingRows) {
+      if (!baseIds.has(row.id)) merged.unshift(row);
+    }
+    return merged;
+  }
+
+  function applyRemoteClientRow(row: unknown, eventType: string): void {
+    const record = row && typeof row === "object" ? row as { id?: unknown; data?: unknown } : null;
+    const id = typeof record?.id === "string" ? record.id : "";
+    if (!id) return;
+
+    setClients((current) => {
+      const next =
+        eventType === "DELETE"
+          ? current.filter((client) => client.id !== id)
+          : (() => {
+              if (!record?.data || typeof record.data !== "object") return current;
+              const incoming = normalizeCloudClient(record.data as Client);
+              const exists = current.some((client) => client.id === incoming.id);
+              return exists
+                ? current.map((client) => (client.id === incoming.id ? incoming : client))
+                : [incoming, ...current];
+            })();
+      if (next === current) return current;
+      if (!isSupabaseOnlyMode) saveClients(next);
+      return next;
+    });
+  }
+
+  function applyRemotePaymentRow(row: unknown, eventType: string): void {
+    const record = row && typeof row === "object" ? row as { id?: unknown; data?: unknown } : null;
+    const id = typeof record?.id === "string" ? record.id : "";
+    if (!id) return;
+
+    setPayments((current) => {
+      const next =
+        eventType === "DELETE"
+          ? current.filter((payment) => payment.id !== id)
+          : (() => {
+              if (!record?.data || typeof record.data !== "object") return current;
+              const incoming = record.data as Payment;
+              const exists = current.some((payment) => payment.id === incoming.id);
+              return exists
+                ? current.map((payment) => (payment.id === incoming.id ? incoming : payment))
+                : [incoming, ...current];
+            })();
+      if (next === current) return current;
+      if (!isSupabaseOnlyMode) savePayments(next);
+      return next;
+    });
+  }
+
+  function applyCoreRealtimePayload(payload: unknown, table: "clients_cloud" | "payments_cloud"): void {
+    if (pendingCoreSyncRef.current) {
+      setSyncStatus("syncing");
+      void flushPendingCoreSync();
+      return;
+    }
+    const event = payload && typeof payload === "object"
+      ? payload as { eventType?: unknown; new?: unknown; old?: unknown }
+      : null;
+    const eventType = typeof event?.eventType === "string" ? event.eventType : "";
+    const row = eventType === "DELETE" ? event?.old : event?.new;
+    if (table === "clients_cloud") {
+      applyRemoteClientRow(row, eventType);
+    } else {
+      applyRemotePaymentRow(row, eventType);
+    }
+    setSyncStatus("ok");
+    setSyncErrorMessage("");
+    setLastSyncAt(new Date().toLocaleTimeString());
+  }
+
   function handleStartCashClientPayment(payload: {
     dateApplied: string;
     clientId: string;
@@ -473,8 +569,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         setCloudLoadError("");
         setSyncErrorMessage("");
         setSyncStatus("syncing");
-        setIsProgressiveCloudLoading(true);
-        void initializeCloudMirror(cloudDataUserId).catch((error) => {
+        void initializeCloudMirror(cloudDataUserId, { skipKeys: CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS }).catch((error) => {
           console.error("No se pudo inicializar cloud mirror.", error);
         });
         const [cloudClientsData, cloudPaymentsData, cloudStreetManagement, cloudCollectionClosures] = await Promise.all([
@@ -487,13 +582,13 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         let prioritizedCloudClients: Client[] = cloudClientsData.filter((client) => isPreferredBootstrapGroupClient(client));
         const bootstrapClients =
           prioritizedCloudClients.length > 0
-            ? prioritizedCloudClients
+            ? mergeById((clients.length > 0 ? clients : localClientsFallback), prioritizedCloudClients)
             : cloudClientsData.length > 0
-            ? cloudClientsData
+            ? mergeById((clients.length > 0 ? clients : localClientsFallback), cloudClientsData)
             : (clients.length > 0 ? clients : localClientsFallback);
         const bootstrapPayments =
           cloudPaymentsData.length > 0
-            ? cloudPaymentsData
+            ? mergeById((payments.length > 0 ? payments : localPaymentsFallback), cloudPaymentsData)
             : (payments.length > 0 ? payments : localPaymentsFallback);
         setClients(bootstrapClients);
         setPayments(bootstrapPayments);
@@ -501,10 +596,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         setLateFeeSettings(loadLateFeeSettings());
         setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
         // Mantiene cache local opcional cuando no estamos en modo estricto nube.
-        if (!isSupabaseOnlyMode) {
-          saveClients(bootstrapClients);
-          savePayments(bootstrapPayments);
-        }
+        saveCoreCache(bootstrapClients, bootstrapPayments);
         setStreetManagementData(cloudStreetManagement);
         lastStreetManagementSnapshotRef.current = stableSerialize(cloudStreetManagement);
         localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(cloudCollectionClosures));
@@ -513,41 +605,17 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         setSyncErrorMessage("");
         setLastSyncAt(new Date().toLocaleTimeString());
         setCloudReady(true);
-
-        // Carga completa en segundo plano para no bloquear la interfaz.
-        void (async () => {
-          try {
-            const [fullClients, fullPayments] = await Promise.all([
-              loadCloudClients(cloudDataUserId),
-              loadCloudPayments(cloudDataUserId)
-            ]);
-            if (cancelled || pendingCoreSyncRef.current) return;
-            setClients(fullClients);
-            setPayments(fullPayments);
-            if (!isSupabaseOnlyMode) {
-              saveClients(fullClients);
-              savePayments(fullPayments);
-            }
-            setLastSyncAt(new Date().toLocaleTimeString());
-          } catch (error) {
-            console.error("No se pudo completar la carga progresiva total.", error);
-          } finally {
-            if (!cancelled) setIsProgressiveCloudLoading(false);
-          }
-        })();
       } catch (err) {
         console.error("No se pudo cargar data cloud.", err);
         setSyncStatus("error");
         setSyncErrorMessage(buildCloudErrorMessage("Fallo la sincronizacion inicial con nube.", err, { includeRawFallback: true }));
         setCloudLoadError("No se pudo cargar la data de nube. Verifica conexion e intenta de nuevo.");
         setCloudReady(true);
-        setIsProgressiveCloudLoading(false);
       }
     })();
 
     return () => {
       cancelled = true;
-      setIsProgressiveCloudLoading(false);
       disableCloudMirror();
     };
   }, [cloudDataUserId, cloudReloadTick, isReadOnlyReceivables]);
@@ -574,10 +642,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         if (cancelled) return;
         setClients(cloudClientsData);
         setPayments(cloudPaymentsData);
-        if (!isSupabaseOnlyMode) {
-          saveClients(cloudClientsData);
-          savePayments(cloudPaymentsData);
-        }
+        saveCoreCache(cloudClientsData, cloudPaymentsData);
         setSyncStatus("ok");
         setSyncErrorMessage("");
         setLastSyncAt(new Date().toLocaleTimeString());
@@ -590,17 +655,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       }
     };
 
-    const scheduleReload = () => {
-      setSyncStatus("syncing");
-      if (cloudCoreReloadTimerRef.current !== null) {
-        window.clearTimeout(cloudCoreReloadTimerRef.current);
-      }
-      cloudCoreReloadTimerRef.current = window.setTimeout(() => {
-        cloudCoreReloadTimerRef.current = null;
-        void reloadCloudCoreData();
-      }, 400);
-    };
-
     const channel = supabase
       .channel(`clients-core-live-${cloudDataUserId}`)
       .on(
@@ -611,7 +665,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           table: "clients_cloud",
           filter: `user_id=eq.${cloudDataUserId}`
         },
-        scheduleReload
+        (payload) => applyCoreRealtimePayload(payload, "clients_cloud")
       )
       .on(
         "postgres_changes",
@@ -621,7 +675,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           table: "payments_cloud",
           filter: `user_id=eq.${cloudDataUserId}`
         },
-        scheduleReload
+        (payload) => applyCoreRealtimePayload(payload, "payments_cloud")
       )
       .subscribe();
 
@@ -1073,11 +1127,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             {lastSyncAt && (
               <span className="hint" style={{ marginLeft: 8 }}>
                 Ultima sync: {lastSyncAt}
-              </span>
-            )}
-            {isProgressiveCloudLoading && (
-              <span className="hint" style={{ marginLeft: 8 }}>
-                Cargando mas datos...
               </span>
             )}
             {syncStatus === "error" && syncErrorMessage && (

@@ -74,6 +74,10 @@ const DAILY_COLLECTION_CLOSE_SEALS_KEY = "cobrapp.clients.daily_collection_close
 const DAILY_COLLECTION_PROMISES_KEY = "cobrapp.clients.daily_collection_promises.v1";
 const DAILY_COLLECTION_STREET_ACTIONS_KEY = "cobrapp.clients.daily_collection_street_actions.v1";
 
+type InitializeCloudMirrorOptions = {
+  skipKeys?: string[];
+};
+
 function asArrayKey(key: string): ArrayKey | null {
   return key in ARRAY_TABLE_MAP ? (key as ArrayKey) : null;
 }
@@ -307,14 +311,19 @@ async function hydrateSingletonKey(userId: string, key: SingletonKey): Promise<v
   }
 }
 
-export async function initializeCloudMirror(userId: string): Promise<void> {
+export async function initializeCloudMirror(userId: string, options?: InitializeCloudMirrorOptions): Promise<void> {
   currentUserId = userId;
   patchLocalStorage();
+  const skipKeys = new Set(options?.skipKeys ?? []);
   isHydrating = true;
   try {
     await Promise.all([
-      ...Object.keys(ARRAY_TABLE_MAP).map((key) => hydrateArrayKey(userId, key as ArrayKey)),
-      ...Object.keys(SINGLETON_TABLE_MAP).map((key) => hydrateSingletonKey(userId, key as SingletonKey))
+      ...Object.keys(ARRAY_TABLE_MAP)
+        .filter((key) => !skipKeys.has(key))
+        .map((key) => hydrateArrayKey(userId, key as ArrayKey)),
+      ...Object.keys(SINGLETON_TABLE_MAP)
+        .filter((key) => !skipKeys.has(key))
+        .map((key) => hydrateSingletonKey(userId, key as SingletonKey))
     ]);
   } finally {
     isHydrating = false;
