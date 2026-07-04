@@ -31,7 +31,7 @@ import type {
   PendingCardItem,
   PendingBankItem
 } from "../types";
-import { applyAutomaticCharges, findNextChargeDay, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../billing";
+import { findNextChargeDay, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../billing";
 import { applyLateFeesForClosingDate, subtractOtherCharge } from "../lateFees";
 import { buildReceivableRows } from "../receivables";
 import PaymentsTabs, { type PaymentTabId } from "./payments/PaymentsTabs";
@@ -644,12 +644,6 @@ type ManualPaymentAllocation = {
   forcedOtherChargesRuleApplied: boolean;
 };
 
-function projectClientToDate(client: Client, paymentDateKey: string): Client {
-  const paymentDate = parseDateKey(paymentDateKey) ?? startOfDay(new Date());
-  const projected = applyAutomaticCharges([client], paymentDate).clients[0];
-  return projected ?? client;
-}
-
 function computeManualPaymentAllocation(
   client: Client,
   rawAmount: number,
@@ -659,7 +653,7 @@ function computeManualPaymentAllocation(
   paymentDateKey: string,
   allowManualOverrideForForcedRule = false
 ): ManualPaymentAllocation {
-  const projectedClient = projectClientToDate(client, paymentDateKey);
+  const projectedClient = client;
   const amount = roundMoney(Math.max(0, rawAmount));
   const { wholePart, centsPart } = splitWholeAndCents(amount);
   const balanceBefore = roundMoney(projectedClient.balance);
