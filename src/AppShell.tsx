@@ -25,10 +25,8 @@ import {
 } from "./storage";
 import {
   loadCloudClients,
-  loadCloudClientsPage,
   loadCloudCollectionClosures,
   loadCloudPayments,
-  loadCloudPaymentsPage,
   loadCloudStreetManagement,
   normalizeCloudClient,
   saveCloudClients,
@@ -63,12 +61,13 @@ type PendingCoreSyncSnapshot = {
 };
 
 const PENDING_CORE_SYNC_KEY = "cobrapp.cloud.pending_core_sync.v1";
-const INITIAL_CLOUD_BOOTSTRAP_LIMIT = 200;
 const CORE_DATA_FALLBACK_POLL_MS = 5 * 60_000;
 const RECEIVABLES_FALLBACK_POLL_MS = 5 * 60_000;
-const PREFERRED_BOOTSTRAP_GROUP = "T";
+// IMPORTANTE: no cambiar este formato para saldos/clientes/pagos.
+// Supabase debe ser la unica fuente de verdad; no rehidratar saldos desde localStorage.
 const CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS = [
   "cobrapp.module1.clients.v1",
+  "cobrapp.module2.payments.v1",
   "cobrapp.module3.street_management.v1",
   "cobrapp.module3.collection_closures.v1",
   "cobrapp.clients.daily_collection.v1",
@@ -318,12 +317,19 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       setSyncErrorMessage("");
       setLastSyncAt(new Date().toLocaleTimeString());
     } catch (error) {
+      if (isSupabaseOnlyMode) {
+        console.error("No se pudo sincronizar delta en cloud en modo Supabase-only.", error);
+        setSyncStatus("error");
+        setSyncErrorMessage(buildCloudErrorMessage("No se pudo guardar en Supabase. Refresca y vuelve a intentar.", error, { includeRawFallback: true }));
+        return;
+      }
       console.error("No se pudo sincronizar delta en cloud. Se encola snapshot completo.", error);
       queueCoreSync(nextClients, nextPayments);
     }
   }
 
   useEffect(() => {
+    if (isSupabaseOnlyMode) return;
     let cancelled = false;
     (async () => {
       try {
@@ -340,6 +346,10 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   }, []);
 
   useEffect(() => {
+    if (isSupabaseOnlyMode) {
+      savePendingCoreSyncSnapshot(null);
+      return;
+    }
     const pendingSnapshot = loadPendingCoreSyncSnapshot();
     if (!pendingSnapshot) return;
     pendingCoreSyncRef.current = pendingSnapshot;
@@ -391,11 +401,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     const row = value as Record<string, unknown>;
     const keys = Object.keys(row).sort((a, b) => a.localeCompare(b));
     return `{${keys.map((key) => `${JSON.stringify(key)}:${stableSerialize(row[key])}`).join(",")}}`;
-  }
-
-  function isPreferredBootstrapGroupClient(client: Client): boolean {
-    const unit = (client.unitId ?? "").trim().toUpperCase();
-    return unit.startsWith(PREFERRED_BOOTSTRAP_GROUP);
   }
 
   function toStreetRecordTimestamp(value: unknown): number {
@@ -563,8 +568,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
 
     (async () => {
       try {
-        const localClientsFallback = loadClients();
-        const localPaymentsFallback = loadPayments();
+        const localClientsFallback = isSupabaseOnlyMode ? [] : loadClients();
+        const localPaymentsFallback = isSupabaseOnlyMode ? [] : loadPayments();
         setCloudReady(false);
         setCloudLoadError("");
         setSyncErrorMessage("");
@@ -573,21 +578,22 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           console.error("No se pudo inicializar cloud mirror.", error);
         });
         const [cloudClientsData, cloudPaymentsData, cloudStreetManagement, cloudCollectionClosures] = await Promise.all([
-          loadCloudClientsPage(cloudDataUserId, { limit: INITIAL_CLOUD_BOOTSTRAP_LIMIT }),
-          loadCloudPaymentsPage(cloudDataUserId, { limit: INITIAL_CLOUD_BOOTSTRAP_LIMIT }),
+          loadCloudClients(cloudDataUserId),
+          loadCloudPayments(cloudDataUserId),
           loadCloudStreetManagement(cloudDataUserId),
           loadCloudCollectionClosures(cloudDataUserId)
         ]);
         if (cancelled) return;
-        let prioritizedCloudClients: Client[] = cloudClientsData.filter((client) => isPreferredBootstrapGroupClient(client));
         const bootstrapClients =
-          prioritizedCloudClients.length > 0
-            ? mergeById((clients.length > 0 ? clients : localClientsFallback), prioritizedCloudClients)
+          isSupabaseOnlyMode
+            ? cloudClientsData
             : cloudClientsData.length > 0
             ? mergeById((clients.length > 0 ? clients : localClientsFallback), cloudClientsData)
             : (clients.length > 0 ? clients : localClientsFallback);
         const bootstrapPayments =
-          cloudPaymentsData.length > 0
+          isSupabaseOnlyMode
+            ? cloudPaymentsData
+            : cloudPaymentsData.length > 0
             ? mergeById((payments.length > 0 ? payments : localPaymentsFallback), cloudPaymentsData)
             : (payments.length > 0 ? payments : localPaymentsFallback);
         setClients(bootstrapClients);
