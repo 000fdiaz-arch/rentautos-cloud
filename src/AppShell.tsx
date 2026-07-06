@@ -321,7 +321,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         console.error("No se pudo sincronizar delta en cloud en modo Supabase-only.", error);
         setSyncStatus("error");
         setSyncErrorMessage(buildCloudErrorMessage("No se pudo guardar en Supabase. Refresca y vuelve a intentar.", error, { includeRawFallback: true }));
-        return;
+        throw error;
       }
       console.error("No se pudo sincronizar delta en cloud. Se encola snapshot completo.", error);
       queueCoreSync(nextClients, nextPayments);
@@ -443,6 +443,49 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       if (!baseIds.has(row.id)) merged.unshift(row);
     }
     return merged;
+  }
+
+  function repairDuplicateActiveUnits(sourceClients: Client[]): { clients: Client[]; changed: boolean; archivedCount: number; duplicateUnitCount: number } {
+    const activeByUnit = new Map<string, Client[]>();
+    for (const client of sourceClients) {
+      const unit = client.unitId.trim().toUpperCase();
+      if (!unit || client.status === "archivado") continue;
+      activeByUnit.set(unit, [...(activeByUnit.get(unit) ?? []), client]);
+    }
+
+    const archiveIds = new Set<string>();
+    let duplicateUnitCount = 0;
+    for (const [unit, unitClients] of activeByUnit) {
+      if (unitClients.length <= 1) continue;
+      duplicateUnitCount += 1;
+      const sorted = [...unitClients].sort((left, right) => {
+        const leftTime = new Date(left.createdAt || left.archivedAt || 0).getTime();
+        const rightTime = new Date(right.createdAt || right.archivedAt || 0).getTime();
+        return (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0);
+      });
+      const keeper = sorted[sorted.length - 1];
+      for (const duplicate of sorted) {
+        if (duplicate.id !== keeper.id) archiveIds.add(duplicate.id);
+      }
+    }
+
+    if (archiveIds.size === 0) {
+      return { clients: sourceClients, changed: false, archivedCount: 0, duplicateUnitCount };
+    }
+
+    const nowIso = new Date().toISOString();
+    const clients = sourceClients.map((client) => {
+      if (!archiveIds.has(client.id)) return client;
+      const previousUnit = client.unitId.trim().toUpperCase();
+      return {
+        ...client,
+        unitId: "",
+        status: "archivado" as const,
+        archivedAt: client.archivedAt ?? nowIso,
+        statusComment: `Archivado automaticamente por duplicado de unidad ${previousUnit} el ${new Date().toLocaleDateString("es-PA")}`
+      };
+    });
+    return { clients, changed: true, archivedCount: archiveIds.size, duplicateUnitCount };
   }
 
   function applyRemoteClientRow(row: unknown, eventType: string): void {
@@ -590,19 +633,26 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             : cloudClientsData.length > 0
             ? mergeById((clients.length > 0 ? clients : localClientsFallback), cloudClientsData)
             : (clients.length > 0 ? clients : localClientsFallback);
+        const duplicateRepair = repairDuplicateActiveUnits(bootstrapClients);
         const bootstrapPayments =
           isSupabaseOnlyMode
             ? cloudPaymentsData
             : cloudPaymentsData.length > 0
             ? mergeById((payments.length > 0 ? payments : localPaymentsFallback), cloudPaymentsData)
             : (payments.length > 0 ? payments : localPaymentsFallback);
-        setClients(bootstrapClients);
+        if (duplicateRepair.changed) {
+          await saveCloudClients(cloudDataUserId, duplicateRepair.clients);
+          console.warn(
+            `[Cobrapp] Reparados ${duplicateRepair.archivedCount} cliente(s) duplicado(s) en ${duplicateRepair.duplicateUnitCount} unidad(es).`
+          );
+        }
+        setClients(duplicateRepair.clients);
         setPayments(bootstrapPayments);
         setBankRules(loadBankRules());
         setLateFeeSettings(loadLateFeeSettings());
         setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
         // Mantiene cache local opcional cuando no estamos en modo estricto nube.
-        saveCoreCache(bootstrapClients, bootstrapPayments);
+        saveCoreCache(duplicateRepair.clients, bootstrapPayments);
         setStreetManagementData(cloudStreetManagement);
         lastStreetManagementSnapshotRef.current = stableSerialize(cloudStreetManagement);
         localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(cloudCollectionClosures));
@@ -646,9 +696,16 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           loadCloudPayments(cloudDataUserId)
         ]);
         if (cancelled) return;
-        setClients(cloudClientsData);
+        const duplicateRepair = repairDuplicateActiveUnits(cloudClientsData);
+        if (duplicateRepair.changed) {
+          await saveCloudClients(cloudDataUserId, duplicateRepair.clients);
+          console.warn(
+            `[Cobrapp] Reparados ${duplicateRepair.archivedCount} cliente(s) duplicado(s) en ${duplicateRepair.duplicateUnitCount} unidad(es).`
+          );
+        }
+        setClients(duplicateRepair.clients);
         setPayments(cloudPaymentsData);
-        saveCoreCache(cloudClientsData, cloudPaymentsData);
+        saveCoreCache(duplicateRepair.clients, cloudPaymentsData);
         setSyncStatus("ok");
         setSyncErrorMessage("");
         setLastSyncAt(new Date().toLocaleTimeString());
@@ -861,11 +918,16 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     const previousClients = clients;
     const previousPayments = payments;
     setClients(next);
-    if (cloudDataUserId) {
-      void syncCoreDeltaOrQueue(previousClients, next, previousPayments, previousPayments);
+    try {
+      if (cloudDataUserId) {
+        await syncCoreDeltaOrQueue(previousClients, next, previousPayments, previousPayments);
+      }
+      if (!isSupabaseOnlyMode) saveClients(next);
+      setHasPendingChanges(true);
+    } catch (error) {
+      setClients(previousClients);
+      throw error;
     }
-    if (!isSupabaseOnlyMode) saveClients(next);
-    setHasPendingChanges(true);
   }
 
   async function persistPayments(next: Payment[]): Promise<void> {

@@ -512,7 +512,7 @@ type Props = {
   clients: Client[];
   payments?: Payment[];
   onPaymentsChange?: (next: Payment[]) => void;
-  onClientsChange: (next: Client[]) => void;
+  onClientsChange: (next: Client[]) => void | Promise<void>;
   dataOwnerUserId?: string | null;
 };
 
@@ -531,7 +531,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     title: string;
     message: string;
     variant: "warning" | "danger";
-    onConfirm: () => void;
+    onConfirm: () => void | Promise<void>;
   } | null>(null);
   const [statusDialog, setStatusDialog] = useState<{
     clientId: string;
@@ -1182,8 +1182,8 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     }
   }, [activeDashboardFilter]);
 
-  function persist(next: Client[]): void {
-    onClientsChange(next);
+  async function persist(next: Client[]): Promise<void> {
+    await onClientsChange(next);
   }
 
   useEffect(() => {
@@ -1512,7 +1512,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       fields.add("firstChargeDate");
     } else {
       const today = startOfDay(new Date());
-      if (startOfDay(firstChargeDate) < today) {
+      if (currentEditingId === null && startOfDay(firstChargeDate) < today) {
         messages.push("La fecha de primer cobro no puede ser menor a hoy.");
         fields.add("firstChargeDate");
       }
@@ -1575,7 +1575,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     setForm((current) => recalculateInstallments({ ...current, [field]: value }));
   }
 
-  function handleSubmitClient(event: React.FormEvent<HTMLFormElement>): void {
+  async function handleSubmitClient(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const normalizedForm = recalculateInstallments({ ...form, unitId: form.unitId.trim().toUpperCase() });
     setForm(normalizedForm);
@@ -1588,9 +1588,19 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     if (editingClientId !== null) {
       const existing = clients.find((client) => client.id === editingClientId);
       if (!existing) { setErrors(["No se encontro el cliente a editar."]); return; }
-      persist(clients.map((client) => client.id === editingClientId ? buildClient(normalizedForm, existing) : client));
+      try {
+        await persist(clients.map((client) => client.id === editingClientId ? buildClient(normalizedForm, existing) : client));
+      } catch {
+        setErrors(["No se pudo guardar el cliente en la nube. Intenta de nuevo antes de continuar."]);
+        return;
+      }
     } else {
-      persist([...clients, buildClient(normalizedForm)]);
+      try {
+        await persist([...clients, buildClient(normalizedForm)]);
+      } catch {
+        setErrors(["No se pudo crear el cliente en la nube. Intenta de nuevo antes de continuar."]);
+        return;
+      }
     }
 
     setForm(initialForm);
@@ -1680,19 +1690,26 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
 
     const needsComment = requiresComment(nextStatus);
     if (!needsComment) {
-      persist(clients.map((c) => (c.id === client.id ? applyClientStatusChange(c, nextStatus, "") : c)));
+      void persist(clients.map((c) => (c.id === client.id ? applyClientStatusChange(c, nextStatus, "") : c))).catch(() => {
+        setErrors(["No se pudo guardar el cambio de estado en la nube. Intenta de nuevo."]);
+      });
       return;
     }
     setStatusDialog({ clientId: client.id, nextStatus, comment: "" });
   }
 
-  function handleConfirmStatusChange(): void {
+  async function handleConfirmStatusChange(): Promise<void> {
     if (!statusDialog) return;
     const comment = statusDialog.comment.trim();
     if (requiresComment(statusDialog.nextStatus) && !comment) return;
-    persist(clients.map((c) =>
-      c.id === statusDialog.clientId ? applyClientStatusChange(c, statusDialog.nextStatus, comment) : c
-    ));
+    try {
+      await persist(clients.map((c) =>
+        c.id === statusDialog.clientId ? applyClientStatusChange(c, statusDialog.nextStatus, comment) : c
+      ));
+    } catch {
+      setErrors(["No se pudo guardar el cambio de estado en la nube. Intenta de nuevo."]);
+      return;
+    }
     setStatusDialog(null);
   }
 
@@ -1709,17 +1726,23 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       title: "Desvincular cliente",
       message: `Se desvinculara ${client.name} de la unidad ${client.unitId}. La unidad quedara libre y el cliente pasara a Clientes 2.0. ¿Deseas continuar?`,
       variant: "warning",
-      onConfirm: () => {
-        persist(clients.map((current) => {
-          if (current.id !== client.id) return current;
-          return {
-            ...current,
-            unitId: "",
-            status: "archivado",
-            statusComment: `Desvinculado de unidad ${client.unitId} el ${new Date().toLocaleDateString("es-PA")}`,
-            archivedAt: new Date().toISOString()
-          };
-        }));
+      onConfirm: async () => {
+        try {
+          await persist(clients.map((current) => {
+            if (current.id !== client.id) return current;
+            return {
+              ...current,
+              unitId: "",
+              status: "archivado",
+              statusComment: `Desvinculado de unidad ${client.unitId} el ${new Date().toLocaleDateString("es-PA")}`,
+              archivedAt: new Date().toISOString()
+            };
+          }));
+        } catch {
+          setErrors(["No se pudo desvincular el cliente en la nube. La unidad no fue liberada. Intenta de nuevo."]);
+          setConfirmDialog(null);
+          return;
+        }
         setConfirmDialog(null);
       }
     });
