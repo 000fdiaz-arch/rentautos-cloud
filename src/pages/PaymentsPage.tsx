@@ -701,6 +701,114 @@ function computeManualPaymentAllocation(
   };
 }
 
+function findDebtStartDateForClientBalance(client: Client, balance: number, referenceDate: Date): Date | null {
+  if (!Number.isFinite(client.rentAmount) || client.rentAmount <= 0) return null;
+  const pending = Math.max(0, Math.ceil(Math.max(0, balance) / client.rentAmount));
+  if (pending === 0) return null;
+
+  let remaining = pending;
+  let cursor = startOfDay(referenceDate);
+  for (let i = 0; i < 36600; i += 1) {
+    if (isChargeDay(client, cursor)) {
+      remaining -= 1;
+      if (remaining === 0) return cursor;
+    }
+    const previous = new Date(cursor);
+    previous.setDate(previous.getDate() - 1);
+    cursor = previous;
+  }
+  return null;
+}
+
+function collectClientChargeDatesFrom(startDate: Date | null, count: number, client: Client): Date[] {
+  if (!startDate || count <= 0) return [];
+  const dates: Date[] = [];
+  let cursor = startOfDay(startDate);
+  for (let i = 0; i < 36600 && dates.length < count; i += 1) {
+    if (isChargeDay(client, cursor)) {
+      dates.push(new Date(cursor));
+    }
+    const next = new Date(cursor);
+    next.setDate(next.getDate() + 1);
+    cursor = next;
+  }
+  return dates;
+}
+
+function findFirstSundayCoveredByManualPayment(
+  client: Client,
+  allocation: Pick<ManualPaymentAllocation, "installmentsTotalInPayment" | "projectedClient"> &
+    Partial<Pick<ManualPaymentAllocation, "balanceBefore" | "appliedToRent" | "advanceBefore" | "advanceAfter" | "advanceApplied">>,
+  paymentDateKey: string
+): string | undefined {
+  if (allocation.projectedClient.firstSundayChargedAt) return allocation.projectedClient.firstSundayChargedAt;
+  if (client.frequency !== "daily") return allocation.projectedClient.firstSundayChargedAt;
+  if ((client.installmentsPaid ?? 0) > 7) return allocation.projectedClient.firstSundayChargedAt;
+
+  const paymentDate = parseDateKey(paymentDateKey);
+  if (!paymentDate || !Number.isFinite(client.rentAmount) || client.rentAmount <= 0) {
+    return allocation.projectedClient.firstSundayChargedAt;
+  }
+
+  const sundayAwareClient: Client = { ...client, chargeFirstSunday: true };
+  const balanceBefore = roundMoney(Math.max(0, allocation.balanceBefore ?? client.balance));
+  const appliedToRent = roundMoney(Math.max(0, allocation.appliedToRent ?? 0));
+  if (appliedToRent > 0) {
+    const pendingBefore = Math.ceil((balanceBefore + Number.EPSILON) / client.rentAmount);
+    const debtStart = findDebtStartDateForClientBalance(sundayAwareClient, balanceBefore, paymentDate);
+    const debtDates = collectClientChargeDatesFrom(debtStart, pendingBefore, sundayAwareClient);
+    const oldestPartial = roundMoney(balanceBefore % client.rentAmount);
+    let remainingApplied = appliedToRent;
+
+    for (let index = 0; index < debtDates.length && remainingApplied > 0; index += 1) {
+      const date = debtDates[index];
+      if (!date) continue;
+      const owedForCycle = index === 0 && oldestPartial > 0 ? oldestPartial : client.rentAmount;
+      const amountForCycle = roundMoney(Math.min(owedForCycle, remainingApplied));
+      if (amountForCycle > 0 && date.getDay() === 0) return toDateKey(date);
+      remainingApplied = roundMoney(remainingApplied - amountForCycle);
+    }
+  }
+
+  const advanceApplied = roundMoney(
+    Math.max(0, allocation.advanceApplied ?? roundMoney((allocation.advanceAfter ?? 0) - (allocation.advanceBefore ?? 0)))
+  );
+  if (advanceApplied > 0) {
+    const clientWithoutAdvance: Client = { ...sundayAwareClient, advanceBalance: 0 };
+    let nextAdvanceDate = findNextChargeDay(clientWithoutAdvance, paymentDate);
+    let remainingAdvance = advanceApplied;
+    for (let i = 0; i < 36600 && remainingAdvance > 0 && nextAdvanceDate; i += 1) {
+      const amountForCycle = roundMoney(Math.min(client.rentAmount, remainingAdvance));
+      if (amountForCycle > 0 && nextAdvanceDate.getDay() === 0) return toDateKey(nextAdvanceDate);
+      remainingAdvance = roundMoney(remainingAdvance - amountForCycle);
+      const cursor = new Date(nextAdvanceDate);
+      nextAdvanceDate = findNextChargeDay(clientWithoutAdvance, cursor);
+    }
+  }
+
+  return allocation.projectedClient.firstSundayChargedAt;
+}
+
+function resolveFirstSundayChargedAtForManualPayment(
+  client: Client,
+  allocation: Pick<ManualPaymentAllocation, "installmentsTotalInPayment" | "projectedClient"> &
+    Partial<Pick<ManualPaymentAllocation, "balanceBefore" | "appliedToRent" | "advanceBefore" | "advanceAfter" | "advanceApplied">>,
+  paymentDateKey: string
+): string | undefined {
+  if (allocation.projectedClient.firstSundayChargedAt) return allocation.projectedClient.firstSundayChargedAt;
+  const hasRentMovement = roundMoney(Math.max(0, allocation.appliedToRent ?? 0)) > 0 ||
+    roundMoney(Math.max(0, allocation.advanceApplied ?? roundMoney((allocation.advanceAfter ?? 0) - (allocation.advanceBefore ?? 0)))) > 0;
+  if (allocation.installmentsTotalInPayment <= 0 && !hasRentMovement) return allocation.projectedClient.firstSundayChargedAt;
+  if (client.frequency !== "daily" || !client.chargeFirstSunday) return allocation.projectedClient.firstSundayChargedAt;
+
+  const coveredFirstSunday = findFirstSundayCoveredByManualPayment(client, allocation, paymentDateKey);
+  if (coveredFirstSunday) return coveredFirstSunday;
+
+  const paymentDate = parseDateKey(paymentDateKey);
+  if (!paymentDate || paymentDate.getDay() !== 0) return allocation.projectedClient.firstSundayChargedAt;
+  return isChargeDay(client, paymentDate) ? paymentDateKey : allocation.projectedClient.firstSundayChargedAt;
+}
+
 function computeOtherChargesDueAfter(configured: OtherCharge[] | undefined, applied: OtherCharge[] | undefined): OtherCharge[] | undefined {
   if (!configured || configured.length === 0) return undefined;
   const due = configured
@@ -1056,10 +1164,34 @@ export default function PaymentsPage({
     onQuickCashPrefillConsumed?.();
   }, [quickCashPrefill, onQuickCashPrefillConsumed]);
 
-  function finalizeSuccessfulPayment(payment: Payment, options?: { openReceipt?: boolean }): void {
-    if (options?.openReceipt) {
+  function openHistoryAfterPayment(payment: Payment): void {
+    setConfirmedPayment(null);
+    setHistoryClientId(payment.clientId);
+    setHistoryGroupFilter("all");
+    setHistoryDeliveryFilter("all");
+    setHistoryDateFrom("");
+    setHistoryDateTo("");
+    setHistoryColumnFilters({ ...EMPTY_HISTORY_COLUMN_FILTERS });
+    setHistorySortField("date");
+    setHistorySortDirection("desc");
+    setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
+    setHistorySelectedPaymentIds([]);
+    setIsRegisterOpen(false);
+    setIsNotifiedOpen(false);
+    setIsPendingOpen(false);
+    setIsCardPendingOpen(false);
+    setIsCashClosingOpen(false);
+    setIsHistoryOpen(true);
+    scrollToWorkSection(historySectionRef);
+  }
+
+  function finalizeSuccessfulPayment(payment: Payment, options?: { openReceipt?: boolean; openHistory?: boolean; skipAutoDownload?: boolean }): void {
+    if (options?.openHistory) {
+      openHistoryAfterPayment(payment);
+    } else if (options?.openReceipt) {
       setConfirmedPayment(payment);
     }
+    if (options?.skipAutoDownload) return;
     if (autoDownloadedPaymentIdsRef.current.has(payment.id)) return;
     autoDownloadedPaymentIdsRef.current.add(payment.id);
     void downloadPaymentReceiptImage(payment).catch(() => {
@@ -2256,6 +2388,11 @@ export default function PaymentsPage({
       payments,
       item.dateRegistered || operationalDateKey
     );
+    const firstSundayChargedAt = resolveFirstSundayChargedAtForManualPayment(
+      client,
+      previewAllocation,
+      item.dateRegistered || operationalDateKey
+    );
     const previewPayment: Payment = {
       id: crypto.randomUUID(),
       receiptNumber: `T-PEND-${new Date().getTime()}`,
@@ -2289,7 +2426,7 @@ export default function PaymentsPage({
       weeklyChargeDay: previewAllocation.projectedClient.weeklyChargeDay,
       monthlyChargeDay: previewAllocation.projectedClient.monthlyChargeDay,
       chargeFirstSunday: previewAllocation.projectedClient.chargeFirstSunday,
-      firstSundayChargedAt: previewAllocation.projectedClient.firstSundayChargedAt,
+      firstSundayChargedAt,
       travelFundAvailableSnapshot: roundMoney(Math.max(0, previewAllocation.projectedClient.travelFundBalance ?? 0)),
       createdAt: new Date().toISOString()
     };
@@ -2393,6 +2530,12 @@ export default function PaymentsPage({
     const installmentsImpact = installmentsDeducted + installmentsCoveredByAdvance;
     const installmentsPaidAfter = Math.max(0, client.installmentsPaid) + installmentsDeducted;
     const installmentsRemainingAfter = Math.max(0, (client.installmentsRemaining || 0) - installmentsImpact);
+    const paymentDateKey = item.dateApplied || toDateKey(new Date());
+    const firstSundayChargedAt = resolveFirstSundayChargedAtForManualPayment(
+      client,
+      { projectedClient: client, installmentsTotalInPayment: installmentsImpact },
+      paymentDateKey
+    );
 
     const payment: Payment = {
       id: crypto.randomUUID(),
@@ -2402,7 +2545,7 @@ export default function PaymentsPage({
       clientName: client.name,
       clientUnit: client.unitId,
       clientCedula: client.cedula,
-      dateApplied: item.dateApplied || toDateKey(new Date()),
+      dateApplied: paymentDateKey,
       paymentMethod: inferBankPaymentMethod(item.transactionCode, item.description),
       reference: `FOLIO:${item.folio} | REF:${item.referenceId || "N/A"} | CLASIFICADO-MANUAL | ${item.description}`,
       amountReceived: item.amountReceived,
@@ -2427,7 +2570,7 @@ export default function PaymentsPage({
       weeklyChargeDay: client.weeklyChargeDay,
       monthlyChargeDay: client.monthlyChargeDay,
       chargeFirstSunday: client.chargeFirstSunday,
-      firstSundayChargedAt: client.firstSundayChargedAt,
+      firstSundayChargedAt,
       travelFundAvailableSnapshot: roundMoney(Math.max(0, client.travelFundBalance ?? 0)),
       createdAt: new Date().toISOString()
     };
@@ -2442,7 +2585,8 @@ export default function PaymentsPage({
         savings: savingsAfter,
         installmentsPaid: installmentsPaidAfter,
         installmentsRemaining: installmentsRemainingAfter,
-        otherCharges: otherChargesDueAfter
+        otherCharges: otherChargesDueAfter,
+        firstSundayChargedAt
       };
     });
 
@@ -2696,6 +2840,12 @@ export default function PaymentsPage({
     const installmentsImpact = installmentsDeducted + installmentsCoveredByAdvance;
     const installmentsPaidAfter = Math.max(0, client.installmentsPaid) + installmentsDeducted;
     const installmentsRemainingAfter = Math.max(0, (client.installmentsRemaining || 0) - installmentsImpact);
+    const paymentDateKey = item.dateApplied || toDateKey(new Date());
+    const firstSundayChargedAt = resolveFirstSundayChargedAtForManualPayment(
+      client,
+      { projectedClient: client, installmentsTotalInPayment: installmentsImpact },
+      paymentDateKey
+    );
 
     const payment: Payment = {
       id: crypto.randomUUID(),
@@ -2705,7 +2855,7 @@ export default function PaymentsPage({
       clientName: client.name,
       clientUnit: client.unitId,
       clientCedula: client.cedula,
-      dateApplied: item.dateApplied || toDateKey(new Date()),
+      dateApplied: paymentDateKey,
       paymentMethod: inferBankPaymentMethod(item.transactionCode, item.description),
       reference: `FOLIO:${item.folio} | REF:${item.referenceId || "N/A"} | AUTO-ALTA-SIMILITUD | ${item.description}`,
       amountReceived: item.amountReceived,
@@ -2730,7 +2880,7 @@ export default function PaymentsPage({
       weeklyChargeDay: client.weeklyChargeDay,
       monthlyChargeDay: client.monthlyChargeDay,
       chargeFirstSunday: client.chargeFirstSunday,
-      firstSundayChargedAt: client.firstSundayChargedAt,
+      firstSundayChargedAt,
       travelFundAvailableSnapshot: roundMoney(Math.max(0, client.travelFundBalance ?? 0)),
       createdAt: new Date().toISOString()
     };
@@ -2742,7 +2892,8 @@ export default function PaymentsPage({
       savings: savingsAfter,
       installmentsPaid: installmentsPaidAfter,
       installmentsRemaining: installmentsRemainingAfter,
-      otherCharges: computeOtherChargesDueAfter(client.otherCharges, otherChargesApplied) ?? []
+      otherCharges: computeOtherChargesDueAfter(client.otherCharges, otherChargesApplied) ?? [],
+      firstSundayChargedAt
     };
     return { updatedClient, payment };
   }
@@ -3185,6 +3336,7 @@ export default function PaymentsPage({
       const enteredFolios = extractFoliosFromReference(form.reference);
       const normalizedFolio = enteredFolios[0] ?? buildTemporaryCardFolio(operationalDateKey);
       const receiptNumber = nextReceiptNumber();
+      const firstSundayChargedAt = resolveFirstSundayChargedAtForManualPayment(selectedClient, allocation, operationalDateKey);
       const cardPayment: Payment = {
         id: crypto.randomUUID(),
         receiptNumber,
@@ -3218,7 +3370,7 @@ export default function PaymentsPage({
         weeklyChargeDay: allocation.projectedClient.weeklyChargeDay,
         monthlyChargeDay: allocation.projectedClient.monthlyChargeDay,
         chargeFirstSunday: allocation.projectedClient.chargeFirstSunday,
-        firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt,
+        firstSundayChargedAt,
         travelFundAvailableSnapshot: roundMoney(Math.max(0, allocation.projectedClient.travelFundBalance ?? 0)),
         createdAt: new Date().toISOString()
       };
@@ -3235,7 +3387,7 @@ export default function PaymentsPage({
           installmentsPaid: c.installmentsPaid + allocation.installmentsTotalInPayment,
           otherCharges: otherChargesDueAfter,
           lastChargeDate: allocation.projectedClient.lastChargeDate,
-          firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt
+          firstSundayChargedAt
         };
       });
 
@@ -3268,7 +3420,7 @@ export default function PaymentsPage({
           ? `Pago en tarjeta aplicado. Pendiente de conciliacion bancaria con folio ${normalizedFolio} para ${pendingCard.expectedSettlementDate}.`
           : `Pago en tarjeta aplicado con folio temporal ${normalizedFolio}. Debes corregirlo manana para conciliar con el CSV.`
       );
-      finalizeSuccessfulPayment(cardPayment, { openReceipt: true });
+      finalizeSuccessfulPayment(cardPayment, { openHistory: true, skipAutoDownload: true });
       setForm({
         clientId: "",
         dateApplied: operationalDateKey,
@@ -3293,6 +3445,7 @@ export default function PaymentsPage({
     setErrors([]);
     setPaymentInfo("");
     const receiptNumber = nextReceiptNumber();
+    const firstSundayChargedAt = resolveFirstSundayChargedAtForManualPayment(selectedClient, allocation, operationalDateKey);
 
     const payment: Payment = {
       id: crypto.randomUUID(),
@@ -3327,7 +3480,7 @@ export default function PaymentsPage({
       weeklyChargeDay: allocation.projectedClient.weeklyChargeDay,
       monthlyChargeDay: allocation.projectedClient.monthlyChargeDay,
       chargeFirstSunday: allocation.projectedClient.chargeFirstSunday,
-      firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt,
+      firstSundayChargedAt,
       travelFundAvailableSnapshot: roundMoney(Math.max(0, allocation.projectedClient.travelFundBalance ?? 0)),
       createdAt: new Date().toISOString()
     };
@@ -3344,7 +3497,7 @@ export default function PaymentsPage({
         installmentsPaid: c.installmentsPaid + allocation.installmentsTotalInPayment,
         otherCharges: otherChargesDueAfter,
         lastChargeDate: allocation.projectedClient.lastChargeDate,
-        firstSundayChargedAt: allocation.projectedClient.firstSundayChargedAt
+        firstSundayChargedAt
       };
     });
 
@@ -3353,7 +3506,7 @@ export default function PaymentsPage({
       setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
       return false;
     }
-    finalizeSuccessfulPayment(payment, { openReceipt: true });
+    finalizeSuccessfulPayment(payment, { openHistory: true, skipAutoDownload: true });
     setForm({
       clientId: "",
       dateApplied: operationalDateKey,
@@ -3688,7 +3841,7 @@ export default function PaymentsPage({
     });
 
     try {
-      await copyPaymentReceiptImage(payment);
+      await copyPaymentReceiptImage(payment, { format: "history" });
       setHistoryCopiedPaymentIds((previous) => {
         if (previous.has(payment.id)) return previous;
         const next = new Set(previous);
@@ -3747,7 +3900,7 @@ export default function PaymentsPage({
     setHistoryBulkDownloadError("");
     setIsHistoryBulkDownloading(true);
     try {
-      await downloadPaymentsReceiptsZip(historySelectedRows);
+      await downloadPaymentsReceiptsZip(historySelectedRows, { format: "history" });
     } catch {
       setHistoryBulkDownloadError("No se pudo generar el ZIP de recibos. Intenta nuevamente.");
     } finally {
@@ -3760,7 +3913,7 @@ export default function PaymentsPage({
     setHistoryBulkDownloadError("");
     setIsHistoryBulkDownloading(true);
     try {
-      await downloadPaymentsReceiptsZip(filteredHistoryRows);
+      await downloadPaymentsReceiptsZip(filteredHistoryRows, { format: "history" });
     } catch {
       setHistoryBulkDownloadError("No se pudo generar el ZIP de recibos. Intenta nuevamente.");
     } finally {
@@ -5133,6 +5286,7 @@ export default function PaymentsPage({
               payment={historyPreviewPayment}
               onClose={() => setHistoryPreviewPayment(null)}
               closeLabel="Cerrar vista previa"
+              receiptFormat="history"
             />
           </div>
         </div>

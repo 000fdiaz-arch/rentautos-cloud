@@ -8,6 +8,24 @@ type Props = {
   payment: Payment;
   onClose: () => void;
   closeLabel?: string;
+  receiptFormat?: ReceiptFormat;
+};
+
+export type ReceiptFormat = "standard" | "history";
+
+type ReceiptRenderOptions = {
+  format?: ReceiptFormat;
+};
+
+type CoveredPaymentRow = {
+  dateLabel: string;
+  status: "complete" | "partial";
+  amount?: number;
+};
+
+type PaymentBreakdownRow = {
+  label: string;
+  amount: number;
 };
 
 function formatDateSpanish(dateStr: string): string {
@@ -22,6 +40,30 @@ function formatDateSpanish(dateStr: string): string {
   const date = new Date(`${dateStr}T12:00:00`);
   const weekdayLabel = weekdays[date.getDay()] ?? "";
   return `${weekdayLabel}\n${day} ${months[month] ?? ""} ${year}`.trim();
+}
+
+function formatDateSpanishSingleLine(date: Date): string {
+  const weekdays = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
+  const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+  const weekdayLabel = weekdays[date.getDay()] ?? "";
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = months[date.getMonth()] ?? "";
+  return `${weekdayLabel} ${day} de ${month}`.trim();
+}
+
+function formatReceiptCycleLabel(date: Date, payment: Payment): string {
+  const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = months[date.getMonth()] ?? "";
+  if (payment.frequency === "biweekly") return `Quincena ${day} de ${month}`;
+  if (payment.frequency === "monthly") return `Mensualidad ${day} de ${month}`;
+  return formatDateSpanishSingleLine(date);
+}
+
+function getPartialMissingLabel(row: CoveredPaymentRow, payment: Payment): string {
+  if (payment.frequency === "biweekly") return "Falta para completar quincena";
+  if (payment.frequency === "monthly") return "Falta para completar mensualidad";
+  return `Falta para completar ${row.dateLabel.split(" ")[0].toLowerCase()}`;
 }
 
 function sanitizeFileToken(value: string): string {
@@ -61,20 +103,26 @@ function isDebtChargeDayForReceipt(client: Payment, date: Date): boolean {
 
   const day = date.getDay();
   if (day >= 1 && day <= 6) return true;
-  if (day !== 0 || !client.chargeFirstSunday) return false;
+  if (day !== 0) return false;
 
   // Para el resumen de deuda, cuando ya existe el primer domingo aplicado,
   // se debe contar solo esa fecha exacta como cuota dominical.
   const firstSunday = client.firstSundayChargedAt ? parseDateKey(client.firstSundayChargedAt) : null;
   if (firstSunday) return isSameDate(date, firstSunday);
 
-  // Fallback para recibos historicos sin snapshot.
-  return true;
+  // Fallback para recibos historicos/snapshots incompletos: durante las
+  // primeras cuotas el primer domingo puede aplicar aunque el flag no venga.
+  // Despues de esa etapa se bloquea para no mostrar domingos que ya no cobran.
+  return (client.installmentsPaidAfter ?? 0) <= 7;
 }
 
 function findDebtStartDateForReceipt(client: Payment, referenceDate: Date): Date | null {
+  return findDebtStartDateForReceiptBalance(client, client.balanceAfter, referenceDate);
+}
+
+function findDebtStartDateForReceiptBalance(client: Payment, balance: number, referenceDate: Date): Date | null {
   if (!Number.isFinite(client.rentAmount) || client.rentAmount <= 0) return null;
-  const pending = Math.max(0, Math.ceil(Math.max(0, client.balanceAfter) / client.rentAmount));
+  const pending = Math.max(0, Math.ceil(Math.max(0, balance) / client.rentAmount));
   if (pending === 0) return null;
 
   let remaining = pending;
@@ -89,6 +137,147 @@ function findDebtStartDateForReceipt(client: Payment, referenceDate: Date): Date
     cursor = previous;
   }
   return null;
+}
+
+function collectChargeDatesFrom(startDate: Date | null, count: number, payment: Payment): Date[] {
+  if (!startDate || count <= 0) return [];
+  const dates: Date[] = [];
+  let cursor = startOfDay(startDate);
+  for (let i = 0; i < 36600 && dates.length < count; i += 1) {
+    if (isDebtChargeDayForReceipt(payment, cursor)) {
+      dates.push(new Date(cursor));
+    }
+    const next = new Date(cursor);
+    next.setDate(next.getDate() + 1);
+    cursor = next;
+  }
+  return dates;
+}
+
+function buildCoveredPaymentRows(payment: Payment): CoveredPaymentRow[] {
+  const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
+  if (!Number.isFinite(normalizedRent) || normalizedRent <= 0) return [];
+
+  const installmentsFromDebt = Math.max(0, payment.installmentsFromDebt ?? payment.installmentsDeducted ?? 0);
+  const installmentsFromAdvance = Math.max(
+    0,
+    payment.installmentsFromAdvance ??
+      (payment.rentAmount > 0 ? Math.floor((payment.advanceApplied ?? 0) / payment.rentAmount) : 0)
+  );
+  const paymentDate = startOfDay(new Date(payment.dateApplied + "T12:00:00"));
+  const rows: CoveredPaymentRow[] = [];
+
+  const debtStartBefore = findDebtStartDateForReceiptBalance(payment, payment.balanceBefore, paymentDate);
+  for (const date of collectChargeDatesFrom(debtStartBefore, installmentsFromDebt, payment)) {
+    rows.push({ dateLabel: formatReceiptCycleLabel(date, payment), status: "complete" });
+  }
+
+  const minimalClientWithoutAdvance = {
+    balance: payment.balanceAfter,
+    rentAmount: payment.rentAmount,
+    frequency: payment.frequency,
+    weeklyChargeDay: payment.weeklyChargeDay,
+    monthlyChargeDay: payment.monthlyChargeDay,
+    chargeFirstSunday: payment.chargeFirstSunday,
+    firstSundayChargedAt: payment.firstSundayChargedAt,
+    advanceBalance: 0,
+    id: "", unitId: "", name: "", installmentsAgreed: 0,
+    installmentsRemaining: 0, installmentsPaid: payment.installmentsPaidAfter,
+    otherCharges: [], savings: 0, createdAt: ""
+  };
+  let nextAdvanceDate = installmentsFromAdvance > 0 ? findNextChargeDay(minimalClientWithoutAdvance, paymentDate) : null;
+  for (let i = 0; i < installmentsFromAdvance && nextAdvanceDate; i += 1) {
+    rows.push({ dateLabel: formatReceiptCycleLabel(nextAdvanceDate, payment), status: "complete" });
+    const cursor = new Date(nextAdvanceDate);
+    nextAdvanceDate = findNextChargeDay(minimalClientWithoutAdvance, cursor);
+  }
+
+  const moroseBalanceToday = roundMoney(Math.max(0, payment.balanceAfter));
+  const partialDebtRemainder = normalizedRent > 0 ? roundMoney(moroseBalanceToday % normalizedRent) : 0;
+  if (payment.appliedToRent > 0 && partialDebtRemainder > 0) {
+    const partialDate = findDebtStartDateForReceipt(payment, paymentDate);
+    rows.push({
+      dateLabel: partialDate ? formatReceiptCycleLabel(partialDate, payment) : "Cuenta pendiente",
+      status: "partial",
+      amount: roundMoney(Math.max(0, normalizedRent - partialDebtRemainder))
+    });
+  } else {
+    const advanceApplied = roundMoney(Math.max(0, payment.advanceApplied ?? 0));
+    const advanceBalanceAfter = roundMoney(Math.max(0, payment.advanceBalanceAfter ?? advanceApplied));
+    const advanceRemainder = normalizedRent > 0 ? roundMoney(advanceBalanceAfter % normalizedRent) : 0;
+    const hasPartialAdvance = advanceApplied > 0 && advanceRemainder > 0;
+    if (hasPartialAdvance) {
+      const partialDate = findNextChargeDay(minimalClientWithoutAdvance, paymentDate);
+      rows.push({
+        dateLabel: partialDate ? formatReceiptCycleLabel(partialDate, payment) : "Proxima cuenta",
+        status: "partial",
+        amount: advanceRemainder
+      });
+    }
+  }
+
+  return rows.slice(0, 4);
+}
+
+function buildRentPaymentBreakdownRows(payment: Payment): PaymentBreakdownRow[] {
+  const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
+  const appliedToRent = roundMoney(Math.max(0, payment.appliedToRent));
+  if (!Number.isFinite(normalizedRent) || normalizedRent <= 0 || appliedToRent <= 0) return [];
+
+  const paymentDate = startOfDay(new Date(payment.dateApplied + "T12:00:00"));
+  const rows: PaymentBreakdownRow[] = [];
+  let remainingApplied = appliedToRent;
+
+  const debtBefore = roundMoney(Math.max(0, payment.balanceBefore));
+  const debtApplied = roundMoney(Math.min(remainingApplied, debtBefore));
+  if (debtApplied > 0) {
+    const pendingBefore = Math.ceil((debtBefore + Number.EPSILON) / normalizedRent);
+    const debtStartBefore = findDebtStartDateForReceiptBalance(payment, debtBefore, paymentDate);
+    const debtDates = collectChargeDatesFrom(debtStartBefore, pendingBefore, payment);
+    const oldestPartial = roundMoney(debtBefore % normalizedRent);
+    let debtRemainingApplied = debtApplied;
+
+    debtDates.forEach((date, index) => {
+      if (debtRemainingApplied <= 0) return;
+      const owedForCycle = index === 0 && oldestPartial > 0 ? oldestPartial : normalizedRent;
+      const amountForCycle = roundMoney(Math.min(owedForCycle, debtRemainingApplied));
+      if (amountForCycle > 0) {
+        rows.push({ label: formatReceiptCycleLabel(date, payment), amount: amountForCycle });
+      }
+      debtRemainingApplied = roundMoney(debtRemainingApplied - amountForCycle);
+    });
+
+    remainingApplied = roundMoney(remainingApplied - debtApplied);
+  }
+
+  const advanceApplied = roundMoney(Math.max(0, payment.advanceApplied ?? 0));
+  const advanceRentApplied = roundMoney(Math.min(remainingApplied, advanceApplied));
+  if (advanceRentApplied > 0) {
+    const minimalClientWithoutAdvance = {
+      balance: payment.balanceAfter,
+      rentAmount: payment.rentAmount,
+      frequency: payment.frequency,
+      weeklyChargeDay: payment.weeklyChargeDay,
+      monthlyChargeDay: payment.monthlyChargeDay,
+      chargeFirstSunday: payment.chargeFirstSunday,
+      firstSundayChargedAt: payment.firstSundayChargedAt,
+      advanceBalance: 0,
+      id: "", unitId: "", name: "", installmentsAgreed: 0,
+      installmentsRemaining: 0, installmentsPaid: payment.installmentsPaidAfter,
+      otherCharges: [], savings: 0, createdAt: ""
+    };
+    let nextAdvanceDate = findNextChargeDay(minimalClientWithoutAdvance, paymentDate);
+    let advanceRemaining = advanceRentApplied;
+    for (let i = 0; i < 36600 && advanceRemaining > 0 && nextAdvanceDate; i += 1) {
+      const amountForCycle = roundMoney(Math.min(normalizedRent, advanceRemaining));
+      rows.push({ label: formatReceiptCycleLabel(nextAdvanceDate, payment), amount: amountForCycle });
+      advanceRemaining = roundMoney(advanceRemaining - amountForCycle);
+      const cursor = new Date(nextAdvanceDate);
+      nextAdvanceDate = findNextChargeDay(minimalClientWithoutAdvance, cursor);
+    }
+  }
+
+  return rows.length > 0 ? rows : [{ label: "A renta", amount: appliedToRent }];
 }
 
 function buildReceiptFileName(payment: Payment): string {
@@ -120,7 +309,7 @@ function extractFolio(reference: string): string {
   return tokens[tokens.length - 1] ?? trimmed;
 }
 
-async function renderReceiptCanvasFromPayment(payment: Payment): Promise<HTMLCanvasElement> {
+async function renderReceiptCanvasFromPayment(payment: Payment, options: ReceiptRenderOptions = {}): Promise<HTMLCanvasElement> {
   const host = document.createElement("div");
   host.style.position = "fixed";
   host.style.left = "-10000px";
@@ -136,8 +325,8 @@ async function renderReceiptCanvasFromPayment(payment: Payment): Promise<HTMLCan
   try {
     root.render(
       <div className="receipt-page">
-        <div className="receipt-card">
-          <ReceiptCardContent payment={payment} />
+        <div className={options.format === "history" ? "receipt-card receipt-card--history" : "receipt-card"}>
+          <ReceiptCardContent payment={payment} format={options.format ?? "standard"} />
         </div>
       </div>
     );
@@ -203,8 +392,8 @@ export async function downloadPaymentReceiptImage(payment: Payment, renderedCard
   setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
 
-export async function buildPaymentReceiptImageBlob(payment: Payment): Promise<{ fileName: string; blob: Blob }> {
-  const canvas = await renderReceiptCanvasFromPayment(payment);
+export async function buildPaymentReceiptImageBlob(payment: Payment, options: ReceiptRenderOptions = {}): Promise<{ fileName: string; blob: Blob }> {
+  const canvas = await renderReceiptCanvasFromPayment(payment, options);
   const fileName = buildReceiptFileName(payment);
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((value) => {
@@ -215,13 +404,13 @@ export async function buildPaymentReceiptImageBlob(payment: Payment): Promise<{ 
   return { fileName, blob };
 }
 
-export async function copyPaymentReceiptImage(payment: Payment): Promise<void> {
+export async function copyPaymentReceiptImage(payment: Payment, options: ReceiptRenderOptions = {}): Promise<void> {
   if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
     throw new Error("El navegador no permite copiar imagenes al portapapeles.");
   }
 
   // Se inicia durante el clic para conservar el permiso mientras se renderiza.
-  const receiptBlob = buildPaymentReceiptImageBlob(payment).then(({ blob }) => blob);
+  const receiptBlob = buildPaymentReceiptImageBlob(payment, options).then(({ blob }) => blob);
   await navigator.clipboard.write([
     new ClipboardItem({
       "image/png": receiptBlob
@@ -229,7 +418,7 @@ export async function copyPaymentReceiptImage(payment: Payment): Promise<void> {
   ]);
 }
 
-export async function downloadPaymentsReceiptsZip(payments: Payment[]): Promise<void> {
+export async function downloadPaymentsReceiptsZip(payments: Payment[], options: ReceiptRenderOptions = {}): Promise<void> {
   if (payments.length === 0) {
     throw new Error("No hay pagos seleccionados.");
   }
@@ -239,7 +428,7 @@ export async function downloadPaymentsReceiptsZip(payments: Payment[]): Promise<
   const namesCount = new Map<string, number>();
 
   for (const payment of payments) {
-    const { fileName, blob } = await buildPaymentReceiptImageBlob(payment);
+    const { fileName, blob } = await buildPaymentReceiptImageBlob(payment, options);
     const currentCount = namesCount.get(fileName) ?? 0;
     namesCount.set(fileName, currentCount + 1);
 
@@ -264,7 +453,7 @@ export async function downloadPaymentsReceiptsZip(payments: Payment[]): Promise<
   setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
 
-function ReceiptCardContent({ payment }: { payment: Payment }) {
+function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment; format?: ReceiptFormat }) {
   const weeklyDayLabel =
     payment.weeklyChargeDay === "monday"
       ? "Lunes"
@@ -311,9 +500,9 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
     chargeFirstSunday: payment.chargeFirstSunday,
     firstSundayChargedAt: payment.firstSundayChargedAt,
     advanceBalance: advanceBalanceAfter,
-    // campos requeridos por la firma pero no usados en el calculo
+    // campos requeridos por la firma
     id: "", unitId: "", name: "", installmentsAgreed: 0,
-    installmentsRemaining: 0, installmentsPaid: 0,
+    installmentsRemaining: 0, installmentsPaid: payment.installmentsPaidAfter,
     otherCharges: [], savings: 0, createdAt: ""
   };
   const minimalClientWithoutAdvance = {
@@ -392,6 +581,214 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   const isPendingCardSettlement =
     payment.paymentMethod === "Tarjeta" &&
     (payment.reference ?? "").toUpperCase().includes("TARJETA-PENDIENTE-CONCILIACION");
+
+  if (format === "history") {
+    const coveredRows = buildCoveredPaymentRows(payment);
+    const partialRow = coveredRows.find((row) => row.status === "partial");
+    const missingForPartial = partialRow?.amount && normalizedRent > 0
+      ? roundMoney(Math.max(0, normalizedRent - partialRow.amount))
+      : saldoParaBajarCuenta;
+    const rentPendingAmount = roundMoney(Math.max(0, moroseBalanceToday));
+    const otherChargesPendingAmount = roundMoney(Math.max(0, otherChargesDueTotal));
+    const rentPendingInstallments = normalizedRent > 0 ? Math.ceil((rentPendingAmount + Number.EPSILON) / normalizedRent) : 0;
+    const rentPendingInstallmentsLabel = rentPendingInstallments === 1 ? "1 cta" : `${rentPendingInstallments} ctas`;
+    const rentPartialPendingAmount = hasPartialForOneAccount ? roundMoney(saldoParaBajarCuenta) : 0;
+    const rentCompletePendingAmount = roundMoney(Math.max(0, rentPendingAmount - rentPartialPendingAmount));
+    const rentCompletePendingInstallments = normalizedRent > 0
+      ? Math.floor((rentCompletePendingAmount + Number.EPSILON) / normalizedRent)
+      : 0;
+    const rentCompletePendingLabel = rentCompletePendingInstallments === 1 ? "1 cta" : `${rentCompletePendingInstallments} ctas`;
+    const shouldShowPartialMissing = partialRow && missingForPartial > 0 && Math.abs(missingForPartial - rentPendingAmount) > 0.009;
+    const partialFuturePendingAmount = !hasPending && partialRow && missingForPartial > 0 ? missingForPartial : 0;
+    const rentBreakdownQueue = buildRentPaymentBreakdownRows(payment);
+    const takeRentAmountForCycle = (row: CoveredPaymentRow): number => {
+      const index = rentBreakdownQueue.findIndex((item) => item.label === row.dateLabel);
+      if (index >= 0) {
+        const [match] = rentBreakdownQueue.splice(index, 1);
+        return roundMoney(match?.amount ?? 0);
+      }
+      return row.status === "complete" ? normalizedRent : roundMoney(row.amount ?? 0);
+    };
+    const coverageRows: Array<{ label: string; status: "complete" | "partial" | "applied"; amount: number; value: string }> = coveredRows.map((row) => {
+      const amount = takeRentAmountForCycle(row);
+      return {
+        label: row.dateLabel,
+        status: row.status,
+        amount,
+        value: row.status === "complete"
+          ? "Pagado completo"
+          : "Abono parcial"
+      };
+    });
+    rentBreakdownQueue.forEach((row) => {
+      coverageRows.push({
+        label: row.label,
+        status: "partial",
+        amount: row.amount,
+        value: "Abono parcial"
+      });
+    });
+    otherChargesApplied
+      .filter((charge) => charge.amount > 0)
+      .forEach((charge) => {
+        coverageRows.push({
+          label: charge.label,
+          status: "applied",
+          amount: charge.amount,
+          value: "Aplicado"
+        });
+      });
+
+    return (
+      <>
+        <div className="receipt-history-brand">
+          <div className="receipt-history-number">{payment.receiptNumber}</div>
+          <div className="receipt-history-logo" aria-label="flotapp">
+            <span className="receipt-history-logo-icon" aria-hidden="true">
+              <span className="receipt-history-logo-car" />
+            </span>
+            <span>flotapp</span>
+          </div>
+        </div>
+
+        <div className="receipt-history-hero">
+          <div className="receipt-history-hidden-installments">
+            {payment.installmentsRemainingAfter}
+          </div>
+          <div className="receipt-history-unit">Unidad {payment.clientUnit}</div>
+          <div className="receipt-history-plan">Plan {frequencyLabel.toLowerCase()}: {formatCurrency(payment.rentAmount)}</div>
+        </div>
+
+        <div className="receipt-history-panel receipt-history-panel--compact">
+          <div className="receipt-history-icon receipt-history-icon--blue">D</div>
+          <div>
+            <div className="receipt-history-label">Fecha de pago</div>
+            <div className="receipt-history-date">{formatDateSpanishSingleLine(paymentDate)}</div>
+          </div>
+        </div>
+
+        <div className="receipt-history-panel receipt-history-panel--amount">
+          <div className="receipt-history-icon receipt-history-icon--money">$</div>
+          <div>
+            <div className="receipt-history-label">Monto pagado</div>
+            <div className="receipt-history-amount">{formatCurrency(payment.amountReceived)}</div>
+          </div>
+        </div>
+
+        {isPendingCardSettlement && (
+          <div className="receipt-history-note receipt-history-note--warning">
+            Pago en tarjeta pendiente de conciliacion bancaria.
+          </div>
+        )}
+
+        <div className="receipt-history-panel receipt-history-cover">
+          <div className="receipt-history-section-title">Este pago cubre</div>
+          {coverageRows.length > 0 ? coverageRows.map((row, index) => (
+            <div key={`${row.label}-${index}`} className="receipt-history-cover-row">
+              <span className={`receipt-history-status receipt-history-status--${row.status}`}>
+                {row.status === "complete" ? "OK" : row.status === "applied" ? "$" : "-"}
+              </span>
+              <span className="receipt-history-cover-main">
+                <span className="receipt-history-cover-date">{row.label}</span>
+                <span className={`receipt-history-cover-state receipt-history-cover-state--${row.status}`}>{row.value}</span>
+              </span>
+              <strong className={`receipt-history-cover-value receipt-history-cover-value--${row.status}`}>
+                {formatCurrency(row.amount)}
+              </strong>
+            </div>
+          )) : (
+            <div className="receipt-history-cover-row">
+              <span className="receipt-history-status receipt-history-status--partial">-</span>
+              <span className="receipt-history-cover-main">
+                <span className="receipt-history-cover-date">Pago aplicado</span>
+                <span className="receipt-history-cover-state receipt-history-cover-state--partial">Aplicado al recibo</span>
+              </span>
+              <strong className="receipt-history-cover-value receipt-history-cover-value--partial">
+                {formatCurrency(payment.amountReceived)}
+              </strong>
+            </div>
+          )}
+        </div>
+
+        {shouldShowPartialMissing && rentPendingAmount <= 0 && (
+          <div className="receipt-history-alert receipt-history-alert--warning">
+            <span>{getPartialMissingLabel(partialRow, payment)}</span>
+            <strong>{formatCurrency(missingForPartial)}</strong>
+          </div>
+        )}
+
+        {hasPending ? (
+          <>
+            {rentPendingAmount > 0 && (
+              <div className="receipt-history-rent-pending">
+                <div className="receipt-history-rent-pending-title">Saldo renta pendiente</div>
+                {rentPartialPendingAmount > 0 && (
+                  <div className="receipt-history-rent-pending-row">
+                    <span>Saldo bajar 1 cta <em>(1 cuota parcial)</em></span>
+                    <strong>{formatCurrency(rentPartialPendingAmount)}</strong>
+                  </div>
+                )}
+                {rentCompletePendingAmount > 0 && (
+                  <div className="receipt-history-rent-pending-row">
+                    <span>Saldo corriente <em>({rentCompletePendingLabel})</em></span>
+                    <strong>{formatCurrency(rentCompletePendingAmount)}</strong>
+                  </div>
+                )}
+                <div className="receipt-history-rent-pending-row receipt-history-rent-pending-row--total">
+                  <span>Total pendiente de renta <em>({rentPendingInstallmentsLabel})</em></span>
+                  <strong>{formatCurrency(rentPendingAmount)}</strong>
+                </div>
+              </div>
+            )}
+            {otherChargesPendingAmount > 0 && (
+              <div className="receipt-history-alert receipt-history-alert--other">
+                <span>Otros cargos pendientes</span>
+                <strong>{formatCurrency(otherChargesPendingAmount)}</strong>
+              </div>
+            )}
+            {hasTravelFundBalance && (
+              <div className="receipt-history-alert receipt-history-alert--travel">
+                <span>Fondo de viaje</span>
+                <strong>{formatCurrency(travelFundBalance)}</strong>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className={`receipt-history-alert ${partialFuturePendingAmount > 0 ? "receipt-history-alert--pending" : "receipt-history-alert--ok"}`}>
+              <span>Saldo pendiente</span>
+              <strong>{formatCurrency(partialFuturePendingAmount)}</strong>
+            </div>
+            {hasTravelFundBalance && (
+              <div className="receipt-history-alert receipt-history-alert--travel">
+                <span>Fondo de viaje</span>
+                <strong>{formatCurrency(travelFundBalance)}</strong>
+              </div>
+            )}
+          </>
+        )}
+
+        {!hasPending && (
+          <div className="receipt-history-next-date">
+            <span>Proxima fecha de pago</span>
+            <strong>{nextPaymentDate ? formatDateSpanishSingleLine(nextPaymentDate) : "Por definir"}</strong>
+          </div>
+        )}
+
+        <div className="receipt-history-panel receipt-history-panel--paid">
+          <span>Cuotas pagadas</span>
+          <strong>{installmentsPaidIncludingAdvance}</strong>
+        </div>
+
+        <div className="receipt-history-powered" aria-label="Powered by flotapp">
+          <span className="receipt-history-logo-icon" aria-hidden="true">
+            <span className="receipt-history-logo-car" />
+          </span>
+          <span>Powered by <strong>flotapp</strong></span>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -610,7 +1007,7 @@ function ReceiptCardContent({ payment }: { payment: Payment }) {
   );
 }
 
-export default function PaymentReceipt({ payment, onClose, closeLabel = "Registrar otro pago" }: Props) {
+export default function PaymentReceipt({ payment, onClose, closeLabel = "Registrar otro pago", receiptFormat = "standard" }: Props) {
   const [isDownloading, setIsDownloading] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
 
@@ -636,8 +1033,8 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
         </button>
       </div>
 
-      <div ref={cardRef} className="receipt-card">
-        <ReceiptCardContent payment={payment} />
+      <div ref={cardRef} className={receiptFormat === "history" ? "receipt-card receipt-card--history" : "receipt-card"}>
+        <ReceiptCardContent payment={payment} format={receiptFormat} />
       </div>
     </div>
   );
