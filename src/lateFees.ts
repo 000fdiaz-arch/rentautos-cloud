@@ -44,7 +44,8 @@ export function subtractOtherCharge(existing: OtherCharge[] | undefined, label: 
 }
 
 function findLastWeeklyDueDate(client: Client, date: Date): Date | null {
-  for (let i = 0; i <= 7; i += 1) {
+  const startOffset = isChargeDay(client, date) ? 1 : 0;
+  for (let i = startOffset; i <= 7; i += 1) {
     const candidate = new Date(date);
     candidate.setDate(candidate.getDate() - i);
     if (isChargeDay(client, candidate)) return candidate;
@@ -121,12 +122,14 @@ export function applyLateFeesForClosingDate({
     let reason: LateFeeLedgerEntry["reason"] | null = null;
     if (client.frequency === "daily") {
       const paymentsToday = paymentCountByClient.get(client.id) ?? 0;
-      if (paymentsToday === 0) reason = "DAILY_MISSED_PROOF";
+      if (isChargeDay(client, closingDate) && paymentsToday === 0) reason = "DAILY_MISSED_PROOF";
     } else if (client.frequency === "weekly") {
       const dueDate = findLastWeeklyDueDate(client, closingDate);
       const appliedToRentToday = rentAppliedByClient.get(client.id) ?? 0;
       const balanceAtStartOfDay = roundMoney(client.balance + appliedToRentToday);
-      if (dueDate && closingDate > dueDate && balanceAtStartOfDay > 0) {
+      const isNewWeeklyCycleDay = isChargeDay(client, closingDate);
+      const currentCycleThreshold = isNewWeeklyCycleDay ? roundMoney(Math.max(0, client.rentAmount)) : 0;
+      if (dueDate && closingDate > dueDate && balanceAtStartOfDay > currentCycleThreshold) {
         reason = "WEEKLY_LATE_DAY";
       }
     }

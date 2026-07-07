@@ -27,7 +27,18 @@ function makeDailyClient() {
     savings: 0,
     createdAt: new Date().toISOString(),
     lastChargeDate: "2026-04-21",
-    status: "active"
+    status: "activo"
+  };
+}
+
+function makeDailyFirstSundayClient() {
+  return {
+    ...makeDailyClient(),
+    id: "daily-first-sunday-1",
+    unitId: "T03",
+    chargeFirstSunday: true,
+    installmentsPaid: 7,
+    firstSundayChargedAt: undefined
   };
 }
 
@@ -48,7 +59,7 @@ function makeWeeklyClient() {
     savings: 0,
     createdAt: new Date().toISOString(),
     lastChargeDate: "2026-04-21",
-    status: "active"
+    status: "activo"
   };
 }
 
@@ -68,7 +79,7 @@ function makeUnitRenameClientOriginal() {
     savings: 0,
     createdAt: new Date().toISOString(),
     lastChargeDate: "2026-04-21",
-    status: "active"
+    status: "activo"
   };
 }
 
@@ -88,7 +99,7 @@ function makeUnitRenameClientNew() {
     savings: 0,
     createdAt: new Date().toISOString(),
     lastChargeDate: "2026-04-21",
-    status: "active"
+    status: "activo"
   };
 }
 
@@ -195,7 +206,107 @@ function paymentFor(clientId, unitId, date, appliedToRent) {
   assert(weeklyCharge && weeklyCharge.amount === 20, `Semanal: cargo esperado 20, recibido ${JSON.stringify(weeklyClient.otherCharges)}`);
   assert(ledger.length === 4, `Semanal: ledger esperado 4 entradas, recibido ${ledger.length}`);
 
-  // 4) Largo plazo: 30 dias diarios sin pago = 150
+  // 4) Semanal A80: martes-domingo + lunes de nuevo ciclo si arrastra mora anterior = 35
+  let a80Client = {
+    ...makeWeeklyClient(),
+    id: "weekly-a80",
+    unitId: "A80",
+    name: "A80",
+    lastChargeDate: "2026-08-03",
+    balance: 35
+  };
+  let a80Ledger = [];
+  let totalA80 = 0;
+  for (const date of ["2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-08", "2026-08-09"]) {
+    const run = applyLateFeesForClosingDate({
+      clients: [a80Client],
+      payments: [],
+      lateFeeLedger: a80Ledger,
+      lateFeeSettings: { ...settings, selectedUnits: ["A80"] },
+      closingDateKey: date
+    });
+    a80Client = run.clients[0];
+    a80Ledger = [...run.newEntries, ...a80Ledger];
+    totalA80 += run.lateFeeTotal;
+  }
+  assert(totalA80 === 30, `A80 martes-domingo: total esperado 30, recibido ${totalA80}`);
+
+  a80Client = { ...a80Client, balance: 70 };
+  const a80NewCycleRun = applyLateFeesForClosingDate({
+    clients: [a80Client],
+    payments: [],
+    lateFeeLedger: a80Ledger,
+    lateFeeSettings: { ...settings, selectedUnits: ["A80"] },
+    closingDateKey: "2026-08-10"
+  });
+  assert(a80NewCycleRun.lateFeeTotal === 5, `A80 lunes nuevo ciclo con mora anterior: esperado 5, recibido ${a80NewCycleRun.lateFeeTotal}`);
+
+  const a80OnlyNewCycleRun = applyLateFeesForClosingDate({
+    clients: [{ ...a80Client, id: "weekly-a80-clean", otherCharges: [], balance: 35 }],
+    payments: [],
+    lateFeeLedger: [],
+    lateFeeSettings: { ...settings, selectedUnits: ["A80"] },
+    closingDateKey: "2026-08-10"
+  });
+  assert(a80OnlyNewCycleRun.lateFeeTotal === 0, `A80 lunes solo ciclo nuevo: esperado 0, recibido ${a80OnlyNewCycleRun.lateFeeTotal}`);
+
+  // 5) Diario lunes-miercoles sin pago y jueves con pago = 15
+  let dailyMissedClient = makeDailyClient();
+  let dailyMissedLedger = [];
+  let totalDailyMissed = 0;
+  for (const date of ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06"]) {
+    const payments = date === "2026-08-06" ? [paymentFor("daily-1", "T03", date, 35)] : [];
+    const run = applyLateFeesForClosingDate({
+      clients: [dailyMissedClient],
+      payments,
+      lateFeeLedger: dailyMissedLedger,
+      lateFeeSettings: settings,
+      closingDateKey: date
+    });
+    dailyMissedClient = run.clients[0];
+    dailyMissedLedger = [...run.newEntries, ...dailyMissedLedger];
+    totalDailyMissed += run.lateFeeTotal;
+  }
+  assert(totalDailyMissed === 15, `Diario lun-mie sin pago y jueves paga: esperado 15, recibido ${totalDailyMissed}`);
+
+  // 6) Diario lunes-sabado sin pago y domingo paga = 30; domingo normal no genera mora
+  let dailySundayClient = makeDailyClient();
+  let dailySundayLedger = [];
+  let totalDailySunday = 0;
+  for (const date of ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-08", "2026-08-09"]) {
+    const payments = date === "2026-08-09" ? [paymentFor("daily-1", "T03", date, 35)] : [];
+    const run = applyLateFeesForClosingDate({
+      clients: [dailySundayClient],
+      payments,
+      lateFeeLedger: dailySundayLedger,
+      lateFeeSettings: settings,
+      closingDateKey: date
+    });
+    dailySundayClient = run.clients[0];
+    dailySundayLedger = [...run.newEntries, ...dailySundayLedger];
+    totalDailySunday += run.lateFeeTotal;
+  }
+  assert(totalDailySunday === 30, `Diario lun-sab sin pago y domingo paga: esperado 30, recibido ${totalDailySunday}`);
+
+  const dailyNoSundayChargeRun = applyLateFeesForClosingDate({
+    clients: [makeDailyClient()],
+    payments: [],
+    lateFeeLedger: [],
+    lateFeeSettings: settings,
+    closingDateKey: "2026-08-09"
+  });
+  assert(dailyNoSundayChargeRun.lateFeeTotal === 0, `Diario domingo sin cobro normal: esperado 0, recibido ${dailyNoSundayChargeRun.lateFeeTotal}`);
+
+  const dailyFirstSundayRun = applyLateFeesForClosingDate({
+    clients: [makeDailyFirstSundayClient()],
+    payments: [],
+    lateFeeLedger: [],
+    lateFeeSettings: settings,
+    closingDateKey: "2026-08-09"
+  });
+  assert(dailyFirstSundayRun.lateFeeTotal === 5, `Diario primer domingo cobrable sin pago: esperado 5, recibido ${dailyFirstSundayRun.lateFeeTotal}`);
+
+  // 7) Largo plazo diario: 30 dias sin pago, solo dias cobrables = 130
   let longClient = makeDailyClient();
   let longLedger = [];
   let totalLong = 0;
@@ -213,16 +324,16 @@ function paymentFor(clientId, unitId, date, appliedToRent) {
     totalLong += run.lateFeeTotal;
   }
   const longCharge = (longClient.otherCharges || []).find((c) => c.label === settings.chargeLabel);
-  assert(totalLong === 150, `Largo plazo: total esperado 150, recibido ${totalLong}`);
-  assert(longCharge && longCharge.amount === 150, `Largo plazo: cargo esperado 150, recibido ${JSON.stringify(longClient.otherCharges)}`);
-  assert(longLedger.length === 30, `Largo plazo: ledger esperado 30 entradas, recibido ${longLedger.length}`);
+  assert(totalLong === 130, `Largo plazo: total esperado 130, recibido ${totalLong}`);
+  assert(longCharge && longCharge.amount === 130, `Largo plazo: cargo esperado 130, recibido ${JSON.stringify(longClient.otherCharges)}`);
+  assert(longLedger.length === 26, `Largo plazo: ledger esperado 26 entradas, recibido ${longLedger.length}`);
 
-  // 5) Reversion de cargos por reapertura
+  // 8) Reversion de cargos por reapertura
   const reversed = subtractOtherCharge(longClient.otherCharges, settings.chargeLabel, 25);
   const reversedCharge = reversed.find((c) => c.label === settings.chargeLabel);
-  assert(reversedCharge && reversedCharge.amount === 125, "Reversion: monto esperado 125");
+  assert(reversedCharge && reversedCharge.amount === 105, "Reversion: monto esperado 105");
 
-  // 6) Cambio de unidad: D29 -> EXD29 y nuevo D29
+  // 9) Cambio de unidad: D29 -> EXD29 y nuevo D29
   // Debe cobrar solo al nuevo D29 (la lista sigue con D29).
   const renamedOriginal = { ...makeUnitRenameClientOriginal(), unitId: "EXD29" };
   const newD29 = makeUnitRenameClientNew();
