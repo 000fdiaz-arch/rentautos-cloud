@@ -16,7 +16,7 @@ import {
   saveManualBankAssignmentAudit,
   savePendingBankItems
 } from "../storage";
-import { reserveCloudReceiptNumber } from "../cloudData";
+import { loadCloudProcessedPaymentFolios, reserveCloudReceiptNumber } from "../cloudData";
 import type {
   BankRule,
   BillingFrequency,
@@ -2183,6 +2183,16 @@ export default function PaymentsPage({
     }
 
     const existingFoliosInPayments = buildExistingProcessedFolioSetForCsvImport(payments);
+    if (dataOwnerUserId) {
+      try {
+        const cloudFolios = await loadCloudProcessedPaymentFolios(dataOwnerUserId);
+        for (const folio of cloudFolios) existingFoliosInPayments.add(folio);
+      } catch (error) {
+        console.error("No se pudieron validar folios historicos en Supabase.", error);
+        setPendingImportError("No se pudieron validar folios historicos en Supabase. Intenta de nuevo antes de importar el CSV.");
+        return;
+      }
+    }
     const existingFoliosInPending = new Set(pendingBankItems.map((i) => normalizeFolioToken(i.folio)));
 
     const accountsInFile = new Set<string>();

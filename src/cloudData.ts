@@ -11,6 +11,7 @@ type SingletonDataRow = {
 
 const PAGE_SIZE = 1000;
 const inflightLoads = new Map<string, Promise<unknown>>();
+const BANK_PAYMENT_METHODS = new Set(["ACH Express", "Deposito Bancario", "Transferencia Bancaria"]);
 export type ControlUnitRow = {
   user_id: string;
   unit_id: string;
@@ -105,6 +106,40 @@ function hasRowChanged<T>(previous: T | undefined, next: T): boolean {
   if (!previous) return true;
   if (previous === next) return false;
   return JSON.stringify(previous) !== JSON.stringify(next);
+}
+
+function normalizeCloudFolioToken(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]+/g, " ")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "");
+}
+
+function extractCloudFoliosFromReference(reference: unknown): string[] {
+  if (typeof reference !== "string") return [];
+  const normalized = reference
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return [];
+
+  const taggedFolios = Array.from(normalized.matchAll(/FOLIO\s*:\s*([^\s|]+)/gi))
+    .map((match) => normalizeCloudFolioToken(match[1] ?? ""))
+    .filter((folio) => folio.length > 0);
+  if (taggedFolios.length > 0) return [...new Set(taggedFolios)];
+
+  const legacyFallback = normalizeCloudFolioToken(
+    normalized
+      .replace(/^REFERENCIA\s*:\s*/i, "")
+      .replace(/^REF\s*:\s*/i, "")
+      .replace(/^FOLIO\s*:?/i, "")
+  );
+  return legacyFallback ? [legacyFallback] : [];
 }
 
 async function deleteStaleRows(
@@ -317,6 +352,39 @@ async function loadCloudPaymentsRecentUncached(userId: string, safeLimit: number
   if (error) throw error;
   const rows = (data ?? []) as DataRow<Payment>[];
   return rows.map((row) => row.data);
+}
+
+export async function loadCloudProcessedPaymentFolios(userId: string): Promise<Set<string>> {
+  const client = getClient();
+  const folios = new Set<string>();
+  let lastId = "";
+  while (true) {
+    let query = client
+      .from("payments_cloud")
+      .select("id,data")
+      .eq("user_id", userId)
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (lastId) query = query.gt("id", lastId);
+    const { data, error } = await query;
+    if (error) throw error;
+    const batch = (data ?? []) as DataRow<Payment>[];
+    for (const row of batch) {
+      const reference = row.data?.reference ?? "";
+      const isBankPayment = BANK_PAYMENT_METHODS.has(row.data?.paymentMethod ?? "");
+      const isReconciledCardPayment =
+        row.data?.paymentMethod === "Tarjeta" &&
+        reference.toUpperCase().includes("TARJETA-CONCILIADA");
+      if (!isBankPayment && !isReconciledCardPayment) continue;
+      for (const folio of extractCloudFoliosFromReference(reference)) {
+        folios.add(folio);
+      }
+    }
+    if (batch.length < PAGE_SIZE) break;
+    lastId = batch[batch.length - 1]?.id ?? lastId;
+    if (!lastId) break;
+  }
+  return folios;
 }
 
 function parseReceiptSequence(receiptNumber: unknown): number | null {
