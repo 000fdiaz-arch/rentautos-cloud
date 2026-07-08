@@ -16,6 +16,7 @@ import {
   saveManualBankAssignmentAudit,
   savePendingBankItems
 } from "../storage";
+import { reserveCloudReceiptNumber } from "../cloudData";
 import type {
   BankRule,
   BillingFrequency,
@@ -255,6 +256,8 @@ type Props = {
   payments: Payment[];
   onPaymentsChange: (next: Payment[]) => void;
   onPersistClientPayment?: (nextClients: Client[], nextPayments: Payment[]) => Promise<boolean>;
+  dataOwnerUserId?: string | null;
+  isPaymentHistoryLoaded?: boolean;
   onRefreshPayments?: () => Promise<void>;
   onCashClose?: () => void;
   quickCashPrefill?: {
@@ -1024,6 +1027,8 @@ export default function PaymentsPage({
   payments,
   onPaymentsChange,
   onPersistClientPayment,
+  dataOwnerUserId,
+  isPaymentHistoryLoaded = true,
   onRefreshPayments,
   onCashClose,
   quickCashPrefill,
@@ -1107,6 +1112,7 @@ export default function PaymentsPage({
   const [manualAssignmentAudit, setManualAssignmentAudit] = useState<ManualBankAssignmentAudit[]>(() => loadManualBankAssignmentAudit());
   const [autoAmountInfo, setAutoAmountInfo] = useState("");
   const [paymentInfo, setPaymentInfo] = useState("");
+  const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
   const [editingPendingCardId, setEditingPendingCardId] = useState<string | null>(null);
   const [editingPendingCardForm, setEditingPendingCardForm] = useState<PendingCardEditForm>({ folio: "", reference: "" });
   const [bulkPendingCardFolio, setBulkPendingCardFolio] = useState("");
@@ -1246,7 +1252,7 @@ export default function PaymentsPage({
     if (!selectedClient) return;
     const amount = parseFloat(form.amountReceived);
     if (!Number.isFinite(amount) || amount <= 0) return;
-    void handleConfirmPayment();
+    void handleConfirmPaymentClick();
     setPendingQuickCashSubmitToken(null);
   }, [pendingQuickCashSubmitToken, selectedClient, form.amountReceived]);
 
@@ -1271,6 +1277,78 @@ export default function PaymentsPage({
     onClientsChange(nextClients);
     onPaymentsChange(nextPayments);
     return true;
+  }
+
+  async function reserveReceiptNumber(): Promise<string> {
+    if (dataOwnerUserId) {
+      return reserveCloudReceiptNumber(dataOwnerUserId);
+    }
+    return nextReceiptNumber();
+  }
+
+  function getPaymentSaveErrorMessage(error: unknown): string {
+    const record = typeof error === "object" && error !== null ? error as Record<string, unknown> : null;
+    const rawCode = typeof record?.code === "string" ? record.code : "";
+    const rawMessage = error instanceof Error
+      ? error.message
+      : typeof record?.message === "string"
+      ? record.message
+      : "";
+    const rawDetails = typeof record?.details === "string" ? record.details : "";
+    const rawHint = typeof record?.hint === "string" ? record.hint : "";
+    const normalized = `${rawCode} ${rawMessage} ${rawDetails} ${rawHint}`.toLowerCase();
+
+    if (
+      normalized.includes("payments_cloud_user_receipt_number_uq") ||
+      normalized.includes("receiptnumber")
+    ) {
+      return "No se pudo guardar: el numero de recibo ya existe en Supabase. Actualiza el historial y vuelve a intentar.";
+    }
+    if (
+      normalized.includes("payments_cloud_user_folio_uq") ||
+      normalized.includes("pending_bank_items_cloud_user_folio_uq") ||
+      normalized.includes("pending_card_items_cloud_user_folio_uq")
+    ) {
+      return "No se pudo guardar: el folio ya existe en Supabase.";
+    }
+    if (
+      normalized.includes("row-level security") ||
+      normalized.includes("permission denied") ||
+      normalized.includes("42501")
+    ) {
+      return "No se pudo guardar por permisos de Supabase. Verifica el usuario/owner y vuelve a intentar.";
+    }
+    if (
+      normalized.includes("network") ||
+      normalized.includes("fetch") ||
+      normalized.includes("timeout")
+    ) {
+      return "No se pudo guardar por conexion lenta o inestable. Revisa internet y vuelve a intentar.";
+    }
+
+    const details = [rawCode, rawMessage, rawDetails, rawHint]
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
+      .join(" | ");
+    return details
+      ? `No se pudo guardar el pago. Motivo: ${details.slice(0, 180)}`
+      : "No se pudo guardar el pago. Revisa la consola e intenta nuevamente.";
+  }
+
+  async function handleConfirmPaymentClick(): Promise<void> {
+    if (isConfirmingPayment) return;
+    setIsConfirmingPayment(true);
+    setPaymentInfo("Guardando pago y reservando recibo...");
+    try {
+      const saved = await handleConfirmPayment();
+      if (!saved) setPaymentInfo("");
+    } catch (error) {
+      console.error("No se pudo confirmar el pago.", error);
+      setErrors([getPaymentSaveErrorMessage(error)]);
+      setPaymentInfo("");
+    } finally {
+      setIsConfirmingPayment(false);
+    }
   }
 
   const isForcedOtherChargesRuleClient = useMemo(
@@ -2539,7 +2617,7 @@ export default function PaymentsPage({
 
     const payment: Payment = {
       id: crypto.randomUUID(),
-      receiptNumber: nextReceiptNumber(),
+      receiptNumber: await reserveReceiptNumber(),
       receiptDeliveryStatus: "pending",
       clientId: client.id,
       clientName: client.name,
@@ -2811,7 +2889,7 @@ export default function PaymentsPage({
     };
   }
 
-  function applyPendingItem(item: PendingBankItem, client: Client): { updatedClient: Client; payment: Payment } {
+  async function applyPendingItem(item: PendingBankItem, client: Client): Promise<{ updatedClient: Client; payment: Payment }> {
     const balanceBefore = roundMoney(client.balance);
     const savingsBefore = roundMoney(client.savings);
     const advanceBefore = roundMoney(client.advanceBalance ?? 0);
@@ -2849,7 +2927,7 @@ export default function PaymentsPage({
 
     const payment: Payment = {
       id: crypto.randomUUID(),
-      receiptNumber: nextReceiptNumber(),
+      receiptNumber: await reserveReceiptNumber(),
       receiptDeliveryStatus: "pending",
       clientId: client.id,
       clientName: client.name,
@@ -2919,7 +2997,7 @@ export default function PaymentsPage({
         handleOpenClassify(item);
         return;
       }
-      const { updatedClient, payment } = applyPendingItem(item, client);
+      const { updatedClient, payment } = await applyPendingItem(item, client);
       const updatedClients = clients.map((c) => (c.id === updatedClient.id ? updatedClient : c));
       const saved = await persistClientPaymentState(updatedClients, [...payments, payment]);
       if (!saved) {
@@ -2968,7 +3046,7 @@ export default function PaymentsPage({
         continue;
       }
       const client = updatedClientsMap.get(item.suggestedClientId!)!;
-      const { updatedClient, payment } = applyPendingItem(item, client);
+      const { updatedClient, payment } = await applyPendingItem(item, client);
       updatedClientsMap.set(updatedClient.id, updatedClient);
       newPayments.push(payment);
       usedFolios.add(normalizedFolio);
@@ -3335,7 +3413,7 @@ export default function PaymentsPage({
 
       const enteredFolios = extractFoliosFromReference(form.reference);
       const normalizedFolio = enteredFolios[0] ?? buildTemporaryCardFolio(operationalDateKey);
-      const receiptNumber = nextReceiptNumber();
+      const receiptNumber = await reserveReceiptNumber();
       const firstSundayChargedAt = resolveFirstSundayChargedAtForManualPayment(selectedClient, allocation, operationalDateKey);
       const cardPayment: Payment = {
         id: crypto.randomUUID(),
@@ -3444,7 +3522,7 @@ export default function PaymentsPage({
 
     setErrors([]);
     setPaymentInfo("");
-    const receiptNumber = nextReceiptNumber();
+    const receiptNumber = await reserveReceiptNumber();
     const firstSundayChargedAt = resolveFirstSundayChargedAtForManualPayment(selectedClient, allocation, operationalDateKey);
 
     const payment: Payment = {
@@ -3936,6 +4014,9 @@ export default function PaymentsPage({
     setIsCardPendingOpen(tab === "cards");
     setIsHistoryOpen(tab === "history");
     setIsCashClosingOpen(tab === "cash");
+    if (tab === "history" && !isPaymentHistoryLoaded) {
+      void handleRefreshHistory();
+    }
 
     const targetByTab: Record<PaymentTabId, React.RefObject<HTMLElement>> = {
       register: registerSectionRef,
@@ -4446,10 +4527,10 @@ export default function PaymentsPage({
           <button
             type="button"
             className="button primary"
-            onClick={() => void handleConfirmPayment()}
-            disabled={!form.clientId || !preview || isDateClosed(operationalDateKey)}
+            onClick={() => void handleConfirmPaymentClick()}
+            disabled={!form.clientId || !preview || isDateClosed(operationalDateKey) || isConfirmingPayment}
           >
-            Confirmar pago y generar recibo
+            {isConfirmingPayment ? "Guardando pago..." : "Confirmar pago y generar recibo"}
           </button>
         </div>
         </>

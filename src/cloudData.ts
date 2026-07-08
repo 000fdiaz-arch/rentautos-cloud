@@ -10,6 +10,7 @@ type SingletonDataRow = {
 };
 
 const PAGE_SIZE = 1000;
+const inflightLoads = new Map<string, Promise<unknown>>();
 export type ControlUnitRow = {
   user_id: string;
   unit_id: string;
@@ -90,6 +91,22 @@ function chunkIds(ids: string[], size = 150): string[][] {
   return chunks;
 }
 
+function dedupeLoad<T>(key: string, loader: () => Promise<T>): Promise<T> {
+  const existing = inflightLoads.get(key) as Promise<T> | undefined;
+  if (existing) return existing;
+  const next = loader().finally(() => {
+    if (inflightLoads.get(key) === next) inflightLoads.delete(key);
+  });
+  inflightLoads.set(key, next);
+  return next;
+}
+
+function hasRowChanged<T>(previous: T | undefined, next: T): boolean {
+  if (!previous) return true;
+  if (previous === next) return false;
+  return JSON.stringify(previous) !== JSON.stringify(next);
+}
+
 async function deleteStaleRows(
   table: "clients_cloud" | "payments_cloud" | "payment_promises_cloud",
   userId: string,
@@ -130,6 +147,10 @@ async function deleteStaleRows(
 }
 
 export async function loadCloudClients(userId: string): Promise<Client[]> {
+  return dedupeLoad(`clients:${userId}`, () => loadCloudClientsUncached(userId));
+}
+
+async function loadCloudClientsUncached(userId: string): Promise<Client[]> {
   const client = getClient();
   const allRows: DataRow<Client>[] = [];
   let lastId = "";
@@ -203,8 +224,7 @@ export async function syncCloudClientsDelta(
   const upsertRows = nextClients
     .filter((item) => {
       const prev = prevById.get(item.id);
-      if (!prev) return true;
-      return JSON.stringify(prev) !== JSON.stringify(item);
+      return hasRowChanged(prev, item);
     })
     .map((item) => ({
       user_id: userId,
@@ -236,6 +256,10 @@ export async function syncCloudClientsDelta(
 }
 
 export async function loadCloudPayments(userId: string): Promise<Payment[]> {
+  return dedupeLoad(`payments:${userId}`, () => loadCloudPaymentsUncached(userId));
+}
+
+async function loadCloudPaymentsUncached(userId: string): Promise<Payment[]> {
   const client = getClient();
   const allRows: DataRow<Payment>[] = [];
   let lastId = "";
@@ -277,6 +301,79 @@ export async function loadCloudPaymentsPage(
   return rows.map((row) => row.data);
 }
 
+export async function loadCloudPaymentsRecent(userId: string, limit = 300): Promise<Payment[]> {
+  const safeLimit = Math.max(1, Math.min(PAGE_SIZE, Math.floor(limit)));
+  return dedupeLoad(`payments-recent:${userId}:${safeLimit}`, () => loadCloudPaymentsRecentUncached(userId, safeLimit));
+}
+
+async function loadCloudPaymentsRecentUncached(userId: string, safeLimit: number): Promise<Payment[]> {
+  const client = getClient();
+  const { data, error } = await client
+    .from("payments_cloud")
+    .select("id,data")
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false })
+    .range(0, safeLimit - 1);
+  if (error) throw error;
+  const rows = (data ?? []) as DataRow<Payment>[];
+  return rows.map((row) => row.data);
+}
+
+function parseReceiptSequence(receiptNumber: unknown): number | null {
+  if (typeof receiptNumber !== "string") return null;
+  const match = receiptNumber.trim().toUpperCase().match(/^REC-([0-9]+)$/);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function formatReceiptSequence(seq: number): string {
+  return `REC-${String(seq).padStart(4, "0")}`;
+}
+
+async function loadCloudMaxReceiptSequence(userId: string): Promise<number> {
+  const client = getClient();
+  let maxSeq = 0;
+  let from = 0;
+  while (true) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await client
+      .from("payments_cloud")
+      .select("data")
+      .eq("user_id", userId)
+      .range(from, to);
+    if (error) throw error;
+    const rows = (data ?? []) as Array<{ data?: Payment }>;
+    for (const row of rows) {
+      const seq = parseReceiptSequence(row.data?.receiptNumber);
+      if (seq !== null && seq > maxSeq) maxSeq = seq;
+    }
+    if (rows.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return maxSeq;
+}
+
+export async function reserveCloudReceiptNumber(userId: string): Promise<string> {
+  const client = getClient();
+  const [rpcResult, maxExistingSeq] = await Promise.all([
+    client.rpc("next_receipt_number", {
+      p_owner_user_id: userId
+    }),
+    loadCloudMaxReceiptSequence(userId)
+  ]);
+  const { data, error } = rpcResult;
+  if (error) throw error;
+  if (typeof data !== "string" || data.trim().length === 0) {
+    throw new Error("Supabase no devolvio numero de recibo.");
+  }
+  const reservedSeq = parseReceiptSequence(data);
+  if (reservedSeq !== null && reservedSeq <= maxExistingSeq) {
+    return formatReceiptSequence(maxExistingSeq + 1);
+  }
+  return data.trim().toUpperCase();
+}
+
 export async function saveCloudPayments(userId: string, payments: Payment[]): Promise<void> {
   const client = getClient();
   const nextIds = new Set(payments.map((item) => item.id));
@@ -309,8 +406,7 @@ export async function syncCloudPaymentsDelta(
   const upsertRows = nextPayments
     .filter((item) => {
       const prev = prevById.get(item.id);
-      if (!prev) return true;
-      return JSON.stringify(prev) !== JSON.stringify(item);
+      return hasRowChanged(prev, item);
     })
     .map((item) => ({
       user_id: userId,
@@ -401,6 +497,10 @@ function normalizeCloudValue(value: unknown): unknown {
 }
 
 export async function loadCloudStreetManagement(userId: string): Promise<Record<string, unknown>> {
+  return dedupeLoad(`street-management:${userId}`, () => loadCloudStreetManagementUncached(userId));
+}
+
+async function loadCloudStreetManagementUncached(userId: string): Promise<Record<string, unknown>> {
   const client = getClient();
   const { data, error } = await client
     .from("street_management_cloud")
@@ -494,6 +594,10 @@ export async function syncCloudStreetManagementDelta(
 }
 
 export async function loadCloudCollectionClosures(userId: string): Promise<Record<string, unknown>> {
+  return dedupeLoad(`collection-closures:${userId}`, () => loadCloudCollectionClosuresUncached(userId));
+}
+
+async function loadCloudCollectionClosuresUncached(userId: string): Promise<Record<string, unknown>> {
   const client = getClient();
   const { data, error } = await client
     .from("collection_closures_cloud")
