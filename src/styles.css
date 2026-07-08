@@ -4417,6 +4417,23 @@ select.control-op-badge {
   box-shadow:
     0 18px 42px rgba(8, 47, 99, 0.18),
     inset 0 0 0 1px rgba(255, 255, 255, 0.72);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+.receipt-card.receipt-card--history :is(
+  .receipt-history-number,
+  .receipt-history-hidden-installments,
+  .receipt-history-plan,
+  .receipt-history-date,
+  .receipt-history-amount,
+  .receipt-history-cover-value,
+  .receipt-history-alert strong,
+  .receipt-history-rent-pending-row strong,
+  .receipt-history-next-date strong,
+  .receipt-history-panel--paid strong
+) {
+  font-variant-numeric: tabular-nums;
 }
 
 .receipt-history-brand,
@@ -4601,7 +4618,7 @@ select.control-op-badge {
 .receipt-history-amount {
   margin-top: 2px;
   color: #047a2d;
-  font-size: 2.72rem;
+  font-size: 2.84rem;
   font-weight: 900;
   line-height: 0.98;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
@@ -4759,7 +4776,7 @@ select.control-op-badge {
 .receipt-history-cover-value {
   text-align: right;
   white-space: nowrap;
-  font-size: 0.93rem;
+  font-size: 1rem;
   font-weight: 900;
   line-height: 1;
 }
@@ -4885,7 +4902,7 @@ select.control-op-badge {
 
 .receipt-history-rent-pending-row strong {
   color: #0f172a;
-  font-size: 0.9rem;
+  font-size: 0.96rem;
   font-weight: 900;
   line-height: 1.15;
   white-space: nowrap;

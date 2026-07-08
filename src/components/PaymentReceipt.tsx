@@ -17,6 +17,8 @@ type ReceiptRenderOptions = {
   format?: ReceiptFormat;
 };
 
+const RECEIPT_IMAGE_SCALE = 3;
+
 type CoveredPaymentRow = {
   dateLabel: string;
   status: "complete" | "partial";
@@ -344,7 +346,7 @@ async function renderReceiptCanvasFromPayment(payment: Payment, options: Receipt
 
     const html2canvas = (await import("html2canvas")).default;
     return html2canvas(target, {
-      scale: 2,
+      scale: RECEIPT_IMAGE_SCALE,
       backgroundColor: "#ffffff",
       useCORS: true,
       width: target.scrollWidth,
@@ -359,7 +361,7 @@ async function renderReceiptCanvasFromPayment(payment: Payment, options: Receipt
 async function renderReceiptCanvasFromElement(target: HTMLElement): Promise<HTMLCanvasElement> {
   const html2canvas = (await import("html2canvas")).default;
   return html2canvas(target, {
-    scale: 2,
+    scale: RECEIPT_IMAGE_SCALE,
     backgroundColor: "#ffffff",
     useCORS: true,
     width: target.scrollWidth,
