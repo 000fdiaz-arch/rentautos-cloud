@@ -16,7 +16,7 @@ import {
   saveManualBankAssignmentAudit,
   savePendingBankItems
 } from "../storage";
-import { loadCloudProcessedPaymentFolios, reserveCloudReceiptNumber } from "../cloudData";
+import { loadCloudProcessedPaymentFolios, reserveCloudReceiptNumber, reserveCloudReceiptNumbers } from "../cloudData";
 import type {
   BankRule,
   BillingFrequency,
@@ -1261,17 +1261,19 @@ export default function PaymentsPage({
       try {
         const saved = await onPersistClientPayment(nextClients, nextPayments);
         if (saved) return true;
-        // Fallback defensivo: en modo offline-first no bloqueamos el flujo por nube.
-        onClientsChange(nextClients);
-        onPaymentsChange(nextPayments);
-        setPaymentInfo("Pago guardado localmente. Se sincronizara con la nube en segundo plano.");
-        return true;
+        setPaymentInfo("");
+        return false;
       } catch (error) {
-        console.error("Persistencia cloud no disponible. Se aplica guardado local.", error);
-        onClientsChange(nextClients);
-        onPaymentsChange(nextPayments);
-        setPaymentInfo("Pago guardado localmente. Se sincronizara con la nube cuando haya conexion.");
-        return true;
+        console.error("Persistencia cloud no disponible. No se aplicaron cambios locales.", error);
+        if (isReceiptNumberConflict(error)) {
+          const savedWithFreshReceipt = await retryWithFreshReceiptNumbers(nextClients, nextPayments);
+          if (savedWithFreshReceipt) {
+            setPaymentInfo("Pago guardado con un nuevo numero de recibo.");
+            return true;
+          }
+        }
+        setPaymentInfo("");
+        throw error;
       }
     }
     onClientsChange(nextClients);
@@ -1333,6 +1335,41 @@ export default function PaymentsPage({
     return details
       ? `No se pudo guardar el pago. Motivo: ${details.slice(0, 180)}`
       : "No se pudo guardar el pago. Revisa la consola e intenta nuevamente.";
+  }
+
+  function isReceiptNumberConflict(error: unknown): boolean {
+    const record = typeof error === "object" && error !== null ? error as Record<string, unknown> : null;
+    const rawCode = typeof record?.code === "string" ? record.code : "";
+    const rawMessage = error instanceof Error
+      ? error.message
+      : typeof record?.message === "string"
+      ? record.message
+      : "";
+    const rawDetails = typeof record?.details === "string" ? record.details : "";
+    const rawHint = typeof record?.hint === "string" ? record.hint : "";
+    const normalized = `${rawCode} ${rawMessage} ${rawDetails} ${rawHint}`.toLowerCase();
+    return normalized.includes("payments_cloud_user_receipt_number_uq") || normalized.includes("receiptnumber");
+  }
+
+  async function retryWithFreshReceiptNumbers(nextClients: Client[], nextPayments: Payment[]): Promise<boolean> {
+    if (!onPersistClientPayment || !dataOwnerUserId) return false;
+    const existingPaymentIds = new Set(payments.map((payment) => payment.id));
+    const retryPayments = nextPayments.map((payment) => ({ ...payment }));
+    const newPaymentIndexes = retryPayments
+      .map((payment, index) => existingPaymentIds.has(payment.id) ? -1 : index)
+      .filter((index) => index >= 0);
+    if (newPaymentIndexes.length === 0) return false;
+    const freshReceipts = newPaymentIndexes.length === 1
+      ? [await reserveReceiptNumber()]
+      : await reserveCloudReceiptNumbers(dataOwnerUserId, newPaymentIndexes.length);
+    newPaymentIndexes.forEach((paymentIndex, receiptIndex) => {
+      nextPayments[paymentIndex].receiptNumber = freshReceipts[receiptIndex];
+      retryPayments[paymentIndex] = {
+        ...retryPayments[paymentIndex],
+        receiptNumber: freshReceipts[receiptIndex]
+      };
+    });
+    return onPersistClientPayment(nextClients, retryPayments);
   }
 
   async function handleConfirmPaymentClick(): Promise<void> {
@@ -2182,20 +2219,8 @@ export default function PaymentsPage({
       return;
     }
 
-    const existingFoliosInPayments = buildExistingProcessedFolioSetForCsvImport(payments);
-    if (dataOwnerUserId) {
-      try {
-        const cloudFolios = await loadCloudProcessedPaymentFolios(dataOwnerUserId);
-        for (const folio of cloudFolios) existingFoliosInPayments.add(folio);
-      } catch (error) {
-        console.error("No se pudieron validar folios historicos en Supabase.", error);
-        setPendingImportError("No se pudieron validar folios historicos en Supabase. Intenta de nuevo antes de importar el CSV.");
-        return;
-      }
-    }
-    const existingFoliosInPending = new Set(pendingBankItems.map((i) => normalizeFolioToken(i.folio)));
-
     const accountsInFile = new Set<string>();
+    const foliosInFile = new Set<string>();
     let invalidRows = 0;
     for (let i = 1; i < lines.length; i += 1) {
       const cols = coerceCsvColumns(lines[i], expectedColumns);
@@ -2207,7 +2232,22 @@ export default function PaymentsPage({
       if (!Number.isFinite(amount) || amount <= 0) continue;
       const accountNumber = normalizeAccountNumber(cols[idxAccount] ?? "");
       if (accountNumber) accountsInFile.add(accountNumber);
+      const folio = normalizeFolioToken(cols[idxFolio] ?? "");
+      if (folio) foliosInFile.add(folio);
     }
+
+    const existingFoliosInPayments = buildExistingProcessedFolioSetForCsvImport(payments);
+    if (dataOwnerUserId && foliosInFile.size > 0) {
+      try {
+        const cloudFolios = await loadCloudProcessedPaymentFolios(dataOwnerUserId, foliosInFile);
+        for (const folio of cloudFolios) existingFoliosInPayments.add(folio);
+      } catch (error) {
+        console.error("No se pudieron validar folios historicos en Supabase.", error);
+        setPendingImportError("No se pudieron validar folios historicos en Supabase. Intenta de nuevo antes de importar el CSV.");
+        return;
+      }
+    }
+    const existingFoliosInPending = new Set(pendingBankItems.map((i) => normalizeFolioToken(i.folio)));
 
     const missingRuleAccounts = [...accountsInFile].filter((accountNumber) => !findMappedGroupByAccount(accountNumber));
     if (missingRuleAccounts.length > 0) {
@@ -2696,7 +2736,7 @@ export default function PaymentsPage({
     setPendingImportError(`Pago ${item.folio} aplicado a ${client.unitId} - ${client.name}.`);
     } catch (error) {
       console.error("No se pudo confirmar el pago bancario clasificado.", error);
-      setPendingClassifyError("Ocurrió un error al registrar el pago. Intenta nuevamente.");
+      setPendingClassifyError(getPaymentSaveErrorMessage(error));
     } finally {
       setIsPendingClassifySaving(false);
     }
@@ -2899,7 +2939,7 @@ export default function PaymentsPage({
     };
   }
 
-  async function applyPendingItem(item: PendingBankItem, client: Client): Promise<{ updatedClient: Client; payment: Payment }> {
+  async function applyPendingItem(item: PendingBankItem, client: Client, reservedReceiptNumber?: string): Promise<{ updatedClient: Client; payment: Payment }> {
     const balanceBefore = roundMoney(client.balance);
     const savingsBefore = roundMoney(client.savings);
     const advanceBefore = roundMoney(client.advanceBalance ?? 0);
@@ -2937,7 +2977,7 @@ export default function PaymentsPage({
 
     const payment: Payment = {
       id: crypto.randomUUID(),
-      receiptNumber: await reserveReceiptNumber(),
+      receiptNumber: reservedReceiptNumber ?? await reserveReceiptNumber(),
       receiptDeliveryStatus: "pending",
       clientId: client.id,
       clientName: client.name,
@@ -3040,6 +3080,10 @@ export default function PaymentsPage({
 
     let updatedClientsMap = new Map(clients.map((c) => [c.id, { ...c }]));
     const newPayments: Payment[] = [];
+    const reservedReceipts = dataOwnerUserId
+      ? await reserveCloudReceiptNumbers(dataOwnerUserId, highSim.length)
+      : [];
+    let reservedReceiptIndex = 0;
     const highSimFolios = new Set(highSim.map((item) => normalizeFolioToken(item.folio)).filter((folio) => folio.length > 0));
     const usedFolios = buildTakenFolioSet(
       payments,
@@ -3056,7 +3100,9 @@ export default function PaymentsPage({
         continue;
       }
       const client = updatedClientsMap.get(item.suggestedClientId!)!;
-      const { updatedClient, payment } = await applyPendingItem(item, client);
+      const reservedReceipt = reservedReceipts[reservedReceiptIndex];
+      reservedReceiptIndex += 1;
+      const { updatedClient, payment } = await applyPendingItem(item, client, reservedReceipt);
       updatedClientsMap.set(updatedClient.id, updatedClient);
       newPayments.push(payment);
       usedFolios.add(normalizedFolio);

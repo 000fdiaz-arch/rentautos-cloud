@@ -1023,18 +1023,27 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     setSyncStatus("syncing");
     try {
       let refreshedPayments: Payment[];
+      let usedRecentFallback = false;
       if (cloudDataUserId) {
-        refreshedPayments = await measureAsync("manual payments refresh", () => loadCloudPayments(cloudDataUserId));
+        try {
+          refreshedPayments = await measureAsync("manual payments refresh", () => loadCloudPayments(cloudDataUserId));
+          setFullPaymentHistoryLoaded(true);
+        } catch (error) {
+          console.error("No se pudo cargar historial completo; se intentara cargar pagos recientes.", error);
+          refreshedPayments = await measureAsync("manual recent payments fallback", () => loadCloudPaymentsRecent(cloudDataUserId, INITIAL_PAYMENTS_LIMIT));
+          usedRecentFallback = true;
+          setFullPaymentHistoryLoaded(false);
+        }
       } else {
         const indexedPayments = await loadPaymentsFromIndexedDb();
         refreshedPayments = indexedPayments.length > 0 ? indexedPayments : loadPayments();
+        setFullPaymentHistoryLoaded(true);
       }
 
       setPayments(refreshedPayments);
-      setFullPaymentHistoryLoaded(true);
       if (!isSupabaseOnlyMode) savePayments(refreshedPayments);
       setSyncStatus("ok");
-      setSyncErrorMessage("");
+      setSyncErrorMessage(usedRecentFallback ? "No se pudo cargar el historial completo; se cargaron pagos recientes." : "");
       setLastSyncAt(new Date().toLocaleTimeString());
     } catch (error) {
       console.error("No se pudo actualizar manualmente el historial de pagos.", error);
@@ -1056,7 +1065,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         console.error("No se pudo guardar clientes/pagos en Supabase.", error);
         setClients(previousClients);
         setPayments(previousPayments);
-        return false;
+        throw error;
       }
       setClients(nextClients);
       setPayments(nextPayments);

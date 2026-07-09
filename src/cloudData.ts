@@ -47,6 +47,44 @@ function getClient() {
   return supabase;
 }
 
+function isTransientCloudError(error: unknown): boolean {
+  const record = typeof error === "object" && error !== null ? error as Record<string, unknown> : null;
+  const code = typeof record?.code === "string" ? record.code : "";
+  const message = error instanceof Error
+    ? error.message
+    : typeof record?.message === "string"
+    ? record.message
+    : "";
+  const details = typeof record?.details === "string" ? record.details : "";
+  const normalized = `${code} ${message} ${details}`.toLowerCase();
+  return (
+    normalized.includes("network") ||
+    normalized.includes("fetch") ||
+    normalized.includes("timeout") ||
+    normalized.includes("failed to fetch") ||
+    code === "57014" ||
+    code.startsWith("08")
+  );
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function withCloudRetry<T>(operation: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts || !isTransientCloudError(error)) throw error;
+      await wait(350 * attempt);
+    }
+  }
+  throw lastError;
+}
+
 function normalizeClientStatus(rawStatus: unknown, archivedAt: unknown): ClientStatus {
   const value = typeof rawStatus === "string" ? rawStatus.trim().toLowerCase() : "";
   if (
@@ -140,6 +178,61 @@ function extractCloudFoliosFromReference(reference: unknown): string[] {
       .replace(/^FOLIO\s*:?/i, "")
   );
   return legacyFallback ? [legacyFallback] : [];
+}
+
+function parseReceiptSequence(receiptNumber: unknown): number | null {
+  if (typeof receiptNumber !== "string") return null;
+  const match = receiptNumber.trim().toUpperCase().match(/^REC-([0-9]+)$/);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function formatReceiptSequence(seq: number): string {
+  return `REC-${String(seq).padStart(4, "0")}`;
+}
+
+async function loadCloudMaxReceiptSequence(userId: string): Promise<number> {
+  const client = getClient();
+  let maxSeq = 0;
+  let from = 0;
+  while (true) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await client
+      .from("payments_cloud")
+      .select("data")
+      .eq("user_id", userId)
+      .range(from, to);
+    if (error) throw error;
+    const rows = (data ?? []) as Array<{ data?: Payment }>;
+    for (const row of rows) {
+      const seq = parseReceiptSequence(row.data?.receiptNumber);
+      if (seq !== null && seq > maxSeq) maxSeq = seq;
+    }
+    if (rows.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return maxSeq;
+}
+
+function isMissingRpcFunctionError(error: unknown): boolean {
+  const record = typeof error === "object" && error !== null ? error as Record<string, unknown> : null;
+  const code = typeof record?.code === "string" ? record.code : "";
+  const message = error instanceof Error
+    ? error.message
+    : typeof record?.message === "string"
+    ? record.message
+    : "";
+  const details = typeof record?.details === "string" ? record.details : "";
+  const normalized = `${code} ${message} ${details}`.toLowerCase();
+  return (
+    code === "PGRST202" ||
+    normalized.includes("could not find the function") ||
+    normalized.includes("function public.find_existing_processed_payment_folios") ||
+    normalized.includes("function find_existing_processed_payment_folios") ||
+    normalized.includes("function public.next_receipt_numbers") ||
+    normalized.includes("function next_receipt_numbers")
+  );
 }
 
 async function deleteStaleRows(
@@ -268,9 +361,11 @@ export async function syncCloudClientsDelta(
     }));
 
   if (upsertRows.length > 0) {
-    const { error } = await client
-      .from("clients_cloud")
-      .upsert(upsertRows, { onConflict: "user_id,id" });
+    const { error } = await withCloudRetry(() =>
+      client
+        .from("clients_cloud")
+        .upsert(upsertRows, { onConflict: "user_id,id" })
+    );
     if (error) throw error;
   }
 
@@ -354,8 +449,29 @@ async function loadCloudPaymentsRecentUncached(userId: string, safeLimit: number
   return rows.map((row) => row.data);
 }
 
-export async function loadCloudProcessedPaymentFolios(userId: string): Promise<Set<string>> {
+export async function loadCloudProcessedPaymentFolios(userId: string, candidateFolios?: Iterable<string>): Promise<Set<string>> {
   const client = getClient();
+  const requestedFolios = candidateFolios
+    ? [...new Set([...candidateFolios].map(normalizeCloudFolioToken).filter((folio) => folio.length > 0))]
+    : [];
+  if (requestedFolios.length > 0) {
+    try {
+      const { data, error } = await client.rpc("find_existing_processed_payment_folios", {
+        p_owner_user_id: userId,
+        p_folios: requestedFolios
+      });
+      if (error) throw error;
+      return new Set(
+        (Array.isArray(data) ? data : [])
+          .map((folio) => normalizeCloudFolioToken(String(folio ?? "")))
+          .filter((folio) => folio.length > 0)
+      );
+    } catch (error) {
+      if (!isMissingRpcFunctionError(error)) throw error;
+      console.warn("Validacion rapida de folios no disponible; usando validacion historica.", error);
+    }
+  }
+
   const folios = new Set<string>();
   let lastId = "";
   while (true) {
@@ -387,59 +503,113 @@ export async function loadCloudProcessedPaymentFolios(userId: string): Promise<S
   return folios;
 }
 
-function parseReceiptSequence(receiptNumber: unknown): number | null {
-  if (typeof receiptNumber !== "string") return null;
-  const match = receiptNumber.trim().toUpperCase().match(/^REC-([0-9]+)$/);
-  if (!match) return null;
-  const value = Number(match[1]);
-  return Number.isFinite(value) ? value : null;
-}
-
-function formatReceiptSequence(seq: number): string {
-  return `REC-${String(seq).padStart(4, "0")}`;
-}
-
-async function loadCloudMaxReceiptSequence(userId: string): Promise<number> {
+async function reserveLegacyCloudReceiptNumber(userId: string, minimumSeq: number): Promise<string> {
   const client = getClient();
-  let maxSeq = 0;
-  let from = 0;
-  while (true) {
-    const to = from + PAGE_SIZE - 1;
-    const { data, error } = await client
-      .from("payments_cloud")
-      .select("data")
-      .eq("user_id", userId)
-      .range(from, to);
-    if (error) throw error;
-    const rows = (data ?? []) as Array<{ data?: Payment }>;
-    for (const row of rows) {
-      const seq = parseReceiptSequence(row.data?.receiptNumber);
-      if (seq !== null && seq > maxSeq) maxSeq = seq;
-    }
-    if (rows.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-  return maxSeq;
-}
-
-export async function reserveCloudReceiptNumber(userId: string): Promise<string> {
-  const client = getClient();
-  const [rpcResult, maxExistingSeq] = await Promise.all([
-    client.rpc("next_receipt_number", {
-      p_owner_user_id: userId
-    }),
-    loadCloudMaxReceiptSequence(userId)
-  ]);
-  const { data, error } = rpcResult;
+  const { data, error } = await client.rpc("next_receipt_number", {
+    p_owner_user_id: userId
+  });
   if (error) throw error;
   if (typeof data !== "string" || data.trim().length === 0) {
     throw new Error("Supabase no devolvio numero de recibo.");
   }
-  const reservedSeq = parseReceiptSequence(data);
-  if (reservedSeq !== null && reservedSeq <= maxExistingSeq) {
-    return formatReceiptSequence(maxExistingSeq + 1);
+  const reservedReceipt = data.trim().toUpperCase();
+  const reservedSeq = parseReceiptSequence(reservedReceipt);
+  if (reservedSeq === null) return reservedReceipt;
+  return formatReceiptSequence(Math.max(reservedSeq, minimumSeq));
+}
+
+async function loadReceiptSequenceForReservation(userId: string): Promise<number> {
+  const client = getClient();
+  const { data, error } = await client
+    .from("receipt_sequences_cloud")
+    .select("seq")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  const seq = Number((data as { seq?: unknown } | null)?.seq ?? 0);
+  if (Number.isFinite(seq) && seq > 0) return Math.floor(seq);
+
+  // Bootstrap only. Existing production users should already have this row,
+  // so normal payment registration avoids scanning the full payment history.
+  return loadCloudMaxReceiptSequence(userId);
+}
+
+async function saveReceiptSequence(userId: string, seq: number): Promise<void> {
+  const client = getClient();
+  const { error } = await client
+    .from("receipt_sequences_cloud")
+    .upsert({
+      user_id: userId,
+      seq: Math.max(0, Math.floor(seq)),
+      updated_at: new Date().toISOString()
+    }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export async function reserveCloudReceiptNumber(userId: string): Promise<string> {
+  const [receiptNumber] = await reserveCloudReceiptNumbers(userId, 1);
+  if (!receiptNumber) throw new Error("Supabase no devolvio numero de recibo.");
+  return receiptNumber;
+}
+
+async function reserveCloudReceiptNumbersFromSequence(userId: string, count: number): Promise<string[]> {
+  const safeCount = Math.max(1, Math.min(500, Math.floor(count)));
+  const currentSeq = await loadReceiptSequenceForReservation(userId);
+  const firstSeq = currentSeq + 1;
+  const lastSeq = currentSeq + safeCount;
+  await saveReceiptSequence(userId, lastSeq);
+  const receipts: string[] = [];
+  for (let seq = firstSeq; seq <= lastSeq; seq += 1) {
+    receipts.push(formatReceiptSequence(seq));
   }
-  return data.trim().toUpperCase();
+  return receipts;
+}
+
+export async function reserveCloudReceiptNumbers(userId: string, count: number): Promise<string[]> {
+  const safeCount = Math.max(1, Math.min(500, Math.floor(count)));
+  try {
+    return await reserveCloudReceiptNumbersFromSequence(userId, safeCount);
+  } catch (sequenceError) {
+    console.warn("No se pudo reservar recibo desde secuencia rapida; usando RPC legacy.", sequenceError);
+  }
+
+  const client = getClient();
+  const { data, error } = await withCloudRetry(() =>
+    client.rpc("next_receipt_numbers", {
+      p_owner_user_id: userId,
+      p_count: safeCount
+    })
+  );
+  if (error) {
+    if (!isMissingRpcFunctionError(error)) throw error;
+    const receipts: string[] = [];
+    let minimumSeq = (await loadCloudMaxReceiptSequence(userId)) + 1;
+    for (let index = 0; index < safeCount; index += 1) {
+      const receipt = await reserveLegacyCloudReceiptNumber(userId, minimumSeq);
+      receipts.push(receipt);
+      minimumSeq = (parseReceiptSequence(receipt) ?? minimumSeq) + 1;
+    }
+    return receipts;
+  }
+  if (!Array.isArray(data)) {
+    throw new Error("Supabase no devolvio numeros de recibo.");
+  }
+  let receipts = data
+    .map((value) => String(value ?? "").trim().toUpperCase())
+    .filter((value) => value.length > 0);
+  if (receipts.length !== safeCount) {
+    throw new Error("Supabase devolvio una cantidad incorrecta de recibos.");
+  }
+  const maxExistingSeq = await loadCloudMaxReceiptSequence(userId);
+  let nextSafeSeq = maxExistingSeq + 1;
+  receipts = receipts.map((receipt) => {
+    const reservedSeq = parseReceiptSequence(receipt);
+    if (reservedSeq === null) return receipt;
+    const safeSeq = Math.max(reservedSeq, nextSafeSeq);
+    nextSafeSeq = safeSeq + 1;
+    return formatReceiptSequence(safeSeq);
+  });
+  return receipts;
 }
 
 export async function saveCloudPayments(userId: string, payments: Payment[]): Promise<void> {
@@ -483,9 +653,11 @@ export async function syncCloudPaymentsDelta(
     }));
 
   if (upsertRows.length > 0) {
-    const { error } = await client
-      .from("payments_cloud")
-      .upsert(upsertRows, { onConflict: "user_id,id" });
+    const { error } = await withCloudRetry(() =>
+      client
+        .from("payments_cloud")
+        .upsert(upsertRows, { onConflict: "user_id,id" })
+    );
     if (error) throw error;
   }
 
