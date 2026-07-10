@@ -4421,6 +4421,17 @@ select.control-op-badge {
   text-rendering: geometricPrecision;
 }
 
+.receipt-card.receipt-card--history.receipt-card--image-export {
+  width: 488px;
+  margin: 0 auto;
+}
+
+.receipt-export-frame {
+  width: 528px;
+  padding: 10px 20px;
+  background: #ffffff;
+}
+
 .receipt-card.receipt-card--history :is(
   .receipt-history-number,
   .receipt-history-hidden-installments,

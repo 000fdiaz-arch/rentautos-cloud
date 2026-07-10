@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import PaymentReceipt, {
-  copyPaymentReceiptImage,
+  copyHistoryPaymentReceiptImage,
   downloadPaymentReceiptImage,
   downloadPaymentsReceiptsZip
 } from "../components/PaymentReceipt";
@@ -3975,7 +3975,7 @@ export default function PaymentsPage({
     });
 
     try {
-      await copyPaymentReceiptImage(payment, { format: "history" });
+      await copyHistoryPaymentReceiptImage(payment);
       setHistoryCopiedPaymentIds((previous) => {
         if (previous.has(payment.id)) return previous;
         const next = new Set(previous);

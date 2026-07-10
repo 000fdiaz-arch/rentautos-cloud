@@ -18,6 +18,9 @@ type ReceiptRenderOptions = {
 };
 
 const RECEIPT_IMAGE_SCALE = 3;
+const HISTORY_RECEIPT_IMAGE_SCALE = 1;
+const STANDARD_RECEIPT_RENDER_WIDTH = "760px";
+const HISTORY_RECEIPT_RENDER_WIDTH = "528px";
 
 type CoveredPaymentRow = {
   dateLabel: string;
@@ -316,7 +319,7 @@ async function renderReceiptCanvasFromPayment(payment: Payment, options: Receipt
   host.style.position = "fixed";
   host.style.left = "-10000px";
   host.style.top = "0";
-  host.style.width = "760px";
+  host.style.width = options.format === "history" ? HISTORY_RECEIPT_RENDER_WIDTH : STANDARD_RECEIPT_RENDER_WIDTH;
   host.style.pointerEvents = "none";
   host.style.zIndex = "-1";
   host.setAttribute("aria-hidden", "true");
@@ -327,8 +330,10 @@ async function renderReceiptCanvasFromPayment(payment: Payment, options: Receipt
   try {
     root.render(
       <div className="receipt-page">
-        <div className={options.format === "history" ? "receipt-card receipt-card--history" : "receipt-card"}>
-          <ReceiptCardContent payment={payment} format={options.format ?? "standard"} />
+        <div className={options.format === "history" ? "receipt-export-frame" : undefined}>
+          <div className={options.format === "history" ? "receipt-card receipt-card--history receipt-card--image-export" : "receipt-card"}>
+            <ReceiptCardContent payment={payment} format={options.format ?? "standard"} />
+          </div>
         </div>
       </div>
     );
@@ -339,14 +344,14 @@ async function renderReceiptCanvasFromPayment(payment: Payment, options: Receipt
       await document.fonts.ready;
     }
 
-    const target = host.querySelector(".receipt-card") as HTMLDivElement | null;
+    const target = host.querySelector(options.format === "history" ? ".receipt-export-frame" : ".receipt-card") as HTMLDivElement | null;
     if (!target) {
       throw new Error("Receipt preview container was not rendered.");
     }
 
     const html2canvas = (await import("html2canvas")).default;
     return html2canvas(target, {
-      scale: RECEIPT_IMAGE_SCALE,
+      scale: options.format === "history" ? HISTORY_RECEIPT_IMAGE_SCALE : RECEIPT_IMAGE_SCALE,
       backgroundColor: "#ffffff",
       useCORS: true,
       width: target.scrollWidth,
@@ -418,6 +423,10 @@ export async function copyPaymentReceiptImage(payment: Payment, options: Receipt
       "image/png": receiptBlob
     })
   ]);
+}
+
+export async function copyHistoryPaymentReceiptImage(payment: Payment): Promise<void> {
+  await copyPaymentReceiptImage(payment, { format: "history" });
 }
 
 export async function downloadPaymentsReceiptsZip(payments: Payment[], options: ReceiptRenderOptions = {}): Promise<void> {
