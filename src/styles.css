@@ -4840,9 +4840,26 @@ select.control-op-badge {
 }
 
 .receipt-history-alert--other {
-  border-color: #e6ca72;
-  background: linear-gradient(180deg, #fffdf0 0%, #fff9db 100%);
-  color: #92400e;
+  margin-top: 6px;
+  padding: 7px 12px;
+  border-color: #dbe3ee;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  color: #475569;
+  box-shadow:
+    0 4px 10px rgba(15, 23, 42, 0.035),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.receipt-history-alert--other span {
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.receipt-history-alert--other strong {
+  color: #334155;
+  font-size: 1.05rem;
+  font-weight: 900;
 }
 
 .receipt-history-alert--travel {
