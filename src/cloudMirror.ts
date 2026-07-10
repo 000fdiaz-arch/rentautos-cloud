@@ -73,6 +73,7 @@ const DAILY_COLLECTION_PM_SEALS_KEY = "cobrapp.clients.daily_collection_pm_seals
 const DAILY_COLLECTION_CLOSE_SEALS_KEY = "cobrapp.clients.daily_collection_close_seals.v1";
 const DAILY_COLLECTION_PROMISES_KEY = "cobrapp.clients.daily_collection_promises.v1";
 const DAILY_COLLECTION_STREET_ACTIONS_KEY = "cobrapp.clients.daily_collection_street_actions.v1";
+const INDEXED_DB_SENTINEL = "__indexeddb__";
 
 type InitializeCloudMirrorOptions = {
   skipKeys?: string[];
@@ -210,6 +211,7 @@ async function saveKeyToCloud(key: string, raw: string | null): Promise<void> {
 
 function scheduleSync(key: string, raw: string | null): void {
   if (!currentUserId || !SYNCED_KEYS.has(key)) return;
+  if (raw === INDEXED_DB_SENTINEL) return;
   const nextValue = raw ?? "";
   const previousValue = cachedValues.get(key);
   if (previousValue === nextValue && !pendingTimers.has(key)) return;

@@ -8,6 +8,7 @@ import CashClosingPage from "./pages/CashClosingPage";
 import ControlUnitsPage from "./pages/ControlUnitsPage";
 import {
   loadClients,
+  loadClientsFromIndexedDb,
   loadPayments,
   loadPaymentsFromIndexedDb,
   saveClients,
@@ -395,11 +396,19 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     let cancelled = false;
     (async () => {
       try {
-        const indexedPayments = await loadPaymentsFromIndexedDb();
-        if (cancelled || indexedPayments.length === 0) return;
-        setPayments((current) => (current.length > 0 ? current : indexedPayments));
+        const [indexedClients, indexedPayments] = await Promise.all([
+          loadClientsFromIndexedDb(),
+          loadPaymentsFromIndexedDb()
+        ]);
+        if (cancelled) return;
+        if (indexedClients.length > 0) {
+          setClients((current) => (current.length > 0 ? current : indexedClients));
+        }
+        if (indexedPayments.length > 0) {
+          setPayments((current) => (current.length > 0 ? current : indexedPayments));
+        }
       } catch (error) {
-        console.error("No se pudo hidratar pagos desde IndexedDB.", error);
+        console.error("No se pudo hidratar cache local desde IndexedDB.", error);
       }
     })();
     return () => {

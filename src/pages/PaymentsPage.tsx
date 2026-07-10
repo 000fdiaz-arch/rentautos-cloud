@@ -1730,7 +1730,24 @@ export default function PaymentsPage({
     return closedDateSet.has(dateKey);
   }
 
-  function applyNextDayChargesFromClosing(closingDateKey: string): ChargeApplyResult {
+  function getChargeTargetDateKey(closingDateKey: string): string | null {
+    const closingDate = parseDateKey(closingDateKey);
+    if (!closingDate) return null;
+    const targetDate = new Date(closingDate);
+    targetDate.setDate(targetDate.getDate() + 1);
+    return toDateKey(targetDate);
+  }
+
+  function hasChargeRunForClosing(closingDateKey: string): boolean {
+    const targetDateKey = getChargeTargetDateKey(closingDateKey);
+    if (!targetDateKey) return false;
+    return chargeRuns.some((run) => run.targetDate === targetDateKey);
+  }
+
+  function applyNextDayChargesFromClosing(
+    closingDateKey: string,
+    options: { repairExistingRun?: boolean; forceIncompleteZeroRun?: boolean } = {}
+  ): ChargeApplyResult {
     const closingDate = parseDateKey(closingDateKey);
     if (!closingDate) {
       return {
@@ -1748,7 +1765,14 @@ export default function PaymentsPage({
     const targetDate = new Date(closingDate);
     targetDate.setDate(targetDate.getDate() + 1);
     const targetDateKey = toDateKey(targetDate);
-    const alreadyProcessed = chargeRuns.some((r) => r.targetDate === targetDateKey);
+    const existingRun = chargeRuns.find((r) => r.targetDate === targetDateKey);
+    const alreadyProcessed = !!existingRun;
+    const shouldForceIncompleteZeroRun = !!(
+      options.forceIncompleteZeroRun &&
+      existingRun &&
+      existingRun.chargedClients === 0 &&
+      roundMoney(existingRun.chargedTotal) === 0
+    );
 
     const lateFeeResult = applyLateFeesForClosingDate({
       clients,
@@ -1762,7 +1786,7 @@ export default function PaymentsPage({
     const lateFeeClients = lateFeeResult.lateFeeClients;
     const lateFeeTotal = lateFeeResult.lateFeeTotal;
 
-    if (alreadyProcessed) {
+    if (alreadyProcessed && !options.repairExistingRun) {
       if (newLateFeeEntries.length > 0) {
         const nextLedger = [...newLateFeeEntries, ...lateFeeLedger].slice(0, 10000);
         setLateFeeLedger(nextLedger);
@@ -1799,13 +1823,18 @@ export default function PaymentsPage({
       }
       const clientLastCharge = client.lastChargeDate ? parseDateKey(client.lastChargeDate) : null;
       const alreadyChargedThruTarget = clientLastCharge !== null && clientLastCharge >= targetDate;
+      const dateWasAdvancedWithoutCharge = !!(
+        shouldForceIncompleteZeroRun &&
+        clientLastCharge !== null &&
+        toDateKey(clientLastCharge) === targetDateKey
+      );
       const canCharge = Number.isFinite(client.rentAmount) && client.rentAmount > 0;
       const shouldChargeByRule = canCharge && isChargeDay(client, targetDate);
       if (shouldChargeByRule) expectedClients += 1;
       const balanceBefore = roundMoney(client.balance);
       const lastBefore = client.lastChargeDate ?? "-";
 
-      if (shouldChargeByRule && alreadyChargedThruTarget) {
+      if (shouldChargeByRule && alreadyChargedThruTarget && !dateWasAdvancedWithoutCharge) {
         rows.push({
           clientId: client.id,
           unitId: client.unitId,
@@ -1823,7 +1852,7 @@ export default function PaymentsPage({
         return client;
       }
 
-      const shouldCharge = !alreadyChargedThruTarget && shouldChargeByRule;
+      const shouldCharge = (!alreadyChargedThruTarget || dateWasAdvancedWithoutCharge) && shouldChargeByRule;
       if (!shouldCharge) {
         const reason = alreadyChargedThruTarget
           ? "Sin cobro: fecha ya cubierta"
@@ -1913,7 +1942,10 @@ export default function PaymentsPage({
       chargedTotal,
       createdAt: new Date().toISOString()
     };
-    const nextRuns = [run, ...chargeRuns].slice(0, 400);
+    const remainingRuns = options.repairExistingRun
+      ? chargeRuns.filter((item) => item.targetDate !== targetDateKey)
+      : chargeRuns;
+    const nextRuns = [run, ...remainingRuns].slice(0, 400);
     setChargeRuns(nextRuns);
     saveChargeRuns(nextRuns);
 
@@ -3279,8 +3311,39 @@ export default function PaymentsPage({
       return;
     }
     if (isDateClosed(date)) {
-      setCashClosingError(`La caja de ${date} ya estaba cerrada.`);
-      setCashClosingInfo("");
+      const hadExistingRun = hasChargeRunForClosing(date);
+      const chargeResult = applyNextDayChargesFromClosing(date, {
+        repairExistingRun: true,
+        forceIncompleteZeroRun: true
+      });
+      const closeReport: ChargeCloseReport = {
+        closingDate: date,
+        targetDate: chargeResult.targetDate,
+        status: chargeResult.blockingError ? "warning" : "ok",
+        expectedClients: chargeResult.expectedClients,
+        chargedClients: chargeResult.chargedClients,
+        anomalyClients: chargeResult.anomalyClients,
+        chargedTotal: chargeResult.chargedTotal,
+        generatedAt: new Date().toISOString(),
+        rows: chargeResult.rows
+      };
+      setLastCloseReport(closeReport);
+
+      if (chargeResult.blockingError) {
+        setCashClosingError(chargeResult.blockingError);
+        setCashClosingInfo("");
+        return;
+      }
+
+      const chargeInfo = hadExistingRun && chargeResult.chargedClients === 0
+        ? `Cobros revisados para ${chargeResult.targetDate}: no habia cargos nuevos pendientes. Esperados ${chargeResult.expectedClients}.`
+        : `Cobros reparados para ${chargeResult.targetDate}: esperados ${chargeResult.expectedClients}, cobrados ${chargeResult.chargedClients}, total ${formatCurrency(chargeResult.chargedTotal)}.`;
+      const lateFeeInfo = chargeResult.lateFeeClients > 0
+        ? ` Recargos por tardanza: ${chargeResult.lateFeeClients} cliente(s), total ${formatCurrency(chargeResult.lateFeeTotal)}.`
+        : "";
+      setCashClosingError("");
+      setCashClosingInfo(`La caja de ${date} ya estaba cerrada. ${chargeInfo}${lateFeeInfo}`);
+      onCashClose?.();
       return;
     }
 

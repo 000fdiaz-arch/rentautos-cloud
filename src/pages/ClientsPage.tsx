@@ -1186,6 +1186,55 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     await onClientsChange(next);
   }
 
+  function describeCloudSaveError(baseMessage: string, error: unknown): string {
+    const record = typeof error === "object" && error !== null ? error as Record<string, unknown> : null;
+    const code = typeof record?.code === "string" ? record.code : "";
+    const message = error instanceof Error
+      ? error.message
+      : typeof record?.message === "string"
+      ? record.message
+      : "";
+    const details = typeof record?.details === "string" ? record.details : "";
+    const hint = typeof record?.hint === "string" ? record.hint : "";
+    const normalized = `${code} ${message} ${details} ${hint}`.toLowerCase();
+
+    if (normalized.includes("row-level security") || normalized.includes("permission denied") || code === "42501") {
+      return `${baseMessage} Motivo exacto: permisos insuficientes en Supabase (RLS/owner).`;
+    }
+    if (normalized.includes("jwt") || normalized.includes("token") || normalized.includes("not authenticated") || code === "PGRST303") {
+      return `${baseMessage} Motivo exacto: sesion expirada o no autenticada.`;
+    }
+    if (normalized.includes("network") || normalized.includes("fetch") || normalized.includes("timeout")) {
+      return `${baseMessage} Motivo exacto: problema de conexion/red.`;
+    }
+
+    const raw = [code, message, details, hint]
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
+      .join(" | ");
+    return raw ? `${baseMessage} Motivo exacto: ${raw.slice(0, 220)}` : baseMessage;
+  }
+
+  async function wasClientSavedInCloud(client: Client): Promise<boolean> {
+    if (!dataOwnerUserId || !supabase) return false;
+    const { data, error } = await supabase
+      .from("clients_cloud")
+      .select("data")
+      .eq("user_id", dataOwnerUserId)
+      .eq("id", client.id)
+      .maybeSingle();
+    if (error) {
+      console.error("No se pudo verificar si el cliente quedo guardado en nube.", error);
+      return false;
+    }
+    const saved = (data as { data?: Partial<Client> } | null)?.data;
+    return (
+      saved?.id === client.id &&
+      saved?.unitId === client.unitId &&
+      saved?.name === client.name
+    );
+  }
+
   useEffect(() => {
     const timerId = window.setInterval(() => {
       setNow(new Date());
@@ -1588,18 +1637,26 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     if (editingClientId !== null) {
       const existing = clients.find((client) => client.id === editingClientId);
       if (!existing) { setErrors(["No se encontro el cliente a editar."]); return; }
+      const nextClient = buildClient(normalizedForm, existing);
       try {
-        await persist(clients.map((client) => client.id === editingClientId ? buildClient(normalizedForm, existing) : client));
-      } catch {
-        setErrors(["No se pudo guardar el cliente en la nube. Intenta de nuevo antes de continuar."]);
-        return;
+        await persist(clients.map((client) => client.id === editingClientId ? nextClient : client));
+      } catch (error) {
+        console.error("No se pudo guardar el cliente en la nube.", error);
+        if (!(await wasClientSavedInCloud(nextClient))) {
+          setErrors([describeCloudSaveError("No se pudo guardar el cliente en la nube.", error)]);
+          return;
+        }
       }
     } else {
+      const nextClient = buildClient(normalizedForm);
       try {
-        await persist([...clients, buildClient(normalizedForm)]);
-      } catch {
-        setErrors(["No se pudo crear el cliente en la nube. Intenta de nuevo antes de continuar."]);
-        return;
+        await persist([...clients, nextClient]);
+      } catch (error) {
+        console.error("No se pudo crear el cliente en la nube.", error);
+        if (!(await wasClientSavedInCloud(nextClient))) {
+          setErrors([describeCloudSaveError("No se pudo crear el cliente en la nube.", error)]);
+          return;
+        }
       }
     }
 

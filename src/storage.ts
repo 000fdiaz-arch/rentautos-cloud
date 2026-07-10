@@ -20,10 +20,11 @@ import type {
 const CLIENTS_KEY = "cobrapp.module1.clients.v1";
 const PAYMENTS_KEY = "cobrapp.module2.payments.v1";
 const SEQ_KEY = "cobrapp.payments.seq.v1";
-const PAYMENTS_INDEXED_DB_NAME = "cobrapp-storage";
-const PAYMENTS_INDEXED_DB_STORE = "kv";
+const INDEXED_DB_NAME = "cobrapp-storage";
+const INDEXED_DB_STORE = "kv";
+const CLIENTS_INDEXED_DB_KEY = "clients.v1";
 const PAYMENTS_INDEXED_DB_KEY = "payments.v1";
-const PAYMENTS_INDEXED_DB_SENTINEL = "__indexeddb__";
+const INDEXED_DB_SENTINEL = "__indexeddb__";
 
 const WEEKLY_DAYS = new Set([
   "monday",
@@ -245,6 +246,7 @@ function normalizeClient(item: unknown): Client | null {
 export function loadClients(): Client[] {
   const raw = localStorage.getItem(CLIENTS_KEY);
   if (!raw) return [];
+  if (raw === INDEXED_DB_SENTINEL) return [];
 
   try {
     const parsed = JSON.parse(raw) as unknown[];
@@ -266,7 +268,17 @@ export function loadClients(): Client[] {
 }
 
 export function saveClients(clients: Client[]): void {
-  localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
+  // Los listados grandes de clientes pueden superar el limite de localStorage.
+  // Persistimos canonico en IndexedDB y dejamos una marca ligera en localStorage.
+  void writeIndexedDb(CLIENTS_INDEXED_DB_KEY, clients).catch((error) => {
+    console.error("No se pudo guardar clientes en IndexedDB.", error);
+  });
+
+  try {
+    localStorage.setItem(CLIENTS_KEY, INDEXED_DB_SENTINEL);
+  } catch (error) {
+    console.error("No se pudo actualizar marcador de clientes en localStorage.", error);
+  }
 }
 
 // -- Payments --
@@ -397,10 +409,63 @@ function normalizePayment(item: unknown): Payment | null {
   };
 }
 
+function openStorageDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(INDEXED_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(INDEXED_DB_STORE)) {
+        db.createObjectStore(INDEXED_DB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error ?? new Error("No se pudo abrir IndexedDB."));
+  });
+}
+
+async function writeIndexedDb(key: string, value: unknown): Promise<void> {
+  const db = await openStorageDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(INDEXED_DB_STORE, "readwrite");
+      const store = tx.objectStore(INDEXED_DB_STORE);
+      store.put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("No se pudo guardar en IndexedDB."));
+      tx.onabort = () => reject(tx.error ?? new Error("Se aborto el guardado en IndexedDB."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function readIndexedDb(key: string): Promise<unknown> {
+  const db = await openStorageDb();
+  try {
+    return await new Promise<unknown>((resolve, reject) => {
+      const tx = db.transaction(INDEXED_DB_STORE, "readonly");
+      const store = tx.objectStore(INDEXED_DB_STORE);
+      const req = store.get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error ?? new Error("No se pudo leer desde IndexedDB."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function loadClientsFromIndexedDb(): Promise<Client[]> {
+  const value = await readIndexedDb(CLIENTS_INDEXED_DB_KEY);
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => normalizeClient(item))
+    .filter((item): item is Client => item !== null);
+}
+
 export function loadPayments(): Payment[] {
   const raw = localStorage.getItem(PAYMENTS_KEY);
   if (!raw) return [];
-  if (raw === PAYMENTS_INDEXED_DB_SENTINEL) return [];
+  if (raw === INDEXED_DB_SENTINEL) return [];
 
   try {
     const parsed = JSON.parse(raw) as unknown[];
@@ -414,64 +479,23 @@ export function loadPayments(): Payment[] {
   }
 }
 
-function openPaymentsDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(PAYMENTS_INDEXED_DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(PAYMENTS_INDEXED_DB_STORE)) {
-        db.createObjectStore(PAYMENTS_INDEXED_DB_STORE);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error("No se pudo abrir IndexedDB para pagos."));
-  });
-}
-
-async function writePaymentsIndexedDb(payments: Payment[]): Promise<void> {
-  const db = await openPaymentsDb();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(PAYMENTS_INDEXED_DB_STORE, "readwrite");
-      const store = tx.objectStore(PAYMENTS_INDEXED_DB_STORE);
-      store.put(payments, PAYMENTS_INDEXED_DB_KEY);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error("No se pudo guardar pagos en IndexedDB."));
-      tx.onabort = () => reject(tx.error ?? new Error("Se aborto el guardado de pagos en IndexedDB."));
-    });
-  } finally {
-    db.close();
-  }
-}
-
 export async function loadPaymentsFromIndexedDb(): Promise<Payment[]> {
-  const db = await openPaymentsDb();
-  try {
-    const value = await new Promise<unknown>((resolve, reject) => {
-      const tx = db.transaction(PAYMENTS_INDEXED_DB_STORE, "readonly");
-      const store = tx.objectStore(PAYMENTS_INDEXED_DB_STORE);
-      const req = store.get(PAYMENTS_INDEXED_DB_KEY);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error ?? new Error("No se pudo leer pagos desde IndexedDB."));
-    });
+  const value = await readIndexedDb(PAYMENTS_INDEXED_DB_KEY);
     if (!Array.isArray(value)) return [];
     return value
       .map((item) => normalizePayment(item))
       .filter((item): item is Payment => item !== null);
-  } finally {
-    db.close();
-  }
 }
 
 export function savePayments(payments: Payment[]): void {
   // Los historiales grandes de pagos pueden superar el limite de localStorage.
   // Persistimos canonico en IndexedDB y dejamos una marca ligera en localStorage.
-  void writePaymentsIndexedDb(payments).catch((error) => {
+  void writeIndexedDb(PAYMENTS_INDEXED_DB_KEY, payments).catch((error) => {
     console.error("No se pudo guardar pagos en IndexedDB.", error);
   });
 
   try {
-    localStorage.setItem(PAYMENTS_KEY, PAYMENTS_INDEXED_DB_SENTINEL);
+    localStorage.setItem(PAYMENTS_KEY, INDEXED_DB_SENTINEL);
   } catch (error) {
     console.error("No se pudo actualizar marcador de pagos en localStorage.", error);
   }
