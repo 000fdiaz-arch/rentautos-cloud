@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import ClientsPage from "./pages/ClientsPage";
-import Clients20Page from "./pages/Clients20Page";
 import PaymentsPage from "./pages/PaymentsPage";
-import ReceivablesPage from "./pages/ReceivablesPage";
 import SettingsPage from "./pages/SettingsPage";
-import CashClosingPage from "./pages/CashClosingPage";
 import ControlUnitsPage from "./pages/ControlUnitsPage";
 import {
   loadClients,
@@ -26,14 +23,11 @@ import {
 } from "./storage";
 import {
   loadCloudClients,
-  loadCloudCollectionClosures,
   loadCloudPayments,
   loadCloudPaymentsRecent,
-  loadCloudStreetManagement,
   normalizeCloudClient,
   saveCloudClients,
   saveCloudPayments,
-  saveCloudStreetManagement,
   syncCloudStreetManagementDelta,
   syncCloudClientsDelta,
   syncCloudPaymentsDelta
@@ -54,7 +48,7 @@ import {
 import type { BankRule, Client, LateFeeSettings, OtherChargesRetentionByClient, Payment } from "./types";
 import "./styles.css";
 
-type AppPage = "clients" | "clients_20" | "payments" | "receivables" | "control_units" | "settings" | "cash_closing";
+type AppPage = "clients" | "payments" | "control_units" | "settings";
 type PendingCoreSyncSnapshot = {
   userId: string;
   token: number;
@@ -65,9 +59,9 @@ type PendingCoreSyncSnapshot = {
 
 const PENDING_CORE_SYNC_KEY = "cobrapp.cloud.pending_core_sync.v1";
 const CORE_DATA_FALLBACK_POLL_MS = 5 * 60_000;
-const RECEIVABLES_FALLBACK_POLL_MS = 5 * 60_000;
 const PERF_LOGS_ENABLED = import.meta.env.VITE_PERF_LOGS === "1";
 const INITIAL_PAYMENTS_LIMIT = 300;
+const CLOUD_BOOT_BLOCK_MS = 10_000;
 // IMPORTANTE: no cambiar este formato para saldos/clientes/pagos.
 // Supabase debe ser la unica fuente de verdad; no rehidratar saldos desde localStorage.
 const CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS = [
@@ -110,13 +104,14 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const canManageSettings = appRole === "admin";
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = dataOwnerUserId ?? userId;
-  const [page, setPage] = useState<AppPage>(isReadOnlyReceivables ? "receivables" : "clients");
+  const [page, setPage] = useState<AppPage>(isReadOnlyReceivables ? "control_units" : "clients");
   const [clients, setClients] = useState<Client[]>(() => (isSupabaseOnlyMode ? [] : loadClients()));
   const [payments, setPayments] = useState<Payment[]>(() => (isSupabaseOnlyMode ? [] : loadPayments()));
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
   const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
   const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>(() => loadOtherChargesRetentionByClient());
   const [cloudReady, setCloudReady] = useState<boolean>(false);
+  const [cloudBootTimedOut, setCloudBootTimedOut] = useState<boolean>(false);
   const [cloudLoadError, setCloudLoadError] = useState<string>("");
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "ok" | "error">("idle");
   const [syncErrorMessage, setSyncErrorMessage] = useState<string>("");
@@ -146,14 +141,25 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const coreSyncInFlightRef = useRef<boolean>(false);
 
   useEffect(() => {
-    if (isReadOnlyReceivables && page !== "receivables" && page !== "control_units") {
-      setPage("receivables");
+    if (isReadOnlyReceivables && page !== "control_units") {
+      setPage("control_units");
       return;
     }
     if (!canManageSettings && page === "settings") {
-      setPage(isReadOnlyReceivables ? "receivables" : "clients");
+      setPage(isReadOnlyReceivables ? "control_units" : "clients");
     }
   }, [canManageSettings, isReadOnlyReceivables, page]);
+
+  useEffect(() => {
+    if (!userId || cloudReady) {
+      setCloudBootTimedOut(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setCloudBootTimedOut(true);
+    }, CLOUD_BOOT_BLOCK_MS);
+    return () => window.clearTimeout(timer);
+  }, [cloudReady, userId]);
 
   function buildCloudErrorMessage(
     baseMessage: string,
@@ -692,17 +698,10 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         setCloudLoadError("");
         setSyncErrorMessage("");
         setSyncStatus("syncing");
-        void measureAsync("cloud mirror bootstrap", () =>
-          initializeCloudMirror(cloudDataUserId, { skipKeys: CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS })
-        ).catch((error) => {
-          console.error("No se pudo inicializar cloud mirror.", error);
-        });
-        const [cloudClientsData, cloudPaymentsData, cloudStreetManagement, cloudCollectionClosures] =
+        const [cloudClientsData, cloudPaymentsData] =
           await measureAsync("initial cloud core load", () => Promise.all([
             measureAsync("load clients", () => loadCloudClients(cloudDataUserId)),
-            measureAsync("load recent payments", () => loadCloudPaymentsRecent(cloudDataUserId, INITIAL_PAYMENTS_LIMIT)),
-            measureAsync("load street management", () => loadCloudStreetManagement(cloudDataUserId)),
-            measureAsync("load collection closures", () => loadCloudCollectionClosures(cloudDataUserId))
+            measureAsync("load recent payments", () => loadCloudPaymentsRecent(cloudDataUserId, INITIAL_PAYMENTS_LIMIT))
           ]));
         if (cancelled) return;
         const bootstrapClients =
@@ -732,14 +731,17 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
         // Mantiene cache local opcional cuando no estamos en modo estricto nube.
         saveCoreCache(duplicateRepair.clients, bootstrapPayments);
-        setStreetManagementData(cloudStreetManagement);
-        lastStreetManagementSnapshotRef.current = stableSerialize(cloudStreetManagement);
-        localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(cloudCollectionClosures));
-        recalculateRouteCollectionCount(cloudStreetManagement);
         setSyncStatus("ok");
         setSyncErrorMessage("");
         setLastSyncAt(new Date().toLocaleTimeString());
         setCloudReady(true);
+        window.setTimeout(() => {
+          void measureAsync("cloud mirror bootstrap", () =>
+            initializeCloudMirror(cloudDataUserId, { skipKeys: CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS })
+          ).catch((error) => {
+            console.error("No se pudo inicializar cloud mirror.", error);
+          });
+        }, 1200);
       } catch (err) {
         console.error("No se pudo cargar data cloud.", err);
         setSyncStatus("error");
@@ -785,15 +787,9 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         setClients(duplicateRepair.clients);
         mergePaymentsKeepingExisting(cloudPaymentsData);
         saveCoreCache(duplicateRepair.clients, cloudPaymentsData);
-        setSyncStatus("ok");
-        setSyncErrorMessage("");
         setLastSyncAt(new Date().toLocaleTimeString());
       } catch (error) {
         console.error("No se pudo refrescar clientes/pagos desde nube.", error);
-        if (!cancelled) {
-          setSyncStatus("error");
-          setSyncErrorMessage(buildCloudErrorMessage("Fallo el refresco de clientes/pagos desde nube.", error, { includeRawFallback: true }));
-        }
       }
     };
 
@@ -848,85 +844,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         window.clearTimeout(coreSyncRetryTimerRef.current);
         coreSyncRetryTimerRef.current = null;
       }
-    };
-  }, [cloudDataUserId, cloudReady]);
-
-  useEffect(() => {
-    if (!cloudDataUserId || !cloudReady || !supabase) return;
-
-    const channel = supabase
-      .channel(`receivables-live-${cloudDataUserId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "street_management_cloud",
-          filter: `user_id=eq.${cloudDataUserId}`
-        },
-        (payload) => {
-          const row = payload.new as { data?: unknown } | null;
-          const data = row?.data;
-          if (!data || typeof data !== "object" || Array.isArray(data)) return;
-          const nextData = data as Record<string, unknown>;
-          setStreetManagementData((current) => {
-            const mergedData = mergeStreetManagementByTimestamp(current, nextData);
-            const incomingSnapshot = stableSerialize(mergedData);
-            if (incomingSnapshot === lastStreetManagementSnapshotRef.current) return current;
-            lastStreetManagementSnapshotRef.current = incomingSnapshot;
-            recalculateRouteCollectionCount(mergedData);
-            return mergedData;
-          });
-          setLastSyncAt(new Date().toLocaleTimeString());
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "collection_closures_cloud",
-          filter: `user_id=eq.${cloudDataUserId}`
-        },
-        (payload) => {
-          const row = payload.new as { data?: unknown } | null;
-          const data = row?.data;
-          if (!data || typeof data !== "object" || Array.isArray(data)) return;
-          localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(data));
-          setLastSyncAt(new Date().toLocaleTimeString());
-        }
-      )
-      .subscribe();
-
-    // Fallback poll in case realtime is briefly interrupted.
-    const fallbackTimer = window.setInterval(() => {
-      if (document.hidden) return;
-      void (async () => {
-        try {
-          const [streetManagement, collectionClosures] = await Promise.all([
-            loadCloudStreetManagement(cloudDataUserId),
-            loadCloudCollectionClosures(cloudDataUserId)
-          ]);
-          setStreetManagementData((current) => {
-            const mergedData = mergeStreetManagementByTimestamp(current, streetManagement);
-            const incomingSnapshot = stableSerialize(mergedData);
-            if (incomingSnapshot !== lastStreetManagementSnapshotRef.current) {
-              lastStreetManagementSnapshotRef.current = incomingSnapshot;
-              recalculateRouteCollectionCount(mergedData);
-              return mergedData;
-            }
-            return current;
-          });
-          localStorage.setItem("cobrapp.module3.collection_closures.v1", JSON.stringify(collectionClosures));
-        } catch (error) {
-          console.error("No se pudo refrescar Cobro en Ruta desde nube.", error);
-        }
-      })();
-    }, RECEIVABLES_FALLBACK_POLL_MS);
-
-    return () => {
-      window.clearInterval(fallbackTimer);
-      void supabase.removeChannel(channel);
     };
   }, [cloudDataUserId, cloudReady]);
 
@@ -994,6 +911,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
 
   async function persistClients(next: Client[]): Promise<void> {
     if (!canWriteOperationalData) return;
+    if (userId && !cloudReady) return;
     const previousClients = clients;
     const previousPayments = payments;
     setClients(next);
@@ -1011,6 +929,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
 
   async function persistPayments(next: Payment[]): Promise<void> {
     if (!canWriteOperationalData) return;
+    if (userId && !cloudReady) return;
     const previousClients = clients;
     const previousPayments = payments;
     setPayments(next);
@@ -1233,6 +1152,17 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     await onSignOut?.();
   }
 
+  if (userId && !cloudReady && !cloudBootTimedOut) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <h1>Rentautos</h1>
+          <p>Cargando data de nube...</p>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <>
       <nav className="app-nav">
@@ -1251,29 +1181,12 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             {canWriteOperationalData && (
               <button
                 type="button"
-                className={`nav-tab ${page === "clients_20" ? "nav-tab--active" : ""}`}
-                onClick={() => setPage("clients_20")}
-              >
-                Clientes 2.0
-              </button>
-            )}
-            {canWriteOperationalData && (
-              <button
-                type="button"
                 className={`nav-tab ${page === "payments" ? "nav-tab--active" : ""}`}
                 onClick={() => setPage("payments")}
               >
                 Pagos
               </button>
             )}
-            <button
-              type="button"
-              className={`nav-tab ${page === "receivables" ? "nav-tab--active" : ""}`}
-              onClick={() => setPage("receivables")}
-            >
-              Cuentas por Cobrar
-              {routeCollectionCount > 0 && <span className="nav-tab-badge">Ruta: {routeCollectionCount}</span>}
-            </button>
             <button
               type="button"
               className={`nav-tab ${page === "control_units" ? "nav-tab--active" : ""}`}
@@ -1288,15 +1201,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
                 onClick={() => setPage("settings")}
               >
                 Configuraciones
-              </button>
-            )}
-            {canWriteOperationalData && (
-              <button
-                type="button"
-                className={`nav-tab ${page === "cash_closing" ? "nav-tab--active" : ""}`}
-                onClick={() => setPage("cash_closing")}
-              >
-                Cuadre de Caja
               </button>
             )}
           </div>
@@ -1367,18 +1271,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             onQuickCashPrefillConsumed={() => setCashPaymentPrefill(null)}
           />
         )}
-        {page === "clients_20" && canWriteOperationalData && (
-          <Clients20Page clients={clients} dataOwnerUserId={cloudDataUserId} />
-        )}
-        {page === "receivables" && (
-          <ReceivablesPage
-            clients={clients}
-            payments={payments}
-            hideCollectedThisMonth={isReadOnlyReceivables}
-            streetManagementData={streetManagementData}
-            onStreetManagementPersist={persistStreetManagement}
-          />
-        )}
         {page === "control_units" && (
           <ControlUnitsPage
             dataOwnerUserId={cloudDataUserId}
@@ -1406,15 +1298,6 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             backupStatus={backupStatus}
             hasPendingChanges={hasPendingChanges}
             lastBackupAt={lastBackupAt}
-          />
-        )}
-        {page === "cash_closing" && canWriteOperationalData && (
-          <CashClosingPage
-            clients={clients}
-            payments={payments}
-            appRole={appRole}
-            dataOwnerUserId={cloudDataUserId}
-            onStartCashClientPayment={handleStartCashClientPayment}
           />
         )}
       </main>

@@ -6889,3 +6889,271 @@ select.control-op-badge {
     text-align: left;
   }
 }
+
+.clients-luxury-page .client-directory-filters {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) minmax(180px, 260px) minmax(220px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.clients-luxury-page .client-directory-filters select,
+.clients-luxury-page .client-directory-filters input {
+  width: 100%;
+  min-width: 0;
+}
+
+.clients-luxury-page .client-directory-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: #f8fbff;
+}
+
+.clients-luxury-page .client-directory-table {
+  width: 100%;
+  min-width: 1180px;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.clients-luxury-page .client-directory-col-unit {
+  width: 12%;
+}
+
+.clients-luxury-page .client-directory-col-client {
+  width: 21%;
+}
+
+.clients-luxury-page .client-directory-col-contract {
+  width: 14%;
+}
+
+.clients-luxury-page .client-directory-col-balance {
+  width: 10%;
+}
+
+.clients-luxury-page .client-directory-col-installments {
+  width: 13%;
+}
+
+.clients-luxury-page .client-directory-col-charges {
+  width: 15%;
+}
+
+.clients-luxury-page .client-directory-col-status {
+  width: 7%;
+}
+
+.clients-luxury-page .client-directory-col-actions {
+  width: 8%;
+}
+
+.clients-luxury-page .client-directory-table th,
+.clients-luxury-page .client-directory-table td {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.clients-luxury-page .client-directory-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  padding: 13px 10px;
+  text-align: left;
+  background: linear-gradient(180deg, #ffffff 0%, #f4f8ff 48%, #e9f1fb 100%);
+  border-bottom: 2px solid rgba(14, 165, 160, 0.5);
+  color: #1c3049;
+  font-size: 0.86rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.clients-luxury-page .client-directory-table tbody td {
+  padding: 12px 10px;
+  vertical-align: top;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.clients-luxury-page .client-directory-table tbody tr:nth-child(even) {
+  background: rgba(241, 247, 255, 0.72);
+}
+
+.clients-luxury-page .client-directory-table tbody tr:hover {
+  background: rgba(236, 253, 245, 0.42);
+}
+
+.clients-luxury-page .client-directory-table .clients-unit-id {
+  display: block;
+  font-size: 1.55rem;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.clients-luxury-page .client-directory-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.clients-luxury-page .client-directory-actions .button {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 6px 8px;
+  white-space: normal;
+  line-height: 1.1;
+  font-size: 0.78rem;
+  border-radius: 10px;
+}
+
+.clients-luxury-page .client-directory-table td:nth-child(7) select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.clients-luxury-page .client-inline-edit {
+  display: grid;
+  gap: 5px;
+  margin-top: 0;
+  color: #51647f;
+  font-size: 0.74rem;
+  line-height: 1.15;
+}
+
+.clients-luxury-page .client-inline-edit span,
+.clients-luxury-page .client-inline-edit-title,
+.clients-luxury-page .client-inline-edit-group label span {
+  font-weight: 700;
+  color: #334155;
+}
+
+.clients-luxury-page .client-inline-edit label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.clients-luxury-page .client-inline-edit input,
+.clients-luxury-page .client-inline-edit-group input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 4px 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #0f172a;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.clients-luxury-page .client-inline-edit input:focus,
+.clients-luxury-page .client-inline-edit-group input:focus {
+  outline: none;
+  border-color: #0f766e;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.14);
+}
+
+.clients-luxury-page .client-inline-edit small {
+  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.clients-luxury-page .client-inline-edit--installments {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.clients-luxury-page .client-inline-edit--installments small {
+  grid-column: 1 / -1;
+}
+
+.clients-luxury-page .client-inline-edit--charges-column {
+  grid-template-columns: minmax(78px, 1.2fr) minmax(64px, 0.8fr);
+}
+
+.clients-luxury-page .client-inline-edit-group {
+  margin-top: 9px;
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.78);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.clients-luxury-page .client-inline-edit-title {
+  grid-column: 1 / -1;
+  font-size: 0.76rem;
+}
+
+.clients-luxury-page .client-inline-edit-group label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.clients-luxury-page .client-inline-edit-group small {
+  grid-column: 1 / -1;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.clients-luxury-page .client-inline-edit-group--charges {
+  grid-template-columns: minmax(130px, 1.3fr) minmax(80px, 0.7fr);
+}
+
+@media (max-width: 1200px) {
+  .clients-luxury-page .client-directory-col-unit {
+    width: 11%;
+  }
+
+  .clients-luxury-page .client-directory-col-client {
+    width: 20%;
+  }
+
+  .clients-luxury-page .client-directory-col-contract {
+    width: 13%;
+  }
+
+  .clients-luxury-page .client-directory-col-balance {
+    width: 10%;
+  }
+
+  .clients-luxury-page .client-directory-col-installments {
+    width: 14%;
+  }
+
+  .clients-luxury-page .client-directory-col-charges {
+    width: 16%;
+  }
+
+  .clients-luxury-page .client-directory-col-status {
+    width: 7%;
+  }
+
+  .clients-luxury-page .client-directory-col-actions {
+    width: 9%;
+  }
+}
+
+@media (max-width: 900px) {
+  .clients-luxury-page .client-directory-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .clients-luxury-page .client-directory-table-wrap {
+    overflow-x: auto;
+  }
+
+  .clients-luxury-page .client-directory-table {
+    min-width: 1080px;
+  }
+}

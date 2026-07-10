@@ -516,6 +516,8 @@ type Props = {
   dataOwnerUserId?: string | null;
 };
 
+type ClientsViewTab = "current" | "legacy";
+
 export default function ClientsPage({ clients, payments = [], onPaymentsChange, onClientsChange, dataOwnerUserId }: Props) {
   const [now, setNow] = useState<Date>(() => new Date());
   const [form, setForm] = useState<ClientForm>(initialForm);
@@ -539,6 +541,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     comment: string;
   } | null>(null);
   const [editClientTab, setEditClientTab] = useState<EditClientTab>("identidad");
+  const [clientsViewTab, setClientsViewTab] = useState<ClientsViewTab>("current");
   const topScrollRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const topScrollInnerRef = useRef<HTMLDivElement>(null);
@@ -842,6 +845,22 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
 
     return filtered;
   }, [clients, fleetUnitOptions, operationalReferenceDate]);
+
+  const clients20Rows = useMemo(() => {
+    const fleetUnits = new Set(
+      fleetUnitOptions
+        .map((unit) => unit.trim().toUpperCase())
+        .filter((unit) => unit.length > 0)
+    );
+
+    return clients
+      .filter((client) => {
+        const unit = client.unitId.trim().toUpperCase();
+        if (!unit) return true;
+        return !fleetUnits.has(unit);
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [clients, fleetUnitOptions]);
 
   const visibleRows = rows;
   const collectionDashboard = useMemo(() => {
@@ -1184,6 +1203,61 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
 
   async function persist(next: Client[]): Promise<void> {
     await onClientsChange(next);
+  }
+
+  function roundInlineMoney(value: number): number {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+  }
+
+  function updateClientInline(clientId: string, updater: (client: Client) => Client): void {
+    const nextClients = clients.map((client) => client.id === clientId ? updater(client) : client);
+    setErrors([]);
+    void persist(nextClients).catch((error) => {
+      console.error("No se pudo guardar edicion rapida de cliente.", error);
+      setErrors([describeCloudSaveError("No se pudo guardar la edicion rapida.", error)]);
+    });
+  }
+
+  function handleInlineBalanceChange(client: Client, rawValue: string): void {
+    const value = Number(rawValue);
+    if (!Number.isFinite(value) || value < 0) return;
+    updateClientInline(client.id, (current) => ({
+      ...current,
+      balance: roundInlineMoney(value)
+    }));
+  }
+
+  function handleInlineInstallmentsChange(client: Client, field: "paid" | "agreed", rawValue: string): void {
+    const value = Number(rawValue);
+    if (!Number.isInteger(value) || value < 0) return;
+    updateClientInline(client.id, (current) => {
+      const installmentsAgreed = field === "agreed" ? value : current.installmentsAgreed;
+      const installmentsPaid = Math.min(field === "paid" ? value : current.installmentsPaid, installmentsAgreed);
+      return {
+        ...current,
+        installmentsAgreed,
+        installmentsPaid,
+        installmentsRemaining: Math.max(0, installmentsAgreed - installmentsPaid)
+      };
+    });
+  }
+
+  function handleInlineOtherChargesChange(client: Client, rawLabel: string, rawValue: string): void {
+    const label = rawLabel.trim();
+    const value = Number(rawValue);
+    if (!Number.isFinite(value) || value < 0) return;
+    const amount = roundInlineMoney(value);
+    if (amount > 0 && !label) {
+      setErrors(["Para guardar otros cargos debes indicar el concepto."]);
+      return;
+    }
+    setErrors([]);
+    updateClientInline(client.id, (current) => ({
+      ...current,
+      otherCharges: amount > 0
+        ? [{ id: current.otherCharges[0]?.id ?? crypto.randomUUID(), label, amount }]
+        : []
+    }));
   }
 
   function describeCloudSaveError(baseMessage: string, error: unknown): string {
@@ -1701,6 +1775,15 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
     setErrors([]);
     setErrorFields(new Set());
     setIsFormOpen(false);
+  }
+
+  function handleOpenNewClient(): void {
+    setEditingClientId(null);
+    setEditClientTab("identidad");
+    setForm(initialForm);
+    setErrors([]);
+    setErrorFields(new Set());
+    setIsFormOpen(true);
   }
 
   function isStatusAllowedForClient(client: Client, nextStatus: Client["status"]): boolean {
@@ -2772,6 +2855,407 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
       )}
 
       <section className="panel">
+        <div className="panel-head">
+          <div>
+            <h2>Clientes</h2>
+            <p className="hint">Consulta rapida de cliente, unidad asignada y datos del contrato.</p>
+          </div>
+          <div className="panel-actions">
+            <button
+              type="button"
+              className="button ghost"
+              onClick={() => setIsExportOpen((open) => !open)}
+            >
+              {isExportOpen ? "Cerrar exportacion" : "Exportar"}
+            </button>
+            <button type="button" className="button primary" onClick={handleOpenNewClient}>
+              Agregar cliente
+            </button>
+          </div>
+        </div>
+
+        <div className="cash-view-tabs" style={{ margin: "12px 0" }}>
+          <button
+            type="button"
+            className={`button ghost small ${clientsViewTab === "current" ? "cash-tab-active" : ""}`}
+            onClick={() => setClientsViewTab("current")}
+          >
+            Clientes
+          </button>
+          <button
+            type="button"
+            className={`button ghost small ${clientsViewTab === "legacy" ? "cash-tab-active" : ""}`}
+            onClick={() => setClientsViewTab("legacy")}
+          >
+            Clientes 2.0
+          </button>
+        </div>
+
+        {isExportOpen && (
+          <div className="export-panel">
+            <p className="export-title">Selecciona las columnas a exportar:</p>
+            <div className="export-fields">
+              {exportFields.map((field) => (
+                <label key={field.key} className="export-field-label">
+                  <input type="checkbox" checked={field.enabled} onChange={() =>
+                    setExportFields((current) => current.map((f) => f.key === field.key ? { ...f, enabled: !f.enabled } : f))
+                  } />
+                  {field.label}
+                </label>
+              ))}
+            </div>
+            <div className="export-actions">
+              <button type="button" className="button primary" onClick={handleExportExcel} disabled={isExporting}>
+                {isExporting ? "Exportando..." : "Descargar Excel"}
+              </button>
+              <button type="button" className="button ghost" onClick={handleExportPDF} disabled={isExporting}>
+                Descargar PDF
+              </button>
+            </div>
+            {exportError !== null && <p className="hint error-text">{exportError}</p>}
+            <p className="hint">Se exportan los {rows.length} clientes visibles con los filtros actuales.</p>
+          </div>
+        )}
+
+        {clientsViewTab === "current" ? (
+          <>
+            <div className="clients-general-filters client-directory-filters" style={{ marginBottom: 12 }}>
+              <select
+                value={generalGroupFilter}
+                onChange={(e) => setGeneralGroupFilter(e.target.value as GeneralGroupFilterKey)}
+                title="Filtrar por grupo"
+              >
+                <option value="ALL">Todos</option>
+                <option value="T">Grupo T</option>
+                <option value="A">Grupo A</option>
+                <option value="B">Grupo B</option>
+                <option value="C">Grupo C</option>
+                <option value="D">Grupo D</option>
+              </select>
+              <input
+                type="search"
+                value={unitSearchFilter}
+                onChange={(event) => setUnitSearchFilter(event.target.value)}
+                placeholder="Buscar unidad"
+                aria-label="Buscar por numero de unidad"
+              />
+              <input
+                type="search"
+                value={clientNameSearchFilter}
+                onChange={(event) => setClientNameSearchFilter(event.target.value)}
+                placeholder="Buscar cliente"
+                aria-label="Buscar por nombre del cliente"
+              />
+              {(unitSearchFilter || clientNameSearchFilter) && (
+                <button
+                  type="button"
+                  className="clients-filter-clear"
+                  onClick={() => {
+                    setUnitSearchFilter("");
+                    setClientNameSearchFilter("");
+                  }}
+                >
+                  Limpiar
+                </button>
+              )}
+            </div>
+
+            <div className="table-scroll client-directory-table-wrap">
+              <table className="client-directory-table">
+                <colgroup>
+                  <col className="client-directory-col-unit" />
+                  <col className="client-directory-col-client" />
+                  <col className="client-directory-col-contract" />
+                  <col className="client-directory-col-balance" />
+                  <col className="client-directory-col-installments" />
+                  <col className="client-directory-col-charges" />
+                  <col className="client-directory-col-status" />
+                  <col className="client-directory-col-actions" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Unidad</th>
+                    <th>Cliente</th>
+                    <th>Contrato</th>
+                    <th>Saldo</th>
+                    <th>Cuotas</th>
+                    <th>Otros cargos</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayedRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="empty">Aun no hay clientes con ese filtro.</td>
+                    </tr>
+                  ) : (
+                    displayedRows.map(({ client, unitId, debtStartDate, nextChargeDate }) => {
+                      const vehicle = fleetDetailsByUnit[unitId];
+                      const otherChargesTotal = client ? client.otherCharges.reduce((sum, charge) => sum + charge.amount, 0) : 0;
+                      const firstOtherCharge = client?.otherCharges[0];
+                      const nextChargeLabel = client
+                        ? (debtStartDate ? `Debe desde ${formatDate(debtStartDate)}` : nextChargeDate ? `Al dia hasta ${formatPaymentDateKey(toDateKey(nextChargeDate))}` : "Al dia")
+                        : "-";
+                      return (
+                        <tr key={client?.id ?? `fleet-${unitId}`} className={!client ? "clients-row--no-driver" : ""}>
+                          <td>
+                            <strong className="clients-unit-id">{unitId}</strong>
+                            <div className="debt-meta">{vehicle?.plate ? `Placa ${vehicle.plate}` : "Sin placa registrada"}</div>
+                            <div className="debt-meta">{vehicle?.brand_model ?? "Sin modelo registrado"}</div>
+                          </td>
+                          <td>
+                            {client ? (
+                              <>
+                                <strong>{client.name}</strong>
+                                <div className="debt-meta">Cedula: {client.cedula ?? "-"}</div>
+                                <div className="debt-meta">Primer cobro: {client.firstChargeDate ?? "-"}</div>
+                              </>
+                            ) : (
+                              <>
+                                <strong>Sin cliente asignado</strong>
+                                <div className="debt-meta">Unidad disponible para asignacion.</div>
+                              </>
+                            )}
+                          </td>
+                          <td>
+                            {client ? (
+                              <>
+                                <strong>{formatCurrency(client.rentAmount)}</strong>
+                                <span className={`badge ${client.frequency === "daily" ? "badge-good" : client.frequency === "weekly" ? "badge-warning" : client.frequency === "biweekly" ? "badge-debt" : "badge-good"}`} style={{ marginLeft: 8 }}>
+                                  {FREQUENCY_LABEL[client.frequency]}
+                                </span>
+                                <div className="debt-meta">{nextChargeLabel}</div>
+                              </>
+                            ) : "-"}
+                          </td>
+                          <td>
+                            {client ? (
+                              <label className="client-inline-edit">
+                                <span>Debe</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  defaultValue={client.balance}
+                                  onBlur={(event) => handleInlineBalanceChange(client, event.currentTarget.value)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") event.currentTarget.blur();
+                                  }}
+                                />
+                              </label>
+                            ) : "-"}
+                          </td>
+                          <td>
+                            {client ? (
+                              <div className="client-inline-edit client-inline-edit--installments">
+                                <label>
+                                  <span>Pagadas</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    defaultValue={client.installmentsPaid}
+                                    onBlur={(event) => handleInlineInstallmentsChange(client, "paid", event.currentTarget.value)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") event.currentTarget.blur();
+                                    }}
+                                  />
+                                </label>
+                                <label>
+                                  <span>Total</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    defaultValue={client.installmentsAgreed}
+                                    onBlur={(event) => handleInlineInstallmentsChange(client, "agreed", event.currentTarget.value)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") event.currentTarget.blur();
+                                    }}
+                                  />
+                                </label>
+                                <small>Restan: {client.installmentsRemaining}</small>
+                              </div>
+                            ) : "-"}
+                          </td>
+                          <td>
+                            {client ? (
+                              <div className="client-inline-edit client-inline-edit--charges-column">
+                                <label>
+                                  <span>Concepto</span>
+                                  <input
+                                    type="text"
+                                    defaultValue={firstOtherCharge?.label ?? ""}
+                                    placeholder="Ej. Mant."
+                                    data-client-charge-label={client.id}
+                                    onBlur={(event) => {
+                                      const amountInput = event.currentTarget
+                                        .closest(".client-inline-edit")
+                                        ?.querySelector<HTMLInputElement>("input[data-client-charge-amount]");
+                                      handleInlineOtherChargesChange(client, event.currentTarget.value, amountInput?.value ?? "0");
+                                    }}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") event.currentTarget.blur();
+                                    }}
+                                  />
+                                </label>
+                                <label>
+                                  <span>Monto</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    defaultValue={otherChargesTotal}
+                                    data-client-charge-amount={client.id}
+                                    onBlur={(event) => {
+                                      const labelInput = event.currentTarget
+                                        .closest(".client-inline-edit")
+                                        ?.querySelector<HTMLInputElement>("input[data-client-charge-label]");
+                                      handleInlineOtherChargesChange(client, labelInput?.value ?? "", event.currentTarget.value);
+                                    }}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") event.currentTarget.blur();
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                            ) : "-"}
+                          </td>
+                          <td>
+                            {client ? (
+                              <select
+                                className={operationalToneClass(client.status)}
+                                value={client.status}
+                                onChange={(e) => handleStatusSelection(client, e.target.value as Client["status"])}
+                                title={client.statusComment ? `Motivo: ${client.statusComment}` : undefined}
+                              >
+                                {STATUS_EDIT_OPTIONS.map((status) => (
+                                  <option
+                                    key={status}
+                                    value={status}
+                                    disabled={status === "cliente_enfermo" && client.frequency !== "daily"}
+                                  >
+                                    {STATUS_LABEL[status]}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className="badge badge-warning">Libre</span>
+                            )}
+                          </td>
+                          <td>
+                            <div className="client-directory-actions">
+                              <button type="button" className="button ghost small" onClick={() => setVehicleInfoUnit(unitId)}>
+                                Ver unidad
+                              </button>
+                              {client ? (
+                                <>
+                                  <button type="button" className="button ghost small" onClick={() => setClientInfoId(client.id)}>
+                                    Ver cliente
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="button ghost small"
+                                    onClick={() => {
+                                      handleStartEditClient(client);
+                                      setEditClientTab("identidad");
+                                    }}
+                                  >
+                                    Editar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="button ghost small"
+                                    onClick={() => handleUnlinkClient(client)}
+                                    title="Desvincular cliente de esta unidad"
+                                  >
+                                    Desvincular
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="button primary small"
+                                  onClick={() => handleCreateClientFromUnit(unitId)}
+                                >
+                                  Crear Cliente
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="hint" style={{ marginBottom: 12 }}>
+              Clientes sin unidad asignada o con unidad no registrada en flota. Estado aplicado: Inactivo.
+            </p>
+            <div className="table-scroll client-directory-table-wrap">
+              <table className="client-directory-table client-directory-table--legacy">
+                <colgroup>
+                  <col className="client-directory-col-client" />
+                  <col className="client-directory-col-status" />
+                  <col className="client-directory-col-unit" />
+                  <col className="client-directory-col-status" />
+                  <col className="client-directory-col-actions" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Cliente</th>
+                    <th>Cedula</th>
+                    <th>Unidad/ID</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {clients20Rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="empty">No hay clientes para Clientes 2.0.</td>
+                    </tr>
+                  ) : (
+                    clients20Rows.map((client) => (
+                      <tr key={client.id}>
+                        <td><strong>{client.name}</strong></td>
+                        <td>{client.cedula ?? "-"}</td>
+                        <td>{client.unitId?.trim() ? client.unitId : "-"}</td>
+                        <td><span className="badge badge-warning">Inactivo</span></td>
+                        <td>
+                          <div className="client-directory-actions">
+                            <button type="button" className="button ghost small" onClick={() => setClientInfoId(client.id)}>
+                              Ver cliente
+                            </button>
+                            <button
+                              type="button"
+                              className="button ghost small"
+                              onClick={() => {
+                                handleStartEditClient(client);
+                                setEditClientTab("identidad");
+                              }}
+                            >
+                              Editar
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </section>
+
+      {false && (
+      <section className="panel">
         {isExportOpen && (
           <div className="export-panel">
             <p className="export-title">Selecciona las columnas a exportar:</p>
@@ -3520,6 +4004,7 @@ export default function ClientsPage({ clients, payments = [], onPaymentsChange, 
           </>
         )}
       </section>
+      )}
     </div>
   );
 }

@@ -16,6 +16,7 @@ type FormState = {
 
 type OtherChargesSortField = "unit" | "client" | "pending" | "retention" | "cycle" | "status";
 type SortDirection = "asc" | "desc";
+type SettingsTab = "backup" | "migration" | "late_fees" | "other_charges" | "bank_rules";
 
 type OtherChargesFilters = {
   unit: string;
@@ -70,6 +71,14 @@ const EMPTY_OTHER_CHARGES_FILTERS: OtherChargesFilters = {
   status: ""
 };
 
+const SETTINGS_TABS: Array<{ id: SettingsTab; label: string }> = [
+  { id: "backup", label: "Respaldo" },
+  { id: "migration", label: "Migracion" },
+  { id: "late_fees", label: "Recargos" },
+  { id: "other_charges", label: "Otros cargos" },
+  { id: "bank_rules", label: "Regla bancaria" }
+];
+
 function normalizeAccountNumber(value: string): string {
   return value.replace(/\D+/g, "");
 }
@@ -116,6 +125,7 @@ export default function SettingsPage({
   const [backupImportStatus, setBackupImportStatus] = useState<string>("");
   const [backupBusy, setBackupBusy] = useState(false);
   const [manualBackupInfo, setManualBackupInfo] = useState<string>("");
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("backup");
 
   const activeRules = useMemo(
     () => bankRules.filter((r) => r.active).sort((a, b) => a.accountNumber.localeCompare(b.accountNumber)),
@@ -483,6 +493,25 @@ export default function SettingsPage({
 
   return (
     <>
+      <section className="panel settings-tabs-panel">
+        <div className="panel-head">
+          <h2>Configuraciones</h2>
+        </div>
+        <div className="cash-view-tabs settings-tabs">
+          {SETTINGS_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              className={`button ghost small ${activeSettingsTab === tab.id ? "cash-tab-active" : ""}`}
+              onClick={() => setActiveSettingsTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {activeSettingsTab === "backup" && (
       <section className="panel">
         <div className="panel-head">
           <h2>Respaldo automatico</h2>
@@ -507,7 +536,9 @@ export default function SettingsPage({
         </div>
         {manualBackupInfo && <p className="hint" style={{ marginTop: 8 }}>{manualBackupInfo}</p>}
       </section>
+      )}
 
+      {activeSettingsTab === "migration" && (
       <section className="panel">
         <div className="panel-head">
           <h2>Migracion de respaldo</h2>
@@ -579,7 +610,9 @@ export default function SettingsPage({
           </>
         )}
       </section>
+      )}
 
+      {activeSettingsTab === "late_fees" && (
       <section className="panel">
         <div className="panel-head">
           <h2>Recargos por mora</h2>
@@ -680,7 +713,9 @@ export default function SettingsPage({
           </table>
         </div>
       </section>
+      )}
 
+      {activeSettingsTab === "other_charges" && (
       <section className="panel">
         <div className="panel-head">
           <h2>Otros cargos</h2>
@@ -803,7 +838,10 @@ export default function SettingsPage({
           </table>
         </div>
       </section>
+      )}
 
+      {activeSettingsTab === "bank_rules" && (
+      <>
       <section className="panel">
         <div className="panel-head">
           <h2>Regla bancaria</h2>
@@ -924,7 +962,8 @@ export default function SettingsPage({
           </div>
         </section>
       )}
+      </>
+      )}
     </>
   );
 }
-

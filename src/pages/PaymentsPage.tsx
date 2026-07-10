@@ -170,6 +170,8 @@ type PendingBankPreview = {
   installmentsAgreed: number;
   installmentsRemainingAfter: number;
   installmentsDeducted: number;
+  totalOtherCharges: number;
+  forcedOtherChargesRuleApplied: boolean;
   balanceAfter: number;
   installmentsCoveredByAdvance: number;
   upToDateUntil: string | null;
@@ -1528,16 +1530,16 @@ export default function PaymentsPage({
       const assignedClient = item.suggestedClientId ? (clientById.get(item.suggestedClientId) ?? null) : null;
       const hasOtherCharges = !!(assignedClient?.otherCharges?.length);
       const { nombre, centavos, notificado, score } = getSimilaritySignals(item);
-      const isHighSim = score >= 2 && !hasOtherCharges && !!assignedClient;
+      const isHighSim = score >= 2 && !!assignedClient;
       const unitProbability = score >= 3 ? "Alta" : score === 2 ? "Media" : score === 1 ? "Baja" : "Sin datos";
       const pendingPreview = getPendingBankPreview(item, assignedClient);
       const actionLabels = [
-        isHighSim && assignedClient ? "Aplicar" : "",
-        assignedClient && (!isHighSim || hasOtherCharges) ? (hasOtherCharges ? "Revisar cargos" : "Revisar") : "",
+        assignedClient ? (hasOtherCharges ? "Aplicar auto" : "Aplicar") : "",
+        assignedClient && hasOtherCharges ? "Editar cargos" : "",
         "Ignorar"
       ].filter(Boolean).join(" ");
       const previewLabel = pendingPreview
-        ? `Renta ${formatCurrency(pendingPreview.rentAmount)} ${pendingPreview.frequencyLabel} Pactadas ${pendingPreview.installmentsAgreed} Cuotas ${pendingPreview.installmentsRemainingAfter} Impacto ${pendingPreview.installmentsDeducted} Cobro ${formatCurrency(pendingPreview.balanceAfter)}`
+        ? `Renta ${formatCurrency(pendingPreview.rentAmount)} ${pendingPreview.frequencyLabel} Otros cargos ${formatCurrency(pendingPreview.totalOtherCharges)} Pactadas ${pendingPreview.installmentsAgreed} Cuotas ${pendingPreview.installmentsRemainingAfter} Impacto ${pendingPreview.installmentsDeducted} Cobro ${formatCurrency(pendingPreview.balanceAfter)}`
         : "Sin vista previa";
       const unitLabel = assignedClient ? `${assignedClient.unitId} ${assignedClient.name}` : "Sin asignar";
       const groupLabel = item.mappedGroup ? `Grupo ${item.mappedGroup}` : "";
@@ -2424,7 +2426,7 @@ export default function PaymentsPage({
     setPendingClassifyError("");
     setIsPendingClassifySaving(false);
     setPendingClassifyTarget(item);
-    setPendingManualOverrideForcedOtherCharges(roundMoney(item.centsPart) > 0);
+    setPendingManualOverrideForcedOtherCharges(false);
     if (item.suggestedClientId) {
       const c = clients.find((cl) => cl.id === item.suggestedClientId);
       setPendingClassifyClientId(item.suggestedClientId);
@@ -2923,7 +2925,7 @@ export default function PaymentsPage({
     if (!client) return null;
     const balanceBefore = roundMoney(Math.max(0, client.balance));
     const wholePart = roundMoney(Math.max(0, item.capitalPart));
-    const { totalOtherCharges } = computeEffectiveOtherChargesAllocation(
+    const { totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
       client,
       {},
       wholePart,
@@ -2965,6 +2967,8 @@ export default function PaymentsPage({
       installmentsAgreed: Math.max(0, client.installmentsAgreed ?? 0),
       installmentsRemainingAfter,
       installmentsDeducted,
+      totalOtherCharges,
+      forcedOtherChargesRuleApplied: forcedRuleApplied,
       balanceAfter,
       installmentsCoveredByAdvance,
       upToDateUntil
@@ -3075,10 +3079,6 @@ export default function PaymentsPage({
         setErrors([`No se puede registrar el folio ${normalizedFolio}: ya fue utilizado.`]);
         return;
       }
-      if (client.otherCharges && client.otherCharges.length > 0) {
-        handleOpenClassify(item);
-        return;
-      }
       const { updatedClient, payment } = await applyPendingItem(item, client);
       const updatedClients = clients.map((c) => (c.id === updatedClient.id ? updatedClient : c));
       const saved = await persistClientPaymentState(updatedClients, [...payments, payment]);
@@ -3104,8 +3104,7 @@ export default function PaymentsPage({
       const { score } = getSimilaritySignals(item);
       if (score < 2) return false;
       const client = clients.find((c) => c.id === item.suggestedClientId);
-      // Skip items with otros cargos - need manual review
-      if (!client || (client.otherCharges && client.otherCharges.length > 0)) return false;
+      if (!client) return false;
       return true;
     });
     if (highSim.length === 0) return;
@@ -4956,7 +4955,7 @@ export default function PaymentsPage({
               const { score } = getSimilaritySignals(item);
               if (score < 2) return false;
               const c = clients.find((cl) => cl.id === item.suggestedClientId);
-              return c && !(c.otherCharges?.length);
+              return !!c;
             }) && (
               <button type="button" className="button primary small" onClick={() => void handleApplyAllHighSimilarity()}>
                 Aplicar alta similitud
@@ -4979,7 +4978,7 @@ export default function PaymentsPage({
         {isPendingOpen && (
           <>
             <p className="hint" style={{ marginTop: 8 }}>
-              La importacion aplica regla automatica por cuenta y grupo. En edicion manual puedes asignar cualquier cliente.
+              La importacion aplica regla automatica por cuenta y grupo. Si el cliente tiene otros cargos, se usa la tabla de Configuraciones automaticamente; usa Editar cargos solo cuando necesites ajustar ese pago.
             </p>
             {hasPendingColumnFilters && (
               <div style={{ marginTop: 8 }}>
@@ -5031,9 +5030,9 @@ export default function PaymentsPage({
                       const hasOtherCharges = !!(assignedClient?.otherCharges?.length);
                       const isPreMatched = !!item.suggestedClientId;
                       const { nombre, centavos, notificado, score } = getSimilaritySignals(item);
-                      const isHighSim = score >= 2 && !hasOtherCharges && !!assignedClient;
+                      const isHighSim = score >= 2 && !!assignedClient;
                       const unitProbability = score >= 3 ? "Alta" : score === 2 ? "Media" : score === 1 ? "Baja" : "Sin datos";
-                      const rowClass = hasOtherCharges ? "pending-row--other-charges" : isHighSim ? "pending-row--high-sim" : isPreMatched ? "pending-row--ready" : "";
+                      const rowClass = isHighSim ? "pending-row--high-sim" : hasOtherCharges ? "pending-row--other-charges" : isPreMatched ? "pending-row--ready" : "";
                       const pendingPreview = getPendingBankPreview(item, assignedClient);
                       const upToDateUntilDate = pendingPreview?.upToDateUntil
                         ? parseDateKey(pendingPreview.upToDateUntil)
@@ -5118,6 +5117,12 @@ export default function PaymentsPage({
                               <div className="pending-preview-card">
                                 <div className="pending-preview-row"><span>Renta</span><strong>{formatCurrency(pendingPreview.rentAmount)}</strong></div>
                                 <div className="pending-preview-row"><span>Frecuencia</span><strong>{pendingPreview.frequencyLabel}</strong></div>
+                                {pendingPreview.totalOtherCharges > 0 && (
+                                  <div className="pending-preview-row">
+                                    <span>{pendingPreview.forcedOtherChargesRuleApplied ? "Otros cargos auto" : "Otros cargos"}</span>
+                                    <strong className="amount-warning">{formatCurrency(pendingPreview.totalOtherCharges)}</strong>
+                                  </div>
+                                )}
                                 <div className="pending-preview-row"><span>Cuotas pactadas</span><strong>{pendingPreview.installmentsAgreed}</strong></div>
                                 <div className="pending-preview-row"><span>Cuotas restantes despues del pago</span><strong>{pendingPreview.installmentsRemainingAfter}</strong></div>
                                 {pendingPreview.balanceAfter <= 0 && (
@@ -5142,19 +5147,19 @@ export default function PaymentsPage({
                           </td>
                           <td style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.description}>{item.description}</td>
                           <td className="actions-cell">
-                            {assignedClient && !hasOtherCharges && (
+                            {assignedClient && (
                               <button
                                 type="button"
                                 className="button primary small"
                                 disabled={pendingApplyingFolio !== null || isPendingClassifySaving}
                                 onClick={() => void handleQuickApply(item)}
                               >
-                                {pendingApplyingFolio === item.folio ? "Aplicando..." : "Aplicar"}
+                                {pendingApplyingFolio === item.folio ? "Aplicando..." : hasOtherCharges ? "Aplicar auto" : "Aplicar"}
                               </button>
                             )}
                             {assignedClient && hasOtherCharges && (
                               <button type="button" className="button ghost small" onClick={() => handleOpenClassify(item)}>
-                                {isInlineReviewOpen ? "Cerrar revisión" : "Revisar cargos"}
+                                {isInlineReviewOpen ? "Cerrar edición" : "Editar cargos"}
                               </button>
                             )}
                             <button type="button" className="button danger small" onClick={() => handleDismissPending(item.folio)}>
