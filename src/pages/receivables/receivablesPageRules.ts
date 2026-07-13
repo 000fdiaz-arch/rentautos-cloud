@@ -1,0 +1,176 @@
+import { formatCurrency } from "../../format";
+import { PLAN_LABEL, type ReceivableRow, type ReceivableState, type SortDirection } from "../../receivables";
+import type { Client } from "../../types";
+import type { CollectionStatus, CollectionStatusRecord, FieldManagementType } from "./receivablesTypes";
+
+export type DashboardFilter = "none" | "totalPorCobrar" | "totalVencido" | "proximoAVencer" | "clientesMorosos" | "cobradoEsteMes";
+export type ExportFieldKey = "unitId" | "name" | "rentAmount" | "pendingSummary" | "lastPaymentDate" | "state" | "collectionStatus" | "routeCollection";
+export type ExportField = { key: ExportFieldKey; label: string; enabled: boolean };
+export type CollectionStatusFilter = "all" | CollectionStatus;
+export type GroupFilter = "all" | string;
+export type ReceivablesViewMode = "cartera" | "historial";
+
+export type CollectionClosureItem = {
+  clientId: string;
+  unitId: string;
+  clientName: string;
+  lastPaymentDate: string | null;
+  receivableState: string;
+  totalPending: number;
+  collectionStatus: CollectionStatus;
+  comment: string;
+  autoApplied: boolean;
+};
+
+export type CollectionClosureSnapshot = {
+  date: string;
+  closedAt: string;
+  actor: string;
+  reason: string;
+  totals: Record<CollectionStatus, number>;
+  items: CollectionClosureItem[];
+};
+
+export type CollectionClosuresByDate = Record<string, CollectionClosureSnapshot>;
+
+export const STATE_FILTER_OPTIONS: Array<{ value: ReceivableState; label: string }> = [
+  { value: "alDia", label: "Al dia" },
+  { value: "proximo", label: "Proximo a vencer" },
+  { value: "venceHoy", label: "Vence hoy" },
+  { value: "vencido", label: "Vencido" },
+  { value: "critico", label: "Moroso critico" }
+];
+
+export const COLLECTION_STATUS_OPTIONS: Array<{ value: CollectionStatus; label: string }> = [
+  { value: "no_answer", label: "Llamada no responde, se dejo mensaje." },
+  { value: "reminder", label: "Mensaje recordatorio." },
+  { value: "call_later", label: "Llamar mas tarde." },
+  { value: "paid", label: "Pago confirmado." }
+];
+
+export const INITIAL_EXPORT_FIELDS: ExportField[] = [
+  { key: "unitId", label: "Unidad", enabled: true },
+  { key: "name", label: "Nombre", enabled: true },
+  { key: "rentAmount", label: "Letra", enabled: true },
+  { key: "pendingSummary", label: "Cuentas pendiente", enabled: true },
+  { key: "lastPaymentDate", label: "Ultima fecha de pago", enabled: true },
+  { key: "state", label: "Estado", enabled: true },
+  { key: "collectionStatus", label: "ESTADO COBRANZA", enabled: true },
+  { key: "routeCollection", label: "COBRO EN RUTA", enabled: true }
+];
+
+export const COLLECTION_CLOSURES_KEY = "cobrapp.module3.collection_closures.v1";
+
+export function renderSortIcon(active: boolean, direction: SortDirection): string {
+  if (!active) return "<>";
+  return direction === "asc" ? "^" : "v";
+}
+
+export function stateToneClass(state: ReceivableRow["state"]): string {
+  if (state === "alDia") return "ar-badge ar-badge--good";
+  if (state === "proximo") return "ar-badge ar-badge--warn";
+  if (state === "venceHoy") return "ar-badge ar-badge--today";
+  if (state === "vencido") return "ar-badge ar-badge--debt";
+  return "ar-badge ar-badge--critical";
+}
+
+export function clientOperationalStatusLabel(status: Client["status"]): string {
+  if (status === "activo") return "Activo";
+  if (status === "cliente_enfermo") return "Enfermo";
+  if (status === "taller") return "Taller";
+  if (status === "chapisteria") return "Chapisteria";
+  if (status === "custodia") return "Custodia";
+  if (status === "en_busqueda") return "En busqueda";
+  return "Archivado";
+}
+
+export function clientOperationalStatusTone(status: Client["status"]): string {
+  if (status === "activo") return "ar-badge ar-badge--good";
+  if (status === "cliente_enfermo") return "ar-badge ar-badge--warn";
+  if (status === "taller" || status === "chapisteria") return "ar-badge ar-badge--today";
+  if (status === "custodia" || status === "en_busqueda") return "ar-badge ar-badge--debt";
+  return "ar-badge ar-badge--critical";
+}
+
+export function pendingSummaryText(totalPending: number, rentAmount: number): string {
+  const installments = rentAmount > 0 ? Math.ceil(totalPending / rentAmount) : 0;
+  if (installments <= 0) return formatCurrency(totalPending);
+  return `${formatCurrency(totalPending)} (${installments} ${installments === 1 ? "cuota atrasada" : "cuotas atrasadas"})`;
+}
+
+export function isToday(date: Date, now: Date): boolean {
+  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
+}
+
+export function normalizeComment(value: string): string {
+  return value.slice(0, 5);
+}
+
+export function normalizeFieldManagementComment(value: string): string {
+  return value.slice(0, 25);
+}
+
+export function toTimestamp(value: string | undefined): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function formatDateForTitle(value: Date): string {
+  const day = String(value.getDate()).padStart(2, "0");
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${value.getFullYear()}`;
+}
+
+export function planLabelForExport(plan: ReceivableRow["plan"]): string {
+  return PLAN_LABEL[plan] ?? "Plan";
+}
+
+function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const status = row.status;
+  const comment = typeof row.comment === "string" ? normalizeComment(row.comment.trim()) : "";
+  const updatedAt = typeof row.updatedAt === "string" ? row.updatedAt : new Date().toISOString();
+  const managementType: FieldManagementType | undefined = row.managementType === "solo_cobrar" || row.managementType === "cobrar_o_quitar"
+    ? row.managementType
+    : undefined;
+  const rawAmount = typeof row.managementAmount === "number" ? row.managementAmount : Number(row.managementAmount);
+  const managementAmount = Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : undefined;
+  const managementComment = typeof row.managementComment === "string" ? normalizeFieldManagementComment(row.managementComment.trim()) : "";
+  const managementUpdatedAt = typeof row.managementUpdatedAt === "string" ? row.managementUpdatedAt : undefined;
+  if (status === "no_answer" || status === "reminder" || status === "call_later" || status === "paid") {
+    return { status, comment, updatedAt, managementType, managementAmount, managementComment, managementUpdatedAt };
+  }
+  if (row.actionType === "cobrar") {
+    return { status: "reminder", comment, updatedAt, managementType: "solo_cobrar", managementAmount, managementComment, managementUpdatedAt };
+  }
+  if (row.actionType === "quitarOCobrar") {
+    return { status: "call_later", comment, updatedAt, managementType: "cobrar_o_quitar", managementAmount, managementComment, managementUpdatedAt };
+  }
+  return null;
+}
+
+export function parseCollectionStatusMapFromStorage(raw: string | null): Record<string, CollectionStatusRecord> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    return Object.fromEntries(Object.entries(parsed as Record<string, unknown>)
+      .map(([clientId, value]) => [clientId, parseStoredCollectionRecord(value)] as const)
+      .filter((entry): entry is [string, CollectionStatusRecord] => entry[1] !== null));
+  } catch {
+    return {};
+  }
+}
+
+export function parseCollectionClosuresFromStorage(raw: string | null): CollectionClosuresByDate {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as CollectionClosuresByDate;
+  } catch {
+    return {};
+  }
+}

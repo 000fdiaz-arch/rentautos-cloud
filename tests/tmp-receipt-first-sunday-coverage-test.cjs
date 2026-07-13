@@ -69,16 +69,15 @@ function makePayment(overrides) {
     path.join(TMP_DIR, "src", "format.js")
   );
   transpileTo(
-    path.join(ROOT, "src", "components", "PaymentReceipt.tsx"),
-    path.join(TMP_DIR, "src", "components", "PaymentReceipt.js"),
-    "\nexports.__test = { buildCoveredPaymentRows, buildRentPaymentBreakdownRows, isDebtChargeDayForReceipt };\n"
+    path.join(ROOT, "src", "components", "paymentReceiptRules.ts"),
+    path.join(TMP_DIR, "src", "components", "paymentReceiptRules.js")
   );
 
-  const { __test } = require(path.join(TMP_DIR, "src", "components", "PaymentReceipt.js"));
+  const rules = require(path.join(TMP_DIR, "src", "components", "paymentReceiptRules.js"));
 
   const earlySundayPayment = makePayment();
-  const earlyRows = __test.buildCoveredPaymentRows(earlySundayPayment);
-  const earlyBreakdownRows = __test.buildRentPaymentBreakdownRows(earlySundayPayment);
+  const earlyRows = rules.buildCoveredPaymentRows(earlySundayPayment);
+  const earlyBreakdownRows = rules.buildRentPaymentBreakdownRows(earlySundayPayment);
   assert(earlyRows.length === 2, `A17 debe mostrar 2 filas. Recibido: ${JSON.stringify(earlyRows)}`);
   assert(earlyRows[0].dateLabel === "Domingo 05 de julio", `A17 fila 1 debe ser Domingo 05. Recibido: ${JSON.stringify(earlyRows)}`);
   assert(earlyRows[0].status === "complete", `A17 Domingo debe ser completo. Recibido: ${JSON.stringify(earlyRows)}`);
@@ -105,7 +104,7 @@ function makePayment(overrides) {
     rentAmount: 33,
     chargeFirstSunday: true
   });
-  const advancedRows = __test.buildCoveredPaymentRows(advancedPayment);
+  const advancedRows = rules.buildCoveredPaymentRows(advancedPayment);
   assert(
     !advancedRows.some((row) => row.dateLabel === "Domingo 05 de julio"),
     `T29 avanzado no debe mostrar Domingo 05 de julio. Recibido: ${JSON.stringify(advancedRows)}`

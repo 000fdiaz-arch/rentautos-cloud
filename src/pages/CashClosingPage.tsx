@@ -15,6 +15,8 @@ import {
   replaceCashMovements
 } from "../cashLedger";
 import { isSupabaseConfigured } from "../lib/supabase";
+import CashReportsPanels from "./cashClosing/CashReportsPanels";
+import CashDayHeader from "./cashClosing/CashDayHeader";
 
 type Movement = {
   id: string;
@@ -559,238 +561,51 @@ export default function CashClosingPage({
         <p>Flujo inicial para validar formato diario de ingresos y egresos en efectivo.</p>
       </header>
 
-      <section className="panel cash-kpi-sticky">
-        <div className="cash-kpi-grid">
-          <article><span>Inicial</span><strong>{formatCurrency(openingCash)}</strong></article>
-          <article><span>Ingresos</span><strong>{formatCurrency(totalIncome)}</strong></article>
-          <article><span>Egresos</span><strong>{formatCurrency(totalExpense)}</strong></article>
-          <article><span>Esperado</span><strong>{formatCurrency(expectedCash)}</strong></article>
-          <article><span>Real</span><strong>{formatCurrency(realCash)}</strong></article>
-          <article><span>Diferencia</span><strong className={diff === 0 ? "" : diff > 0 ? "amount-good" : "amount-debt"}>{formatCurrency(diff)}</strong></article>
-        </div>
-      </section>
+      <CashDayHeader
+        totals={{
+          opening: openingCash,
+          income: totalIncome,
+          expense: totalExpense,
+          expected: expectedCash,
+          real: realCash,
+          difference: diff
+        }}
+        viewTab={viewTab}
+        setViewTab={setViewTab}
+        isAdmin={isAdmin}
+        cashDate={cashDate}
+        setCashDate={setCashDate}
+        loadingDay={loadingDay}
+        syncMessage={syncMessage}
+        isDayInitialized={isDayInitialized}
+        isDayClosed={isDayClosed}
+        seedOpeningCash={seedOpeningCash}
+        setSeedOpeningCash={setSeedOpeningCash}
+        closingNote={closingNote}
+        setClosingNote={setClosingNote}
+        reopenNote={reopenNote}
+        setReopenNote={setReopenNote}
+        onInitialize={() => void handleInitializeDay()}
+        onSave={() => void handleSaveMovements()}
+        onClose={() => void handleCloseDay()}
+        onReopen={() => void handleReopenDay()}
+      />
 
-      <section className="panel cash-panel">
-        <div className="cash-view-tabs">
-          <button type="button" className={`button ghost small ${viewTab === "operacion" ? "cash-tab-active" : ""}`} onClick={() => setViewTab("operacion")}>Operacion</button>
-          <button type="button" className={`button ghost small ${viewTab === "conteo" ? "cash-tab-active" : ""}`} onClick={() => setViewTab("conteo")}>Conteo</button>
-          <button type="button" className={`button ghost small ${viewTab === "reportes" ? "cash-tab-active" : ""}`} onClick={() => setViewTab("reportes")}>Reportes</button>
-          {isAdmin && (
-            <button type="button" className={`button ghost small ${viewTab === "auditoria" ? "cash-tab-active" : ""}`} onClick={() => setViewTab("auditoria")}>Auditoria</button>
-          )}
-        </div>
-      </section>
-
-      <section className="panel cash-panel" hidden={viewTab !== "operacion"}>
-        <div className="cash-header-grid">
-          <label>
-            Fecha operativa
-            <input type="date" value={cashDate} onChange={(event) => setCashDate(event.target.value)} />
-          </label>
-          <label>
-            Caja inicial
-            <input
-              type="number"
-              value={openingCash}
-              step="0.01"
-              readOnly
-            />
-          </label>
-        </div>
-        {loadingDay && <p className="hint">Cargando jornada...</p>}
-        {syncMessage && <p className="hint">{syncMessage}</p>}
-        {!isDayInitialized && (
-          <div className="cash-subpanel" style={{ marginTop: 10 }}>
-            <h3>Apertura de jornada</h3>
-            <p className="hint">
-              Si no existe cierre previo, ingresa saldo inicial de arranque y abre la jornada.
-            </p>
-            <div className="cash-movement-row">
-              <input
-                type="number"
-                step="0.01"
-                placeholder="Saldo inicial de arranque"
-                value={seedOpeningCash}
-                onChange={(event) => setSeedOpeningCash(event.target.value)}
-              />
-              <button type="button" className="button primary" onClick={() => void handleInitializeDay()} disabled={!isAdmin || loadingDay}>
-                Abrir jornada
-              </button>
-            </div>
-          </div>
-        )}
-        {isDayInitialized && (
-          <div className="cash-subpanel" style={{ marginTop: 10 }}>
-            <h3>Control de jornada</h3>
-            <p className="hint">
-              Estado:{" "}
-              <strong className={isDayClosed ? "amount-debt" : "amount-good"}>
-                {isDayClosed ? "CERRADA" : "ABIERTA"}
-              </strong>
-            </p>
-            {!isDayClosed ? (
-              <div className="cash-movement-row cash-movement-row--three">
-                <input
-                  type="text"
-                  placeholder="Nota de cierre (opcional)"
-                  value={closingNote}
-                  onChange={(event) => setClosingNote(event.target.value)}
-                />
-                <button type="button" className="button ghost" onClick={() => void handleSaveMovements()} disabled={loadingDay}>
-                  Guardar cambios
-                </button>
-                <button type="button" className="button primary" onClick={() => void handleCloseDay()} disabled={!isAdmin || loadingDay}>
-                  Cerrar caja del dia
-                </button>
-              </div>
-            ) : (
-              <div className="cash-movement-row cash-movement-row--three">
-                <input
-                  type="text"
-                  placeholder="Motivo de reapertura"
-                  value={reopenNote}
-                  onChange={(event) => setReopenNote(event.target.value)}
-                />
-                <span />
-                <button type="button" className="button ghost" onClick={() => void handleReopenDay()} disabled={!isAdmin || loadingDay}>
-                  Reabrir caja
-                </button>
-              </div>
-            )}
-          </div>
-        )}      </section>
-
-      <section className="panel cash-panel" hidden={viewTab !== "reportes"}>
-        <div className="panel-head">
-          <h2>Reporte ejecutivo</h2>
-          <button type="button" className="button ghost small" onClick={() => setShowExecutivePreview(true)}>
-            Vista previa
-          </button>
-        </div>
-        <p className="hint">Usa "Vista previa" para abrir el reporte y revisar antes de exportar.</p>
-        <div className="cash-actions-row" style={{ marginTop: 12 }}>
-          <button type="button" className="button ghost small" onClick={() => void handleExportJpg()}>
-            Exportar JPG
-          </button>
-          <button type="button" className="button ghost small" onClick={() => void handleExportPdf()}>
-            Exportar PDF
-          </button>
-          <button type="button" className="button ghost small" onClick={() => void handleExportExcel()}>
-            Exportar Excel
-          </button>
-        </div>
-      </section>
-
-      <section className="panel cash-panel" hidden={viewTab !== "reportes"}>
-        <h2>Reportes</h2>
-        <div className="cash-actions-row">
-          <button type="button" className={`button ghost small ${reportMode === "day" ? "nav-tab--active" : ""}`} onClick={() => setReportMode("day")}>
-            Dia
-          </button>
-          <button type="button" className={`button ghost small ${reportMode === "week" ? "nav-tab--active" : ""}`} onClick={() => setReportMode("week")}>
-            Semana
-          </button>
-          <button type="button" className={`button ghost small ${reportMode === "month" ? "nav-tab--active" : ""}`} onClick={() => setReportMode("month")}>
-            Mes
-          </button>
-        </div>
-        <div className="cash-subpanel">
-          <p className="cash-total">
-            Totales periodo: Inicial <strong>{formatCurrency(reportTotals.opening)}</strong> | Ingresos{" "}
-            <strong>{formatCurrency(reportTotals.income)}</strong> | Egresos <strong>{formatCurrency(reportTotals.expense)}</strong> | Esperado{" "}
-            <strong>{formatCurrency(reportTotals.expected)}</strong>
-          </p>
-          {reportRows.length === 0 ? (
-            <p className="hint">No hay datos para el periodo seleccionado.</p>
-          ) : (
-            <div className="table-scroll">
-              <table className="ar-table ar-table--compact">
-                <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Inicial</th>
-                    <th>Ingresos</th>
-                    <th>Egresos</th>
-                    <th>Esperado</th>
-                    <th>Diferencia</th>
-                    <th>Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportRows.map((row) => (
-                    <tr key={row.opening_date}>
-                      <td>{row.opening_date}</td>
-                      <td>{formatCurrency(row.opening_balance)}</td>
-                      <td>{formatCurrency(row.income_total)}</td>
-                      <td>{formatCurrency(row.expense_total)}</td>
-                      <td>{formatCurrency(row.expected_balance)}</td>
-                      <td>{formatCurrency(row.difference_balance ?? 0)}</td>
-                      <td>{row.status === "closed" ? "Cerrada" : "Abierta"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {(reportMode === "week" || reportMode === "month") && topDifferenceRows.length > 0 && (
-            <>
-              <h3 style={{ marginTop: 12 }}>Top diferencias del periodo</h3>
-              <div className="table-scroll">
-                <table className="ar-table ar-table--compact">
-                  <thead>
-                    <tr>
-                      <th>Fecha</th>
-                      <th>Diferencia</th>
-                      <th>Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {topDifferenceRows.map((row) => (
-                      <tr key={`diff-${row.opening_date}`}>
-                        <td>{row.opening_date}</td>
-                        <td>{formatCurrency(row.difference_balance ?? 0)}</td>
-                        <td>{row.status === "closed" ? "Cerrada" : "Abierta"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </div>
-      </section>
-
-      {isAdmin && (
-        <section className="panel cash-panel" hidden={viewTab !== "auditoria"}>
-          <h2>Auditoria del dia</h2>
-          <div className="cash-subpanel">
-            {auditRows.length === 0 ? (
-              <p className="hint">Sin eventos de auditoria para esta fecha.</p>
-            ) : (
-              <div className="table-scroll">
-                <table className="ar-table ar-table--compact">
-                  <thead>
-                    <tr>
-                      <th>Fecha/Hora</th>
-                      <th>Tabla</th>
-                      <th>Accion</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auditRows.map((row) => (
-                      <tr key={row.id}>
-                        <td>{new Date(row.created_at).toLocaleString("es-PA")}</td>
-                        <td>{row.table_name}</td>
-                        <td>{row.action}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </section>
-      )}
+      <CashReportsPanels
+        showReports={viewTab === "reportes"}
+        showAudit={viewTab === "auditoria"}
+        isAdmin={isAdmin}
+        reportMode={reportMode}
+        setReportMode={setReportMode}
+        reportRows={reportRows}
+        topDifferenceRows={topDifferenceRows}
+        auditRows={auditRows}
+        reportTotals={reportTotals}
+        onPreview={() => setShowExecutivePreview(true)}
+        onExportJpg={() => void handleExportJpg()}
+        onExportPdf={() => void handleExportPdf()}
+        onExportExcel={() => void handleExportExcel()}
+      />
 
       <div>
       <section className="panel cash-panel" hidden={viewTab !== "operacion"}>
@@ -1173,4 +988,3 @@ export default function CashClosingPage({
     </section>
   );
 }
-

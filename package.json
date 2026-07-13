@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc -p tsconfig.app.json --noEmit && vite build",
     "preview": "vite preview",
     "import:bank": "node scripts/import-bank-csv.mjs",
     "import:clients": "node scripts/import-clients-sheet.mjs",
@@ -16,7 +16,7 @@
     "migrate:reconcile": "node scripts/migrate-reconcile.mjs",
     "test:workflows": "node tests/run-workflows.cjs",
     "release:check": "node scripts/release-check.cjs",
-    "release:build": "tsc --noEmit && vite build"
+    "release:build": "tsc -p tsconfig.app.json --noEmit && vite build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.1",
