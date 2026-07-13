@@ -45,20 +45,7 @@ export function useClientDirectoryRows(
       };
     });
 
-    const clientsWithoutUnit = clients
-      .filter((client) => client.unitId.trim().length === 0)
-      .map((client): ClientDirectoryRow => {
-        const debtStartDate = getDebtStartDate(client, operationalReferenceDate);
-        return {
-          unitId: `SIN-UNIDAD-${client.id.slice(0, 8).toUpperCase()}`,
-          client,
-          debtStartDate,
-          nextChargeDate: debtStartDate ? null : findNextChargeDay(client, operationalReferenceDate),
-          pendingInstallments: getPendingInstallments(client)
-        };
-      });
-
-    return [...unitRows, ...clientsWithoutUnit]
+    return unitRows
       .sort((left, right) => left.unitId.localeCompare(right.unitId, undefined, { numeric: true }));
   }, [clients, fleetUnitOptions, operationalReferenceDate]);
 

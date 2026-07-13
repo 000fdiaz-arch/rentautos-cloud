@@ -114,7 +114,7 @@ export function ClientsDirectoryPanel({
           className={`button ghost small ${viewTab === "legacy" ? "cash-tab-active" : ""}`}
           onClick={() => onViewTabChange("legacy")}
         >
-          Clientes 2.0
+          Clientes archivados
         </button>
       </div>
 
@@ -432,7 +432,7 @@ export function ClientsDirectoryPanel({
               <tbody>
                 {legacyClients.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="empty">No hay clientes para Clientes 2.0.</td>
+                    <td colSpan={5} className="empty">No hay clientes archivados.</td>
                   </tr>
                 ) : (
                   legacyClients.map((client) => (

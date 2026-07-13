@@ -537,7 +537,7 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
   function handleUnlinkClient(client: Client): void {
     setConfirmDialog({
       title: "Desvincular cliente",
-      message: `Se desvinculara ${client.name} de la unidad ${client.unitId}. La unidad quedara libre y el cliente pasara a Clientes 2.0. ¿Deseas continuar?`,
+      message: `Se desvinculara ${client.name} de la unidad ${client.unitId}. La unidad quedara libre y el cliente pasara a Clientes archivados. ¿Deseas continuar?`,
       variant: "warning",
       onConfirm: async () => {
         try {

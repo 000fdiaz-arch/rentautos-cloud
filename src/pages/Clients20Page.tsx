@@ -29,7 +29,7 @@ export default function Clients20Page({ clients, dataOwnerUserId }: Props) {
         );
         setFleetUnits(units);
       } catch (error) {
-        console.error("No se pudo cargar flota para Clientes 2.0.", error);
+        console.error("No se pudo cargar flota para Clientes archivados.", error);
       } finally {
         if (!cancelled) setLoadingFleet(false);
       }
@@ -52,7 +52,7 @@ export default function Clients20Page({ clients, dataOwnerUserId }: Props) {
   return (
     <section className="panel">
       <div className="panel-head">
-        <h2>Clientes 2.0</h2>
+        <h2>Clientes archivados</h2>
       </div>
       <p className="hint" style={{ marginTop: 6 }}>
         Clientes sin unidad asignada o con unidad no registrada en flota. Estado aplicado: Inactivo.
@@ -73,7 +73,7 @@ export default function Clients20Page({ clients, dataOwnerUserId }: Props) {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={4} className="empty">No hay clientes para Clientes 2.0.</td>
+                <td colSpan={4} className="empty">No hay clientes archivados.</td>
               </tr>
             ) : (
               rows.map((client: Client) => (
@@ -91,4 +91,3 @@ export default function Clients20Page({ clients, dataOwnerUserId }: Props) {
     </section>
   );
 }
-
