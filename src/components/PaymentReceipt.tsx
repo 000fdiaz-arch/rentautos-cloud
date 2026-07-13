@@ -354,11 +354,12 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
       };
     });
     rentBreakdownQueue.forEach((row) => {
+      const isCompleteRentCycle = normalizedRent > 0 && roundMoney(row.amount) >= roundMoney(normalizedRent);
       coverageRows.push({
         label: row.label,
-        status: "partial",
+        status: isCompleteRentCycle ? "complete" : "partial",
         amount: row.amount,
-        value: "Abono parcial"
+        value: isCompleteRentCycle ? "Pagado completo" : "Abono parcial"
       });
     });
     otherChargesApplied
