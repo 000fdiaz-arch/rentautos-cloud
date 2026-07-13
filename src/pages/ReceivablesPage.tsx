@@ -18,6 +18,38 @@ import {
   type SortDirection
 } from "../receivables";
 import type { Client, Payment } from "../types";
+import type {
+  CollectionStatus,
+  CollectionStatusRecord,
+  FieldManagementType,
+  RouteExportFormat
+} from "./receivables/receivablesTypes";
+import { exportRouteCollection } from "./receivables/routeCollectionExport";
+import {
+  COLLECTION_CLOSURES_KEY,
+  COLLECTION_STATUS_OPTIONS,
+  INITIAL_EXPORT_FIELDS,
+  STATE_FILTER_OPTIONS,
+  clientOperationalStatusLabel,
+  clientOperationalStatusTone,
+  formatDateForTitle,
+  isToday,
+  normalizeComment,
+  normalizeFieldManagementComment,
+  parseCollectionClosuresFromStorage,
+  parseCollectionStatusMapFromStorage,
+  pendingSummaryText,
+  planLabelForExport,
+  renderSortIcon,
+  stateToneClass,
+  toTimestamp,
+  type CollectionClosuresByDate,
+  type CollectionStatusFilter,
+  type DashboardFilter,
+  type ExportField,
+  type GroupFilter,
+  type ReceivablesViewMode
+} from "./receivables/receivablesPageRules";
 
 type Props = {
   clients: Client[];
@@ -26,223 +58,6 @@ type Props = {
   streetManagementData?: Record<string, unknown>;
   onStreetManagementPersist?: (value: Record<string, unknown>) => Promise<boolean> | boolean;
 };
-
-type DashboardFilter =
-  | "none"
-  | "totalPorCobrar"
-  | "totalVencido"
-  | "proximoAVencer"
-  | "clientesMorosos"
-  | "cobradoEsteMes";
-
-type ExportFieldKey =
-  | "unitId"
-  | "name"
-  | "rentAmount"
-  | "pendingSummary"
-  | "lastPaymentDate"
-  | "state"
-  | "collectionStatus"
-  | "routeCollection";
-type ExportField = { key: ExportFieldKey; label: string; enabled: boolean };
-type CollectionStatusFilter = "all" | CollectionStatus;
-type GroupFilter = "all" | string;
-
-type CollectionStatus = "no_answer" | "reminder" | "call_later" | "paid";
-
-type CollectionStatusRecord = {
-  status: CollectionStatus;
-  comment: string;
-  updatedAt: string;
-  managementType?: FieldManagementType;
-  managementAmount?: number;
-  managementComment?: string;
-  managementUpdatedAt?: string;
-};
-type FieldManagementType = "solo_cobrar" | "cobrar_o_quitar";
-type RouteExportFormat = "jpg" | "pdf" | "excel";
-
-type CollectionClosureItem = {
-  clientId: string;
-  unitId: string;
-  clientName: string;
-  lastPaymentDate: string | null;
-  receivableState: string;
-  totalPending: number;
-  collectionStatus: CollectionStatus;
-  comment: string;
-  autoApplied: boolean;
-};
-
-type CollectionClosureSnapshot = {
-  date: string;
-  closedAt: string;
-  actor: string;
-  reason: string;
-  totals: Record<CollectionStatus, number>;
-  items: CollectionClosureItem[];
-};
-
-type CollectionClosuresByDate = Record<string, CollectionClosureSnapshot>;
-
-type ReceivablesViewMode = "cartera" | "historial";
-
-const STATE_FILTER_OPTIONS: Array<{ value: ReceivableState; label: string }> = [
-  { value: "alDia", label: "Al dia" },
-  { value: "proximo", label: "Proximo a vencer" },
-  { value: "venceHoy", label: "Vence hoy" },
-  { value: "vencido", label: "Vencido" },
-  { value: "critico", label: "Moroso critico" }
-];
-
-const COLLECTION_STATUS_OPTIONS: Array<{ value: CollectionStatus; label: string }> = [
-  { value: "no_answer", label: "Llamada no responde, se dejo mensaje." },
-  { value: "reminder", label: "Mensaje recordatorio." },
-  { value: "call_later", label: "Llamar mas tarde." },
-  { value: "paid", label: "Pago confirmado." }
-];
-
-const INITIAL_EXPORT_FIELDS: ExportField[] = [
-  { key: "unitId", label: "Unidad", enabled: true },
-  { key: "name", label: "Nombre", enabled: true },
-  { key: "rentAmount", label: "Letra", enabled: true },
-  { key: "pendingSummary", label: "Cuentas pendiente", enabled: true },
-  { key: "lastPaymentDate", label: "Ultima fecha de pago", enabled: true },
-  { key: "state", label: "Estado", enabled: true },
-  { key: "collectionStatus", label: "ESTADO COBRANZA", enabled: true },
-  { key: "routeCollection", label: "COBRO EN RUTA", enabled: true }
-];
-
-const COLLECTION_CLOSURES_KEY = "cobrapp.module3.collection_closures.v1";
-
-function renderSortIcon(active: boolean, direction: SortDirection): string {
-  if (!active) return "<>";
-  return direction === "asc" ? "^" : "v";
-}
-
-function stateToneClass(state: ReceivableRow["state"]): string {
-  if (state === "alDia") return "ar-badge ar-badge--good";
-  if (state === "proximo") return "ar-badge ar-badge--warn";
-  if (state === "venceHoy") return "ar-badge ar-badge--today";
-  if (state === "vencido") return "ar-badge ar-badge--debt";
-  return "ar-badge ar-badge--critical";
-}
-
-function clientOperationalStatusLabel(status: Client["status"]): string {
-  if (status === "activo") return "Activo";
-  if (status === "cliente_enfermo") return "Enfermo";
-  if (status === "taller") return "Taller";
-  if (status === "chapisteria") return "Chapisteria";
-  if (status === "custodia") return "Custodia";
-  if (status === "en_busqueda") return "En busqueda";
-  return "Archivado";
-}
-
-function clientOperationalStatusTone(status: Client["status"]): string {
-  if (status === "activo") return "ar-badge ar-badge--good";
-  if (status === "cliente_enfermo") return "ar-badge ar-badge--warn";
-  if (status === "taller" || status === "chapisteria") return "ar-badge ar-badge--today";
-  if (status === "custodia" || status === "en_busqueda") return "ar-badge ar-badge--debt";
-  return "ar-badge ar-badge--critical";
-}
-
-function pendingSummaryText(totalPending: number, rentAmount: number): string {
-  const pendingInstallments = rentAmount > 0 ? Math.ceil(totalPending / rentAmount) : 0;
-  if (pendingInstallments <= 0) return formatCurrency(totalPending);
-  const label = pendingInstallments === 1 ? "cuota atrasada" : "cuotas atrasadas";
-  return `${formatCurrency(totalPending)} (${pendingInstallments} ${label})`;
-}
-
-function isToday(date: Date, now: Date): boolean {
-  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
-}
-
-function normalizeComment(value: string): string {
-  return value.slice(0, 5);
-}
-
-function normalizeFieldManagementComment(value: string): string {
-  return value.slice(0, 25);
-}
-
-function toTimestamp(value: string | undefined): number {
-  if (!value) return 0;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function formatDateForTitle(value: Date): string {
-  const day = String(value.getDate()).padStart(2, "0");
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  const year = value.getFullYear();
-  return `${day}/${month}/${year}`;
-}
-
-function planLabelForExport(plan: ReceivableRow["plan"]): string {
-  return PLAN_LABEL[plan] ?? "Plan";
-}
-
-function lateInstallmentsLabel(totalPending: number, rentAmount: number): string {
-  if (rentAmount <= 0) return "0";
-  const installments = Math.ceil(totalPending / rentAmount);
-  if (installments <= 0) return "0";
-  return installments === 1 ? "1 cuota" : `${installments} cuotas`;
-}
-
-function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | null {
-  if (!value || typeof value !== "object") return null;
-  const row = value as Record<string, unknown>;
-  const status = row.status;
-  const comment = typeof row.comment === "string" ? normalizeComment(row.comment.trim()) : "";
-  const updatedAt = typeof row.updatedAt === "string" ? row.updatedAt : new Date().toISOString();
-  const managementType = row.managementType === "solo_cobrar" || row.managementType === "cobrar_o_quitar" ? row.managementType : undefined;
-  const rawManagementAmount = typeof row.managementAmount === "number" ? row.managementAmount : Number(row.managementAmount);
-  const managementAmount = Number.isFinite(rawManagementAmount) && rawManagementAmount > 0 ? rawManagementAmount : undefined;
-  const managementComment = typeof row.managementComment === "string" ? normalizeFieldManagementComment(row.managementComment.trim()) : "";
-  const managementUpdatedAt = typeof row.managementUpdatedAt === "string" ? row.managementUpdatedAt : undefined;
-
-  if (status === "no_answer" || status === "reminder" || status === "call_later" || status === "paid") {
-    return { status, comment, updatedAt, managementType, managementAmount, managementComment, managementUpdatedAt };
-  }
-
-  const legacyActionType = row.actionType;
-  if (legacyActionType === "cobrar") {
-    return { status: "reminder", comment, updatedAt, managementType: "solo_cobrar", managementAmount, managementComment, managementUpdatedAt };
-  }
-  if (legacyActionType === "quitarOCobrar") {
-    return { status: "call_later", comment, updatedAt, managementType: "cobrar_o_quitar", managementAmount, managementComment, managementUpdatedAt };
-  }
-
-  return null;
-}
-
-function parseCollectionStatusMapFromStorage(raw: string | null): Record<string, CollectionStatusRecord> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object") return {};
-    const next: Record<string, CollectionStatusRecord> = {};
-    for (const [clientId, value] of Object.entries(parsed as Record<string, unknown>)) {
-      const row = parseStoredCollectionRecord(value);
-      if (!row) continue;
-      next[clientId] = row;
-    }
-    return next;
-  } catch {
-    return {};
-  }
-}
-
-function parseCollectionClosuresFromStorage(raw: string | null): CollectionClosuresByDate {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return parsed as CollectionClosuresByDate;
-  } catch {
-    return {};
-  }
-}
 
 export default function ReceivablesPage({
   clients,
@@ -616,6 +431,7 @@ export default function ReceivablesPage({
       setFieldManagementErrorByClient((current) => ({ ...current, [clientId]: "Selecciona tipo de gestion." }));
       return;
     }
+    const managementType: FieldManagementType = draft.type;
     const parsedAmount = Number(draft.amount);
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       setFieldManagementErrorByClient((current) => ({ ...current, [clientId]: "Monto a pagar obligatorio." }));
@@ -628,7 +444,7 @@ export default function ReceivablesPage({
         status: previous?.status ?? "reminder",
         comment: previous?.comment ?? "",
         updatedAt: previous?.updatedAt ?? new Date().toISOString(),
-        managementType: draft.type,
+        managementType,
         managementAmount: parsedAmount,
         managementComment: normalizeFieldManagementComment(draft.comment),
         managementUpdatedAt: new Date().toISOString()
@@ -713,306 +529,23 @@ export default function ReceivablesPage({
     }
   }
 
-  function downloadCanvas(canvas: HTMLCanvasElement, fileName: string): void {
-    const link = document.createElement("a");
-    link.href = canvas.toDataURL("image/png");
-    link.download = fileName;
-    link.click();
-  }
-
-  function truncateTextToWidth(
-    ctx: CanvasRenderingContext2D,
-    text: string,
-    maxWidth: number
-  ): string {
-    const value = text.replace(/\s+/g, " ").trim();
-    if (!value) return "-";
-    if (ctx.measureText(value).width <= maxWidth) return value;
-    const ellipsis = "...";
-    const words = value.split(" ");
-    let byWord = "";
-    for (const word of words) {
-      const candidate = byWord ? `${byWord} ${word}` : word;
-      if (ctx.measureText(`${candidate}${ellipsis}`).width <= maxWidth) {
-        byWord = candidate;
-      } else {
-        break;
-      }
-    }
-    if (byWord) return `${byWord}${ellipsis}`;
-
-    let low = 0;
-    let high = value.length;
-    while (low < high) {
-      const mid = Math.ceil((low + high) / 2);
-      const candidate = `${value.slice(0, mid)}${ellipsis}`;
-      if (ctx.measureText(candidate).width <= maxWidth) low = mid;
-      else high = mid - 1;
-    }
-    return `${value.slice(0, low)}${ellipsis}`;
-  }
-
-  function drawCellText(
-    ctx: CanvasRenderingContext2D,
-    text: string,
-    x: number,
-    y: number,
-    maxWidth: number,
-    align: CanvasTextAlign = "left"
-  ): void {
-    const safeMaxWidth = Math.max(12, maxWidth);
-    const clipped = truncateTextToWidth(ctx, text, safeMaxWidth);
-    ctx.textAlign = align;
-    const drawX = align === "right" ? x + safeMaxWidth : x;
-    ctx.fillText(clipped, drawX, y);
-    ctx.textAlign = "left";
-  }
-
-  function drawRoundedRect(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    radius: number
-  ): void {
-    const safeRadius = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
-    ctx.beginPath();
-    ctx.moveTo(x + safeRadius, y);
-    ctx.lineTo(x + width - safeRadius, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
-    ctx.lineTo(x + width, y + height - safeRadius);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
-    ctx.lineTo(x + safeRadius, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
-    ctx.lineTo(x, y + safeRadius);
-    ctx.quadraticCurveTo(x, y, x + safeRadius, y);
-    ctx.closePath();
-  }
-
   async function handleExportCobroEnRuta(formatOverride?: RouteExportFormat): Promise<void> {
     setExportError(null);
     setIsExporting(true);
     try {
-      const exportFormat = formatOverride ?? routeExportFormat;
-      const candidates = baseRows
-        .filter((row) => {
-          const management = collectionStatusByClient[row.id];
-          return !!management?.managementType && !!management.managementAmount && management.managementAmount > 0;
-        })
-        .sort((a, b) => a.unitId.localeCompare(b.unitId));
-
-      if (candidates.length === 0) {
-        setExportError("No hay registros con Cobro en Ruta para exportar.");
-        return;
-      }
-
-      const totalToCollect = candidates.reduce((acc, row) => acc + (collectionStatusByClient[row.id]?.managementAmount ?? 0), 0);
-      const rows = candidates;
-
-      if (exportFormat === "pdf") {
-        const [{ default: JsPDF }, { default: autoTable }] = await Promise.all([
-          import("jspdf"),
-          import("jspdf-autotable")
-        ]);
-        const doc = new JsPDF({ orientation: "landscape", format: "a4" });
-        const headers = ["Unidad", "Cliente", "Cuotas", "Tipo", "Monto", "Coment."];
-        const body = rows.map((row) => {
-          const management = collectionStatusByClient[row.id];
-          const cuotas = `${formatCurrency(row.totalPending)} (${lateInstallmentsLabel(row.totalPending, row.rentAmount)})`;
-          const tipo = management?.managementType === "solo_cobrar" ? "Solo cobrar" : "Cobrar/quitar";
-          const monto = formatCurrency(management?.managementAmount ?? 0);
-          const comentario = (management?.managementComment ?? "").trim().slice(0, 25) || "-";
-          return [row.unitId, row.name, cuotas, tipo, monto, comentario];
-        });
-        autoTable(doc, {
-          head: [headers],
-          body,
-          startY: 14,
-          styles: { fontSize: 8, cellPadding: 2 },
-          headStyles: { fillColor: [15, 118, 110], textColor: 255, fontStyle: "bold" },
-          alternateRowStyles: { fillColor: [248, 250, 252] }
-        });
-        doc.save(`lista-cobro-en-ruta-${now.toISOString().slice(0, 10)}.pdf`);
-        return;
-      }
-
-      if (exportFormat === "excel") {
-        const xlsx = await import("xlsx");
-        const headers = ["Unidad", "Cliente", "Cuotas", "Tipo", "Monto", "Coment."];
-        const dataRows = rows.map((row) => {
-          const management = collectionStatusByClient[row.id];
-          const cuotas = `${formatCurrency(row.totalPending)} (${lateInstallmentsLabel(row.totalPending, row.rentAmount)})`;
-          const tipo = management?.managementType === "solo_cobrar" ? "Solo cobrar" : "Cobrar/quitar";
-          const monto = management?.managementAmount ?? 0;
-          const comentario = (management?.managementComment ?? "").trim().slice(0, 25) || "-";
-          return [row.unitId, row.name, cuotas, tipo, monto, comentario];
-        });
-        const worksheet = xlsx.utils.aoa_to_sheet([headers, ...dataRows]);
-        const workbook = xlsx.utils.book_new();
-        xlsx.utils.book_append_sheet(workbook, worksheet, "Cobro en ruta");
-        const bytes = xlsx.write(workbook, { type: "array", bookType: "xlsx" });
-        const blob = new Blob([bytes], {
-          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `lista-cobro-en-ruta-${now.toISOString().slice(0, 10)}.xlsx`;
-        link.click();
-        URL.revokeObjectURL(url);
-        return;
-      }
-
-      const canvas = document.createElement("canvas");
-      const width = 1600;
-      const outerLeft = 30;
-      const outerRight = width - 30;
-      const tableTop = 34;
-      const headerHeight = 64;
-      const minRowHeight = 54;
-      const maxRowHeight = 68;
-      const baseBodyHeight = 1100;
-      const densityRowHeight = Math.floor(baseBodyHeight / Math.max(1, rows.length));
-      const rowHeight = Math.max(minRowHeight, Math.min(maxRowHeight, densityRowHeight));
-      const rowFont = Math.max(17, Math.min(24, Math.floor(rowHeight * 0.42)));
-      const bottomMargin = 96;
-      const minHeight = 700;
-      const contentHeight = tableTop + headerHeight + rows.length * rowHeight + bottomMargin + 64;
-      const height = Math.max(minHeight, contentHeight);
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      const tableWidth = outerRight - outerLeft;
-      const tableBottom = tableTop + headerHeight + rows.length * rowHeight;
-
-      ctx.fillStyle = "#f8fafc";
-      ctx.fillRect(0, 0, width, height);
-      const colX = {
-        unidad: outerLeft + 28,
-        cliente: outerLeft + 155,
-        cuotas: outerLeft + 700,
-        tipo: outerLeft + 995,
-        monto: outerLeft + 1170,
-        comentario: outerLeft + 1320
-      };
-
-      drawRoundedRect(ctx, outerLeft, tableTop, tableWidth, headerHeight + rows.length * rowHeight, 8);
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-      ctx.strokeStyle = "#dbe1ea";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      const headerGradient = ctx.createLinearGradient(outerLeft, tableTop, outerRight, tableTop + headerHeight);
-      headerGradient.addColorStop(0, "#0f766e");
-      headerGradient.addColorStop(1, "#0b5e58");
-      drawRoundedRect(ctx, outerLeft, tableTop, tableWidth, headerHeight, 8);
-      ctx.fillStyle = headerGradient;
-      ctx.fill();
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 24px Segoe UI, Arial, sans-serif";
-      const headerY = tableTop + 41;
-      ctx.fillText("Unidad", colX.unidad, headerY);
-      ctx.fillText("Cliente", colX.cliente, headerY);
-      ctx.fillText("Cuotas", colX.cuotas, headerY);
-      ctx.fillText("Tipo", colX.tipo, headerY);
-      ctx.fillText("Monto", colX.monto, headerY);
-      ctx.fillText("Coment.", colX.comentario, headerY);
-
-      rows.forEach((row, index) => {
-        const y = tableTop + headerHeight + index * rowHeight;
-        const management = collectionStatusByClient[row.id];
-        ctx.fillStyle = index % 2 === 0 ? "#fcfdff" : "#f7f9fc";
-        ctx.fillRect(outerLeft, y, tableWidth, rowHeight);
-        ctx.strokeStyle = "#e7edf5";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(outerLeft, y + rowHeight);
-        ctx.lineTo(outerRight, y + rowHeight);
-        ctx.stroke();
-
-        const clientName = row.name;
-        const cuotas = `${formatCurrency(row.totalPending)} (${lateInstallmentsLabel(row.totalPending, row.rentAmount)})`;
-        const tipo = management?.managementType === "solo_cobrar" ? "Solo cobrar" : "Cobrar/quitar";
-        const monto = formatCurrency(management?.managementAmount ?? 0);
-        const comentarioRaw = (management?.managementComment ?? "").trim();
-        const comentarioMax25 = comentarioRaw.slice(0, 25);
-        const colPadding = 18;
-        const clienteWidth = colX.cuotas - colX.cliente - colPadding;
-        const cuotasWidth = colX.tipo - colX.cuotas - colPadding;
-        const tipoWidth = colX.monto - colX.tipo - colPadding;
-        const montoWidth = colX.comentario - colX.monto - colPadding;
-        const commentMaxWidth = outerRight - colX.comentario - colPadding;
-        const rowBaseline = y + Math.floor(rowHeight * 0.66);
-
-        ctx.font = `bold ${rowFont}px Segoe UI, Arial, sans-serif`;
-        ctx.fillStyle = "#0b5e58";
-        ctx.fillText(row.unitId, colX.unidad, rowBaseline);
-        ctx.font = `${rowFont}px Segoe UI, Arial, sans-serif`;
-        ctx.fillStyle = "#1e293b";
-        drawCellText(ctx, clientName, colX.cliente, rowBaseline, clienteWidth);
-        drawCellText(ctx, cuotas, colX.cuotas, rowBaseline, cuotasWidth);
-
-        const badgeX = colX.tipo;
-        const badgeY = y + Math.floor((rowHeight - 32) / 2);
-        const badgeHeight = 32;
-        const badgeText = tipo;
-        ctx.font = `600 ${Math.max(14, rowFont - 5)}px Segoe UI, Arial, sans-serif`;
-        const badgeTextWidth = ctx.measureText(badgeText).width;
-        const badgeWidth = Math.min(tipoWidth, Math.max(122, badgeTextWidth + 42));
-        drawRoundedRect(ctx, badgeX, badgeY, badgeWidth, badgeHeight, 8);
-        const isSoloCobrar = management?.managementType === "solo_cobrar";
-        const badgeBg = isSoloCobrar ? "#e8f7ee" : "#eff6ff";
-        const badgeDot = isSoloCobrar ? "#1dbf73" : "#3b82f6";
-        const badgeTextColor = isSoloCobrar ? "#0b6b47" : "#1e40af";
-        ctx.fillStyle = badgeBg;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.fillStyle = badgeDot;
-        ctx.arc(badgeX + 16, badgeY + badgeHeight / 2, 6, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = badgeTextColor;
-        ctx.fillText(badgeText, badgeX + 28, badgeY + 22);
-
-        ctx.font = `bold ${rowFont}px Segoe UI, Arial, sans-serif`;
-        ctx.fillStyle = "#0b5e58";
-        drawCellText(ctx, monto, colX.monto, rowBaseline, montoWidth, "right");
-        ctx.font = `${Math.max(15, rowFont - 1)}px Segoe UI, Arial, sans-serif`;
-        ctx.fillStyle = "#334155";
-        drawCellText(ctx, comentarioMax25, colX.comentario, rowBaseline, commentMaxWidth);
+      const exported = await exportRouteCollection({
+        rows: baseRows,
+        statusByClient: collectionStatusByClient,
+        format: formatOverride ?? routeExportFormat,
+        now
       });
-
-      ctx.fillStyle = "#7c8ea6";
-      ctx.font = "22px Segoe UI, Arial, sans-serif";
-      const generatedAt = now.toLocaleString("es-PA", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit"
-      });
-      const soloCobrarCount = rows.filter((row) => collectionStatusByClient[row.id]?.managementType === "solo_cobrar").length;
-      const cobrarQuitarCount = rows.filter((row) => collectionStatusByClient[row.id]?.managementType === "cobrar_o_quitar").length;
-      const leftFooterText = `Unidades enviadas: ${rows.length} | Solo cobrar: ${soloCobrarCount} | Cobrar/quitar: ${cobrarQuitarCount} | Esperado recolectar: ${formatCurrency(totalToCollect)}`;
-      const footerLineOneY = tableBottom + 46;
-      const footerLineTwoY = tableBottom + 74;
-      ctx.fillText(leftFooterText, outerLeft, footerLineOneY);
-      const footerText = `(Reporte generado el ${generatedAt})`;
-      ctx.fillText(footerText, outerLeft, footerLineTwoY);
-
-      const fileName = `lista-cobro-en-ruta-${now.toISOString().slice(0, 10)}.png`;
-      downloadCanvas(canvas, fileName);
+      if (!exported) setExportError("No hay registros con Cobro en Ruta para exportar.");
     } catch {
       setExportError("No se pudo exportar Cobro en Ruta.");
     } finally {
       setIsExporting(false);
     }
   }
-
   return (
     <>
       <section className="hero ar-hero"><div><h1>Cuentas por Cobrar</h1><p>Control de saldos vencidos y proximos a vencer.</p></div></section>

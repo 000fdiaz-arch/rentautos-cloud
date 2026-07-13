@@ -1,8 +1,22 @@
 import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { formatCurrency, formatDate } from "../format";
-import { findNextChargeDay, isChargeDay, parseDateKey, startOfDay } from "../billing";
+import { findNextChargeDay, startOfDay } from "../billing";
 import type { Payment } from "../types";
+import {
+  buildCoveredPaymentRows,
+  buildReceiptFileName,
+  buildRentPaymentBreakdownRows,
+  buildZipFileName,
+  extractFolio,
+  formatDateSpanish,
+  formatDateSpanishSingleLine,
+  getPartialMissingLabel,
+  diffDays,
+  findDebtStartDateForReceipt,
+  roundMoney,
+  type CoveredPaymentRow
+} from "./paymentReceiptRules";
 
 type Props = {
   payment: Payment;
@@ -21,298 +35,6 @@ const RECEIPT_IMAGE_SCALE = 3;
 const HISTORY_RECEIPT_IMAGE_SCALE = 1;
 const STANDARD_RECEIPT_RENDER_WIDTH = "760px";
 const HISTORY_RECEIPT_RENDER_WIDTH = "528px";
-
-type CoveredPaymentRow = {
-  dateLabel: string;
-  status: "complete" | "partial";
-  amount?: number;
-};
-
-type PaymentBreakdownRow = {
-  label: string;
-  amount: number;
-};
-
-function formatDateSpanish(dateStr: string): string {
-  const parts = dateStr.split("-");
-  if (parts.length !== 3) return dateStr;
-  const weekdays = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
-  const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
-  const year = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10) - 1;
-  const day = parseInt(parts[2], 10);
-  if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) return dateStr;
-  const date = new Date(`${dateStr}T12:00:00`);
-  const weekdayLabel = weekdays[date.getDay()] ?? "";
-  return `${weekdayLabel}\n${day} ${months[month] ?? ""} ${year}`.trim();
-}
-
-function formatDateSpanishSingleLine(date: Date): string {
-  const weekdays = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
-  const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
-  const weekdayLabel = weekdays[date.getDay()] ?? "";
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = months[date.getMonth()] ?? "";
-  return `${weekdayLabel} ${day} de ${month}`.trim();
-}
-
-function formatReceiptCycleLabel(date: Date, payment: Payment): string {
-  const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = months[date.getMonth()] ?? "";
-  if (payment.frequency === "biweekly") return `Quincena ${day} de ${month}`;
-  if (payment.frequency === "monthly") return `Mensualidad ${day} de ${month}`;
-  return formatDateSpanishSingleLine(date);
-}
-
-function getPartialMissingLabel(row: CoveredPaymentRow, payment: Payment): string {
-  if (payment.frequency === "biweekly") return "Falta para completar quincena";
-  if (payment.frequency === "monthly") return "Falta para completar mensualidad";
-  return `Falta para completar ${row.dateLabel.split(" ")[0].toLowerCase()}`;
-}
-
-function sanitizeFileToken(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 60);
-}
-
-function formatFileDateParts(dateStr: string): string {
-  const parts = dateStr.split("-");
-  if (parts.length !== 3) return dateStr.replace(/-/g, "_");
-  const [yyyy, mm, dd] = parts;
-  return `${dd}_${mm}_${yyyy}`;
-}
-
-function roundMoney(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-function diffDays(fromDate: Date, toDate: Date): number {
-  const from = startOfDay(fromDate);
-  const to = startOfDay(toDate);
-  const ms = to.getTime() - from.getTime();
-  return Math.round(ms / 86400000);
-}
-
-function isSameDate(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
-
-function isDebtChargeDayForReceipt(client: Payment, date: Date): boolean {
-  if (client.frequency !== "daily") return isChargeDay(client, date);
-
-  const day = date.getDay();
-  if (day >= 1 && day <= 6) return true;
-  if (day !== 0) return false;
-
-  // Para el resumen de deuda, cuando ya existe el primer domingo aplicado,
-  // se debe contar solo esa fecha exacta como cuota dominical.
-  const firstSunday = client.firstSundayChargedAt ? parseDateKey(client.firstSundayChargedAt) : null;
-  if (firstSunday) return isSameDate(date, firstSunday);
-
-  // Fallback para recibos historicos/snapshots incompletos: durante las
-  // primeras cuotas el primer domingo puede aplicar aunque el flag no venga.
-  // Despues de esa etapa se bloquea para no mostrar domingos que ya no cobran.
-  return (client.installmentsPaidAfter ?? 0) <= 7;
-}
-
-function findDebtStartDateForReceipt(client: Payment, referenceDate: Date): Date | null {
-  return findDebtStartDateForReceiptBalance(client, client.balanceAfter, referenceDate);
-}
-
-function findDebtStartDateForReceiptBalance(client: Payment, balance: number, referenceDate: Date): Date | null {
-  if (!Number.isFinite(client.rentAmount) || client.rentAmount <= 0) return null;
-  const pending = Math.max(0, Math.ceil(Math.max(0, balance) / client.rentAmount));
-  if (pending === 0) return null;
-
-  let remaining = pending;
-  let cursor = startOfDay(referenceDate);
-  for (let i = 0; i < 36600; i += 1) {
-    if (isDebtChargeDayForReceipt(client, cursor)) {
-      remaining -= 1;
-      if (remaining === 0) return cursor;
-    }
-    const previous = new Date(cursor);
-    previous.setDate(previous.getDate() - 1);
-    cursor = previous;
-  }
-  return null;
-}
-
-function collectChargeDatesFrom(startDate: Date | null, count: number, payment: Payment): Date[] {
-  if (!startDate || count <= 0) return [];
-  const dates: Date[] = [];
-  let cursor = startOfDay(startDate);
-  for (let i = 0; i < 36600 && dates.length < count; i += 1) {
-    if (isDebtChargeDayForReceipt(payment, cursor)) {
-      dates.push(new Date(cursor));
-    }
-    const next = new Date(cursor);
-    next.setDate(next.getDate() + 1);
-    cursor = next;
-  }
-  return dates;
-}
-
-function buildCoveredPaymentRows(payment: Payment): CoveredPaymentRow[] {
-  const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
-  if (!Number.isFinite(normalizedRent) || normalizedRent <= 0) return [];
-
-  const installmentsFromDebt = Math.max(0, payment.installmentsFromDebt ?? payment.installmentsDeducted ?? 0);
-  const installmentsFromAdvance = Math.max(
-    0,
-    payment.installmentsFromAdvance ??
-      (payment.rentAmount > 0 ? Math.floor((payment.advanceApplied ?? 0) / payment.rentAmount) : 0)
-  );
-  const paymentDate = startOfDay(new Date(payment.dateApplied + "T12:00:00"));
-  const rows: CoveredPaymentRow[] = [];
-
-  const debtStartBefore = findDebtStartDateForReceiptBalance(payment, payment.balanceBefore, paymentDate);
-  for (const date of collectChargeDatesFrom(debtStartBefore, installmentsFromDebt, payment)) {
-    rows.push({ dateLabel: formatReceiptCycleLabel(date, payment), status: "complete" });
-  }
-
-  const minimalClientWithoutAdvance = {
-    balance: payment.balanceAfter,
-    rentAmount: payment.rentAmount,
-    frequency: payment.frequency,
-    weeklyChargeDay: payment.weeklyChargeDay,
-    monthlyChargeDay: payment.monthlyChargeDay,
-    chargeFirstSunday: payment.chargeFirstSunday,
-    firstSundayChargedAt: payment.firstSundayChargedAt,
-    advanceBalance: 0,
-    id: "", unitId: "", name: "", installmentsAgreed: 0,
-    installmentsRemaining: 0, installmentsPaid: payment.installmentsPaidAfter,
-    otherCharges: [], savings: 0, createdAt: ""
-  };
-  let nextAdvanceDate = installmentsFromAdvance > 0 ? findNextChargeDay(minimalClientWithoutAdvance, paymentDate) : null;
-  for (let i = 0; i < installmentsFromAdvance && nextAdvanceDate; i += 1) {
-    rows.push({ dateLabel: formatReceiptCycleLabel(nextAdvanceDate, payment), status: "complete" });
-    const cursor = new Date(nextAdvanceDate);
-    nextAdvanceDate = findNextChargeDay(minimalClientWithoutAdvance, cursor);
-  }
-
-  const moroseBalanceToday = roundMoney(Math.max(0, payment.balanceAfter));
-  const partialDebtRemainder = normalizedRent > 0 ? roundMoney(moroseBalanceToday % normalizedRent) : 0;
-  if (payment.appliedToRent > 0 && partialDebtRemainder > 0) {
-    const partialDate = findDebtStartDateForReceipt(payment, paymentDate);
-    rows.push({
-      dateLabel: partialDate ? formatReceiptCycleLabel(partialDate, payment) : "Cuenta pendiente",
-      status: "partial",
-      amount: roundMoney(Math.max(0, normalizedRent - partialDebtRemainder))
-    });
-  } else {
-    const advanceApplied = roundMoney(Math.max(0, payment.advanceApplied ?? 0));
-    const advanceBalanceAfter = roundMoney(Math.max(0, payment.advanceBalanceAfter ?? advanceApplied));
-    const advanceRemainder = normalizedRent > 0 ? roundMoney(advanceBalanceAfter % normalizedRent) : 0;
-    const hasPartialAdvance = advanceApplied > 0 && advanceRemainder > 0;
-    if (hasPartialAdvance) {
-      const partialDate = findNextChargeDay(minimalClientWithoutAdvance, paymentDate);
-      rows.push({
-        dateLabel: partialDate ? formatReceiptCycleLabel(partialDate, payment) : "Proxima cuenta",
-        status: "partial",
-        amount: advanceRemainder
-      });
-    }
-  }
-
-  return rows.slice(0, 4);
-}
-
-function buildRentPaymentBreakdownRows(payment: Payment): PaymentBreakdownRow[] {
-  const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
-  const appliedToRent = roundMoney(Math.max(0, payment.appliedToRent));
-  if (!Number.isFinite(normalizedRent) || normalizedRent <= 0 || appliedToRent <= 0) return [];
-
-  const paymentDate = startOfDay(new Date(payment.dateApplied + "T12:00:00"));
-  const rows: PaymentBreakdownRow[] = [];
-  let remainingApplied = appliedToRent;
-
-  const debtBefore = roundMoney(Math.max(0, payment.balanceBefore));
-  const debtApplied = roundMoney(Math.min(remainingApplied, debtBefore));
-  if (debtApplied > 0) {
-    const pendingBefore = Math.ceil((debtBefore + Number.EPSILON) / normalizedRent);
-    const debtStartBefore = findDebtStartDateForReceiptBalance(payment, debtBefore, paymentDate);
-    const debtDates = collectChargeDatesFrom(debtStartBefore, pendingBefore, payment);
-    const oldestPartial = roundMoney(debtBefore % normalizedRent);
-    let debtRemainingApplied = debtApplied;
-
-    debtDates.forEach((date, index) => {
-      if (debtRemainingApplied <= 0) return;
-      const owedForCycle = index === 0 && oldestPartial > 0 ? oldestPartial : normalizedRent;
-      const amountForCycle = roundMoney(Math.min(owedForCycle, debtRemainingApplied));
-      if (amountForCycle > 0) {
-        rows.push({ label: formatReceiptCycleLabel(date, payment), amount: amountForCycle });
-      }
-      debtRemainingApplied = roundMoney(debtRemainingApplied - amountForCycle);
-    });
-
-    remainingApplied = roundMoney(remainingApplied - debtApplied);
-  }
-
-  const advanceApplied = roundMoney(Math.max(0, payment.advanceApplied ?? 0));
-  const advanceRentApplied = roundMoney(Math.min(remainingApplied, advanceApplied));
-  if (advanceRentApplied > 0) {
-    const minimalClientWithoutAdvance = {
-      balance: payment.balanceAfter,
-      rentAmount: payment.rentAmount,
-      frequency: payment.frequency,
-      weeklyChargeDay: payment.weeklyChargeDay,
-      monthlyChargeDay: payment.monthlyChargeDay,
-      chargeFirstSunday: payment.chargeFirstSunday,
-      firstSundayChargedAt: payment.firstSundayChargedAt,
-      advanceBalance: 0,
-      id: "", unitId: "", name: "", installmentsAgreed: 0,
-      installmentsRemaining: 0, installmentsPaid: payment.installmentsPaidAfter,
-      otherCharges: [], savings: 0, createdAt: ""
-    };
-    let nextAdvanceDate = findNextChargeDay(minimalClientWithoutAdvance, paymentDate);
-    let advanceRemaining = advanceRentApplied;
-    for (let i = 0; i < 36600 && advanceRemaining > 0 && nextAdvanceDate; i += 1) {
-      const amountForCycle = roundMoney(Math.min(normalizedRent, advanceRemaining));
-      rows.push({ label: formatReceiptCycleLabel(nextAdvanceDate, payment), amount: amountForCycle });
-      advanceRemaining = roundMoney(advanceRemaining - amountForCycle);
-      const cursor = new Date(nextAdvanceDate);
-      nextAdvanceDate = findNextChargeDay(minimalClientWithoutAdvance, cursor);
-    }
-  }
-
-  return rows.length > 0 ? rows : [{ label: "A renta", amount: appliedToRent }];
-}
-
-function buildReceiptFileName(payment: Payment): string {
-  const unit = sanitizeFileToken(payment.clientUnit || "UNIDAD");
-  const datePart = formatFileDateParts(payment.dateApplied);
-  return `${unit}-${datePart}.png`;
-}
-
-function buildZipFileName(payments: Payment[]): string {
-  if (payments.length === 0) {
-    return "recibos-pagos.png.zip";
-  }
-  const sortedDates = payments.map((payment) => payment.dateApplied).sort((a, b) => a.localeCompare(b));
-  const fromDate = formatFileDateParts(sortedDates[0] ?? "");
-  const toDate = formatFileDateParts(sortedDates[sortedDates.length - 1] ?? "");
-  if (fromDate === toDate) {
-    return `recibos-${fromDate}-${payments.length}.png.zip`;
-  }
-  return `recibos-${fromDate}-a-${toDate}-${payments.length}.png.zip`;
-}
-
-function extractFolio(reference: string): string {
-  const trimmed = reference.trim();
-  if (!trimmed) return "";
-  const explicitFolio = trimmed.match(/folio\s*[:#-]?\s*([A-Za-z0-9-]+)/i);
-  if (explicitFolio?.[1]) return explicitFolio[1];
-  const tokens = trimmed.match(/[A-Za-z0-9-]+/g);
-  if (!tokens || tokens.length === 0) return trimmed;
-  return tokens[tokens.length - 1] ?? trimmed;
-}
 
 async function renderReceiptCanvasFromPayment(payment: Payment, options: ReceiptRenderOptions = {}): Promise<HTMLCanvasElement> {
   const host = document.createElement("div");
@@ -514,7 +236,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
     // campos requeridos por la firma
     id: "", unitId: "", name: "", installmentsAgreed: 0,
     installmentsRemaining: 0, installmentsPaid: payment.installmentsPaidAfter,
-    otherCharges: [], savings: 0, createdAt: ""
+    otherCharges: [], savings: 0, status: "activo" as const, createdAt: ""
   };
   const minimalClientWithoutAdvance = {
     ...minimalClient,

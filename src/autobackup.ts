@@ -35,6 +35,13 @@ export type BackupExtraData = {
   cashClosingAudit?: unknown[];
   chargeRuns?: unknown[];
   statusFilter?: string;
+  streetManagement?: Record<string, unknown>;
+};
+
+type FileSystemDirectoryHandleWithPermissions = FileSystemDirectoryHandle & {
+  entries: () => AsyncIterableIterator<[string, FileSystemHandle]>;
+  queryPermission: (descriptor: { mode: "readwrite" }) => Promise<PermissionState>;
+  requestPermission: (descriptor: { mode: "readwrite" }) => Promise<PermissionState>;
 };
 
 function pad2(value: number): string {
@@ -64,7 +71,7 @@ async function writeBackupFile(
 
 async function pruneOldVersionedBackups(handle: FileSystemDirectoryHandle): Promise<void> {
   const versionedFiles: string[] = [];
-  for await (const [name, entry] of handle.entries()) {
+  for await (const [name, entry] of (handle as FileSystemDirectoryHandleWithPermissions).entries()) {
     if (entry.kind !== "file") continue;
     if (!VERSIONED_BACKUP_REGEX.test(name)) continue;
     versionedFiles.push(name);
@@ -193,9 +200,10 @@ export async function autoBackupDetailed(
 
   try {
     // Verify we still have permission
-    const perm = await handle.queryPermission({ mode: "readwrite" });
+    const permissionHandle = handle as FileSystemDirectoryHandleWithPermissions;
+    const perm = await permissionHandle.queryPermission({ mode: "readwrite" });
     if (perm !== "granted") {
-      const req = await handle.requestPermission({ mode: "readwrite" });
+      const req = await permissionHandle.requestPermission({ mode: "readwrite" });
       if (req !== "granted") {
         return {
           ok: false,
@@ -232,7 +240,8 @@ export async function autoBackupDetailed(
       cashClosings: Array.isArray(extraData.cashClosings) ? extraData.cashClosings : [],
       cashClosingAudit: Array.isArray(extraData.cashClosingAudit) ? extraData.cashClosingAudit : [],
       chargeRuns: Array.isArray(extraData.chargeRuns) ? extraData.chargeRuns : [],
-      statusFilter: typeof extraData.statusFilter === "string" ? extraData.statusFilter : "active"
+      statusFilter: typeof extraData.statusFilter === "string" ? extraData.statusFilter : "active",
+      streetManagement: extraData.streetManagement ?? {}
     };
     const payload = JSON.stringify(data, null, 2);
     const versionedFilename = buildVersionedBackupFilename(now);
