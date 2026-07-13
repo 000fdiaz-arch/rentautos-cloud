@@ -3560,6 +3560,22 @@ select.control-op-badge {
   flex-wrap: wrap;
 }
 
+.history-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: 8px 0;
+}
+
+.history-empty-state {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.history-empty-state p {
+  margin: 0;
+}
+
 .history-checkbox {
   width: 16px;
   height: 16px;

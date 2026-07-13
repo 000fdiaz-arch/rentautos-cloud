@@ -33,6 +33,14 @@ type Props = {
   onDeletePayment: (payment: Payment) => void;
 };
 
+function getTodayDateKey(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export default function PaymentHistoryPanel({
   historySectionRef,
   isHistoryOpen,
@@ -126,6 +134,23 @@ function clearHistoryColumnFilters(): void {
   setHistoryColumnFilters({ ...EMPTY_HISTORY_COLUMN_FILTERS });
 }
 
+function clearHistoryFilters(): void {
+  setHistoryClientId("all");
+  setHistoryGroupFilter("all");
+  setHistoryDeliveryFilter("all");
+  setHistoryDateFrom("");
+  setHistoryDateTo("");
+  clearHistoryColumnFilters();
+  setHistorySelectedPaymentIds([]);
+}
+
+function filterHistoryToday(): void {
+  const today = getTodayDateKey();
+  setHistoryDateFrom(today);
+  setHistoryDateTo(today);
+  setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
+}
+
 const historyAvailableGroups = useMemo(() => {
   return [...new Set(
     payments
@@ -144,6 +169,17 @@ const historyDateRangeError = useMemo(() => {
 const hasHistoryColumnFilters = useMemo(
   () => Object.values(historyColumnFilters).some((value) => value.trim().length > 0),
   [historyColumnFilters]
+);
+
+const hasHistoryFilters = useMemo(
+  () =>
+    historyClientId !== "all" ||
+    historyGroupFilter !== "all" ||
+    historyDeliveryFilter !== "all" ||
+    Boolean(historyDateFrom) ||
+    Boolean(historyDateTo) ||
+    hasHistoryColumnFilters,
+  [historyClientId, historyGroupFilter, historyDeliveryFilter, historyDateFrom, historyDateTo, hasHistoryColumnFilters]
 );
 
 const filteredHistoryRows = useMemo(() => {
@@ -422,6 +458,23 @@ async function handleDownloadFilteredHistory(): Promise<void> {
                   <option key={c.id} value={c.id}>{c.unitId} - {c.name}</option>
                 ))}
               </select>
+              <button
+                type="button"
+                className="button ghost small"
+                onClick={filterHistoryToday}
+              >
+                Hoy
+              </button>
+              <button
+                type="button"
+                className="button ghost small"
+                onClick={() => {
+                  setHistoryDeliveryFilter("pending");
+                  setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
+                }}
+              >
+                Por enviar
+              </button>
               <select
                 value={historyGroupFilter}
                 onChange={(e) => {
@@ -486,6 +539,13 @@ async function handleDownloadFilteredHistory(): Promise<void> {
             </div>
 
             {historyDateRangeError && <p className="hint error-text">{historyDateRangeError}</p>}
+            {hasHistoryFilters && (
+              <div className="history-filter-actions">
+                <button type="button" className="button ghost small" onClick={clearHistoryFilters}>
+                  Limpiar filtros
+                </button>
+              </div>
+            )}
             {historyRefreshFeedback && (
               <div
                 className={`history-copy-feedback history-copy-feedback--${historyRefreshFeedback.tone}`}
@@ -506,11 +566,21 @@ async function handleDownloadFilteredHistory(): Promise<void> {
             )}
 
             {historyRows.length === 0 ? (
-              <p className="empty">
-                {payments.length === 0
-                  ? "No hay pagos registrados aun."
-                  : "No hay recibos que coincidan con los filtros actuales."}
-              </p>
+              <div className="empty history-empty-state">
+                <p>
+                  {payments.length === 0
+                    ? "No hay pagos registrados aun."
+                    : "No hay recibos que coincidan con los filtros actuales."}
+                </p>
+                {payments.length > 0 && hasHistoryFilters && (
+                  <>
+                    <p className="hint">Cambia el filtro o limpia la busqueda para regresar al historial.</p>
+                    <button type="button" className="button ghost small" onClick={clearHistoryFilters}>
+                      Limpiar filtros y volver
+                    </button>
+                  </>
+                )}
+              </div>
             ) : (
               <>
               <div className="history-bulk-bar">
@@ -563,6 +633,7 @@ async function handleDownloadFilteredHistory(): Promise<void> {
                 <table>
                   <thead>
                     <tr>
+                      <th>Ver</th>
                       <th className="history-send-column">Estado</th>
                       <th>
                         <input
@@ -587,6 +658,7 @@ async function handleDownloadFilteredHistory(): Promise<void> {
                     <tr>
                       <th></th>
                       <th></th>
+                      <th></th>
                       <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.receipt} onChange={(e) => updateHistoryColumnFilter("receipt", e.target.value)} /></th>
                       <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.date} onChange={(e) => updateHistoryColumnFilter("date", e.target.value)} /></th>
                       <th><input type="text" className="payment-input history-column-filter-input" placeholder="Filtrar" value={historyColumnFilters.unit} onChange={(e) => updateHistoryColumnFilter("unit", e.target.value)} /></th>
@@ -605,6 +677,14 @@ async function handleDownloadFilteredHistory(): Promise<void> {
                       const isCopying = historyCopyingPaymentId === p.id;
                       return (
                       <tr key={p.id} className={historySelectedIdSet.has(p.id) ? "history-row--selected" : ""}>
+                        <td>
+                          <button
+                            type="button"
+                            className="action-btn action-btn--edit"
+                            title="Vista previa del recibo"
+                            onClick={() => onPreviewPayment(p)}
+                          >Ver</button>
+                        </td>
                         <td className="history-send-cell">
                           <button
                             type="button"
@@ -643,12 +723,6 @@ async function handleDownloadFilteredHistory(): Promise<void> {
                         <td>{getInstallmentsTotalInPayment(p) > 0 ? `-${getInstallmentsTotalInPayment(p)}` : <span className="amount-muted">-</span>}</td>
                         <td>{p.paymentMethod}</td>
                         <td>
-                          <button
-                            type="button"
-                            className="action-btn action-btn--edit"
-                            title="Vista previa del recibo"
-                            onClick={() => onPreviewPayment(p)}
-                          >Ver</button>
                           <button
                             type="button"
                             className="action-btn action-btn--delete"
