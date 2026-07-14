@@ -56,7 +56,7 @@ export function hasRowChanged<T>(previous: T | undefined, next: T): boolean {
 }
 
 export async function deleteStaleRows(
-  table: "clients_cloud" | "payments_cloud" | "payment_promises_cloud",
+  table: "clients_cloud" | "payments_cloud" | "payment_promises_cloud" | "lead_evaluations_cloud",
   userId: string,
   nextIds: Set<string>
 ): Promise<void> {

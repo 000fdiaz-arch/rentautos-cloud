@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import type { LeadDecision, LeadEvaluation } from "../types";
 
@@ -26,7 +26,9 @@ type LeadVerdict = {
 
 type Props = {
   evaluations: LeadEvaluation[];
-  onEvaluationsChange: (next: LeadEvaluation[]) => void;
+  onEvaluationsChange: (next: LeadEvaluation[]) => Promise<void>;
+  loading: boolean;
+  cloudError: string;
 };
 
 type LeadFlowMode = "idle" | "creating" | "viewing";
@@ -44,9 +46,6 @@ const initialForm: LeadForm = {
   hasPiracyReports: false,
   collisionReports: "0"
 };
-
-const TEST_LEAD_CEDULA = "8-884-222";
-const TEST_LEAD_CLEANUP_KEY = "rentautos.leads.test_cleanup.8-884-222.v1";
 
 const decisionLabel: Record<LeadDecision, string> = {
   aplica: "SI APLICA",
@@ -131,11 +130,12 @@ function buildFormFromEvaluation(evaluation: LeadEvaluation): LeadForm {
   };
 }
 
-export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
+export default function LeadsPage({ evaluations, onEvaluationsChange, loading, cloudError }: Props) {
   const [form, setForm] = useState<LeadForm>(initialForm);
   const [queryCedula, setQueryCedula] = useState("");
   const [flowMode, setFlowMode] = useState<LeadFlowMode>("idle");
   const [includeDetails, setIncludeDetails] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
   const verdictRef = useRef<HTMLDivElement | null>(null);
@@ -151,15 +151,6 @@ export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
     return evaluations.filter((evaluation) => normalizeCedula(evaluation.cedula) === focusedCedula);
   }, [evaluations, form.cedula, queryCedula]);
 
-  useEffect(() => {
-    if (localStorage.getItem(TEST_LEAD_CLEANUP_KEY) === "done") return;
-    const next = evaluations.filter((evaluation) => normalizeCedula(evaluation.cedula) !== TEST_LEAD_CEDULA);
-    if (next.length !== evaluations.length) {
-      onEvaluationsChange(next);
-    }
-    localStorage.setItem(TEST_LEAD_CLEANUP_KEY, "done");
-  }, [evaluations, onEvaluationsChange]);
-
   function updateReportFlag(field: keyof Pick<LeadForm, "hasGpsTamperingReport" | "hasLegalCases" | "hasViolenceReports" | "hasDuiReports" | "hasPiracyReports">, checked: boolean): void {
     setForm((current) => ({
       ...current,
@@ -168,7 +159,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
     }));
   }
 
-  function handleNoCasesChange(checked: boolean): void {
+  async function handleNoCasesChange(checked: boolean): Promise<void> {
     const nextForm = {
       ...form,
       noCases: checked,
@@ -188,7 +179,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
       setMessage("Sin casos seleccionado. Completa cedula, fecha y adjunto para cerrar el dictamen.");
       return;
     }
-    saveEvaluation(nextForm, nextVerdict, `Dictamen cerrado automaticamente: ${decisionLabel[nextVerdict.decision]}.`);
+    await saveEvaluation(nextForm, nextVerdict, `Dictamen cerrado automaticamente: ${decisionLabel[nextVerdict.decision]}.`);
   }
 
   async function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
@@ -288,7 +279,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
     return nextErrors;
   }
 
-  function saveEvaluation(targetForm: LeadForm, targetVerdict: LeadVerdict, successMessage?: string): void {
+  async function saveEvaluation(targetForm: LeadForm, targetVerdict: LeadVerdict, successMessage?: string): Promise<void> {
     if (targetVerdict.age === null) return;
     const normalizedCedula = normalizeCedula(targetForm.cedula);
     const previous = evaluations.find((evaluation) => normalizeCedula(evaluation.cedula) === normalizedCedula);
@@ -318,11 +309,18 @@ export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
       nextEvaluation,
       ...evaluations.filter((evaluation) => evaluation.id !== nextEvaluation.id)
     ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    onEvaluationsChange(next);
-    setQueryCedula(normalizedCedula);
-    setFlowMode("viewing");
-    setMessage(successMessage ?? `Dictamen guardado: ${decisionLabel[nextEvaluation.decision]}.`);
-    setErrors([]);
+    setSaving(true);
+    try {
+      await onEvaluationsChange(next);
+      setQueryCedula(normalizedCedula);
+      setFlowMode("viewing");
+      setMessage(successMessage ?? `Dictamen guardado: ${decisionLabel[nextEvaluation.decision]}.`);
+      setErrors([]);
+    } catch {
+      setErrors(["No se pudo guardar el Lead en nube. Intenta nuevamente."]);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
@@ -330,7 +328,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
     const nextErrors = validate();
     setErrors(nextErrors);
     if (nextErrors.length > 0) return;
-    saveEvaluation(form, verdict);
+    void saveEvaluation(form, verdict);
   }
 
   function handleNewEvaluation(): void {
@@ -342,16 +340,23 @@ export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
     setErrors([]);
   }
 
-  function handleDeleteEvaluation(evaluationId: string): void {
+  async function handleDeleteEvaluation(evaluationId: string): Promise<void> {
     const target = evaluations.find((evaluation) => evaluation.id === evaluationId);
     const confirmed = window.confirm(`¿Borrar el dictamen${target ? ` de ${target.cedula}` : ""}?`);
     if (!confirmed) return;
     const next = evaluations.filter((evaluation) => evaluation.id !== evaluationId);
-    onEvaluationsChange(next);
-    if (matchingEvaluation?.id === evaluationId) {
-      handleNewEvaluation();
+    setSaving(true);
+    try {
+      await onEvaluationsChange(next);
+      if (matchingEvaluation?.id === evaluationId) {
+        handleNewEvaluation();
+      }
+      setMessage("Dictamen borrado.");
+    } catch {
+      setErrors(["No se pudo borrar el dictamen en nube. Intenta nuevamente."]);
+    } finally {
+      setSaving(false);
     }
-    setMessage("Dictamen borrado.");
   }
 
   return (
@@ -364,16 +369,16 @@ export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
       <section className="panel lead-query-panel">
         <div className="panel-head">
           <h2>Consulta por cedula</h2>
-          <button type="button" className="button ghost small" onClick={handleNewEvaluation}>
+          <button type="button" className="button ghost small" onClick={handleNewEvaluation} disabled={saving || loading}>
             Nuevo
           </button>
         </div>
         <div className="lead-query-row">
           <label>
             Cedula
-            <input value={queryCedula} onChange={(event) => setQueryCedula(event.target.value)} placeholder="Ej. 8-888-888" />
+            <input value={queryCedula} onChange={(event) => setQueryCedula(event.target.value)} placeholder="Ej. 8-888-888" disabled={saving || loading} />
           </label>
-          <button type="button" className="button primary" onClick={handleConsultCedula}>
+          <button type="button" className="button primary" onClick={handleConsultCedula} disabled={saving || loading || Boolean(cloudError)}>
             Consultar
           </button>
         </div>
@@ -388,6 +393,8 @@ export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
           </ul>
         )}
         {message && flowMode !== "creating" && <p className="success-banner">{message}</p>}
+        {loading && <p className="hint">Cargando Leads desde nube...</p>}
+        {cloudError && <p className="error-banner">{cloudError}</p>}
       </section>
 
       {flowMode !== "idle" && (
@@ -404,15 +411,15 @@ export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
           <div className="form-grid lead-form-grid">
             <label>
               Cedula
-              <input value={form.cedula} onChange={(event) => setForm((current) => ({ ...current, cedula: event.target.value }))} />
+              <input value={form.cedula} onChange={(event) => setForm((current) => ({ ...current, cedula: event.target.value }))} disabled={saving || loading} />
             </label>
             <label>
               Fecha de nacimiento
-              <input type="date" value={form.birthDate} onChange={(event) => setForm((current) => ({ ...current, birthDate: event.target.value }))} />
+              <input type="date" value={form.birthDate} onChange={(event) => setForm((current) => ({ ...current, birthDate: event.target.value }))} disabled={saving || loading} />
             </label>
             <label>
               Foto de cedula o licencia
-              <input type="file" accept="image/*,.pdf" onChange={(event) => void handleAttachmentChange(event)} />
+              <input type="file" accept="image/*,.pdf" onChange={(event) => void handleAttachmentChange(event)} disabled={saving || loading} />
             </label>
             <label>
               Reportes de colision/choque
@@ -421,7 +428,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
                 min="0"
                 step="1"
                 value={form.collisionReports}
-                disabled={form.noCases}
+                disabled={form.noCases || saving || loading}
                 onChange={(event) => setForm((current) => ({ ...current, noCases: false, collisionReports: event.target.value }))}
               />
             </label>
@@ -431,27 +438,27 @@ export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
 
           <div className="lead-report-grid">
             <label className="lead-check lead-check--clean">
-              <input type="checkbox" checked={form.noCases} onChange={(event) => handleNoCasesChange(event.target.checked)} />
+              <input type="checkbox" checked={form.noCases} disabled={saving || loading} onChange={(event) => void handleNoCasesChange(event.target.checked)} />
               Sin casos
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasGpsTamperingReport} disabled={form.noCases} onChange={(event) => updateReportFlag("hasGpsTamperingReport", event.target.checked)} />
+              <input type="checkbox" checked={form.hasGpsTamperingReport} disabled={form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasGpsTamperingReport", event.target.checked)} />
               Quitar/manipular GPS
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasLegalCases} disabled={form.noCases} onChange={(event) => updateReportFlag("hasLegalCases", event.target.checked)} />
+              <input type="checkbox" checked={form.hasLegalCases} disabled={form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasLegalCases", event.target.checked)} />
               Casos legales
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasViolenceReports} disabled={form.noCases} onChange={(event) => updateReportFlag("hasViolenceReports", event.target.checked)} />
+              <input type="checkbox" checked={form.hasViolenceReports} disabled={form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasViolenceReports", event.target.checked)} />
               Reportes de violencia
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasDuiReports} disabled={form.noCases} onChange={(event) => updateReportFlag("hasDuiReports", event.target.checked)} />
+              <input type="checkbox" checked={form.hasDuiReports} disabled={form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasDuiReports", event.target.checked)} />
               Alcoholemia
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasPiracyReports} disabled={form.noCases} onChange={(event) => updateReportFlag("hasPiracyReports", event.target.checked)} />
+              <input type="checkbox" checked={form.hasPiracyReports} disabled={form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasPiracyReports", event.target.checked)} />
               Pirateria
             </label>
           </div>
@@ -464,8 +471,8 @@ export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
           {message && <p className="success-banner">{message}</p>}
 
           <div className="modal-actions">
-            <button type="submit" className="button primary">
-              Procesar y guardar dictamen
+            <button type="submit" className="button primary" disabled={saving || loading || Boolean(cloudError)}>
+              {saving ? "Guardando..." : "Procesar y guardar dictamen"}
             </button>
           </div>
         </form>
@@ -589,7 +596,8 @@ export default function LeadsPage({ evaluations, onEvaluationsChange }: Props) {
                     <button
                       type="button"
                       className="button danger small"
-                      onClick={() => handleDeleteEvaluation(evaluation.id)}
+                      disabled={saving || loading}
+                      onClick={() => void handleDeleteEvaluation(evaluation.id)}
                     >
                       Borrar
                     </button>

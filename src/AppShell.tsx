@@ -11,17 +11,16 @@ import {
   savePayments,
   loadBankRules,
   loadLateFeeSettings,
-  loadLeadEvaluations,
   loadOtherChargesRetentionByClient,
   saveBankRules,
   saveLateFeeSettings,
-  saveLeadEvaluations,
   saveOtherChargesRetentionByClient,
   savePendingBankItems,
   savePendingCardItems,
   saveManualBankAssignmentAudit,
   saveLateFeeLedger,
 } from "./storage";
+import { loadCloudLeadEvaluations, saveCloudLeadEvaluations } from "./cloudData";
 import { flushCloudMirror } from "./cloudMirror";
 import { isSupabaseOnlyMode } from "./persistenceMode";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
@@ -55,7 +54,9 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
   const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
   const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>(() => loadOtherChargesRetentionByClient());
-  const [leadEvaluations, setLeadEvaluations] = useState<LeadEvaluation[]>(() => loadLeadEvaluations());
+  const [leadEvaluations, setLeadEvaluations] = useState<LeadEvaluation[]>([]);
+  const [leadsLoading, setLeadsLoading] = useState(false);
+  const [leadsCloudError, setLeadsCloudError] = useState("");
   const [fullPaymentHistoryLoaded, setFullPaymentHistoryLoaded] = useState<boolean>(false);
   const [cashPaymentPrefill, setCashPaymentPrefill] = useState<{
     dateApplied: string;
@@ -117,6 +118,35 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       setPage(isReadOnlyReceivables ? "control_units" : "clients");
     }
   }, [canManageSettings, isReadOnlyReceivables, page]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!canWriteOperationalData || !cloudDataUserId) {
+      setLeadEvaluations([]);
+      setLeadsLoading(false);
+      setLeadsCloudError("");
+      return () => {
+        cancelled = true;
+      };
+    }
+    setLeadsLoading(true);
+    setLeadsCloudError("");
+    void loadCloudLeadEvaluations(cloudDataUserId)
+      .then((items) => {
+        if (cancelled) return;
+        setLeadEvaluations(items);
+      })
+      .catch((error) => {
+        console.error("No se pudo cargar Leads desde Supabase.", error);
+        if (!cancelled) setLeadsCloudError("No se pudieron cargar los Leads desde nube.");
+      })
+      .finally(() => {
+        if (!cancelled) setLeadsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canWriteOperationalData, cloudDataUserId]);
 
   function handleStartCashClientPayment(payload: {
     dateApplied: string;
@@ -232,11 +262,24 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     setHasPendingChanges(true);
   }
 
-  function persistLeadEvaluations(next: LeadEvaluation[]): void {
+  async function persistLeadEvaluations(next: LeadEvaluation[]): Promise<void> {
     if (!canWriteOperationalData) return;
+    if (!cloudDataUserId) {
+      setLeadsCloudError("No hay dataset cloud configurado para guardar Leads.");
+      return;
+    }
+    const previous = leadEvaluations;
     setLeadEvaluations(next);
-    saveLeadEvaluations(next);
-    setHasPendingChanges(true);
+    setLeadsCloudError("");
+    try {
+      await saveCloudLeadEvaluations(cloudDataUserId, next);
+      setHasPendingChanges(true);
+    } catch (error) {
+      console.error("No se pudo guardar Leads en Supabase.", error);
+      setLeadEvaluations(previous);
+      setLeadsCloudError("No se pudo guardar el Lead en nube. Revisa la conexion e intenta de nuevo.");
+      throw error;
+    }
   }
 
 
@@ -283,8 +326,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       localStorage.setItem("cobrapp.module2.cash_closing_audit.v1", JSON.stringify(report.normalizedData["cobrapp.module2.cash_closing_audit.v1"] ?? []));
       localStorage.setItem("cobrapp.module2.charge_runs.v1", JSON.stringify(report.normalizedData["cobrapp.module2.charge_runs.v1"] ?? []));
       localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(report.normalizedData["cobrapp.module3.street_management.v1"] ?? {}));
-      saveLeadEvaluations(Array.isArray(report.normalizedData["cobrapp.module4.leads.v1"]) ? report.normalizedData["cobrapp.module4.leads.v1"] as LeadEvaluation[] : []);
-      setLeadEvaluations(loadLeadEvaluations());
+      await persistLeadEvaluations(Array.isArray(report.normalizedData["cobrapp.module4.leads.v1"]) ? report.normalizedData["cobrapp.module4.leads.v1"] as LeadEvaluation[] : []);
       localStorage.setItem("cobrapp.payments.seq.v1", String(Number(report.normalizedData["cobrapp.payments.seq.v1"] ?? 0) || 0));
       localStorage.setItem("cobrapp.clients.status_filter.v1", String(report.normalizedData["cobrapp.clients.status_filter.v1"] ?? ""));
       setHasPendingChanges(true);
@@ -354,6 +396,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
           <LeadsPage
             evaluations={leadEvaluations}
             onEvaluationsChange={persistLeadEvaluations}
+            loading={leadsLoading}
+            cloudError={leadsCloudError}
           />
         )}
         {page === "payments" && canWriteOperationalData && (

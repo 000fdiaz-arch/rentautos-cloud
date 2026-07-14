@@ -1,4 +1,4 @@
-import type { PaymentPromise } from "../types";
+import type { LeadEvaluation, PaymentPromise } from "../types";
 import { dedupeLoad, deleteStaleRows, getCloudClient, PAGE_SIZE, type DataRow, type SingletonDataRow } from "./cloudClient";
 
 export type ControlUnitRow = {
@@ -72,6 +72,50 @@ export async function saveCloudPaymentPromises(userId: string, promises: Payment
   }
 
   await deleteStaleRows("payment_promises_cloud", userId, nextIds);
+}
+
+export async function loadCloudLeadEvaluations(userId: string): Promise<LeadEvaluation[]> {
+  const client = getCloudClient();
+  const allRows: DataRow<LeadEvaluation>[] = [];
+  let lastId = "";
+  while (true) {
+    let query = client
+      .from("lead_evaluations_cloud")
+      .select("id,data")
+      .eq("user_id", userId)
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (lastId) query = query.gt("id", lastId);
+    const { data, error } = await query;
+    if (error) throw error;
+    const batch = (data ?? []) as DataRow<LeadEvaluation>[];
+    allRows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    lastId = batch[batch.length - 1]?.id ?? lastId;
+    if (!lastId) break;
+  }
+  return allRows
+    .map((row) => row.data)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export async function saveCloudLeadEvaluations(userId: string, evaluations: LeadEvaluation[]): Promise<void> {
+  const client = getCloudClient();
+  const nextIds = new Set(evaluations.map((item) => item.id));
+  const rows = evaluations.map((item) => ({
+    user_id: userId,
+    id: item.id,
+    data: item
+  }));
+
+  if (rows.length > 0) {
+    const { error } = await client
+      .from("lead_evaluations_cloud")
+      .upsert(rows, { onConflict: "user_id,id" });
+    if (error) throw error;
+  }
+
+  await deleteStaleRows("lead_evaluations_cloud", userId, nextIds);
 }
 
 function normalizeRecord(payload: unknown): Record<string, unknown> {
