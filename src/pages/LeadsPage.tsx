@@ -539,12 +539,6 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
               )}
             </div>
           )}
-          {flowMode === "viewing" && (
-            <div className="lead-dictamen-section">
-              <h3>Texto del dictamen</h3>
-              <pre className="lead-dictamen-text">{buildDictamenText(form, verdict, includeDetails)}</pre>
-            </div>
-          )}
         </aside>
       </div>
       )}

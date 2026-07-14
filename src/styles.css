@@ -7420,18 +7420,6 @@ select.control-op-badge {
   font-weight: 700;
 }
 
-.lead-dictamen-text {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: #f8fafc;
-  padding: 10px 12px;
-  color: #334155;
-  font: 0.88rem/1.45 var(--font);
-}
-
 .lead-table-scroll {
   border-top: 1px solid var(--color-border);
   border-radius: 8px;
