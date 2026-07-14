@@ -26,8 +26,8 @@ export default function AppNavigation({
   onSignOut
 }: Props) {
   const tabs: Array<{ page: AppPage; label: string; visible: boolean }> = [
-    { page: "clients", label: "Clientes", visible: canWriteOperationalData },
     { page: "leads", label: "Leads", visible: canWriteOperationalData },
+    { page: "clients", label: "Clientes", visible: canWriteOperationalData },
     { page: "payments", label: "Pagos", visible: canWriteOperationalData },
     { page: "control_units", label: "Autos", visible: true },
     { page: "settings", label: "Configuraciones", visible: canManageSettings }
