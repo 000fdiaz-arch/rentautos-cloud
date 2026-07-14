@@ -20,7 +20,7 @@ import {
   saveManualBankAssignmentAudit,
   saveLateFeeLedger,
 } from "./storage";
-import { loadCloudLeadEvaluations, saveCloudLeadEvaluations } from "./cloudData";
+import { deleteCloudLeadEvaluation, loadCloudLeadEvaluations, saveCloudLeadEvaluation } from "./cloudData";
 import { flushCloudMirror } from "./cloudMirror";
 import { isSupabaseOnlyMode } from "./persistenceMode";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
@@ -272,14 +272,38 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     setLeadEvaluations(next);
     setLeadsCloudError("");
     try {
-      await saveCloudLeadEvaluations(cloudDataUserId, next);
+      const previousById = new Map(previous.map((item) => [item.id, item]));
+      const nextById = new Map(next.map((item) => [item.id, item]));
+      const removedIds = previous.map((item) => item.id).filter((id) => !nextById.has(id));
+      const changedItems = next.filter((item) => JSON.stringify(previousById.get(item.id)) !== JSON.stringify(item));
+
+      for (const item of changedItems) {
+        await saveCloudLeadEvaluation(cloudDataUserId, item);
+      }
+      for (const id of removedIds) {
+        await deleteCloudLeadEvaluation(cloudDataUserId, id);
+      }
       setHasPendingChanges(true);
     } catch (error) {
       console.error("No se pudo guardar Leads en Supabase.", error);
       setLeadEvaluations(previous);
-      setLeadsCloudError("No se pudo guardar el Lead en nube. Revisa la conexion e intenta de nuevo.");
+      setLeadsCloudError(`No se pudo guardar el Lead en nube. ${describeCloudError(error)}`);
       throw error;
     }
+  }
+
+  function describeCloudError(error: unknown): string {
+    const record = typeof error === "object" && error !== null ? error as Record<string, unknown> : null;
+    const code = typeof record?.code === "string" ? record.code : "";
+    const message = error instanceof Error
+      ? error.message
+      : typeof record?.message === "string"
+      ? record.message
+      : "";
+    const details = typeof record?.details === "string" ? record.details : "";
+    const hint = typeof record?.hint === "string" ? record.hint : "";
+    const raw = [code, message, details, hint].filter(Boolean).join(" | ");
+    return raw ? `Motivo: ${raw.slice(0, 260)}` : "Revisa la conexion e intenta de nuevo.";
   }
 
 

@@ -17,6 +17,8 @@ create index if not exists lead_evaluations_cloud_user_idx
 
 alter table public.lead_evaluations_cloud enable row level security;
 
+grant select, insert, update, delete on public.lead_evaluations_cloud to authenticated;
+
 drop policy if exists "lead_evaluations_shared_owner_access" on public.lead_evaluations_cloud;
 create policy "lead_evaluations_shared_owner_access" on public.lead_evaluations_cloud
 for all to authenticated

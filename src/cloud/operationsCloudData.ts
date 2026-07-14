@@ -101,11 +101,11 @@ export async function loadCloudLeadEvaluations(userId: string): Promise<LeadEval
 
 export async function saveCloudLeadEvaluations(userId: string, evaluations: LeadEvaluation[]): Promise<void> {
   const client = getCloudClient();
-  const nextIds = new Set(evaluations.map((item) => item.id));
   const rows = evaluations.map((item) => ({
     user_id: userId,
     id: item.id,
-    data: item
+    data: item,
+    updated_at: item.updatedAt
   }));
 
   if (rows.length > 0) {
@@ -114,8 +114,29 @@ export async function saveCloudLeadEvaluations(userId: string, evaluations: Lead
       .upsert(rows, { onConflict: "user_id,id" });
     if (error) throw error;
   }
+}
 
-  await deleteStaleRows("lead_evaluations_cloud", userId, nextIds);
+export async function saveCloudLeadEvaluation(userId: string, evaluation: LeadEvaluation): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("lead_evaluations_cloud")
+    .upsert({
+      user_id: userId,
+      id: evaluation.id,
+      data: evaluation,
+      updated_at: evaluation.updatedAt
+    }, { onConflict: "user_id,id" });
+  if (error) throw error;
+}
+
+export async function deleteCloudLeadEvaluation(userId: string, evaluationId: string): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("lead_evaluations_cloud")
+    .delete()
+    .eq("user_id", userId)
+    .eq("id", evaluationId);
+  if (error) throw error;
 }
 
 function normalizeRecord(payload: unknown): Record<string, unknown> {
