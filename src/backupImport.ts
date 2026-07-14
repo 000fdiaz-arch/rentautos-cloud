@@ -14,7 +14,8 @@ const LS_KEYS = [
   "cobrapp.module2.cash_closing_audit.v1",
   "cobrapp.module2.charge_runs.v1",
   "cobrapp.clients.status_filter.v1",
-  "cobrapp.module3.street_management.v1"
+  "cobrapp.module3.street_management.v1",
+  "cobrapp.module4.leads.v1"
 ] as const;
 
 type LSKey = (typeof LS_KEYS)[number];
@@ -40,6 +41,7 @@ type BackupShapeB = {
   chargeRuns?: unknown[];
   statusFilter?: string | null;
   streetManagement?: Record<string, unknown>;
+  leadEvaluations?: unknown[];
 };
 
 export type BackupImportReport = {
@@ -105,7 +107,8 @@ export function analyzeBackupFileContent(fileName: string, content: string): Bac
     "cobrapp.module2.cash_closing_audit.v1": toArray(shapeB.cashClosingAudit),
     "cobrapp.module2.charge_runs.v1": toArray(shapeB.chargeRuns),
     "cobrapp.clients.status_filter.v1": shapeB.statusFilter ?? "",
-    "cobrapp.module3.street_management.v1": toObject(shapeB.streetManagement)
+    "cobrapp.module3.street_management.v1": toObject(shapeB.streetManagement),
+    "cobrapp.module4.leads.v1": toArray(shapeB.leadEvaluations)
   };
 
   for (const key of LS_KEYS) {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import ClientsPage from "./pages/ClientsPage";
+import LeadsPage from "./pages/LeadsPage";
 import PaymentsPage from "./pages/PaymentsPage";
 import SettingsPage from "./pages/SettingsPage";
 import ControlUnitsPage from "./pages/ControlUnitsPage";
@@ -10,9 +11,11 @@ import {
   savePayments,
   loadBankRules,
   loadLateFeeSettings,
+  loadLeadEvaluations,
   loadOtherChargesRetentionByClient,
   saveBankRules,
   saveLateFeeSettings,
+  saveLeadEvaluations,
   saveOtherChargesRetentionByClient,
   savePendingBankItems,
   savePendingCardItems,
@@ -23,7 +26,7 @@ import { flushCloudMirror } from "./cloudMirror";
 import { isSupabaseOnlyMode } from "./persistenceMode";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
 import type { BackupExtraData } from "./autobackup";
-import type { BankRule, Client, LateFeeSettings, OtherChargesRetentionByClient, Payment } from "./types";
+import type { BankRule, Client, LateFeeSettings, LeadEvaluation, OtherChargesRetentionByClient, Payment } from "./types";
 import { parseLocalJson } from "./app/appShellRules";
 import AppNavigation, { type AppPage } from "./app/AppNavigation";
 import { useBackupManager } from "./app/useBackupManager";
@@ -52,6 +55,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
   const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
   const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>(() => loadOtherChargesRetentionByClient());
+  const [leadEvaluations, setLeadEvaluations] = useState<LeadEvaluation[]>(() => loadLeadEvaluations());
   const [fullPaymentHistoryLoaded, setFullPaymentHistoryLoaded] = useState<boolean>(false);
   const [cashPaymentPrefill, setCashPaymentPrefill] = useState<{
     dateApplied: string;
@@ -139,6 +143,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       cashClosingAudit: parseLocalJson("cobrapp.module2.cash_closing_audit.v1", []) as unknown[],
       chargeRuns: parseLocalJson("cobrapp.module2.charge_runs.v1", []) as unknown[],
       streetManagement: parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>,
+      leadEvaluations,
       statusFilter: String(localStorage.getItem("cobrapp.clients.status_filter.v1") ?? "active")
     };
   }
@@ -227,6 +232,13 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     setHasPendingChanges(true);
   }
 
+  function persistLeadEvaluations(next: LeadEvaluation[]): void {
+    if (!canWriteOperationalData) return;
+    setLeadEvaluations(next);
+    saveLeadEvaluations(next);
+    setHasPendingChanges(true);
+  }
+
 
   async function validateBackupFile(file: File): Promise<BackupImportReport> {
     const content = await file.text();
@@ -271,6 +283,8 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       localStorage.setItem("cobrapp.module2.cash_closing_audit.v1", JSON.stringify(report.normalizedData["cobrapp.module2.cash_closing_audit.v1"] ?? []));
       localStorage.setItem("cobrapp.module2.charge_runs.v1", JSON.stringify(report.normalizedData["cobrapp.module2.charge_runs.v1"] ?? []));
       localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(report.normalizedData["cobrapp.module3.street_management.v1"] ?? {}));
+      saveLeadEvaluations(Array.isArray(report.normalizedData["cobrapp.module4.leads.v1"]) ? report.normalizedData["cobrapp.module4.leads.v1"] as LeadEvaluation[] : []);
+      setLeadEvaluations(loadLeadEvaluations());
       localStorage.setItem("cobrapp.payments.seq.v1", String(Number(report.normalizedData["cobrapp.payments.seq.v1"] ?? 0) || 0));
       localStorage.setItem("cobrapp.clients.status_filter.v1", String(report.normalizedData["cobrapp.clients.status_filter.v1"] ?? ""));
       setHasPendingChanges(true);
@@ -334,6 +348,12 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             clients={clients}
             onClientsChange={persistClients}
             dataOwnerUserId={cloudDataUserId}
+          />
+        )}
+        {page === "leads" && canWriteOperationalData && (
+          <LeadsPage
+            evaluations={leadEvaluations}
+            onEvaluationsChange={persistLeadEvaluations}
           />
         )}
         {page === "payments" && canWriteOperationalData && (

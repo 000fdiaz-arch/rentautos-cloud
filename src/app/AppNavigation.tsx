@@ -1,4 +1,4 @@
-export type AppPage = "clients" | "payments" | "control_units" | "settings";
+export type AppPage = "clients" | "leads" | "payments" | "control_units" | "settings";
 
 type Props = {
   page: AppPage;
@@ -27,6 +27,7 @@ export default function AppNavigation({
 }: Props) {
   const tabs: Array<{ page: AppPage; label: string; visible: boolean }> = [
     { page: "clients", label: "Clientes", visible: canWriteOperationalData },
+    { page: "leads", label: "Leads", visible: canWriteOperationalData },
     { page: "payments", label: "Pagos", visible: canWriteOperationalData },
     { page: "control_units", label: "Autos", visible: true },
     { page: "settings", label: "Configuraciones", visible: canManageSettings }

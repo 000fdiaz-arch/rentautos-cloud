@@ -4,6 +4,8 @@ import type {
   LateFeeLedgerEntry,
   LateFeeReason,
   LateFeeSettings,
+  LeadDecision,
+  LeadEvaluation,
   ManualBankAssignmentAudit,
   OtherChargesRetentionByClient,
   PaymentPromise,
@@ -50,6 +52,7 @@ const LATE_FEE_SETTINGS_KEY = "cobrapp.settings.late_fee_settings.v1";
 const LATE_FEE_LEDGER_KEY = "cobrapp.module2.late_fee_ledger.v1";
 const OTHER_CHARGES_RETENTION_KEY = "cobrapp.settings.other_charges_retention.v1";
 const PAYMENT_PROMISES_KEY = "cobrapp.module3.payment_promises.v1";
+const LEAD_EVALUATIONS_KEY = "cobrapp.module4.leads.v1";
 
 export function loadPendingBankItems(): PendingBankItem[] {
   const raw = localStorage.getItem(PENDING_BANK_KEY);
@@ -410,4 +413,71 @@ export function loadPaymentPromises(): PaymentPromise[] {
 
 export function savePaymentPromises(items: PaymentPromise[]): void {
   localStorage.setItem(PAYMENT_PROMISES_KEY, JSON.stringify(items));
+}
+
+function normalizeLeadDecision(value: unknown): LeadDecision {
+  return value === "aplica" || value === "aplica_con_abono" || value === "no_aplica"
+    ? value
+    : "no_aplica";
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0);
+}
+
+function normalizeLeadEvaluation(item: unknown): LeadEvaluation | null {
+  if (!item || typeof item !== "object") return null;
+  const raw = item as Record<string, unknown>;
+  const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : crypto.randomUUID();
+  const cedula = typeof raw.cedula === "string" ? raw.cedula.trim() : "";
+  const birthDate = typeof raw.birthDate === "string" ? raw.birthDate.trim() : "";
+  const createdAt = typeof raw.createdAt === "string" && raw.createdAt.trim() ? raw.createdAt.trim() : new Date().toISOString();
+  const updatedAt = typeof raw.updatedAt === "string" && raw.updatedAt.trim() ? raw.updatedAt.trim() : createdAt;
+  const age = parseFiniteNumber(raw.age);
+  const collisionReports = parseFiniteNumber(raw.collisionReports);
+  const extraDeposit = parseFiniteNumber(raw.extraDeposit);
+  if (!cedula || !birthDate || age === null || !Number.isInteger(age) || age < 0) return null;
+  return {
+    id,
+    cedula,
+    birthDate,
+    age,
+    attachmentName: typeof raw.attachmentName === "string" && raw.attachmentName.trim() ? raw.attachmentName.trim() : undefined,
+    attachmentDataUrl: typeof raw.attachmentDataUrl === "string" && raw.attachmentDataUrl.trim() ? raw.attachmentDataUrl : undefined,
+    hasGpsTamperingReport: raw.hasGpsTamperingReport === true,
+    hasLegalCases: raw.hasLegalCases === true,
+    hasViolenceReports: raw.hasViolenceReports === true,
+    hasDuiReports: raw.hasDuiReports === true,
+    hasPiracyReports: raw.hasPiracyReports === true,
+    noCases: raw.noCases === true,
+    collisionReports: collisionReports !== null && Number.isInteger(collisionReports) && collisionReports >= 0 ? collisionReports : 0,
+    decision: normalizeLeadDecision(raw.decision),
+    extraDeposit: extraDeposit !== null && extraDeposit >= 0 ? extraDeposit : 0,
+    blockers: normalizeStringArray(raw.blockers),
+    extraDepositReasons: normalizeStringArray(raw.extraDepositReasons),
+    createdAt,
+    updatedAt
+  };
+}
+
+export function loadLeadEvaluations(): LeadEvaluation[] {
+  const raw = localStorage.getItem(LEAD_EVALUATIONS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => normalizeLeadEvaluation(item))
+      .filter((item): item is LeadEvaluation => item !== null)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  } catch {
+    return [];
+  }
+}
+
+export function saveLeadEvaluations(items: LeadEvaluation[]): void {
+  localStorage.setItem(LEAD_EVALUATIONS_KEY, JSON.stringify(items));
 }

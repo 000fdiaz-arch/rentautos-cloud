@@ -49,6 +49,30 @@ export type Client = {
   statusComment?: string;
 };
 
+export type LeadDecision = "aplica" | "aplica_con_abono" | "no_aplica";
+
+export type LeadEvaluation = {
+  id: string;
+  cedula: string;
+  birthDate: string;
+  age: number;
+  attachmentName?: string;
+  attachmentDataUrl?: string;
+  hasGpsTamperingReport: boolean;
+  hasLegalCases: boolean;
+  hasViolenceReports: boolean;
+  hasDuiReports: boolean;
+  hasPiracyReports: boolean;
+  noCases: boolean;
+  collisionReports: number;
+  decision: LeadDecision;
+  extraDeposit: number;
+  blockers: string[];
+  extraDepositReasons: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type PaymentMethod =
   | "Efectivo"
   | "ACH Express"

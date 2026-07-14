@@ -36,6 +36,7 @@ export type BackupExtraData = {
   chargeRuns?: unknown[];
   statusFilter?: string;
   streetManagement?: Record<string, unknown>;
+  leadEvaluations?: unknown[];
 };
 
 type FileSystemDirectoryHandleWithPermissions = FileSystemDirectoryHandle & {
@@ -241,7 +242,8 @@ export async function autoBackupDetailed(
       cashClosingAudit: Array.isArray(extraData.cashClosingAudit) ? extraData.cashClosingAudit : [],
       chargeRuns: Array.isArray(extraData.chargeRuns) ? extraData.chargeRuns : [],
       statusFilter: typeof extraData.statusFilter === "string" ? extraData.statusFilter : "active",
-      streetManagement: extraData.streetManagement ?? {}
+      streetManagement: extraData.streetManagement ?? {},
+      leadEvaluations: Array.isArray(extraData.leadEvaluations) ? extraData.leadEvaluations : []
     };
     const payload = JSON.stringify(data, null, 2);
     const versionedFilename = buildVersionedBackupFilename(now);
