@@ -169,7 +169,11 @@ export function findNextChargeDay(client: Client, fromDate: Date): Date | null {
     ? Math.floor((client.advanceBalance ?? 0) / client.rentAmount)
     : 0;
   let remainingSkips = Math.max(0, coveredCharges);
-  let cursor = addDays(startOfDay(fromDate), 1);
+  const firstChargeDate = client.firstChargeDate ? parseDateKey(client.firstChargeDate) : null;
+  const searchStart = firstChargeDate && firstChargeDate > startOfDay(fromDate)
+    ? addDays(firstChargeDate, -1)
+    : startOfDay(fromDate);
+  let cursor = addDays(searchStart, 1);
   for (let i = 0; i < 36600; i += 1) {
     if (isChargeDay(client, cursor)) {
       if (remainingSkips > 0) {
