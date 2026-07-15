@@ -438,6 +438,7 @@ function normalizeLeadEvaluation(item: unknown): LeadEvaluation | null {
   const updatedAt = typeof raw.updatedAt === "string" && raw.updatedAt.trim() ? raw.updatedAt.trim() : createdAt;
   const age = parseFiniteNumber(raw.age);
   const collisionReports = parseFiniteNumber(raw.collisionReports);
+  const pendingDailyReports = parseFiniteNumber(raw.pendingDailyReports);
   const extraDeposit = parseFiniteNumber(raw.extraDeposit);
   if (!cedula || !birthDate || age === null || !Number.isInteger(age) || age < 0) return null;
   return {
@@ -454,6 +455,7 @@ function normalizeLeadEvaluation(item: unknown): LeadEvaluation | null {
     hasPiracyReports: raw.hasPiracyReports === true,
     noCases: raw.noCases === true,
     collisionReports: collisionReports !== null && Number.isInteger(collisionReports) && collisionReports >= 0 ? collisionReports : 0,
+    pendingDailyReports: pendingDailyReports !== null && Number.isInteger(pendingDailyReports) && pendingDailyReports >= 0 ? pendingDailyReports : 0,
     decision: normalizeLeadDecision(raw.decision),
     extraDeposit: extraDeposit !== null && extraDeposit >= 0 ? extraDeposit : 0,
     blockers: normalizeStringArray(raw.blockers),

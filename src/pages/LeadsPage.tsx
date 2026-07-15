@@ -14,6 +14,7 @@ type LeadForm = {
   hasDuiReports: boolean;
   hasPiracyReports: boolean;
   collisionReports: string;
+  pendingDailyReports: string;
 };
 
 type LeadVerdict = {
@@ -44,7 +45,8 @@ const initialForm: LeadForm = {
   hasViolenceReports: false,
   hasDuiReports: false,
   hasPiracyReports: false,
-  collisionReports: "0"
+  collisionReports: "0",
+  pendingDailyReports: "0"
 };
 
 const decisionLabel: Record<LeadDecision, string> = {
@@ -75,6 +77,7 @@ function parseCollisionReports(value: string): number {
 function buildVerdict(form: LeadForm): LeadVerdict {
   const age = calculateAge(form.birthDate);
   const collisionReports = form.noCases ? 0 : parseCollisionReports(form.collisionReports);
+  const pendingDailyReports = form.noCases ? 0 : parseCollisionReports(form.pendingDailyReports);
   const blockers: string[] = [];
   const extraDepositReasons: string[] = [];
   let extraDeposit = 0;
@@ -97,6 +100,11 @@ function buildVerdict(form: LeadForm): LeadVerdict {
   if (blockers.length === 0 && collisionReports === 1) {
     extraDeposit += 100;
     extraDepositReasons.push("1 reporte de colision/choque: +$100");
+  }
+  if (blockers.length === 0 && pendingDailyReports > 0) {
+    const amount = pendingDailyReports * 50;
+    extraDeposit += amount;
+    extraDepositReasons.push(`${pendingDailyReports} diarios pendientes: +$${amount}`);
   }
 
   return {
@@ -126,7 +134,8 @@ function buildFormFromEvaluation(evaluation: LeadEvaluation): LeadForm {
     hasViolenceReports: evaluation.hasViolenceReports,
     hasDuiReports: evaluation.hasDuiReports,
     hasPiracyReports: evaluation.hasPiracyReports,
-    collisionReports: String(evaluation.collisionReports)
+    collisionReports: String(evaluation.collisionReports),
+    pendingDailyReports: String(evaluation.pendingDailyReports ?? 0)
   };
 }
 
@@ -168,7 +177,8 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
       hasViolenceReports: checked ? false : form.hasViolenceReports,
       hasDuiReports: checked ? false : form.hasDuiReports,
       hasPiracyReports: checked ? false : form.hasPiracyReports,
-      collisionReports: checked ? "0" : form.collisionReports
+      collisionReports: checked ? "0" : form.collisionReports,
+      pendingDailyReports: checked ? "0" : form.pendingDailyReports
     };
     setForm(nextForm);
     if (!checked) return;
@@ -276,6 +286,10 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
     if (!targetForm.noCases && (!Number.isInteger(collisionReports) || collisionReports < 0)) {
       nextErrors.push("Los reportes de colision deben ser un entero mayor o igual a 0.");
     }
+    const pendingDailyReports = Number(targetForm.pendingDailyReports);
+    if (!targetForm.noCases && (!Number.isInteger(pendingDailyReports) || pendingDailyReports < 0)) {
+      nextErrors.push("Los diarios pendientes deben ser un entero mayor o igual a 0.");
+    }
     return nextErrors;
   }
 
@@ -298,6 +312,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
       hasDuiReports: targetForm.noCases ? false : targetForm.hasDuiReports,
       hasPiracyReports: targetForm.noCases ? false : targetForm.hasPiracyReports,
       collisionReports: targetForm.noCases ? 0 : parseCollisionReports(targetForm.collisionReports),
+      pendingDailyReports: targetForm.noCases ? 0 : parseCollisionReports(targetForm.pendingDailyReports),
       decision: targetVerdict.decision,
       extraDeposit: targetVerdict.extraDeposit,
       blockers: targetVerdict.blockers,
@@ -430,6 +445,17 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
                 value={form.collisionReports}
                 disabled={form.noCases || saving || loading}
                 onChange={(event) => setForm((current) => ({ ...current, noCases: false, collisionReports: event.target.value }))}
+              />
+            </label>
+            <label>
+              Diarios pendientes
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={form.pendingDailyReports}
+                disabled={form.noCases || saving || loading}
+                onChange={(event) => setForm((current) => ({ ...current, noCases: false, pendingDailyReports: event.target.value }))}
               />
             </label>
           </div>

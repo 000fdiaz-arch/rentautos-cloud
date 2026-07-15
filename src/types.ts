@@ -65,6 +65,7 @@ export type LeadEvaluation = {
   hasPiracyReports: boolean;
   noCases: boolean;
   collisionReports: number;
+  pendingDailyReports: number;
   decision: LeadDecision;
   extraDeposit: number;
   blockers: string[];
