@@ -13,7 +13,7 @@ import type { Client, Payment } from "../types";
 type UseBackupManagerOptions = {
   clients: Client[];
   payments: Payment[];
-  buildExtraData: () => BackupExtraData;
+  buildExtraData: () => BackupExtraData | Promise<BackupExtraData>;
 };
 
 export function useBackupManager({ clients, payments, buildExtraData }: UseBackupManagerOptions) {
@@ -34,7 +34,7 @@ export function useBackupManager({ clients, payments, buildExtraData }: UseBacku
     }
     setBackupRunning(true);
     try {
-      const result = await autoBackupDetailed(clients, payments, buildExtraData(), trigger);
+      const result = await autoBackupDetailed(clients, payments, await buildExtraData(), trigger);
       setBackupStatus(result.message);
       if (result.ok) {
         setHasPendingChanges(false);

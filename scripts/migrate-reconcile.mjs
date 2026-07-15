@@ -2,6 +2,7 @@ import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import {
   ARRAY_TABLE_MAP,
+  FLEET_UNITS_KEY,
   SINGLETON_TABLE_MAP,
   loadDotEnv,
   nowStamp,
@@ -56,6 +57,15 @@ for (const [key, table] of Object.entries(SINGLETON_TABLE_MAP)) {
   const actual = error ? null : (count ?? 0);
   const ok = !error && actual === expected;
   result.checks.push({ table, sourceKey: key, expected, actual, ok, error: error?.message ?? null });
+  if (!ok) result.pass = false;
+}
+
+if (Array.isArray(data[FLEET_UNITS_KEY])) {
+  const expected = toArray(data[FLEET_UNITS_KEY]).length;
+  const { count, error } = await supabase.from("fleet_units_cloud").select("*", { head: true, count: "exact" }).eq("user_id", userId);
+  const actual = error ? null : (count ?? 0);
+  const ok = !error && actual === expected;
+  result.checks.push({ table: "fleet_units_cloud", sourceKey: FLEET_UNITS_KEY, expected, actual, ok, error: error?.message ?? null });
   if (!ok) result.pass = false;
 }
 

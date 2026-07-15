@@ -22,7 +22,9 @@ export const LS_KEYS = [
   "cobrapp.clients.daily_collection_pm_seals.v1",
   "cobrapp.clients.daily_collection_close_seals.v1",
   "cobrapp.clients.daily_collection_promises.v1",
-  "cobrapp.clients.daily_collection_street_actions.v1"
+  "cobrapp.clients.daily_collection_street_actions.v1",
+  "cobrapp.module4.leads.v1",
+  "cobrapp.module5.fleet_units.v1"
 ];
 
 export const ARRAY_TABLE_MAP = {
@@ -36,8 +38,11 @@ export const ARRAY_TABLE_MAP = {
   "cobrapp.module2.notified.v1": "notified_payments_cloud",
   "cobrapp.module2.cash_closings.v1": "cash_closings_cloud",
   "cobrapp.module2.cash_closing_audit.v1": "cash_closing_audit_cloud",
-  "cobrapp.module2.charge_runs.v1": "charge_runs_cloud"
+  "cobrapp.module2.charge_runs.v1": "charge_runs_cloud",
+  "cobrapp.module4.leads.v1": "lead_evaluations_cloud"
 };
+
+export const FLEET_UNITS_KEY = "cobrapp.module5.fleet_units.v1";
 
 export const SINGLETON_TABLE_MAP = {
   "cobrapp.payments.seq.v1": "receipt_sequences_cloud",

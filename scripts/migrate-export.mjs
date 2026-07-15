@@ -29,7 +29,9 @@ const data = {
   "cobrapp.module2.cash_closings.v1": toArray(source.cashClosings),
   "cobrapp.module2.cash_closing_audit.v1": toArray(source.cashClosingAudit),
   "cobrapp.module2.charge_runs.v1": toArray(source.chargeRuns),
-  "cobrapp.clients.status_filter.v1": typeof source.statusFilter === "string" ? source.statusFilter : "active"
+  "cobrapp.clients.status_filter.v1": typeof source.statusFilter === "string" ? source.statusFilter : "active",
+  "cobrapp.module4.leads.v1": toArray(source.leadEvaluations),
+  "cobrapp.module5.fleet_units.v1": toArray(source.fleetUnits)
 };
 
 const summary = {};

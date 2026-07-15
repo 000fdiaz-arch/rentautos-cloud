@@ -2,6 +2,7 @@ import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import {
   ARRAY_TABLE_MAP,
+  FLEET_UNITS_KEY,
   SINGLETON_TABLE_MAP,
   LS_KEYS,
   loadDotEnv,
@@ -31,6 +32,41 @@ function chunkIds(ids, size = 150) {
     chunks.push(ids.slice(i, i + size));
   }
   return chunks;
+}
+
+function toNullableText(value) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text.length > 0 ? text : null;
+}
+
+function toNullableNumber(value) {
+  if (value == null || value === "") return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function buildFleetUnitRow(rec, userId) {
+  const unitId = toNullableText(rec?.unit_id ?? rec?.unitId);
+  if (!unitId) return null;
+  return {
+    user_id: userId,
+    unit_id: unitId,
+    company: toNullableText(rec?.company),
+    brand_model: toNullableText(rec?.brand_model ?? rec?.brandModel),
+    engine_serial: toNullableText(rec?.engine_serial ?? rec?.engineSerial),
+    chassis_serial: toNullableText(rec?.chassis_serial ?? rec?.chassisSerial),
+    plate: toNullableText(rec?.plate),
+    cupo: toNullableText(rec?.cupo),
+    observation: toNullableText(rec?.observation),
+    is_exception: typeof rec?.is_exception === "boolean" ? rec.is_exception : null,
+    exception_note: toNullableText(rec?.exception_note ?? rec?.exceptionNote),
+    operational_status: toNullableText(rec?.operational_status ?? rec?.operationalStatus),
+    year: toNullableNumber(rec?.year ?? rec?.model_year),
+    color: toNullableText(rec?.color),
+    transmission: toNullableText(rec?.transmission ?? rec?.transmission_type),
+    mileage: toNullableNumber(rec?.mileage ?? rec?.kilometraje ?? rec?.kilometrage)
+  };
 }
 
 const mode = parseArg("mode", "dry-run");
@@ -80,6 +116,16 @@ for (const key of LS_KEYS) {
       sampleSummary: summarizeValue(data[key])
     };
     report.totals.rows += data[key] == null ? 0 : 1;
+  } else if (key === FLEET_UNITS_KEY) {
+    const rows = toArray(data[key]);
+    report.tables.fleet_units_cloud = {
+      sourceKey: key,
+      expectedRows: rows.length,
+      validRows: rows.length,
+      invalidRows: 0,
+      sampleSummary: summarizeValue(data[key])
+    };
+    report.totals.rows += rows.length;
   }
 }
 
@@ -142,6 +188,30 @@ for (const [key, table] of Object.entries(ARRAY_TABLE_MAP)) {
       report.tables[table].error = deleteError.message;
       report.totals.errors += 1;
       break;
+    }
+  }
+}
+
+if (Array.isArray(data[FLEET_UNITS_KEY])) {
+  const rows = data[FLEET_UNITS_KEY]
+    .map((rec) => buildFleetUnitRow(rec, userId))
+    .filter(Boolean);
+  if (!report.tables.fleet_units_cloud) {
+    report.tables.fleet_units_cloud = {
+      sourceKey: FLEET_UNITS_KEY,
+      expectedRows: rows.length,
+      validRows: rows.length,
+      invalidRows: 0,
+      sampleSummary: summarizeValue(data[FLEET_UNITS_KEY])
+    };
+  }
+  if (rows.length > 0) {
+    const { error } = await supabase
+      .from("fleet_units_cloud")
+      .upsert(rows, { onConflict: "user_id,unit_id" });
+    if (error) {
+      report.tables.fleet_units_cloud.error = error.message;
+      report.totals.errors += 1;
     }
   }
 }

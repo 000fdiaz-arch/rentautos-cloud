@@ -20,7 +20,14 @@ import {
   saveManualBankAssignmentAudit,
   saveLateFeeLedger,
 } from "./storage";
-import { deleteCloudLeadEvaluation, deleteCloudPayment, loadCloudLeadEvaluations, saveCloudLeadEvaluation, syncCloudClientsDelta } from "./cloudData";
+import {
+  deleteCloudLeadEvaluation,
+  deleteCloudPayment,
+  loadCloudLeadEvaluations,
+  loadControlUnits,
+  saveCloudLeadEvaluation,
+  syncCloudClientsDelta
+} from "./cloudData";
 import { flushCloudMirror } from "./cloudMirror";
 import { isSupabaseOnlyMode } from "./persistenceMode";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
@@ -158,7 +165,15 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     setPage("payments");
   }
 
-  function buildBackupExtraData(): BackupExtraData {
+  async function buildBackupExtraData(): Promise<BackupExtraData> {
+    let fleetUnits: unknown[] = [];
+    if (cloudDataUserId) {
+      try {
+        fleetUnits = await loadControlUnits(cloudDataUserId);
+      } catch (error) {
+        console.error("No se pudieron incluir autos en el respaldo.", error);
+      }
+    }
     return {
       seq: Number(localStorage.getItem("cobrapp.payments.seq.v1") ?? "0") || 0,
       pendingBankItems: parseLocalJson("cobrapp.module2.pending_bank.v1", []) as unknown[],
@@ -174,6 +189,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       chargeRuns: parseLocalJson("cobrapp.module2.charge_runs.v1", []) as unknown[],
       streetManagement: parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>,
       leadEvaluations,
+      fleetUnits,
       statusFilter: String(localStorage.getItem("cobrapp.clients.status_filter.v1") ?? "active")
     };
   }
