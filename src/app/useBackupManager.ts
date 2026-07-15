@@ -14,9 +14,10 @@ type UseBackupManagerOptions = {
   clients: Client[];
   payments: Payment[];
   buildExtraData: () => BackupExtraData | Promise<BackupExtraData>;
+  buildBackupData?: () => Promise<{ clients: Client[]; payments: Payment[]; extraData: BackupExtraData }>;
 };
 
-export function useBackupManager({ clients, payments, buildExtraData }: UseBackupManagerOptions) {
+export function useBackupManager({ clients, payments, buildExtraData, buildBackupData }: UseBackupManagerOptions) {
   const [backupSupported] = useState(isAutoBackupSupported);
   const [backupConfigured, setBackupConfigured] = useState(false);
   const [backupStatus, setBackupStatus] = useState("Sin respaldo configurado.");
@@ -34,7 +35,10 @@ export function useBackupManager({ clients, payments, buildExtraData }: UseBacku
     }
     setBackupRunning(true);
     try {
-      const result = await autoBackupDetailed(clients, payments, await buildExtraData(), trigger);
+      const backupData = buildBackupData
+        ? await buildBackupData()
+        : { clients, payments, extraData: await buildExtraData() };
+      const result = await autoBackupDetailed(backupData.clients, backupData.payments, backupData.extraData, trigger);
       setBackupStatus(result.message);
       if (result.ok) {
         setHasPendingChanges(false);

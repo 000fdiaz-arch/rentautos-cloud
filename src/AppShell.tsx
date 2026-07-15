@@ -23,7 +23,9 @@ import {
 import {
   deleteCloudLeadEvaluation,
   deleteCloudPayment,
+  loadCloudClients,
   loadCloudLeadEvaluations,
+  loadCloudPayments,
   loadControlUnits,
   saveCloudLeadEvaluation,
   syncCloudClientsDelta
@@ -114,7 +116,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     runBackup,
     configureFolder: handleConfigureBackupFolder,
     disconnectFolder: handleDisconnectBackupFolder
-  } = useBackupManager({ clients, payments, buildExtraData: buildBackupExtraData });
+  } = useBackupManager({ clients, payments, buildExtraData: buildBackupExtraData, buildBackupData });
 
   useEffect(() => {
     if (isReadOnlyReceivables && page !== "control_units") {
@@ -192,6 +194,18 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
       fleetUnits,
       statusFilter: String(localStorage.getItem("cobrapp.clients.status_filter.v1") ?? "active")
     };
+  }
+
+  async function buildBackupData(): Promise<{ clients: Client[]; payments: Payment[]; extraData: BackupExtraData }> {
+    if (!cloudDataUserId || !isSupabaseOnlyMode) {
+      return { clients, payments, extraData: await buildBackupExtraData() };
+    }
+    const [backupClients, backupPayments, extraData] = await Promise.all([
+      loadCloudClients(cloudDataUserId),
+      loadCloudPayments(cloudDataUserId),
+      buildBackupExtraData()
+    ]);
+    return { clients: backupClients, payments: backupPayments, extraData };
   }
 
   async function persistClients(next: Client[]): Promise<void> {
