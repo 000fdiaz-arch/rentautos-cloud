@@ -1,5 +1,5 @@
 import type { Client, ClientStatus } from "../types";
-import { chunkIds, dedupeLoad, deleteStaleRows, getCloudClient, hasRowChanged, PAGE_SIZE, withCloudRetry, type DataRow } from "./cloudClient";
+import { dedupeLoad, getCloudClient, hasRowChanged, PAGE_SIZE, withCloudRetry, type DataRow } from "./cloudClient";
 
 function normalizeClientStatus(rawStatus: unknown, archivedAt: unknown): ClientStatus {
   const value = typeof rawStatus === "string" ? rawStatus.trim().toLowerCase() : "";
@@ -86,7 +86,6 @@ export async function loadCloudClientsPage(
 
 export async function saveCloudClients(userId: string, clients: Client[]): Promise<void> {
   const client = getCloudClient();
-  const nextIds = new Set(clients.map((item) => item.id));
   const rows = clients.map((item) => ({
     user_id: userId,
     id: item.id,
@@ -100,8 +99,6 @@ export async function saveCloudClients(userId: string, clients: Client[]): Promi
 
     if (error) throw error;
   }
-
-  await deleteStaleRows("clients_cloud", userId, nextIds);
 }
 
 export async function syncCloudClientsDelta(
@@ -111,8 +108,6 @@ export async function syncCloudClientsDelta(
 ): Promise<void> {
   const client = getCloudClient();
   const prevById = new Map(previousClients.map((item) => [item.id, item]));
-  const nextById = new Map(nextClients.map((item) => [item.id, item]));
-
   const upsertRows = nextClients
     .filter((item) => {
       const prev = prevById.get(item.id);
@@ -131,20 +126,5 @@ export async function syncCloudClientsDelta(
         .upsert(upsertRows, { onConflict: "user_id,id" })
     );
     if (error) throw error;
-  }
-
-  const removedIds = previousClients
-    .map((item) => item.id)
-    .filter((id) => !nextById.has(id));
-
-  if (removedIds.length > 0) {
-    for (const idsChunk of chunkIds(removedIds)) {
-      const { error } = await client
-        .from("clients_cloud")
-        .delete()
-        .eq("user_id", userId)
-        .in("id", idsChunk);
-      if (error) throw error;
-    }
   }
 }

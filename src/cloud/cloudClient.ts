@@ -33,12 +33,6 @@ export async function withCloudRetry<T>(operation: () => PromiseLike<T>, attempt
   throw lastError;
 }
 
-export function chunkIds(ids: string[], size = 150): string[][] {
-  const chunks: string[][] = [];
-  for (let index = 0; index < ids.length; index += size) chunks.push(ids.slice(index, index + size));
-  return chunks;
-}
-
 export function dedupeLoad<T>(key: string, loader: () => Promise<T>): Promise<T> {
   const existing = inflightLoads.get(key) as Promise<T> | undefined;
   if (existing) return existing;
@@ -53,27 +47,4 @@ export function hasRowChanged<T>(previous: T | undefined, next: T): boolean {
   if (!previous) return true;
   if (previous === next) return false;
   return JSON.stringify(previous) !== JSON.stringify(next);
-}
-
-export async function deleteStaleRows(
-  table: "clients_cloud" | "payments_cloud" | "payment_promises_cloud" | "lead_evaluations_cloud",
-  userId: string,
-  nextIds: Set<string>
-): Promise<void> {
-  const client = getCloudClient();
-  const allIds: string[] = [];
-  let from = 0;
-  while (true) {
-    const { data, error } = await client.from(table).select("id").eq("user_id", userId).range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-    const batch = (data ?? []).map((row) => String((row as { id?: unknown }).id ?? "")).filter(Boolean);
-    allIds.push(...batch);
-    if (batch.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-  const staleIds = allIds.filter((id) => !nextIds.has(id));
-  for (const ids of chunkIds(staleIds)) {
-    const { error } = await client.from(table).delete().eq("user_id", userId).in("id", ids);
-    if (error) throw error;
-  }
 }

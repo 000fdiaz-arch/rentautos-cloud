@@ -20,7 +20,7 @@ import {
   saveManualBankAssignmentAudit,
   saveLateFeeLedger,
 } from "./storage";
-import { deleteCloudLeadEvaluation, loadCloudLeadEvaluations, saveCloudLeadEvaluation } from "./cloudData";
+import { deleteCloudLeadEvaluation, deleteCloudPayment, loadCloudLeadEvaluations, saveCloudLeadEvaluation, syncCloudClientsDelta } from "./cloudData";
 import { flushCloudMirror } from "./cloudMirror";
 import { isSupabaseOnlyMode } from "./persistenceMode";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
@@ -241,6 +241,45 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     return true;
   }
 
+  async function persistDeletedPayment(nextClients: Client[], nextPayments: Payment[], deletedPaymentId: string): Promise<boolean> {
+    if (!canWriteOperationalData) return false;
+    if (userId && !cloudReady) return false;
+    const previousClients = clients;
+    const previousPayments = payments;
+
+    if (cloudDataUserId) {
+      setSyncStatus("syncing");
+      try {
+        await syncCloudClientsDelta(cloudDataUserId, previousClients, nextClients);
+        await deleteCloudPayment(cloudDataUserId, deletedPaymentId);
+      } catch (error) {
+        console.error("No se pudo eliminar el pago en Supabase.", error);
+        try {
+          await syncCloudClientsDelta(cloudDataUserId, nextClients, previousClients);
+        } catch (rollbackError) {
+          console.error("No se pudo revertir el cliente despues de fallar eliminando pago.", rollbackError);
+        }
+        setClients(previousClients);
+        setPayments(previousPayments);
+        setSyncStatus("error");
+        setSyncErrorMessage("No se pudo eliminar el pago en nube. Actualiza el historial y vuelve a intentar.");
+        return false;
+      }
+    }
+
+    setClients(nextClients);
+    setPayments(nextPayments);
+    if (!isSupabaseOnlyMode) {
+      saveClients(nextClients);
+      savePayments(nextPayments);
+    }
+    setSyncStatus("ok");
+    setSyncErrorMessage("");
+    setLastSyncAt(new Date().toLocaleTimeString());
+    setHasPendingChanges(true);
+    return true;
+  }
+
   function persistBankRules(next: BankRule[]): void {
     if (!canManageSettings) return;
     setBankRules(next);
@@ -434,6 +473,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             payments={payments}
             onPaymentsChange={persistPayments}
             onPersistClientPayment={persistClientsAndPayments}
+            onDeletePayment={persistDeletedPayment}
             dataOwnerUserId={cloudDataUserId}
             isPaymentHistoryLoaded={fullPaymentHistoryLoaded}
             onRefreshPayments={refreshPaymentsFromSource}

@@ -74,6 +74,7 @@ type Props = {
   payments: Payment[];
   onPaymentsChange: (next: Payment[]) => void;
   onPersistClientPayment?: (nextClients: Client[], nextPayments: Payment[]) => Promise<boolean>;
+  onDeletePayment?: (nextClients: Client[], nextPayments: Payment[], deletedPaymentId: string) => Promise<boolean>;
   dataOwnerUserId?: string | null;
   isPaymentHistoryLoaded?: boolean;
   onRefreshPayments?: () => Promise<void>;
@@ -97,6 +98,7 @@ export default function PaymentsPage({
   payments,
   onPaymentsChange,
   onPersistClientPayment,
+  onDeletePayment,
   dataOwnerUserId,
   isPaymentHistoryLoaded = true,
   onRefreshPayments,
@@ -616,7 +618,7 @@ export default function PaymentsPage({
     return true;
   }
 
-  function handleDeletePayment(payment: Payment): void {
+  async function handleDeletePayment(payment: Payment): Promise<void> {
     if (isDateClosed(payment.dateApplied)) {
       setErrors([`No se puede eliminar el recibo ${payment.receiptNumber}: la caja de ${payment.dateApplied} esta cerrada.`]);
       setDeleteTarget(null);
@@ -634,8 +636,17 @@ export default function PaymentsPage({
         otherCharges: restoreOtherChargesAfterDelete(c.otherCharges, payment.otherChargesApplied)
       };
     });
-    onClientsChange(updatedClients);
-    onPaymentsChange(payments.filter((p) => p.id !== payment.id));
+    const updatedPayments = payments.filter((p) => p.id !== payment.id);
+    if (onDeletePayment) {
+      const saved = await onDeletePayment(updatedClients, updatedPayments, payment.id);
+      if (!saved) {
+        setErrors([`No se pudo eliminar el recibo ${payment.receiptNumber} en nube. Actualiza el historial y vuelve a intentar.`]);
+        return;
+      }
+    } else {
+      onClientsChange(updatedClients);
+      onPaymentsChange(updatedPayments);
+    }
     setDeleteTarget(null);
   }
 
@@ -828,7 +839,7 @@ export default function PaymentsPage({
         payment={deleteTarget}
         isDateClosed={isDateClosed}
         onCancel={() => setDeleteTarget(null)}
-        onConfirm={handleDeletePayment}
+        onConfirm={(payment) => void handleDeletePayment(payment)}
       />
     </div>
   );

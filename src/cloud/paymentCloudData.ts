@@ -1,5 +1,5 @@
 import type { Payment } from "../types";
-import { chunkIds, dedupeLoad, deleteStaleRows, getCloudClient, hasRowChanged, PAGE_SIZE, withCloudRetry, type DataRow } from "./cloudClient";
+import { dedupeLoad, getCloudClient, hasRowChanged, PAGE_SIZE, withCloudRetry, type DataRow } from "./cloudClient";
 
 const BANK_PAYMENT_METHODS = new Set(["ACH Express", "Deposito Bancario", "Transferencia Bancaria"]);
 
@@ -320,7 +320,6 @@ export async function reserveCloudReceiptNumbers(userId: string, count: number):
 
 export async function saveCloudPayments(userId: string, payments: Payment[]): Promise<void> {
   const client = getCloudClient();
-  const nextIds = new Set(payments.map((item) => item.id));
   const rows = payments.map((item) => ({
     user_id: userId,
     id: item.id,
@@ -334,8 +333,16 @@ export async function saveCloudPayments(userId: string, payments: Payment[]): Pr
 
     if (error) throw error;
   }
+}
 
-  await deleteStaleRows("payments_cloud", userId, nextIds);
+export async function deleteCloudPayment(userId: string, paymentId: string): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("payments_cloud")
+    .delete()
+    .eq("user_id", userId)
+    .eq("id", paymentId);
+  if (error) throw error;
 }
 
 export async function syncCloudPaymentsDelta(
@@ -345,8 +352,6 @@ export async function syncCloudPaymentsDelta(
 ): Promise<void> {
   const client = getCloudClient();
   const prevById = new Map(previousPayments.map((item) => [item.id, item]));
-  const nextById = new Map(nextPayments.map((item) => [item.id, item]));
-
   const upsertRows = nextPayments
     .filter((item) => {
       const prev = prevById.get(item.id);
@@ -365,20 +370,5 @@ export async function syncCloudPaymentsDelta(
         .upsert(upsertRows, { onConflict: "user_id,id" })
     );
     if (error) throw error;
-  }
-
-  const removedIds = previousPayments
-    .map((item) => item.id)
-    .filter((id) => !nextById.has(id));
-
-  if (removedIds.length > 0) {
-    for (const idsChunk of chunkIds(removedIds)) {
-      const { error } = await client
-        .from("payments_cloud")
-        .delete()
-        .eq("user_id", userId)
-        .in("id", idsChunk);
-      if (error) throw error;
-    }
   }
 }

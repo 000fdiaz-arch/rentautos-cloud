@@ -1,5 +1,5 @@
 import type { LeadEvaluation, PaymentPromise } from "../types";
-import { dedupeLoad, deleteStaleRows, getCloudClient, PAGE_SIZE, type DataRow, type SingletonDataRow } from "./cloudClient";
+import { dedupeLoad, getCloudClient, PAGE_SIZE, type DataRow, type SingletonDataRow } from "./cloudClient";
 
 export type ControlUnitRow = {
   user_id: string;
@@ -56,7 +56,6 @@ export async function loadCloudPaymentPromises(userId: string): Promise<PaymentP
 
 export async function saveCloudPaymentPromises(userId: string, promises: PaymentPromise[]): Promise<void> {
   const client = getCloudClient();
-  const nextIds = new Set(promises.map((item) => item.id));
   const rows = promises.map((item) => ({
     user_id: userId,
     id: item.id,
@@ -70,8 +69,6 @@ export async function saveCloudPaymentPromises(userId: string, promises: Payment
 
     if (error) throw error;
   }
-
-  await deleteStaleRows("payment_promises_cloud", userId, nextIds);
 }
 
 export async function loadCloudLeadEvaluations(userId: string): Promise<LeadEvaluation[]> {
