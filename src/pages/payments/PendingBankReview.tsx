@@ -3,6 +3,8 @@ import { formatCurrency, formatDate } from "../../format";
 import type { Client, OtherChargesRetentionByClient, Payment, PendingBankItem } from "../../types";
 import {
   computeEffectiveOtherChargesAllocation,
+  distributeAcrossFines,
+  distributeAcrossTickets,
   getAdvanceLetterLabel,
   getConfiguredOtherChargesRetentionConfig,
   getOtherChargeKey,
@@ -50,21 +52,27 @@ export default function PendingBankReview({
 
   const wholePart = roundMoney(item.capitalPart);
   const centsPart = roundMoney(item.centsPart);
+  const finesApplied = distributeAcrossFines(client, wholePart);
+  const totalFines = roundMoney(finesApplied.reduce((sum, fine) => sum + fine.amount, 0));
+  const wholeAfterFines = roundMoney(Math.max(0, wholePart - totalFines));
+  const ticketsApplied = distributeAcrossTickets(client, wholeAfterFines);
+  const totalTickets = roundMoney(ticketsApplied.reduce((sum, ticket) => sum + ticket.amount, 0));
+  const wholeAfterPriorityCharges = roundMoney(Math.max(0, wholeAfterFines - totalTickets));
   const retentionConfig = getConfiguredOtherChargesRetentionConfig(client, retentionByClient);
   const hasForcedRule = shouldForceRetentionToOtherCharges(client, retentionByClient, payments, item.dateApplied);
   const forcedRuleActive = hasForcedRule && !manualOverride;
   const { totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
     client,
     otherChargesInput,
-    wholePart,
+    wholeAfterPriorityCharges,
     retentionByClient,
     payments,
     item.dateApplied,
     manualOverride
   );
-  const capitalForRent = roundMoney(Math.max(0, wholePart - totalOtherCharges));
+  const capitalForRent = roundMoney(Math.max(0, wholeAfterPriorityCharges - totalOtherCharges));
   const appliedToRent = roundMoney(Math.min(capitalForRent, Math.max(0, client.balance)));
-  const advanceApplied = roundMoney(Math.max(0, wholePart - appliedToRent - totalOtherCharges));
+  const advanceApplied = roundMoney(Math.max(0, wholeAfterPriorityCharges - appliedToRent - totalOtherCharges));
   const balanceAfter = roundMoney(Math.max(0, client.balance - appliedToRent));
   const advanceLetterLabel = getAdvanceLetterLabel(client, advanceApplied);
   const referenceDate = parseDateKey(item.dateApplied) ?? startOfDay(new Date());
@@ -132,6 +140,8 @@ export default function PendingBankReview({
         <div className="payment-preview-body">
           <div className="payment-preview-col">
             <div className="payment-preview-row"><span>Saldo actual</span><strong className="amount-debt">{formatCurrency(client.balance)}</strong></div>
+            {totalFines > 0 && <div className="payment-preview-row"><span>Multas</span><strong className="amount-warning">{formatCurrency(totalFines)}</strong></div>}
+            {totalTickets > 0 && <div className="payment-preview-row"><span>Boletas</span><strong className="amount-warning">{formatCurrency(totalTickets)}</strong></div>}
             <div className="payment-preview-row"><span>Aplicado a renta</span><strong>{formatCurrency(appliedToRent)}</strong></div>
             {totalOtherCharges > 0 && <div className="payment-preview-row"><span>{forcedRuleApplied ? "Otros cargos (automático)" : "Otros cargos (manual)"}</span><strong className="amount-warning">{formatCurrency(totalOtherCharges)}</strong></div>}
             {centsPart > 0 && <div className="payment-preview-row"><span>Ahorro</span><strong>{formatCurrency(centsPart)}</strong></div>}

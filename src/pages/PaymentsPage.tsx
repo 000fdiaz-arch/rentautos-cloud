@@ -4,6 +4,7 @@ import PaymentReceipt, {
 } from "../components/PaymentReceipt";
 import { formatCurrency, formatDate } from "../format";
 import {
+  loadPendingBankItemsFromIndexedDb,
   loadPendingBankItems,
   savePendingBankItems
 } from "../storage";
@@ -60,7 +61,9 @@ import {
   getConfiguredOtherChargesRetentionConfig,
   getInstallmentsTotalInPayment,
   getMonthEndDate,
+  restoreFinesAfterDelete,
   restoreOtherChargesAfterDelete,
+  restoreTicketsAfterDelete,
   roundMoney,
   shouldForceRetentionToOtherCharges,
   toInputMoney
@@ -186,6 +189,18 @@ export default function PaymentsPage({
     setPendingBankItems(items);
     savePendingBankItems(items);
   }
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadPendingBankItemsFromIndexedDb()
+      .then((items) => {
+        if (!cancelled && items.length > 0) setPendingBankItems(items);
+      })
+      .catch((error) => console.error("No se pudieron cargar pendientes bancarios desde IndexedDB.", error));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const {
     pendingCardItems,
@@ -632,6 +647,8 @@ export default function PaymentsPage({
         savings: roundMoney(Math.max(0, c.savings - payment.centavosAhorro)),
         installmentsRemaining: c.installmentsRemaining + getInstallmentsTotalInPayment(payment),
         installmentsPaid: Math.max(0, c.installmentsPaid - getInstallmentsTotalInPayment(payment)),
+        fines: restoreFinesAfterDelete(c.fines, payment.finesApplied),
+        tickets: restoreTicketsAfterDelete(c.tickets, payment.ticketsApplied),
         otherCharges: restoreOtherChargesAfterDelete(c.otherCharges, payment.otherChargesApplied)
       };
     });

@@ -11,8 +11,10 @@ import { normalizeFolioToken } from "./bankPaymentRules";
 import { buildTakenFolioSet } from "./pendingBankRules";
 import type { PendingCardEditForm } from "./paymentTypes";
 import {
+  computeFinesDueAfter,
   computeManualPaymentAllocation,
   computeOtherChargesDueAfter,
+  computeTicketsDueAfter,
   resolveFirstSundayChargedAtForManualPayment,
   roundMoney
 } from "./paymentRules";
@@ -208,6 +210,10 @@ export default function usePendingCards({
       centavosAhorro: allocation.centavosAhorro,
       advanceApplied: allocation.advanceApplied > 0 ? allocation.advanceApplied : undefined,
       advanceBalanceAfter: allocation.advanceAfter,
+      finesApplied: allocation.finesApplied.length > 0 ? allocation.finesApplied : undefined,
+      finesDueAfter: computeFinesDueAfter(projectedClient.fines, allocation.finesApplied),
+      ticketsApplied: allocation.ticketsApplied.length > 0 ? allocation.ticketsApplied : undefined,
+      ticketsDueAfter: computeTicketsDueAfter(projectedClient.tickets, allocation.ticketsApplied),
       otherChargesApplied: allocation.otherChargesApplied.length > 0 ? allocation.otherChargesApplied : undefined,
       otherChargesDueAfter: computeOtherChargesDueAfter(projectedClient.otherCharges, allocation.otherChargesApplied),
       installmentsDeducted: allocation.installmentsDeducted,

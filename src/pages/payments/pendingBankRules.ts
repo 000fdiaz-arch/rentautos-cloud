@@ -14,9 +14,15 @@ import {
 } from "./bankPaymentRules";
 import { FREQUENCY_LABEL } from "./paymentConstants";
 import {
+  applyFinePayments,
+  applyTicketPayments,
   computeCoveredInstallmentsFromAdvance,
   computeEffectiveOtherChargesAllocation,
+  computeFinesDueAfter,
   computeOtherChargesDueAfter,
+  computeTicketsDueAfter,
+  distributeAcrossFines,
+  distributeAcrossTickets,
   resolveFirstSundayChargedAtForManualPayment,
   roundMoney
 } from "./paymentRules";
@@ -56,18 +62,24 @@ export function buildPendingBankPreview(
   if (!client) return null;
   const balanceBefore = roundMoney(Math.max(0, client.balance));
   const wholePart = roundMoney(Math.max(0, item.capitalPart));
+  const finesApplied = distributeAcrossFines(client, wholePart);
+  const totalFines = roundMoney(finesApplied.reduce((sum, fine) => sum + fine.amount, 0));
+  const wholeAfterFines = roundMoney(Math.max(0, wholePart - totalFines));
+  const ticketsApplied = distributeAcrossTickets(client, wholeAfterFines);
+  const totalTickets = roundMoney(ticketsApplied.reduce((sum, ticket) => sum + ticket.amount, 0));
+  const wholeAfterPriorityCharges = roundMoney(Math.max(0, wholeAfterFines - totalTickets));
   const { totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
     client,
     {},
-    wholePart,
+    wholeAfterPriorityCharges,
     retentionByClient,
     payments,
     item.dateApplied
   );
-  const capitalForRent = roundMoney(Math.max(0, wholePart - totalOtherCharges));
+  const capitalForRent = roundMoney(Math.max(0, wholeAfterPriorityCharges - totalOtherCharges));
   const appliedToRent = roundMoney(Math.min(capitalForRent, balanceBefore));
   const advanceBefore = roundMoney(Math.max(0, client.advanceBalance ?? 0));
-  const advanceApplied = roundMoney(Math.max(0, wholePart - appliedToRent - totalOtherCharges));
+  const advanceApplied = roundMoney(Math.max(0, wholeAfterPriorityCharges - appliedToRent - totalOtherCharges));
   const advanceAfter = roundMoney(advanceBefore + advanceApplied);
   const balanceAfter = roundMoney(Math.max(0, balanceBefore - appliedToRent));
   const rentAmount = roundMoney(Math.max(0, client.rentAmount));
@@ -101,6 +113,8 @@ export function buildPendingBankPreview(
     installmentsRemainingAfter,
     installmentsDeducted,
     totalOtherCharges,
+    totalFines,
+    totalTickets,
     forcedOtherChargesRuleApplied: forcedRuleApplied,
     balanceAfter,
     installmentsCoveredByAdvance,
@@ -134,18 +148,24 @@ export function buildPendingPaymentApplication(
   const advanceBefore = roundMoney(client.advanceBalance ?? 0);
   const wholePart = roundMoney(item.capitalPart);
   const centsPart = roundMoney(item.centsPart);
+  const finesApplied = distributeAcrossFines(client, wholePart);
+  const totalFines = roundMoney(finesApplied.reduce((sum, fine) => sum + fine.amount, 0));
+  const wholeAfterFines = roundMoney(Math.max(0, wholePart - totalFines));
+  const ticketsApplied = distributeAcrossTickets(client, wholeAfterFines);
+  const totalTickets = roundMoney(ticketsApplied.reduce((sum, ticket) => sum + ticket.amount, 0));
+  const wholeAfterPriorityCharges = roundMoney(Math.max(0, wholeAfterFines - totalTickets));
   const { otherChargesApplied, totalOtherCharges } = computeEffectiveOtherChargesAllocation(
     client,
     manualOtherChargesInput,
-    wholePart,
+    wholeAfterPriorityCharges,
     retentionByClient,
     payments,
     item.dateApplied,
     allowManualOverrideForForcedRule
   );
-  const capitalForRent = roundMoney(Math.max(0, wholePart - totalOtherCharges));
+  const capitalForRent = roundMoney(Math.max(0, wholeAfterPriorityCharges - totalOtherCharges));
   const appliedToRent = roundMoney(Math.min(capitalForRent, Math.max(0, balanceBefore)));
-  const advanceApplied = roundMoney(Math.max(0, wholePart - appliedToRent - totalOtherCharges));
+  const advanceApplied = roundMoney(Math.max(0, wholeAfterPriorityCharges - appliedToRent - totalOtherCharges));
   const centavosAhorro = centsPart;
   const balanceAfter = roundMoney(Math.max(0, balanceBefore - appliedToRent));
   const savingsAfter = roundMoney(savingsBefore + centavosAhorro);
@@ -182,6 +202,10 @@ export function buildPendingPaymentApplication(
     centavosAhorro,
     advanceApplied: advanceApplied > 0 ? advanceApplied : undefined,
     advanceBalanceAfter: advanceAfter,
+    finesApplied: finesApplied.length > 0 ? finesApplied : undefined,
+    finesDueAfter: computeFinesDueAfter(client.fines, finesApplied),
+    ticketsApplied: ticketsApplied.length > 0 ? ticketsApplied : undefined,
+    ticketsDueAfter: computeTicketsDueAfter(client.tickets, ticketsApplied),
     otherChargesApplied: otherChargesApplied.length > 0 ? otherChargesApplied : undefined,
     otherChargesDueAfter: otherChargesDueAfter.length > 0 ? otherChargesDueAfter : undefined,
     installmentsDeducted,
@@ -211,6 +235,8 @@ export function buildPendingPaymentApplication(
     savings: savingsAfter,
     installmentsPaid: installmentsPaidAfter,
     installmentsRemaining: installmentsRemainingAfter,
+    fines: applyFinePayments(client.fines, finesApplied, new Date().toISOString()),
+    tickets: applyTicketPayments(client.tickets, ticketsApplied, new Date().toISOString()),
     otherCharges: otherChargesDueAfter,
     firstSundayChargedAt
   };

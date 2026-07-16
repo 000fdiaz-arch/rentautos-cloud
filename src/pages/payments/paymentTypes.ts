@@ -106,6 +106,8 @@ export type PendingBankPreview = {
   installmentsRemainingAfter: number;
   installmentsDeducted: number;
   totalOtherCharges: number;
+  totalFines: number;
+  totalTickets: number;
   forcedOtherChargesRuleApplied: boolean;
   balanceAfter: number;
   installmentsCoveredByAdvance: number;
@@ -193,5 +195,9 @@ export type ManualPaymentAllocation = {
   pendingAfter: number;
   totalOtherCharges: number;
   otherChargesApplied: OtherCharge[];
+  totalFines: number;
+  finesApplied: OtherCharge[];
+  totalTickets: number;
+  ticketsApplied: OtherCharge[];
   forcedOtherChargesRuleApplied: boolean;
 };

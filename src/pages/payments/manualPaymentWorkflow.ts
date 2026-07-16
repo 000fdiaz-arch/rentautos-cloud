@@ -3,8 +3,12 @@ import { extractFoliosFromReference } from "./bankPaymentRules";
 import type { PaymentForm } from "./paymentTypes";
 import {
   buildTemporaryCardFolio,
+  applyFinePayments,
+  applyTicketPayments,
+  computeFinesDueAfter,
   computeManualPaymentAllocation,
   computeOtherChargesDueAfter,
+  computeTicketsDueAfter,
   getNextDateKey,
   resolveFirstSundayChargedAtForManualPayment,
   roundMoney
@@ -75,6 +79,10 @@ export function buildManualPaymentTransaction({
     centavosAhorro: allocation.centavosAhorro,
     advanceApplied: allocation.advanceApplied > 0 ? allocation.advanceApplied : undefined,
     advanceBalanceAfter: allocation.advanceAfter,
+    finesApplied: allocation.finesApplied.length > 0 ? allocation.finesApplied : undefined,
+    finesDueAfter: computeFinesDueAfter(allocation.projectedClient.fines, allocation.finesApplied),
+    ticketsApplied: allocation.ticketsApplied.length > 0 ? allocation.ticketsApplied : undefined,
+    ticketsDueAfter: computeTicketsDueAfter(allocation.projectedClient.tickets, allocation.ticketsApplied),
     otherChargesApplied: allocation.otherChargesApplied.length > 0 ? allocation.otherChargesApplied : undefined,
     otherChargesDueAfter: computeOtherChargesDueAfter(allocation.projectedClient.otherCharges, allocation.otherChargesApplied),
     installmentsDeducted: allocation.installmentsDeducted,
@@ -106,6 +114,8 @@ export function buildManualPaymentTransaction({
       savings: roundMoney(client.savings + allocation.centavosAhorro),
       installmentsRemaining: Math.max(0, client.installmentsRemaining - allocation.installmentsTotalInPayment),
       installmentsPaid: client.installmentsPaid + allocation.installmentsTotalInPayment,
+      fines: applyFinePayments(client.fines, allocation.finesApplied, new Date().toISOString()),
+      tickets: applyTicketPayments(client.tickets, allocation.ticketsApplied, new Date().toISOString()),
       otherCharges: computeOtherChargesDueAfter(client.otherCharges, allocation.otherChargesApplied) ?? [],
       lastChargeDate: allocation.projectedClient.lastChargeDate,
       firstSundayChargedAt

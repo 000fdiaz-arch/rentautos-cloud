@@ -12,7 +12,7 @@ import { parseDateKey } from "../../billing";
 import { formatCurrency, formatDate } from "../../format";
 import type { Client, PendingBankItem } from "../../types";
 import { EMPTY_PENDING_FILTERS } from "./paymentConstants";
-import { roundMoney, toInputMoney } from "./paymentRules";
+import { getPendingFines, getPendingTickets, roundMoney, toInputMoney } from "./paymentRules";
 import type { PendingBankPreview, PendingColumnFilters } from "./paymentTypes";
 
 type SimilaritySignals = {
@@ -93,17 +93,19 @@ const filteredPendingBankItems = useMemo(() => {
   return pendingBankItems.filter((item) => {
     const assignedClient = item.suggestedClientId ? (clientById.get(item.suggestedClientId) ?? null) : null;
     const hasOtherCharges = !!(assignedClient?.otherCharges?.length);
+    const hasFines = assignedClient ? getPendingFines(assignedClient).length > 0 : false;
+    const hasTickets = assignedClient ? getPendingTickets(assignedClient).length > 0 : false;
     const { nombre, centavos, notificado, score } = getSimilaritySignals(item);
     const isHighSim = score >= 2 && !!assignedClient;
     const unitProbability = score >= 3 ? "Alta" : score === 2 ? "Media" : score === 1 ? "Baja" : "Sin datos";
     const pendingPreview = getPendingBankPreview(item, assignedClient);
     const actionLabels = [
-      assignedClient ? (hasOtherCharges ? "Aplicar auto" : "Aplicar") : "",
+      assignedClient ? (hasOtherCharges || hasFines || hasTickets ? "Aplicar auto" : "Aplicar") : "",
       assignedClient && hasOtherCharges ? "Editar cargos" : "",
       "Ignorar"
     ].filter(Boolean).join(" ");
     const previewLabel = pendingPreview
-      ? `Renta ${formatCurrency(pendingPreview.rentAmount)} ${pendingPreview.frequencyLabel} Otros cargos ${formatCurrency(pendingPreview.totalOtherCharges)} Pactadas ${pendingPreview.installmentsAgreed} Cuotas ${pendingPreview.installmentsRemainingAfter} Impacto ${pendingPreview.installmentsDeducted} Cobro ${formatCurrency(pendingPreview.balanceAfter)}`
+      ? `Renta ${formatCurrency(pendingPreview.rentAmount)} ${pendingPreview.frequencyLabel} Multas ${formatCurrency(pendingPreview.totalFines)} Boletas ${formatCurrency(pendingPreview.totalTickets)} Otros cargos ${formatCurrency(pendingPreview.totalOtherCharges)} Pactadas ${pendingPreview.installmentsAgreed} Cuotas ${pendingPreview.installmentsRemainingAfter} Impacto ${pendingPreview.installmentsDeducted} Cobro ${formatCurrency(pendingPreview.balanceAfter)}`
       : "Sin vista previa";
     const unitLabel = assignedClient ? `${assignedClient.unitId} ${assignedClient.name}` : "Sin asignar";
     const groupLabel = item.mappedGroup ? `Grupo ${item.mappedGroup}` : "";
@@ -114,6 +116,8 @@ const filteredPendingBankItems = useMemo(() => {
       nombre ? "nombre" : "",
       centavos ? "centavos" : "",
       notificado ? "notificado" : "",
+      hasFines ? "multas" : "",
+      hasTickets ? "boletas" : "",
       hasOtherCharges ? "otros cargos" : ""
     ].filter(Boolean).join(" ");
 
@@ -227,7 +231,7 @@ useEffect(() => {
             {isPendingOpen && (
               <>
                 <p className="hint" style={{ marginTop: 8 }}>
-                  La importacion aplica regla automatica por cuenta y grupo. Si el cliente tiene otros cargos, se usa la tabla de Configuraciones automaticamente; usa Editar cargos solo cuando necesites ajustar ese pago.
+                  La importacion aplica regla automatica por cuenta y grupo. Si el cliente tiene multas, boletas u otros cargos, se cobran automaticamente antes de renta; usa Editar cargos solo cuando necesites ajustar otros cargos de ese pago.
                 </p>
                 {hasPendingColumnFilters && (
                   <div style={{ marginTop: 8 }}>
@@ -277,11 +281,13 @@ useEffect(() => {
                         {filteredPendingBankItems.map((item) => {
                           const assignedClient = item.suggestedClientId ? clients.find((c) => c.id === item.suggestedClientId) ?? null : null;
                           const hasOtherCharges = !!(assignedClient?.otherCharges?.length);
+                          const hasFines = assignedClient ? getPendingFines(assignedClient).length > 0 : false;
+                          const hasTickets = assignedClient ? getPendingTickets(assignedClient).length > 0 : false;
                           const isPreMatched = !!item.suggestedClientId;
                           const { nombre, centavos, notificado, score } = getSimilaritySignals(item);
                           const isHighSim = score >= 2 && !!assignedClient;
                           const unitProbability = score >= 3 ? "Alta" : score === 2 ? "Media" : score === 1 ? "Baja" : "Sin datos";
-                          const rowClass = isHighSim ? "pending-row--high-sim" : hasOtherCharges ? "pending-row--other-charges" : isPreMatched ? "pending-row--ready" : "";
+                          const rowClass = isHighSim ? "pending-row--high-sim" : (hasOtherCharges || hasFines || hasTickets) ? "pending-row--other-charges" : isPreMatched ? "pending-row--ready" : "";
                           const pendingPreview = getPendingBankPreview(item, assignedClient);
                           const upToDateUntilDate = pendingPreview?.upToDateUntil
                             ? parseDateKey(pendingPreview.upToDateUntil)
@@ -298,7 +304,7 @@ useEffect(() => {
                               <td>
                                 {isPreMatched
                                   ? <>
-                                      {hasOtherCharges && <span className="badge-other-charges" title="Cliente con otros cargos">*</span>}
+                                      {(hasOtherCharges || hasFines || hasTickets) && <span className="badge-other-charges" title={hasFines ? "Cliente con multas pendientes" : hasTickets ? "Cliente con boletas pendientes" : "Cliente con otros cargos"}>*</span>}
                                       {notificado && <span className="badge-notified" title="Pago notificado">OK</span>}
                                       {centavos && <span className="badge-cents" title="Pago con centavos">c</span>}
                                       {item.suggestedClientName}
@@ -366,6 +372,18 @@ useEffect(() => {
                                   <div className="pending-preview-card">
                                     <div className="pending-preview-row"><span>Renta</span><strong>{formatCurrency(pendingPreview.rentAmount)}</strong></div>
                                     <div className="pending-preview-row"><span>Frecuencia</span><strong>{pendingPreview.frequencyLabel}</strong></div>
+                                    {pendingPreview.totalFines > 0 && (
+                                      <div className="pending-preview-row">
+                                        <span>Multas</span>
+                                        <strong className="amount-warning">{formatCurrency(pendingPreview.totalFines)}</strong>
+                                      </div>
+                                    )}
+                                    {pendingPreview.totalTickets > 0 && (
+                                      <div className="pending-preview-row">
+                                        <span>Boletas</span>
+                                        <strong className="amount-warning">{formatCurrency(pendingPreview.totalTickets)}</strong>
+                                      </div>
+                                    )}
                                     {pendingPreview.totalOtherCharges > 0 && (
                                       <div className="pending-preview-row">
                                         <span>{pendingPreview.forcedOtherChargesRuleApplied ? "Otros cargos auto" : "Otros cargos"}</span>
@@ -403,7 +421,7 @@ useEffect(() => {
                                     disabled={pendingApplyingFolio !== null || isPendingClassifySaving}
                                     onClick={() => void handleQuickApply(item)}
                                   >
-                                    {pendingApplyingFolio === item.folio ? "Aplicando..." : hasOtherCharges ? "Aplicar auto" : "Aplicar"}
+                                    {pendingApplyingFolio === item.folio ? "Aplicando..." : (hasOtherCharges || hasFines || hasTickets) ? "Aplicar auto" : "Aplicar"}
                                   </button>
                                 )}
                                 {assignedClient && hasOtherCharges && (

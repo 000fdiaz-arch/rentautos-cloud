@@ -244,7 +244,13 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
   };
   const otherChargesApplied = payment.otherChargesApplied ?? [];
   const otherChargesDueAfter = payment.otherChargesDueAfter ?? [];
+  const finesApplied = payment.finesApplied ?? [];
+  const finesDueAfter = payment.finesDueAfter ?? [];
+  const ticketsApplied = payment.ticketsApplied ?? [];
+  const ticketsDueAfter = payment.ticketsDueAfter ?? [];
   const otherChargesDueTotal = otherChargesDueAfter.reduce((sum, charge) => sum + charge.amount, 0);
+  const finesDueTotal = finesDueAfter.reduce((sum, charge) => sum + charge.amount, 0);
+  const ticketsDueTotal = ticketsDueAfter.reduce((sum, charge) => sum + charge.amount, 0);
   const moroseBalanceToday = Math.max(0, payment.balanceAfter);
   const hasMoroseBalance = moroseBalanceToday > 0;
   const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
@@ -306,7 +312,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
     totalPendienteCuotas > 0
       ? ` (${totalPendienteCuotas === 1 ? "1 cta" : `${totalPendienteCuotas} ctas`})`
       : "";
-  const totalPending = Math.max(0, moroseBalanceToday + otherChargesDueTotal);
+  const totalPending = Math.max(0, moroseBalanceToday + otherChargesDueTotal + finesDueTotal + ticketsDueTotal);
   const hasPending = totalPending > 0;
   const travelFundBalance = roundMoney(Math.max(0, payment.travelFundAvailableSnapshot ?? 0));
   const hasTravelFundBalance = travelFundBalance > 0;
@@ -323,6 +329,8 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
       : saldoParaBajarCuenta;
     const rentPendingAmount = roundMoney(Math.max(0, moroseBalanceToday));
     const otherChargesPendingAmount = roundMoney(Math.max(0, otherChargesDueTotal));
+    const finesPendingAmount = roundMoney(Math.max(0, finesDueTotal));
+    const ticketsPendingAmount = roundMoney(Math.max(0, ticketsDueTotal));
     const rentPendingInstallments = normalizedRent > 0 ? Math.ceil((rentPendingAmount + Number.EPSILON) / normalizedRent) : 0;
     const rentPendingInstallmentsLabel = rentPendingInstallments === 1 ? "1 cta" : `${rentPendingInstallments} ctas`;
     const rentPartialPendingAmount = hasPartialForOneAccount ? roundMoney(saldoParaBajarCuenta) : 0;
@@ -370,6 +378,26 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
           status: "applied",
           amount: charge.amount,
           value: "Aplicado"
+        });
+      });
+    finesApplied
+      .filter((charge) => charge.amount > 0)
+      .forEach((charge) => {
+        coverageRows.push({
+          label: charge.label,
+          status: "applied",
+          amount: charge.amount,
+          value: "Multa pagada"
+        });
+      });
+    ticketsApplied
+      .filter((charge) => charge.amount > 0)
+      .forEach((charge) => {
+        coverageRows.push({
+          label: charge.label,
+          status: "applied",
+          amount: charge.amount,
+          value: "Boleta pagada"
         });
       });
 
@@ -478,6 +506,18 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
               <div className="receipt-history-alert receipt-history-alert--other">
                 <span>Otros cargos pendientes</span>
                 <strong>{formatCurrency(otherChargesPendingAmount)}</strong>
+              </div>
+            )}
+            {finesPendingAmount > 0 && (
+              <div className="receipt-history-alert receipt-history-alert--other">
+                <span>Multas pendientes</span>
+                <strong>{formatCurrency(finesPendingAmount)}</strong>
+              </div>
+            )}
+            {ticketsPendingAmount > 0 && (
+              <div className="receipt-history-alert receipt-history-alert--other">
+                <span>Boletas pendientes</span>
+                <strong>{formatCurrency(ticketsPendingAmount)}</strong>
               </div>
             )}
             {hasTravelFundBalance && (
@@ -599,6 +639,18 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
                 <span>{formatCurrency(charge.amount)}</span>
               </div>
             ))}
+            {finesApplied.map((charge, index) => (
+              <div key={`fine-paid-${charge.id ?? charge.label}-${index}`} className="receipt-subrow">
+                <span>Aplicado a multa: {charge.label.toUpperCase()}</span>
+                <span>{formatCurrency(charge.amount)}</span>
+              </div>
+            ))}
+            {ticketsApplied.map((charge, index) => (
+              <div key={`ticket-paid-${charge.id ?? charge.label}-${index}`} className="receipt-subrow">
+                <span>Aplicado a boleta: {charge.label.toUpperCase()}</span>
+                <span>{formatCurrency(charge.amount)}</span>
+              </div>
+            ))}
           </div>
 
           <div className="receipt-section receipt-section--panel">
@@ -648,7 +700,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
         </div>
       )}
 
-      <div className={`receipt-top-balance-grid ${otherChargesDueAfter.length === 0 ? "receipt-top-balance-grid--single" : ""}`}>
+      <div className={`receipt-top-balance-grid ${otherChargesDueAfter.length === 0 && finesDueAfter.length === 0 && ticketsDueAfter.length === 0 ? "receipt-top-balance-grid--single" : ""}`}>
         <div className={`receipt-overdue-banner ${hasPending ? "" : "receipt-overdue-banner--ok"}`}>
           <span className="receipt-overdue-icon">{hasPending ? "!" : <strong>✓</strong>}</span>
           <div className="receipt-overdue-content">
@@ -678,18 +730,30 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
           </div>
         </div>
 
-        {hasPending && otherChargesDueAfter.length > 0 && (
+        {hasPending && (otherChargesDueAfter.length > 0 || finesDueAfter.length > 0 || ticketsDueAfter.length > 0) && (
           <div className="receipt-overdue-other-band receipt-overdue-other-band--separate">
-            <div className="receipt-overdue-other-title">OTROS CARGOS</div>
+            <div className="receipt-overdue-other-title">CARGOS, MULTAS Y BOLETAS</div>
             {otherChargesDueAfter.map((charge, index) => (
               <div key={`top-due-${charge.id ?? charge.label}-${index}`} className="receipt-overdue-other-row">
                 <span>{charge.label.toUpperCase()}</span>
                 <strong>{formatCurrency(charge.amount)}</strong>
               </div>
             ))}
+            {finesDueAfter.map((charge, index) => (
+              <div key={`top-fine-due-${charge.id ?? charge.label}-${index}`} className="receipt-overdue-other-row">
+                <span>MULTA: {charge.label.toUpperCase()}</span>
+                <strong>{formatCurrency(charge.amount)}</strong>
+              </div>
+            ))}
+            {ticketsDueAfter.map((charge, index) => (
+              <div key={`top-ticket-due-${charge.id ?? charge.label}-${index}`} className="receipt-overdue-other-row">
+                <span>BOLETA: {charge.label.toUpperCase()}</span>
+                <strong>{formatCurrency(charge.amount)}</strong>
+              </div>
+            ))}
             <div className="receipt-overdue-other-row receipt-overdue-other-row--total">
-              <span>Total otros cargos</span>
-              <strong>{formatCurrency(otherChargesDueTotal)}</strong>
+              <span>Total cargos, multas y boletas</span>
+              <strong>{formatCurrency(otherChargesDueTotal + finesDueTotal + ticketsDueTotal)}</strong>
             </div>
           </div>
         )}

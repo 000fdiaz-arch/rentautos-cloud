@@ -13,6 +13,7 @@ import type {
   PendingBankItem,
   PendingCardItem
 } from "../types";
+import { readIndexedDb, writeIndexedDb } from "./indexedDbStorage";
 
 function parseFiniteNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -45,6 +46,7 @@ function normalizeLateFeeReason(value: unknown): LateFeeReason | null {
 // -- Pending Bank Items --
 
 const PENDING_BANK_KEY = "cobrapp.module2.pending_bank.v1";
+const PENDING_BANK_INDEXED_DB_KEY = "pending_bank.v1";
 const PENDING_CARD_KEY = "cobrapp.module2.pending_card.v1";
 const BANK_RULES_KEY = "cobrapp.settings.bank_rules.v1";
 const MANUAL_ASSIGNMENT_AUDIT_KEY = "cobrapp.module2.manual_assignment_audit.v1";
@@ -53,30 +55,55 @@ const LATE_FEE_LEDGER_KEY = "cobrapp.module2.late_fee_ledger.v1";
 const OTHER_CHARGES_RETENTION_KEY = "cobrapp.settings.other_charges_retention.v1";
 const PAYMENT_PROMISES_KEY = "cobrapp.module3.payment_promises.v1";
 const LEAD_EVALUATIONS_KEY = "cobrapp.module4.leads.v1";
+const INDEXED_DB_SENTINEL = "__indexeddb__";
+
+function normalizePendingBankItem(item: unknown): PendingBankItem | null {
+  if (!item || typeof item !== "object") return null;
+  const raw = item as Record<string, unknown>;
+  if (
+    typeof raw.folio !== "string" ||
+    typeof raw.dateApplied !== "string" ||
+    typeof raw.amountReceived !== "number" ||
+    !Number.isFinite(raw.amountReceived) ||
+    typeof raw.importedAt !== "string"
+  ) {
+    return null;
+  }
+  return raw as unknown as PendingBankItem;
+}
 
 export function loadPendingBankItems(): PendingBankItem[] {
   const raw = localStorage.getItem(PENDING_BANK_KEY);
   if (!raw) return [];
+  if (raw === INDEXED_DB_SENTINEL) return [];
   try {
     const parsed = JSON.parse(raw) as unknown[];
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is PendingBankItem => {
-      if (!item || typeof item !== "object") return false;
-      const r = item as Record<string, unknown>;
-      return (
-        typeof r.folio === "string" &&
-        typeof r.dateApplied === "string" &&
-        typeof r.amountReceived === "number" &&
-        typeof r.importedAt === "string"
-      );
-    });
+    return parsed
+      .map((item) => normalizePendingBankItem(item))
+      .filter((item): item is PendingBankItem => item !== null);
   } catch {
     return [];
   }
 }
 
+export async function loadPendingBankItemsFromIndexedDb(): Promise<PendingBankItem[]> {
+  const value = await readIndexedDb(PENDING_BANK_INDEXED_DB_KEY);
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => normalizePendingBankItem(item))
+    .filter((item): item is PendingBankItem => item !== null);
+}
+
 export function savePendingBankItems(items: PendingBankItem[]): void {
-  localStorage.setItem(PENDING_BANK_KEY, JSON.stringify(items));
+  void writeIndexedDb(PENDING_BANK_INDEXED_DB_KEY, items).catch((error) => {
+    console.error("No se pudo guardar pendientes bancarios en IndexedDB.", error);
+  });
+  try {
+    localStorage.setItem(PENDING_BANK_KEY, INDEXED_DB_SENTINEL);
+  } catch (error) {
+    console.error("No se pudo actualizar marcador de pendientes bancarios en localStorage.", error);
+  }
 }
 
 function normalizePendingCardItem(item: unknown): PendingCardItem | null {

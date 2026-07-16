@@ -1,4 +1,5 @@
 import { supabase } from "./lib/supabase";
+import { readIndexedDb, writeIndexedDb } from "./storage/indexedDbStorage";
 
 type ArrayKey =
   | "cobrapp.module1.clients.v1"
@@ -74,6 +75,9 @@ const DAILY_COLLECTION_CLOSE_SEALS_KEY = "cobrapp.clients.daily_collection_close
 const DAILY_COLLECTION_PROMISES_KEY = "cobrapp.clients.daily_collection_promises.v1";
 const DAILY_COLLECTION_STREET_ACTIONS_KEY = "cobrapp.clients.daily_collection_street_actions.v1";
 const INDEXED_DB_SENTINEL = "__indexeddb__";
+const INDEXED_DB_ARRAY_KEY_MAP: Partial<Record<ArrayKey, string>> = {
+  "cobrapp.module2.pending_bank.v1": "pending_bank.v1"
+};
 
 type InitializeCloudMirrorOptions = {
   skipKeys?: string[];
@@ -95,6 +99,15 @@ function parseArrayValue(raw: string | null): unknown[] {
   } catch {
     return [];
   }
+}
+
+async function parseArrayValueForKey(key: ArrayKey, raw: string | null): Promise<unknown[]> {
+  const indexedDbKey = INDEXED_DB_ARRAY_KEY_MAP[key];
+  if (raw === INDEXED_DB_SENTINEL && indexedDbKey) {
+    const value = await readIndexedDb(indexedDbKey);
+    return Array.isArray(value) ? value : [];
+  }
+  return parseArrayValue(raw);
 }
 
 function parseObjectValue(raw: string | null): Record<string, unknown> {
@@ -123,7 +136,7 @@ function makeRowId(key: ArrayKey, rec: unknown, idx: number): string {
 async function saveArrayKey(userId: string, key: ArrayKey, raw: string | null): Promise<void> {
   if (!supabase) return;
   const table = ARRAY_TABLE_MAP[key];
-  const rows = parseArrayValue(raw).map((rec, idx) => ({
+  const rows = (await parseArrayValueForKey(key, raw)).map((rec, idx) => ({
     user_id: userId,
     id: makeRowId(key, rec, idx),
     data: rec
@@ -174,10 +187,11 @@ async function saveKeyToCloud(key: string, raw: string | null): Promise<void> {
 
 function scheduleSync(key: string, raw: string | null): void {
   if (!currentUserId || !SYNCED_KEYS.has(key)) return;
-  if (raw === INDEXED_DB_SENTINEL) return;
+  const isIndexedDbArraySentinel = raw === INDEXED_DB_SENTINEL && Boolean(INDEXED_DB_ARRAY_KEY_MAP[key as ArrayKey]);
+  if (raw === INDEXED_DB_SENTINEL && !isIndexedDbArraySentinel) return;
   const nextValue = raw ?? "";
   const previousValue = cachedValues.get(key);
-  if (previousValue === nextValue && !pendingTimers.has(key)) return;
+  if (!isIndexedDbArraySentinel && previousValue === nextValue && !pendingTimers.has(key)) return;
   cachedValues.set(key, nextValue);
   const existing = pendingTimers.get(key);
   if (existing) window.clearTimeout(existing);
@@ -245,6 +259,12 @@ async function hydrateArrayKey(userId: string, key: ArrayKey): Promise<void> {
     rows.push(...batch);
     if (batch.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
+  }
+  const indexedDbKey = INDEXED_DB_ARRAY_KEY_MAP[key];
+  if (indexedDbKey) {
+    await writeIndexedDb(indexedDbKey, rows);
+    window.localStorage.setItem(key, INDEXED_DB_SENTINEL);
+    return;
   }
   window.localStorage.setItem(key, JSON.stringify(rows));
 }

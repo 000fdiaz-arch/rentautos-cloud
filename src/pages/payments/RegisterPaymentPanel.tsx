@@ -4,6 +4,8 @@ import type { Client, OtherChargesRetentionCycle } from "../../types";
 import { PAYMENT_METHODS } from "./paymentConstants";
 import {
   getOtherChargeKey,
+  getPendingFines,
+  getPendingTickets,
   getRetentionCycleLabel,
   roundMoney
 } from "./paymentRules";
@@ -266,6 +268,47 @@ export default function RegisterPaymentPanel({
             )}
 
             {/* Otros cargos */}
+            {selectedClient && getPendingFines(selectedClient).length > 0 && (
+              <div className="other-charges-section" style={{ marginTop: 14 }}>
+                <div className="other-charges-title">Multas pendientes de este cliente</div>
+                <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
+                  Se cobran automaticamente antes de renta, otros cargos y adelantos.
+                </p>
+                {getPendingFines(selectedClient).map((fine) => {
+                  const pending = roundMoney(Math.max(0, fine.amount - fine.amountPaid));
+                  return (
+                    <div key={fine.id} className="other-charges-row">
+                      <label className="payment-label">{fine.label}</label>
+                      <div className="payment-input" style={{ display: "flex", alignItems: "center" }}>
+                        Pendiente: {formatCurrency(pending)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {selectedClient && getPendingTickets(selectedClient).length > 0 && (
+              <div className="other-charges-section" style={{ marginTop: 14 }}>
+                <div className="other-charges-title">Boletas pendientes de este cliente</div>
+                <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
+                  Se cobran automaticamente despues de multas y antes de otros cargos.
+                </p>
+                {getPendingTickets(selectedClient).map((ticket) => {
+                  const pending = roundMoney(Math.max(0, ticket.amount - ticket.amountPaid));
+                  return (
+                    <div key={ticket.id} className="other-charges-row">
+                      <label className="payment-label">Boleta {ticket.ticketNumber}</label>
+                      <div className="payment-input" style={{ display: "flex", alignItems: "center" }}>
+                        Pendiente: {formatCurrency(pending)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Otros cargos */}
             {selectedClient && (selectedClient.otherCharges ?? []).length > 0 && (
               <div className="other-charges-section" style={{ marginTop: 14 }}>
                 <div className="other-charges-title">Otros cargos de este cliente</div>
@@ -318,6 +361,18 @@ export default function RegisterPaymentPanel({
                       <span>Saldo actual</span>
                       <strong className="amount-debt">{formatCurrency(preview.balanceBefore)}</strong>
                     </div>
+                    {preview.totalFines > 0 && (
+                      <div className="payment-preview-row">
+                        <span>Multas</span>
+                        <strong className="amount-warning">{formatCurrency(preview.totalFines)}</strong>
+                      </div>
+                    )}
+                    {preview.totalTickets > 0 && (
+                      <div className="payment-preview-row">
+                        <span>Boletas</span>
+                        <strong className="amount-warning">{formatCurrency(preview.totalTickets)}</strong>
+                      </div>
+                    )}
                     <div className="payment-preview-row">
                       <span>Aplicado a renta</span>
                       <strong>{formatCurrency(preview.appliedToRent)}</strong>

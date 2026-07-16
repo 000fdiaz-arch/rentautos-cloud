@@ -16,12 +16,11 @@ import type {
   PendingCardItem,
   PendingBankItem
 } from "../types";
+import { readIndexedDb, writeIndexedDb } from "./indexedDbStorage";
 
 const CLIENTS_KEY = "cobrapp.module1.clients.v1";
 const PAYMENTS_KEY = "cobrapp.module2.payments.v1";
 const SEQ_KEY = "cobrapp.payments.seq.v1";
-const INDEXED_DB_NAME = "cobrapp-storage";
-const INDEXED_DB_STORE = "kv";
 const CLIENTS_INDEXED_DB_KEY = "clients.v1";
 const PAYMENTS_INDEXED_DB_KEY = "payments.v1";
 const INDEXED_DB_SENTINEL = "__indexeddb__";
@@ -405,51 +404,6 @@ function normalizePayment(item: unknown): Payment | null {
     otherChargesApplied: parseChargeArray(raw.otherChargesApplied),
     otherChargesDueAfter: parseChargeArray(raw.otherChargesDueAfter)
   };
-}
-
-function openStorageDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(INDEXED_DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(INDEXED_DB_STORE)) {
-        db.createObjectStore(INDEXED_DB_STORE);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error("No se pudo abrir IndexedDB."));
-  });
-}
-
-async function writeIndexedDb(key: string, value: unknown): Promise<void> {
-  const db = await openStorageDb();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(INDEXED_DB_STORE, "readwrite");
-      const store = tx.objectStore(INDEXED_DB_STORE);
-      store.put(value, key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error("No se pudo guardar en IndexedDB."));
-      tx.onabort = () => reject(tx.error ?? new Error("Se aborto el guardado en IndexedDB."));
-    });
-  } finally {
-    db.close();
-  }
-}
-
-async function readIndexedDb(key: string): Promise<unknown> {
-  const db = await openStorageDb();
-  try {
-    return await new Promise<unknown>((resolve, reject) => {
-      const tx = db.transaction(INDEXED_DB_STORE, "readonly");
-      const store = tx.objectStore(INDEXED_DB_STORE);
-      const req = store.get(key);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error ?? new Error("No se pudo leer desde IndexedDB."));
-    });
-  } finally {
-    db.close();
-  }
 }
 
 export async function loadClientsFromIndexedDb(): Promise<Client[]> {

@@ -526,6 +526,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             lateFeeSettings={lateFeeSettings}
             otherChargesRetentionByClient={otherChargesRetentionByClient}
             onBankRulesChange={persistBankRules}
+            onClientsChange={persistClients}
             onLateFeeSettingsChange={persistLateFeeSettings}
             onOtherChargesRetentionByClientChange={persistOtherChargesRetentionByClient}
             onValidateBackupFile={validateBackupFile}

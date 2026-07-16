@@ -2,8 +2,11 @@ import { useState } from "react";
 import type { BackupImportReport } from "../backupImport";
 import BackupSettingsPanels from "./settings/BackupSettingsPanels";
 import BankRulesSettingsPanel from "./settings/BankRulesSettingsPanel";
+import FinesSettingsPanel from "./settings/FinesSettingsPanel";
 import LateFeeSettingsPanel from "./settings/LateFeeSettingsPanel";
 import OtherChargesSettingsPanel from "./settings/OtherChargesSettingsPanel";
+import TicketsSettingsPanel from "./settings/TicketsSettingsPanel";
+import { isSupabaseOnlyMode } from "../persistenceMode";
 import type {
   BankRule,
   Client,
@@ -11,7 +14,7 @@ import type {
   OtherChargesRetentionByClient
 } from "../types";
 
-type SettingsTab = "backup" | "migration" | "late_fees" | "other_charges" | "bank_rules";
+type SettingsTab = "backup" | "migration" | "late_fees" | "fines" | "tickets" | "other_charges" | "bank_rules";
 
 type Props = {
   bankRules: BankRule[];
@@ -19,6 +22,7 @@ type Props = {
   lateFeeSettings: LateFeeSettings;
   otherChargesRetentionByClient: OtherChargesRetentionByClient;
   onBankRulesChange: (next: BankRule[]) => void;
+  onClientsChange: (next: Client[]) => void | Promise<void>;
   onLateFeeSettingsChange: (next: LateFeeSettings) => void;
   onOtherChargesRetentionByClientChange: (next: OtherChargesRetentionByClient) => void;
   onValidateBackupFile: (file: File) => Promise<BackupImportReport>;
@@ -38,6 +42,8 @@ const SETTINGS_TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: "backup", label: "Respaldo" },
   { id: "migration", label: "Migracion" },
   { id: "late_fees", label: "Recargos" },
+  ...(isSupabaseOnlyMode ? [{ id: "fines" as const, label: "Multas" }] : []),
+  ...(isSupabaseOnlyMode ? [{ id: "tickets" as const, label: "Boletas" }] : []),
   { id: "other_charges", label: "Otros cargos" },
   { id: "bank_rules", label: "Regla bancaria" }
 ];
@@ -52,6 +58,7 @@ export default function SettingsPage({
   lateFeeSettings,
   otherChargesRetentionByClient,
   onBankRulesChange,
+  onClientsChange,
   onLateFeeSettingsChange,
   onOtherChargesRetentionByClientChange,
   onValidateBackupFile,
@@ -106,6 +113,10 @@ export default function SettingsPage({
       )}
 
       {activeSettingsTab === "late_fees" && <LateFeeSettingsPanel clients={clients} settings={lateFeeSettings} onChange={onLateFeeSettingsChange} />}
+
+      {isSupabaseOnlyMode && activeSettingsTab === "fines" && <FinesSettingsPanel clients={clients} onClientsChange={onClientsChange} />}
+
+      {isSupabaseOnlyMode && activeSettingsTab === "tickets" && <TicketsSettingsPanel clients={clients} onClientsChange={onClientsChange} />}
 
       {activeSettingsTab === "other_charges" && <OtherChargesSettingsPanel clients={clients} settings={otherChargesRetentionByClient} onChange={onOtherChargesRetentionByClientChange} />}
 

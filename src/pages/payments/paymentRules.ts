@@ -2,6 +2,8 @@ import { findNextChargeDay, isChargeDay, parseDateKey, startOfDay, toDateKey } f
 import type {
   BillingFrequency,
   Client,
+  ClientFine,
+  ClientTicket,
   OtherCharge,
   OtherChargesRetentionByClient,
   OtherChargesRetentionCycle,
@@ -269,6 +271,188 @@ export function distributeAcrossOtherCharges(configured: OtherCharge[] | undefin
   return applied;
 }
 
+function getFinePendingAmount(fine: ClientFine): number {
+  return roundMoney(Math.max(0, fine.amount - Math.max(0, fine.amountPaid ?? 0)));
+}
+
+export function getPendingFines(client: Client): ClientFine[] {
+  return (client.fines ?? [])
+    .filter((fine) => fine.status !== "paid" && getFinePendingAmount(fine) > 0)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function getPendingFinesTotal(client: Client): number {
+  return roundMoney(getPendingFines(client).reduce((sum, fine) => sum + getFinePendingAmount(fine), 0));
+}
+
+export function distributeAcrossFines(client: Client, amount: number): OtherCharge[] {
+  let remaining = roundMoney(Math.max(0, amount));
+  const applied: OtherCharge[] = [];
+  for (const fine of getPendingFines(client)) {
+    if (remaining <= 0) break;
+    const pendingForFine = getFinePendingAmount(fine);
+    if (pendingForFine <= 0) continue;
+    const appliedAmount = roundMoney(Math.min(pendingForFine, remaining));
+    applied.push({ id: fine.id, label: fine.label, amount: appliedAmount });
+    remaining = roundMoney(Math.max(0, remaining - appliedAmount));
+  }
+  return applied;
+}
+
+export function computeFinesDueAfter(configured: ClientFine[] | undefined, applied: OtherCharge[] | undefined): OtherCharge[] | undefined {
+  if (!configured || configured.length === 0) return undefined;
+  const appliedById = new Map<string, number>();
+  for (const charge of applied ?? []) {
+    if (!charge.id) continue;
+    appliedById.set(charge.id, roundMoney((appliedById.get(charge.id) ?? 0) + charge.amount));
+  }
+  const due = configured
+    .map((fine) => {
+      const pending = getFinePendingAmount(fine);
+      const paidNow = roundMoney(Math.max(0, appliedById.get(fine.id) ?? 0));
+      return {
+        id: fine.id,
+        label: fine.label,
+        amount: roundMoney(Math.max(0, pending - paidNow))
+      };
+    })
+    .filter((fine) => fine.amount > 0);
+  return due.length > 0 ? due : undefined;
+}
+
+export function applyFinePayments(configured: ClientFine[] | undefined, applied: OtherCharge[] | undefined, paidAt: string): ClientFine[] {
+  if (!configured || configured.length === 0) return [];
+  const appliedById = new Map<string, number>();
+  for (const charge of applied ?? []) {
+    if (!charge.id) continue;
+    appliedById.set(charge.id, roundMoney((appliedById.get(charge.id) ?? 0) + charge.amount));
+  }
+  return configured.map((fine) => {
+    const amountPaid = roundMoney(Math.max(0, fine.amountPaid ?? 0) + Math.max(0, appliedById.get(fine.id) ?? 0));
+    const cappedPaid = roundMoney(Math.min(fine.amount, amountPaid));
+    const pending = roundMoney(Math.max(0, fine.amount - cappedPaid));
+    const status = pending <= 0 ? "paid" : cappedPaid > 0 ? "partial" : fine.status;
+    return {
+      ...fine,
+      amountPaid: cappedPaid,
+      status,
+      paidAt: status === "paid" ? (fine.paidAt ?? paidAt) : fine.paidAt
+    };
+  });
+}
+
+export function restoreFinesAfterDelete(current: ClientFine[] | undefined, applied: OtherCharge[] | undefined): ClientFine[] {
+  if (!current || current.length === 0 || !applied || applied.length === 0) return current ?? [];
+  const appliedById = new Map<string, number>();
+  for (const charge of applied) {
+    if (!charge.id) continue;
+    appliedById.set(charge.id, roundMoney((appliedById.get(charge.id) ?? 0) + charge.amount));
+  }
+  return current.map((fine) => {
+    const restoredAmount = roundMoney(Math.max(0, appliedById.get(fine.id) ?? 0));
+    if (restoredAmount <= 0) return fine;
+    const amountPaid = roundMoney(Math.max(0, (fine.amountPaid ?? 0) - restoredAmount));
+    const pending = roundMoney(Math.max(0, fine.amount - amountPaid));
+    return {
+      ...fine,
+      amountPaid,
+      status: pending <= 0 ? "paid" : amountPaid > 0 ? "partial" : "pending",
+      paidAt: pending <= 0 ? fine.paidAt : undefined
+    };
+  });
+}
+
+function getTicketPendingAmount(ticket: ClientTicket): number {
+  return roundMoney(Math.max(0, ticket.amount - Math.max(0, ticket.amountPaid ?? 0)));
+}
+
+export function getPendingTickets(client: Client): ClientTicket[] {
+  return (client.tickets ?? [])
+    .filter((ticket) => ticket.status !== "paid" && getTicketPendingAmount(ticket) > 0)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function getPendingTicketsTotal(client: Client): number {
+  return roundMoney(getPendingTickets(client).reduce((sum, ticket) => sum + getTicketPendingAmount(ticket), 0));
+}
+
+export function distributeAcrossTickets(client: Client, amount: number): OtherCharge[] {
+  let remaining = roundMoney(Math.max(0, amount));
+  const applied: OtherCharge[] = [];
+  for (const ticket of getPendingTickets(client)) {
+    if (remaining <= 0) break;
+    const pendingForTicket = getTicketPendingAmount(ticket);
+    if (pendingForTicket <= 0) continue;
+    const appliedAmount = roundMoney(Math.min(pendingForTicket, remaining));
+    applied.push({ id: ticket.id, label: `BOLETA ${ticket.ticketNumber}`, amount: appliedAmount });
+    remaining = roundMoney(Math.max(0, remaining - appliedAmount));
+  }
+  return applied;
+}
+
+export function computeTicketsDueAfter(configured: ClientTicket[] | undefined, applied: OtherCharge[] | undefined): OtherCharge[] | undefined {
+  if (!configured || configured.length === 0) return undefined;
+  const appliedById = new Map<string, number>();
+  for (const charge of applied ?? []) {
+    if (!charge.id) continue;
+    appliedById.set(charge.id, roundMoney((appliedById.get(charge.id) ?? 0) + charge.amount));
+  }
+  const due = configured
+    .map((ticket) => {
+      const pending = getTicketPendingAmount(ticket);
+      const paidNow = roundMoney(Math.max(0, appliedById.get(ticket.id) ?? 0));
+      return {
+        id: ticket.id,
+        label: `BOLETA ${ticket.ticketNumber}`,
+        amount: roundMoney(Math.max(0, pending - paidNow))
+      };
+    })
+    .filter((ticket) => ticket.amount > 0);
+  return due.length > 0 ? due : undefined;
+}
+
+export function applyTicketPayments(configured: ClientTicket[] | undefined, applied: OtherCharge[] | undefined, paidAt: string): ClientTicket[] {
+  if (!configured || configured.length === 0) return [];
+  const appliedById = new Map<string, number>();
+  for (const charge of applied ?? []) {
+    if (!charge.id) continue;
+    appliedById.set(charge.id, roundMoney((appliedById.get(charge.id) ?? 0) + charge.amount));
+  }
+  return configured.map((ticket) => {
+    const amountPaid = roundMoney(Math.max(0, ticket.amountPaid ?? 0) + Math.max(0, appliedById.get(ticket.id) ?? 0));
+    const cappedPaid = roundMoney(Math.min(ticket.amount, amountPaid));
+    const pending = roundMoney(Math.max(0, ticket.amount - cappedPaid));
+    const status = pending <= 0 ? "paid" : cappedPaid > 0 ? "partial" : ticket.status;
+    return {
+      ...ticket,
+      amountPaid: cappedPaid,
+      status,
+      paidAt: status === "paid" ? (ticket.paidAt ?? paidAt) : ticket.paidAt
+    };
+  });
+}
+
+export function restoreTicketsAfterDelete(current: ClientTicket[] | undefined, applied: OtherCharge[] | undefined): ClientTicket[] {
+  if (!current || current.length === 0 || !applied || applied.length === 0) return current ?? [];
+  const appliedById = new Map<string, number>();
+  for (const charge of applied) {
+    if (!charge.id) continue;
+    appliedById.set(charge.id, roundMoney((appliedById.get(charge.id) ?? 0) + charge.amount));
+  }
+  return current.map((ticket) => {
+    const restoredAmount = roundMoney(Math.max(0, appliedById.get(ticket.id) ?? 0));
+    if (restoredAmount <= 0) return ticket;
+    const amountPaid = roundMoney(Math.max(0, (ticket.amountPaid ?? 0) - restoredAmount));
+    const pending = roundMoney(Math.max(0, ticket.amount - amountPaid));
+    return {
+      ...ticket,
+      amountPaid,
+      status: pending <= 0 ? "paid" : amountPaid > 0 ? "partial" : "pending",
+      paidAt: pending <= 0 ? ticket.paidAt : undefined
+    };
+  });
+}
+
 export function computeAppliedOtherCharges(
   configured: OtherCharge[] | undefined,
   manualInput: Record<string, string>,
@@ -335,18 +519,24 @@ export function computeManualPaymentAllocation(
   const amount = roundMoney(Math.max(0, rawAmount));
   const { wholePart, centsPart } = splitWholeAndCents(amount);
   const balanceBefore = roundMoney(projectedClient.balance);
+  const finesApplied = distributeAcrossFines(projectedClient, wholePart);
+  const totalFines = roundMoney(finesApplied.reduce((sum, fine) => sum + fine.amount, 0));
+  const wholeAfterFines = roundMoney(Math.max(0, wholePart - totalFines));
+  const ticketsApplied = distributeAcrossTickets(projectedClient, wholeAfterFines);
+  const totalTickets = roundMoney(ticketsApplied.reduce((sum, ticket) => sum + ticket.amount, 0));
+  const wholeAfterPriorityCharges = roundMoney(Math.max(0, wholeAfterFines - totalTickets));
 
   const { otherChargesApplied, totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
     projectedClient,
     manualOtherChargesInput,
-    wholePart,
+    wholeAfterPriorityCharges,
     retentionByClient,
     payments,
     paymentDateKey,
     allowManualOverrideForForcedRule
   );
-  const appliedToRent = roundMoney(Math.min(Math.max(0, wholePart - totalOtherCharges), balanceBefore));
-  const leftover = roundMoney(Math.max(0, wholePart - totalOtherCharges - appliedToRent));
+  const appliedToRent = roundMoney(Math.min(Math.max(0, wholeAfterPriorityCharges - totalOtherCharges), balanceBefore));
+  const leftover = roundMoney(Math.max(0, wholeAfterPriorityCharges - totalOtherCharges - appliedToRent));
   const advanceApplied = leftover;
   const centavosAhorro = centsPart;
   const balanceAfter = roundMoney(balanceBefore - appliedToRent);
@@ -373,6 +563,10 @@ export function computeManualPaymentAllocation(
     installmentsTotalInPayment,
     pendingBefore,
     pendingAfter,
+    totalFines,
+    finesApplied,
+    totalTickets,
+    ticketsApplied,
     totalOtherCharges,
     otherChargesApplied,
     forcedOtherChargesRuleApplied: forcedRuleApplied

@@ -13,6 +13,40 @@ export type OtherCharge = {
   amount: number;
 };
 
+export type FineType =
+  | "NEGATIVE_PANAPASS_BALANCE"
+  | "NO_ACH_XPRESS"
+  | "MISSING_UNIT_CENTS";
+
+export type FineStatus = "pending" | "partial" | "paid";
+
+export type ClientFine = {
+  id: string;
+  type: FineType;
+  label: string;
+  amount: number;
+  amountPaid: number;
+  status: FineStatus;
+  createdAt: string;
+  paidAt?: string;
+};
+
+export type ClientTicketStatus = "pending" | "partial" | "paid";
+
+export type ClientTicket = {
+  id: string;
+  ticketNumber: string;
+  ticketDate?: string;
+  ticketAmount: number;
+  processingFee: number;
+  amount: number;
+  amountPaid: number;
+  status: ClientTicketStatus;
+  comment?: string;
+  createdAt: string;
+  paidAt?: string;
+};
+
 export type ClientStatus =
   | "activo"
   | "cliente_enfermo"
@@ -37,6 +71,8 @@ export type Client = {
   installmentsRemaining: number;
   installmentsPaid: number;
   otherCharges: OtherCharge[];
+  fines?: ClientFine[];
+  tickets?: ClientTicket[];
   balance: number;
   advanceBalance: number;
   savings: number;
@@ -176,6 +212,10 @@ export type Payment = {
   receiptDeliveryStatus?: "pending" | "sent";
   otherChargesApplied?: OtherCharge[];
   otherChargesDueAfter?: OtherCharge[];
+  finesApplied?: OtherCharge[];
+  finesDueAfter?: OtherCharge[];
+  ticketsApplied?: OtherCharge[];
+  ticketsDueAfter?: OtherCharge[];
   advanceApplied?: number;
   advanceBalanceAfter?: number;
   clientId: string;
