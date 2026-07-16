@@ -23,8 +23,8 @@ Aplicacion web para gestion operativa de rentas: clientes, pagos, cuentas por co
   - `src/main.tsx`
   - `src/App.tsx` (sesion y rol)
   - `src/AppShell.tsx` (navegacion, estado global y persistencia)
-- Persistencia local:
-  - `src/storage.ts` (normalizacion y acceso a `localStorage`)
+- Persistencia cloud:
+  - `src/storage.ts` (normalizacion y cache operativa liviana)
 - Nube:
   - `src/lib/supabase.ts` (cliente Supabase)
   - `src/cloudData.ts` (lectura/escritura cloud)
@@ -55,11 +55,10 @@ Crear `.env` en la raiz:
 ```env
 VITE_SUPABASE_URL=https://TU-PROYECTO.supabase.co
 VITE_SUPABASE_ANON_KEY=TU_SUPABASE_ANON_KEY
-VITE_PERSISTENCE_MODE=LOCAL_ONLY
 ```
 
 Notas:
-- `VITE_PERSISTENCE_MODE=SUPABASE_ONLY` aun no esta habilitado en este flujo.
+- La app corre en modo `SUPABASE_ONLY`; Supabase es la fuente canonica para la version multiusuario.
 - Sin `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`, la app no puede iniciar autenticacion cloud.
 
 ## Ejecutar en desarrollo
@@ -178,6 +177,7 @@ supabase/
 
 ## Estado actual de persistencia
 
-- El flujo activo trabaja en modo `LOCAL_ONLY` con sincronizacion cloud habilitada via `AppShell` + `cloudMirror`.
-- No cambiar a `SUPABASE_ONLY` sin completar primero la migracion del flujo actual.
+- El flujo activo trabaja en modo `SUPABASE_ONLY`.
+- Supabase es la fuente canonica de clientes, pagos y datos operativos multiusuario.
+- El almacenamiento local queda limitado a cache, marcadores livianos y estado temporal de UI.
 
