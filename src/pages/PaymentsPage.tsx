@@ -15,7 +15,7 @@ import type {
   Payment,
   PendingBankItem
 } from "../types";
-import { findNextChargeDay, parseDateKey, startOfDay, toDateKey } from "../billing";
+import { findNextChargeDay, getBusinessDateKey, parseDateKey, startOfDay } from "../billing";
 import PaymentsTabs from "./payments/PaymentsTabs";
 import NotifiedPaymentsPanel from "./payments/NotifiedPaymentsPanel";
 import PendingCardsPanel from "./payments/PendingCardsPanel";
@@ -108,7 +108,7 @@ export default function PaymentsPage({
 }: Props) {
   const [form, setForm] = useState<PaymentForm>({
     clientId: "",
-    dateApplied: toDateKey(new Date()),
+    dateApplied: getBusinessDateKey(),
     paymentMethod: "Efectivo",
     reference: "",
     amountReceived: ""
@@ -222,7 +222,7 @@ export default function PaymentsPage({
     selectPaymentTab("register");
     setForm((prev) => ({
       ...prev,
-      dateApplied: quickCashPrefill.dateApplied || toDateKey(new Date()),
+      dateApplied: quickCashPrefill.dateApplied || getBusinessDateKey(),
       paymentMethod: "Efectivo",
       clientId: quickCashPrefill.clientId || "",
       reference: quickCashPrefill.reference || "",
@@ -283,7 +283,7 @@ export default function PaymentsPage({
     if (!selectedClient) return null;
     const amount = parseFloat(form.amountReceived);
     if (!Number.isFinite(amount) || amount <= 0) return null;
-    const effectiveDateKey = form.dateApplied || toDateKey(new Date());
+    const effectiveDateKey = form.dateApplied || getBusinessDateKey();
 
     return computeManualPaymentAllocation(
       selectedClient,
@@ -338,7 +338,7 @@ export default function PaymentsPage({
   const isForcedOtherChargesRuleClient = useMemo(
     () => (
       selectedClient
-        ? shouldForceRetentionToOtherCharges(selectedClient, otherChargesRetentionByClient, payments, form.dateApplied || toDateKey(new Date()))
+        ? shouldForceRetentionToOtherCharges(selectedClient, otherChargesRetentionByClient, payments, form.dateApplied || getBusinessDateKey())
         : false
     ),
     [form.dateApplied, otherChargesRetentionByClient, payments, selectedClient]

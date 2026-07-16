@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { getBusinessDateKey, parseDateKey, toDateKey } from "../../billing";
 import { copyHistoryPaymentReceiptImage, downloadPaymentsReceiptsZip } from "../../components/PaymentReceipt";
 import { formatCurrency, formatDate } from "../../format";
 import type { Client, Payment } from "../../types";
@@ -12,6 +13,15 @@ import type {
   HistorySortField,
   SortDirection
 } from "./paymentTypes";
+
+const MISDATED_RECEIPT_REPAIR_START = 18185;
+
+function parseReceiptSequence(receiptNumber: string): number | null {
+  const match = receiptNumber.trim().toUpperCase().match(/^REC-([0-9]+)$/);
+  if (!match) return null;
+  const sequence = Number(match[1]);
+  return Number.isFinite(sequence) ? sequence : null;
+}
 
 export type HistoryFocusRequest = {
   clientId: string;
@@ -34,11 +44,14 @@ type Props = {
 };
 
 function getTodayDateKey(): string {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return getBusinessDateKey();
+}
+
+function getPreviousDateKey(dateKey: string): string {
+  const parsed = parseDateKey(dateKey);
+  if (!parsed) return dateKey;
+  parsed.setDate(parsed.getDate() - 1);
+  return toDateKey(parsed);
 }
 
 export default function PaymentHistoryPanel({
@@ -71,6 +84,10 @@ export default function PaymentHistoryPanel({
   const [historyCopyingPaymentId, setHistoryCopyingPaymentId] = useState<string | null>(null);
   const [historyCopyFeedback, setHistoryCopyFeedback] = useState<HistoryCopyFeedback | null>(null);
   const [isHistoryRefreshing, setIsHistoryRefreshing] = useState(false);
+  const [dateRepairFeedback, setDateRepairFeedback] = useState<{
+    message: string;
+    tone: "success" | "error";
+  } | null>(null);
   const [historyRefreshFeedback, setHistoryRefreshFeedback] = useState<{
     message: string;
     tone: "success" | "error";
@@ -248,6 +265,15 @@ const historyRows = useMemo(
   [filteredHistoryRows, historyVisibleLimit]
 );
 const hasMoreHistoryRows = historyRows.length < filteredHistoryRows.length;
+const businessTodayKey = getTodayDateKey();
+const previousBusinessDateKey = getPreviousDateKey(businessTodayKey);
+const misdatedTodayPayments = useMemo(
+  () => payments.filter((payment) => (
+    payment.dateApplied === previousBusinessDateKey &&
+    (parseReceiptSequence(payment.receiptNumber) ?? 0) >= MISDATED_RECEIPT_REPAIR_START
+  )),
+  [payments, previousBusinessDateKey]
+);
 
 useEffect(() => {
   if (!isHistoryOpen) return;
@@ -427,6 +453,31 @@ async function handleDownloadFilteredHistory(): Promise<void> {
   }
 }
 
+function handleRepairTodayPaymentDates(): void {
+  if (misdatedTodayPayments.length === 0) {
+    setDateRepairFeedback({
+      tone: "error",
+      message: "No se encontraron recibos de hoy con fecha de ayer."
+    });
+    return;
+  }
+  const ids = new Set(misdatedTodayPayments.map((payment) => payment.id));
+  onPaymentsChange(
+    payments.map((payment) =>
+      ids.has(payment.id)
+        ? { ...payment, dateApplied: businessTodayKey }
+        : payment
+    )
+  );
+  setDateRepairFeedback({
+    tone: "success",
+    message: `Se corrigieron ${misdatedTodayPayments.length} recibo(s) de ${previousBusinessDateKey} a ${businessTodayKey}.`
+  });
+  setHistoryDateFrom(businessTodayKey);
+  setHistoryDateTo(businessTodayKey);
+  setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
+}
+
   return (
     <section id="payment-panel-history" role="tabpanel" aria-labelledby="payment-tab-history" ref={historySectionRef} className="panel" style={{ display: isHistoryOpen ? undefined : "none" }}>
             <div className="panel-head">
@@ -553,6 +604,29 @@ async function handleDownloadFilteredHistory(): Promise<void> {
                 aria-live="polite"
               >
                 {historyRefreshFeedback.message}
+              </div>
+            )}
+            {misdatedTodayPayments.length > 0 && (
+              <div className="history-copy-feedback history-copy-feedback--error" role="alert">
+                <strong>Recibos con fecha de ayer detectados:</strong>{" "}
+                {misdatedTodayPayments.length} recibo(s) desde REC-{MISDATED_RECEIPT_REPAIR_START} aparecen en {previousBusinessDateKey}.
+                <button
+                  type="button"
+                  className="button primary small"
+                  style={{ marginLeft: 10 }}
+                  onClick={handleRepairTodayPaymentDates}
+                >
+                  Corregir a {businessTodayKey}
+                </button>
+              </div>
+            )}
+            {dateRepairFeedback && (
+              <div
+                className={`history-copy-feedback history-copy-feedback--${dateRepairFeedback.tone}`}
+                role={dateRepairFeedback.tone === "error" ? "alert" : "status"}
+                aria-live="polite"
+              >
+                {dateRepairFeedback.message}
               </div>
             )}
             {historyCopyFeedback && (

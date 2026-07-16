@@ -1,8 +1,8 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import {
+  getBusinessDateKey,
   parseDateKey,
-  startOfDay,
-  toDateKey
+  startOfDay
 } from "../billing";
 import { exportClientsToExcel, exportClientsToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
@@ -307,7 +307,7 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
       messages.push("La fecha de primer cobro es obligatoria.");
       fields.add("firstChargeDate");
     } else {
-      const today = startOfDay(new Date());
+      const today = parseDateKey(getBusinessDateKey()) ?? startOfDay(new Date());
       if (currentEditingId === null && startOfDay(firstChargeDate) < today) {
         messages.push("La fecha de primer cobro no puede ser menor a hoy.");
         fields.add("firstChargeDate");
@@ -419,7 +419,7 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
       unitId: client.unitId,
       cedula: client.cedula ?? "",
       name: client.name,
-      firstChargeDate: client.firstChargeDate ?? toDateKey(new Date()),
+      firstChargeDate: client.firstChargeDate ?? getBusinessDateKey(),
       rentAmount: String(client.rentAmount),
       frequency: client.frequency,
       chargeFirstSunday: client.chargeFirstSunday ?? false,
@@ -476,7 +476,7 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
         status: "activo",
         statusComment: undefined,
         archivedAt: undefined,
-        lastChargeDate: toDateKey(new Date())
+        lastChargeDate: getBusinessDateKey()
       };
     }
     if (nextStatus === "archivado") {

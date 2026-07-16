@@ -2,7 +2,7 @@
 -- Ejecutar despues de 08-daily-cash-ledger.sql y 09-cash-day-counts.sql
 
 create or replace function public.open_cash_day(
-  p_opening_date date default current_date,
+  p_opening_date date default ((now() at time zone 'America/Panama')::date),
   p_seed_opening_balance numeric default null,
   p_note text default null
 )

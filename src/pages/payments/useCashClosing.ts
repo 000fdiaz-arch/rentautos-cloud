@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { isChargeDay, parseDateKey, startOfDay, toDateKey } from "../../billing";
+import { getBusinessDateKey, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../../billing";
 import { formatCurrency } from "../../format";
 import { applyLateFeesForClosingDate, subtractOtherCharge } from "../../lateFees";
 import { buildReceivableRows } from "../../receivables";
@@ -51,7 +51,7 @@ export default function useCashClosing({
   onCashClose
 }: Options) {
   const [cashClosings, setCashClosings] = useState<CashClosing[]>(() => loadCashClosings());
-  const [cashClosingDate, setCashClosingDate] = useState<string>(toDateKey(new Date()));
+  const [cashClosingDate, setCashClosingDate] = useState<string>(getBusinessDateKey());
   const [cashClosingActor, setCashClosingActor] = useState<string>("Operador");
   const [cashClosingReason, setCashClosingReason] = useState<string>("");
   const [cashClosingInfo, setCashClosingInfo] = useState<string>("");
@@ -69,7 +69,7 @@ export default function useCashClosing({
   );
 
   const operationalDateKey = useMemo(() => {
-    const today = toDateKey(new Date());
+    const today = getBusinessDateKey();
     const candidates = cashClosings.map((closing) => closing.date.trim()).filter((date) => date.length > 0);
     if (candidates.length === 0) return today;
     const sortedClosedDates = [...new Set(candidates)].sort();

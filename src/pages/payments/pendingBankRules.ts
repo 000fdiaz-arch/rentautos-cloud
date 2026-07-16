@@ -1,4 +1,4 @@
-import { findNextChargeDay, parseDateKey, toDateKey } from "../../billing";
+import { findNextChargeDay, getBusinessDateKey, parseDateKey, toDateKey } from "../../billing";
 import type {
   Client,
   OtherChargesRetentionByClient,
@@ -158,7 +158,7 @@ export function buildPendingPaymentApplication(
   const installmentsImpact = installmentsDeducted + installmentsCoveredByAdvance;
   const installmentsPaidAfter = Math.max(0, client.installmentsPaid) + installmentsDeducted;
   const installmentsRemainingAfter = Math.max(0, (client.installmentsRemaining || 0) - installmentsImpact);
-  const paymentDateKey = item.dateApplied || toDateKey(new Date());
+  const paymentDateKey = item.dateApplied || getBusinessDateKey();
   const firstSundayChargedAt = resolveFirstSundayChargedAtForManualPayment(
     client,
     { projectedClient: client, installmentsTotalInPayment: installmentsImpact },

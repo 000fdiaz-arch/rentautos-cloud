@@ -1,4 +1,4 @@
-import { toDateKey } from "../../billing";
+import { getBusinessDateKey } from "../../billing";
 import type { BillingFrequency, Client } from "../../types";
 import type { ClientForm, ExportField } from "./clientTypes";
 
@@ -48,7 +48,7 @@ export const initialForm: ClientForm = {
   unitId: "",
   cedula: "",
   name: "",
-  firstChargeDate: toDateKey(new Date()),
+  firstChargeDate: getBusinessDateKey(),
   rentAmount: "",
   frequency: "monthly",
   chargeFirstSunday: false,

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { BUSINESS_TIME_ZONE, getBusinessDateKey } from "../billing";
 import { formatCurrency } from "../format";
 import type { Client, Payment } from "../types";
 import PaymentReceipt from "../components/PaymentReceipt";
@@ -56,6 +57,12 @@ function createDenominationRows(prefix: string, values: number[]): DenominationR
   return values.map((value) => ({ id: `${prefix}-${value}`, value, qty: 0 }));
 }
 
+function addDaysToDateKey(dateKey: string, days: number): string {
+  const date = new Date(`${dateKey}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 export default function CashClosingPage({
   clients,
   payments,
@@ -65,7 +72,7 @@ export default function CashClosingPage({
 }: CashClosingPageProps) {
   const executiveReportRef = useRef<HTMLDivElement | null>(null);
   const whatsappReportRef = useRef<HTMLDivElement | null>(null);
-  const [cashDate, setCashDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [cashDate, setCashDate] = useState<string>(getBusinessDateKey());
   const [openingCash, setOpeningCash] = useState<number>(0);
   const [manualIncomeRows, setManualIncomeRows] = useState<Movement[]>([createMovement("mi-1")]);
   const [expenseRows, setExpenseRows] = useState<Movement[]>([
@@ -134,8 +141,8 @@ export default function CashClosingPage({
     return coins + bills;
   }, [coinRows, billRows]);
   const diff = realCash - expectedCash;
-  const exportDateSuffix = cashDate || new Date().toISOString().slice(0, 10);
-  const generatedAt = new Date().toLocaleString("es-PA");
+  const exportDateSuffix = cashDate || getBusinessDateKey();
+  const generatedAt = new Date().toLocaleString("es-PA", { timeZone: BUSINESS_TIME_ZONE });
   const topManualIncomes = manualIncomeRows.filter((row) => row.amount > 0).slice(0, 8);
   const topExpenses = expenseRows.filter((row) => row.amount > 0).slice(0, 8);
   const whatsappIncomeDetails = topManualIncomes;
@@ -169,14 +176,12 @@ export default function CashClosingPage({
     let active = true;
     (async () => {
       try {
-        const baseDate = new Date(`${cashDate}T12:00:00`);
-        const dayMs = 24 * 60 * 60 * 1000;
-        const from = new Date(baseDate);
-        const to = new Date(baseDate);
-        if (reportMode === "week") from.setTime(baseDate.getTime() - 6 * dayMs);
-        if (reportMode === "month") from.setTime(baseDate.getTime() - 29 * dayMs);
-        const toKey = to.toISOString().slice(0, 10);
-        const fromKey = from.toISOString().slice(0, 10);
+        const toKey = cashDate;
+        const fromKey = reportMode === "week"
+          ? addDaysToDateKey(cashDate, -6)
+          : reportMode === "month"
+            ? addDaysToDateKey(cashDate, -29)
+            : cashDate;
         const rows = await loadCashSummaryRange(fromKey, toKey, dataOwnerUserId);
         if (!active) return;
         setReportRows(rows);
