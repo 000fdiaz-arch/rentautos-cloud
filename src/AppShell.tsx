@@ -17,6 +17,8 @@ import {
   saveOtherChargesRetentionByClient,
   savePendingBankItems,
   savePendingCardItems,
+  loadPendingBankItemsFromIndexedDb,
+  loadPendingBankItems,
   saveManualBankAssignmentAudit,
   saveLateFeeLedger,
 } from "./storage";
@@ -169,6 +171,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
 
   async function buildBackupExtraData(): Promise<BackupExtraData> {
     let fleetUnits: unknown[] = [];
+    const indexedPendingBankItems = await loadPendingBankItemsFromIndexedDb();
     if (cloudDataUserId) {
       try {
         fleetUnits = await loadControlUnits(cloudDataUserId);
@@ -178,7 +181,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     }
     return {
       seq: Number(localStorage.getItem("cobrapp.payments.seq.v1") ?? "0") || 0,
-      pendingBankItems: parseLocalJson("cobrapp.module2.pending_bank.v1", []) as unknown[],
+      pendingBankItems: indexedPendingBankItems.length > 0 ? indexedPendingBankItems : loadPendingBankItems(),
       pendingCardItems: parseLocalJson("cobrapp.module2.pending_card.v1", []) as unknown[],
       bankRules: parseLocalJson("cobrapp.settings.bank_rules.v1", []) as unknown[],
       manualAssignmentAudit: parseLocalJson("cobrapp.module2.manual_assignment_audit.v1", []) as unknown[],

@@ -232,6 +232,16 @@ function patchLocalStorage(): void {
   const originalRemoveItem = window.localStorage.removeItem.bind(window.localStorage);
 
   window.localStorage.setItem = (key: string, value: string) => {
+    const indexedDbKey = INDEXED_DB_ARRAY_KEY_MAP[key as ArrayKey];
+    if (indexedDbKey && value !== INDEXED_DB_SENTINEL) {
+      const rows = parseArrayValue(value);
+      void writeIndexedDb(indexedDbKey, rows).catch((error) => {
+        console.error(`No se pudo guardar "${key}" en IndexedDB.`, error);
+      });
+      originalSetItem(key, INDEXED_DB_SENTINEL);
+      if (!isHydrating) scheduleSync(key, INDEXED_DB_SENTINEL);
+      return;
+    }
     originalSetItem(key, value);
     if (!isHydrating) scheduleSync(key, value);
   };
