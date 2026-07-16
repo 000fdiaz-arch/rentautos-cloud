@@ -15,8 +15,6 @@ type Props = {
   setCashClosingActor: Dispatch<SetStateAction<string>>;
   cashClosingDate: string;
   setCashClosingDate: Dispatch<SetStateAction<string>>;
-  cashClosingReason: string;
-  setCashClosingReason: Dispatch<SetStateAction<string>>;
   handleCloseCashForDate: () => void;
   cashClosingInfo: string;
   cashClosingError: string;
@@ -34,8 +32,6 @@ export default function CashClosingPanel({
   setCashClosingActor,
   cashClosingDate,
   setCashClosingDate,
-  cashClosingReason,
-  setCashClosingReason,
   handleCloseCashForDate,
   cashClosingInfo,
   cashClosingError,
@@ -70,16 +66,6 @@ export default function CashClosingPanel({
                   className="payment-input"
                   value={cashClosingDate}
                   onChange={(e) => setCashClosingDate(e.target.value)}
-                />
-              </div>
-              <div className="payment-field-group" style={{ gridColumn: "1 / -1" }}>
-                <label className="payment-label">Motivo de cierre</label>
-                <input
-                  type="text"
-                  className="payment-input"
-                  placeholder="Ej. Cierre diario despues del corte bancario"
-                  value={cashClosingReason}
-                  onChange={(e) => setCashClosingReason(e.target.value)}
                 />
               </div>
               <div className="payment-field-group" style={{ display: "flex", alignItems: "flex-end" }}>
@@ -175,7 +161,6 @@ export default function CashClosingPanel({
                       <th>Fecha caja</th>
                       <th>Accion</th>
                       <th>Usuario</th>
-                      <th>Motivo</th>
                       <th>Registrado</th>
                     </tr>
                   </thead>
@@ -185,7 +170,6 @@ export default function CashClosingPanel({
                         <td>{event.date}</td>
                         <td>{event.action === "close" ? "Cierre" : "Reapertura"}</td>
                         <td>{event.actor}</td>
-                        <td>{event.reason}</td>
                         <td>{formatDate(new Date(event.createdAt))}</td>
                       </tr>
                     ))}

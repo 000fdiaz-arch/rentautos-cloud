@@ -1,5 +1,10 @@
 import type { LeadEvaluation, PaymentPromise } from "../types";
 import { dedupeLoad, getCloudClient, PAGE_SIZE, type DataRow, type SingletonDataRow } from "./cloudClient";
+import type {
+  CashClosing,
+  CashClosingAuditEvent,
+  ChargeRun
+} from "../pages/payments/paymentTypes";
 
 export type ControlUnitRow = {
   user_id: string;
@@ -69,6 +74,92 @@ export async function saveCloudPaymentPromises(userId: string, promises: Payment
 
     if (error) throw error;
   }
+}
+
+async function loadCloudArrayRows<T>(userId: string, table: string): Promise<T[]> {
+  const client = getCloudClient();
+  const rows: T[] = [];
+  let lastId = "";
+  while (true) {
+    let query = client
+      .from(table)
+      .select("id,data")
+      .eq("user_id", userId)
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (lastId) query = query.gt("id", lastId);
+    const { data, error } = await query;
+    if (error) throw error;
+    const batch = (data ?? []) as DataRow<T>[];
+    rows.push(...batch.map((row) => row.data));
+    if (batch.length < PAGE_SIZE) break;
+    lastId = batch[batch.length - 1]?.id ?? lastId;
+    if (!lastId) break;
+  }
+  return rows;
+}
+
+async function replaceCloudArrayRows<T>(
+  userId: string,
+  table: string,
+  rows: T[],
+  getId: (row: T, index: number) => string
+): Promise<void> {
+  const client = getCloudClient();
+  const payload = rows.map((row, index) => ({
+    user_id: userId,
+    id: getId(row, index),
+    data: row,
+    updated_at: new Date().toISOString()
+  }));
+
+  if (payload.length > 0) {
+    const { error } = await client.from(table).upsert(payload, { onConflict: "user_id,id" });
+    if (error) throw error;
+  }
+
+  const { data: existingRows, error: selectError } = await client
+    .from(table)
+    .select("id")
+    .eq("user_id", userId);
+  if (selectError) throw selectError;
+
+  const keepIds = new Set(payload.map((row) => row.id));
+  const staleIds = ((existingRows ?? []) as Array<{ id?: string }>)
+    .map((row) => row.id)
+    .filter((id): id is string => typeof id === "string" && !keepIds.has(id));
+  if (staleIds.length > 0) {
+    const { error: deleteError } = await client
+      .from(table)
+      .delete()
+      .eq("user_id", userId)
+      .in("id", staleIds);
+    if (deleteError) throw deleteError;
+  }
+}
+
+export async function loadCloudCashClosings(userId: string): Promise<CashClosing[]> {
+  return loadCloudArrayRows<CashClosing>(userId, "cash_closings_cloud");
+}
+
+export async function saveCloudCashClosings(userId: string, rows: CashClosing[]): Promise<void> {
+  await replaceCloudArrayRows(userId, "cash_closings_cloud", rows, (row, index) => row.date || `row-${index + 1}`);
+}
+
+export async function loadCloudCashClosingAudit(userId: string): Promise<CashClosingAuditEvent[]> {
+  return loadCloudArrayRows<CashClosingAuditEvent>(userId, "cash_closing_audit_cloud");
+}
+
+export async function saveCloudCashClosingAudit(userId: string, rows: CashClosingAuditEvent[]): Promise<void> {
+  await replaceCloudArrayRows(userId, "cash_closing_audit_cloud", rows, (row, index) => row.id || `row-${index + 1}`);
+}
+
+export async function loadCloudChargeRuns(userId: string): Promise<ChargeRun[]> {
+  return loadCloudArrayRows<ChargeRun>(userId, "charge_runs_cloud");
+}
+
+export async function saveCloudChargeRuns(userId: string, rows: ChargeRun[]): Promise<void> {
+  await replaceCloudArrayRows(userId, "charge_runs_cloud", rows, (row, index) => row.id || `row-${index + 1}`);
 }
 
 export async function loadCloudLeadEvaluations(userId: string): Promise<LeadEvaluation[]> {

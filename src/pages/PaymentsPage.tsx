@@ -126,8 +126,6 @@ export default function PaymentsPage({
     setCashClosingDate,
     cashClosingActor,
     setCashClosingActor,
-    cashClosingReason,
-    setCashClosingReason,
     cashClosingInfo,
     cashClosingError,
     cashClosingAudit,
@@ -147,7 +145,8 @@ export default function PaymentsPage({
     payments,
     lateFeeSettings,
     onClientsChange,
-    onCashClose
+    onCashClose,
+    dataOwnerUserId
   });
   const [pendingBankItems, setPendingBankItems] = useState<PendingBankItem[]>(() => loadPendingBankItems());
   const [pendingImportError, setPendingImportError] = useState("");
@@ -687,8 +686,6 @@ export default function PaymentsPage({
         setCashClosingActor={setCashClosingActor}
         cashClosingDate={cashClosingDate}
         setCashClosingDate={setCashClosingDate}
-        cashClosingReason={cashClosingReason}
-        setCashClosingReason={setCashClosingReason}
         handleCloseCashForDate={handleCloseCashForDate}
         cashClosingInfo={cashClosingInfo}
         cashClosingError={cashClosingError}
