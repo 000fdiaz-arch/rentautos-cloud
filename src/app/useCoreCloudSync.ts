@@ -297,14 +297,13 @@ export function useCoreCloudSync({
         setFullPaymentHistoryLoaded(false);
         onSettingsReload();
         saveCoreCache(duplicateRepair.clients, bootstrapPayments);
+        await measureAsync("cloud mirror bootstrap", () => initializeCloudMirror(ownerUserId, { skipKeys: CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS }));
+        if (cancelled) return;
+        onSettingsReload();
         setSyncStatus("ok");
         setSyncErrorMessage("");
         setLastSyncAt(new Date().toLocaleTimeString());
         setCloudReady(true);
-        window.setTimeout(() => {
-          void measureAsync("cloud mirror bootstrap", () => initializeCloudMirror(ownerUserId, { skipKeys: CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS }))
-            .catch((error) => console.error("No se pudo inicializar cloud mirror.", error));
-        }, 1200);
       } catch (error) {
         console.error("No se pudo cargar data cloud.", error);
         setSyncStatus("error");

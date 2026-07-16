@@ -39,7 +39,7 @@ function normalizeBillingFrequency(value: unknown): BillingFrequency {
 }
 
 function normalizeLateFeeReason(value: unknown): LateFeeReason | null {
-  return value === "DAILY_MISSED_PROOF" || value === "WEEKLY_LATE_DAY" ? value : null;
+  return value === "DAILY_MISSED_PROOF" || value === "WEEKLY_LATE_DAY" || value === "SCHEDULED_LATE_DAY" ? value : null;
 }
 
 // -- Pending Bank Items --

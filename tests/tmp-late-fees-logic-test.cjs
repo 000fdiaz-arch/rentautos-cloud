@@ -63,6 +63,47 @@ function makeWeeklyClient() {
   };
 }
 
+function makeBiweeklyClient() {
+  return {
+    id: "biweekly-1",
+    unitId: "B15",
+    name: "QUINCENAL",
+    rentAmount: 70,
+    frequency: "biweekly",
+    installmentsAgreed: 100,
+    installmentsRemaining: 20,
+    installmentsPaid: 80,
+    otherCharges: [],
+    balance: 70,
+    advanceBalance: 0,
+    savings: 0,
+    createdAt: new Date().toISOString(),
+    lastChargeDate: "2026-05-15",
+    status: "activo"
+  };
+}
+
+function makeMonthlyClient() {
+  return {
+    id: "monthly-1",
+    unitId: "M10",
+    name: "MENSUAL",
+    rentAmount: 100,
+    frequency: "monthly",
+    monthlyChargeDay: 10,
+    installmentsAgreed: 100,
+    installmentsRemaining: 20,
+    installmentsPaid: 80,
+    otherCharges: [],
+    balance: 100,
+    advanceBalance: 0,
+    savings: 0,
+    createdAt: new Date().toISOString(),
+    lastChargeDate: "2026-05-10",
+    status: "activo"
+  };
+}
+
 function makeUnitRenameClientOriginal() {
   return {
     id: "rename-old-d29",
@@ -358,7 +399,20 @@ function paymentFor(clientId, unitId, date, appliedToRent) {
   assert(renameScenario.newEntries.length === 1, `Cambio de unidad: se esperaba 1 entrada de ledger, recibido ${renameScenario.newEntries.length}`);
   assert(renameScenario.newEntries[0].clientId === "rename-new-d29", "Cambio de unidad: ledger debe apuntar al nuevo cliente D29");
 
-  console.log("OK late fee logic: diario, semanal, idempotencia, largo plazo, reapertura y cambio de unidad.");
+  // 10) Quincenal y mensual: tambien generan recargo diario despues de su vencimiento.
+  const scheduledSettings = { ...settings, selectedUnits: ["B15", "M10"] };
+  const scheduledRun = applyLateFeesForClosingDate({
+    clients: [makeBiweeklyClient(), makeMonthlyClient()],
+    payments: [],
+    lateFeeLedger: [],
+    lateFeeSettings: scheduledSettings,
+    closingDateKey: "2026-05-16"
+  });
+  assert(scheduledRun.lateFeeTotal === 10, `Quincenal/mensual: total esperado 10, recibido ${scheduledRun.lateFeeTotal}`);
+  assert(scheduledRun.newEntries.length === 2, `Quincenal/mensual: ledger esperado 2 entradas, recibido ${scheduledRun.newEntries.length}`);
+  assert(scheduledRun.newEntries.every((entry) => entry.reason === "SCHEDULED_LATE_DAY"), "Quincenal/mensual: motivo esperado SCHEDULED_LATE_DAY");
+
+  console.log("OK late fee logic: diario, semanal, quincenal, mensual, idempotencia, largo plazo, reapertura y cambio de unidad.");
 })()
   .catch((error) => {
     console.error("FALLO TEST LATE FEE LOGIC:", error && error.message ? error.message : error);

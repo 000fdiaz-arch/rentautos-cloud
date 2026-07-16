@@ -100,7 +100,7 @@ export type OtherChargesRetentionConfig = {
 
 export type OtherChargesRetentionByClient = Record<string, OtherChargesRetentionConfig>;
 
-export type LateFeeReason = "DAILY_MISSED_PROOF" | "WEEKLY_LATE_DAY";
+export type LateFeeReason = "DAILY_MISSED_PROOF" | "WEEKLY_LATE_DAY" | "SCHEDULED_LATE_DAY";
 
 export type LateFeeLedgerEntry = {
   id: string;

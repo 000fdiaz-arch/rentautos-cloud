@@ -43,9 +43,18 @@ export function subtractOtherCharge(existing: OtherCharge[] | undefined, label: 
   return next;
 }
 
-function findLastWeeklyDueDate(client: Client, date: Date): Date | null {
+function getScheduledLateFeeLookbackDays(client: Client): number {
+  if (client.frequency === "weekly") return 7;
+  if (client.frequency === "biweekly") return 20;
+  if (client.frequency === "monthly") return 62;
+  return 0;
+}
+
+function findLastScheduledDueDate(client: Client, date: Date): Date | null {
+  const lookbackDays = getScheduledLateFeeLookbackDays(client);
+  if (lookbackDays <= 0) return null;
   const startOffset = isChargeDay(client, date) ? 1 : 0;
-  for (let i = startOffset; i <= 7; i += 1) {
+  for (let i = startOffset; i <= lookbackDays; i += 1) {
     const candidate = new Date(date);
     candidate.setDate(candidate.getDate() - i);
     if (isChargeDay(client, candidate)) return candidate;
@@ -123,14 +132,14 @@ export function applyLateFeesForClosingDate({
     if (client.frequency === "daily") {
       const paymentsToday = paymentCountByClient.get(client.id) ?? 0;
       if (isChargeDay(client, closingDate) && paymentsToday === 0) reason = "DAILY_MISSED_PROOF";
-    } else if (client.frequency === "weekly") {
-      const dueDate = findLastWeeklyDueDate(client, closingDate);
+    } else if (client.frequency === "weekly" || client.frequency === "biweekly" || client.frequency === "monthly") {
+      const dueDate = findLastScheduledDueDate(client, closingDate);
       const appliedToRentToday = rentAppliedByClient.get(client.id) ?? 0;
       const balanceAtStartOfDay = roundMoney(client.balance + appliedToRentToday);
-      const isNewWeeklyCycleDay = isChargeDay(client, closingDate);
-      const currentCycleThreshold = isNewWeeklyCycleDay ? roundMoney(Math.max(0, client.rentAmount)) : 0;
+      const isNewCycleDay = isChargeDay(client, closingDate);
+      const currentCycleThreshold = isNewCycleDay ? roundMoney(Math.max(0, client.rentAmount)) : 0;
       if (dueDate && closingDate > dueDate && balanceAtStartOfDay > currentCycleThreshold) {
-        reason = "WEEKLY_LATE_DAY";
+        reason = client.frequency === "weekly" ? "WEEKLY_LATE_DAY" : "SCHEDULED_LATE_DAY";
       }
     }
 
