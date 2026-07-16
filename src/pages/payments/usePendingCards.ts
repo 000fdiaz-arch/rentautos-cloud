@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { savePendingCardItems, loadPendingCardItems } from "../../storage";
 import type {
   Client,
+  LateFeeSettings,
   OtherChargesRetentionByClient,
   Payment,
   PendingBankItem,
@@ -25,6 +26,7 @@ type Options = {
   pendingBankItems: PendingBankItem[];
   operationalDateKey: string;
   retentionByClient: OtherChargesRetentionByClient;
+  lateFeeSettings?: LateFeeSettings;
   onPaymentsChange: (payments: Payment[]) => void;
   replacePendingBankItems: (items: PendingBankItem[]) => void;
   setPendingImportError: (message: string) => void;
@@ -39,6 +41,7 @@ export default function usePendingCards({
   pendingBankItems,
   operationalDateKey,
   retentionByClient,
+  lateFeeSettings,
   onPaymentsChange,
   replacePendingBankItems,
   setPendingImportError,
@@ -191,7 +194,9 @@ export default function usePendingCards({
       {},
       retentionByClient,
       payments,
-      dateApplied
+      dateApplied,
+      false,
+      lateFeeSettings
     );
     const projectedClient = allocation.projectedClient;
     const payment: Payment = {

@@ -105,7 +105,7 @@ const filteredPendingBankItems = useMemo(() => {
       "Ignorar"
     ].filter(Boolean).join(" ");
     const previewLabel = pendingPreview
-      ? `Renta ${formatCurrency(pendingPreview.rentAmount)} ${pendingPreview.frequencyLabel} Multas ${formatCurrency(pendingPreview.totalFines)} Boletas ${formatCurrency(pendingPreview.totalTickets)} Otros cargos ${formatCurrency(pendingPreview.totalOtherCharges)} Pactadas ${pendingPreview.installmentsAgreed} Cuotas ${pendingPreview.installmentsRemainingAfter} Impacto ${pendingPreview.installmentsDeducted} Cobro ${formatCurrency(pendingPreview.balanceAfter)}`
+      ? `Renta ${formatCurrency(pendingPreview.rentAmount)} ${pendingPreview.frequencyLabel} Multas ${formatCurrency(pendingPreview.totalFines)} Boletas ${formatCurrency(pendingPreview.totalTickets)} Recargos ${formatCurrency(pendingPreview.totalLateFees)} Otros cargos ${formatCurrency(Math.max(0, pendingPreview.totalOtherCharges - pendingPreview.totalLateFees))} Pactadas ${pendingPreview.installmentsAgreed} Cuotas ${pendingPreview.installmentsRemainingAfter} Impacto ${pendingPreview.installmentsDeducted} Cobro ${formatCurrency(pendingPreview.balanceAfter)}`
       : "Sin vista previa";
     const unitLabel = assignedClient ? `${assignedClient.unitId} ${assignedClient.name}` : "Sin asignar";
     const groupLabel = item.mappedGroup ? `Grupo ${item.mappedGroup}` : "";
@@ -384,10 +384,16 @@ useEffect(() => {
                                         <strong className="amount-warning">{formatCurrency(pendingPreview.totalTickets)}</strong>
                                       </div>
                                     )}
-                                    {pendingPreview.totalOtherCharges > 0 && (
+                                    {pendingPreview.totalLateFees > 0 && (
+                                      <div className="pending-preview-row">
+                                        <span>Recargos por mora</span>
+                                        <strong className="amount-warning">{formatCurrency(pendingPreview.totalLateFees)}</strong>
+                                      </div>
+                                    )}
+                                    {roundMoney(Math.max(0, pendingPreview.totalOtherCharges - pendingPreview.totalLateFees)) > 0 && (
                                       <div className="pending-preview-row">
                                         <span>{pendingPreview.forcedOtherChargesRuleApplied ? "Otros cargos auto" : "Otros cargos"}</span>
-                                        <strong className="amount-warning">{formatCurrency(pendingPreview.totalOtherCharges)}</strong>
+                                        <strong className="amount-warning">{formatCurrency(Math.max(0, pendingPreview.totalOtherCharges - pendingPreview.totalLateFees))}</strong>
                                       </div>
                                     )}
                                     <div className="pending-preview-row"><span>Cuotas pactadas</span><strong>{pendingPreview.installmentsAgreed}</strong></div>

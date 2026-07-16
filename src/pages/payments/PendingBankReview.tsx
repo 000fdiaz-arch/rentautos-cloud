@@ -1,13 +1,17 @@
 import { findNextChargeDay, parseDateKey, startOfDay } from "../../billing";
 import { formatCurrency, formatDate } from "../../format";
-import type { Client, OtherChargesRetentionByClient, Payment, PendingBankItem } from "../../types";
+import type { Client, LateFeeSettings, OtherChargesRetentionByClient, Payment, PendingBankItem } from "../../types";
 import {
+  computeOtherChargesDueAfter,
   computeEffectiveOtherChargesAllocation,
+  distributeAcrossLateFeeCharges,
   distributeAcrossFines,
   distributeAcrossTickets,
   getAdvanceLetterLabel,
   getConfiguredOtherChargesRetentionConfig,
   getOtherChargeKey,
+  isLateFeeListClient,
+  isLateFeeOtherCharge,
   getRetentionCycleLabel,
   roundMoney,
   shouldForceRetentionToOtherCharges
@@ -18,6 +22,7 @@ type Props = {
   client: Client | null;
   payments: Payment[];
   retentionByClient: OtherChargesRetentionByClient;
+  lateFeeSettings: LateFeeSettings;
   otherChargesInput: Record<string, string>;
   manualOverride: boolean;
   error: string;
@@ -33,6 +38,7 @@ export default function PendingBankReview({
   client,
   payments,
   retentionByClient,
+  lateFeeSettings,
   otherChargesInput,
   manualOverride,
   error,
@@ -52,17 +58,28 @@ export default function PendingBankReview({
 
   const wholePart = roundMoney(item.capitalPart);
   const centsPart = roundMoney(item.centsPart);
-  const finesApplied = distributeAcrossFines(client, wholePart);
+  const lateFeeCharges = isLateFeeListClient(client, lateFeeSettings)
+    ? (client.otherCharges ?? []).filter((charge) => isLateFeeOtherCharge(charge, lateFeeSettings))
+    : [];
+  const regularOtherCharges = (client.otherCharges ?? []).filter((charge) => !isLateFeeOtherCharge(charge, lateFeeSettings));
+  const lateFeesApplied = distributeAcrossLateFeeCharges(client, wholePart, lateFeeSettings);
+  const totalLateFees = roundMoney(lateFeesApplied.reduce((sum, charge) => sum + charge.amount, 0));
+  const wholeAfterLateFees = roundMoney(Math.max(0, wholePart - totalLateFees));
+  const clientAfterLateFees: Client = {
+    ...client,
+    otherCharges: computeOtherChargesDueAfter(client.otherCharges, lateFeesApplied) ?? []
+  };
+  const finesApplied = distributeAcrossFines(clientAfterLateFees, wholeAfterLateFees);
   const totalFines = roundMoney(finesApplied.reduce((sum, fine) => sum + fine.amount, 0));
-  const wholeAfterFines = roundMoney(Math.max(0, wholePart - totalFines));
-  const ticketsApplied = distributeAcrossTickets(client, wholeAfterFines);
+  const wholeAfterFines = roundMoney(Math.max(0, wholeAfterLateFees - totalFines));
+  const ticketsApplied = distributeAcrossTickets(clientAfterLateFees, wholeAfterFines);
   const totalTickets = roundMoney(ticketsApplied.reduce((sum, ticket) => sum + ticket.amount, 0));
   const wholeAfterPriorityCharges = roundMoney(Math.max(0, wholeAfterFines - totalTickets));
   const retentionConfig = getConfiguredOtherChargesRetentionConfig(client, retentionByClient);
   const hasForcedRule = shouldForceRetentionToOtherCharges(client, retentionByClient, payments, item.dateApplied);
   const forcedRuleActive = hasForcedRule && !manualOverride;
   const { totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
-    client,
+    clientAfterLateFees,
     otherChargesInput,
     wholeAfterPriorityCharges,
     retentionByClient,
@@ -70,9 +87,10 @@ export default function PendingBankReview({
     item.dateApplied,
     manualOverride
   );
-  const capitalForRent = roundMoney(Math.max(0, wholeAfterPriorityCharges - totalOtherCharges));
+  const totalRegularOtherCharges = totalOtherCharges;
+  const capitalForRent = roundMoney(Math.max(0, wholeAfterPriorityCharges - totalRegularOtherCharges));
   const appliedToRent = roundMoney(Math.min(capitalForRent, Math.max(0, client.balance)));
-  const advanceApplied = roundMoney(Math.max(0, wholeAfterPriorityCharges - appliedToRent - totalOtherCharges));
+  const advanceApplied = roundMoney(Math.max(0, capitalForRent - appliedToRent));
   const balanceAfter = roundMoney(Math.max(0, client.balance - appliedToRent));
   const advanceLetterLabel = getAdvanceLetterLabel(client, advanceApplied);
   const referenceDate = parseDateKey(item.dateApplied) ?? startOfDay(new Date());
@@ -94,7 +112,22 @@ export default function PendingBankReview({
         <button type="button" className="button ghost small" onClick={onClose}>Cerrar</button>
       </div>
 
-      {client.otherCharges.length > 0 && (
+      {lateFeeCharges.length > 0 && (
+        <div className="other-charges-section">
+          <div className="other-charges-title">Recargos por mora</div>
+          <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
+            Se cobran primero automaticamente; los centavos quedan para ahorros.
+          </p>
+          {lateFeeCharges.map((charge, index) => (
+            <div key={getOtherChargeKey(charge, index)} className="other-charges-row">
+              <label className="payment-label">{charge.label}</label>
+              <div className="payment-input">Pendiente: {formatCurrency(charge.amount)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {regularOtherCharges.length > 0 && (
         <div className="other-charges-section">
           <div className="other-charges-title">Otros cargos</div>
           {hasForcedRule && (
@@ -109,7 +142,7 @@ export default function PendingBankReview({
               </button>
             </div>
           )}
-          {client.otherCharges.map((charge, index) => {
+          {regularOtherCharges.map((charge, index) => {
             const key = getOtherChargeKey(charge, index);
             return (
               <div key={key} className="other-charges-row">
@@ -142,8 +175,9 @@ export default function PendingBankReview({
             <div className="payment-preview-row"><span>Saldo actual</span><strong className="amount-debt">{formatCurrency(client.balance)}</strong></div>
             {totalFines > 0 && <div className="payment-preview-row"><span>Multas</span><strong className="amount-warning">{formatCurrency(totalFines)}</strong></div>}
             {totalTickets > 0 && <div className="payment-preview-row"><span>Boletas</span><strong className="amount-warning">{formatCurrency(totalTickets)}</strong></div>}
+            {totalLateFees > 0 && <div className="payment-preview-row"><span>Recargos por mora</span><strong className="amount-warning">{formatCurrency(totalLateFees)}</strong></div>}
             <div className="payment-preview-row"><span>Aplicado a renta</span><strong>{formatCurrency(appliedToRent)}</strong></div>
-            {totalOtherCharges > 0 && <div className="payment-preview-row"><span>{forcedRuleApplied ? "Otros cargos (automático)" : "Otros cargos (manual)"}</span><strong className="amount-warning">{formatCurrency(totalOtherCharges)}</strong></div>}
+            {totalRegularOtherCharges > 0 && <div className="payment-preview-row"><span>{forcedRuleApplied ? "Otros cargos (automático)" : "Otros cargos (manual)"}</span><strong className="amount-warning">{formatCurrency(totalRegularOtherCharges)}</strong></div>}
             {centsPart > 0 && <div className="payment-preview-row"><span>Ahorro</span><strong>{formatCurrency(centsPart)}</strong></div>}
             {advanceApplied > 0 && <div className="payment-preview-row"><span>Pago adelantado</span><strong>{formatCurrency(advanceApplied)}</strong></div>}
             {advanceLetterLabel && <div className="payment-preview-row"><span>Adelanto aplica a</span><strong>{advanceLetterLabel}</strong></div>}

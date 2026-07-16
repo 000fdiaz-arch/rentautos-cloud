@@ -1,6 +1,7 @@
 import { findNextChargeDay, getBusinessDateKey, parseDateKey, toDateKey } from "../../billing";
 import type {
   Client,
+  LateFeeSettings,
   OtherChargesRetentionByClient,
   Payment,
   PendingBankItem,
@@ -21,6 +22,7 @@ import {
   computeFinesDueAfter,
   computeOtherChargesDueAfter,
   computeTicketsDueAfter,
+  distributeAcrossLateFeeCharges,
   distributeAcrossFines,
   distributeAcrossTickets,
   resolveFirstSundayChargedAtForManualPayment,
@@ -52,34 +54,43 @@ type PreviewOptions = {
   payments: Payment[];
   retentionByClient: OtherChargesRetentionByClient;
   operationalDate: Date;
+  lateFeeSettings?: LateFeeSettings;
 };
 
 export function buildPendingBankPreview(
   item: PendingBankItem,
   client: Client | null,
-  { payments, retentionByClient, operationalDate }: PreviewOptions
+  { payments, retentionByClient, operationalDate, lateFeeSettings }: PreviewOptions
 ): PendingBankPreview | null {
   if (!client) return null;
   const balanceBefore = roundMoney(Math.max(0, client.balance));
   const wholePart = roundMoney(Math.max(0, item.capitalPart));
-  const finesApplied = distributeAcrossFines(client, wholePart);
+  const lateFeesApplied = distributeAcrossLateFeeCharges(client, wholePart, lateFeeSettings);
+  const totalLateFees = roundMoney(lateFeesApplied.reduce((sum, charge) => sum + charge.amount, 0));
+  const wholeAfterLateFees = roundMoney(Math.max(0, wholePart - totalLateFees));
+  const clientAfterLateFees: Client = {
+    ...client,
+    otherCharges: computeOtherChargesDueAfter(client.otherCharges, lateFeesApplied) ?? []
+  };
+  const finesApplied = distributeAcrossFines(clientAfterLateFees, wholeAfterLateFees);
   const totalFines = roundMoney(finesApplied.reduce((sum, fine) => sum + fine.amount, 0));
-  const wholeAfterFines = roundMoney(Math.max(0, wholePart - totalFines));
-  const ticketsApplied = distributeAcrossTickets(client, wholeAfterFines);
+  const wholeAfterFines = roundMoney(Math.max(0, wholeAfterLateFees - totalFines));
+  const ticketsApplied = distributeAcrossTickets(clientAfterLateFees, wholeAfterFines);
   const totalTickets = roundMoney(ticketsApplied.reduce((sum, ticket) => sum + ticket.amount, 0));
   const wholeAfterPriorityCharges = roundMoney(Math.max(0, wholeAfterFines - totalTickets));
   const { totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
-    client,
+    clientAfterLateFees,
     {},
     wholeAfterPriorityCharges,
     retentionByClient,
     payments,
     item.dateApplied
   );
-  const capitalForRent = roundMoney(Math.max(0, wholeAfterPriorityCharges - totalOtherCharges));
+  const totalChargesBeforeRent = roundMoney(totalLateFees + totalFines + totalTickets + totalOtherCharges);
+  const capitalForRent = roundMoney(Math.max(0, wholePart - totalChargesBeforeRent));
   const appliedToRent = roundMoney(Math.min(capitalForRent, balanceBefore));
   const advanceBefore = roundMoney(Math.max(0, client.advanceBalance ?? 0));
-  const advanceApplied = roundMoney(Math.max(0, wholeAfterPriorityCharges - appliedToRent - totalOtherCharges));
+  const advanceApplied = roundMoney(Math.max(0, capitalForRent - appliedToRent));
   const advanceAfter = roundMoney(advanceBefore + advanceApplied);
   const balanceAfter = roundMoney(Math.max(0, balanceBefore - appliedToRent));
   const rentAmount = roundMoney(Math.max(0, client.rentAmount));
@@ -112,7 +123,8 @@ export function buildPendingBankPreview(
     installmentsAgreed: Math.max(0, client.installmentsAgreed ?? 0),
     installmentsRemainingAfter,
     installmentsDeducted,
-    totalOtherCharges,
+    totalLateFees,
+    totalOtherCharges: roundMoney(totalLateFees + totalOtherCharges),
     totalFines,
     totalTickets,
     forcedOtherChargesRuleApplied: forcedRuleApplied,
@@ -129,6 +141,7 @@ type ApplicationOptions = {
   referenceTag: "AUTO-ALTA-SIMILITUD" | "CLASIFICADO-MANUAL";
   manualOtherChargesInput?: Record<string, string>;
   allowManualOverrideForForcedRule?: boolean;
+  lateFeeSettings?: LateFeeSettings;
 };
 
 export function buildPendingPaymentApplication(
@@ -140,7 +153,8 @@ export function buildPendingPaymentApplication(
     receiptNumber,
     referenceTag,
     manualOtherChargesInput = {},
-    allowManualOverrideForForcedRule = false
+    allowManualOverrideForForcedRule = false,
+    lateFeeSettings
   }: ApplicationOptions
 ): { updatedClient: Client; payment: Payment } {
   const balanceBefore = roundMoney(client.balance);
@@ -148,14 +162,21 @@ export function buildPendingPaymentApplication(
   const advanceBefore = roundMoney(client.advanceBalance ?? 0);
   const wholePart = roundMoney(item.capitalPart);
   const centsPart = roundMoney(item.centsPart);
-  const finesApplied = distributeAcrossFines(client, wholePart);
+  const lateFeesApplied = distributeAcrossLateFeeCharges(client, wholePart, lateFeeSettings);
+  const totalLateFees = roundMoney(lateFeesApplied.reduce((sum, charge) => sum + charge.amount, 0));
+  const wholeAfterLateFees = roundMoney(Math.max(0, wholePart - totalLateFees));
+  const clientAfterLateFees: Client = {
+    ...client,
+    otherCharges: computeOtherChargesDueAfter(client.otherCharges, lateFeesApplied) ?? []
+  };
+  const finesApplied = distributeAcrossFines(clientAfterLateFees, wholeAfterLateFees);
   const totalFines = roundMoney(finesApplied.reduce((sum, fine) => sum + fine.amount, 0));
-  const wholeAfterFines = roundMoney(Math.max(0, wholePart - totalFines));
-  const ticketsApplied = distributeAcrossTickets(client, wholeAfterFines);
+  const wholeAfterFines = roundMoney(Math.max(0, wholeAfterLateFees - totalFines));
+  const ticketsApplied = distributeAcrossTickets(clientAfterLateFees, wholeAfterFines);
   const totalTickets = roundMoney(ticketsApplied.reduce((sum, ticket) => sum + ticket.amount, 0));
   const wholeAfterPriorityCharges = roundMoney(Math.max(0, wholeAfterFines - totalTickets));
-  const { otherChargesApplied, totalOtherCharges } = computeEffectiveOtherChargesAllocation(
-    client,
+  const remainingOtherChargesAllocation = computeEffectiveOtherChargesAllocation(
+    clientAfterLateFees,
     manualOtherChargesInput,
     wholeAfterPriorityCharges,
     retentionByClient,
@@ -163,9 +184,11 @@ export function buildPendingPaymentApplication(
     item.dateApplied,
     allowManualOverrideForForcedRule
   );
-  const capitalForRent = roundMoney(Math.max(0, wholeAfterPriorityCharges - totalOtherCharges));
+  const otherChargesApplied = [...lateFeesApplied, ...remainingOtherChargesAllocation.otherChargesApplied];
+  const totalOtherCharges = roundMoney(totalLateFees + remainingOtherChargesAllocation.totalOtherCharges);
+  const capitalForRent = roundMoney(Math.max(0, wholeAfterPriorityCharges - remainingOtherChargesAllocation.totalOtherCharges));
   const appliedToRent = roundMoney(Math.min(capitalForRent, Math.max(0, balanceBefore)));
-  const advanceApplied = roundMoney(Math.max(0, wholeAfterPriorityCharges - appliedToRent - totalOtherCharges));
+  const advanceApplied = roundMoney(Math.max(0, capitalForRent - appliedToRent));
   const centavosAhorro = centsPart;
   const balanceAfter = roundMoney(Math.max(0, balanceBefore - appliedToRent));
   const savingsAfter = roundMoney(savingsBefore + centavosAhorro);

@@ -4,6 +4,7 @@ import type {
   Client,
   ClientFine,
   ClientTicket,
+  LateFeeSettings,
   OtherCharge,
   OtherChargesRetentionByClient,
   OtherChargesRetentionCycle,
@@ -271,6 +272,29 @@ export function distributeAcrossOtherCharges(configured: OtherCharge[] | undefin
   return applied;
 }
 
+function normalizeLateFeeText(value: string): string {
+  return value.trim().toUpperCase();
+}
+
+export function isLateFeeListClient(client: Client, lateFeeSettings?: LateFeeSettings): boolean {
+  if (!lateFeeSettings?.selectedUnits?.length) return false;
+  const unit = normalizeLateFeeText(client.unitId);
+  return lateFeeSettings.selectedUnits.some((selectedUnit) => normalizeLateFeeText(selectedUnit) === unit);
+}
+
+export function isLateFeeOtherCharge(charge: Pick<OtherCharge, "label">, lateFeeSettings?: LateFeeSettings): boolean {
+  const label = normalizeLateFeeText(charge.label);
+  const configuredLabel = normalizeLateFeeText(lateFeeSettings?.chargeLabel ?? "");
+  if (configuredLabel && label === configuredLabel) return true;
+  return label.includes("RECARGO") && (label.includes("MORA") || label.includes("TARDANZA"));
+}
+
+export function distributeAcrossLateFeeCharges(client: Client, amount: number, lateFeeSettings?: LateFeeSettings): OtherCharge[] {
+  if (!isLateFeeListClient(client, lateFeeSettings)) return [];
+  const lateFeeCharges = (client.otherCharges ?? []).filter((charge) => isLateFeeOtherCharge(charge, lateFeeSettings));
+  return distributeAcrossOtherCharges(lateFeeCharges, amount);
+}
+
 function getFinePendingAmount(fine: ClientFine): number {
   return roundMoney(Math.max(0, fine.amount - Math.max(0, fine.amountPaid ?? 0)));
 }
@@ -513,21 +537,29 @@ export function computeManualPaymentAllocation(
   retentionByClient: OtherChargesRetentionByClient,
   payments: Payment[],
   paymentDateKey: string,
-  allowManualOverrideForForcedRule = false
+  allowManualOverrideForForcedRule = false,
+  lateFeeSettings?: LateFeeSettings
 ): ManualPaymentAllocation {
   const projectedClient = client;
   const amount = roundMoney(Math.max(0, rawAmount));
   const { wholePart, centsPart } = splitWholeAndCents(amount);
   const balanceBefore = roundMoney(projectedClient.balance);
-  const finesApplied = distributeAcrossFines(projectedClient, wholePart);
+  const lateFeesApplied = distributeAcrossLateFeeCharges(projectedClient, wholePart, lateFeeSettings);
+  const totalLateFees = roundMoney(lateFeesApplied.reduce((sum, charge) => sum + charge.amount, 0));
+  const wholeAfterLateFees = roundMoney(Math.max(0, wholePart - totalLateFees));
+  const projectedClientAfterLateFees: Client = {
+    ...projectedClient,
+    otherCharges: computeOtherChargesDueAfter(projectedClient.otherCharges, lateFeesApplied) ?? []
+  };
+  const finesApplied = distributeAcrossFines(projectedClientAfterLateFees, wholeAfterLateFees);
   const totalFines = roundMoney(finesApplied.reduce((sum, fine) => sum + fine.amount, 0));
-  const wholeAfterFines = roundMoney(Math.max(0, wholePart - totalFines));
-  const ticketsApplied = distributeAcrossTickets(projectedClient, wholeAfterFines);
+  const wholeAfterFines = roundMoney(Math.max(0, wholeAfterLateFees - totalFines));
+  const ticketsApplied = distributeAcrossTickets(projectedClientAfterLateFees, wholeAfterFines);
   const totalTickets = roundMoney(ticketsApplied.reduce((sum, ticket) => sum + ticket.amount, 0));
   const wholeAfterPriorityCharges = roundMoney(Math.max(0, wholeAfterFines - totalTickets));
 
-  const { otherChargesApplied, totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
-    projectedClient,
+  const remainingOtherChargesAllocation = computeEffectiveOtherChargesAllocation(
+    projectedClientAfterLateFees,
     manualOtherChargesInput,
     wholeAfterPriorityCharges,
     retentionByClient,
@@ -535,8 +567,12 @@ export function computeManualPaymentAllocation(
     paymentDateKey,
     allowManualOverrideForForcedRule
   );
-  const appliedToRent = roundMoney(Math.min(Math.max(0, wholeAfterPriorityCharges - totalOtherCharges), balanceBefore));
-  const leftover = roundMoney(Math.max(0, wholeAfterPriorityCharges - totalOtherCharges - appliedToRent));
+  const otherChargesApplied = [...lateFeesApplied, ...remainingOtherChargesAllocation.otherChargesApplied];
+  const totalOtherCharges = roundMoney(totalLateFees + remainingOtherChargesAllocation.totalOtherCharges);
+  const forcedRuleApplied = remainingOtherChargesAllocation.forcedRuleApplied;
+  const capitalForRent = roundMoney(Math.max(0, wholeAfterPriorityCharges - remainingOtherChargesAllocation.totalOtherCharges));
+  const appliedToRent = roundMoney(Math.min(capitalForRent, balanceBefore));
+  const leftover = roundMoney(Math.max(0, capitalForRent - appliedToRent));
   const advanceApplied = leftover;
   const centavosAhorro = centsPart;
   const balanceAfter = roundMoney(balanceBefore - appliedToRent);
@@ -563,6 +599,7 @@ export function computeManualPaymentAllocation(
     installmentsTotalInPayment,
     pendingBefore,
     pendingAfter,
+    totalLateFees,
     totalFines,
     finesApplied,
     totalTickets,

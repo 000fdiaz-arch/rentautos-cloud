@@ -9,6 +9,7 @@ import {
 import type {
   BankRule,
   Client,
+  LateFeeSettings,
   ManualBankAssignmentAudit,
   OtherChargesRetentionByClient,
   Payment,
@@ -31,6 +32,7 @@ type Options = {
   pendingCardItems: PendingCardItem[];
   notifiedPayments: NotifiedPayment[];
   retentionByClient: OtherChargesRetentionByClient;
+  lateFeeSettings?: LateFeeSettings;
   operationalDateKey: string;
   dataOwnerUserId?: string | null;
   replacePendingBankItems: (items: PendingBankItem[]) => void;
@@ -55,6 +57,7 @@ export default function usePendingBankWorkflow(options: Options) {
     pendingCardItems,
     notifiedPayments,
     retentionByClient,
+    lateFeeSettings,
     operationalDateKey,
     dataOwnerUserId,
     replacePendingBankItems,
@@ -193,6 +196,7 @@ export default function usePendingBankWorkflow(options: Options) {
     return buildPendingPaymentApplication(item, client, {
       payments,
       retentionByClient,
+      lateFeeSettings,
       receiptNumber,
       referenceTag: "AUTO-ALTA-SIMILITUD"
     });
@@ -225,6 +229,7 @@ export default function usePendingBankWorkflow(options: Options) {
       const { updatedClient, payment } = buildPendingPaymentApplication(pendingClassifyTarget, client, {
         payments,
         retentionByClient,
+        lateFeeSettings,
         receiptNumber,
         referenceTag: "CLASIFICADO-MANUAL",
         manualOtherChargesInput: pendingOtherChargesInput,

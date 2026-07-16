@@ -223,6 +223,7 @@ export default function PaymentsPage({
     pendingBankItems,
     operationalDateKey,
     retentionByClient: otherChargesRetentionByClient,
+    lateFeeSettings,
     onPaymentsChange,
     replacePendingBankItems,
     setPendingImportError,
@@ -306,9 +307,10 @@ export default function PaymentsPage({
       otherChargesRetentionByClient,
       payments,
       effectiveDateKey,
-      manualOverrideForcedOtherCharges
+      manualOverrideForcedOtherCharges,
+      lateFeeSettings
     );
-  }, [form.amountReceived, form.dateApplied, manualOtherChargesInput, otherChargesRetentionByClient, payments, selectedClient, manualOverrideForcedOtherCharges]);
+  }, [form.amountReceived, form.dateApplied, lateFeeSettings, manualOtherChargesInput, otherChargesRetentionByClient, payments, selectedClient, manualOverrideForcedOtherCharges]);
 
   const {
     paymentInfo,
@@ -425,6 +427,7 @@ export default function PaymentsPage({
     pendingCardItems,
     notifiedPayments,
     retentionByClient: otherChargesRetentionByClient,
+    lateFeeSettings,
     operationalDateKey,
     dataOwnerUserId,
     replacePendingBankItems,
@@ -497,6 +500,7 @@ export default function PaymentsPage({
         client={clients.find((candidate) => candidate.id === pendingClassifyClientId) ?? null}
         payments={payments}
         retentionByClient={otherChargesRetentionByClient}
+        lateFeeSettings={lateFeeSettings}
         otherChargesInput={pendingOtherChargesInput}
         manualOverride={pendingManualOverrideForcedOtherCharges}
         error={pendingClassifyError}
@@ -609,6 +613,7 @@ export default function PaymentsPage({
       retentionByClient: otherChargesRetentionByClient,
       operationalDateKey,
       overrideForcedOtherCharges: manualOverrideForcedOtherCharges,
+      lateFeeSettings,
       receiptNumber
     });
     const saved = await persistClientPaymentState(transaction.updatedClients, [...payments, transaction.payment]);
@@ -741,6 +746,7 @@ export default function PaymentsPage({
         isForcedOtherChargesRuleClient={isForcedOtherChargesRuleClient}
         isForcedOtherChargesRuleActive={isForcedOtherChargesRuleActive}
         selectedClientRetentionConfig={selectedClientRetentionConfig}
+        lateFeeSettings={lateFeeSettings}
         setManualOverrideForcedOtherCharges={setManualOverrideForcedOtherCharges}
         manualOtherChargesInput={manualOtherChargesInput}
         setManualOtherChargesInput={setManualOtherChargesInput}
@@ -806,7 +812,7 @@ export default function PaymentsPage({
         clients={clients}
         activeClients={activeClients}
         getSimilaritySignals={(item) => getPendingSimilaritySignals(item, notifiedPayments)}
-        getPendingBankPreview={(item, client) => buildPendingBankPreview(item, client, { payments, retentionByClient: otherChargesRetentionByClient, operationalDate })}
+        getPendingBankPreview={(item, client) => buildPendingBankPreview(item, client, { payments, retentionByClient: otherChargesRetentionByClient, operationalDate, lateFeeSettings })}
         handleApplyAllHighSimilarity={handleApplyAllHighSimilarity}
         handleDismissAllPending={handleDismissAllPending}
         pendingClassifyTarget={pendingClassifyTarget}

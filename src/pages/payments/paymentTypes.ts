@@ -105,6 +105,7 @@ export type PendingBankPreview = {
   installmentsAgreed: number;
   installmentsRemainingAfter: number;
   installmentsDeducted: number;
+  totalLateFees: number;
   totalOtherCharges: number;
   totalFines: number;
   totalTickets: number;
@@ -193,6 +194,7 @@ export type ManualPaymentAllocation = {
   installmentsTotalInPayment: number;
   pendingBefore: number;
   pendingAfter: number;
+  totalLateFees: number;
   totalOtherCharges: number;
   otherChargesApplied: OtherCharge[];
   totalFines: number;

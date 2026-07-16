@@ -1,4 +1,4 @@
-import type { Client, OtherChargesRetentionByClient, Payment, PendingCardItem } from "../../types";
+import type { Client, LateFeeSettings, OtherChargesRetentionByClient, Payment, PendingCardItem } from "../../types";
 import { extractFoliosFromReference } from "./bankPaymentRules";
 import type { PaymentForm } from "./paymentTypes";
 import {
@@ -21,6 +21,7 @@ type BuildManualPaymentParams = {
   form: PaymentForm;
   manualOtherChargesInput: Record<string, string>;
   retentionByClient: OtherChargesRetentionByClient;
+  lateFeeSettings?: LateFeeSettings;
   operationalDateKey: string;
   overrideForcedOtherCharges: boolean;
   receiptNumber: string;
@@ -41,6 +42,7 @@ export function buildManualPaymentTransaction({
   form,
   manualOtherChargesInput,
   retentionByClient,
+  lateFeeSettings,
   operationalDateKey,
   overrideForcedOtherCharges,
   receiptNumber
@@ -53,7 +55,8 @@ export function buildManualPaymentTransaction({
     retentionByClient,
     payments,
     operationalDateKey,
-    overrideForcedOtherCharges
+    overrideForcedOtherCharges,
+    lateFeeSettings
   );
   const isCard = form.paymentMethod === "Tarjeta";
   const enteredFolios = isCard ? extractFoliosFromReference(form.reference) : [];

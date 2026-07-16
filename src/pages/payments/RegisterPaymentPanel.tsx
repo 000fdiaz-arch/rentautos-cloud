@@ -1,9 +1,11 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { formatCurrency, formatDate } from "../../format";
-import type { Client, OtherChargesRetentionCycle } from "../../types";
+import type { Client, LateFeeSettings, OtherChargesRetentionCycle } from "../../types";
 import { PAYMENT_METHODS } from "./paymentConstants";
 import {
   getOtherChargeKey,
+  isLateFeeListClient,
+  isLateFeeOtherCharge,
   getPendingFines,
   getPendingTickets,
   getRetentionCycleLabel,
@@ -48,6 +50,7 @@ type Props = {
     amount: number;
     cycle: OtherChargesRetentionCycle;
   };
+  lateFeeSettings: LateFeeSettings;
   setManualOverrideForcedOtherCharges: Dispatch<SetStateAction<boolean>>;
   manualOtherChargesInput: Record<string, string>;
   setManualOtherChargesInput: Dispatch<SetStateAction<Record<string, string>>>;
@@ -89,6 +92,7 @@ export default function RegisterPaymentPanel({
   isForcedOtherChargesRuleClient,
   isForcedOtherChargesRuleActive,
   selectedClientRetentionConfig,
+  lateFeeSettings,
   setManualOverrideForcedOtherCharges,
   manualOtherChargesInput,
   setManualOtherChargesInput,
@@ -101,6 +105,13 @@ export default function RegisterPaymentPanel({
   isDateClosed,
   isConfirmingPayment
 }: Props) {
+  const lateFeeCharges = selectedClient && isLateFeeListClient(selectedClient, lateFeeSettings)
+    ? (selectedClient.otherCharges ?? []).filter((charge) => isLateFeeOtherCharge(charge, lateFeeSettings))
+    : [];
+  const regularOtherCharges = selectedClient
+    ? (selectedClient.otherCharges ?? []).filter((charge) => !isLateFeeOtherCharge(charge, lateFeeSettings))
+    : [];
+
   return (
     <section id="payment-panel-register" role="tabpanel" aria-labelledby="payment-tab-register" ref={registerSectionRef} className="panel" style={{ display: isRegisterOpen ? undefined : "none" }}>
             <div className="panel-head">
@@ -268,6 +279,23 @@ export default function RegisterPaymentPanel({
             )}
 
             {/* Otros cargos */}
+            {selectedClient && lateFeeCharges.length > 0 && (
+              <div className="other-charges-section" style={{ marginTop: 14 }}>
+                <div className="other-charges-title">Recargos por mora</div>
+                <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
+                  Se cobran primero automaticamente. Los centavos del pago se mantienen para ahorros.
+                </p>
+                {lateFeeCharges.map((charge, index) => (
+                  <div key={getOtherChargeKey(charge, index)} className="other-charges-row">
+                    <label className="payment-label">{charge.label}</label>
+                    <div className="payment-input" style={{ display: "flex", alignItems: "center" }}>
+                      Pendiente: {formatCurrency(charge.amount)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {selectedClient && getPendingFines(selectedClient).length > 0 && (
               <div className="other-charges-section" style={{ marginTop: 14 }}>
                 <div className="other-charges-title">Multas pendientes de este cliente</div>
@@ -309,7 +337,7 @@ export default function RegisterPaymentPanel({
             )}
 
             {/* Otros cargos */}
-            {selectedClient && (selectedClient.otherCharges ?? []).length > 0 && (
+            {selectedClient && regularOtherCharges.length > 0 && (
               <div className="other-charges-section" style={{ marginTop: 14 }}>
                 <div className="other-charges-title">Otros cargos de este cliente</div>
                 {isForcedOtherChargesRuleClient && (
@@ -328,7 +356,7 @@ export default function RegisterPaymentPanel({
                     </button>
                   </>
                 )}
-                {(selectedClient.otherCharges ?? []).map((charge, index) => (
+                {regularOtherCharges.map((charge, index) => (
                   <div key={getOtherChargeKey(charge, index)} className="other-charges-row">
                     <label className="payment-label">{charge.label} <span className="amount-muted">(configurado: {formatCurrency(charge.amount)})</span></label>
                     {isForcedOtherChargesRuleActive ? (
@@ -373,14 +401,20 @@ export default function RegisterPaymentPanel({
                         <strong className="amount-warning">{formatCurrency(preview.totalTickets)}</strong>
                       </div>
                     )}
+                    {preview.totalLateFees > 0 && (
+                      <div className="payment-preview-row">
+                        <span>Recargos por mora</span>
+                        <strong className="amount-warning">{formatCurrency(preview.totalLateFees)}</strong>
+                      </div>
+                    )}
                     <div className="payment-preview-row">
                       <span>Aplicado a renta</span>
                       <strong>{formatCurrency(preview.appliedToRent)}</strong>
                     </div>
-                    {preview.totalOtherCharges > 0 && (
+                    {roundMoney(Math.max(0, preview.totalOtherCharges - preview.totalLateFees)) > 0 && (
                       <div className="payment-preview-row">
                         <span>{preview.forcedOtherChargesRuleApplied ? "Otros cargos (regla automatica)" : "Otros cargos (manual)"}</span>
-                        <strong className="amount-warning">{formatCurrency(preview.totalOtherCharges)}</strong>
+                        <strong className="amount-warning">{formatCurrency(Math.max(0, preview.totalOtherCharges - preview.totalLateFees))}</strong>
                       </div>
                     )}
                     {preview.centavosAhorro > 0 && (
