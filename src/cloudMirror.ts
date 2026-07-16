@@ -65,6 +65,7 @@ let isHydrating = false;
 let patchInstalled = false;
 const pendingTimers = new Map<string, number>();
 const cachedValues = new Map<string, string>();
+let nativeLocalStorageSetItem: ((key: string, value: string) => void) | null = null;
 const PAGE_SIZE = 1000;
 const BASE_SYNC_DEBOUNCE_MS = 1000;
 const HEAVY_SYNC_DEBOUNCE_MS = 1800;
@@ -231,15 +232,17 @@ function patchLocalStorage(): void {
   patchInstalled = true;
   const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
   const originalRemoveItem = window.localStorage.removeItem.bind(window.localStorage);
+  nativeLocalStorageSetItem = originalSetItem;
 
   window.localStorage.setItem = (key: string, value: string) => {
     const indexedDbKey = INDEXED_DB_ARRAY_KEY_MAP[key as ArrayKey];
     if (indexedDbKey && value !== INDEXED_DB_SENTINEL) {
       const rows = parseArrayValue(value);
-      void writeIndexedDb(indexedDbKey, rows).catch((error) => {
-        console.error(`No se pudo guardar "${key}" en IndexedDB.`, error);
-      });
-      originalSetItem(key, INDEXED_DB_SENTINEL);
+      void writeIndexedDb(indexedDbKey, rows)
+        .then(() => originalSetItem(key, INDEXED_DB_SENTINEL))
+        .catch((error) => {
+          console.error(`No se pudo guardar "${key}" en IndexedDB.`, error);
+        });
       if (!isHydrating) scheduleSync(key, INDEXED_DB_SENTINEL);
       return;
     }
@@ -274,7 +277,7 @@ async function hydrateArrayKey(userId: string, key: ArrayKey): Promise<void> {
   const indexedDbKey = INDEXED_DB_ARRAY_KEY_MAP[key];
   if (indexedDbKey) {
     await writeIndexedDb(indexedDbKey, rows);
-    window.localStorage.setItem(key, INDEXED_DB_SENTINEL);
+    (nativeLocalStorageSetItem ?? window.localStorage.setItem.bind(window.localStorage))(key, INDEXED_DB_SENTINEL);
     return;
   }
   window.localStorage.setItem(key, JSON.stringify(rows));
@@ -414,7 +417,16 @@ export function writeLocalStorageFromCloud(key: string, value: string): void {
   patchLocalStorage();
   isHydrating = true;
   try {
-    window.localStorage.setItem(key, value);
+    const indexedDbKey = INDEXED_DB_ARRAY_KEY_MAP[key as ArrayKey];
+    if (indexedDbKey && value !== INDEXED_DB_SENTINEL) {
+      void writeIndexedDb(indexedDbKey, parseArrayValue(value))
+        .then(() => (nativeLocalStorageSetItem ?? window.localStorage.setItem.bind(window.localStorage))(key, INDEXED_DB_SENTINEL))
+        .catch((error) => {
+          console.error(`No se pudo guardar "${key}" desde cloud en IndexedDB.`, error);
+        });
+      return;
+    }
+    (nativeLocalStorageSetItem ?? window.localStorage.setItem.bind(window.localStorage))(key, value);
   } finally {
     isHydrating = false;
   }
