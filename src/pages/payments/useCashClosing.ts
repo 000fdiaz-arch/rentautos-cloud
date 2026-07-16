@@ -68,7 +68,7 @@ export default function useCashClosing({
     [cashClosings]
   );
 
-  const operationalDateKey = useMemo(() => {
+  const nextUnclosedDateKey = useMemo(() => {
     const today = getBusinessDateKey();
     const candidates = cashClosings.map((closing) => closing.date.trim()).filter((date) => date.length > 0);
     if (candidates.length === 0) return today;
@@ -82,9 +82,14 @@ export default function useCashClosing({
     return toDateKey(nextOperational);
   }, [cashClosings]);
 
+  const operationalDateKey = useMemo(() => {
+    const today = getBusinessDateKey();
+    return nextUnclosedDateKey < today ? today : nextUnclosedDateKey;
+  }, [nextUnclosedDateKey]);
+
   useEffect(() => {
-    setCashClosingDate((previous) => previous === operationalDateKey ? previous : operationalDateKey);
-  }, [operationalDateKey]);
+    setCashClosingDate((previous) => previous === nextUnclosedDateKey ? previous : nextUnclosedDateKey);
+  }, [nextUnclosedDateKey]);
 
 function isDateClosed(dateKey: string): boolean {
   return closedDateSet.has(dateKey);

@@ -183,7 +183,7 @@ export default function RegisterPaymentPanel({
                   disabled
                   readOnly
                 />
-                <span className="payment-inline-hint">Se calcula como ultimo cierre + 1 dia.</span>
+                <span className="payment-inline-hint">Usa la fecha operativa del negocio en Panama.</span>
               </div>
 
               {/* Method */}
