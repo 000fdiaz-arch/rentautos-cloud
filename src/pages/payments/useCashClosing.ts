@@ -14,6 +14,7 @@ import { supabase } from "../../lib/supabase";
 import { buildReceivableRows } from "../../receivables";
 import { loadLateFeeLedger, saveLateFeeLedger } from "../../storage";
 import type { Client, LateFeeLedgerEntry, LateFeeSettings, Payment } from "../../types";
+import { loadCashSummaryRange } from "../../cashLedger";
 import {
   COLLECTION_CLOSURES_KEY,
   COLLECTION_STATUS_KEY
@@ -72,6 +73,7 @@ export default function useCashClosing({
   const [lastCloseReport, setLastCloseReport] = useState<ChargeCloseReport | null>(null);
   const [reopenTargetDate, setReopenTargetDate] = useState<string | null>(null);
   const [reopenReason, setReopenReason] = useState<string>("");
+  const [cashLedgerClosedDates, setCashLedgerClosedDates] = useState<string[]>([]);
 
   async function loadCashClosingCloudState(ownerUserId: string): Promise<void> {
     const [cloudClosings, cloudAudit, cloudRuns] = await Promise.all([
@@ -79,6 +81,18 @@ export default function useCashClosing({
       loadCloudCashClosingAudit(ownerUserId),
       loadCloudChargeRuns(ownerUserId)
     ]);
+    const today = getBusinessDateKey();
+    const todayDate = parseDateKey(today);
+    let ledgerFromDate = today;
+    if (todayDate) {
+      const fromDate = new Date(todayDate);
+      fromDate.setDate(fromDate.getDate() - 90);
+      ledgerFromDate = toDateKey(fromDate);
+    }
+    const ledgerSummaries = await loadCashSummaryRange(ledgerFromDate, today, ownerUserId).catch((error) => {
+      console.error("No se pudieron cargar cierres del ledger de caja.", error);
+      return [];
+    });
     const normalizedClosings = cloudClosings
       .filter((closing) => typeof closing.date === "string" && typeof closing.closedAt === "string")
       .sort((a, b) => b.date.localeCompare(a.date));
@@ -88,9 +102,14 @@ export default function useCashClosing({
     const normalizedRuns = cloudRuns
       .filter((run) => typeof run.id === "string" && typeof run.targetDate === "string")
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const normalizedLedgerClosedDates = ledgerSummaries
+      .filter((summary) => summary.status === "closed" && typeof summary.opening_date === "string")
+      .map((summary) => summary.opening_date)
+      .sort((a, b) => b.localeCompare(a));
     setCashClosings(normalizedClosings);
     setCashClosingAudit(normalizedAudit);
     setChargeRuns(normalizedRuns);
+    setCashLedgerClosedDates(normalizedLedgerClosedDates);
     saveCashClosings(normalizedClosings);
     saveCashClosingAudit(normalizedAudit);
     saveChargeRuns(normalizedRuns);
@@ -128,6 +147,7 @@ export default function useCashClosing({
       .on("postgres_changes", { event: "*", schema: "public", table: "cash_closings_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, scheduleReload)
       .on("postgres_changes", { event: "*", schema: "public", table: "cash_closing_audit_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, scheduleReload)
       .on("postgres_changes", { event: "*", schema: "public", table: "charge_runs_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, scheduleReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cash_day_closings", filter: `owner_user_id=eq.${dataOwnerUserId}` }, scheduleReload)
       .subscribe();
     return () => {
       if (reloadTimer !== null) window.clearTimeout(reloadTimer);
@@ -167,13 +187,16 @@ export default function useCashClosing({
   }
 
   const closedDateSet = useMemo(
-    () => new Set(cashClosings.map((closing) => closing.date)),
-    [cashClosings]
+    () => new Set([
+      ...cashClosings.map((closing) => closing.date),
+      ...cashLedgerClosedDates
+    ]),
+    [cashClosings, cashLedgerClosedDates]
   );
 
   const nextUnclosedDateKey = useMemo(() => {
     const today = getBusinessDateKey();
-    const candidates = cashClosings.map((closing) => closing.date.trim()).filter((date) => date.length > 0);
+    const candidates = [...closedDateSet].map((date) => date.trim()).filter((date) => date.length > 0);
     if (candidates.length === 0) return today;
     const sortedClosedDates = [...new Set(candidates)].sort();
     const latestClosed = sortedClosedDates[sortedClosedDates.length - 1];
@@ -183,7 +206,7 @@ export default function useCashClosing({
     const nextOperational = new Date(latestClosedDate);
     nextOperational.setDate(nextOperational.getDate() + 1);
     return toDateKey(nextOperational);
-  }, [cashClosings]);
+  }, [closedDateSet]);
 
   const operationalDateKey = useMemo(() => {
     const today = getBusinessDateKey();
@@ -433,45 +456,21 @@ function handleCloseCashForDate(): void {
   const date = cashClosingDate.trim();
   const actor = cashClosingActor.trim() || "Operador";
   const reason = "Cierre diario";
+  if (!dataOwnerUserId) {
+    setCashClosingError("No se puede cerrar caja sin conexion a la nube del negocio. Actualiza e intenta de nuevo.");
+    setCashClosingInfo("");
+    return;
+  }
   if (!date) {
     setCashClosingError("Debes seleccionar una fecha para cerrar caja.");
     setCashClosingInfo("");
     return;
   }
   if (isDateClosed(date)) {
-    const hadExistingRun = hasChargeRunForClosing(date);
-    const chargeResult = applyNextDayChargesFromClosing(date, {
-      repairExistingRun: true,
-      forceIncompleteZeroRun: true
-    });
-    const closeReport: ChargeCloseReport = {
-      closingDate: date,
-      targetDate: chargeResult.targetDate,
-      status: chargeResult.blockingError ? "warning" : "ok",
-      expectedClients: chargeResult.expectedClients,
-      chargedClients: chargeResult.chargedClients,
-      anomalyClients: chargeResult.anomalyClients,
-      chargedTotal: chargeResult.chargedTotal,
-      generatedAt: new Date().toISOString(),
-      rows: chargeResult.rows
-    };
-    setLastCloseReport(closeReport);
-
-    if (chargeResult.blockingError) {
-      setCashClosingError(chargeResult.blockingError);
-      setCashClosingInfo("");
-      return;
-    }
-
-    const chargeInfo = hadExistingRun && chargeResult.chargedClients === 0
-      ? `Cobros revisados para ${chargeResult.targetDate}: no habia cargos nuevos pendientes. Esperados ${chargeResult.expectedClients}.`
-      : `Cobros reparados para ${chargeResult.targetDate}: esperados ${chargeResult.expectedClients}, cobrados ${chargeResult.chargedClients}, total ${formatCurrency(chargeResult.chargedTotal)}.`;
-    const lateFeeInfo = chargeResult.lateFeeClients > 0
-      ? ` Recargos por tardanza: ${chargeResult.lateFeeClients} cliente(s), total ${formatCurrency(chargeResult.lateFeeTotal)}.`
-      : "";
+    setCashClosingDate(nextUnclosedDateKey);
+    setLastCloseReport(null);
     setCashClosingError("");
-    setCashClosingInfo(`La caja de ${date} ya estaba cerrada. ${chargeInfo}${lateFeeInfo}`);
-    onCashClose?.();
+    setCashClosingInfo(`La caja de ${date} ya estaba cerrada. La fecha a cerrar se movio a ${nextUnclosedDateKey}; no se aplicaron cobros.`);
     return;
   }
 
@@ -577,6 +576,10 @@ function openReopenDialog(date: string): void {
 
 function handleConfirmReopen(): void {
   if (!reopenTargetDate) return;
+  if (!dataOwnerUserId) {
+    setCashClosingError("No se puede reabrir caja sin conexion a la nube del negocio. Actualiza e intenta de nuevo.");
+    return;
+  }
   const reason = reopenReason.trim();
   const actor = cashClosingActor.trim() || "Operador";
   if (!reason) {
