@@ -1,7 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { formatCurrency } from "../../format";
 import { reserveCloudReceiptNumbers } from "../../cloudData";
-import { loadManualBankAssignmentAudit, saveManualBankAssignmentAudit } from "../../storage";
+import {
+  loadManualBankAssignmentAudit,
+  loadManualBankAssignmentAuditFromIndexedDb,
+  saveManualBankAssignmentAudit
+} from "../../storage";
 import type {
   BankRule,
   Client,
@@ -72,6 +76,18 @@ export default function usePendingBankWorkflow(options: Options) {
   const [pendingManualOverrideForcedOtherCharges, setPendingManualOverrideForcedOtherCharges] = useState(false);
   const [manualAssignmentAudit, setManualAssignmentAudit] = useState<ManualBankAssignmentAudit[]>(() => loadManualBankAssignmentAudit());
   const [pendingTravelFundInputByFolio, setPendingTravelFundInputByFolio] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadManualBankAssignmentAuditFromIndexedDb()
+      .then((items) => {
+        if (!cancelled && items.length > 0) setManualAssignmentAudit(items);
+      })
+      .catch((error) => console.error("No se pudo cargar auditoria manual desde IndexedDB.", error));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function processBankCSV(text: string): Promise<void> {
     const result = await importBankCsv(text, {

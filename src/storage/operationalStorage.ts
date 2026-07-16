@@ -50,6 +50,7 @@ const PENDING_BANK_INDEXED_DB_KEY = "pending_bank.v1";
 const PENDING_CARD_KEY = "cobrapp.module2.pending_card.v1";
 const BANK_RULES_KEY = "cobrapp.settings.bank_rules.v1";
 const MANUAL_ASSIGNMENT_AUDIT_KEY = "cobrapp.module2.manual_assignment_audit.v1";
+const MANUAL_ASSIGNMENT_AUDIT_INDEXED_DB_KEY = "manual_assignment_audit.v1";
 const LATE_FEE_SETTINGS_KEY = "cobrapp.settings.late_fee_settings.v1";
 const LATE_FEE_LEDGER_KEY = "cobrapp.module2.late_fee_ledger.v1";
 const OTHER_CHARGES_RETENTION_KEY = "cobrapp.settings.other_charges_retention.v1";
@@ -214,6 +215,7 @@ function normalizeManualAssignmentAudit(item: unknown): ManualBankAssignmentAudi
 export function loadManualBankAssignmentAudit(): ManualBankAssignmentAudit[] {
   const raw = localStorage.getItem(MANUAL_ASSIGNMENT_AUDIT_KEY);
   if (!raw) return [];
+  if (raw === INDEXED_DB_SENTINEL) return [];
   try {
     const parsed = JSON.parse(raw) as unknown[];
     if (!Array.isArray(parsed)) return [];
@@ -225,8 +227,23 @@ export function loadManualBankAssignmentAudit(): ManualBankAssignmentAudit[] {
   }
 }
 
+export async function loadManualBankAssignmentAuditFromIndexedDb(): Promise<ManualBankAssignmentAudit[]> {
+  const value = await readIndexedDb(MANUAL_ASSIGNMENT_AUDIT_INDEXED_DB_KEY);
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => normalizeManualAssignmentAudit(item))
+    .filter((item): item is ManualBankAssignmentAudit => item !== null);
+}
+
 export function saveManualBankAssignmentAudit(items: ManualBankAssignmentAudit[]): void {
-  localStorage.setItem(MANUAL_ASSIGNMENT_AUDIT_KEY, JSON.stringify(items));
+  void writeIndexedDb(MANUAL_ASSIGNMENT_AUDIT_INDEXED_DB_KEY, items).catch((error) => {
+    console.error("No se pudo guardar auditoria de asignaciones manuales en IndexedDB.", error);
+  });
+  try {
+    localStorage.setItem(MANUAL_ASSIGNMENT_AUDIT_KEY, INDEXED_DB_SENTINEL);
+  } catch (error) {
+    console.error("No se pudo actualizar marcador de auditoria manual en localStorage.", error);
+  }
 }
 
 const DEFAULT_LATE_FEE_LABEL = "RECARGO POR TARDANZA DE PAGO";

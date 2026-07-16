@@ -76,7 +76,8 @@ const DAILY_COLLECTION_PROMISES_KEY = "cobrapp.clients.daily_collection_promises
 const DAILY_COLLECTION_STREET_ACTIONS_KEY = "cobrapp.clients.daily_collection_street_actions.v1";
 const INDEXED_DB_SENTINEL = "__indexeddb__";
 const INDEXED_DB_ARRAY_KEY_MAP: Partial<Record<ArrayKey, string>> = {
-  "cobrapp.module2.pending_bank.v1": "pending_bank.v1"
+  "cobrapp.module2.pending_bank.v1": "pending_bank.v1",
+  "cobrapp.module2.manual_assignment_audit.v1": "manual_assignment_audit.v1"
 };
 
 type InitializeCloudMirrorOptions = {
