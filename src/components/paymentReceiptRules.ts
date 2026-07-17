@@ -7,7 +7,7 @@ export type PaymentBreakdownRow = { label: string; amount: number };
 export function formatDateSpanish(dateStr: string): string {
   const parts = dateStr.split("-");
   if (parts.length !== 3) return dateStr;
-  const weekdays = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
+  const weekdays = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
   const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
   const year = Number.parseInt(parts[0], 10);
   const month = Number.parseInt(parts[1], 10) - 1;
@@ -17,7 +17,7 @@ export function formatDateSpanish(dateStr: string): string {
 }
 
 function formatCycle(date: Date, payment: Payment): string {
-  const weekdays = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
+  const weekdays = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
   const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
   const day = String(date.getDate()).padStart(2, "0");
   const month = months[date.getMonth()] ?? "";
@@ -27,7 +27,7 @@ function formatCycle(date: Date, payment: Payment): string {
 }
 
 export function formatDateSpanishSingleLine(date: Date): string {
-  const weekdays = ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"];
+  const weekdays = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
   const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
   return `${weekdays[date.getDay()] ?? ""} ${String(date.getDate()).padStart(2, "0")} de ${months[date.getMonth()] ?? ""}`.trim();
 }
@@ -138,7 +138,7 @@ export function buildCoveredPaymentRows(payment: Payment): CoveredPaymentRow[] {
     const remainder = roundMoney(Math.max(0, payment.advanceBalanceAfter ?? advanceApplied) % rent);
     if (advanceApplied > 0 && remainder > 0) {
       const date = findNextChargeDay(client, paymentDate);
-      rows.push({ dateLabel: date ? formatCycle(date, payment) : "Proxima cuenta", status: "partial", amount: remainder });
+      rows.push({ dateLabel: date ? formatCycle(date, payment) : "Próxima cuenta", status: "partial", amount: remainder });
     }
   }
   return rows.slice(0, 4);
@@ -186,7 +186,9 @@ function fileDate(date: string): string {
 }
 
 export function buildReceiptFileName(payment: Payment): string {
-  return `${sanitizeFileToken(payment.clientUnit || "UNIDAD")}-${fileDate(payment.dateApplied)}.png`;
+  const unit = sanitizeFileToken(payment.clientUnit || "UNIDAD");
+  const receipt = sanitizeFileToken(payment.receiptNumber || "RECIBO");
+  return `${unit}-${receipt}-${fileDate(payment.dateApplied)}.png`;
 }
 
 export function buildZipFileName(payments: Payment[]): string {

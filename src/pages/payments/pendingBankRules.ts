@@ -199,7 +199,7 @@ export function buildPendingPaymentApplication(
   const installmentsDeducted = Math.max(0, pendingBefore - pendingAfter);
   const installmentsCoveredByAdvance = computeCoveredInstallmentsFromAdvance(advanceBefore, advanceAfter, rentAmount);
   const installmentsImpact = installmentsDeducted + installmentsCoveredByAdvance;
-  const installmentsPaidAfter = Math.max(0, client.installmentsPaid) + installmentsDeducted;
+  const installmentsPaidAfter = Math.max(0, client.installmentsPaid) + installmentsImpact;
   const installmentsRemainingAfter = Math.max(0, (client.installmentsRemaining || 0) - installmentsImpact);
   const paymentDateKey = item.dateApplied || getBusinessDateKey();
   const firstSundayChargedAt = resolveFirstSundayChargedAtForManualPayment(

@@ -4714,7 +4714,7 @@ select.control-op-badge {
 
 .receipt-history-section-title {
   color: #082f63;
-  font-size: 1.16rem;
+  font-size: 1.32rem;
   font-weight: 900;
   margin-bottom: 7px;
   letter-spacing: 0;
@@ -4725,8 +4725,8 @@ select.control-op-badge {
   grid-template-columns: 34px minmax(0, 1fr) auto;
   gap: 9px;
   align-items: center;
-  min-height: 39px;
-  padding: 6px 0;
+  min-height: 44px;
+  padding: 8px 0;
 }
 
 .receipt-history-cover-row + .receipt-history-cover-row {
@@ -4770,7 +4770,7 @@ select.control-op-badge {
 .receipt-history-cover-date {
   min-width: 0;
   color: #111827;
-  font-size: 0.86rem;
+  font-size: 1.02rem;
   font-weight: 900;
   line-height: 1.15;
   overflow: hidden;
@@ -4781,7 +4781,7 @@ select.control-op-badge {
 .receipt-history-cover-state {
   width: fit-content;
   max-width: 100%;
-  font-size: 0.65rem;
+  font-size: 0.76rem;
   font-weight: 900;
   line-height: 1;
   text-transform: uppercase;
@@ -4803,7 +4803,7 @@ select.control-op-badge {
 .receipt-history-cover-value {
   text-align: right;
   white-space: nowrap;
-  font-size: 1rem;
+  font-size: 1.16rem;
   font-weight: 900;
   line-height: 1;
 }
@@ -4831,14 +4831,14 @@ select.control-op-badge {
 
 .receipt-history-alert span {
   min-width: 0;
-  font-size: 0.96rem;
+  font-size: 1.08rem;
   font-weight: 900;
   line-height: 1.15;
 }
 
 .receipt-history-alert strong {
   white-space: nowrap;
-  font-size: 1.56rem;
+  font-size: 1.72rem;
   font-weight: 900;
   line-height: 1;
 }
@@ -4867,14 +4867,14 @@ select.control-op-badge {
 }
 
 .receipt-history-alert--other span {
-  font-size: 0.8rem;
+  font-size: 0.92rem;
   font-weight: 800;
   letter-spacing: 0.01em;
 }
 
 .receipt-history-alert--other strong {
   color: #334155;
-  font-size: 1.05rem;
+  font-size: 1.22rem;
   font-weight: 900;
 }
 
@@ -4906,7 +4906,7 @@ select.control-op-badge {
 
 .receipt-history-rent-pending-title {
   margin-bottom: 5px;
-  font-size: 0.98rem;
+  font-size: 1.12rem;
   font-weight: 900;
   line-height: 1.1;
 }
@@ -4916,7 +4916,7 @@ select.control-op-badge {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: baseline;
-  min-height: 24px;
+  min-height: 29px;
   color: #334155;
 }
 
@@ -4933,7 +4933,7 @@ select.control-op-badge {
 
 .receipt-history-rent-pending-row span {
   min-width: 0;
-  font-size: 0.78rem;
+  font-size: 0.92rem;
   font-weight: 800;
   line-height: 1.15;
 }
@@ -4946,7 +4946,7 @@ select.control-op-badge {
 
 .receipt-history-rent-pending-row strong {
   color: #0f172a;
-  font-size: 0.96rem;
+  font-size: 1.12rem;
   font-weight: 900;
   line-height: 1.15;
   white-space: nowrap;
@@ -4970,14 +4970,14 @@ select.control-op-badge {
 
 .receipt-history-next-date span {
   min-width: 0;
-  font-size: 0.84rem;
+  font-size: 0.98rem;
   font-weight: 900;
   line-height: 1.15;
 }
 
 .receipt-history-next-date strong {
   color: #0f172a;
-  font-size: 0.84rem;
+  font-size: 0.98rem;
   font-weight: 900;
   line-height: 1.15;
   text-align: right;
@@ -4988,7 +4988,7 @@ select.control-op-badge {
   position: relative;
   grid-template-columns: minmax(0, 1fr) auto;
   color: #082f63;
-  font-size: 0.96rem;
+  font-size: 1.1rem;
   font-weight: 900;
   border-color: #c9d9ed;
   background:
@@ -4997,7 +4997,7 @@ select.control-op-badge {
 
 .receipt-history-panel--paid strong {
   color: #082f63;
-  font-size: 1.6rem;
+  font-size: 1.86rem;
   font-weight: 900;
 }
 

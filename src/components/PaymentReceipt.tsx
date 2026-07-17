@@ -193,13 +193,13 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
       : payment.weeklyChargeDay === "tuesday"
       ? "Martes"
       : payment.weeklyChargeDay === "wednesday"
-      ? "Miercoles"
+      ? "Miércoles"
       : payment.weeklyChargeDay === "thursday"
       ? "Jueves"
       : payment.weeklyChargeDay === "friday"
       ? "Viernes"
       : payment.weeklyChargeDay === "saturday"
-      ? "Sabado"
+      ? "Sábado"
       : "";
 
   const frequencyLabel =
@@ -216,11 +216,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
     payment.installmentsFromAdvance ??
       (payment.rentAmount > 0 ? Math.floor((payment.advanceApplied ?? 0) / payment.rentAmount) : 0)
   );
-  const installmentsTotalInPayment = Math.max(
-    0,
-    payment.installmentsTotalInPayment ?? installmentsFromDebt + installmentsFromAdvance
-  );
-  const installmentsPaidIncludingAdvance = Math.max(0, payment.installmentsPaidAfter + installmentsFromAdvance);
+  const installmentsPaidIncludingAdvance = Math.max(0, payment.installmentsPaidAfter);
   const paymentDate = startOfDay(new Date(payment.dateApplied + "T12:00:00"));
   const advanceApplied = Math.max(0, payment.advanceApplied ?? 0);
   const advanceBalanceAfter = roundMoney(Math.max(0, payment.advanceBalanceAfter ?? advanceApplied));
@@ -270,7 +266,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
       : isDailyPlan
       ? (badgeDaysDelta === 0 ? "warning" : "success")
       : (badgeDaysDelta !== null && badgeDaysDelta <= 3 ? "warning" : "success");
-  const badgeLabel = hasMoroseBalance ? "Pago vencido desde" : "Proximo pago";
+  const badgeLabel = hasMoroseBalance ? "Pago vencido desde" : "Próximo pago";
   const badgeText = badgeDate ? `${badgeLabel}: ${formatDate(badgeDate)}` : `${badgeLabel}: por definir`;
   const advanceAppliedToNextInstallment = normalizedRent > 0 ? roundMoney(Math.min(advanceBalanceAfter, normalizedRent)) : 0;
   const advanceRemainingForNextInstallment = normalizedRent > 0
@@ -439,7 +435,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
 
         {isPendingCardSettlement && (
           <div className="receipt-history-note receipt-history-note--warning">
-            Pago en tarjeta pendiente de conciliacion bancaria.
+            Pago en tarjeta pendiente de conciliación bancaria.
           </div>
         )}
 
@@ -544,7 +540,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
 
         {!hasPending && (
           <div className="receipt-history-next-date">
-            <span>Proxima fecha de pago</span>
+            <span>Próxima fecha de pago</span>
             <strong>{nextPaymentDate ? formatDateSpanishSingleLine(nextPaymentDate) : "Por definir"}</strong>
           </div>
         )}
@@ -594,7 +590,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
         </div>
         {isPendingCardSettlement && (
           <div className="receipt-brand-sub" style={{ color: "#a05a00", fontWeight: 700 }}>
-            PAGO EN TARJETA PENDIENTE DE CONCILIACION BANCARIA
+            PAGO EN TARJETA PENDIENTE DE CONCILIACIÓN BANCARIA
           </div>
         )}
 
@@ -612,7 +608,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
             {hasAdvancePanel && (
               <div className="receipt-subrow">
                 <span>
-                  Aplicado a proxima letra
+                  Aplicado a próxima letra
                   {nextChargeDate ? ` (${formatDate(nextChargeDate)})` : ""}
                 </span>
                 <span>{formatCurrency(advanceApplied)}</span>
@@ -660,7 +656,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
               <span><strong>{payment.clientName.toUpperCase()}</strong></span>
             </div>
             <div className="receipt-row">
-              <span>Metodo</span>
+              <span>Método</span>
               <span>{payment.paymentMethod}</span>
             </div>
             {folio && (
@@ -678,7 +674,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
           <div className="receipt-advance-title">PAGO ADELANTADO</div>
           {nextChargeDate && (
             <div className="receipt-advance-row">
-              <span>Proxima letra</span>
+              <span>Próxima letra</span>
               <strong>{formatDate(nextChargeDate)}</strong>
             </div>
           )}
@@ -704,7 +700,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
         <div className={`receipt-overdue-banner ${hasPending ? "" : "receipt-overdue-banner--ok"}`}>
           <span className="receipt-overdue-icon">{hasPending ? "!" : <strong>✓</strong>}</span>
           <div className="receipt-overdue-content">
-            <div className="receipt-overdue-title">{hasPending ? "PAGO PENDIENTE HOY" : "ESTAS AL DIA"}</div>
+            <div className="receipt-overdue-title">{hasPending ? "PAGO PENDIENTE HOY" : "ESTÁS AL DÍA"}</div>
             <div className="receipt-overdue-sub">
               {hasPending ? (
                 <>
@@ -777,7 +773,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
           <li className="receipt-reminder-item">
             <span className="receipt-reminder-icon" aria-hidden="true">*</span>
             <span>
-              En el banco, escribe tu <strong className="receipt-reminder-highlight">numero de unidad</strong> en el comentario.
+              En el banco, escribe tu <strong className="receipt-reminder-highlight">número de unidad</strong> en el comentario.
             </span>
           </li>
           <li className="receipt-reminder-item">
@@ -789,14 +785,14 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
           <li className="receipt-reminder-item">
             <span className="receipt-reminder-icon" aria-hidden="true">*</span>
             <span>
-              Manten <strong className="receipt-reminder-highlight">saldo positivo</strong> en Panapass y <strong className="receipt-reminder-highlight">paga a tiempo</strong> para evitar multas y recargos.
+              Mantén <strong className="receipt-reminder-highlight">saldo positivo</strong> en Panapass y <strong className="receipt-reminder-highlight">paga a tiempo</strong> para evitar multas y recargos.
             </span>
           </li>
         </ul>
       </div>
 
       <div className="receipt-footer">
-        Emitido por Administracion
+        Emitido por Administración
       </div>
       <div className="receipt-installments-corner">
         <strong>{payment.installmentsRemainingAfter}</strong>
@@ -831,9 +827,18 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
         </button>
       </div>
 
-      <div ref={cardRef} className={receiptFormat === "history" ? "receipt-card receipt-card--history" : "receipt-card"}>
-        <ReceiptCardContent payment={payment} format={receiptFormat} />
-      </div>
+      {receiptFormat === "history" ? (
+        <div ref={cardRef} className="receipt-export-frame">
+          <div className="receipt-card receipt-card--history receipt-card--image-export">
+            <ReceiptCardContent payment={payment} format={receiptFormat} />
+          </div>
+        </div>
+      ) : (
+        <div ref={cardRef} className="receipt-card">
+          <ReceiptCardContent payment={payment} format={receiptFormat} />
+        </div>
+      )}
     </div>
   );
 }
+

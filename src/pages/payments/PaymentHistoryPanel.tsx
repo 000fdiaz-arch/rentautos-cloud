@@ -393,8 +393,8 @@ async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
       paymentId: payment.id,
       tone: "success",
       message: wasAlreadySent
-        ? `${payment.receiptNumber} se copió nuevamente. El estado se mantiene en “Enviado”.`
-        : `${payment.receiptNumber} copiado. El estado cambió a “Enviado”.`
+        ? `${payment.receiptNumber} se copió nuevamente. El estado se mantiene en "Enviado".`
+        : `${payment.receiptNumber} copiado. El estado cambió a "Enviado".`
     });
   } catch {
     setHistoryCopyFeedback({
@@ -726,7 +726,7 @@ function handleRepairTodayPaymentDates(): void {
                       <th><button type="button" className="sort-button" onClick={() => handleSortHistory("applied")}>A renta <span className={`sort-icon ${historySortField === "applied" ? "active" : ""}`}>{renderHistorySortIcon("applied")}</span></button></th>
                       <th><button type="button" className="sort-button" onClick={() => handleSortHistory("savings")}>Ahorro <span className={`sort-icon ${historySortField === "savings" ? "active" : ""}`}>{renderHistorySortIcon("savings")}</span></button></th>
                       <th><button type="button" className="sort-button" onClick={() => handleSortHistory("installments")}>Cuotas <span className={`sort-icon ${historySortField === "installments" ? "active" : ""}`}>{renderHistorySortIcon("installments")}</span></button></th>
-                      <th><button type="button" className="sort-button" onClick={() => handleSortHistory("method")}>Metodo <span className={`sort-icon ${historySortField === "method" ? "active" : ""}`}>{renderHistorySortIcon("method")}</span></button></th>
+                      <th><button type="button" className="sort-button" onClick={() => handleSortHistory("method")}>Método <span className={`sort-icon ${historySortField === "method" ? "active" : ""}`}>{renderHistorySortIcon("method")}</span></button></th>
                       <th></th>
                     </tr>
                     <tr>
