@@ -55,9 +55,35 @@ export type ChargeRun = {
   anomalyClients: number;
   chargedTotal: number;
   createdAt: string;
+  status?: "pending" | "completed" | "reverted";
+  revertedAt?: string;
+  revertedReason?: string;
+  revertedBy?: string;
+  clientSnapshots?: CashCloseClientSnapshot[];
+  lateFeeEntryIds?: string[];
 };
 
 export type CloseReportStatus = "ok" | "warning";
+
+export type CashCloseClientSnapshot = {
+  clientId: string;
+  unitId: string;
+  name: string;
+  before: {
+    balance: number;
+    advanceBalance?: number;
+    lastChargeDate?: string;
+    firstSundayChargedAt?: string;
+    otherCharges?: Client["otherCharges"];
+  };
+  after: {
+    balance: number;
+    advanceBalance?: number;
+    lastChargeDate?: string;
+    firstSundayChargedAt?: string;
+    otherCharges?: Client["otherCharges"];
+  };
+};
 
 export type ChargeReportRow = {
   clientId: string;

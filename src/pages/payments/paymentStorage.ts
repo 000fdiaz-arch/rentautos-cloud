@@ -133,7 +133,7 @@ export function loadChargeRuns(): ChargeRun[] {
     const parsed = JSON.parse(raw) as unknown[];
     if (!Array.isArray(parsed)) return [];
     return parsed
-      .map((item) => {
+      .map((item): ChargeRun | null => {
         if (!item || typeof item !== "object") return null;
         const rec = item as Record<string, unknown>;
         if (
@@ -156,7 +156,15 @@ export function loadChargeRuns(): ChargeRun[] {
           chargedClients: rec.chargedClients,
           anomalyClients,
           chargedTotal: rec.chargedTotal,
-          createdAt: rec.createdAt
+          createdAt: rec.createdAt,
+          status: rec.status === "pending" || rec.status === "completed" || rec.status === "reverted" ? rec.status : undefined,
+          revertedAt: typeof rec.revertedAt === "string" ? rec.revertedAt : undefined,
+          revertedReason: typeof rec.revertedReason === "string" ? rec.revertedReason : undefined,
+          revertedBy: typeof rec.revertedBy === "string" ? rec.revertedBy : undefined,
+          clientSnapshots: Array.isArray(rec.clientSnapshots) ? rec.clientSnapshots as ChargeRun["clientSnapshots"] : undefined,
+          lateFeeEntryIds: Array.isArray(rec.lateFeeEntryIds)
+            ? rec.lateFeeEntryIds.filter((id): id is string => typeof id === "string")
+            : undefined
         } satisfies ChargeRun;
       })
       .filter((item): item is ChargeRun => item !== null);

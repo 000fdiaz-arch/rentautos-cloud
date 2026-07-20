@@ -134,6 +134,7 @@ export default function PaymentsPage({
     cashClosingAudit,
     chargeRuns,
     lastCloseReport,
+    isClosingCash,
     reopenTargetDate,
     setReopenTargetDate,
     reopenReason,
@@ -708,7 +709,9 @@ export default function PaymentsPage({
         setCashClosingActor={setCashClosingActor}
         cashClosingDate={cashClosingDate}
         setCashClosingDate={setCashClosingDate}
+        operationalDateKey={operationalDateKey}
         handleCloseCashForDate={handleCloseCashForDate}
+        isClosingCash={isClosingCash}
         cashClosingInfo={cashClosingInfo}
         cashClosingError={cashClosingError}
         lastCloseReport={lastCloseReport}
@@ -852,7 +855,7 @@ export default function PaymentsPage({
         reason={reopenReason}
         setReason={setReopenReason}
         onCancel={() => setReopenTargetDate(null)}
-        onConfirm={handleConfirmReopen}
+        onConfirm={() => void handleConfirmReopen()}
       />
 
       <DeletePaymentDialog

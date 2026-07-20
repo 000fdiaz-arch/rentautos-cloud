@@ -15,7 +15,9 @@ type Props = {
   setCashClosingActor: Dispatch<SetStateAction<string>>;
   cashClosingDate: string;
   setCashClosingDate: Dispatch<SetStateAction<string>>;
-  handleCloseCashForDate: () => void;
+  operationalDateKey: string;
+  handleCloseCashForDate: () => void | Promise<void>;
+  isClosingCash: boolean;
   cashClosingInfo: string;
   cashClosingError: string;
   lastCloseReport: ChargeCloseReport | null;
@@ -34,7 +36,9 @@ export default function CashClosingPanel({
   setCashClosingActor,
   cashClosingDate,
   setCashClosingDate,
+  operationalDateKey,
   handleCloseCashForDate,
+  isClosingCash,
   cashClosingInfo,
   cashClosingError,
   lastCloseReport,
@@ -88,22 +92,32 @@ export default function CashClosingPanel({
                   />
                 </div>
                 <div className="payment-field-group">
-                  <label className="payment-label">Fecha a cerrar</label>
+                  <label className="payment-label">Fecha pendiente a cerrar</label>
                   <input
                     type="date"
                     className="payment-input"
                     value={cashClosingDate}
                     onChange={(e) => setCashClosingDate(e.target.value)}
                   />
+                  {cashClosingDate !== operationalDateKey && (
+                    <p className="hint" style={{ marginTop: 6 }}>
+                      Hoy operativo: {operationalDateKey}. Hay dias pendientes antes de llegar a hoy.
+                    </p>
+                  )}
                 </div>
                 <div className="payment-field-group" style={{ display: "flex", alignItems: "flex-end" }}>
-                  <button type="button" className="button primary" onClick={handleCloseCashForDate}>
-                    Cerrar caja del dia
+                  <button
+                    type="button"
+                    className="button primary"
+                    onClick={() => void handleCloseCashForDate()}
+                    disabled={isClosingCash}
+                  >
+                    {isClosingCash ? "Cerrando..." : "Cerrar caja del dia"}
                   </button>
                 </div>
               </div>
               <p className="hint" style={{ marginTop: 8 }}>
-                Al cerrar caja, no se podran crear ni eliminar pagos con esa fecha.
+                Al cerrar caja, se bloqueara esa fecha y se aplicaran cargos automaticos del dia siguiente tras confirmacion.
               </p>
               {cashClosingInfo && <p className="hint recon-info">{cashClosingInfo}</p>}
               {cashClosingError && <p className="hint error-text">{cashClosingError}</p>}
@@ -174,7 +188,7 @@ export default function CashClosingPanel({
                           <td>{c.date}</td>
                           <td>{formatDate(new Date(c.closedAt))}</td>
                           <td className="actions-cell">
-                            <button type="button" className="button danger small" onClick={() => openReopenDialog(c.date)}>
+                            <button type="button" className="button danger small" onClick={() => openReopenDialog(c.date)} disabled={isClosingCash}>
                               Reabrir
                             </button>
                           </td>
