@@ -28,7 +28,8 @@ import type {
   ClientsViewTab,
   EditClientTab,
   ExportField,
-  ExportFieldKey
+  ExportFieldKey,
+  PlanFilterKey
 } from "./clients/clientTypes";
 import {
   buildClient,
@@ -88,6 +89,10 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
     displayedRows,
     generalGroupFilter,
     setGeneralGroupFilter,
+    planFilter,
+    setPlanFilter,
+    weeklyChargeDayFilter,
+    setWeeklyChargeDayFilter,
     unitSearchFilter,
     setUnitSearchFilter,
     clientNameSearchFilter,
@@ -534,6 +539,11 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
     setIsFormOpen(true);
   }
 
+  function handlePlanFilterChange(filter: PlanFilterKey): void {
+    setPlanFilter(filter);
+    if (filter !== "weekly") setWeeklyChargeDayFilter("ALL");
+  }
+
   function handleUnlinkClient(client: Client): void {
     setConfirmDialog({
       title: "Desvincular cliente",
@@ -591,7 +601,9 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
   function buildExportData(): { headers: string[]; body: (string | number)[][] } {
     const active = exportFields.filter((f) => f.enabled);
     const headers = active.map((f) => f.label);
-    const body = rows.filter((row) => row.client !== null).map((row) => active.map((f) => getExportCell(f.key, row)));
+    const body = displayedRows
+      .filter((row) => row.client !== null)
+      .map((row) => active.map((f) => getExportCell(f.key, row)));
     return { headers, body };
   }
 
@@ -666,7 +678,7 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
         exportFields={exportFields}
         isExporting={isExporting}
         exportError={exportError}
-        exportRowCount={rows.length}
+        exportRowCount={displayedRows.length}
         onToggleExport={() => setIsExportOpen((open) => !open)}
         onToggleExportField={(key) =>
           setExportFields((current) =>
@@ -676,12 +688,18 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
         onExportExcel={() => void handleExportExcel()}
         onExportPdf={() => void handleExportPDF()}
         groupFilter={generalGroupFilter}
+        planFilter={planFilter}
+        weeklyChargeDayFilter={weeklyChargeDayFilter}
         unitSearch={unitSearchFilter}
         clientSearch={clientNameSearchFilter}
         onGroupFilterChange={setGeneralGroupFilter}
+        onPlanFilterChange={handlePlanFilterChange}
+        onWeeklyChargeDayFilterChange={setWeeklyChargeDayFilter}
         onUnitSearchChange={setUnitSearchFilter}
         onClientSearchChange={setClientNameSearchFilter}
         onClearSearch={() => {
+          setPlanFilter("ALL");
+          setWeeklyChargeDayFilter("ALL");
           setUnitSearchFilter("");
           setClientNameSearchFilter("");
         }}

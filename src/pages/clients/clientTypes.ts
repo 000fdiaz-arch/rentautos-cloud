@@ -30,6 +30,10 @@ export type ClientForm = {
 
 export type GeneralGroupFilterKey = "ALL" | "T" | "A" | "B" | "C" | "D";
 
+export type PlanFilterKey = "ALL" | BillingFrequency;
+
+export type WeeklyChargeDayFilterKey = "ALL" | WeeklyChargeDay;
+
 export type EditClientTab = "identidad" | "plan" | "cargos" | "estado";
 
 export type ClientsViewTab = "current" | "legacy";

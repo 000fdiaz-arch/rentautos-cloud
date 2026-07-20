@@ -4,7 +4,9 @@ import type { Client } from "../../types";
 import { normalizePersonName } from "./clientRules";
 import type {
   ClientDirectoryRow,
-  GeneralGroupFilterKey
+  GeneralGroupFilterKey,
+  PlanFilterKey,
+  WeeklyChargeDayFilterKey
 } from "./clientTypes";
 
 export function useClientDirectoryRows(
@@ -84,6 +86,8 @@ export function useClientDirectoryFilters({
   rows
 }: FilterOptions) {
   const [generalGroupFilter, setGeneralGroupFilter] = useState<GeneralGroupFilterKey>("ALL");
+  const [planFilter, setPlanFilter] = useState<PlanFilterKey>("ALL");
+  const [weeklyChargeDayFilter, setWeeklyChargeDayFilter] = useState<WeeklyChargeDayFilterKey>("ALL");
   const [unitSearchFilter, setUnitSearchFilter] = useState("");
   const [clientNameSearchFilter, setClientNameSearchFilter] = useState("");
   const deferredUnitSearch = useDeferredValue(unitSearchFilter);
@@ -96,6 +100,12 @@ export function useClientDirectoryFilters({
     const unitQuery = normalizePersonName(deferredUnitSearch);
     const clientQuery = normalizePersonName(deferredClientSearch);
 
+    if (planFilter !== "ALL") {
+      filteredRows = filteredRows.filter((row) => row.client?.frequency === planFilter);
+    }
+    if (planFilter === "weekly" && weeklyChargeDayFilter !== "ALL") {
+      filteredRows = filteredRows.filter((row) => row.client?.weeklyChargeDay === weeklyChargeDayFilter);
+    }
     if (unitQuery) {
       filteredRows = filteredRows.filter((row) => normalizePersonName(row.unitId).includes(unitQuery));
     }
@@ -109,6 +119,8 @@ export function useClientDirectoryFilters({
     deferredClientSearch,
     deferredUnitSearch,
     generalGroupFilter,
+    planFilter,
+    weeklyChargeDayFilter,
     rows
   ]);
 
@@ -116,6 +128,10 @@ export function useClientDirectoryFilters({
     displayedRows,
     generalGroupFilter,
     setGeneralGroupFilter,
+    planFilter,
+    setPlanFilter,
+    weeklyChargeDayFilter,
+    setWeeklyChargeDayFilter,
     unitSearchFilter,
     setUnitSearchFilter,
     clientNameSearchFilter,

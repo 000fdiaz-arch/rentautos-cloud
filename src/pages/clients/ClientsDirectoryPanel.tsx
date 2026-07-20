@@ -2,14 +2,22 @@ import type { KeyboardEvent } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import type { Client } from "../../types";
 import type { FleetDetail } from "./ClientsDialogs";
-import { FREQUENCY_LABEL, STATUS_EDIT_OPTIONS, STATUS_LABEL } from "./clientConstants";
+import {
+  FREQUENCY_LABEL,
+  FREQUENCY_OPTIONS,
+  STATUS_EDIT_OPTIONS,
+  STATUS_LABEL,
+  WEEKLY_CHARGE_DAY_OPTIONS
+} from "./clientConstants";
 import { formatPaymentDateKey, operationalToneClass } from "./clientRules";
 import type {
   ClientDirectoryRow,
   ClientsViewTab,
   ExportField,
   ExportFieldKey,
-  GeneralGroupFilterKey
+  GeneralGroupFilterKey,
+  PlanFilterKey,
+  WeeklyChargeDayFilterKey
 } from "./clientTypes";
 import { toDateKey } from "../../billing";
 
@@ -29,9 +37,13 @@ type Props = {
   onExportExcel: () => void;
   onExportPdf: () => void;
   groupFilter: GeneralGroupFilterKey;
+  planFilter: PlanFilterKey;
+  weeklyChargeDayFilter: WeeklyChargeDayFilterKey;
   unitSearch: string;
   clientSearch: string;
   onGroupFilterChange: (filter: GeneralGroupFilterKey) => void;
+  onPlanFilterChange: (filter: PlanFilterKey) => void;
+  onWeeklyChargeDayFilterChange: (filter: WeeklyChargeDayFilterKey) => void;
   onUnitSearchChange: (value: string) => void;
   onClientSearchChange: (value: string) => void;
   onClearSearch: () => void;
@@ -67,9 +79,13 @@ export function ClientsDirectoryPanel({
   onExportExcel,
   onExportPdf,
   groupFilter,
+  planFilter,
+  weeklyChargeDayFilter,
   unitSearch,
   clientSearch,
   onGroupFilterChange,
+  onPlanFilterChange,
+  onWeeklyChargeDayFilterChange,
   onUnitSearchChange,
   onClientSearchChange,
   onClearSearch,
@@ -84,6 +100,8 @@ export function ClientsDirectoryPanel({
   onUnlinkClient,
   onCreateClientFromUnit
 }: Props) {
+  const visibleClientCount = rows.filter((row) => row.client !== null).length;
+
   return (
     <section className="panel">
       <div className="panel-head">
@@ -161,6 +179,28 @@ export function ClientsDirectoryPanel({
               <option value="C">Grupo C</option>
               <option value="D">Grupo D</option>
             </select>
+            <select
+              value={planFilter}
+              onChange={(event) => onPlanFilterChange(event.target.value as PlanFilterKey)}
+              title="Filtrar por tipo de plan"
+            >
+              <option value="ALL">Todos los planes</option>
+              {FREQUENCY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            {planFilter === "weekly" && (
+              <select
+                value={weeklyChargeDayFilter}
+                onChange={(event) => onWeeklyChargeDayFilterChange(event.target.value as WeeklyChargeDayFilterKey)}
+                title="Filtrar por dia semanal"
+              >
+                <option value="ALL">Todos los dias</option>
+                {WEEKLY_CHARGE_DAY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            )}
             <input
               type="search"
               value={unitSearch}
@@ -175,7 +215,10 @@ export function ClientsDirectoryPanel({
               placeholder="Buscar cliente"
               aria-label="Buscar por nombre del cliente"
             />
-            {(unitSearch || clientSearch) && (
+            <span className="clients-filter-count">
+              {visibleClientCount} cliente{visibleClientCount === 1 ? "" : "s"} visible{visibleClientCount === 1 ? "" : "s"}
+            </span>
+            {(planFilter !== "ALL" || weeklyChargeDayFilter !== "ALL" || unitSearch || clientSearch) && (
               <button type="button" className="clients-filter-clear" onClick={onClearSearch}>
                 Limpiar
               </button>

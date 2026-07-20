@@ -1,5 +1,5 @@
 import { getBusinessDateKey } from "../../billing";
-import type { BillingFrequency, Client } from "../../types";
+import type { BillingFrequency, Client, WeeklyChargeDay } from "../../types";
 import type { ClientForm, ExportField } from "./clientTypes";
 
 export const INITIAL_EXPORT_FIELDS: ExportField[] = [
@@ -23,6 +23,22 @@ export const FREQUENCY_LABEL: Record<BillingFrequency, string> = {
   biweekly: "Quincenal",
   monthly: "Mensual"
 };
+
+export const FREQUENCY_OPTIONS: { value: BillingFrequency; label: string }[] = [
+  { value: "daily", label: FREQUENCY_LABEL.daily },
+  { value: "weekly", label: FREQUENCY_LABEL.weekly },
+  { value: "biweekly", label: FREQUENCY_LABEL.biweekly },
+  { value: "monthly", label: FREQUENCY_LABEL.monthly }
+];
+
+export const WEEKLY_CHARGE_DAY_OPTIONS: { value: WeeklyChargeDay; label: string }[] = [
+  { value: "monday", label: "Lunes" },
+  { value: "tuesday", label: "Martes" },
+  { value: "wednesday", label: "Miercoles" },
+  { value: "thursday", label: "Jueves" },
+  { value: "friday", label: "Viernes" },
+  { value: "saturday", label: "Sabado" }
+];
 
 
 export const CASH_CLOSINGS_KEY = "cobrapp.module2.cash_closings.v1";

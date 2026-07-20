@@ -1664,6 +1664,13 @@ select.control-op-badge {
   cursor: pointer;
 }
 
+.clients-filter-count {
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .collection-header-daily {
   display: grid;
   gap: 2px;
@@ -6925,7 +6932,7 @@ select.control-op-badge {
 
 .clients-luxury-page .client-directory-filters {
   display: grid;
-  grid-template-columns: minmax(140px, 180px) minmax(180px, 260px) minmax(220px, 1fr) auto;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) auto;
   align-items: center;
   gap: 8px;
 }
