@@ -1,13 +1,15 @@
 import { useState, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
 
-const AUTH_DOMAIN = "auth.rentautos.local";
+const AUTH_DOMAIN = "auth.rentautos.app";
+const LEGACY_AUTH_DOMAIN = "auth.rentautos.local";
 
-function buildAuthEmailFromId(personId: string): string {
+function buildAuthEmailsFromId(personId: string): string[] {
   const raw = personId.trim().toLowerCase();
-  if (raw.includes("@")) return raw;
+  if (raw.includes("@")) return [raw];
   const normalized = raw.replace(/[^a-z0-9._-]/g, "");
-  return `${normalized}@${AUTH_DOMAIN}`;
+  if (!normalized) return [];
+  return [`${normalized}@${AUTH_DOMAIN}`, `${normalized}@${LEGACY_AUTH_DOMAIN}`];
 }
 
 export default function AuthPanel() {
@@ -30,19 +32,24 @@ export default function AuthPanel() {
       return;
     }
 
-    const emailForAuth = buildAuthEmailFromId(personId);
-    if (emailForAuth.startsWith(`@${AUTH_DOMAIN}`)) {
+    const authEmails = buildAuthEmailsFromId(personId);
+    if (authEmails.length === 0) {
       setError("El ID no es valido.");
       return;
     }
 
     setLoading(true);
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: emailForAuth,
-        password
-      });
-      if (signInError) throw signInError;
+      let lastError: unknown = null;
+      for (const emailForAuth of authEmails) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: emailForAuth,
+          password
+        });
+        if (!signInError) return;
+        lastError = signInError;
+      }
+      throw lastError;
     } catch (err) {
       const nextError = err as { message?: string };
       setError(nextError.message ?? "No se pudo completar la accion.");

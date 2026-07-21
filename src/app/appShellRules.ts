@@ -104,7 +104,7 @@ export function mergeById<T extends { id: string }>(baseRows: T[], incomingRows:
 export function repairDuplicateActiveUnits(sourceClients: Client[]) {
   const activeByUnit = new Map<string, Client[]>();
   for (const client of sourceClients) {
-    const unit = client.unitId.trim().toUpperCase();
+    const unit = typeof client.unitId === "string" ? client.unitId.trim().toUpperCase() : "";
     if (!unit || client.status === "archivado") continue;
     activeByUnit.set(unit, [...(activeByUnit.get(unit) ?? []), client]);
   }
@@ -126,7 +126,7 @@ export function repairDuplicateActiveUnits(sourceClients: Client[]) {
       unitId: "",
       status: "archivado" as const,
       archivedAt: client.archivedAt ?? now.toISOString(),
-      statusComment: `Archivado automaticamente por duplicado de unidad ${client.unitId.trim().toUpperCase()} el ${now.toLocaleDateString("es-PA")}`
+      statusComment: `Archivado automaticamente por duplicado de unidad ${typeof client.unitId === "string" ? client.unitId.trim().toUpperCase() : ""} el ${now.toLocaleDateString("es-PA")}`
     } : client),
     changed: true,
     archivedCount: archiveIds.size,

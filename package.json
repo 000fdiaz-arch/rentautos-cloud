@@ -14,6 +14,7 @@
     "migrate:dry-run": "node scripts/migrate-import.mjs --mode=dry-run",
     "migrate:apply": "node scripts/migrate-import.mjs --mode=apply",
     "migrate:reconcile": "node scripts/migrate-reconcile.mjs",
+    "test:rls": "node scripts/verify-rls-roles.mjs",
     "test:workflows": "node tests/run-workflows.cjs",
     "release:check": "node scripts/release-check.cjs",
     "release:build": "tsc -p tsconfig.app.json --noEmit && vite build"

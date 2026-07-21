@@ -90,6 +90,18 @@ Ejecutar en SQL Editor (orden recomendado):
 5. `supabase/05-payment-promises-cloud.sql`
 6. `supabase/06-collection-closures-cloud.sql`
 7. `supabase/07-shared-data-owner-rls.sql`
+8. `supabase/08-daily-cash-ledger.sql`
+9. `supabase/09-cash-day-counts.sql`
+10. `supabase/11-daily-collection-cloud.sql`
+11. `supabase/12-performance-optimization.sql`
+12. `supabase/13-payment-fast-paths.sql`
+13. `supabase/15-receipt-sequence-resync.sql`
+14. `supabase/16-lead-evaluations-cloud.sql`
+15. `supabase/17-fleet-units-cloud.sql`
+16. `supabase/18-secure-user-profiles-and-role-rls.sql`
+17. `supabase/19-reset-role-rls-policies.sql`
+18. `supabase/20-screen-permissions.sql`
+19. `supabase/21-user-admin-passwords.sql`
 
 Despues:
 - Crear usuario desde UI de login/registro.

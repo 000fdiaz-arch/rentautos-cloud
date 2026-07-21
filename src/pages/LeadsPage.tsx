@@ -30,6 +30,7 @@ type Props = {
   onEvaluationsChange: (next: LeadEvaluation[]) => Promise<void>;
   loading: boolean;
   cloudError: string;
+  readOnly?: boolean;
 };
 
 type LeadFlowMode = "idle" | "creating" | "viewing";
@@ -139,7 +140,7 @@ function buildFormFromEvaluation(evaluation: LeadEvaluation): LeadForm {
   };
 }
 
-export default function LeadsPage({ evaluations, onEvaluationsChange, loading, cloudError }: Props) {
+export default function LeadsPage({ evaluations, onEvaluationsChange, loading, cloudError, readOnly = false }: Props) {
   const [form, setForm] = useState<LeadForm>(initialForm);
   const [queryCedula, setQueryCedula] = useState("");
   const [flowMode, setFlowMode] = useState<LeadFlowMode>("idle");
@@ -169,6 +170,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
   }
 
   async function handleNoCasesChange(checked: boolean): Promise<void> {
+    if (readOnly) return;
     const nextForm = {
       ...form,
       noCases: checked,
@@ -193,6 +195,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
   }
 
   async function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    if (readOnly) return;
     const file = event.target.files?.[0];
     if (!file) return;
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -294,6 +297,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
   }
 
   async function saveEvaluation(targetForm: LeadForm, targetVerdict: LeadVerdict, successMessage?: string): Promise<void> {
+    if (readOnly) return;
     if (targetVerdict.age === null) return;
     const normalizedCedula = normalizeCedula(targetForm.cedula);
     const previous = evaluations.find((evaluation) => normalizeCedula(evaluation.cedula) === normalizedCedula);
@@ -384,7 +388,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
       <section className="panel lead-query-panel">
         <div className="panel-head">
           <h2>Consulta por cedula</h2>
-          <button type="button" className="button ghost small" onClick={handleNewEvaluation} disabled={saving || loading}>
+          <button type="button" className="button ghost small" onClick={handleNewEvaluation} disabled={readOnly || saving || loading}>
             Nuevo
           </button>
         </div>
@@ -426,15 +430,15 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
           <div className="form-grid lead-form-grid">
             <label>
               Cedula
-              <input value={form.cedula} onChange={(event) => setForm((current) => ({ ...current, cedula: event.target.value }))} disabled={saving || loading} />
+              <input value={form.cedula} onChange={(event) => setForm((current) => ({ ...current, cedula: event.target.value }))} disabled={readOnly || saving || loading} />
             </label>
             <label>
               Fecha de nacimiento
-              <input type="date" value={form.birthDate} onChange={(event) => setForm((current) => ({ ...current, birthDate: event.target.value }))} disabled={saving || loading} />
+              <input type="date" value={form.birthDate} onChange={(event) => setForm((current) => ({ ...current, birthDate: event.target.value }))} disabled={readOnly || saving || loading} />
             </label>
             <label>
               Foto de cedula o licencia
-              <input type="file" accept="image/*,.pdf" onChange={(event) => void handleAttachmentChange(event)} disabled={saving || loading} />
+              <input type="file" accept="image/*,.pdf" onChange={(event) => void handleAttachmentChange(event)} disabled={readOnly || saving || loading} />
             </label>
             <label>
               Reportes de colision/choque
@@ -443,7 +447,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
                 min="0"
                 step="1"
                 value={form.collisionReports}
-                disabled={form.noCases || saving || loading}
+                disabled={readOnly || form.noCases || saving || loading}
                 onChange={(event) => setForm((current) => ({ ...current, noCases: false, collisionReports: event.target.value }))}
               />
             </label>
@@ -454,7 +458,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
                 min="0"
                 step="1"
                 value={form.pendingDailyReports}
-                disabled={form.noCases || saving || loading}
+                disabled={readOnly || form.noCases || saving || loading}
                 onChange={(event) => setForm((current) => ({ ...current, noCases: false, pendingDailyReports: event.target.value }))}
               />
             </label>
@@ -464,27 +468,27 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
 
           <div className="lead-report-grid">
             <label className="lead-check lead-check--clean">
-              <input type="checkbox" checked={form.noCases} disabled={saving || loading} onChange={(event) => void handleNoCasesChange(event.target.checked)} />
+              <input type="checkbox" checked={form.noCases} disabled={readOnly || saving || loading} onChange={(event) => void handleNoCasesChange(event.target.checked)} />
               Sin casos
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasGpsTamperingReport} disabled={form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasGpsTamperingReport", event.target.checked)} />
+              <input type="checkbox" checked={form.hasGpsTamperingReport} disabled={readOnly || form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasGpsTamperingReport", event.target.checked)} />
               Quitar/manipular GPS
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasLegalCases} disabled={form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasLegalCases", event.target.checked)} />
+              <input type="checkbox" checked={form.hasLegalCases} disabled={readOnly || form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasLegalCases", event.target.checked)} />
               Casos legales
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasViolenceReports} disabled={form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasViolenceReports", event.target.checked)} />
+              <input type="checkbox" checked={form.hasViolenceReports} disabled={readOnly || form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasViolenceReports", event.target.checked)} />
               Reportes de violencia
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasDuiReports} disabled={form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasDuiReports", event.target.checked)} />
+              <input type="checkbox" checked={form.hasDuiReports} disabled={readOnly || form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasDuiReports", event.target.checked)} />
               Alcoholemia
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasPiracyReports} disabled={form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasPiracyReports", event.target.checked)} />
+              <input type="checkbox" checked={form.hasPiracyReports} disabled={readOnly || form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasPiracyReports", event.target.checked)} />
               Pirateria
             </label>
           </div>
@@ -497,7 +501,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
           {message && <p className="success-banner">{message}</p>}
 
           <div className="modal-actions">
-            <button type="submit" className="button primary" disabled={saving || loading || Boolean(cloudError)}>
+            <button type="submit" className="button primary" disabled={readOnly || saving || loading || Boolean(cloudError)}>
               {saving ? "Guardando..." : "Procesar y guardar dictamen"}
             </button>
           </div>
@@ -616,7 +620,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
                     <button
                       type="button"
                       className="button danger small"
-                      disabled={saving || loading}
+                      disabled={readOnly || saving || loading}
                       onClick={() => void handleDeleteEvaluation(evaluation.id)}
                     >
                       Borrar

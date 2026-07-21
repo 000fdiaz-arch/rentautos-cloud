@@ -1,112 +1,12 @@
-import { useEffect, useState } from "react";
-import type { Session } from "@supabase/supabase-js";
 import AppShell from "./AppShell";
+import { useAuthProfile } from "./auth/useAuthProfile";
 import AuthPanel from "./components/AuthPanel";
-import { isSupabaseConfigured, supabase } from "./lib/supabase";
+import ForcePasswordChangePanel from "./components/ForcePasswordChangePanel";
+import { isSupabaseConfigured } from "./lib/supabase";
 import "./styles.css";
 
 export default function App() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [appRole, setAppRole] = useState<"admin" | "operador" | "lectura">("lectura");
-  const [dataOwnerUserId, setDataOwnerUserId] = useState<string | null>(null);
-  const [loadingAuth, setLoadingAuth] = useState(true);
-  const [loadingProfile, setLoadingProfile] = useState(false);
-  const [authBootError, setAuthBootError] = useState<string>("");
-
-  useEffect(() => {
-    let mounted = true;
-
-    if (!isSupabaseConfigured || !supabase) {
-      setLoadingAuth(false);
-      return () => {
-        mounted = false;
-      };
-    }
-
-    supabase.auth
-      .getSession()
-      .then(({ data, error }) => {
-        if (!mounted) return;
-        if (error) {
-          setAuthBootError("No se pudo validar la sesion. Revisa tu conexion e intenta de nuevo.");
-          setLoadingAuth(false);
-          return;
-        }
-        setSession(data.session ?? null);
-        setLoadingAuth(false);
-      })
-      .catch(() => {
-        if (!mounted) return;
-        setAuthBootError("No se pudo validar la sesion. Revisa tu conexion e intenta de nuevo.");
-        setLoadingAuth(false);
-      });
-
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
-      setLoadingAuth(false);
-    });
-
-    return () => {
-      mounted = false;
-      subscription.subscription.unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    let profileLoadingGuardTimer: number | null = null;
-
-    async function loadRole() {
-      if (!session?.user.id || !supabase) {
-        setAppRole("lectura");
-        setDataOwnerUserId(null);
-        setLoadingProfile(false);
-        return;
-      }
-      setLoadingProfile(true);
-      // Evita bloquear la app cuando la consulta de perfil tarda por red/base.
-      profileLoadingGuardTimer = window.setTimeout(() => {
-        if (!cancelled) setLoadingProfile(false);
-      }, 2500);
-      try {
-        const { data, error } = await supabase
-          .from("user_profiles")
-          .select("role,data_owner_user_id")
-          .eq("id", session.user.id)
-          .maybeSingle();
-        if (error) throw error;
-        if (cancelled) return;
-        const role = data?.role;
-        const ownerId = typeof data?.data_owner_user_id === "string" && data.data_owner_user_id.length > 0
-          ? data.data_owner_user_id
-          : null;
-        setDataOwnerUserId(ownerId);
-        if (role === "admin" || role === "operador" || role === "lectura") {
-          setAppRole(role);
-          return;
-        }
-        setAppRole("lectura");
-      } catch {
-        if (!cancelled) setAppRole("lectura");
-      } finally {
-        if (profileLoadingGuardTimer !== null) {
-          window.clearTimeout(profileLoadingGuardTimer);
-          profileLoadingGuardTimer = null;
-        }
-        if (!cancelled) setLoadingProfile(false);
-      }
-    }
-
-    void loadRole();
-
-    return () => {
-      cancelled = true;
-      if (profileLoadingGuardTimer !== null) {
-        window.clearTimeout(profileLoadingGuardTimer);
-        profileLoadingGuardTimer = null;
-      }
-    };
-  }, [session?.user.id]);
+  const authProfile = useAuthProfile();
 
   if (!isSupabaseConfigured) {
     return (
@@ -119,7 +19,7 @@ export default function App() {
     );
   }
 
-  if (loadingAuth) {
+  if (authProfile.loadingAuth) {
     return (
       <main className="auth-page">
         <section className="auth-card">
@@ -130,20 +30,20 @@ export default function App() {
     );
   }
 
-  if (authBootError) {
+  if (authProfile.authBootError) {
     return (
       <main className="auth-page">
         <section className="auth-card">
           <h1>Rentautos</h1>
-          <p>{authBootError}</p>
+          <p>{authProfile.authBootError}</p>
         </section>
       </main>
     );
   }
 
-  if (!session) return <AuthPanel />;
+  if (!authProfile.session) return <AuthPanel />;
 
-  if (loadingProfile) {
+  if (authProfile.loadingProfile) {
     return (
       <main className="auth-page">
         <section className="auth-card">
@@ -154,16 +54,22 @@ export default function App() {
     );
   }
 
+  if (authProfile.mustChangePassword) {
+    return <ForcePasswordChangePanel onChanged={() => window.location.reload()} />;
+  }
+
   return (
     <AppShell
-      userId={session.user.id}
-      userEmail={session.user.email}
-      appRole={appRole}
-      dataOwnerUserId={dataOwnerUserId}
-      onSignOut={async () => {
-        if (!supabase) return;
-        await supabase.auth.signOut();
-      }}
+      userId={authProfile.userId}
+      userEmail={authProfile.userEmail}
+      dataOwnerUserId={authProfile.dataOwnerUserId}
+      effectiveOwnerUserId={authProfile.effectiveOwnerUserId}
+      permissions={authProfile.permissions}
+      canWriteOperationalData={authProfile.canWriteOperationalData}
+      canManageSettings={authProfile.canManageSettings}
+      canManageUsers={authProfile.canManageUsers}
+      isReadOnlyExperience={authProfile.isReadOnlyExperience}
+      onSignOut={authProfile.signOut}
     />
   );
 }

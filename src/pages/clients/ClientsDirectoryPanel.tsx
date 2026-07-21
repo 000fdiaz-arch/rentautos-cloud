@@ -57,6 +57,7 @@ type Props = {
   onEditClient: (client: Client) => void;
   onUnlinkClient: (client: Client) => void;
   onCreateClientFromUnit: (unitId: string) => void;
+  readOnly?: boolean;
 };
 
 function blurOnEnter(event: KeyboardEvent<HTMLInputElement>): void {
@@ -98,7 +99,8 @@ export function ClientsDirectoryPanel({
   onShowClient,
   onEditClient,
   onUnlinkClient,
-  onCreateClientFromUnit
+  onCreateClientFromUnit,
+  readOnly = false
 }: Props) {
   const visibleClientCount = rows.filter((row) => row.client !== null).length;
 
@@ -113,9 +115,11 @@ export function ClientsDirectoryPanel({
           <button type="button" className="button ghost" onClick={onToggleExport}>
             {isExportOpen ? "Cerrar exportacion" : "Exportar"}
           </button>
-          <button type="button" className="button primary" onClick={onOpenNewClient}>
-            Agregar cliente
-          </button>
+          {!readOnly && (
+            <button type="button" className="button primary" onClick={onOpenNewClient}>
+              Agregar cliente
+            </button>
+          )}
         </div>
       </div>
 
@@ -312,6 +316,7 @@ export function ClientsDirectoryPanel({
                                 min="0"
                                 step="0.01"
                                 defaultValue={client.balance}
+                                readOnly={readOnly}
                                 onBlur={(event) => onBalanceChange(client, event.currentTarget.value)}
                                 onKeyDown={blurOnEnter}
                               />
@@ -328,6 +333,7 @@ export function ClientsDirectoryPanel({
                                   min="0"
                                   step="1"
                                   defaultValue={client.installmentsPaid}
+                                  readOnly={readOnly}
                                   onBlur={(event) => onInstallmentsChange(client, "paid", event.currentTarget.value)}
                                   onKeyDown={blurOnEnter}
                                 />
@@ -339,6 +345,7 @@ export function ClientsDirectoryPanel({
                                   min="0"
                                   step="1"
                                   defaultValue={client.installmentsAgreed}
+                                  readOnly={readOnly}
                                   onBlur={(event) => onInstallmentsChange(client, "agreed", event.currentTarget.value)}
                                   onKeyDown={blurOnEnter}
                                 />
@@ -357,6 +364,7 @@ export function ClientsDirectoryPanel({
                                   defaultValue={firstOtherCharge?.label ?? ""}
                                   placeholder="Ej. Mant."
                                   data-client-charge-label={client.id}
+                                  readOnly={readOnly}
                                   onBlur={(event) => {
                                     const amountInput = event.currentTarget
                                       .closest(".client-inline-edit")
@@ -374,6 +382,7 @@ export function ClientsDirectoryPanel({
                                   step="0.01"
                                   defaultValue={otherChargesTotal}
                                   data-client-charge-amount={client.id}
+                                  readOnly={readOnly}
                                   onBlur={(event) => {
                                     const labelInput = event.currentTarget
                                       .closest(".client-inline-edit")
@@ -392,6 +401,7 @@ export function ClientsDirectoryPanel({
                               className={operationalToneClass(client.status)}
                               value={client.status}
                               onChange={(event) => onStatusChange(client, event.target.value as Client["status"])}
+                              disabled={readOnly}
                               title={client.statusComment ? `Motivo: ${client.statusComment}` : undefined}
                             >
                               {STATUS_EDIT_OPTIONS.map((status) => (
@@ -418,26 +428,32 @@ export function ClientsDirectoryPanel({
                                 <button type="button" className="button ghost small" onClick={() => onShowClient(client.id)}>
                                   Ver cliente
                                 </button>
-                                <button type="button" className="button ghost small" onClick={() => onEditClient(client)}>
-                                  Editar
-                                </button>
-                                <button
-                                  type="button"
-                                  className="button ghost small"
-                                  onClick={() => onUnlinkClient(client)}
-                                  title="Desvincular cliente de esta unidad"
-                                >
-                                  Desvincular
-                                </button>
+                                {!readOnly && (
+                                  <>
+                                    <button type="button" className="button ghost small" onClick={() => onEditClient(client)}>
+                                      Editar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="button ghost small"
+                                      onClick={() => onUnlinkClient(client)}
+                                      title="Desvincular cliente de esta unidad"
+                                    >
+                                      Desvincular
+                                    </button>
+                                  </>
+                                )}
                               </>
                             ) : (
-                              <button
-                                type="button"
-                                className="button primary small"
-                                onClick={() => onCreateClientFromUnit(unitId)}
-                              >
-                                Crear Cliente
-                              </button>
+                              !readOnly && (
+                                <button
+                                  type="button"
+                                  className="button primary small"
+                                  onClick={() => onCreateClientFromUnit(unitId)}
+                                >
+                                  Crear Cliente
+                                </button>
+                              )
                             )}
                           </div>
                         </td>
@@ -489,9 +505,11 @@ export function ClientsDirectoryPanel({
                           <button type="button" className="button ghost small" onClick={() => onShowClient(client.id)}>
                             Ver cliente
                           </button>
-                          <button type="button" className="button ghost small" onClick={() => onEditClient(client)}>
-                            Editar
-                          </button>
+                          {!readOnly && (
+                            <button type="button" className="button ghost small" onClick={() => onEditClient(client)}>
+                              Editar
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

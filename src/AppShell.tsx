@@ -27,17 +27,24 @@ import {
 import {
   deleteCloudLeadEvaluation,
   deleteCloudPayment,
+  loadCloudBankRules,
   loadCloudClients,
   loadCloudLeadEvaluations,
+  loadCloudLateFeeSettings,
+  loadCloudOtherChargesRetention,
   loadCloudPayments,
   loadControlUnits,
+  saveCloudBankRules,
   saveCloudLeadEvaluation,
+  saveCloudLateFeeSettings,
+  saveCloudOtherChargesRetention,
   syncCloudClientsDelta
 } from "./cloudData";
 import { flushCloudMirror } from "./cloudMirror";
 import { isSupabaseOnlyMode } from "./persistenceMode";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
 import type { BackupExtraData } from "./autobackup";
+import { canEditScreen, canViewScreen, type AppPermissions } from "./auth/permissions";
 import type { BankRule, Client, LateFeeSettings, LeadEvaluation, OtherChargesRetentionByClient, Payment } from "./types";
 import { parseLocalJson } from "./app/appShellRules";
 import AppNavigation, { type AppPage } from "./app/AppNavigation";
@@ -48,20 +55,64 @@ import "./styles.css";
 type AppShellProps = {
   userId?: string;
   userEmail?: string;
-  appRole?: "admin" | "operador" | "lectura";
   dataOwnerUserId?: string | null;
+  effectiveOwnerUserId?: string;
+  permissions: AppPermissions;
+  canWriteOperationalData?: boolean;
+  canManageSettings?: boolean;
+  canManageUsers?: boolean;
+  isReadOnlyExperience?: boolean;
   onSignOut?: () => void;
 };
 
-export default function AppShell({ userId, userEmail, appRole = "lectura", dataOwnerUserId, onSignOut }: AppShellProps) {
-  const isReadOnlyReceivables = appRole === "lectura";
-  // TODO multiusuario: crear/probar un usuario "lectura" real antes de produccion.
-  // Debe poder consultar el dataset asignado sin guardar cambios en ningun modulo.
-  const canWriteOperationalData = appRole === "admin" || appRole === "operador";
-  const canManageSettings = appRole === "admin";
+function getFirstVisiblePage(visibility: {
+  canViewLeads: boolean;
+  canViewClients: boolean;
+  canViewPayments: boolean;
+  canViewControlUnits: boolean;
+  canViewSettingsPage: boolean;
+}): AppPage {
+  if (visibility.canViewClients) return "clients";
+  if (visibility.canViewPayments) return "payments";
+  if (visibility.canViewLeads) return "leads";
+  if (visibility.canViewControlUnits) return "control_units";
+  if (visibility.canViewSettingsPage) return "settings";
+  return "control_units";
+}
+
+export default function AppShell({
+  userId,
+  userEmail,
+  dataOwnerUserId,
+  effectiveOwnerUserId,
+  permissions,
+  canWriteOperationalData = false,
+  canManageSettings = false,
+  canManageUsers = false,
+  isReadOnlyExperience = true,
+  onSignOut
+}: AppShellProps) {
+  const canViewLeads = canViewScreen(permissions, "leads");
+  const canEditLeads = canEditScreen(permissions, "leads");
+  const canViewClients = canViewScreen(permissions, "clients");
+  const canEditClients = canEditScreen(permissions, "clients");
+  const canViewPayments = canViewScreen(permissions, "payments");
+  const canEditPayments = canEditScreen(permissions, "payments");
+  const canViewControlUnits = canViewScreen(permissions, "control_units");
+  const canEditControlUnits = canEditScreen(permissions, "control_units");
+  const canViewSettings = canViewScreen(permissions, "settings");
+  const canEditSettings = canEditScreen(permissions, "settings") && canManageSettings;
+  const canViewSettingsPage = canViewSettings || canManageUsers;
+  const isReadOnlyReceivables = isReadOnlyExperience || (!canEditClients && !canEditPayments && !canEditLeads && !canEditControlUnits);
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
-  const cloudDataUserId = dataOwnerUserId ?? userId;
-  const [page, setPage] = useState<AppPage>(isReadOnlyReceivables ? "control_units" : "clients");
+  const cloudDataUserId = effectiveOwnerUserId ?? dataOwnerUserId ?? userId;
+  const [page, setPage] = useState<AppPage>(() => getFirstVisiblePage({
+    canViewLeads,
+    canViewClients,
+    canViewPayments,
+    canViewControlUnits,
+    canViewSettingsPage
+  }));
   const [clients, setClients] = useState<Client[]>(() => (isSupabaseOnlyMode ? [] : loadClients()));
   const [payments, setPayments] = useState<Payment[]>(() => (isSupabaseOnlyMode ? [] : loadPayments()));
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
@@ -101,11 +152,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     setPayments,
     fullPaymentHistoryLoaded,
     setFullPaymentHistoryLoaded,
-    onSettingsReload: () => {
-      setBankRules(loadBankRules());
-      setLateFeeSettings(loadLateFeeSettings());
-      setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
-    }
+    onSettingsReload: reloadSettingsFromLocalCache
   });
 
   const {
@@ -123,18 +170,28 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   } = useBackupManager({ clients, payments, buildExtraData: buildBackupExtraData, buildBackupData });
 
   useEffect(() => {
-    if (isReadOnlyReceivables && page !== "control_units") {
-      setPage("control_units");
+    const visible = {
+      leads: canViewLeads,
+      clients: canViewClients,
+      payments: canViewPayments,
+      control_units: canViewControlUnits,
+      settings: canViewSettingsPage
+    } satisfies Record<AppPage, boolean>;
+    if (!visible[page]) {
+      setPage(getFirstVisiblePage({
+        canViewLeads,
+        canViewClients,
+        canViewPayments,
+        canViewControlUnits,
+        canViewSettingsPage
+      }));
       return;
     }
-    if (!canManageSettings && page === "settings") {
-      setPage(isReadOnlyReceivables ? "control_units" : "clients");
-    }
-  }, [canManageSettings, isReadOnlyReceivables, page]);
+  }, [canViewClients, canViewControlUnits, canViewLeads, canViewPayments, canViewSettingsPage, page]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!canWriteOperationalData || !cloudDataUserId) {
+    if (!canViewLeads || !cloudDataUserId) {
       setLeadEvaluations([]);
       setLeadsLoading(false);
       setLeadsCloudError("");
@@ -159,7 +216,26 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     return () => {
       cancelled = true;
     };
-  }, [canWriteOperationalData, cloudDataUserId]);
+  }, [canViewLeads, cloudDataUserId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!cloudDataUserId || !cloudReady) return () => {
+      cancelled = true;
+    };
+
+    void reloadSettingsFromCloud(cloudDataUserId).catch((error) => {
+      console.error("No se pudieron cargar settings explicitos desde Supabase.", error);
+      if (!cancelled) {
+        setSyncStatus("error");
+        setSyncErrorMessage(`No se pudieron cargar configuraciones cloud. ${describeCloudError(error)}`);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudDataUserId, cloudReady]);
 
   function handleStartCashClientPayment(payload: {
     dateApplied: string;
@@ -215,7 +291,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   }
 
   async function persistClients(next: Client[]): Promise<void> {
-    if (!canWriteOperationalData) return;
+    if (!canEditClients && !canEditPayments && !canEditSettings) return;
     if (userId && !cloudReady) return;
     const previousClients = clients;
     const previousPayments = payments;
@@ -233,7 +309,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   }
 
   async function persistPayments(next: Payment[]): Promise<void> {
-    if (!canWriteOperationalData) return;
+    if (!canEditPayments) return;
     if (userId && !cloudReady) return;
     const previousClients = clients;
     const previousPayments = payments;
@@ -247,7 +323,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
 
 
   async function persistClientsAndPayments(nextClients: Client[], nextPayments: Payment[]): Promise<boolean> {
-    if (!canWriteOperationalData) return false;
+    if (!canEditPayments) return false;
     const previousClients = clients;
     const previousPayments = payments;
     if (cloudDataUserId && isSupabaseOnlyMode) {
@@ -278,7 +354,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   }
 
   async function persistDeletedPayment(nextClients: Client[], nextPayments: Payment[], deletedPaymentId: string): Promise<boolean> {
-    if (!canWriteOperationalData) return false;
+    if (!canEditPayments) return false;
     if (userId && !cloudReady) return false;
     const previousClients = clients;
     const previousPayments = payments;
@@ -316,29 +392,73 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     return true;
   }
 
+  function reloadSettingsFromLocalCache(): void {
+    setBankRules(loadBankRules());
+    setLateFeeSettings(loadLateFeeSettings());
+    setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
+  }
+
+  async function reloadSettingsFromCloud(ownerUserId: string): Promise<void> {
+    const [cloudBankRules, cloudLateFeeSettings, cloudOtherChargesRetention] = await Promise.all([
+      loadCloudBankRules(ownerUserId),
+      loadCloudLateFeeSettings(ownerUserId),
+      loadCloudOtherChargesRetention(ownerUserId)
+    ]);
+
+    setBankRules(cloudBankRules);
+    saveBankRules(cloudBankRules);
+
+    if (cloudLateFeeSettings) {
+      saveLateFeeSettings(cloudLateFeeSettings);
+      setLateFeeSettings(loadLateFeeSettings());
+    }
+
+    if (cloudOtherChargesRetention) {
+      saveOtherChargesRetentionByClient(cloudOtherChargesRetention);
+      setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
+    }
+  }
+
+  function handleSettingsCloudError(error: unknown): void {
+    console.error("No se pudo guardar configuracion en Supabase.", error);
+    setSyncStatus("error");
+    setSyncErrorMessage(`No se pudo guardar configuracion en nube. ${describeCloudError(error)}`);
+  }
+
   function persistBankRules(next: BankRule[]): void {
-    if (!canManageSettings) return;
+    if (!canEditSettings) return;
     setBankRules(next);
     saveBankRules(next);
+    if (cloudDataUserId) {
+      void saveCloudBankRules(cloudDataUserId, next).catch(handleSettingsCloudError);
+    }
     setHasPendingChanges(true);
   }
 
   function persistLateFeeSettings(next: LateFeeSettings): void {
-    if (!canManageSettings) return;
-    setLateFeeSettings(next);
+    if (!canEditSettings) return;
     saveLateFeeSettings(next);
+    const normalized = loadLateFeeSettings();
+    setLateFeeSettings(normalized);
+    if (cloudDataUserId) {
+      void saveCloudLateFeeSettings(cloudDataUserId, normalized).catch(handleSettingsCloudError);
+    }
     setHasPendingChanges(true);
   }
 
   function persistOtherChargesRetentionByClient(next: OtherChargesRetentionByClient): void {
-    if (!canManageSettings) return;
-    setOtherChargesRetentionByClient(next);
+    if (!canEditSettings) return;
     saveOtherChargesRetentionByClient(next);
+    const normalized = loadOtherChargesRetentionByClient();
+    setOtherChargesRetentionByClient(normalized);
+    if (cloudDataUserId) {
+      void saveCloudOtherChargesRetention(cloudDataUserId, normalized).catch(handleSettingsCloudError);
+    }
     setHasPendingChanges(true);
   }
 
   async function persistLeadEvaluations(next: LeadEvaluation[]): Promise<void> {
-    if (!canWriteOperationalData) return;
+    if (!canEditLeads) return;
     if (!cloudDataUserId) {
       setLeadsCloudError("No hay dataset cloud configurado para guardar Leads.");
       return;
@@ -388,7 +508,7 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
   }
 
   async function applyBackupImport(report: BackupImportReport): Promise<{ ok: boolean; message: string }> {
-    if (!canManageSettings) {
+    if (!canEditSettings) {
       return { ok: false, message: "Solo admin puede importar respaldos." };
     }
     if (!report.compatible) {
@@ -473,8 +593,11 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
     <>
       <AppNavigation
         page={page}
-        canWriteOperationalData={canWriteOperationalData}
-        canManageSettings={canManageSettings}
+        canViewLeads={canViewLeads}
+        canViewClients={canViewClients}
+        canViewPayments={canViewPayments}
+        canViewControlUnits={canViewControlUnits}
+        canViewSettings={canViewSettingsPage}
         syncStatus={syncStatus}
         syncErrorMessage={syncErrorMessage}
         lastSyncAt={lastSyncAt}
@@ -484,22 +607,24 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
         onSignOut={() => void handleSignOutWithBackup()}
       />
       <main className="page">
-        {page === "clients" && canWriteOperationalData && (
+        {page === "clients" && canViewClients && (
           <ClientsPage
             clients={clients}
             onClientsChange={persistClients}
             dataOwnerUserId={cloudDataUserId}
+            readOnly={!canEditClients}
           />
         )}
-        {page === "leads" && canWriteOperationalData && (
+        {page === "leads" && canViewLeads && (
           <LeadsPage
             evaluations={leadEvaluations}
             onEvaluationsChange={persistLeadEvaluations}
             loading={leadsLoading}
             cloudError={leadsCloudError}
+            readOnly={!canEditLeads}
           />
         )}
-        {page === "payments" && canWriteOperationalData && (
+        {page === "payments" && canViewPayments && (
           <PaymentsPage
             clients={clients}
             bankRules={bankRules}
@@ -516,17 +641,22 @@ export default function AppShell({ userId, userEmail, appRole = "lectura", dataO
             onCashClose={() => void runBackup("cash_closing", true)}
             quickCashPrefill={cashPaymentPrefill}
             onQuickCashPrefillConsumed={() => setCashPaymentPrefill(null)}
+            readOnly={!canEditPayments}
           />
         )}
-        {page === "control_units" && (
+        {page === "control_units" && canViewControlUnits && (
           <ControlUnitsPage
             dataOwnerUserId={cloudDataUserId}
-            readOnly={isReadOnlyReceivables}
+            readOnly={!canEditControlUnits}
             clients={clients}
           />
         )}
-        {page === "settings" && canManageSettings && (
+        {page === "settings" && canViewSettingsPage && (
           <SettingsPage
+            currentUserId={userId}
+            canViewSettings={canViewSettings}
+            canEditSettings={canEditSettings}
+            canManageUsers={canManageUsers}
             bankRules={bankRules}
             clients={clients}
             lateFeeSettings={lateFeeSettings}

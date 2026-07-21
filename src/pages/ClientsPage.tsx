@@ -43,15 +43,16 @@ type Props = {
   clients: Client[];
   onClientsChange: (next: Client[]) => void | Promise<void>;
   dataOwnerUserId?: string | null;
+  readOnly?: boolean;
 };
 
-export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId }: Props) {
+export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId, readOnly = false }: Props) {
   const [now, setNow] = useState<Date>(() => new Date());
   const [form, setForm] = useState<ClientForm>(initialForm);
   const [errors, setErrors] = useState<string[]>([]);
   const [errorFields, setErrorFields] = useState<Set<string>>(new Set());
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
-  const [isFormOpen, setIsFormOpen] = useState<boolean>(clients.length === 0);
+  const [isFormOpen, setIsFormOpen] = useState<boolean>(!readOnly && clients.length === 0);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [exportFields, setExportFields] = useState<ExportField[]>(INITIAL_EXPORT_FIELDS);
   const [isExporting, setIsExporting] = useState(false);
@@ -99,6 +100,7 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
     setClientNameSearchFilter
   } = useClientDirectoryFilters({ rows });
   async function persist(next: Client[]): Promise<void> {
+    if (readOnly) return;
     await onClientsChange(next);
   }
 
@@ -107,6 +109,7 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
   }
 
   function updateClientInline(clientId: string, updater: (client: Client) => Client): void {
+    if (readOnly) return;
     const nextClients = clients.map((client) => client.id === clientId ? updater(client) : client);
     setErrors([]);
     void persist(nextClients).catch((error) => {
@@ -116,6 +119,7 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
   }
 
   function handleInlineBalanceChange(client: Client, rawValue: string): void {
+    if (readOnly) return;
     const value = Number(rawValue);
     if (!Number.isFinite(value) || value < 0) return;
     updateClientInline(client.id, (current) => ({
@@ -125,6 +129,7 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
   }
 
   function handleInlineInstallmentsChange(client: Client, field: "paid" | "agreed", rawValue: string): void {
+    if (readOnly) return;
     const value = Number(rawValue);
     if (!Number.isInteger(value) || value < 0) return;
     updateClientInline(client.id, (current) => {
@@ -140,6 +145,7 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
   }
 
   function handleInlineOtherChargesChange(client: Client, rawLabel: string, rawValue: string): void {
+    if (readOnly) return;
     const label = rawLabel.trim();
     const value = Number(rawValue);
     if (!Number.isFinite(value) || value < 0) return;
@@ -716,6 +722,7 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId 
         }}
         onUnlinkClient={handleUnlinkClient}
         onCreateClientFromUnit={handleCreateClientFromUnit}
+        readOnly={readOnly}
       />
 
     </div>

@@ -40,7 +40,8 @@ type Props = {
   getGroupCode: (unitId: string) => string;
   focusRequest: HistoryFocusRequest | null;
   onPreviewPayment: (payment: Payment) => void;
-  onDeletePayment: (payment: Payment) => void;
+  onDeletePayment?: (payment: Payment) => void;
+  readOnly?: boolean;
 };
 
 function getTodayDateKey(): string {
@@ -66,7 +67,8 @@ export default function PaymentHistoryPanel({
   getGroupCode,
   focusRequest,
   onPreviewPayment,
-  onDeletePayment
+  onDeletePayment,
+  readOnly = false
 }: Props) {
   const [historyClientId, setHistoryClientId] = useState<string>("all");
   const [historyGroupFilter, setHistoryGroupFilter] = useState<string>("all");
@@ -380,7 +382,7 @@ async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
       next.add(payment.id);
       return next;
     });
-    if (payment.receiptDeliveryStatus === "pending") {
+    if (!readOnly && payment.receiptDeliveryStatus === "pending") {
       onPaymentsChange(
         payments.map((row) =>
           row.id === payment.id
@@ -454,6 +456,7 @@ async function handleDownloadFilteredHistory(): Promise<void> {
 }
 
 function handleRepairTodayPaymentDates(): void {
+  if (readOnly) return;
   if (misdatedTodayPayments.length === 0) {
     setDateRepairFeedback({
       tone: "error",
@@ -606,7 +609,7 @@ function handleRepairTodayPaymentDates(): void {
                 {historyRefreshFeedback.message}
               </div>
             )}
-            {misdatedTodayPayments.length > 0 && (
+            {!readOnly && misdatedTodayPayments.length > 0 && (
               <div className="history-copy-feedback history-copy-feedback--error" role="alert">
                 <strong>Recibos con fecha de ayer detectados:</strong>{" "}
                 {misdatedTodayPayments.length} recibo(s) desde REC-{MISDATED_RECEIPT_REPAIR_START} aparecen en {previousBusinessDateKey}.
@@ -797,13 +800,15 @@ function handleRepairTodayPaymentDates(): void {
                         <td>{getInstallmentsTotalInPayment(p) > 0 ? `-${getInstallmentsTotalInPayment(p)}` : <span className="amount-muted">-</span>}</td>
                         <td>{p.paymentMethod}</td>
                         <td>
-                          <button
-                            type="button"
-                            className="action-btn action-btn--delete"
-                            title={isDateClosed(p.dateApplied) ? "Caja cerrada: no se puede eliminar" : "Eliminar pago"}
-                            disabled={isDateClosed(p.dateApplied)}
-                            onClick={() => onDeletePayment(p)}
-                          >X</button>
+                          {!readOnly && onDeletePayment && (
+                            <button
+                              type="button"
+                              className="action-btn action-btn--delete"
+                              title={isDateClosed(p.dateApplied) ? "Caja cerrada: no se puede eliminar" : "Eliminar pago"}
+                              disabled={isDateClosed(p.dateApplied)}
+                              onClick={() => onDeletePayment(p)}
+                            >X</button>
+                          )}
                         </td>
                       </tr>
                       );

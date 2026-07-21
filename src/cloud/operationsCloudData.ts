@@ -1,4 +1,4 @@
-import type { LeadEvaluation, PaymentPromise } from "../types";
+import type { BankRule, LateFeeSettings, LeadEvaluation, OtherChargesRetentionByClient, PaymentPromise } from "../types";
 import { dedupeLoad, getCloudClient, PAGE_SIZE, type DataRow, type SingletonDataRow } from "./cloudClient";
 import type {
   CashClosing,
@@ -74,6 +74,61 @@ export async function saveCloudPaymentPromises(userId: string, promises: Payment
 
     if (error) throw error;
   }
+}
+
+export async function loadCloudBankRules(userId: string): Promise<BankRule[]> {
+  return loadCloudArrayRows<BankRule>(userId, "bank_rules_cloud");
+}
+
+export async function saveCloudBankRules(userId: string, rows: BankRule[]): Promise<void> {
+  await replaceCloudArrayRows(userId, "bank_rules_cloud", rows, (row, index) => row.id || `row-${index + 1}`);
+}
+
+export async function loadCloudLateFeeSettings(userId: string): Promise<LateFeeSettings | null> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("late_fee_settings_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  const payload = (data as SingletonDataRow | null)?.data;
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as LateFeeSettings
+    : null;
+}
+
+export async function saveCloudLateFeeSettings(userId: string, settings: LateFeeSettings): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("late_fee_settings_cloud")
+    .upsert({ user_id: userId, data: settings }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export async function loadCloudOtherChargesRetention(userId: string): Promise<OtherChargesRetentionByClient | null> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("other_charges_retention_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  const payload = (data as SingletonDataRow | null)?.data;
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as OtherChargesRetentionByClient
+    : null;
+}
+
+export async function saveCloudOtherChargesRetention(
+  userId: string,
+  settings: OtherChargesRetentionByClient
+): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("other_charges_retention_cloud")
+    .upsert({ user_id: userId, data: settings }, { onConflict: "user_id" });
+  if (error) throw error;
 }
 
 async function loadCloudArrayRows<T>(userId: string, table: string): Promise<T[]> {

@@ -90,6 +90,7 @@ type Props = {
     token: number;
   } | null;
   onQuickCashPrefillConsumed?: () => void;
+  readOnly?: boolean;
 };
 
 export default function PaymentsPage({
@@ -107,7 +108,8 @@ export default function PaymentsPage({
   onRefreshPayments,
   onCashClose,
   quickCashPrefill,
-  onQuickCashPrefillConsumed
+  onQuickCashPrefillConsumed,
+  readOnly = false
 }: Props) {
   const [form, setForm] = useState<PaymentForm>({
     clientId: "",
@@ -187,6 +189,7 @@ export default function PaymentsPage({
   } = usePaymentsNavigation();
 
   function replacePendingBankItems(items: PendingBankItem[]): void {
+    if (readOnly) return;
     setPendingBankItems(items);
     savePendingBankItems(items);
   }
@@ -234,7 +237,17 @@ export default function PaymentsPage({
 
 
   useEffect(() => {
+    if (readOnly && activePaymentTab !== "history") {
+      selectPaymentTab("history");
+    }
+  }, [activePaymentTab, readOnly, selectPaymentTab]);
+
+  useEffect(() => {
     if (!quickCashPrefill) return;
+    if (readOnly) {
+      onQuickCashPrefillConsumed?.();
+      return;
+    }
     selectPaymentTab("register");
     setForm((prev) => ({
       ...prev,
@@ -538,6 +551,7 @@ export default function PaymentsPage({
   }
 
   function handleSaveSelectedClientTravelFund(): void {
+    if (readOnly) return;
     if (!selectedClient) return;
     const amount = parseFloat(registerTravelFundInput);
     if (!Number.isFinite(amount) || amount < 0) {
@@ -595,6 +609,7 @@ export default function PaymentsPage({
 
 
   async function handleConfirmPayment(): Promise<boolean> {
+    if (readOnly) return false;
     const validationErrors = validate();
     if (validationErrors.length > 0) {
       setErrors(validationErrors);
@@ -639,6 +654,7 @@ export default function PaymentsPage({
   }
 
   async function handleDeletePayment(payment: Payment): Promise<void> {
+    if (readOnly) return;
     if (isDateClosed(payment.dateApplied)) {
       setErrors([`No se puede eliminar el recibo ${payment.receiptNumber}: la caja de ${payment.dateApplied} esta cerrada.`]);
       setDeleteTarget(null);
@@ -676,6 +692,7 @@ export default function PaymentsPage({
 
 
   function handleQuickImportCSV(): void {
+    if (readOnly) return;
     selectPaymentTab("pending");
     void handleImportBankCSV();
   }
@@ -699,10 +716,13 @@ export default function PaymentsPage({
         activeTab={activePaymentTab}
         onSelect={selectPaymentTab}
         onImportCsv={handleQuickImportCSV}
+        readOnly={readOnly}
       />
 
-      {/* -- Payment form -- */}
-      <CashClosingPanel
+      {!readOnly && (
+      <>
+        {/* -- Payment form -- */}
+        <CashClosingPanel
         cashSectionRef={cashSectionRef}
         isCashClosingOpen={isCashClosingOpen}
         cashClosingActor={cashClosingActor}
@@ -719,9 +739,9 @@ export default function PaymentsPage({
         cashClosingAudit={cashClosingAudit}
         chargeRuns={chargeRuns}
         openReopenDialog={openReopenDialog}
-      />
+        />
 
-      <RegisterPaymentPanel
+        <RegisterPaymentPanel
         registerSectionRef={registerSectionRef}
         isRegisterOpen={isRegisterOpen}
         selectedClient={selectedClient}
@@ -761,9 +781,9 @@ export default function PaymentsPage({
         handleConfirmPaymentClick={handleConfirmPaymentClick}
         isDateClosed={isDateClosed}
         isConfirmingPayment={isConfirmingPayment}
-      />
+        />
 
-      <NotifiedPaymentsPanel
+        <NotifiedPaymentsPanel
         notifiedSectionRef={notifiedSectionRef}
         isNotifiedOpen={isNotifiedOpen}
         notifiedForm={notifiedForm}
@@ -786,9 +806,9 @@ export default function PaymentsPage({
         handleCancelEditNotified={handleCancelEditNotified}
         handleStartEditNotified={handleStartEditNotified}
         handleDeleteNotifiedPayment={handleDeleteNotifiedPayment}
-      />
+        />
 
-      <PendingCardsPanel
+        <PendingCardsPanel
         pendingCardSectionRef={pendingCardSectionRef}
         isCardPendingOpen={isCardPendingOpen}
         cardPendingMessage={cardPendingMessage}
@@ -804,10 +824,10 @@ export default function PaymentsPage({
         handleGeneratePendingCardReceipt={handleGeneratePendingCardReceipt}
         handleStartEditPendingCard={handleStartEditPendingCard}
         handleRemovePendingCard={handleRemovePendingCard}
-      />
+        />
 
-      {/* -- Pending bank items -- */}
-      <PendingBankPanel
+        {/* -- Pending bank items -- */}
+        <PendingBankPanel
         pendingSectionRef={pendingSectionRef}
         isPendingOpen={isPendingOpen}
         pendingBankItems={pendingBankItems}
@@ -829,20 +849,23 @@ export default function PaymentsPage({
         handleQuickApply={handleQuickApply}
         handleDismissPending={handleDismissPending}
         renderPendingInlineReview={renderPendingInlineReview}
-      />
+        />
+      </>
+      )}
       <PaymentHistoryPanel
         historySectionRef={historySectionRef}
         isHistoryOpen={isHistoryOpen}
         activeClients={activeClients}
         payments={payments}
-        onPaymentsChange={onPaymentsChange}
+        onPaymentsChange={readOnly ? () => undefined : onPaymentsChange}
         isPaymentHistoryLoaded={isPaymentHistoryLoaded}
         onRefreshPayments={onRefreshPayments}
         isDateClosed={isDateClosed}
         getGroupCode={extractGroupCodeFromUnit}
         focusRequest={historyFocusRequest}
         onPreviewPayment={setHistoryPreviewPayment}
-        onDeletePayment={setDeleteTarget}
+        onDeletePayment={readOnly ? undefined : setDeleteTarget}
+        readOnly={readOnly}
       />
 
       <PaymentPreviewDialog
@@ -850,20 +873,20 @@ export default function PaymentsPage({
         onClose={() => setHistoryPreviewPayment(null)}
       />
 
-      <ReopenCashDialog
+      {!readOnly && <ReopenCashDialog
         date={reopenTargetDate}
         reason={reopenReason}
         setReason={setReopenReason}
         onCancel={() => setReopenTargetDate(null)}
         onConfirm={() => void handleConfirmReopen()}
-      />
+      />}
 
-      <DeletePaymentDialog
+      {!readOnly && <DeletePaymentDialog
         payment={deleteTarget}
         isDateClosed={isDateClosed}
         onCancel={() => setDeleteTarget(null)}
         onConfirm={(payment) => void handleDeletePayment(payment)}
-      />
+      />}
     </div>
   );
 }

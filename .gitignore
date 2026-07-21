@@ -13,6 +13,7 @@ RESPALDO COBRAPP/
 exports/
 tmp-verify/
 tmp-backup-retention-check/
+.tmp/
 supabase/.temp/
 tests/screenshots/
 tests/validation-output/

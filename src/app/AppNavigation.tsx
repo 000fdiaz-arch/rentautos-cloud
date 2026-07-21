@@ -2,8 +2,11 @@ export type AppPage = "clients" | "leads" | "payments" | "control_units" | "sett
 
 type Props = {
   page: AppPage;
-  canWriteOperationalData: boolean;
-  canManageSettings: boolean;
+  canViewLeads: boolean;
+  canViewClients: boolean;
+  canViewPayments: boolean;
+  canViewControlUnits: boolean;
+  canViewSettings: boolean;
   syncStatus: "idle" | "syncing" | "ok" | "error";
   syncErrorMessage: string;
   lastSyncAt: string;
@@ -15,8 +18,11 @@ type Props = {
 
 export default function AppNavigation({
   page,
-  canWriteOperationalData,
-  canManageSettings,
+  canViewLeads,
+  canViewClients,
+  canViewPayments,
+  canViewControlUnits,
+  canViewSettings,
   syncStatus,
   syncErrorMessage,
   lastSyncAt,
@@ -26,11 +32,11 @@ export default function AppNavigation({
   onSignOut
 }: Props) {
   const tabs: Array<{ page: AppPage; label: string; visible: boolean }> = [
-    { page: "leads", label: "Leads", visible: canWriteOperationalData },
-    { page: "clients", label: "Clientes", visible: canWriteOperationalData },
-    { page: "payments", label: "Pagos", visible: canWriteOperationalData },
-    { page: "control_units", label: "Autos", visible: true },
-    { page: "settings", label: "Configuraciones", visible: canManageSettings }
+    { page: "leads", label: "Leads", visible: canViewLeads },
+    { page: "clients", label: "Clientes", visible: canViewClients },
+    { page: "payments", label: "Pagos", visible: canViewPayments },
+    { page: "control_units", label: "Autos", visible: canViewControlUnits },
+    { page: "settings", label: "Configuraciones", visible: canViewSettings }
   ];
   const cloudLabel = syncStatus === "syncing"
     ? "Sincronizando..."
