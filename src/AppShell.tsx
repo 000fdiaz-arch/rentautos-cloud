@@ -1,9 +1,4 @@
-import { useEffect, useState } from "react";
-import ClientsPage from "./pages/ClientsPage";
-import LeadsPage from "./pages/LeadsPage";
-import PaymentsPage from "./pages/PaymentsPage";
-import SettingsPage from "./pages/SettingsPage";
-import ControlUnitsPage from "./pages/ControlUnitsPage";
+import { Suspense, lazy, useEffect, useState } from "react";
 import {
   loadClients,
   loadPayments,
@@ -50,7 +45,14 @@ import { parseLocalJson } from "./app/appShellRules";
 import AppNavigation, { type AppPage } from "./app/AppNavigation";
 import { useBackupManager } from "./app/useBackupManager";
 import { useCoreCloudSync } from "./app/useCoreCloudSync";
+import { stableEqual } from "./stableSerialize";
 import "./styles.css";
+
+const ClientsPage = lazy(() => import("./pages/ClientsPage"));
+const LeadsPage = lazy(() => import("./pages/LeadsPage"));
+const PaymentsPage = lazy(() => import("./pages/PaymentsPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const ControlUnitsPage = lazy(() => import("./pages/ControlUnitsPage"));
 
 type AppShellProps = {
   userId?: string;
@@ -129,6 +131,7 @@ export default function AppShell({
     amountReceived: string;
     token: number;
   } | null>(null);
+  const [signOutSyncError, setSignOutSyncError] = useState("");
 
   const {
     cloudReady,
@@ -470,7 +473,7 @@ export default function AppShell({
       const previousById = new Map(previous.map((item) => [item.id, item]));
       const nextById = new Map(next.map((item) => [item.id, item]));
       const removedIds = previous.map((item) => item.id).filter((id) => !nextById.has(id));
-      const changedItems = next.filter((item) => JSON.stringify(previousById.get(item.id)) !== JSON.stringify(item));
+      const changedItems = next.filter((item) => !stableEqual(previousById.get(item.id), item));
 
       for (const item of changedItems) {
         await saveCloudLeadEvaluation(cloudDataUserId, item);
@@ -570,11 +573,12 @@ export default function AppShell({
         setSyncStatus("error");
         setSyncErrorMessage("No se cerro sesion porque fallo la sincronizacion final.");
         setBackupStatus("No se cerro sesion: fallo la sincronizacion final con nube. Intenta nuevamente.");
-        window.alert("No se cerro sesion porque fallo la sincronizacion final con nube. Revisa tu conexion e intenta nuevamente.");
+        setSignOutSyncError("Fallo la sincronizacion final con nube. Revisa tu conexion e intenta nuevamente.");
         return;
       }
     }
     await runBackup("signout", false);
+    setSignOutSyncError("");
     await onSignOut?.();
   }
 
@@ -607,6 +611,22 @@ export default function AppShell({
         onSignOut={() => void handleSignOutWithBackup()}
       />
       <main className="page">
+        {signOutSyncError && (
+          <div className="error-banner app-shell-error" role="alert">
+            <strong>No se pudo cerrar sesion.</strong> {signOutSyncError}
+            <button
+              type="button"
+              className="button ghost small"
+              onClick={() => {
+                setSignOutSyncError("");
+                void handleSignOutWithBackup();
+              }}
+            >
+              Reintentar
+            </button>
+          </div>
+        )}
+        <Suspense fallback={<section className="panel"><p className="hint">Cargando modulo...</p></section>}>
         {page === "clients" && canViewClients && (
           <ClientsPage
             clients={clients}
@@ -678,6 +698,7 @@ export default function AppShell({
             lastBackupAt={lastBackupAt}
           />
         )}
+        </Suspense>
       </main>
     </>
   );

@@ -24,6 +24,7 @@ const SEQ_KEY = "cobrapp.payments.seq.v1";
 const CLIENTS_INDEXED_DB_KEY = "clients.v1";
 const PAYMENTS_INDEXED_DB_KEY = "payments.v1";
 const INDEXED_DB_SENTINEL = "__indexeddb__";
+const TEST_LEGACY_LOCAL_STORAGE = import.meta.env.VITE_RENTAUTOS_TEST_LEGACY_LOCAL_STORAGE === "1";
 
 const WEEKLY_DAYS = new Set([
   "monday",
@@ -265,6 +266,11 @@ export function loadClients(): Client[] {
 }
 
 export function saveClients(clients: Client[]): void {
+  if (TEST_LEGACY_LOCAL_STORAGE) {
+    localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
+    return;
+  }
+
   // Los listados grandes de clientes pueden superar el limite de localStorage.
   // Persistimos canonico en IndexedDB y dejamos una marca ligera en localStorage.
   void writeIndexedDb(CLIENTS_INDEXED_DB_KEY, clients).catch((error) => {
@@ -440,6 +446,11 @@ export async function loadPaymentsFromIndexedDb(): Promise<Payment[]> {
 }
 
 export function savePayments(payments: Payment[]): void {
+  if (TEST_LEGACY_LOCAL_STORAGE) {
+    localStorage.setItem(PAYMENTS_KEY, JSON.stringify(payments));
+    return;
+  }
+
   // Los historiales grandes de pagos pueden superar el limite de localStorage.
   // Persistimos canonico en IndexedDB y dejamos una marca ligera en localStorage.
   void writeIndexedDb(PAYMENTS_INDEXED_DB_KEY, payments).catch((error) => {

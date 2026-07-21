@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { stableEqual } from "../stableSerialize";
 
 export type DataRow<T> = { id: string; data: T };
 export type SingletonDataRow = { data?: unknown };
@@ -45,6 +46,5 @@ export function dedupeLoad<T>(key: string, loader: () => Promise<T>): Promise<T>
 
 export function hasRowChanged<T>(previous: T | undefined, next: T): boolean {
   if (!previous) return true;
-  if (previous === next) return false;
-  return JSON.stringify(previous) !== JSON.stringify(next);
+  return !stableEqual(previous, next);
 }

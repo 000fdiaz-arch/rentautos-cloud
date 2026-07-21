@@ -57,6 +57,7 @@ const OTHER_CHARGES_RETENTION_KEY = "cobrapp.settings.other_charges_retention.v1
 const PAYMENT_PROMISES_KEY = "cobrapp.module3.payment_promises.v1";
 const LEAD_EVALUATIONS_KEY = "cobrapp.module4.leads.v1";
 const INDEXED_DB_SENTINEL = "__indexeddb__";
+const TEST_LEGACY_LOCAL_STORAGE = import.meta.env.VITE_RENTAUTOS_TEST_LEGACY_LOCAL_STORAGE === "1";
 
 function normalizePendingBankItem(item: unknown): PendingBankItem | null {
   if (!item || typeof item !== "object") return null;
@@ -97,6 +98,11 @@ export async function loadPendingBankItemsFromIndexedDb(): Promise<PendingBankIt
 }
 
 export function savePendingBankItems(items: PendingBankItem[]): void {
+  if (TEST_LEGACY_LOCAL_STORAGE) {
+    localStorage.setItem(PENDING_BANK_KEY, JSON.stringify(items));
+    return;
+  }
+
   void writeIndexedDb(PENDING_BANK_INDEXED_DB_KEY, items).catch((error) => {
     console.error("No se pudo guardar pendientes bancarios en IndexedDB.", error);
   });

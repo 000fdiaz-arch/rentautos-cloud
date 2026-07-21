@@ -646,7 +646,7 @@ export default function PaymentsPage({
           : `Pago en tarjeta aplicado con folio temporal ${transaction.cardFolio}. Debes corregirlo manana para conciliar con el CSV.`
       );
     }
-    finalizeSuccessfulPayment(transaction.payment, { openHistory: true, skipAutoDownload: true });
+    finalizeSuccessfulPayment(transaction.payment, { openReceipt: true, skipAutoDownload: true });
     setForm({ clientId: "", dateApplied: operationalDateKey, paymentMethod: "Efectivo", reference: "", amountReceived: "" });
     setManualOtherChargesInput({});
     setManualOverrideForcedOtherCharges(false);

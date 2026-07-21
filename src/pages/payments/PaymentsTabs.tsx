@@ -16,7 +16,7 @@ type Props = {
 const TABS: Array<{ id: PaymentTabId; label: string }> = [
   { id: "register", label: "Registrar pago" },
   { id: "notified", label: "Pago notificado" },
-  { id: "pending", label: "Pendientes banco" },
+  { id: "pending", label: "Ver pendientes" },
   { id: "cards", label: "Pendientes tarjeta" },
   { id: "history", label: "Historial pagos" },
   { id: "cash", label: "Cierre de caja" }

@@ -51,8 +51,10 @@ const { chromium } = require('playwright');
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: /^Pagos$/i }).click();
-  await page.getByRole('button', { name: /Ver pendientes/i }).click();
+  await page.locator("button:has-text('Ver pendientes')").first().click({ force: true });
   await page.getByRole('button', { name: /Revisar cargos/i }).click();
+  const editAmount = page.getByRole('button', { name: /Editar monto/i });
+  if (await editAmount.count()) await editAmount.click();
 
   const amountInput = page.locator('.other-charges-section input.payment-input').first();
   await amountInput.fill('120');

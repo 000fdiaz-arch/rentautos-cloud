@@ -609,6 +609,19 @@ function handleRepairTodayPaymentDates(): void {
                 {historyRefreshFeedback.message}
               </div>
             )}
+            {!isPaymentHistoryLoaded && (
+              <div className="warning-banner history-partial-banner" role="status" aria-live="polite">
+                <strong>Historial parcial.</strong> Se cargaron los pagos recientes para acelerar el inicio. Actualiza el historial antes de exportar o revisar pagos antiguos.
+                <button
+                  type="button"
+                  className="button primary small"
+                  onClick={() => void handleRefreshHistory()}
+                  disabled={isHistoryRefreshing || !onRefreshPayments}
+                >
+                  {isHistoryRefreshing ? "Actualizando..." : "Cargar historial completo"}
+                </button>
+              </div>
+            )}
             {!readOnly && misdatedTodayPayments.length > 0 && (
               <div className="history-copy-feedback history-copy-feedback--error" role="alert">
                 <strong>Recibos con fecha de ayer detectados:</strong>{" "}
@@ -688,7 +701,7 @@ function handleRepairTodayPaymentDates(): void {
                     type="button"
                     className="button ghost small"
                     onClick={handleDownloadFilteredHistory}
-                    disabled={isHistoryBulkDownloading}
+                    disabled={isHistoryBulkDownloading || !isPaymentHistoryLoaded}
                     title="Descarga todos los recibos del filtro actual en un ZIP"
                   >
                     Descargar filtrados ({filteredHistoryRows.length})

@@ -60,6 +60,7 @@ VITE_SUPABASE_ANON_KEY=TU_SUPABASE_ANON_KEY
 Notas:
 - La app corre en modo `SUPABASE_ONLY`; Supabase es la fuente canonica para la version multiusuario.
 - Sin `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`, la app no puede iniciar autenticacion cloud.
+- Para pruebas locales aisladas se puede usar `VITE_PERSISTENCE_MODE=LOCAL_ONLY`. El bypass de login `VITE_RENTAUTOS_TEST_BYPASS_AUTH=1` y la compatibilidad `VITE_RENTAUTOS_TEST_LEGACY_LOCAL_STORAGE=1` deben limitarse a tests/desarrollo local.
 
 ## Ejecutar en desarrollo
 
@@ -149,6 +150,8 @@ npm run test:workflows
 
 Genera reporte en:
 - `tests/validation-output/workflows-report.txt`
+
+El runner valida `http://127.0.0.1:5174/` y, si no hay servidor, levanta Vite con `VITE_PERSISTENCE_MODE=LOCAL_ONLY`, `VITE_RENTAUTOS_TEST_BYPASS_AUTH=1` y `VITE_RENTAUTOS_TEST_LEGACY_LOCAL_STORAGE=1` para ejecutar los workflows UI sin depender de credenciales Supabase.
 
 ## Seguridad y datos sensibles
 

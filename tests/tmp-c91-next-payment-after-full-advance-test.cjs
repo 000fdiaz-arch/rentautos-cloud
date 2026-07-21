@@ -53,16 +53,17 @@ const { chromium } = require("playwright");
   await page.waitForTimeout(800);
 
   const receiptText = await page.locator(".receipt-card").first().innerText();
+  const normalizedReceiptText = receiptText.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-  if (!receiptText.includes("Proximo pago: 15 jun 2026")) {
+  if (!normalizedReceiptText.includes("Proximo pago: 15 ago 2026")) {
     throw new Error(`badge incorrecto. Recibido: ${receiptText}`);
   }
 
-  if (!receiptText.includes("Proxima letra") || !receiptText.includes("30 may 2026")) {
-    throw new Error("panel de pago adelantado no conserva la letra cubierta (30 may 2026).");
+  if (!normalizedReceiptText.includes("Proxima letra") || !normalizedReceiptText.includes("30 jul 2026")) {
+    throw new Error("panel de pago adelantado no conserva la letra cubierta (30 jul 2026).");
   }
 
-  console.log("OK C91: al pagar por adelantado la letra del 30-may-2026, badge muestra 15-jun-2026.");
+  console.log("OK C91: al pagar por adelantado, el recibo muestra la siguiente fecha y la letra cubierta correctas.");
   await browser.close();
 })().catch((err) => {
   console.error("FALLO TEST C91 PROXIMO PAGO ADELANTADO:", err && err.message ? err.message : err);

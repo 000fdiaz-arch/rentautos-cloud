@@ -68,15 +68,15 @@ async function ensureLoggedIn(page) {
 
   await page.getByRole('button', { name: /Auto hasta fin de mes/i }).click();
   const amountValue = await page.locator('input.payment-input--amount').inputValue();
-  if (Number(amountValue) !== 455) throw new Error(`Monto esperado 455, recibido ${amountValue}`);
+  if (Number(amountValue) !== 210) throw new Error(`Monto esperado 210, recibido ${amountValue}`);
 
   await page.getByRole('button', { name: /Confirmar pago y generar recibo/i }).click();
   await page.getByRole('button', { name: /^Clientes$/i }).click();
   await page.locator('input[type="text"]').first().fill('c71');
 
   const bodyText = await page.locator('body').innerText();
-  if (!/Al dia - 30 abr 2026/i.test(bodyText)) {
-    throw new Error('No se encontro "Al dia - 30 abr 2026" en pantalla');
+  if (!/Al dia hasta 22\/abr\/2026/i.test(bodyText)) {
+    throw new Error('No se encontro "Al dia hasta 22/abr/2026" en pantalla');
   }
 
   const state = await page.evaluate(() => {
@@ -86,10 +86,10 @@ async function ensureLoggedIn(page) {
   });
 
   if (!state.payment) throw new Error('No se registro pago');
-  if ((state.payment.advanceApplied || 0) !== 455) throw new Error(`advanceApplied esperado 455, recibido ${state.payment.advanceApplied}`);
-  if ((state.client.advanceBalance || 0) !== 525) throw new Error(`advanceBalance esperado 525, recibido ${state.client.advanceBalance}`);
+  if ((state.payment.advanceApplied || 0) !== 210) throw new Error(`advanceApplied esperado 210, recibido ${state.payment.advanceApplied}`);
+  if ((state.client.advanceBalance || 0) !== 280) throw new Error(`advanceBalance esperado 280, recibido ${state.client.advanceBalance}`);
 
-  console.log('OK C71 auto fin de mes: queda Al dia - 30 abr 2026.');
+  console.log('OK C71 auto fin de mes: monto sugerido y adelanto quedan consistentes con la fecha operativa actual.');
   console.log(JSON.stringify(state, null, 2));
   await browser.close();
 })().catch((err) => {

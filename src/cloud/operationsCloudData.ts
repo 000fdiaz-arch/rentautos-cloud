@@ -5,6 +5,7 @@ import type {
   CashClosingAuditEvent,
   ChargeRun
 } from "../pages/payments/paymentTypes";
+import { stableEqual } from "../stableSerialize";
 
 export type ControlUnitRow = {
   user_id: string;
@@ -350,7 +351,7 @@ export async function syncCloudStreetManagementDelta(
     const nextTs = rowTimestamp(nextRow);
     const prevTs = rowTimestamp(prevRow);
     if (!prevRow || nextTs >= prevTs) {
-      if (JSON.stringify(prevRow) !== JSON.stringify(nextRow)) {
+      if (!stableEqual(prevRow, nextRow)) {
         changedPatch[clientId] = nextRow;
         hasPatch = true;
       }

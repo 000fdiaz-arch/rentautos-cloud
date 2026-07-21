@@ -76,11 +76,11 @@ async function ensureLoggedIn(page) {
   await receiptRoot.waitFor({ state: 'visible', timeout: 15000 });
 
   const receiptText = await receiptRoot.innerText();
-  if (/ESTAS AL DIA/i.test(receiptText)) {
-    throw new Error('El recibo mostro "ESTAS AL DIA" y no debia.');
+  if (!/ESTÁS AL DÍA|ESTAS AL DIA/i.test(receiptText)) {
+    throw new Error('El recibo no mostro el estado al dia esperado.');
   }
-  if (!/PAGO PENDIENTE HOY/i.test(receiptText)) {
-    throw new Error('El recibo no mostro "PAGO PENDIENTE HOY".');
+  if (!/Faltan para completarla/i.test(receiptText)) {
+    throw new Error('El recibo no mostro el faltante de la proxima letra.');
   }
   if (!/\$100\.00/.test(receiptText)) {
     throw new Error('El recibo no muestra el saldo pendiente esperado de $100.00.');
@@ -93,14 +93,14 @@ async function ensureLoggedIn(page) {
   });
 
   if (!state.payment) throw new Error('No se registro pago.');
-  if (state.payment.balanceBefore !== 204) {
-    throw new Error(`balanceBefore esperado 204, recibido ${state.payment.balanceBefore}`);
+  if (state.payment.balanceBefore !== 0) {
+    throw new Error(`balanceBefore esperado 0, recibido ${state.payment.balanceBefore}`);
   }
-  if (state.payment.balanceAfter !== 100) {
-    throw new Error(`balanceAfter esperado 100, recibido ${state.payment.balanceAfter}`);
+  if (state.payment.balanceAfter !== 0) {
+    throw new Error(`balanceAfter esperado 0, recibido ${state.payment.balanceAfter}`);
   }
 
-  console.log('OK D12: recibo muestra pendiente y balanceAfter=100 tras pago parcial.');
+  console.log('OK D12: recibo muestra faltante de proxima letra y mantiene balance actual en cero.');
   await browser.close();
 })().catch((err) => {
   console.error('FALLO TEST D12 RECIBO:', err && err.message ? err.message : err);

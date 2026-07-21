@@ -101,7 +101,7 @@ const filteredPendingBankItems = useMemo(() => {
     const pendingPreview = getPendingBankPreview(item, assignedClient);
     const actionLabels = [
       assignedClient ? (hasOtherCharges || hasFines || hasTickets ? "Aplicar auto" : "Aplicar") : "",
-      assignedClient && hasOtherCharges ? "Editar cargos" : "",
+      assignedClient && hasOtherCharges ? "Revisar cargos" : "",
       "Ignorar"
     ].filter(Boolean).join(" ");
     const previewLabel = pendingPreview
@@ -231,7 +231,7 @@ useEffect(() => {
             {isPendingOpen && (
               <>
                 <p className="hint" style={{ marginTop: 8 }}>
-                  La importacion aplica regla automatica por cuenta y grupo. Si el cliente tiene multas, boletas u otros cargos, se cobran automaticamente antes de renta; usa Editar cargos solo cuando necesites ajustar otros cargos de ese pago.
+                  La importacion aplica regla automatica por cuenta y grupo. Si el cliente tiene multas, boletas u otros cargos, se cobran automaticamente antes de renta; usa Revisar cargos solo cuando necesites ajustar otros cargos de ese pago.
                 </p>
                 {hasPendingColumnFilters && (
                   <div style={{ marginTop: 8 }}>
@@ -432,7 +432,7 @@ useEffect(() => {
                                 )}
                                 {assignedClient && hasOtherCharges && (
                                   <button type="button" className="button ghost small" onClick={() => handleOpenClassify(item)}>
-                                    {isInlineReviewOpen ? "Cerrar edición" : "Editar cargos"}
+                                    {isInlineReviewOpen ? "Cerrar revision" : "Revisar cargos"}
                                   </button>
                                 )}
                                 <button type="button" className="button danger small" onClick={() => handleDismissPending(item.folio)}>

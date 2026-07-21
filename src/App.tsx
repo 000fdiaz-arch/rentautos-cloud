@@ -1,12 +1,30 @@
 import AppShell from "./AppShell";
+import { getRoleScreenPermissions } from "./auth/permissions";
 import { useAuthProfile } from "./auth/useAuthProfile";
 import AuthPanel from "./components/AuthPanel";
 import ForcePasswordChangePanel from "./components/ForcePasswordChangePanel";
 import { isSupabaseConfigured } from "./lib/supabase";
+import { isLocalOnlyMode } from "./persistenceMode";
 import "./styles.css";
+
+const testBypassAuth = import.meta.env.VITE_RENTAUTOS_TEST_BYPASS_AUTH === "1";
 
 export default function App() {
   const authProfile = useAuthProfile();
+
+  if (isLocalOnlyMode && (!isSupabaseConfigured || testBypassAuth)) {
+    const permissions = getRoleScreenPermissions("admin");
+    return (
+      <AppShell
+        userEmail={testBypassAuth ? "test-local@rentautos.app" : "local@rentautos.app"}
+        permissions={permissions}
+        canWriteOperationalData
+        canManageSettings
+        canManageUsers
+        isReadOnlyExperience={false}
+      />
+    );
+  }
 
   if (!isSupabaseConfigured) {
     return (

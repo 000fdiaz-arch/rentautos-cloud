@@ -52,6 +52,7 @@ const { chromium } = require("playwright");
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: /^Pagos$/i }).click();
+  await page.locator("button:has-text('Ver pendientes')").first().click({ force: true });
   await page.locator("button:has-text('Revisar cargos')").first().click();
   await page.locator("button:has-text('Aplicar pago')").first().click();
 

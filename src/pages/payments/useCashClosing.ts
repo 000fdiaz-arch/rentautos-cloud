@@ -15,6 +15,7 @@ import { buildReceivableRows } from "../../receivables";
 import { loadLateFeeLedger, saveLateFeeLedger } from "../../storage";
 import type { Client, LateFeeLedgerEntry, LateFeeSettings, Payment } from "../../types";
 import { loadCashSummaryRange } from "../../cashLedger";
+import { stableEqual } from "../../stableSerialize";
 import {
   COLLECTION_CLOSURES_KEY,
   COLLECTION_STATUS_KEY
@@ -256,7 +257,7 @@ function buildClientSnapshots(beforeClients: Client[], afterClients: Client[]): 
       if (!before) return null;
       const beforePayload = financialPayload(before);
       const afterPayload = financialPayload(after);
-      if (JSON.stringify(beforePayload) === JSON.stringify(afterPayload)) return null;
+      if (stableEqual(beforePayload, afterPayload)) return null;
       return {
         clientId: after.id,
         unitId: after.unitId,
@@ -273,7 +274,7 @@ function isPendingRunApplied(run: ChargeRun, currentClients: Client[]): boolean 
   return (run.clientSnapshots ?? []).every((snapshot) => {
     const current = currentById.get(snapshot.clientId);
     if (!current) return false;
-    return JSON.stringify(financialPayload(current)) === JSON.stringify(snapshot.after);
+    return stableEqual(financialPayload(current), snapshot.after);
   });
 }
 

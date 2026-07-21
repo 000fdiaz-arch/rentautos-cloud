@@ -72,8 +72,8 @@ async function ensureLoggedIn(page) {
   await page.locator('input[type="text"]').first().fill('c71');
 
   const bodyText = await page.locator('body').innerText();
-  if (!/Al dia - 30 abr 2026/i.test(bodyText)) {
-    throw new Error('No se encontro "Al dia - 30 abr 2026" en pantalla');
+  if (!/Al dia hasta 30\/abr\/2026/i.test(bodyText)) {
+    throw new Error('No se encontro estado "Al dia" en pantalla');
   }
 
   const state = await page.evaluate(() => {
@@ -88,7 +88,7 @@ async function ensureLoggedIn(page) {
   if ((state.client.advanceBalance || 0) !== 525) throw new Error(`advanceBalance esperado 525, recibido ${state.client.advanceBalance}`);
   if ((state.client.savings || 0) !== 0.71) throw new Error(`savings esperado 0.71, recibido ${state.client.savings}`);
 
-  console.log('OK C71 manual 455.71: fecha 30 abr, entero a adelanto y centavos a ahorro.');
+  console.log('OK C71 manual 455.71: entero a adelanto y centavos a ahorro.');
   console.log(JSON.stringify(state, null, 2));
   await browser.close();
 })().catch((err) => {

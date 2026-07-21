@@ -13,7 +13,8 @@ Tu `.env` local debe conservar:
 - `VITE_SUPABASE_URL=...`
 - `VITE_SUPABASE_ANON_KEY=...`
 - `SUPABASE_SERVICE_ROLE_KEY=...` (nueva)
-- `VITE_PERSISTENCE_MODE=LOCAL_ONLY` (hasta completar migracion total cloud-only)
+
+No uses `VITE_PERSISTENCE_MODE=LOCAL_ONLY` en publicacion. Ese modo queda reservado para pruebas locales aisladas; produccion debe operar en `SUPABASE_ONLY` (valor por defecto).
 
 ## 3) Verificacion rapida (local)
 Ejecuta:
