@@ -309,8 +309,20 @@ input[readonly] {
   box-shadow: 0 4px 10px rgba(15, 118, 110, 0.4);
 }
 
+.button.secondary {
+  background: #0f3f70;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 63, 112, 0.28);
+}
+
+.button.secondary:hover {
+  background: #15558f;
+  box-shadow: 0 4px 10px rgba(15, 63, 112, 0.34);
+}
+
 .button.primary.button-disabled,
-.button.primary:disabled {
+.button.primary:disabled,
+.button.secondary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
   box-shadow: none;
@@ -3751,6 +3763,12 @@ select.control-op-badge {
   margin-bottom: 24px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.receipt-copy-feedback {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #0f766e;
 }
 
 .receipt-card {

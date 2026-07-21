@@ -121,6 +121,18 @@ export async function downloadPaymentReceiptImage(payment: Payment, renderedCard
   setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
 
+async function buildReceiptImageBlobFromElement(payment: Payment, renderedCard: HTMLElement): Promise<{ fileName: string; blob: Blob }> {
+  const canvas = await renderReceiptCanvasFromElement(renderedCard);
+  const fileName = buildReceiptFileName(payment);
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((value) => {
+      if (value) resolve(value);
+      else reject(new Error("No se pudo convertir el recibo a imagen."));
+    }, "image/png");
+  });
+  return { fileName, blob };
+}
+
 export async function buildPaymentReceiptImageBlob(payment: Payment, options: ReceiptRenderOptions = {}): Promise<{ fileName: string; blob: Blob }> {
   const canvas = await renderReceiptCanvasFromPayment(payment, options);
   const fileName = buildReceiptFileName(payment);
@@ -133,13 +145,15 @@ export async function buildPaymentReceiptImageBlob(payment: Payment, options: Re
   return { fileName, blob };
 }
 
-export async function copyPaymentReceiptImage(payment: Payment, options: ReceiptRenderOptions = {}): Promise<void> {
+export async function copyPaymentReceiptImage(payment: Payment, options: ReceiptRenderOptions = {}, renderedCard?: HTMLElement | null): Promise<void> {
   if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
     throw new Error("El navegador no permite copiar imagenes al portapapeles.");
   }
 
   // Se inicia durante el clic para conservar el permiso mientras se renderiza.
-  const receiptBlob = buildPaymentReceiptImageBlob(payment, options).then(({ blob }) => blob);
+  const receiptBlob = renderedCard
+    ? buildReceiptImageBlobFromElement(payment, renderedCard).then(({ blob }) => blob)
+    : buildPaymentReceiptImageBlob(payment, options).then(({ blob }) => blob);
   await navigator.clipboard.write([
     new ClipboardItem({
       "image/png": receiptBlob
@@ -803,6 +817,8 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
 
 export default function PaymentReceipt({ payment, onClose, closeLabel = "Registrar otro pago", receiptFormat = "standard" }: Props) {
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isCopying, setIsCopying] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
 
   async function handleDownload(): Promise<void> {
@@ -816,15 +832,32 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
     }
   }
 
+  async function handleCopy(): Promise<void> {
+    setIsCopying(true);
+    setCopyFeedback(null);
+    try {
+      await copyPaymentReceiptImage(payment, { format: receiptFormat }, cardRef.current);
+      setCopyFeedback("Imagen copiada.");
+    } catch {
+      setCopyFeedback("No se pudo copiar la imagen. Intenta descargarla.");
+    } finally {
+      setIsCopying(false);
+    }
+  }
+
   return (
     <div className="receipt-page">
       <div className="receipt-actions-bar">
         <button type="button" className="button primary" onClick={handleDownload} disabled={isDownloading}>
           {isDownloading ? "Generando imagen..." : "Descargar imagen"}
         </button>
+        <button type="button" className="button secondary" onClick={handleCopy} disabled={isCopying}>
+          {isCopying ? "Copiando imagen..." : "Copiar imagen"}
+        </button>
         <button type="button" className="button ghost" onClick={onClose}>
           {closeLabel}
         </button>
+        {copyFeedback && <span className="receipt-copy-feedback">{copyFeedback}</span>}
       </div>
 
       {receiptFormat === "history" ? (
