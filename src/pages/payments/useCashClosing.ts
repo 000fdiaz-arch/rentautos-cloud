@@ -62,6 +62,18 @@ type InternalChargeApplyResult = ChargeApplyResult & {
   run?: ChargeRun;
 };
 
+function dedupeCashClosings(rows: CashClosing[]): CashClosing[] {
+  const byDate = new Map<string, CashClosing>();
+  for (const closing of rows) {
+    if (typeof closing.date !== "string" || typeof closing.closedAt !== "string") continue;
+    const existing = byDate.get(closing.date);
+    if (!existing || closing.closedAt >= existing.closedAt) {
+      byDate.set(closing.date, closing);
+    }
+  }
+  return [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
+
 export default function useCashClosing({
   clients,
   payments,
@@ -102,9 +114,7 @@ export default function useCashClosing({
       console.error("No se pudieron cargar cierres del ledger de caja.", error);
       return [];
     });
-    const normalizedClosings = cloudClosings
-      .filter((closing) => typeof closing.date === "string" && typeof closing.closedAt === "string")
-      .sort((a, b) => b.date.localeCompare(a.date));
+    const normalizedClosings = dedupeCashClosings(cloudClosings);
     const normalizedAudit = cloudAudit
       .filter((event) => typeof event.id === "string" && typeof event.date === "string" && typeof event.createdAt === "string")
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -165,10 +175,11 @@ export default function useCashClosing({
   }, [dataOwnerUserId]);
 
   async function persistCashClosings(next: CashClosing[]): Promise<void> {
-    setCashClosings(next);
-    saveCashClosings(next);
+    const normalized = dedupeCashClosings(next);
+    setCashClosings(normalized);
+    saveCashClosings(normalized);
     if (dataOwnerUserId) {
-      await saveCloudCashClosings(dataOwnerUserId, next);
+      await saveCloudCashClosings(dataOwnerUserId, normalized);
     }
   }
 
