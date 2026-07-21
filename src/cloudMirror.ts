@@ -126,6 +126,10 @@ function parseObjectValue(raw: string | null): Record<string, unknown> {
 function makeRowId(key: ArrayKey, rec: unknown, idx: number): string {
   const obj = rec as { id?: unknown; date?: unknown; closedAt?: unknown; clientId?: unknown; createdAt?: unknown };
   if (typeof obj?.id === "string" && obj.id.trim()) return obj.id.trim();
+  if (key === "cobrapp.module2.pending_bank.v1") {
+    const folio = normalizeFolioToken((rec as { folio?: unknown })?.folio);
+    if (folio) return `folio-${folio}`;
+  }
   if (key === "cobrapp.module2.cash_closings.v1") {
     return `${String(obj?.date ?? "na")}__${String(obj?.closedAt ?? idx)}`;
   }
@@ -135,14 +139,63 @@ function makeRowId(key: ArrayKey, rec: unknown, idx: number): string {
   return `row-${idx + 1}`;
 }
 
+function normalizeFolioToken(value: unknown): string {
+  return typeof value === "string" ? value.trim().toUpperCase().replace(/\s+/g, "") : "";
+}
+
+function getRowFolio(row: { data?: unknown }): string {
+  const data = row.data as { folio?: unknown } | null | undefined;
+  return normalizeFolioToken(data?.folio);
+}
+
+function dedupeRowsByIdAndFolio(rows: Array<{ user_id: string; id: string; data: unknown }>): Array<{ user_id: string; id: string; data: unknown }> {
+  const byId = new Map<string, { user_id: string; id: string; data: unknown }>();
+  const folioToId = new Map<string, string>();
+  for (const row of rows) {
+    const folio = getRowFolio(row);
+    if (folio) {
+      const previousId = folioToId.get(folio);
+      if (previousId && previousId !== row.id) byId.delete(previousId);
+      folioToId.set(folio, row.id);
+    }
+    byId.set(row.id, row);
+  }
+  return [...byId.values()];
+}
+
 async function saveArrayKey(userId: string, key: ArrayKey, raw: string | null): Promise<void> {
   if (!supabase) return;
   const table = ARRAY_TABLE_MAP[key];
-  const rows = (await parseArrayValueForKey(key, raw)).map((rec, idx) => ({
+  const rows = dedupeRowsByIdAndFolio((await parseArrayValueForKey(key, raw)).map((rec, idx) => ({
     user_id: userId,
     id: makeRowId(key, rec, idx),
     data: rec
-  }));
+  })));
+
+  const { data: existingRows, error: selectError } = await supabase
+    .from(table)
+    .select("id,data")
+    .eq("user_id", userId);
+  if (selectError) throw selectError;
+
+  const nextIds = new Set(rows.map((row) => row.id));
+  const nextFolios = new Set(rows.map((row) => getRowFolio(row)).filter(Boolean));
+  const deleteIds = (existingRows ?? [])
+    .map((row) => row as { id?: unknown; data?: unknown })
+    .filter((row) => {
+      const id = typeof row.id === "string" ? row.id : "";
+      return Boolean(id) && (!nextIds.has(id) || (nextFolios.size > 0 && nextFolios.has(getRowFolio(row))));
+    })
+    .map((row) => row.id as string);
+
+  if (deleteIds.length > 0) {
+    const { error: deleteError } = await supabase
+      .from(table)
+      .delete()
+      .eq("user_id", userId)
+      .in("id", deleteIds);
+    if (deleteError) throw deleteError;
+  }
 
   if (rows.length > 0) {
     const { error } = await supabase.from(table).upsert(rows, { onConflict: "user_id,id" });
