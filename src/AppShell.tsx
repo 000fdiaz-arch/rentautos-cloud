@@ -29,6 +29,7 @@ import {
   loadCloudOtherChargesRetention,
   loadCloudPayments,
   loadControlUnits,
+  registerCloudPaymentDeltas,
   saveCloudBankRules,
   saveCloudLeadEvaluation,
   saveCloudLateFeeSettings,
@@ -329,10 +330,23 @@ export default function AppShell({
     if (!canEditPayments) return false;
     const previousClients = clients;
     const previousPayments = payments;
+    const previousPaymentIds = new Set(previousPayments.map((payment) => payment.id));
+    const hasNewPayments = nextPayments.some((payment) => !previousPaymentIds.has(payment.id));
+    const isAppendOnlyPaymentChange =
+      hasNewPayments &&
+      previousPayments.every((previousPayment) => {
+        const nextPayment = nextPayments.find((payment) => payment.id === previousPayment.id);
+        return Boolean(nextPayment) && stableEqual(previousPayment, nextPayment);
+      });
+
     if (cloudDataUserId && isSupabaseOnlyMode) {
       setSyncStatus("syncing");
       try {
-        await syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
+        if (isAppendOnlyPaymentChange) {
+          await registerCloudPaymentDeltas(cloudDataUserId, previousClients, nextClients, previousPayments, nextPayments);
+        } else {
+          await syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
+        }
       } catch (error) {
         console.error("No se pudo guardar clientes/pagos en Supabase.", error);
         setClients(previousClients);
@@ -347,7 +361,14 @@ export default function AppShell({
 
     setClients(nextClients);
     setPayments(nextPayments);
-    if (cloudDataUserId) void syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
+    if (cloudDataUserId) {
+      const syncTask = isAppendOnlyPaymentChange
+        ? registerCloudPaymentDeltas(cloudDataUserId, previousClients, nextClients, previousPayments, nextPayments)
+        : syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
+      void syncTask.catch((error) => {
+        console.error("No se pudo guardar clientes/pagos en Supabase.", error);
+      });
+    }
     if (!isSupabaseOnlyMode) {
       saveClients(nextClients);
       savePayments(nextPayments);

@@ -103,6 +103,7 @@ Ejecutar en SQL Editor (orden recomendado):
 17. `supabase/19-reset-role-rls-policies.sql`
 18. `supabase/20-screen-permissions.sql`
 19. `supabase/21-user-admin-passwords.sql`
+20. `supabase/22-payment-deltas.sql`
 
 Despues:
 - Crear usuario desde UI de login/registro.

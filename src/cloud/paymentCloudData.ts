@@ -1,4 +1,4 @@
-import type { Payment } from "../types";
+import type { Client, Payment } from "../types";
 import { dedupeLoad, getCloudClient, hasRowChanged, PAGE_SIZE, withCloudRetry, type DataRow } from "./cloudClient";
 
 const BANK_PAYMENT_METHODS = new Set(["ACH Express", "Deposito Bancario", "Transferencia Bancaria"]);
@@ -87,6 +87,10 @@ function isMissingRpcFunctionError(error: unknown): boolean {
     normalized.includes("could not find the function") ||
     normalized.includes("function public.find_existing_processed_payment_folios") ||
     normalized.includes("function find_existing_processed_payment_folios") ||
+    normalized.includes("function public.register_client_payment_delta") ||
+    normalized.includes("function register_client_payment_delta") ||
+    normalized.includes("function public.register_client_payment_deltas") ||
+    normalized.includes("function register_client_payment_deltas") ||
     normalized.includes("function public.next_receipt_numbers") ||
     normalized.includes("function next_receipt_numbers")
   );
@@ -331,6 +335,84 @@ export async function saveCloudPayments(userId: string, payments: Payment[]): Pr
       .from("payments_cloud")
       .upsert(rows, { onConflict: "user_id,id" });
 
+    if (error) throw error;
+  }
+}
+
+type PaymentDeltaGroup = {
+  clientId: string;
+  previousClient: Client;
+  nextClient: Client;
+  payments: Payment[];
+};
+
+function getNumericPaymentTime(payment: Payment): number {
+  const value = new Date(payment.createdAt).getTime();
+  return Number.isFinite(value) ? value : 0;
+}
+
+function buildPaymentDeltaGroups(
+  previousClients: Client[],
+  nextClients: Client[],
+  previousPayments: Payment[],
+  nextPayments: Payment[]
+): PaymentDeltaGroup[] {
+  const previousPaymentIds = new Set(previousPayments.map((payment) => payment.id));
+  const newPayments = nextPayments
+    .filter((payment) => !previousPaymentIds.has(payment.id))
+    .sort((left, right) => getNumericPaymentTime(left) - getNumericPaymentTime(right));
+  if (newPayments.length === 0) return [];
+
+  const previousClientsById = new Map(previousClients.map((client) => [client.id, client]));
+  const nextClientsById = new Map(nextClients.map((client) => [client.id, client]));
+  const groupsByClient = new Map<string, PaymentDeltaGroup>();
+
+  for (const payment of newPayments) {
+    const previousClient = previousClientsById.get(payment.clientId);
+    const nextClient = nextClientsById.get(payment.clientId);
+    if (!previousClient || !nextClient) {
+      throw new Error("No se pudo preparar delta de pago: cliente no encontrado.");
+    }
+
+    const existingGroup = groupsByClient.get(payment.clientId);
+    if (existingGroup) {
+      existingGroup.payments.push(payment);
+    } else {
+      groupsByClient.set(payment.clientId, {
+        clientId: payment.clientId,
+        previousClient,
+        nextClient,
+        payments: [payment]
+      });
+    }
+  }
+
+  return [...groupsByClient.values()];
+}
+
+export async function registerCloudPaymentDeltas(
+  userId: string,
+  previousClients: Client[],
+  nextClients: Client[],
+  previousPayments: Payment[],
+  nextPayments: Payment[]
+): Promise<void> {
+  const client = getCloudClient();
+  const groups = buildPaymentDeltaGroups(previousClients, nextClients, previousPayments, nextPayments);
+  if (groups.length === 0) return;
+
+  for (const group of groups) {
+    const firstPayment = group.payments[0];
+    const expectedBalanceBefore = firstPayment?.balanceBefore ?? group.previousClient.balance;
+    const { error } = await withCloudRetry(() =>
+      client.rpc("register_client_payment_deltas", {
+        p_owner_user_id: userId,
+        p_client_id: group.clientId,
+        p_expected_balance_before: expectedBalanceBefore,
+        p_next_client: group.nextClient,
+        p_payments: group.payments
+      })
+    );
     if (error) throw error;
   }
 }
