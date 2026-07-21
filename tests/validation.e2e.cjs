@@ -381,8 +381,8 @@ async function ensureClientVisibleInClientsTable(page, unitId, clientName) {
  * @param {string} password
  */
 async function login(page, id, password) {
-  await page.getByLabel("ID").fill(id);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Usuario").fill(id);
+  await page.getByLabel("Contraseña").fill(password);
   await page.getByRole("button", { name: "Iniciar sesion" }).click();
   await expectVisible(page, "button:has-text('Clientes')");
 }

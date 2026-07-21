@@ -10,8 +10,8 @@ async function ensureLoggedIn(page) {
   if (!testId || !testPassword) {
     throw new Error('Faltan RENTAUTOS_TEST_ID y RENTAUTOS_TEST_PASSWORD para autenticar el test.');
   }
-  await page.getByLabel(/^ID$/i).fill(testId);
-  await page.getByLabel(/^Password$/i).fill(testPassword);
+  await page.getByLabel(/^Usuario$/i).fill(testId);
+  await page.getByLabel(/^Contraseña$/i).fill(testPassword);
   await loginBtn.click();
   await page.getByRole('button', { name: /^Pagos$/i }).waitFor({ timeout: 30000 });
 }

@@ -28,13 +28,13 @@ export default function AuthPanel() {
     }
 
     if (!personId.trim() || !password.trim()) {
-      setError("Completa ID y password.");
+      setError("Completa usuario y contraseña.");
       return;
     }
 
     const authEmails = buildAuthEmailsFromId(personId);
     if (authEmails.length === 0) {
-      setError("El ID no es valido.");
+      setError("El usuario no es valido.");
       return;
     }
 
@@ -62,28 +62,26 @@ export default function AuthPanel() {
     <main className="auth-page">
       <section className="auth-card">
         <h1>Rentautos</h1>
-        <p>Accede con tu ID y password.</p>
+        <p>Accede con tu usuario y contraseña.</p>
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <label>
-            ID
+            Usuario
             <input
               type="text"
               value={personId}
               onChange={(event) => setPersonId(event.target.value)}
-              placeholder="Ejemplo: 8-123-456"
               autoComplete="username"
               required
             />
           </label>
 
           <label>
-            Password
+            Contraseña
             <input
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="********"
               autoComplete="current-password"
               required
             />
