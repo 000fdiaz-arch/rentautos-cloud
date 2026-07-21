@@ -41,6 +41,15 @@ function defaultOwnerId(role: AppRole, profileId: string, fallbackOwnerId?: stri
   return role === "admin" ? profileId : fallbackOwnerId || profileId;
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  return "";
+}
+
 export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
   const [profiles, setProfiles] = useState<UserProfileRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -179,11 +188,15 @@ export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
   async function createUser(): Promise<void> {
     const login = createLogin.trim();
     if (!login) {
-      setError("Escribe el usuario o email.");
+      setError("Falta el usuario o email.");
       return;
     }
     if (createPassword.length < 8) {
-      setError("La contrasena temporal debe tener al menos 8 caracteres.");
+      setError(`La contrasena temporal debe tener al menos 8 caracteres. Actualmente tiene ${createPassword.length}.`);
+      return;
+    }
+    if (createRole !== "admin" && !createOwnerId && !fallbackOwnerId) {
+      setError("Falta seleccionar el dataset/owner para este usuario.");
       return;
     }
 
@@ -203,7 +216,12 @@ export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
       await reload();
     } catch (createError) {
       console.error("No se pudo crear usuario.", createError);
-      setError("No se pudo crear el usuario. Verifica que no exista y que la migracion 21 este aplicada.");
+      const details = getErrorMessage(createError);
+      setError(
+        details
+          ? `No se pudo crear el usuario: ${details}`
+          : "No se pudo crear el usuario. Verifica que no exista y que la migracion 21 este aplicada."
+      );
     } finally {
       setCreating(false);
     }
@@ -275,7 +293,7 @@ export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
       </div>
 
       {message && <p className="success-text">{message}</p>}
-      {error && <p className="error-text">{error}</p>}
+      {error && !createOpen && <p className="error-text">{error}</p>}
 
       {loading ? (
         <p className="hint">Cargando usuarios...</p>
@@ -395,6 +413,7 @@ export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
               <p className="hint" style={{ marginTop: 12 }}>
                 La contrasena temporal se marca como obligatoria de cambiar en el primer inicio de sesion.
               </p>
+              {error && <p className="error-text" style={{ marginTop: 12 }}>{error}</p>}
 
               <div className="modal-actions" style={{ marginTop: 14 }}>
                 <button type="button" className="button ghost" onClick={() => setCreateOpen(false)} disabled={creating}>
