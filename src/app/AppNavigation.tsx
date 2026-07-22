@@ -33,13 +33,13 @@ export default function AppNavigation({
   onPageChange,
   onSignOut
 }: Props) {
-  const tabs: Array<{ page: AppPage; label: string; visible: boolean }> = [
-    { page: "leads", label: "Leads", visible: canViewLeads },
-    { page: "clients", label: "Clientes", visible: canViewClients },
-    { page: "payments", label: "Pagos", visible: canViewPayments },
-    { page: "receivables", label: "Cuentas por cobrar", visible: canViewReceivables },
-    { page: "control_units", label: "Autos", visible: canViewControlUnits },
-    { page: "settings", label: "Configuraciones", visible: canViewSettings }
+  const tabs: Array<{ page: AppPage; label: string; mobileLabel: string; visible: boolean }> = [
+    { page: "leads", label: "Leads", mobileLabel: "Leads", visible: canViewLeads },
+    { page: "clients", label: "Clientes", mobileLabel: "Clientes", visible: canViewClients },
+    { page: "payments", label: "Pagos", mobileLabel: "Pagos", visible: canViewPayments },
+    { page: "receivables", label: "Cuentas por cobrar", mobileLabel: "Cuentas", visible: canViewReceivables },
+    { page: "control_units", label: "Autos", mobileLabel: "Autos", visible: canViewControlUnits },
+    { page: "settings", label: "Configuraciones", mobileLabel: "Config.", visible: canViewSettings }
   ];
   const cloudLabel = syncStatus === "syncing"
     ? "Sincronizando..."
@@ -61,7 +61,8 @@ export default function AppNavigation({
               className={`nav-tab ${page === tab.page ? "nav-tab--active" : ""}`}
               onClick={() => onPageChange(tab.page)}
             >
-              {tab.label}
+              <span className="nav-tab-label-full">{tab.label}</span>
+              <span className="nav-tab-label-mobile">{tab.mobileLabel}</span>
             </button>
           ))}
         </div>

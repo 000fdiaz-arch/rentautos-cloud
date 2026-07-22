@@ -3238,6 +3238,10 @@ select.control-op-badge {
   text-align: left;
 }
 
+.nav-tab-label-mobile {
+  display: none;
+}
+
 .nav-tab:hover {
   background: var(--color-bg);
   color: var(--color-text);
@@ -3369,6 +3373,14 @@ select.control-op-badge {
     justify-content: center;
     padding: 8px 10px;
     font-size: 0.82rem;
+  }
+
+  .nav-tab-label-full {
+    display: none;
+  }
+
+  .nav-tab-label-mobile {
+    display: inline;
   }
 
   .backup-nav-zone:not(.auth-nav-zone) {
