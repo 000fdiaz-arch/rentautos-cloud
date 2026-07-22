@@ -342,6 +342,12 @@ export default function AppShell({
     }
   }
 
+  async function refreshClientsFromCloud(): Promise<void> {
+    if (!cloudDataUserId) return;
+    const cloudClients = await loadCloudClients(cloudDataUserId);
+    setClients(cloudClients);
+  }
+
   async function persistPayments(next: Payment[]): Promise<void> {
     if (!canEditPayments) return;
     if (userId && !cloudReady) return;
@@ -749,6 +755,7 @@ export default function AppShell({
           <ClientsPage
             clients={clients}
             onClientsChange={persistClients}
+            onClientsRefresh={refreshClientsFromCloud}
             dataOwnerUserId={cloudDataUserId}
             readOnly={!canEditClients}
           />

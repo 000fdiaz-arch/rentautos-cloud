@@ -42,11 +42,12 @@ import {
 type Props = {
   clients: Client[];
   onClientsChange: (next: Client[]) => void | Promise<void>;
+  onClientsRefresh?: () => void | Promise<void>;
   dataOwnerUserId?: string | null;
   readOnly?: boolean;
 };
 
-export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId, readOnly = false }: Props) {
+export default function ClientsPage({ clients, onClientsChange, onClientsRefresh, dataOwnerUserId, readOnly = false }: Props) {
   const [now, setNow] = useState<Date>(() => new Date());
   const [form, setForm] = useState<ClientForm>(initialForm);
   const [errors, setErrors] = useState<string[]>([]);
@@ -569,9 +570,22 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId,
             if (unitId) {
               await setControlUnitStatus(dataOwnerUserId, unitId, "libre");
             }
+            const { error: clientError } = await supabase
+              .from("clients_cloud")
+              .upsert({
+                user_id: dataOwnerUserId,
+                id: client.id,
+                data: nextClient,
+                updated_at: nowIso
+              }, { onConflict: "user_id,id" });
+            if (clientError) throw clientError;
           }
 
-          await persist(clients.map((current) => current.id === client.id ? nextClient : current));
+          if (onClientsRefresh) {
+            await onClientsRefresh();
+          } else {
+            await persist(clients.map((current) => current.id === client.id ? nextClient : current));
+          }
         } catch (error) {
           console.error("No se pudo desvincular el cliente.", error);
           setErrors([describeCloudSaveError("No se pudo desvincular el cliente en la nube. La unidad no fue liberada.", error)]);
