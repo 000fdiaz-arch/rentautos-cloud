@@ -297,9 +297,12 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
     if (!input.unitId.trim()) { messages.push("UNIDAD/ID es obligatorio."); fields.add("unitId"); }
     const normalizedUnit = input.unitId.trim().toUpperCase();
     const duplicated = clients.some(
-      (client) => client.id !== currentEditingId && client.unitId.trim().toUpperCase() === normalizedUnit
+      (client) =>
+        client.id !== currentEditingId &&
+        client.status !== "archivado" &&
+        client.unitId.trim().toUpperCase() === normalizedUnit
     );
-    if (duplicated) { messages.push("UNIDAD/ID ya existe. No se permiten duplicados."); fields.add("unitId"); }
+    if (duplicated) { messages.push("UNIDAD/ID ya existe en clientes activos. No se permiten duplicados activos."); fields.add("unitId"); }
     if (fleetUnitOptions.length > 0 && !fleetUnitOptions.includes(normalizedUnit)) {
       messages.push("UNIDAD/ID no existe en la base de flota. Usa una nomenclatura valida.");
       fields.add("unitId");
