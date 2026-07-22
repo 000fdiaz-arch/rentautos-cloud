@@ -35,8 +35,7 @@ import {
   saveCloudLeadEvaluation,
   saveCloudLateFeeSettings,
   saveCloudOtherChargesRetention,
-  syncCloudClientsDelta,
-  syncFleetStatusesFromClients
+  syncCloudClientsDelta
 } from "./cloudData";
 import { flushCloudMirror } from "./cloudMirror";
 import { isSupabaseOnlyMode } from "./persistenceMode";
@@ -334,7 +333,6 @@ export default function AppShell({
     try {
       if (cloudDataUserId) {
         await syncCoreDeltaOrQueue(previousClients, next, previousPayments, previousPayments);
-        await syncFleetStatusesFromClients(cloudDataUserId, previousClients, next);
       }
       if (!isSupabaseOnlyMode) saveClients(next);
       setHasPendingChanges(true);
@@ -379,7 +377,6 @@ export default function AppShell({
         } else {
           await syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
         }
-        await syncFleetStatusesFromClients(cloudDataUserId, previousClients, nextClients);
       } catch (error) {
         console.error("No se pudo guardar clientes/pagos en Supabase.", error);
         setClients(previousClients);
@@ -395,14 +392,9 @@ export default function AppShell({
     setClients(nextClients);
     setPayments(nextPayments);
     if (cloudDataUserId) {
-      const syncTask = (async () => {
-        if (isAppendOnlyPaymentChange) {
-          await registerCloudPaymentDeltas(cloudDataUserId, previousClients, nextClients, previousPayments, nextPayments);
-        } else {
-          await syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
-        }
-        await syncFleetStatusesFromClients(cloudDataUserId, previousClients, nextClients);
-      })();
+      const syncTask = isAppendOnlyPaymentChange
+        ? registerCloudPaymentDeltas(cloudDataUserId, previousClients, nextClients, previousPayments, nextPayments)
+        : syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
       void syncTask.catch((error) => {
         console.error("No se pudo guardar clientes/pagos en Supabase.", error);
       });

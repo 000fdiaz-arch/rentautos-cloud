@@ -48,7 +48,7 @@ const DEFAULT_FORM: UnitFormState = {
   color: "",
   transmission: "",
   mileage: "",
-  operational_status: "activo",
+  operational_status: "libre",
   observation: ""
 };
 
@@ -95,7 +95,6 @@ function normalizeUnitIdInput(raw: string): string {
   const group = cleaned[0];
   const digits = cleaned.slice(1).replace(/\D/g, "");
   if (!digits) return group;
-  if (digits.length === 1) return `${group}0${digits}`;
   return `${group}${digits}`;
 }
 
@@ -171,7 +170,7 @@ function toFormState(row?: ControlUnitRow): UnitFormState {
     color: optionalString(row, ["color"]),
     transmission: optionalString(row, ["transmission", "transmission_type"]),
     mileage: optionalString(row, ["mileage", "kilometraje", "kilometrage"]),
-    operational_status: row.operational_status ?? "activo",
+    operational_status: row.operational_status ?? "libre",
     observation: row.observation ?? ""
   };
 }
@@ -233,19 +232,7 @@ export default function ControlUnitsPage({
   const groups = useMemo(() => Array.from(new Set(rows.map((item) => toGroup(item.unit_id ?? "")))).sort(), [rows]);
   const companies = useMemo(() => Array.from(new Set(rows.map((item) => normalizeText(item.company)).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [rows]);
   const models = useMemo(() => Array.from(new Set(rows.map((item) => normalizeText(item.brand_model)).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [rows]);
-  const clientStatusByUnit = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const client of clients) {
-      const unit = normalizeText(client.unitId).toUpperCase();
-      if (!unit) continue;
-      map.set(unit, normalizeStatus(client.status));
-    }
-    return map;
-  }, [clients]);
   function effectiveStatus(row: ControlUnitRow): string {
-    const unit = normalizeText(row.unit_id).toUpperCase();
-    const fromClient = unit ? clientStatusByUnit.get(unit) : "";
-    if (fromClient && fromClient.length > 0) return fromClient;
     return normalizeStatus(row.operational_status);
   }
   function toFleetStatus(value: string): FleetStatus {
@@ -264,7 +251,7 @@ export default function ControlUnitsPage({
   }
   const statuses = useMemo(
     () => Array.from(new Set(rows.map((item) => effectiveStatus(item)))).sort((a, b) => a.localeCompare(b)),
-    [rows, clientStatusByUnit]
+    [rows]
   );
 
   const filteredRows = useMemo(() => {
@@ -296,7 +283,7 @@ export default function ControlUnitsPage({
         const result = left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
         return sortDirection === "asc" ? result : -result;
       });
-  }, [rows, search, groupFilter, companyFilter, modelFilter, statusFilter, sortField, sortDirection, clientStatusByUnit]);
+  }, [rows, search, groupFilter, companyFilter, modelFilter, statusFilter, sortField, sortDirection]);
 
   function toggleSort(nextField: SortField): void {
     if (sortField === nextField) {
@@ -331,15 +318,15 @@ export default function ControlUnitsPage({
       setSaveError("La unidad es obligatoria.");
       return;
     }
-    if (!/^[ABCDT][0-9]{2,3}$/.test(unitId)) {
-      setSaveError("Formato de unidad invalido. Usa grupos A/B/C/D/T y formato como A01, B12, C101 o T99.");
+    if (!/^[ABCDT][0-9]{1,3}$/.test(unitId)) {
+      setSaveError("Formato de unidad invalido. Usa grupos A/B/C/D/T y formato como A1, B12, C101 o T37.");
       return;
     }
     const group = unitId[0] as "A" | "B" | "C" | "D" | "T";
     const numericPart = Number(unitId.slice(1));
     const maxAllowed = UNIT_GROUP_MAX[group];
     if (!Number.isFinite(numericPart) || numericPart < 1 || numericPart > maxAllowed) {
-      setSaveError(`Unidad fuera de rango para grupo ${group}. Rango permitido: ${group}01 a ${group}${String(maxAllowed).padStart(2, "0")}.`);
+      setSaveError(`Unidad fuera de rango para grupo ${group}. Rango permitido: ${group}1 a ${group}${maxAllowed}.`);
       return;
     }
     const year = optionalInteger(state.year);
@@ -363,7 +350,7 @@ export default function ControlUnitsPage({
       engine_serial: state.engine_serial.trim() || null,
       chassis_serial: state.chassis_serial.trim() || null,
       observation: state.observation.trim() || null,
-      operational_status: state.operational_status.trim() || "activo",
+      operational_status: state.operational_status.trim() || "libre",
       year,
       color: state.color.trim() || null,
       transmission: state.transmission.trim() || null,
@@ -517,7 +504,7 @@ export default function ControlUnitsPage({
         count
       }))
       .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-  }, [rows, clientStatusByUnit]);
+  }, [rows]);
 
   const pieData = useMemo(() => {
     const total = statusDashboard.reduce((acc, item) => acc + item.count, 0);
@@ -891,7 +878,7 @@ export default function ControlUnitsPage({
                   <input
                     value={form.unit_id}
                     onChange={(event) => setForm((s) => ({ ...s, unit_id: normalizeUnitIdInput(event.target.value) }))}
-                    placeholder="Ejemplo: A01"
+                    placeholder="Ejemplo: A1"
                   />
                 </label>
                 <label>Marca / Modelo
