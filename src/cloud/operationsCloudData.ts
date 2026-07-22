@@ -5,6 +5,7 @@ import type {
   CashClosingAuditEvent,
   ChargeRun
 } from "../pages/payments/paymentTypes";
+import type { Client } from "../types";
 import { stableEqual } from "../stableSerialize";
 
 export type ControlUnitRow = {
@@ -472,6 +473,54 @@ export async function saveControlUnit(input: ControlUnitUpsertInput): Promise<vo
     .from("fleet_units_cloud")
     .upsert(input, { onConflict: "user_id,unit_id" });
   if (error) throw error;
+}
+
+function normalizeFleetUnitId(value: string): string {
+  return value.trim().toUpperCase();
+}
+
+function normalizeFleetStatus(value: string | null | undefined): string {
+  const status = (value ?? "").trim().toLowerCase();
+  return status.length > 0 ? status : "activo";
+}
+
+function buildLinkedClientStatusMap(clients: Client[]): Map<string, string> {
+  const byUnit = new Map<string, { status: string; updatedAt: string }>();
+  for (const client of clients) {
+    const unitId = normalizeFleetUnitId(client.unitId);
+    const status = normalizeFleetStatus(client.status);
+    if (!unitId || status === "archivado" || client.archivedAt) continue;
+    const previous = byUnit.get(unitId);
+    const updatedAt = client.archivedAt ?? client.createdAt ?? "";
+    if (!previous || updatedAt >= previous.updatedAt) {
+      byUnit.set(unitId, { status, updatedAt });
+    }
+  }
+  return new Map(Array.from(byUnit, ([unitId, value]) => [unitId, value.status]));
+}
+
+export async function syncFleetStatusesFromClients(
+  userId: string,
+  previousClients: Client[],
+  nextClients: Client[]
+): Promise<void> {
+  const unitIds = new Set<string>();
+  for (const client of [...previousClients, ...nextClients]) {
+    const unitId = normalizeFleetUnitId(client.unitId);
+    if (unitId) unitIds.add(unitId);
+  }
+  if (unitIds.size === 0) return;
+
+  const nextStatusByUnit = buildLinkedClientStatusMap(nextClients);
+  const cloud = getCloudClient();
+  for (const unitId of unitIds) {
+    const { error } = await cloud
+      .from("fleet_units_cloud")
+      .update({ operational_status: nextStatusByUnit.get(unitId) ?? "libre" })
+      .eq("user_id", userId)
+      .eq("unit_id", unitId);
+    if (error) throw error;
+  }
 }
 
 export type ControlUnitStatusResult = {

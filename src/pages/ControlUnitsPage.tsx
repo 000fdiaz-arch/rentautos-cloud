@@ -307,6 +307,20 @@ export default function ControlUnitsPage({
     setSortDirection("asc");
   }
 
+  const hasActiveFilters = search.trim().length > 0 ||
+    groupFilter !== "all" ||
+    companyFilter !== "all" ||
+    modelFilter !== "all" ||
+    statusFilter !== "all";
+
+  function clearFilters(): void {
+    setSearch("");
+    setGroupFilter("all");
+    setCompanyFilter("all");
+    setModelFilter("all");
+    setStatusFilter("all");
+  }
+
   async function persistUnit(state: UnitFormState, previousUnitId?: string): Promise<void> {
     if (!dataOwnerUserId) {
       setSaveError("No hay owner de datos para guardar autos en Supabase.");
@@ -539,7 +553,11 @@ export default function ControlUnitsPage({
   }, [statusDashboard]);
   const statusTargetUnit = statusTarget ? normalizeText(statusTarget.unit_id).toUpperCase() : "";
   const statusTargetClient = statusTarget ? activeClientForUnit(statusTarget.unit_id) : null;
-  const statusWillArchiveClient = Boolean(statusTargetClient && (statusDraft === "libre" || statusDraft === "archivado"));
+  const statusTargetClientName = statusTargetClient?.name || normalizeText(statusTarget?.client_name);
+  const statusWillArchiveClient = Boolean(
+    (statusTargetClient || statusTargetClientName) &&
+    (statusDraft === "libre" || statusDraft === "archivado")
+  );
 
   return (
     <section className="panel">
@@ -641,6 +659,15 @@ export default function ControlUnitsPage({
           <option value="all">Estado (todos)</option>
           {statuses.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
         </select>
+      </div>
+
+      <div className="fleet-mobile-toolbar">
+        <span>{filteredRows.length} de {kpiTotal} autos</span>
+        {hasActiveFilters && (
+          <button type="button" className="button ghost small" onClick={clearFilters}>
+            Limpiar filtros
+          </button>
+        )}
       </div>
 
       {loadError && <p className="hint error-text">{loadError}</p>}
@@ -746,11 +773,16 @@ export default function ControlUnitsPage({
                       <div><dt>Ano</dt><dd>{year || "-"}</dd></div>
                       <div><dt>Color</dt><dd>{color || "-"}</dd></div>
                       <div><dt>Km</dt><dd>{mileage || "-"}</dd></div>
-                      <div><dt>Motor</dt><dd>{row.engine_serial ?? "-"}</dd></div>
-                      <div><dt>Chasis</dt><dd>{row.chassis_serial ?? "-"}</dd></div>
-                      <div><dt>Transmision</dt><dd>{transmission || "-"}</dd></div>
                     </dl>
-                    {row.observation && <p className="fleet-mobile-note">{row.observation}</p>}
+                    <details className="fleet-mobile-tech">
+                      <summary>Ficha tecnica</summary>
+                      <dl className="fleet-mobile-details">
+                        <div><dt>Motor</dt><dd>{row.engine_serial ?? "-"}</dd></div>
+                        <div><dt>Chasis</dt><dd>{row.chassis_serial ?? "-"}</dd></div>
+                        <div><dt>Transmision</dt><dd>{transmission || "-"}</dd></div>
+                      </dl>
+                      {row.observation && <p className="fleet-mobile-note">{row.observation}</p>}
+                    </details>
                     {!readOnly && (
                       <button
                         type="button"
@@ -804,7 +836,7 @@ export default function ControlUnitsPage({
 
               {statusWillArchiveClient && (
                 <div className="error-banner" style={{ marginTop: 12 }}>
-                  La unidad quedara {statusLabel(statusDraft)} y {statusTargetClient?.name ?? "el cliente enlazado"} pasara a Clientes archivados conservando la unidad {statusTargetUnit}.
+                  La unidad quedara {statusLabel(statusDraft)} y {statusTargetClientName || "el cliente enlazado"} pasara a Clientes archivados conservando la unidad {statusTargetUnit}.
                 </div>
               )}
 

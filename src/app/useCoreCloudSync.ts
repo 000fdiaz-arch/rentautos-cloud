@@ -52,6 +52,7 @@ const CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS = [
 export type CoreSyncStatus = "idle" | "syncing" | "ok" | "error";
 
 type UseCoreCloudSyncOptions = {
+  enabled?: boolean;
   userId?: string;
   ownerUserId?: string;
   isReadOnly: boolean;
@@ -75,6 +76,7 @@ async function measureAsync<T>(label: string, task: () => Promise<T>): Promise<T
 }
 
 export function useCoreCloudSync({
+  enabled = true,
   userId,
   ownerUserId,
   isReadOnly,
@@ -95,6 +97,15 @@ export function useCoreCloudSync({
   const coreSyncRetryTimerRef = useRef<number | null>(null);
   const coreSyncInFlightRef = useRef(false);
 
+  useEffect(() => {
+    if (enabled) return;
+    savePendingSnapshot(null);
+    setCloudReady(true);
+    setCloudBootTimedOut(false);
+    setSyncStatus("ok");
+    setSyncErrorMessage("");
+  }, [enabled]);
+
   function savePendingSnapshot(snapshot: PendingCoreSyncSnapshot | null): void {
     pendingCoreSyncRef.current = snapshot;
     if (!snapshot) {
@@ -113,6 +124,7 @@ export function useCoreCloudSync({
   }
 
   async function flushPendingCoreSync(): Promise<boolean> {
+    if (!enabled) return true;
     if (!ownerUserId || !cloudReady) return false;
     const snapshot = pendingCoreSyncRef.current;
     if (!snapshot) return true;
@@ -141,6 +153,7 @@ export function useCoreCloudSync({
   }
 
   function queueCoreSync(nextClients: Client[], nextPayments: Payment[]): void {
+    if (!enabled) return;
     if (!ownerUserId) return;
     savePendingSnapshot({
       userId: ownerUserId,
@@ -158,6 +171,7 @@ export function useCoreCloudSync({
     previousPayments: Payment[],
     nextPayments: Payment[]
   ): Promise<void> {
+    if (!enabled) return;
     if (!ownerUserId) return;
     try {
       setSyncStatus("syncing");
@@ -236,15 +250,17 @@ export function useCoreCloudSync({
   }
 
   useEffect(() => {
+    if (!enabled) return;
     if (!userId || cloudReady) {
       setCloudBootTimedOut(false);
       return;
     }
     const timer = window.setTimeout(() => setCloudBootTimedOut(true), CLOUD_BOOT_BLOCK_MS);
     return () => window.clearTimeout(timer);
-  }, [cloudReady, userId]);
+  }, [enabled, cloudReady, userId]);
 
   useEffect(() => {
+    if (!enabled) return;
     if (isSupabaseOnlyMode) return;
     let cancelled = false;
     void Promise.all([loadClientsFromIndexedDb(), loadPaymentsFromIndexedDb()]).then(([indexedClients, indexedPayments]) => {
@@ -253,9 +269,13 @@ export function useCoreCloudSync({
       if (indexedPayments.length > 0) setPayments((current) => current.length > 0 ? current : indexedPayments);
     }).catch((error) => console.error("No se pudo hidratar cache local desde IndexedDB.", error));
     return () => { cancelled = true; };
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) {
+      savePendingSnapshot(null);
+      return;
+    }
     if (isSupabaseOnlyMode) {
       savePendingSnapshot(null);
       return;
@@ -267,9 +287,10 @@ export function useCoreCloudSync({
     setPayments(snapshot.payments);
     setSyncStatus("error");
     setSyncErrorMessage("Hay cambios pendientes por sincronizar. Se reintentara automaticamente.");
-  }, [ownerUserId]);
+  }, [enabled, ownerUserId]);
 
   useEffect(() => {
+    if (!enabled) return;
     if (!ownerUserId) return;
     let cancelled = false;
     void (async () => {
@@ -315,9 +336,10 @@ export function useCoreCloudSync({
       cancelled = true;
       disableCloudMirror();
     };
-  }, [ownerUserId, isReadOnly]);
+  }, [enabled, ownerUserId, isReadOnly]);
 
   useEffect(() => {
+    if (!enabled) return;
     if (!ownerUserId || !cloudReady || !supabase) return;
     const client = supabase;
     let cancelled = false;
@@ -355,18 +377,20 @@ export function useCoreCloudSync({
       window.clearInterval(fallbackTimer);
       void client.removeChannel(channel);
     };
-  }, [ownerUserId, cloudReady]);
+  }, [enabled, ownerUserId, cloudReady]);
 
   useEffect(() => {
+    if (!enabled) return;
     const handleOnline = () => { void flushPendingCoreSync(); };
     window.addEventListener("online", handleOnline);
     return () => {
       window.removeEventListener("online", handleOnline);
       if (coreSyncRetryTimerRef.current !== null) window.clearTimeout(coreSyncRetryTimerRef.current);
     };
-  }, [ownerUserId, cloudReady]);
+  }, [enabled, ownerUserId, cloudReady]);
 
   useEffect(() => {
+    if (!enabled) return;
     if (!ownerUserId || !cloudReady) return;
     let timer: number | null = null;
     const handlePing = () => {
@@ -383,9 +407,10 @@ export function useCoreCloudSync({
       window.removeEventListener("cobrapp:cloud-sync-ping", handlePing);
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [ownerUserId, cloudReady]);
+  }, [enabled, ownerUserId, cloudReady]);
 
   async function refreshPaymentsFromSource(): Promise<void> {
+    if (!enabled) return;
     if (pendingCoreSyncRef.current && !(await flushPendingCoreSync())) {
       throw new Error("No se pudieron sincronizar los cambios pendientes.");
     }

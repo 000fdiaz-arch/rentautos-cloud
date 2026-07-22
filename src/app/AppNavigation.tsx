@@ -8,6 +8,7 @@ type Props = {
   canViewReceivables: boolean;
   canViewControlUnits: boolean;
   canViewSettings: boolean;
+  showCoreSyncStatus?: boolean;
   syncStatus: "idle" | "syncing" | "ok" | "error";
   syncErrorMessage: string;
   lastSyncAt: string;
@@ -25,6 +26,7 @@ export default function AppNavigation({
   canViewReceivables,
   canViewControlUnits,
   canViewSettings,
+  showCoreSyncStatus = true,
   syncStatus,
   syncErrorMessage,
   lastSyncAt,
@@ -41,11 +43,13 @@ export default function AppNavigation({
     { page: "control_units", label: "Autos", mobileLabel: "Autos", visible: canViewControlUnits },
     { page: "settings", label: "Configuraciones", mobileLabel: "Config.", visible: canViewSettings }
   ];
-  const cloudLabel = syncStatus === "syncing"
+  const effectiveSyncStatus = showCoreSyncStatus ? syncStatus : "ok";
+  const effectiveSyncErrorMessage = showCoreSyncStatus ? syncErrorMessage : "";
+  const cloudLabel = effectiveSyncStatus === "syncing"
     ? "Sincronizando..."
-    : syncStatus === "ok"
+    : effectiveSyncStatus === "ok"
       ? "En nube"
-      : syncStatus === "error"
+      : effectiveSyncStatus === "error"
         ? "Error"
         : "Listo";
 
@@ -69,8 +73,8 @@ export default function AppNavigation({
         <div className="backup-nav-zone">
           <span className="hint">Estado nube: {cloudLabel}</span>
           {lastSyncAt && <span className="hint" style={{ marginLeft: 8 }}>Ultima sync: {lastSyncAt}</span>}
-          {syncStatus === "error" && syncErrorMessage && (
-            <span className="hint" style={{ marginLeft: 8, color: "#b42318" }}>{syncErrorMessage}</span>
+          {effectiveSyncStatus === "error" && effectiveSyncErrorMessage && (
+            <span className="hint" style={{ marginLeft: 8, color: "#b42318" }}>{effectiveSyncErrorMessage}</span>
           )}
         </div>
         {canSignOut && (

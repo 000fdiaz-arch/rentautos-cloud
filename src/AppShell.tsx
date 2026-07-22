@@ -35,7 +35,8 @@ import {
   saveCloudLeadEvaluation,
   saveCloudLateFeeSettings,
   saveCloudOtherChargesRetention,
-  syncCloudClientsDelta
+  syncCloudClientsDelta,
+  syncFleetStatusesFromClients
 } from "./cloudData";
 import { flushCloudMirror } from "./cloudMirror";
 import { isSupabaseOnlyMode } from "./persistenceMode";
@@ -131,6 +132,8 @@ export default function AppShell({
   const canEditSettings = canEditScreen(permissions, "settings") && canManageSettings;
   const canViewSettingsPage = canViewSettings || canManageUsers;
   const isReadOnlyReceivables = isReadOnlyExperience || !canEditReceivables;
+  const shouldSyncCoreData = canViewClients || canViewPayments || canViewReceivables || canViewSettingsPage;
+  const shouldLoadCloudSettings = canViewPayments || canViewReceivables || canViewSettingsPage;
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = effectiveOwnerUserId ?? dataOwnerUserId ?? userId;
   const [page, setPage] = useState<AppPage>(() => getFirstVisiblePage({
@@ -172,6 +175,7 @@ export default function AppShell({
     syncCoreDeltaOrQueue,
     refreshPaymentsFromSource
   } = useCoreCloudSync({
+    enabled: shouldSyncCoreData,
     userId,
     ownerUserId: cloudDataUserId,
     isReadOnly: isReadOnlyReceivables,
@@ -251,7 +255,7 @@ export default function AppShell({
 
   useEffect(() => {
     let cancelled = false;
-    if (!cloudDataUserId || !cloudReady) return () => {
+    if (!cloudDataUserId || !cloudReady || !shouldLoadCloudSettings) return () => {
       cancelled = true;
     };
 
@@ -266,7 +270,7 @@ export default function AppShell({
     return () => {
       cancelled = true;
     };
-  }, [cloudDataUserId, cloudReady]);
+  }, [cloudDataUserId, cloudReady, shouldLoadCloudSettings]);
 
   function handleStartCashClientPayment(payload: {
     dateApplied: string;
@@ -330,6 +334,7 @@ export default function AppShell({
     try {
       if (cloudDataUserId) {
         await syncCoreDeltaOrQueue(previousClients, next, previousPayments, previousPayments);
+        await syncFleetStatusesFromClients(cloudDataUserId, previousClients, next);
       }
       if (!isSupabaseOnlyMode) saveClients(next);
       setHasPendingChanges(true);
@@ -374,6 +379,7 @@ export default function AppShell({
         } else {
           await syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
         }
+        await syncFleetStatusesFromClients(cloudDataUserId, previousClients, nextClients);
       } catch (error) {
         console.error("No se pudo guardar clientes/pagos en Supabase.", error);
         setClients(previousClients);
@@ -389,9 +395,14 @@ export default function AppShell({
     setClients(nextClients);
     setPayments(nextPayments);
     if (cloudDataUserId) {
-      const syncTask = isAppendOnlyPaymentChange
-        ? registerCloudPaymentDeltas(cloudDataUserId, previousClients, nextClients, previousPayments, nextPayments)
-        : syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
+      const syncTask = (async () => {
+        if (isAppendOnlyPaymentChange) {
+          await registerCloudPaymentDeltas(cloudDataUserId, previousClients, nextClients, previousPayments, nextPayments);
+        } else {
+          await syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
+        }
+        await syncFleetStatusesFromClients(cloudDataUserId, previousClients, nextClients);
+      })();
       void syncTask.catch((error) => {
         console.error("No se pudo guardar clientes/pagos en Supabase.", error);
       });
@@ -716,6 +727,7 @@ export default function AppShell({
         canViewReceivables={canViewReceivables}
         canViewControlUnits={canViewControlUnits}
         canViewSettings={canViewSettingsPage}
+        showCoreSyncStatus={shouldSyncCoreData}
         syncStatus={syncStatus}
         syncErrorMessage={syncErrorMessage}
         lastSyncAt={lastSyncAt}

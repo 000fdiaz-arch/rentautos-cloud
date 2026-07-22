@@ -1256,6 +1256,10 @@ select.control-op-badge {
   display: none;
 }
 
+.fleet-mobile-toolbar {
+  display: none;
+}
+
 .fleet-mobile-card {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -1329,6 +1333,19 @@ select.control-op-badge {
   color: var(--color-text-muted);
   font-size: 0.86rem;
   overflow-wrap: anywhere;
+}
+
+.fleet-mobile-tech {
+  margin-top: 10px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 8px;
+}
+
+.fleet-mobile-tech summary {
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 700;
 }
 
 .fleet-mobile-edit {
@@ -3133,21 +3150,62 @@ select.control-op-badge {
     width: 100%;
   }
 
+  .fleet-summary-grid {
+    margin-bottom: 12px;
+  }
+
+  .fleet-summary-grid .summary-card {
+    padding: 14px;
+  }
+
+  .fleet-summary-grid .summary-card > .hint {
+    display: none;
+  }
+
   .fleet-dashboard-layout {
     grid-template-columns: 1fr;
+    margin-top: 8px;
   }
 
   .fleet-chart-wrap {
-    justify-self: center;
-    width: min(220px, 100%);
+    display: none;
   }
 
   .fleet-status-filter {
-    width: 100%;
+    width: auto;
+    min-height: 34px;
+    padding: 7px 10px;
+    flex: 0 0 auto;
+  }
+
+  .fleet-status-list {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+
+  .fleet-status-filter strong {
+    font-size: 0.78rem;
+    white-space: nowrap;
   }
 
   .fleet-filters-bar {
     grid-template-columns: 1fr;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .fleet-mobile-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 6px 0 10px;
+    color: var(--color-text-muted);
+    font-size: 0.84rem;
+    font-weight: 700;
   }
 
   .fleet-table-scroll {
@@ -3164,6 +3222,15 @@ select.control-op-badge {
     min-height: 32px;
     text-align: center;
     white-space: nowrap;
+  }
+
+  .fleet-mobile-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px 10px;
+  }
+
+  .fleet-mobile-tech .fleet-mobile-details {
+    margin-top: 8px;
   }
 
   .hero h1 {
