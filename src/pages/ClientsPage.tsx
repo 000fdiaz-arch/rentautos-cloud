@@ -6,7 +6,7 @@ import {
 } from "../billing";
 import { exportClientsToExcel, exportClientsToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
-import { loadControlUnits } from "../cloudData";
+import { loadControlUnits, setControlUnitStatus } from "../cloudData";
 import { supabase } from "../lib/supabase";
 import type { Client } from "../types";
 import {
@@ -556,18 +556,25 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId,
       message: `Se desvinculara ${client.name} de la unidad ${client.unitId}. La unidad quedara libre y el cliente pasara a Clientes archivados. ¿Deseas continuar?`,
       variant: "warning",
       onConfirm: async () => {
+        const nowIso = new Date().toISOString();
+        const unitId = client.unitId.trim().toUpperCase();
+        const nextClient: Client = {
+          ...client,
+          status: "archivado",
+          statusComment: `Desvinculado de unidad ${client.unitId} el ${new Date().toLocaleDateString("es-PA")}`,
+          archivedAt: nowIso
+        };
         try {
-          await persist(clients.map((current) => {
-            if (current.id !== client.id) return current;
-            return {
-              ...current,
-              status: "archivado",
-              statusComment: `Desvinculado de unidad ${client.unitId} el ${new Date().toLocaleDateString("es-PA")}`,
-              archivedAt: new Date().toISOString()
-            };
-          }));
-        } catch {
-          setErrors(["No se pudo desvincular el cliente en la nube. La unidad no fue liberada. Intenta de nuevo."]);
+          if (dataOwnerUserId && supabase) {
+            if (unitId) {
+              await setControlUnitStatus(dataOwnerUserId, unitId, "libre");
+            }
+          }
+
+          await persist(clients.map((current) => current.id === client.id ? nextClient : current));
+        } catch (error) {
+          console.error("No se pudo desvincular el cliente.", error);
+          setErrors([describeCloudSaveError("No se pudo desvincular el cliente en la nube. La unidad no fue liberada.", error)]);
           setConfirmDialog(null);
           return;
         }
