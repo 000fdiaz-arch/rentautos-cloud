@@ -466,11 +466,31 @@ export type ControlUnitUpsertInput = {
   [key: string]: unknown;
 };
 
+function toControlUnitCloudPayload(input: ControlUnitUpsertInput): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    user_id: input.user_id,
+    unit_id: input.unit_id,
+    company: input.company ?? null,
+    brand_model: input.brand_model ?? null,
+    engine_serial: input.engine_serial ?? null,
+    chassis_serial: input.chassis_serial ?? null,
+    plate: input.plate ?? null,
+    cupo: input.cupo ?? null,
+    observation: input.observation ?? null,
+    operational_status: input.operational_status ?? null,
+    model_year: input.model_year ?? input.year ?? null,
+    color: input.color ?? null,
+    transmission_type: input.transmission_type ?? input.transmission ?? null,
+    mileage: input.mileage ?? input.kilometrage ?? input.kilometraje ?? null
+  };
+  return payload;
+}
+
 export async function saveControlUnit(input: ControlUnitUpsertInput): Promise<void> {
   const client = getCloudClient();
   const { error } = await client
     .from("fleet_units_cloud")
-    .upsert(input, { onConflict: "user_id,unit_id" });
+    .upsert(toControlUnitCloudPayload(input), { onConflict: "user_id,unit_id" });
   if (error) throw error;
 }
 

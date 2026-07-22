@@ -351,9 +351,9 @@ export default function ControlUnitsPage({
       chassis_serial: state.chassis_serial.trim() || null,
       observation: state.observation.trim() || null,
       operational_status: state.operational_status.trim() || "libre",
-      year,
+      model_year: year,
       color: state.color.trim() || null,
-      transmission: state.transmission.trim() || null,
+      transmission_type: state.transmission.trim() || null,
       mileage
     };
     try {
