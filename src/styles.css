@@ -3352,7 +3352,7 @@ select.control-op-badge {
   }
 
   .app-nav-brand {
-    padding: 0;
+    display: none;
   }
 
   .app-nav-tabs {
@@ -3367,6 +3367,8 @@ select.control-op-badge {
     width: auto;
     flex: 0 0 auto;
     justify-content: center;
+    padding: 8px 10px;
+    font-size: 0.82rem;
   }
 
   .backup-nav-zone:not(.auth-nav-zone) {
