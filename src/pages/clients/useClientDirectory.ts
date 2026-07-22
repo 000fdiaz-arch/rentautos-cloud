@@ -15,8 +15,9 @@ export function useClientDirectoryRows(
   operationalReferenceDate: Date
 ) {
   const rows = useMemo<ClientDirectoryRow[]>(() => {
+    const activeClients = clients.filter((client) => client.status !== "archivado");
     const clientByUnit = new Map<string, Client>();
-    for (const client of clients) {
+    for (const client of activeClients) {
       const key = client.unitId.trim().toUpperCase();
       if (!key || clientByUnit.has(key)) continue;
       clientByUnit.set(key, client);
@@ -26,7 +27,7 @@ export function useClientDirectoryRows(
       .map((unitId) => unitId.trim().toUpperCase())
       .filter((unitId) => unitId.length > 0);
     const clientUnits = Array.from(new Set(
-      clients
+      activeClients
         .map((client) => client.unitId.trim().toUpperCase())
         .filter((unitId) => unitId.length > 0)
     ));
@@ -60,6 +61,7 @@ export function useClientDirectoryRows(
 
     return clients
       .filter((client) => {
+        if (client.status === "archivado") return true;
         const unit = client.unitId.trim().toUpperCase();
         return !unit || !fleetUnits.has(unit);
       })
