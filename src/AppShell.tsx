@@ -31,6 +31,7 @@ import {
   loadControlUnits,
   registerCloudPaymentDeltas,
   saveCloudBankRules,
+  saveControlUnit,
   saveCloudLeadEvaluation,
   saveCloudLateFeeSettings,
   saveCloudOtherChargesRetention,
@@ -46,14 +47,33 @@ import { parseLocalJson } from "./app/appShellRules";
 import AppNavigation, { type AppPage } from "./app/AppNavigation";
 import { useBackupManager } from "./app/useBackupManager";
 import { useCoreCloudSync } from "./app/useCoreCloudSync";
+import { getBusinessDateKey } from "./billing";
 import { stableEqual } from "./stableSerialize";
 import "./styles.css";
 
 const ClientsPage = lazy(() => import("./pages/ClientsPage"));
 const LeadsPage = lazy(() => import("./pages/LeadsPage"));
 const PaymentsPage = lazy(() => import("./pages/PaymentsPage"));
+const ReceivablesPage = lazy(() => import("./pages/ReceivablesPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const ControlUnitsPage = lazy(() => import("./pages/ControlUnitsPage"));
+
+const FLEET_UNIT_RESTORE_FIELDS = [
+  "company",
+  "brand_model",
+  "engine_serial",
+  "chassis_serial",
+  "plate",
+  "cupo",
+  "observation",
+  "is_exception",
+  "exception_note",
+  "operational_status",
+  "year",
+  "color",
+  "transmission",
+  "mileage"
+] as const;
 
 type AppShellProps = {
   userId?: string;
@@ -72,11 +92,13 @@ function getFirstVisiblePage(visibility: {
   canViewLeads: boolean;
   canViewClients: boolean;
   canViewPayments: boolean;
+  canViewReceivables: boolean;
   canViewControlUnits: boolean;
   canViewSettingsPage: boolean;
 }): AppPage {
   if (visibility.canViewClients) return "clients";
   if (visibility.canViewPayments) return "payments";
+  if (visibility.canViewReceivables) return "receivables";
   if (visibility.canViewLeads) return "leads";
   if (visibility.canViewControlUnits) return "control_units";
   if (visibility.canViewSettingsPage) return "settings";
@@ -101,18 +123,21 @@ export default function AppShell({
   const canEditClients = canEditScreen(permissions, "clients");
   const canViewPayments = canViewScreen(permissions, "payments");
   const canEditPayments = canEditScreen(permissions, "payments");
+  const canViewReceivables = canViewScreen(permissions, "receivables");
+  const canEditReceivables = canEditScreen(permissions, "receivables");
   const canViewControlUnits = canViewScreen(permissions, "control_units");
   const canEditControlUnits = canEditScreen(permissions, "control_units");
   const canViewSettings = canViewScreen(permissions, "settings");
   const canEditSettings = canEditScreen(permissions, "settings") && canManageSettings;
   const canViewSettingsPage = canViewSettings || canManageUsers;
-  const isReadOnlyReceivables = isReadOnlyExperience || (!canEditClients && !canEditPayments && !canEditLeads && !canEditControlUnits);
+  const isReadOnlyReceivables = isReadOnlyExperience || !canEditReceivables;
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = effectiveOwnerUserId ?? dataOwnerUserId ?? userId;
   const [page, setPage] = useState<AppPage>(() => getFirstVisiblePage({
     canViewLeads,
     canViewClients,
     canViewPayments,
+    canViewReceivables,
     canViewControlUnits,
     canViewSettingsPage
   }));
@@ -178,6 +203,7 @@ export default function AppShell({
       leads: canViewLeads,
       clients: canViewClients,
       payments: canViewPayments,
+      receivables: canViewReceivables,
       control_units: canViewControlUnits,
       settings: canViewSettingsPage
     } satisfies Record<AppPage, boolean>;
@@ -186,12 +212,13 @@ export default function AppShell({
         canViewLeads,
         canViewClients,
         canViewPayments,
+        canViewReceivables,
         canViewControlUnits,
         canViewSettingsPage
       }));
       return;
     }
-  }, [canViewClients, canViewControlUnits, canViewLeads, canViewPayments, canViewSettingsPage, page]);
+  }, [canViewClients, canViewControlUnits, canViewLeads, canViewPayments, canViewReceivables, canViewSettingsPage, page]);
 
   useEffect(() => {
     let cancelled = false;
@@ -511,6 +538,47 @@ export default function AppShell({
     }
   }
 
+  function handleFleetClientStatusSync(payload: {
+    unitId: string;
+    status: Client["status"] | "libre";
+    archivedClientIds: string[];
+    updatedClientIds: string[];
+    statusComment?: string;
+    archivedAt?: string;
+  }): void {
+    const archivedIds = new Set(payload.archivedClientIds);
+    const updatedIds = new Set(payload.updatedClientIds);
+    if (archivedIds.size === 0 && updatedIds.size === 0) return;
+
+    setClients((current) => current.map((client) => {
+      if (archivedIds.has(client.id)) {
+        return {
+          ...client,
+          status: "archivado",
+          statusComment: payload.statusComment,
+          archivedAt: payload.archivedAt ?? new Date().toISOString()
+        };
+      }
+      if (updatedIds.has(client.id) && payload.status !== "libre") {
+        if (payload.status === "activo") {
+          return {
+            ...client,
+            status: "activo",
+            statusComment: undefined,
+            archivedAt: undefined,
+            lastChargeDate: getBusinessDateKey()
+          };
+        }
+        return {
+          ...client,
+          status: payload.status,
+          statusComment: payload.statusComment
+        };
+      }
+      return client;
+    }));
+  }
+
   function describeCloudError(error: unknown): string {
     const record = typeof error === "object" && error !== null ? error as Record<string, unknown> : null;
     const code = typeof record?.code === "string" ? record.code : "";
@@ -570,6 +638,30 @@ export default function AppShell({
       localStorage.setItem("cobrapp.module2.charge_runs.v1", JSON.stringify(report.normalizedData["cobrapp.module2.charge_runs.v1"] ?? []));
       localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(report.normalizedData["cobrapp.module3.street_management.v1"] ?? {}));
       await persistLeadEvaluations(Array.isArray(report.normalizedData["cobrapp.module4.leads.v1"]) ? report.normalizedData["cobrapp.module4.leads.v1"] as LeadEvaluation[] : []);
+      if (cloudDataUserId) {
+        const fleetUnitsRaw = report.normalizedData["cobrapp.module5.fleet_units.v1"];
+        const fleetUnits = Array.isArray(fleetUnitsRaw) ? fleetUnitsRaw : [];
+        await Promise.all(
+          fleetUnits
+            .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && !Array.isArray(row))
+            .map((row) => {
+              const unitId = typeof row.unit_id === "string" ? row.unit_id.trim().toUpperCase() : "";
+              if (!unitId) return Promise.resolve();
+              const payload: Record<string, unknown> = {
+                user_id: cloudDataUserId,
+                unit_id: unitId
+              };
+              for (const field of FLEET_UNIT_RESTORE_FIELDS) {
+                if (field in row) payload[field] = row[field];
+              }
+              return saveControlUnit({
+                ...payload,
+                user_id: cloudDataUserId,
+                unit_id: unitId
+              });
+            })
+        );
+      }
       localStorage.setItem("cobrapp.payments.seq.v1", String(Number(report.normalizedData["cobrapp.payments.seq.v1"] ?? 0) || 0));
       localStorage.setItem("cobrapp.clients.status_filter.v1", String(report.normalizedData["cobrapp.clients.status_filter.v1"] ?? ""));
       setHasPendingChanges(true);
@@ -621,6 +713,7 @@ export default function AppShell({
         canViewLeads={canViewLeads}
         canViewClients={canViewClients}
         canViewPayments={canViewPayments}
+        canViewReceivables={canViewReceivables}
         canViewControlUnits={canViewControlUnits}
         canViewSettings={canViewSettingsPage}
         syncStatus={syncStatus}
@@ -685,11 +778,25 @@ export default function AppShell({
             readOnly={!canEditPayments}
           />
         )}
+        {page === "receivables" && canViewReceivables && (
+          <ReceivablesPage
+            clients={clients}
+            payments={payments}
+            dataOwnerUserId={cloudDataUserId}
+            streetManagementData={parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>}
+            onStreetManagementPersist={async (value) => {
+              localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(value));
+              setHasPendingChanges(true);
+              return true;
+            }}
+          />
+        )}
         {page === "control_units" && canViewControlUnits && (
           <ControlUnitsPage
             dataOwnerUserId={cloudDataUserId}
             readOnly={!canEditControlUnits}
             clients={clients}
+            onFleetClientStatusSync={handleFleetClientStatusSync}
           />
         )}
         {page === "settings" && canViewSettingsPage && (

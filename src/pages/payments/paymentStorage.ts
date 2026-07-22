@@ -15,9 +15,9 @@ import type {
   NotifiedPayment
 } from "./paymentTypes";
 
-export function parseCollectionStatusesFromStorage(): Record<string, CollectionStatusRecord> {
+export function parseCollectionStatusesFromStorage(rawValue?: string | null): Record<string, CollectionStatusRecord> {
   try {
-    const raw = localStorage.getItem(COLLECTION_STATUS_KEY);
+    const raw = rawValue ?? localStorage.getItem(COLLECTION_STATUS_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};

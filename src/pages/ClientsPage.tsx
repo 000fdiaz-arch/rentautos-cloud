@@ -561,7 +561,6 @@ export default function ClientsPage({ clients, onClientsChange, dataOwnerUserId,
             if (current.id !== client.id) return current;
             return {
               ...current,
-              unitId: "",
               status: "archivado",
               statusComment: `Desvinculado de unidad ${client.unitId} el ${new Date().toLocaleDateString("es-PA")}`,
               archivedAt: new Date().toISOString()

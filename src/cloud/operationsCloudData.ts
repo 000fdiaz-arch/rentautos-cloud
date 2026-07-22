@@ -473,3 +473,27 @@ export async function saveControlUnit(input: ControlUnitUpsertInput): Promise<vo
     .upsert(input, { onConflict: "user_id,unit_id" });
   if (error) throw error;
 }
+
+export type ControlUnitStatusResult = {
+  unit_id?: string;
+  status?: string;
+  archived_client_ids?: string[];
+  updated_client_ids?: string[];
+};
+
+export async function setControlUnitStatus(
+  userId: string,
+  unitId: string,
+  status: string
+): Promise<ControlUnitStatusResult> {
+  const client = getCloudClient();
+  const { data, error } = await client.rpc("set_fleet_unit_status", {
+    p_owner_user_id: userId,
+    p_unit_id: unitId,
+    p_status: status
+  });
+  if (error) throw error;
+  return (data && typeof data === "object" && !Array.isArray(data))
+    ? data as ControlUnitStatusResult
+    : {};
+}

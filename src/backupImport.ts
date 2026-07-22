@@ -15,7 +15,8 @@ const LS_KEYS = [
   "cobrapp.module2.charge_runs.v1",
   "cobrapp.clients.status_filter.v1",
   "cobrapp.module3.street_management.v1",
-  "cobrapp.module4.leads.v1"
+  "cobrapp.module4.leads.v1",
+  "cobrapp.module5.fleet_units.v1"
 ] as const;
 
 type LSKey = (typeof LS_KEYS)[number];
@@ -42,6 +43,7 @@ type BackupShapeB = {
   statusFilter?: string | null;
   streetManagement?: Record<string, unknown>;
   leadEvaluations?: unknown[];
+  fleetUnits?: unknown[];
 };
 
 export type BackupImportReport = {
@@ -59,6 +61,13 @@ function toArray(value: unknown): unknown[] {
 
 function toObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function parseReceiptSequence(value: unknown): number {
+  if (typeof value !== "string") return 0;
+  const match = value.trim().toUpperCase().match(/^REC-([0-9]+)$/);
+  const sequence = Number(match?.[1] ?? 0);
+  return Number.isFinite(sequence) ? sequence : 0;
 }
 
 export function analyzeBackupFileContent(fileName: string, content: string): BackupImportReport {
@@ -108,7 +117,8 @@ export function analyzeBackupFileContent(fileName: string, content: string): Bac
     "cobrapp.module2.charge_runs.v1": toArray(shapeB.chargeRuns),
     "cobrapp.clients.status_filter.v1": shapeB.statusFilter ?? "",
     "cobrapp.module3.street_management.v1": toObject(shapeB.streetManagement),
-    "cobrapp.module4.leads.v1": toArray(shapeB.leadEvaluations)
+    "cobrapp.module4.leads.v1": toArray(shapeB.leadEvaluations),
+    "cobrapp.module5.fleet_units.v1": toArray(shapeB.fleetUnits)
   };
 
   for (const key of LS_KEYS) {
@@ -123,9 +133,24 @@ export function analyzeBackupFileContent(fileName: string, content: string): Bac
 
   const clients = toArray(normalizedData["cobrapp.module1.clients.v1"]);
   const payments = toArray(normalizedData["cobrapp.module2.payments.v1"]);
+  const declaredSeq = Number(normalizedData["cobrapp.payments.seq.v1"] ?? 0) || 0;
+  const maxReceiptSeq = payments.reduce<number>((max, payment) => {
+    const receiptNumber = payment && typeof payment === "object"
+      ? (payment as { receiptNumber?: unknown }).receiptNumber
+      : "";
+    return Math.max(max, parseReceiptSequence(receiptNumber));
+  }, 0);
+  const safeSeq = Math.max(declaredSeq, maxReceiptSeq);
+  normalizedData["cobrapp.payments.seq.v1"] = safeSeq;
   summary.clients = clients.length;
   summary.payments = payments.length;
-  summary.seq = Number(normalizedData["cobrapp.payments.seq.v1"] ?? 0) || 0;
+  summary.seq = safeSeq;
+  summary.maxReceiptSeq = maxReceiptSeq;
+  summary.fleetUnits = toArray(normalizedData["cobrapp.module5.fleet_units.v1"]).length;
+
+  if (declaredSeq < maxReceiptSeq) {
+    warnings.push(`Secuencia de recibos ajustada de ${declaredSeq} a ${maxReceiptSeq} para evitar recibos repetidos.`);
+  }
 
   if (clients.length === 0) issues.push("No hay clientes en el respaldo.");
   if (payments.length === 0) warnings.push("No hay pagos en el respaldo.");

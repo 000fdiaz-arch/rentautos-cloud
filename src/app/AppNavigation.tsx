@@ -1,10 +1,11 @@
-export type AppPage = "clients" | "leads" | "payments" | "control_units" | "settings";
+export type AppPage = "clients" | "leads" | "payments" | "receivables" | "control_units" | "settings";
 
 type Props = {
   page: AppPage;
   canViewLeads: boolean;
   canViewClients: boolean;
   canViewPayments: boolean;
+  canViewReceivables: boolean;
   canViewControlUnits: boolean;
   canViewSettings: boolean;
   syncStatus: "idle" | "syncing" | "ok" | "error";
@@ -21,6 +22,7 @@ export default function AppNavigation({
   canViewLeads,
   canViewClients,
   canViewPayments,
+  canViewReceivables,
   canViewControlUnits,
   canViewSettings,
   syncStatus,
@@ -35,6 +37,7 @@ export default function AppNavigation({
     { page: "leads", label: "Leads", visible: canViewLeads },
     { page: "clients", label: "Clientes", visible: canViewClients },
     { page: "payments", label: "Pagos", visible: canViewPayments },
+    { page: "receivables", label: "Cuentas por cobrar", visible: canViewReceivables },
     { page: "control_units", label: "Autos", visible: canViewControlUnits },
     { page: "settings", label: "Configuraciones", visible: canViewSettings }
   ];

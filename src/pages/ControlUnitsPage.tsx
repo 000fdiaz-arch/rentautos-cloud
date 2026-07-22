@@ -1,15 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
-import { loadControlUnits, saveControlUnit, type ControlUnitRow, type ControlUnitUpsertInput } from "../cloudData";
-import type { Client } from "../types";
+import { loadControlUnits, saveControlUnit, setControlUnitStatus, type ControlUnitRow, type ControlUnitUpsertInput } from "../cloudData";
+import type { Client, ClientStatus } from "../types";
 
 type Props = {
   dataOwnerUserId?: string | null;
   readOnly?: boolean;
   clients?: Client[];
+  onFleetClientStatusSync?: (payload: FleetClientStatusSyncPayload) => void;
 };
 
 type SortField = "unit_id" | "group" | "operational_status" | "brand_model" | "company" | "plate";
 type SortDirection = "asc" | "desc";
+type FleetStatus = ClientStatus | "libre";
+
+type FleetClientStatusSyncPayload = {
+  unitId: string;
+  status: FleetStatus;
+  archivedClientIds: string[];
+  updatedClientIds: string[];
+  statusComment?: string;
+  archivedAt?: string;
+};
 
 type UnitFormState = {
   unit_id: string;
@@ -62,6 +73,17 @@ const UNIT_GROUP_MAX: Record<"A" | "B" | "C" | "D" | "T", number> = {
   T: 37
 };
 
+const FLEET_STATUS_OPTIONS: Array<{ value: FleetStatus; label: string }> = [
+  { value: "libre", label: "LIBRE" },
+  { value: "activo", label: "Activo" },
+  { value: "cliente_enfermo", label: "Cliente enfermo" },
+  { value: "taller", label: "Taller" },
+  { value: "chapisteria", label: "Chapisteria" },
+  { value: "custodia", label: "Custodia" },
+  { value: "en_busqueda", label: "En busqueda" },
+  { value: "archivado", label: "Archivado" }
+];
+
 function toGroup(unitId: string): string {
   const value = unitId.trim().toUpperCase();
   return value.length > 0 ? value[0] : "-";
@@ -93,6 +115,21 @@ function optionalString(row: ControlUnitRow, keys: string[]): string {
     if (typeof value === "number" && Number.isFinite(value)) return String(value);
   }
   return "";
+}
+
+function optionalInteger(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed)) return null;
+  return parsed;
+}
+
+function optionalNumber(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function statusLabel(value: string): string {
@@ -139,12 +176,19 @@ function toFormState(row?: ControlUnitRow): UnitFormState {
   };
 }
 
-export default function ControlUnitsPage({ dataOwnerUserId, readOnly = false, clients = [] }: Props) {
+export default function ControlUnitsPage({
+  dataOwnerUserId,
+  readOnly = false,
+  clients = [],
+  onFleetClientStatusSync
+}: Props) {
   const [rows, setRows] = useState<ControlUnitRow[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string>("");
   const [saving, setSaving] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string>("");
+  const [statusSaving, setStatusSaving] = useState<boolean>(false);
+  const [statusError, setStatusError] = useState<string>("");
   const [search, setSearch] = useState<string>("");
   const [groupFilter, setGroupFilter] = useState<string>("all");
   const [companyFilter, setCompanyFilter] = useState<string>("all");
@@ -154,6 +198,8 @@ export default function ControlUnitsPage({ dataOwnerUserId, readOnly = false, cl
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [createOpen, setCreateOpen] = useState<boolean>(false);
   const [editTarget, setEditTarget] = useState<ControlUnitRow | null>(null);
+  const [statusTarget, setStatusTarget] = useState<ControlUnitRow | null>(null);
+  const [statusDraft, setStatusDraft] = useState<FleetStatus>("activo");
   const [form, setForm] = useState<UnitFormState>({ ...DEFAULT_FORM });
 
   useEffect(() => {
@@ -202,6 +248,20 @@ export default function ControlUnitsPage({ dataOwnerUserId, readOnly = false, cl
     if (fromClient && fromClient.length > 0) return fromClient;
     return normalizeStatus(row.operational_status);
   }
+  function toFleetStatus(value: string): FleetStatus {
+    const normalized = normalizeStatus(value);
+    return FLEET_STATUS_OPTIONS.some((option) => option.value === normalized)
+      ? normalized as FleetStatus
+      : "activo";
+  }
+  function activeClientForUnit(unitId: string): Client | null {
+    const unit = normalizeText(unitId).toUpperCase();
+    if (!unit) return null;
+    return clients.find((client) =>
+      normalizeText(client.unitId).toUpperCase() === unit &&
+      normalizeStatus(client.status) !== "archivado"
+    ) ?? null;
+  }
   const statuses = useMemo(
     () => Array.from(new Set(rows.map((item) => effectiveStatus(item)))).sort((a, b) => a.localeCompare(b)),
     [rows, clientStatusByUnit]
@@ -248,7 +308,10 @@ export default function ControlUnitsPage({ dataOwnerUserId, readOnly = false, cl
   }
 
   async function persistUnit(state: UnitFormState, previousUnitId?: string): Promise<void> {
-    if (!dataOwnerUserId) return;
+    if (!dataOwnerUserId) {
+      setSaveError("No hay owner de datos para guardar autos en Supabase.");
+      return;
+    }
     const unitId = normalizeUnitIdInput(state.unit_id);
     if (!unitId) {
       setSaveError("La unidad es obligatoria.");
@@ -265,6 +328,16 @@ export default function ControlUnitsPage({ dataOwnerUserId, readOnly = false, cl
       setSaveError(`Unidad fuera de rango para grupo ${group}. Rango permitido: ${group}01 a ${group}${String(maxAllowed).padStart(2, "0")}.`);
       return;
     }
+    const year = optionalInteger(state.year);
+    if (state.year.trim() && year === null) {
+      setSaveError("Ano debe ser un numero entero.");
+      return;
+    }
+    const mileage = optionalNumber(state.mileage);
+    if (state.mileage.trim() && mileage === null) {
+      setSaveError("Kilometraje debe ser un numero valido.");
+      return;
+    }
     setSaving(true);
     setSaveError("");
     const payload: ControlUnitUpsertInput = {
@@ -275,7 +348,12 @@ export default function ControlUnitsPage({ dataOwnerUserId, readOnly = false, cl
       plate: state.plate.trim().toUpperCase() || null,
       engine_serial: state.engine_serial.trim() || null,
       chassis_serial: state.chassis_serial.trim() || null,
-      observation: state.observation.trim() || null
+      observation: state.observation.trim() || null,
+      operational_status: state.operational_status.trim() || "activo",
+      year,
+      color: state.color.trim() || null,
+      transmission: state.transmission.trim() || null,
+      mileage
     };
     try {
       await saveControlUnit(payload);
@@ -315,6 +393,82 @@ export default function ControlUnitsPage({ dataOwnerUserId, readOnly = false, cl
       setSaveError(`No se pudo guardar en Supabase (fleet_units_cloud). Detalle: ${message}`);
     } finally {
       setSaving(false);
+    }
+  }
+
+  function openStatusDialog(row: ControlUnitRow): void {
+    if (readOnly) return;
+    setStatusTarget(row);
+    setStatusDraft(toFleetStatus(effectiveStatus(row)));
+    setStatusError("");
+  }
+
+  function describeStatusError(error: unknown): string {
+    if (error instanceof Error && error.message) return error.message;
+    if (error && typeof error === "object") {
+      const record = error as Record<string, unknown>;
+      const parts = [
+        typeof record.message === "string" ? record.message : "",
+        typeof record.code === "string" ? `code=${record.code}` : "",
+        typeof record.details === "string" ? record.details : "",
+        typeof record.hint === "string" ? `hint=${record.hint}` : ""
+      ].filter((part) => part.trim().length > 0);
+      if (parts.length > 0) return parts.join(" | ");
+    }
+    return "Error desconocido";
+  }
+
+  async function confirmStatusChange(): Promise<void> {
+    if (!statusTarget) return;
+    if (!dataOwnerUserId) {
+      setStatusError("No hay owner de datos para cambiar estado en Supabase.");
+      return;
+    }
+
+    const unitId = normalizeUnitIdInput(statusTarget.unit_id ?? "");
+    if (!unitId) {
+      setStatusError("La unidad no es valida.");
+      return;
+    }
+
+    setStatusSaving(true);
+    setStatusError("");
+    const archivedAt = new Date().toISOString();
+    const statusComment = statusDraft === "libre" || statusDraft === "archivado"
+      ? `Archivado automaticamente al cambiar la unidad ${unitId} a ${statusLabel(statusDraft)} desde Autos.`
+      : statusDraft === "activo"
+        ? undefined
+        : `Estado actualizado automaticamente desde Autos para unidad ${unitId}.`;
+
+    try {
+      const result = await setControlUnitStatus(dataOwnerUserId, unitId, statusDraft);
+      const archivedClientIds = Array.isArray(result.archived_client_ids) ? result.archived_client_ids : [];
+      const updatedClientIds = Array.isArray(result.updated_client_ids) ? result.updated_client_ids : [];
+      setRows((current) => current.map((row) => {
+        if (normalizeText(row.unit_id).toUpperCase() !== unitId) return row;
+        const clearClient = statusDraft === "libre" || statusDraft === "archivado";
+        return {
+          ...row,
+          operational_status: statusDraft,
+          client_id: clearClient ? null : row.client_id,
+          client_name: clearClient ? null : row.client_name,
+          client_cedula: clearClient ? null : row.client_cedula
+        };
+      }));
+      onFleetClientStatusSync?.({
+        unitId,
+        status: statusDraft,
+        archivedClientIds,
+        updatedClientIds,
+        statusComment,
+        archivedAt
+      });
+      setStatusTarget(null);
+    } catch (error) {
+      console.error("No se pudo cambiar estado de auto.", error);
+      setStatusError(`No se pudo cambiar el estado en Supabase. Detalle: ${describeStatusError(error)}`);
+    } finally {
+      setStatusSaving(false);
     }
   }
 
@@ -366,12 +520,15 @@ export default function ControlUnitsPage({ dataOwnerUserId, readOnly = false, cl
 
     return { slices, total };
   }, [statusDashboard]);
+  const statusTargetUnit = statusTarget ? normalizeText(statusTarget.unit_id).toUpperCase() : "";
+  const statusTargetClient = statusTarget ? activeClientForUnit(statusTarget.unit_id) : null;
+  const statusWillArchiveClient = Boolean(statusTargetClient && (statusDraft === "libre" || statusDraft === "archivado"));
 
   return (
     <section className="panel">
       <div className="panel-head">
         <h2>Autos</h2>
-        {!readOnly && (
+        {!readOnly && dataOwnerUserId && (
           <button
             type="button"
             className="button primary"
@@ -513,7 +670,18 @@ export default function ControlUnitsPage({ dataOwnerUserId, readOnly = false, cl
                       <td><strong>{row.unit_id}</strong></td>
                       <td>{toGroup(row.unit_id ?? "")}</td>
                       <td>
-                        <span className={statusBadgeClass(effectiveStatus(row))}>{statusLabel(effectiveStatus(row))}</span>
+                        {readOnly || !dataOwnerUserId ? (
+                          <span className={statusBadgeClass(effectiveStatus(row))}>{statusLabel(effectiveStatus(row))}</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className={statusBadgeClass(effectiveStatus(row))}
+                            onClick={() => openStatusDialog(row)}
+                            title="Cambiar estado de la unidad"
+                          >
+                            {statusLabel(effectiveStatus(row))}
+                          </button>
+                        )}
                       </td>
                       <td>{row.brand_model ?? "-"}</td>
                       <td>{year || "-"}</td>
@@ -549,7 +717,71 @@ export default function ControlUnitsPage({ dataOwnerUserId, readOnly = false, cl
         </div>
       )}
 
-      {(createOpen || editTarget) && !readOnly && (
+      {statusTarget && !readOnly && (
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 520 }}>
+            <div className="modal-header">
+              <h2>Cambiar estado {statusTargetUnit}</h2>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => {
+                  if (statusSaving) return;
+                  setStatusTarget(null);
+                  setStatusError("");
+                }}
+              >
+                X
+              </button>
+            </div>
+            <div className="modal-body">
+              <label>Estado
+                <select
+                  value={statusDraft}
+                  onChange={(event) => setStatusDraft(event.target.value as FleetStatus)}
+                  disabled={statusSaving}
+                >
+                  {FLEET_STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              {statusWillArchiveClient && (
+                <div className="error-banner" style={{ marginTop: 12 }}>
+                  La unidad quedara {statusLabel(statusDraft)} y {statusTargetClient?.name ?? "el cliente enlazado"} pasara a Clientes archivados conservando la unidad {statusTargetUnit}.
+                </div>
+              )}
+
+              {statusError && <p className="hint error-text">{statusError}</p>}
+
+              <div className="modal-actions" style={{ marginTop: 14 }}>
+                <button
+                  type="button"
+                  className="button ghost"
+                  disabled={statusSaving}
+                  onClick={() => {
+                    setStatusTarget(null);
+                    setStatusError("");
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={statusSaving}
+                  onClick={() => void confirmStatusChange()}
+                >
+                  {statusSaving ? "Guardando..." : "Confirmar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(createOpen || editTarget) && !readOnly && dataOwnerUserId && (
         <div className="modal-overlay">
           <div className="modal" style={{ maxWidth: 980 }}>
             <div className="modal-header">

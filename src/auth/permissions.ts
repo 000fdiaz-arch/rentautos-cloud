@@ -9,7 +9,7 @@ export type Permission =
   | "users.manage"
   | "cash.manage";
 
-export type AppScreen = "leads" | "clients" | "payments" | "control_units" | "settings" | "users";
+export type AppScreen = "leads" | "clients" | "payments" | "receivables" | "control_units" | "settings" | "users";
 
 export type ScreenAccess = {
   view: boolean;
@@ -22,6 +22,7 @@ export const APP_SCREENS: Array<{ id: AppScreen; label: string }> = [
   { id: "leads", label: "Leads" },
   { id: "clients", label: "Clientes" },
   { id: "payments", label: "Pagos" },
+  { id: "receivables", label: "Cuentas por cobrar" },
   { id: "control_units", label: "Autos" },
   { id: "settings", label: "Configuraciones" },
   { id: "users", label: "Usuarios" }
@@ -53,6 +54,7 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     leads: { view: true, edit: true },
     clients: { view: true, edit: true },
     payments: { view: true, edit: true },
+    receivables: { view: true, edit: true },
     control_units: { view: true, edit: true },
     settings: { view: true, edit: true },
     users: { view: true, edit: true }
@@ -61,6 +63,7 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     leads: { view: true, edit: true },
     clients: { view: true, edit: true },
     payments: { view: true, edit: true },
+    receivables: { view: true, edit: true },
     control_units: { view: true, edit: true },
     settings: { view: false, edit: false },
     users: { view: false, edit: false }
@@ -69,6 +72,7 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     leads: { view: false, edit: false },
     clients: { view: false, edit: false },
     payments: { view: false, edit: false },
+    receivables: { view: false, edit: false },
     control_units: { view: true, edit: false },
     settings: { view: false, edit: false },
     users: { view: false, edit: false }
@@ -104,6 +108,7 @@ function normalizeScreenAccess(value: unknown, fallback: ScreenAccess): ScreenAc
 
 export function normalizeAppPermissions(role: AppRole, value: unknown): AppPermissions {
   const fallback = ROLE_SCREEN_PERMISSIONS[role];
+  if (role === "admin") return clonePermissions(fallback);
   if (!value || typeof value !== "object" || Array.isArray(value)) return clonePermissions(fallback);
   const record = value as Record<string, unknown>;
   return APP_SCREENS.reduce((acc, screen) => {
@@ -128,6 +133,7 @@ export function canWriteOperationalData(role: AppRole, permissions = getRoleScre
   return hasPermission(role, "operational.write") && (
     canEditScreen(permissions, "clients") ||
     canEditScreen(permissions, "payments") ||
+    canEditScreen(permissions, "receivables") ||
     canEditScreen(permissions, "leads") ||
     canEditScreen(permissions, "control_units")
   );
@@ -145,6 +151,7 @@ export function canUseReadOnlyExperience(role: AppRole, permissions = getRoleScr
   return role === "lectura" || (
     !canEditScreen(permissions, "clients") &&
     !canEditScreen(permissions, "payments") &&
+    !canEditScreen(permissions, "receivables") &&
     !canEditScreen(permissions, "leads") &&
     !canEditScreen(permissions, "control_units")
   );

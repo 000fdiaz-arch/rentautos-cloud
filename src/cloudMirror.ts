@@ -172,31 +172,6 @@ async function saveArrayKey(userId: string, key: ArrayKey, raw: string | null): 
     data: rec
   })));
 
-  const { data: existingRows, error: selectError } = await supabase
-    .from(table)
-    .select("id,data")
-    .eq("user_id", userId);
-  if (selectError) throw selectError;
-
-  const nextIds = new Set(rows.map((row) => row.id));
-  const nextFolios = new Set(rows.map((row) => getRowFolio(row)).filter(Boolean));
-  const deleteIds = (existingRows ?? [])
-    .map((row) => row as { id?: unknown; data?: unknown })
-    .filter((row) => {
-      const id = typeof row.id === "string" ? row.id : "";
-      return Boolean(id) && (!nextIds.has(id) || (nextFolios.size > 0 && nextFolios.has(getRowFolio(row))));
-    })
-    .map((row) => row.id as string);
-
-  if (deleteIds.length > 0) {
-    const { error: deleteError } = await supabase
-      .from(table)
-      .delete()
-      .eq("user_id", userId)
-      .in("id", deleteIds);
-    if (deleteError) throw deleteError;
-  }
-
   if (rows.length > 0) {
     const { error } = await supabase.from(table).upsert(rows, { onConflict: "user_id,id" });
     if (error) throw error;

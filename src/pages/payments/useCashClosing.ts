@@ -3,10 +3,14 @@ import { getBusinessDateKey, isChargeDay, parseDateKey, startOfDay, toDateKey } 
 import {
   loadCloudCashClosingAudit,
   loadCloudCashClosings,
+  loadCloudCollectionClosures,
   loadCloudChargeRuns,
+  loadCloudStreetManagement,
   saveCloudCashClosingAudit,
   saveCloudCashClosings,
-  saveCloudChargeRuns
+  saveCloudCollectionClosures,
+  saveCloudChargeRuns,
+  saveCloudStreetManagement
 } from "../../cloudData";
 import { formatCurrency } from "../../format";
 import { applyLateFeesForClosingDate, subtractOtherCharge } from "../../lateFees";
@@ -17,10 +21,6 @@ import type { Client, LateFeeLedgerEntry, LateFeeSettings, Payment } from "../..
 import { loadCashSummaryRange } from "../../cashLedger";
 import { stableEqual } from "../../stableSerialize";
 import {
-  COLLECTION_CLOSURES_KEY,
-  COLLECTION_STATUS_KEY
-} from "./paymentConstants";
-import {
   resolveCollectionStatusForClosure,
   roundMoney
 } from "./paymentRules";
@@ -28,7 +28,6 @@ import {
   loadCashClosingAudit,
   loadCashClosings,
   loadChargeRuns,
-  loadCollectionClosuresFromStorage,
   parseCollectionStatusesFromStorage,
   saveCashClosingAudit,
   saveCashClosings,
@@ -642,7 +641,8 @@ async function handleCloseCashForDate(): Promise<void> {
 
     const closureDateRef = parseDateKey(date) ?? startOfDay(new Date());
     const receivableRows = buildReceivableRows(clients, payments, closureDateRef);
-    const statusesByClient = parseCollectionStatusesFromStorage();
+    const streetManagement = await loadCloudStreetManagement(dataOwnerUserId);
+    const statusesByClient = parseCollectionStatusesFromStorage(JSON.stringify(streetManagement));
     const closureTotals: Record<CollectionStatus, number> = {
       no_answer: 0,
       reminder: 0,
@@ -672,15 +672,13 @@ async function handleCloseCashForDate(): Promise<void> {
       totals: closureTotals,
       items: closureItems
     };
-    const existingClosures = loadCollectionClosuresFromStorage();
-    localStorage.setItem(
-      COLLECTION_CLOSURES_KEY,
-      JSON.stringify({
-        ...existingClosures,
-        [date]: collectionClosureSnapshot
-      })
-    );
-    localStorage.setItem(COLLECTION_STATUS_KEY, JSON.stringify({}));
+    const cloudClosures = await loadCloudCollectionClosures(dataOwnerUserId);
+    const nextClosures = {
+      ...cloudClosures,
+      [date]: collectionClosureSnapshot
+    };
+    await saveCloudCollectionClosures(dataOwnerUserId, nextClosures);
+    await saveCloudStreetManagement(dataOwnerUserId, {});
 
     const chargeInfo = chargeResult.alreadyProcessed
       ? `Cobros de ${chargeResult.targetDate} ya estaban aplicados previamente.`

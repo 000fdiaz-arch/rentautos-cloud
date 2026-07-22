@@ -7,7 +7,6 @@ import LateFeeSettingsPanel from "./settings/LateFeeSettingsPanel";
 import OtherChargesSettingsPanel from "./settings/OtherChargesSettingsPanel";
 import TicketsSettingsPanel from "./settings/TicketsSettingsPanel";
 import UserPermissionsSettingsPanel from "./settings/UserPermissionsSettingsPanel";
-import { isSupabaseOnlyMode } from "../persistenceMode";
 import type {
   BankRule,
   Client,
@@ -77,8 +76,8 @@ export default function SettingsPage({
       { id: "backup" as const, label: "Respaldo" },
       { id: "migration" as const, label: "Migracion" },
       { id: "late_fees" as const, label: "Recargos" },
-      ...(isSupabaseOnlyMode ? [{ id: "fines" as const, label: "Multas" }] : []),
-      ...(isSupabaseOnlyMode ? [{ id: "tickets" as const, label: "Boletas" }] : []),
+      { id: "fines" as const, label: "Multas" },
+      { id: "tickets" as const, label: "Boletas" },
       { id: "other_charges" as const, label: "Otros cargos" },
       { id: "bank_rules" as const, label: "Regla bancaria" }
     ] : []),
@@ -127,9 +126,9 @@ export default function SettingsPage({
 
       {visibleActiveTab === "late_fees" && canViewSettings && <LateFeeSettingsPanel clients={clients} settings={lateFeeSettings} onChange={canEditSettings ? onLateFeeSettingsChange : () => undefined} />}
 
-      {isSupabaseOnlyMode && visibleActiveTab === "fines" && canViewSettings && <FinesSettingsPanel clients={clients} onClientsChange={canEditSettings ? onClientsChange : () => undefined} />}
+      {visibleActiveTab === "fines" && canViewSettings && <FinesSettingsPanel clients={clients} onClientsChange={canEditSettings ? onClientsChange : () => undefined} />}
 
-      {isSupabaseOnlyMode && visibleActiveTab === "tickets" && canViewSettings && <TicketsSettingsPanel clients={clients} onClientsChange={canEditSettings ? onClientsChange : () => undefined} />}
+      {visibleActiveTab === "tickets" && canViewSettings && <TicketsSettingsPanel clients={clients} onClientsChange={canEditSettings ? onClientsChange : () => undefined} />}
 
       {visibleActiveTab === "other_charges" && canViewSettings && <OtherChargesSettingsPanel clients={clients} settings={otherChargesRetentionByClient} onChange={canEditSettings ? onOtherChargesRetentionByClientChange : () => undefined} />}
 

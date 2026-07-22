@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { exportReceivablesToExcel, exportReceivablesToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
+import { loadCloudCollectionClosures } from "../cloudData";
+import { supabase } from "../lib/supabase";
 import {
   buildReceivableRows,
-  computeReceivableSummary,
   createMockReceivableRows,
   DEFAULT_RECEIVABLE_FILTERS,
   filterReceivableRows,
@@ -26,7 +27,6 @@ import type {
 } from "./receivables/receivablesTypes";
 import { exportRouteCollection } from "./receivables/routeCollectionExport";
 import {
-  COLLECTION_CLOSURES_KEY,
   COLLECTION_STATUS_OPTIONS,
   INITIAL_EXPORT_FIELDS,
   STATE_FILTER_OPTIONS,
@@ -36,7 +36,6 @@ import {
   isToday,
   normalizeComment,
   normalizeFieldManagementComment,
-  parseCollectionClosuresFromStorage,
   parseCollectionStatusMapFromStorage,
   pendingSummaryText,
   planLabelForExport,
@@ -45,16 +44,18 @@ import {
   toTimestamp,
   type CollectionClosuresByDate,
   type CollectionStatusFilter,
-  type DashboardFilter,
   type ExportField,
   type GroupFilter,
   type ReceivablesViewMode
 } from "./receivables/receivablesPageRules";
 
+const INITIAL_VISIBLE_RECEIVABLE_ROWS = 120;
+const VISIBLE_RECEIVABLE_ROWS_STEP = 120;
+
 type Props = {
   clients: Client[];
   payments: Payment[];
-  hideCollectedThisMonth?: boolean;
+  dataOwnerUserId?: string | null;
   streetManagementData?: Record<string, unknown>;
   onStreetManagementPersist?: (value: Record<string, unknown>) => Promise<boolean> | boolean;
 };
@@ -62,7 +63,7 @@ type Props = {
 export default function ReceivablesPage({
   clients,
   payments,
-  hideCollectedThisMonth = false,
+  dataOwnerUserId,
   streetManagementData,
   onStreetManagementPersist
 }: Props) {
@@ -70,7 +71,6 @@ export default function ReceivablesPage({
   const [filters, setFilters] = useState<ReceivableFilters>(DEFAULT_RECEIVABLE_FILTERS);
   const [sortField, setSortField] = useState<ReceivableSortField>("unitId");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
-  const [dashboardFilter, setDashboardFilter] = useState<DashboardFilter>("none");
   const [selectedDetailRow, setSelectedDetailRow] = useState<ReceivableRow | null>(null);
   const [collectionStatusByClient, setCollectionStatusByClient] = useState<Record<string, CollectionStatusRecord>>({});
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<CollectionStatusFilter>("all");
@@ -84,7 +84,7 @@ export default function ReceivablesPage({
   const [routeExportFormat, setRouteExportFormat] = useState<RouteExportFormat>("jpg");
   const [isRouteExportMenuOpen, setIsRouteExportMenuOpen] = useState<boolean>(false);
   const [exportFields, setExportFields] = useState<ExportField[]>(INITIAL_EXPORT_FIELDS);
-  const [stickyToolbarTop, setStickyToolbarTop] = useState<number>(58);
+  const [visibleRowLimit, setVisibleRowLimit] = useState<number>(INITIAL_VISIBLE_RECEIVABLE_ROWS);
   const [fieldManagementModalClientId, setFieldManagementModalClientId] = useState<string | null>(null);
   const [fieldManagementDraftByClient, setFieldManagementDraftByClient] = useState<
     Record<string, { type: FieldManagementType | ""; amount: string; comment: string }>
@@ -93,7 +93,6 @@ export default function ReceivablesPage({
   const [statusSavingByClient, setStatusSavingByClient] = useState<Record<string, boolean>>({});
 
   const tableScrollRef = useRef<HTMLDivElement>(null);
-  const subActionsRowRef = useRef<HTMLDivElement>(null);
   const persistStreetTimerRef = useRef<number | null>(null);
   const lastStreetSnapshotRef = useRef<string>("");
   const streetPersistPendingRef = useRef<boolean>(false);
@@ -103,30 +102,6 @@ export default function ReceivablesPage({
   useEffect(() => {
     const timerId = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timerId);
-  }, []);
-
-  useEffect(() => {
-    function recalculateStickyOffsets(): void {
-      const nav = document.querySelector(".app-nav") as HTMLElement | null;
-      const toolbarTop = nav?.offsetHeight ?? 58;
-      setStickyToolbarTop(toolbarTop);
-    }
-
-    recalculateStickyOffsets();
-    window.addEventListener("resize", recalculateStickyOffsets);
-
-    const resizeObserver = new ResizeObserver(() => {
-      recalculateStickyOffsets();
-    });
-
-    if (subActionsRowRef.current) resizeObserver.observe(subActionsRowRef.current);
-    const nav = document.querySelector(".app-nav") as HTMLElement | null;
-    if (nav) resizeObserver.observe(nav);
-
-    return () => {
-      window.removeEventListener("resize", recalculateStickyOffsets);
-      resizeObserver.disconnect();
-    };
   }, []);
 
   useEffect(() => {
@@ -190,23 +165,36 @@ export default function ReceivablesPage({
   }, []);
 
   useEffect(() => {
-    setCollectionClosuresByDate(parseCollectionClosuresFromStorage(window.localStorage.getItem(COLLECTION_CLOSURES_KEY)));
-  }, []);
-
-  useEffect(() => {
-    const syncFromStorage = () => {
-      setCollectionClosuresByDate(parseCollectionClosuresFromStorage(window.localStorage.getItem(COLLECTION_CLOSURES_KEY)));
+    if (!dataOwnerUserId) {
+      setCollectionClosuresByDate({});
+      return;
+    }
+    let cancelled = false;
+    const syncFromCloud = () => {
+      void loadCloudCollectionClosures(dataOwnerUserId)
+        .then((rows) => {
+          if (!cancelled) setCollectionClosuresByDate(rows as CollectionClosuresByDate);
+        })
+        .catch((error) => {
+          console.error("No se pudo cargar historial de cierres de cobranza.", error);
+        });
     };
-    const onStorage = (event: StorageEvent): void => {
-      if (event.key === COLLECTION_CLOSURES_KEY) syncFromStorage();
-    };
-    window.addEventListener("storage", onStorage);
-    const timer = window.setInterval(syncFromStorage, 3000);
+    syncFromCloud();
+    const client = supabase;
+    if (!client) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const channel = client
+      .channel(`collection-closures-live-${dataOwnerUserId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "collection_closures_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, syncFromCloud)
+      .subscribe();
     return () => {
-      window.removeEventListener("storage", onStorage);
-      window.clearInterval(timer);
+      cancelled = true;
+      void client.removeChannel(channel);
     };
-  }, []);
+  }, [dataOwnerUserId]);
 
   useEffect(() => {
     const historyDates = Object.keys(collectionClosuresByDate).sort((a, b) => b.localeCompare(a));
@@ -223,6 +211,12 @@ export default function ReceivablesPage({
     if (clients.length === 0) return createMockReceivableRows(now);
     return buildReceivableRows(clients, payments, now);
   }, [clients, now, payments]);
+
+  const clientStatusById = useMemo(() => {
+    const map = new Map<string, Client["status"]>();
+    for (const client of clients) map.set(client.id, client.status);
+    return map;
+  }, [clients]);
 
   const availableGroups = useMemo(() => {
     const groups = Array.from(
@@ -245,40 +239,12 @@ export default function ReceivablesPage({
     return filteredByGroupRows.filter((row) => getEffectiveStatus(row) === collectionStatusFilter);
   }, [collectionStatusFilter, filteredByGroupRows, collectionStatusByClient, now]);
 
-  const dashboardFilteredRows = useMemo(() => {
-    if (dashboardFilter === "none") return filteredByCollectionStatusRows;
-    if (dashboardFilter === "totalPorCobrar") return filteredByCollectionStatusRows.filter((row) => row.totalPending > 0);
-    if (dashboardFilter === "totalVencido" || dashboardFilter === "clientesMorosos") {
-      return filteredByCollectionStatusRows.filter((row) => row.state === "vencido" || row.state === "critico");
-    }
-    if (dashboardFilter === "proximoAVencer") {
-      return filteredByCollectionStatusRows.filter((row) => row.state === "proximo" || row.state === "venceHoy");
-    }
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-    return filteredByCollectionStatusRows.filter((row) => {
-      if (!row.lastPaymentDate) return false;
-      const parsed = new Date(`${row.lastPaymentDate}T12:00:00`);
-      return parsed.getFullYear() === currentYear && parsed.getMonth() === currentMonth;
-    });
-  }, [dashboardFilter, filteredByCollectionStatusRows, now]);
-
-  const rows = useMemo(() => sortReceivableRows(dashboardFilteredRows, sortField, sortDirection), [dashboardFilteredRows, sortDirection, sortField]);
-  const summary = useMemo(() => computeReceivableSummary(filteredRows, payments, now), [filteredRows, now, payments]);
-  const routeCollectionRows = useMemo(
-    () =>
-      baseRows
-        .filter((row) => {
-          const management = collectionStatusByClient[row.id];
-          return !!management?.managementType && !!management.managementAmount && management.managementAmount > 0;
-        })
-        .sort((a, b) => a.unitId.localeCompare(b.unitId)),
-    [baseRows, collectionStatusByClient]
+  const rows = useMemo(
+    () => sortReceivableRows(filteredByCollectionStatusRows, sortField, sortDirection),
+    [filteredByCollectionStatusRows, sortDirection, sortField]
   );
-  const routeCollectionTotal = useMemo(
-    () => routeCollectionRows.reduce((acc, row) => acc + (collectionStatusByClient[row.id]?.managementAmount ?? 0), 0),
-    [collectionStatusByClient, routeCollectionRows]
-  );
+  const visibleRows = useMemo(() => rows.slice(0, visibleRowLimit), [rows, visibleRowLimit]);
+  const hasMoreRows = visibleRows.length < rows.length;
   const todayDateKey = useMemo(() => {
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -289,6 +255,7 @@ export default function ReceivablesPage({
   const selectedHistoryClosure = selectedHistoryDate ? collectionClosuresByDate[selectedHistoryDate] ?? null : null;
 
   function updateFilter<K extends keyof ReceivableFilters>(key: K, value: ReceivableFilters[K]) {
+    setVisibleRowLimit(INITIAL_VISIBLE_RECEIVABLE_ROWS);
     setFilters((current) => ({ ...current, [key]: value }));
   }
 
@@ -309,13 +276,14 @@ export default function ReceivablesPage({
   }
 
   function clearFilters() {
+    setVisibleRowLimit(INITIAL_VISIBLE_RECEIVABLE_ROWS);
     setFilters(DEFAULT_RECEIVABLE_FILTERS);
     setGroupFilter("all");
     setCollectionStatusFilter("all");
-    setDashboardFilter("none");
   }
 
   function handleSort(field: ReceivableSortField) {
+    setVisibleRowLimit(INITIAL_VISIBLE_RECEIVABLE_ROWS);
     if (sortField === field) return setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
     setSortField(field);
     setSortDirection("asc");
@@ -335,6 +303,20 @@ export default function ReceivablesPage({
     if (!management) return false;
     const hasType = management.managementType === "solo_cobrar" || management.managementType === "cobrar_o_quitar";
     return hasType && !!management.managementAmount && management.managementAmount > 0;
+  }
+
+  function buildWhatsAppReceivableUrl(row: ReceivableRow): string {
+    const today = formatDateForTitle(now);
+    const pending = formatCurrency(row.totalPending);
+    const installmentsText = row.overdueInstallments > 0
+      ? ` (${row.overdueInstallments} cuota${row.overdueInstallments === 1 ? "" : "s"} atrasada${row.overdueInstallments === 1 ? "" : "s"})`
+      : "";
+    const message = [
+      `Hola ${row.name}.`,
+      `Saldo pendiente al ${today}: ${pending}${installmentsText}.`,
+      "Por favor realizar el pago. Gracias."
+    ].join("\n");
+    return `https://wa.me/?text=${encodeURIComponent(message)}`;
   }
 
   function getEffectiveStatus(row: ReceivableRow): CollectionStatus | "" {
@@ -549,22 +531,56 @@ export default function ReceivablesPage({
   return (
     <>
       <section className="hero ar-hero"><div><h1>Cuentas por Cobrar</h1><p>Control de saldos vencidos y proximos a vencer.</p></div></section>
-      <section className="summary-grid ar-summary-grid">
-        <button type="button" className={`summary-card summary-card--interactive ${dashboardFilter === "totalPorCobrar" ? "summary-card--selected" : ""}`} onClick={() => setDashboardFilter(dashboardFilter === "totalPorCobrar" ? "none" : "totalPorCobrar")}><span>Total por cobrar</span><strong>{formatCurrency(summary.totalPorCobrar)}</strong></button>
-        <button type="button" className={`summary-card summary-card--interactive ar-summary-card--debt ${dashboardFilter === "totalVencido" ? "summary-card--selected" : ""}`} onClick={() => setDashboardFilter(dashboardFilter === "totalVencido" ? "none" : "totalVencido")}><span>Vencido + critico</span><strong>{formatCurrency(summary.totalVencido)}</strong></button>
-        <button type="button" className={`summary-card summary-card--interactive ${dashboardFilter === "proximoAVencer" ? "summary-card--selected" : ""}`} onClick={() => setDashboardFilter(dashboardFilter === "proximoAVencer" ? "none" : "proximoAVencer")}><span>Proximos a vencer</span><strong>{formatCurrency(summary.proximoAVencer)}</strong></button>
-        <button type="button" className={`summary-card summary-card--interactive ar-summary-card--debt ${dashboardFilter === "clientesMorosos" ? "summary-card--selected" : ""}`} onClick={() => setDashboardFilter(dashboardFilter === "clientesMorosos" ? "none" : "clientesMorosos")}><span>Clientes morosos</span><strong>{summary.clientesMorosos}</strong></button>
-        <div className="summary-card ar-summary-card--route">
-          <span>Cobro en ruta</span>
-          <strong>{routeCollectionRows.length} | {formatCurrency(routeCollectionTotal)}</strong>
-        </div>
-      </section>
-      {!hideCollectedThisMonth && <section className="ar-secondary-metric-row"><button type="button" className={`ar-secondary-metric ${dashboardFilter === "cobradoEsteMes" ? "ar-secondary-metric--active" : ""}`} onClick={() => setDashboardFilter(dashboardFilter === "cobradoEsteMes" ? "none" : "cobradoEsteMes")}><span>Cobrado este mes</span><strong>{formatCurrency(summary.cobradoEsteMes)}</strong></button></section>}
 
-      <section className="panel">
-        <div className="panel-head"><h2>Filtros</h2><div className="ar-filter-actions"><button type="button" className="button ghost small" onClick={clearFilters}>Limpiar filtros</button></div></div>
+      <section className="panel ar-filters-panel">
+        <div className="ar-filters-head">
+          <div>
+            <h2>Filtros</h2>
+            <span className="hint">Refina la cartera visible</span>
+          </div>
+          <button type="button" className="button ghost small" onClick={clearFilters}>Limpiar</button>
+        </div>
         <div className="ar-filters-grid">
-          <div className="ar-filter-field"><span className="ar-filter-label">Buscar unidad</span><input type="text" value={filters.unitSearch} onChange={(event) => updateFilter("unitSearch", event.target.value)} /></div>
+          <label className="ar-filter-field">
+            <span className="ar-filter-label">Unidad</span>
+            <input
+              type="text"
+              placeholder="Ej. T35"
+              value={filters.unitSearch}
+              onChange={(event) => updateFilter("unitSearch", event.target.value)}
+            />
+          </label>
+          <label className="ar-filter-field">
+            <span className="ar-filter-label">Cliente</span>
+            <input
+              type="text"
+              placeholder="Nombre"
+              value={filters.clientSearch}
+              onChange={(event) => updateFilter("clientSearch", event.target.value)}
+            />
+          </label>
+          <label className="ar-filter-field">
+            <span className="ar-filter-label">Cedula</span>
+            <input
+              type="text"
+              placeholder="Documento"
+              value={filters.cedulaSearch}
+              onChange={(event) => updateFilter("cedulaSearch", event.target.value)}
+            />
+          </label>
+          <label className="ar-filter-field">
+            <span className="ar-filter-label">Plan</span>
+            <select
+              value={filters.plan}
+              onChange={(event) => updateFilter("plan", event.target.value as ReceivableFilters["plan"])}
+            >
+              <option value="all">Todos</option>
+              <option value="daily">Diario</option>
+              <option value="weekly">Semanal</option>
+              <option value="biweekly">Quincenal</option>
+              <option value="monthly">Mensual</option>
+            </select>
+          </label>
           <div className="ar-filter-field ar-filter-field--states">
             <span className="ar-filter-label">Estado</span>
             <div className="ar-state-chips" role="group" aria-label="Filtro de estado">
@@ -590,14 +606,7 @@ export default function ReceivablesPage({
         </div>
       </section>
 
-      <section
-        className="panel"
-        style={
-          {
-            "--ar-sticky-toolbar-top": `${stickyToolbarTop}px`
-          } as CSSProperties
-        }
-      >
+      <section className="panel">
         <div className="panel-head"><h2>Cartera de clientes</h2></div>
         <div className="ar-view-tabs" role="tablist" aria-label="Vistas de cuentas por cobrar">
           <button type="button" className={`button small ${viewMode === "cartera" ? "primary" : "ghost"}`} onClick={() => setViewMode("cartera")}>
@@ -610,19 +619,22 @@ export default function ReceivablesPage({
             <span className="hint" style={{ marginLeft: 10 }}>Gestion de cobranza cerrada hoy. Solo lectura.</span>
           )}
         </div>
-        <div className="ar-sticky-stack" ref={subActionsRowRef}>
+        <div className="ar-sticky-stack">
           <div className="ar-sub-actions-row">
             <div className="ar-filter-actions">
               <button type="button" className="button ghost small" onClick={() => setIsExportConfigOpen((open) => !open)}>{isExportConfigOpen ? "Cerrar campos" : "Campos exportables"}</button>
               <button type="button" className="button primary small" onClick={handleExportExcel} disabled={isExporting}>{isExporting ? "Exportando..." : "Exportar Excel"}</button>
               <button type="button" className="button ghost small" onClick={handleExportPdf} disabled={isExporting}>Exportar PDF</button>
-              <span className="hint">Mostrando {rows.length} registro(s)</span>
+              <span className="hint">Mostrando {visibleRows.length} de {rows.length} registro(s)</span>
               <label className="ar-toolbar-filter">
                 <span className="ar-toolbar-filter-label">Cobranza</span>
                 <select
                   className="ar-toolbar-filter-select"
                   value={collectionStatusFilter}
-                  onChange={(event) => setCollectionStatusFilter(event.target.value as CollectionStatusFilter)}
+                  onChange={(event) => {
+                    setVisibleRowLimit(INITIAL_VISIBLE_RECEIVABLE_ROWS);
+                    setCollectionStatusFilter(event.target.value as CollectionStatusFilter);
+                  }}
                   disabled={viewMode === "historial"}
                 >
                   <option value="all">Todos</option>
@@ -636,7 +648,10 @@ export default function ReceivablesPage({
                 <select
                   className="ar-toolbar-filter-select"
                   value={groupFilter}
-                  onChange={(event) => setGroupFilter(event.target.value)}
+                  onChange={(event) => {
+                    setVisibleRowLimit(INITIAL_VISIBLE_RECEIVABLE_ROWS);
+                    setGroupFilter(event.target.value);
+                  }}
                   disabled={viewMode === "historial"}
                 >
                   <option value="all">Todos</option>
@@ -699,13 +714,6 @@ export default function ReceivablesPage({
               )}
             </div>
           </div>
-          <div className="ar-columns-head">
-            <button type="button" className="sort-button ar-columns-head-btn" onClick={() => handleSort("unitId")}>Unidad <span className={`sort-icon ${sortField === "unitId" ? "active" : ""}`}>{renderSortIcon(sortField === "unitId", sortDirection)}</span></button>
-            <button type="button" className="sort-button ar-columns-head-btn" onClick={() => handleSort("totalPending")}>Pendiente <span className={`sort-icon ${sortField === "totalPending" ? "active" : ""}`}>{renderSortIcon(sortField === "totalPending", sortDirection)}</span></button>
-            <button type="button" className="sort-button ar-columns-head-btn" onClick={() => handleSort("lastPaymentDate")}>Ult. pago / Estado <span className={`sort-icon ${sortField === "lastPaymentDate" ? "active" : ""}`}>{renderSortIcon(sortField === "lastPaymentDate", sortDirection)}</span></button>
-            <span className="ar-columns-head-label">Estado cobranza</span>
-            <span className="ar-columns-head-label">Acciones</span>
-          </div>
         </div>
         {viewMode === "historial" && (
           <div className="ar-history-panel">
@@ -746,6 +754,27 @@ export default function ReceivablesPage({
         {exportError && <p className="hint error-text">{exportError}</p>}
         <div className="table-scroll" ref={tableScrollRef}>
           <table className="ar-table ar-table--compact">
+            <thead>
+              <tr>
+                <th>
+                  <button type="button" className="sort-button ar-columns-head-btn" onClick={() => handleSort("unitId")}>
+                    Unidad <span className={`sort-icon ${sortField === "unitId" ? "active" : ""}`}>{renderSortIcon(sortField === "unitId", sortDirection)}</span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" className="sort-button ar-columns-head-btn" onClick={() => handleSort("totalPending")}>
+                    Pendiente <span className={`sort-icon ${sortField === "totalPending" ? "active" : ""}`}>{renderSortIcon(sortField === "totalPending", sortDirection)}</span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" className="sort-button ar-columns-head-btn" onClick={() => handleSort("lastPaymentDate")}>
+                    Ult. pago / Estado <span className={`sort-icon ${sortField === "lastPaymentDate" ? "active" : ""}`}>{renderSortIcon(sortField === "lastPaymentDate", sortDirection)}</span>
+                  </button>
+                </th>
+                <th>Estado cobranza</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
             <tbody>
               {viewMode === "historial" ? (
                 !selectedHistoryClosure || selectedHistoryClosure.items.length === 0 ? (
@@ -784,15 +813,14 @@ export default function ReceivablesPage({
                     No hay resultados para los filtros seleccionados.
                   </td>
                 </tr>
-              ) : rows.map((row) => {
+              ) : visibleRows.map((row) => {
                 const paidToday = hasPaymentToday(row);
                 const autoPaid = hasAutoPaidStatus(row);
                 const routeCollection = hasRouteCollection(row);
                 const hasManualStatus = !!collectionStatusByClient[row.id]?.status;
                 const effectiveStatus = getEffectiveStatus(row);
                 const storedComment = collectionStatusByClient[row.id]?.comment ?? "";
-                const sourceClient = clients.find((client) => client.id === row.id);
-                const operationalStatus = sourceClient?.status ?? "activo";
+                const operationalStatus = clientStatusById.get(row.id) ?? "activo";
                 return (
                   <tr key={row.id} className={collectionStatusByClient[row.id]?.managementType ? "ar-row--route" : ""}>
                     <td><strong className="ar-unit-id">{row.unitId}</strong></td>
@@ -859,6 +887,14 @@ export default function ReceivablesPage({
                     <td className="ar-actions-cell ar-actions-cell--compact">
                       <div className="ar-actions-stack">
                         <button type="button" className="button ghost small" onClick={() => setSelectedDetailRow(row)}>Ver detalle</button>
+                        <a
+                          className="button ghost small ar-whatsapp-link"
+                          href={buildWhatsAppReceivableUrl(row)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          WhatsApp
+                        </a>
                         <button
                           type="button"
                           className="button ghost small"
@@ -875,6 +911,24 @@ export default function ReceivablesPage({
             </tbody>
           </table>
         </div>
+        {viewMode === "cartera" && hasMoreRows && (
+          <div className="ar-load-more-row">
+            <button
+              type="button"
+              className="button ghost small"
+              onClick={() => setVisibleRowLimit((current) => current + VISIBLE_RECEIVABLE_ROWS_STEP)}
+            >
+              Mostrar {Math.min(VISIBLE_RECEIVABLE_ROWS_STEP, rows.length - visibleRows.length)} mas
+            </button>
+            <button
+              type="button"
+              className="button ghost small"
+              onClick={() => setVisibleRowLimit(rows.length)}
+            >
+              Mostrar todos
+            </button>
+          </div>
+        )}
       </section>
 
       {fieldManagementModalClientId && (() => {

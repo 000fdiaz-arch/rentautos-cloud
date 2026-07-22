@@ -100,8 +100,8 @@ export default function BackupSettingsPanels({
       {report && (
         <>
           <div className="table-scroll" style={{ marginTop: 10 }}>
-            <table><thead><tr><th>Archivo</th><th>Compatible</th><th>Clientes</th><th>Pagos</th><th>Secuencia</th></tr></thead>
-              <tbody><tr><td>{report.fileName}</td><td>{report.compatible ? "Si" : "No"}</td><td>{String(report.summary.clients ?? 0)}</td><td>{String(report.summary.payments ?? 0)}</td><td>{String(report.summary.seq ?? 0)}</td></tr></tbody>
+            <table><thead><tr><th>Archivo</th><th>Compatible</th><th>Clientes</th><th>Pagos</th><th>Autos</th><th>Secuencia</th><th>Max recibo</th></tr></thead>
+              <tbody><tr><td>{report.fileName}</td><td>{report.compatible ? "Si" : "No"}</td><td>{String(report.summary.clients ?? 0)}</td><td>{String(report.summary.payments ?? 0)}</td><td>{String(report.summary.fleetUnits ?? 0)}</td><td>{String(report.summary.seq ?? 0)}</td><td>{String(report.summary.maxReceiptSeq ?? 0)}</td></tr></tbody>
             </table>
           </div>
           {report.issues.length > 0 && <ul className="error-list">{report.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>}

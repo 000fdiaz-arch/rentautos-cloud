@@ -104,6 +104,9 @@ Ejecutar en SQL Editor (orden recomendado):
 18. `supabase/20-screen-permissions.sql`
 19. `supabase/21-user-admin-passwords.sql`
 20. `supabase/22-payment-deltas.sql`
+21. `supabase/23-admin-permissions-guard.sql`
+22. `supabase/24-unique-receipt-number.sql`
+23. `supabase/25-fleet-unit-status-rpc.sql`
 
 Despues:
 - Crear usuario desde UI de login/registro.
@@ -195,5 +198,6 @@ supabase/
 
 - El flujo activo trabaja en modo `SUPABASE_ONLY`.
 - Supabase es la fuente canonica de clientes, pagos y datos operativos multiusuario.
+- La pantalla de Autos/Control de Unidades es `SUPABASE_ONLY`: lee desde `vw_control_unidades` y escribe exclusivamente en `fleet_units_cloud`; no debe tener fallback local.
 - El almacenamiento local queda limitado a cache, marcadores livianos y estado temporal de UI.
 
