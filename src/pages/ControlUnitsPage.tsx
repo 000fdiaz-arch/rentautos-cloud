@@ -472,6 +472,23 @@ export default function ControlUnitsPage({
     }
   }
 
+  function renderStatusControl(row: ControlUnitRow) {
+    const status = effectiveStatus(row);
+    if (readOnly || !dataOwnerUserId) {
+      return <span className={statusBadgeClass(status)}>{statusLabel(status)}</span>;
+    }
+    return (
+      <button
+        type="button"
+        className={statusBadgeClass(status)}
+        onClick={() => openStatusDialog(row)}
+        title="Cambiar estado de la unidad"
+      >
+        {statusLabel(status)}
+      </button>
+    );
+  }
+
   const kpiTotal = rows.length;
   const statusDashboard = useMemo(() => {
     const counts = new Map<string, number>();
@@ -545,16 +562,16 @@ export default function ControlUnitsPage({
 
       <p className="hint">Dashboard de flota con enfoque solo vehicular.</p>
 
-      <div className="summary-grid" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
+      <div className="summary-grid fleet-summary-grid">
         <article className="summary-card">
           <span>Total flota</span>
           <strong>{kpiTotal}</strong>
           <p className="hint" style={{ marginTop: 6 }}>
             Click en una porcion para filtrar por estado.
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 14, alignItems: "center", marginTop: 10 }}>
-            <div style={{ position: "relative", width: 240, height: 240 }}>
-              <svg viewBox="0 0 240 240" width="240" height="240" role="img" aria-label="Distribucion de estados de flota">
+          <div className="fleet-dashboard-layout">
+            <div className="fleet-chart-wrap">
+              <svg className="fleet-chart" viewBox="0 0 240 240" role="img" aria-label="Distribucion de estados de flota">
                 {pieData.slices.map((slice) => {
                   const active = statusFilter === slice.key;
                   return (
@@ -574,11 +591,10 @@ export default function ControlUnitsPage({
                 <text x="120" y="132" textAnchor="middle" fontSize="20" fontWeight="700" fill="#0f172a">{pieData.total}</text>
               </svg>
             </div>
-            <div style={{ display: "grid", gap: 8 }}>
+            <div className="fleet-status-list">
               <button
                 type="button"
-                className={`button ghost small ${statusFilter === "all" ? "cash-tab-active" : ""}`}
-                style={{ justifySelf: "start" }}
+                className={`button ghost small fleet-status-filter ${statusFilter === "all" ? "cash-tab-active" : ""}`}
                 onClick={() => setStatusFilter("all")}
               >
                 Ver todos
@@ -587,12 +603,11 @@ export default function ControlUnitsPage({
                 <button
                   key={slice.key}
                   type="button"
-                  className={`button ghost small ${statusFilter === slice.key ? "cash-tab-active" : ""}`}
-                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}
+                  className={`button ghost small fleet-status-filter ${statusFilter === slice.key ? "cash-tab-active" : ""}`}
                   onClick={() => setStatusFilter((current) => (current === slice.key ? "all" : slice.key))}
                 >
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 999, background: slice.color, display: "inline-block" }} />
+                  <span className="fleet-status-filter-label">
+                    <span className="fleet-color-dot" style={{ background: slice.color }} />
                     {slice.label}
                   </span>
                   <strong>{slice.count} ({slice.percent.toFixed(1)}%)</strong>
@@ -603,7 +618,7 @@ export default function ControlUnitsPage({
         </article>
       </div>
 
-      <div className="filters-bar" style={{ gridTemplateColumns: "1.5fr 0.8fr 1fr 1fr 1fr" }}>
+      <div className="filters-bar fleet-filters-bar">
         <input
           type="text"
           value={search}
@@ -634,87 +649,127 @@ export default function ControlUnitsPage({
       {loading ? (
         <p className="hint">Cargando flota...</p>
       ) : (
-        <div className="table-scroll" style={{ borderTop: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)" }}>
-          <table className="ar-table">
-            <thead>
-              <tr>
-                <th><button type="button" className="sort-button" onClick={() => toggleSort("unit_id")}>Unidad</button></th>
-                <th><button type="button" className="sort-button" onClick={() => toggleSort("group")}>Grupo</button></th>
-                <th><button type="button" className="sort-button" onClick={() => toggleSort("operational_status")}>Estado</button></th>
-                <th><button type="button" className="sort-button" onClick={() => toggleSort("brand_model")}>Marca / Modelo</button></th>
-                <th>Ano</th>
-                <th><button type="button" className="sort-button" onClick={() => toggleSort("company")}>Empresa</button></th>
-                <th><button type="button" className="sort-button" onClick={() => toggleSort("plate")}>Placa</button></th>
-                <th>Motor</th>
-                <th>Chasis</th>
-                <th>Color</th>
-                <th>Transmision</th>
-                <th>Kilometraje</th>
-                <th>Observacion</th>
-                {!readOnly && <th>Acciones</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRows.length === 0 ? (
+        <>
+          <div className="table-scroll fleet-table-scroll">
+            <table className="ar-table">
+              <thead>
                 <tr>
-                  <td colSpan={readOnly ? 13 : 14}><span className="hint">No hay unidades para los filtros seleccionados.</span></td>
+                  <th><button type="button" className="sort-button" onClick={() => toggleSort("unit_id")}>Unidad</button></th>
+                  <th><button type="button" className="sort-button" onClick={() => toggleSort("group")}>Grupo</button></th>
+                  <th><button type="button" className="sort-button" onClick={() => toggleSort("operational_status")}>Estado</button></th>
+                  <th><button type="button" className="sort-button" onClick={() => toggleSort("brand_model")}>Marca / Modelo</button></th>
+                  <th>Ano</th>
+                  <th><button type="button" className="sort-button" onClick={() => toggleSort("company")}>Empresa</button></th>
+                  <th><button type="button" className="sort-button" onClick={() => toggleSort("plate")}>Placa</button></th>
+                  <th>Motor</th>
+                  <th>Chasis</th>
+                  <th>Color</th>
+                  <th>Transmision</th>
+                  <th>Kilometraje</th>
+                  <th>Observacion</th>
+                  {!readOnly && <th>Acciones</th>}
                 </tr>
-              ) : (
-                filteredRows.map((row) => {
-                  const year = optionalString(row, ["year", "model_year"]);
-                  const color = optionalString(row, ["color"]);
-                  const transmission = optionalString(row, ["transmission", "transmission_type"]);
-                  const mileage = optionalString(row, ["mileage", "kilometraje", "kilometrage"]);
-                  return (
-                    <tr key={`${row.user_id}-${row.unit_id}`}>
-                      <td><strong>{row.unit_id}</strong></td>
-                      <td>{toGroup(row.unit_id ?? "")}</td>
-                      <td>
-                        {readOnly || !dataOwnerUserId ? (
-                          <span className={statusBadgeClass(effectiveStatus(row))}>{statusLabel(effectiveStatus(row))}</span>
-                        ) : (
-                          <button
-                            type="button"
-                            className={statusBadgeClass(effectiveStatus(row))}
-                            onClick={() => openStatusDialog(row)}
-                            title="Cambiar estado de la unidad"
-                          >
-                            {statusLabel(effectiveStatus(row))}
-                          </button>
+              </thead>
+              <tbody>
+                {filteredRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={readOnly ? 13 : 14}><span className="hint">No hay unidades para los filtros seleccionados.</span></td>
+                  </tr>
+                ) : (
+                  filteredRows.map((row) => {
+                    const year = optionalString(row, ["year", "model_year"]);
+                    const color = optionalString(row, ["color"]);
+                    const transmission = optionalString(row, ["transmission", "transmission_type"]);
+                    const mileage = optionalString(row, ["mileage", "kilometraje", "kilometrage"]);
+                    return (
+                      <tr key={`${row.user_id}-${row.unit_id}`}>
+                        <td><strong>{row.unit_id}</strong></td>
+                        <td>{toGroup(row.unit_id ?? "")}</td>
+                        <td>{renderStatusControl(row)}</td>
+                        <td>{row.brand_model ?? "-"}</td>
+                        <td>{year || "-"}</td>
+                        <td>{row.company ?? "-"}</td>
+                        <td>{row.plate ?? "-"}</td>
+                        <td>{row.engine_serial ?? "-"}</td>
+                        <td>{row.chassis_serial ?? "-"}</td>
+                        <td>{color || "-"}</td>
+                        <td>{transmission || "-"}</td>
+                        <td>{mileage || "-"}</td>
+                        <td className="ar-truncate-line" title={row.observation ?? ""}>{row.observation ?? "-"}</td>
+                        {!readOnly && (
+                          <td>
+                            <button
+                              type="button"
+                              className="button ghost small"
+                              onClick={() => {
+                                setForm(toFormState(row));
+                                setSaveError("");
+                                setEditTarget(row);
+                              }}
+                            >
+                              Editar
+                            </button>
+                          </td>
                         )}
-                      </td>
-                      <td>{row.brand_model ?? "-"}</td>
-                      <td>{year || "-"}</td>
-                      <td>{row.company ?? "-"}</td>
-                      <td>{row.plate ?? "-"}</td>
-                      <td>{row.engine_serial ?? "-"}</td>
-                      <td>{row.chassis_serial ?? "-"}</td>
-                      <td>{color || "-"}</td>
-                      <td>{transmission || "-"}</td>
-                      <td>{mileage || "-"}</td>
-                      <td className="ar-truncate-line" title={row.observation ?? ""}>{row.observation ?? "-"}</td>
-                      {!readOnly && (
-                        <td>
-                          <button
-                            type="button"
-                            className="button ghost small"
-                            onClick={() => {
-                              setForm(toFormState(row));
-                              setSaveError("");
-                              setEditTarget(row);
-                            }}
-                          >
-                            Editar
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="fleet-mobile-list">
+            {filteredRows.length === 0 ? (
+              <p className="empty">No hay unidades para los filtros seleccionados.</p>
+            ) : (
+              filteredRows.map((row) => {
+                const year = optionalString(row, ["year", "model_year"]);
+                const color = optionalString(row, ["color"]);
+                const transmission = optionalString(row, ["transmission", "transmission_type"]);
+                const mileage = optionalString(row, ["mileage", "kilometraje", "kilometrage"]);
+                return (
+                  <article className="fleet-mobile-card" key={`mobile-${row.user_id}-${row.unit_id}`}>
+                    <div className="fleet-mobile-card-head">
+                      <div>
+                        <span className="fleet-mobile-kicker">Unidad</span>
+                        <strong>{row.unit_id}</strong>
+                      </div>
+                      {renderStatusControl(row)}
+                    </div>
+                    <div className="fleet-mobile-main">
+                      <span>{row.brand_model ?? "Sin marca/modelo"}</span>
+                      <span>{row.plate ? `Placa ${row.plate}` : "Sin placa"}</span>
+                    </div>
+                    <dl className="fleet-mobile-details">
+                      <div><dt>Empresa</dt><dd>{row.company ?? "-"}</dd></div>
+                      <div><dt>Ano</dt><dd>{year || "-"}</dd></div>
+                      <div><dt>Color</dt><dd>{color || "-"}</dd></div>
+                      <div><dt>Km</dt><dd>{mileage || "-"}</dd></div>
+                      <div><dt>Motor</dt><dd>{row.engine_serial ?? "-"}</dd></div>
+                      <div><dt>Chasis</dt><dd>{row.chassis_serial ?? "-"}</dd></div>
+                      <div><dt>Transmision</dt><dd>{transmission || "-"}</dd></div>
+                    </dl>
+                    {row.observation && <p className="fleet-mobile-note">{row.observation}</p>}
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        className="button ghost small fleet-mobile-edit"
+                        onClick={() => {
+                          setForm(toFormState(row));
+                          setSaveError("");
+                          setEditTarget(row);
+                        }}
+                      >
+                        Editar
+                      </button>
+                    )}
+                  </article>
+                );
+              })
+            )}
+          </div>
+        </>
       )}
 
       {statusTarget && !readOnly && (

@@ -25,13 +25,13 @@ import type {
   FieldManagementType,
   RouteExportFormat
 } from "./receivables/receivablesTypes";
+import { ReceivableTableRow } from "./receivables/ReceivableTableRow";
+import { ReceivablesFiltersPanel } from "./receivables/ReceivablesFiltersPanel";
 import { exportRouteCollection } from "./receivables/routeCollectionExport";
 import {
   COLLECTION_STATUS_OPTIONS,
   INITIAL_EXPORT_FIELDS,
-  STATE_FILTER_OPTIONS,
   clientOperationalStatusLabel,
-  clientOperationalStatusTone,
   formatDateForTitle,
   isToday,
   normalizeComment,
@@ -48,9 +48,6 @@ import {
   type GroupFilter,
   type ReceivablesViewMode
 } from "./receivables/receivablesPageRules";
-
-const INITIAL_VISIBLE_RECEIVABLE_ROWS = 120;
-const VISIBLE_RECEIVABLE_ROWS_STEP = 120;
 
 type Props = {
   clients: Client[];
@@ -84,7 +81,6 @@ export default function ReceivablesPage({
   const [routeExportFormat, setRouteExportFormat] = useState<RouteExportFormat>("jpg");
   const [isRouteExportMenuOpen, setIsRouteExportMenuOpen] = useState<boolean>(false);
   const [exportFields, setExportFields] = useState<ExportField[]>(INITIAL_EXPORT_FIELDS);
-  const [visibleRowLimit, setVisibleRowLimit] = useState<number>(INITIAL_VISIBLE_RECEIVABLE_ROWS);
   const [fieldManagementModalClientId, setFieldManagementModalClientId] = useState<string | null>(null);
   const [fieldManagementDraftByClient, setFieldManagementDraftByClient] = useState<
     Record<string, { type: FieldManagementType | ""; amount: string; comment: string }>
@@ -243,8 +239,6 @@ export default function ReceivablesPage({
     () => sortReceivableRows(filteredByCollectionStatusRows, sortField, sortDirection),
     [filteredByCollectionStatusRows, sortDirection, sortField]
   );
-  const visibleRows = useMemo(() => rows.slice(0, visibleRowLimit), [rows, visibleRowLimit]);
-  const hasMoreRows = visibleRows.length < rows.length;
   const todayDateKey = useMemo(() => {
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -255,7 +249,6 @@ export default function ReceivablesPage({
   const selectedHistoryClosure = selectedHistoryDate ? collectionClosuresByDate[selectedHistoryDate] ?? null : null;
 
   function updateFilter<K extends keyof ReceivableFilters>(key: K, value: ReceivableFilters[K]) {
-    setVisibleRowLimit(INITIAL_VISIBLE_RECEIVABLE_ROWS);
     setFilters((current) => ({ ...current, [key]: value }));
   }
 
@@ -276,14 +269,12 @@ export default function ReceivablesPage({
   }
 
   function clearFilters() {
-    setVisibleRowLimit(INITIAL_VISIBLE_RECEIVABLE_ROWS);
     setFilters(DEFAULT_RECEIVABLE_FILTERS);
     setGroupFilter("all");
     setCollectionStatusFilter("all");
   }
 
   function handleSort(field: ReceivableSortField) {
-    setVisibleRowLimit(INITIAL_VISIBLE_RECEIVABLE_ROWS);
     if (sortField === field) return setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
     setSortField(field);
     setSortDirection("asc");
@@ -532,79 +523,12 @@ export default function ReceivablesPage({
     <>
       <section className="hero ar-hero"><div><h1>Cuentas por Cobrar</h1><p>Control de saldos vencidos y proximos a vencer.</p></div></section>
 
-      <section className="panel ar-filters-panel">
-        <div className="ar-filters-head">
-          <div>
-            <h2>Filtros</h2>
-            <span className="hint">Refina la cartera visible</span>
-          </div>
-          <button type="button" className="button ghost small" onClick={clearFilters}>Limpiar</button>
-        </div>
-        <div className="ar-filters-grid">
-          <label className="ar-filter-field">
-            <span className="ar-filter-label">Unidad</span>
-            <input
-              type="text"
-              placeholder="Ej. T35"
-              value={filters.unitSearch}
-              onChange={(event) => updateFilter("unitSearch", event.target.value)}
-            />
-          </label>
-          <label className="ar-filter-field">
-            <span className="ar-filter-label">Cliente</span>
-            <input
-              type="text"
-              placeholder="Nombre"
-              value={filters.clientSearch}
-              onChange={(event) => updateFilter("clientSearch", event.target.value)}
-            />
-          </label>
-          <label className="ar-filter-field">
-            <span className="ar-filter-label">Cedula</span>
-            <input
-              type="text"
-              placeholder="Documento"
-              value={filters.cedulaSearch}
-              onChange={(event) => updateFilter("cedulaSearch", event.target.value)}
-            />
-          </label>
-          <label className="ar-filter-field">
-            <span className="ar-filter-label">Plan</span>
-            <select
-              value={filters.plan}
-              onChange={(event) => updateFilter("plan", event.target.value as ReceivableFilters["plan"])}
-            >
-              <option value="all">Todos</option>
-              <option value="daily">Diario</option>
-              <option value="weekly">Semanal</option>
-              <option value="biweekly">Quincenal</option>
-              <option value="monthly">Mensual</option>
-            </select>
-          </label>
-          <div className="ar-filter-field ar-filter-field--states">
-            <span className="ar-filter-label">Estado</span>
-            <div className="ar-state-chips" role="group" aria-label="Filtro de estado">
-              <button
-                type="button"
-                className={`ar-state-chip ${filters.state.length === 0 ? "ar-state-chip--active" : ""}`}
-                onClick={() => handleStateFilterToggle("all")}
-              >
-                Todos
-              </button>
-              {STATE_FILTER_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`ar-state-chip ${filters.state.includes(option.value) ? "ar-state-chip--active" : ""}`}
-                  onClick={() => handleStateFilterToggle(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
+      <ReceivablesFiltersPanel
+        filters={filters}
+        onFilterChange={updateFilter}
+        onStateFilterToggle={handleStateFilterToggle}
+        onClearFilters={clearFilters}
+      />
 
       <section className="panel">
         <div className="panel-head"><h2>Cartera de clientes</h2></div>
@@ -625,16 +549,13 @@ export default function ReceivablesPage({
               <button type="button" className="button ghost small" onClick={() => setIsExportConfigOpen((open) => !open)}>{isExportConfigOpen ? "Cerrar campos" : "Campos exportables"}</button>
               <button type="button" className="button primary small" onClick={handleExportExcel} disabled={isExporting}>{isExporting ? "Exportando..." : "Exportar Excel"}</button>
               <button type="button" className="button ghost small" onClick={handleExportPdf} disabled={isExporting}>Exportar PDF</button>
-              <span className="hint">Mostrando {visibleRows.length} de {rows.length} registro(s)</span>
+              <span className="hint">Mostrando {rows.length} registro(s)</span>
               <label className="ar-toolbar-filter">
                 <span className="ar-toolbar-filter-label">Cobranza</span>
                 <select
                   className="ar-toolbar-filter-select"
                   value={collectionStatusFilter}
-                  onChange={(event) => {
-                    setVisibleRowLimit(INITIAL_VISIBLE_RECEIVABLE_ROWS);
-                    setCollectionStatusFilter(event.target.value as CollectionStatusFilter);
-                  }}
+                  onChange={(event) => setCollectionStatusFilter(event.target.value as CollectionStatusFilter)}
                   disabled={viewMode === "historial"}
                 >
                   <option value="all">Todos</option>
@@ -648,10 +569,7 @@ export default function ReceivablesPage({
                 <select
                   className="ar-toolbar-filter-select"
                   value={groupFilter}
-                  onChange={(event) => {
-                    setVisibleRowLimit(INITIAL_VISIBLE_RECEIVABLE_ROWS);
-                    setGroupFilter(event.target.value);
-                  }}
+                  onChange={(event) => setGroupFilter(event.target.value)}
                   disabled={viewMode === "historial"}
                 >
                   <option value="all">Todos</option>
@@ -813,122 +731,26 @@ export default function ReceivablesPage({
                     No hay resultados para los filtros seleccionados.
                   </td>
                 </tr>
-              ) : visibleRows.map((row) => {
-                const paidToday = hasPaymentToday(row);
-                const autoPaid = hasAutoPaidStatus(row);
-                const routeCollection = hasRouteCollection(row);
-                const hasManualStatus = !!collectionStatusByClient[row.id]?.status;
-                const effectiveStatus = getEffectiveStatus(row);
-                const storedComment = collectionStatusByClient[row.id]?.comment ?? "";
-                const operationalStatus = clientStatusById.get(row.id) ?? "activo";
-                return (
-                  <tr key={row.id} className={collectionStatusByClient[row.id]?.managementType ? "ar-row--route" : ""}>
-                    <td><strong className="ar-unit-id">{row.unitId}</strong></td>
-                    <td className="ar-pending-cell">
-                      <span className="client-name">{pendingSummaryText(row.totalPending, row.rentAmount)}</span>
-                      <span className={`debt-meta ${row.rentAmount > 0 ? "amount-debt" : "amount-good"}`}>Letra: {formatCurrency(row.rentAmount)}</span>
-                      <span className="debt-meta ar-truncate-line" title={row.name}>{row.name}</span>
-                    </td>
-                    <td>
-                      <div>{row.lastPaymentDate ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) : <span className="amount-muted">Sin pagos</span>}</div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
-                        <span className={stateToneClass(row.state)}>{STATE_LABEL[row.state]}</span>
-                        <span className={clientOperationalStatusTone(operationalStatus)}>
-                          {clientOperationalStatusLabel(operationalStatus)}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="ar-collection-cell">
-                      <div className="ar-collection-wrap">
-                        {routeCollection && (
-                          <span className="ar-route-collection-tag">
-                            COBRO EN RUTA
-                            <button
-                              type="button"
-                              className="ar-route-collection-remove"
-                              onClick={() => handleRemoveFieldManagement(row.id)}
-                              aria-label={`Quitar cobro en ruta de ${row.unitId}`}
-                              title="Quitar de cobro en ruta"
-                              disabled={isTodayCollectionClosed}
-                            >
-                              x
-                            </button>
-                          </span>
-                        )}
-                        <select
-                          className="ar-collection-select"
-                          value={effectiveStatus}
-                          onChange={(event) => handleCollectionStatusChange(row.id, event.target.value)}
-                          disabled={isTodayCollectionClosed}
-                        >
-                          <option value="">Seleccionar</option>
-                          {COLLECTION_STATUS_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
-                          ))}
-                        </select>
-                        {effectiveStatus === "call_later" && (
-                          <input
-                            type="text"
-                            className="ar-collection-comment"
-                            maxLength={5}
-                            placeholder="Comentario (max 5)"
-                            value={storedComment}
-                            onChange={(event) => handleCallLaterCommentChange(row.id, event.target.value)}
-                            disabled={isTodayCollectionClosed}
-                          />
-                        )}
-                        {autoPaid && !hasManualStatus && (
-                          <span className="hint ar-collection-note">
-                            {paidToday ? "Sugerido automatico por pago de hoy." : "Sugerido automatico por cliente al dia."}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="ar-actions-cell ar-actions-cell--compact">
-                      <div className="ar-actions-stack">
-                        <button type="button" className="button ghost small" onClick={() => setSelectedDetailRow(row)}>Ver detalle</button>
-                        <a
-                          className="button ghost small ar-whatsapp-link"
-                          href={buildWhatsAppReceivableUrl(row)}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          WhatsApp
-                        </a>
-                        <button
-                          type="button"
-                          className="button ghost small"
-                          onClick={() => handleOpenFieldManagementModal(row.id)}
-                          disabled={isTodayCollectionClosed}
-                        >
-                          Cobro en Ruta
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              ) : rows.map((row) => (
+                <ReceivableTableRow
+                  key={row.id}
+                  row={row}
+                  statusRecord={collectionStatusByClient[row.id]}
+                  operationalStatus={clientStatusById.get(row.id) ?? "activo"}
+                  todayDateKey={todayDateKey}
+                  now={now}
+                  isTodayCollectionClosed={isTodayCollectionClosed}
+                  whatsAppUrl={buildWhatsAppReceivableUrl(row)}
+                  onSelectDetail={setSelectedDetailRow}
+                  onRemoveFieldManagement={handleRemoveFieldManagement}
+                  onCollectionStatusChange={handleCollectionStatusChange}
+                  onCallLaterCommentChange={handleCallLaterCommentChange}
+                  onOpenFieldManagementModal={handleOpenFieldManagementModal}
+                />
+              ))}
             </tbody>
           </table>
         </div>
-        {viewMode === "cartera" && hasMoreRows && (
-          <div className="ar-load-more-row">
-            <button
-              type="button"
-              className="button ghost small"
-              onClick={() => setVisibleRowLimit((current) => current + VISIBLE_RECEIVABLE_ROWS_STEP)}
-            >
-              Mostrar {Math.min(VISIBLE_RECEIVABLE_ROWS_STEP, rows.length - visibleRows.length)} mas
-            </button>
-            <button
-              type="button"
-              className="button ghost small"
-              onClick={() => setVisibleRowLimit(rows.length)}
-            >
-              Mostrar todos
-            </button>
-          </div>
-        )}
       </section>
 
       {fieldManagementModalClientId && (() => {
