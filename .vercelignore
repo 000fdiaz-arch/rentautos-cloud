@@ -1,0 +1,16 @@
+.env
+.env.*
+.env*.txt
+exports/
+RESPALDO COBRAPP/
+RESPALDO RENTAUTOS CLOUD/
+tmp-verify/
+tmp-backup-retention-check/
+.tmp/
+tests/screenshots/
+tests/validation-output/
+node_modules/
+dist/
+*.log
+*.out.log
+*.err.log
