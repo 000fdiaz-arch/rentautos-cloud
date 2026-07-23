@@ -801,84 +801,6 @@ function isMissingFleetStatusRpc(error: unknown): boolean {
   return record.code === "PGRST202" || message.includes("set_fleet_unit_status");
 }
 
-function normalizeFleetStatusForCloud(value: string): string {
-  return value.trim().toLowerCase();
-}
-
-async function setControlUnitStatusFallback(
-  userId: string,
-  unitId: string,
-  status: string
-): Promise<ControlUnitStatusResult> {
-  const client = getCloudClient();
-  const normalizedUnitId = unitId.trim().toUpperCase();
-  const normalizedStatus = normalizeFleetStatusForCloud(status);
-  const now = new Date().toISOString();
-  const { error } = await client
-    .from("fleet_units_cloud")
-    .update({ operational_status: normalizedStatus, updated_at: now })
-    .eq("user_id", userId)
-    .eq("unit_id", normalizedUnitId);
-  if (error) throw error;
-
-  const result: ControlUnitStatusResult = {
-    unit_id: normalizedUnitId,
-    status: normalizedStatus,
-    archived_client_ids: [],
-    updated_client_ids: []
-  };
-
-  try {
-    const { data: linkedClients, error: loadError } = await client
-      .from("clients_cloud")
-      .select("id,data")
-      .eq("user_id", userId);
-    if (loadError) throw loadError;
-
-    const matchingClients = ((linkedClients ?? []) as Array<{ id: string; data: Record<string, unknown> }>)
-      .filter((row) => {
-        const clientUnitId = String(row.data?.unitId ?? "").trim().toUpperCase();
-        const clientStatus = String(row.data?.status ?? "activo").trim().toLowerCase();
-        return clientUnitId === normalizedUnitId && clientStatus !== "archivado";
-      });
-    if (matchingClients.length === 0) return result;
-
-    const nextRows = matchingClients.map((row) => {
-      const nextData = { ...row.data };
-      if (normalizedStatus === "libre" || normalizedStatus === "archivado") {
-        nextData.status = "archivado";
-        nextData.archivedAt = now;
-        nextData.statusComment = `Archivado automaticamente al cambiar la unidad ${normalizedUnitId} a ${normalizedStatus.toUpperCase()} desde Autos.`;
-        result.archived_client_ids?.push(row.id);
-      } else {
-        nextData.status = normalizedStatus;
-        if (normalizedStatus === "activo") {
-          delete nextData.archivedAt;
-          delete nextData.statusComment;
-        } else {
-          nextData.statusComment = `Estado actualizado automaticamente desde Autos para unidad ${normalizedUnitId}.`;
-        }
-        result.updated_client_ids?.push(row.id);
-      }
-      return {
-        user_id: userId,
-        id: row.id,
-        data: nextData,
-        updated_at: now
-      };
-    });
-
-    const { error: saveError } = await client
-      .from("clients_cloud")
-      .upsert(nextRows, { onConflict: "user_id,id" });
-    if (saveError) throw saveError;
-  } catch (syncError) {
-    console.warn("No se pudo sincronizar cliente enlazado desde fallback de Autos.", syncError);
-  }
-
-  return result;
-}
-
 export async function setControlUnitStatus(
   userId: string,
   unitId: string,
@@ -892,7 +814,7 @@ export async function setControlUnitStatus(
   });
   if (error) {
     if (isMissingFleetStatusRpc(error)) {
-      return setControlUnitStatusFallback(userId, unitId, status);
+      throw new Error("La funcion segura set_fleet_unit_status no esta disponible en Supabase. Ejecuta la migracion de flota y recarga el schema cache antes de cambiar estados.");
     }
     throw error;
   }

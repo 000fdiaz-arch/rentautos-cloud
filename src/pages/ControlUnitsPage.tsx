@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { loadControlUnits, saveControlUnit, setControlUnitStatus, type ControlUnitRow, type ControlUnitUpsertInput } from "../cloudData";
+import { supabase } from "../lib/supabase";
 import type { Client, ClientStatus } from "../types";
 
 type Props = {
@@ -229,6 +230,43 @@ export default function ControlUnitsPage({
     };
   }, [dataOwnerUserId]);
 
+  useEffect(() => {
+    if (!dataOwnerUserId || !supabase) return;
+    const client = supabase;
+    let cancelled = false;
+    let reloadTimer: number | null = null;
+
+    const scheduleReload = () => {
+      if (reloadTimer !== null) window.clearTimeout(reloadTimer);
+      reloadTimer = window.setTimeout(() => {
+        reloadTimer = null;
+        void (async () => {
+          try {
+            const data = await loadControlUnits(dataOwnerUserId);
+            if (!cancelled) setRows(data);
+          } catch (error) {
+            console.error("No se pudo refrescar autos desde realtime.", error);
+          }
+        })();
+      }, 150);
+    };
+
+    const channel = client
+      .channel(`fleet-units-live-${dataOwnerUserId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "fleet_units_cloud", filter: `user_id=eq.${dataOwnerUserId}` },
+        scheduleReload
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      if (reloadTimer !== null) window.clearTimeout(reloadTimer);
+      void client.removeChannel(channel);
+    };
+  }, [dataOwnerUserId]);
+
   const groups = useMemo(() => Array.from(new Set(rows.map((item) => toGroup(item.unit_id ?? "")))).sort(), [rows]);
   const companies = useMemo(() => Array.from(new Set(rows.map((item) => normalizeText(item.company)).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [rows]);
   const models = useMemo(() => Array.from(new Set(rows.map((item) => normalizeText(item.brand_model)).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [rows]);
@@ -445,17 +483,7 @@ export default function ControlUnitsPage({
       const result = await setControlUnitStatus(dataOwnerUserId, unitId, statusDraft);
       const archivedClientIds = Array.isArray(result.archived_client_ids) ? result.archived_client_ids : [];
       const updatedClientIds = Array.isArray(result.updated_client_ids) ? result.updated_client_ids : [];
-      setRows((current) => current.map((row) => {
-        if (normalizeText(row.unit_id).toUpperCase() !== unitId) return row;
-        const clearClient = statusDraft === "libre" || statusDraft === "archivado";
-        return {
-          ...row,
-          operational_status: statusDraft,
-          client_id: clearClient ? null : row.client_id,
-          client_name: clearClient ? null : row.client_name,
-          client_cedula: clearClient ? null : row.client_cedula
-        };
-      }));
+      setRows(await loadControlUnits(dataOwnerUserId));
       onFleetClientStatusSync?.({
         unitId,
         status: statusDraft,
