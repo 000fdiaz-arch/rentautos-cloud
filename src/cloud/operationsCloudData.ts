@@ -781,9 +781,10 @@ function toControlUnitCloudPayload(input: ControlUnitUpsertInput): Record<string
 
 export async function saveControlUnit(input: ControlUnitUpsertInput): Promise<void> {
   const client = getCloudClient();
-  const { error } = await client
-    .from("fleet_units_cloud")
-    .upsert(toControlUnitCloudPayload(input), { onConflict: "user_id,unit_id" });
+  const { error } = await client.rpc("save_fleet_unit", {
+    p_owner_user_id: input.user_id,
+    p_unit: toControlUnitCloudPayload(input)
+  });
   if (error) throw error;
 }
 
