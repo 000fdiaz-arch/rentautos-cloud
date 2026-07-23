@@ -67,11 +67,11 @@ const PIE_COLORS = [
 ];
 
 const UNIT_GROUP_MAX: Record<"A" | "B" | "C" | "D" | "T", number> = {
-  A: 101,
+  A: 100,
   B: 100,
   C: 100,
   D: 100,
-  T: 37
+  T: 100
 };
 
 const FLEET_STATUS_OPTIONS: Array<{ value: FleetStatus; label: string }> = [
@@ -357,7 +357,7 @@ export default function ControlUnitsPage({
       return;
     }
     if (!/^[ABCDT][0-9]{1,3}$/.test(unitId)) {
-      setSaveError("Formato de unidad invalido. Usa grupos A/B/C/D/T y formato como A1, B12, C101 o T37.");
+      setSaveError("Formato de unidad invalido. Usa grupos A/B/C/D/T y formato como A1, B12, C100 o T100.");
       return;
     }
     const group = unitId[0] as "A" | "B" | "C" | "D" | "T";
