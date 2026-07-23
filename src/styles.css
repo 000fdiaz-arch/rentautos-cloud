@@ -7771,3 +7771,349 @@ select.control-op-badge {
     grid-template-columns: 1fr;
   }
 }
+
+/* -- Insurance calendar prototype -- */
+
+.insurance-page {
+  display: grid;
+  gap: 16px;
+}
+
+.insurance-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 0;
+}
+
+.insurance-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.insurance-summary article {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.insurance-summary span {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.insurance-summary strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.insurance-filters {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.5fr) minmax(150px, 0.8fr) minmax(150px, 0.8fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 0;
+}
+
+.insurance-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.85fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.insurance-calendar-panel,
+.insurance-detail {
+  margin-bottom: 0;
+}
+
+.insurance-calendar-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.insurance-weekdays,
+.insurance-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(72px, 1fr));
+  gap: 8px;
+}
+
+.insurance-weekdays {
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+.insurance-weekdays span {
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.insurance-day {
+  min-height: 86px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--color-text);
+  padding: 8px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.insurance-day:hover {
+  border-color: rgba(15, 118, 110, 0.55);
+  background: #eefcf9;
+}
+
+.insurance-day--blank {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+}
+
+.insurance-day--today {
+  border-color: var(--color-primary);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+
+.insurance-day--urgent {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
+.insurance-day span {
+  display: block;
+  font-weight: 800;
+  margin-bottom: 7px;
+}
+
+.insurance-day small {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.25;
+  padding: 4px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.insurance-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.insurance-status--urgente {
+  background: var(--color-debt-bg);
+  color: var(--color-debt);
+}
+
+.insurance-status--pendiente {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.insurance-status--en_proceso {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.insurance-status--completado {
+  background: var(--color-good-bg);
+  color: var(--color-good);
+}
+
+.insurance-detail-list {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.insurance-detail-list div {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+  border-bottom: 1px solid #eef2f7;
+  padding-bottom: 9px;
+}
+
+.insurance-detail-list dt {
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.insurance-detail-list dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.insurance-next-action {
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  background: #eef2ff;
+  padding: 14px;
+}
+
+.insurance-next-action span {
+  color: #3730a3;
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.insurance-next-action strong {
+  display: block;
+  margin-top: 5px;
+}
+
+.insurance-next-action p {
+  margin: 8px 0 0;
+  color: #475569;
+  font-size: 0.88rem;
+}
+
+.insurance-case-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.insurance-case-row {
+  display: grid;
+  grid-template-columns: 12px minmax(220px, 1.4fr) 120px 150px 90px 120px;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px 12px;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.insurance-case-row:hover,
+.insurance-case-row--active {
+  border-color: rgba(15, 118, 110, 0.55);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
+}
+
+.insurance-case-row strong,
+.insurance-case-row small {
+  display: block;
+}
+
+.insurance-case-row small {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.insurance-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.insurance-dot--urgente {
+  background: var(--color-debt);
+}
+
+.insurance-dot--pendiente {
+  background: #f59e0b;
+}
+
+.insurance-dot--en_proceso {
+  background: #2563eb;
+}
+
+.insurance-dot--completado {
+  background: var(--color-good);
+}
+
+@media (max-width: 1120px) {
+  .insurance-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .insurance-workspace,
+  .insurance-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .insurance-case-row {
+    grid-template-columns: 12px minmax(180px, 1fr) 100px 140px;
+  }
+
+  .insurance-case-row > span:nth-child(5),
+  .insurance-case-row > span:nth-child(6) {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .insurance-hero {
+    flex-direction: column;
+  }
+
+  .insurance-hero .button {
+    width: 100%;
+  }
+
+  .insurance-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .insurance-weekdays,
+  .insurance-calendar-grid {
+    grid-template-columns: repeat(7, minmax(38px, 1fr));
+    gap: 4px;
+  }
+
+  .insurance-day {
+    min-height: 58px;
+    padding: 5px;
+  }
+
+  .insurance-day small {
+    display: none;
+  }
+
+  .insurance-detail-list div,
+  .insurance-case-row {
+    grid-template-columns: 1fr;
+  }
+
+  .insurance-dot {
+    display: none;
+  }
+}

@@ -1,4 +1,4 @@
-export type AppPage = "clients" | "leads" | "payments" | "receivables" | "control_units" | "settings";
+export type AppPage = "clients" | "leads" | "payments" | "receivables" | "insurance_calendar" | "control_units" | "settings";
 
 type Props = {
   page: AppPage;
@@ -40,6 +40,7 @@ export default function AppNavigation({
     { page: "clients", label: "Clientes", mobileLabel: "Clientes", visible: canViewClients },
     { page: "payments", label: "Pagos", mobileLabel: "Pagos", visible: canViewPayments },
     { page: "receivables", label: "Cuentas por cobrar", mobileLabel: "Cuentas", visible: canViewReceivables },
+    { page: "insurance_calendar", label: "Calendario seguros", mobileLabel: "Seguros", visible: canViewReceivables },
     { page: "control_units", label: "Autos", mobileLabel: "Autos", visible: canViewControlUnits },
     { page: "settings", label: "Configuraciones", mobileLabel: "Config.", visible: canViewSettings }
   ];

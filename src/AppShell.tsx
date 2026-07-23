@@ -57,6 +57,7 @@ const ClientsPage = lazy(() => import("./pages/ClientsPage"));
 const LeadsPage = lazy(() => import("./pages/LeadsPage"));
 const PaymentsPage = lazy(() => import("./pages/PaymentsPage"));
 const ReceivablesPage = lazy(() => import("./pages/ReceivablesPage"));
+const InsuranceCalendarPage = lazy(() => import("./pages/InsuranceCalendarPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const ControlUnitsPage = lazy(() => import("./pages/ControlUnitsPage"));
 
@@ -209,6 +210,7 @@ export default function AppShell({
       clients: canViewClients,
       payments: canViewPayments,
       receivables: canViewReceivables,
+      insurance_calendar: canViewReceivables,
       control_units: canViewControlUnits,
       settings: canViewSettingsPage
     } satisfies Record<AppPage, boolean>;
@@ -818,6 +820,9 @@ export default function AppShell({
               return true;
             }}
           />
+        )}
+        {page === "insurance_calendar" && canViewReceivables && (
+          <InsuranceCalendarPage />
         )}
         {page === "control_units" && canViewControlUnits && (
           <ControlUnitsPage
