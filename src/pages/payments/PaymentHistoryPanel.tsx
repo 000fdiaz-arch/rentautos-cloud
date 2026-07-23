@@ -15,6 +15,7 @@ import type {
 } from "./paymentTypes";
 
 const MISDATED_RECEIPT_REPAIR_START = 18185;
+const VALID_HISTORY_GROUPS = new Set(["A", "B", "C", "D", "T"]);
 
 function parseReceiptSequence(receiptNumber: string): number | null {
   const match = receiptNumber.trim().toUpperCase().match(/^REC-([0-9]+)$/);
@@ -53,6 +54,11 @@ function getPreviousDateKey(dateKey: string): string {
   if (!parsed) return dateKey;
   parsed.setDate(parsed.getDate() - 1);
   return toDateKey(parsed);
+}
+
+function getValidHistoryGroupCode(unitId: string, getGroupCode: (unitId: string) => string): string {
+  const group = getGroupCode(unitId).trim().toUpperCase();
+  return VALID_HISTORY_GROUPS.has(group) ? group : "";
 }
 
 export default function PaymentHistoryPanel({
@@ -173,10 +179,10 @@ function filterHistoryToday(): void {
 const historyAvailableGroups = useMemo(() => {
   return [...new Set(
     payments
-      .map((p) => getGroupCode(p.clientUnit))
+      .map((p) => getValidHistoryGroupCode(p.clientUnit, getGroupCode))
       .filter((group) => group.length > 0)
   )].sort((a, b) => a.localeCompare(b));
-}, [payments]);
+}, [payments, getGroupCode]);
 
 const historyDateRangeError = useMemo(() => {
   if (historyDateFrom && historyDateTo && historyDateFrom > historyDateTo) {
@@ -209,7 +215,7 @@ const filteredHistoryRows = useMemo(() => {
     : payments.filter((p) => p.clientId === historyClientId);
   const byGroup = historyGroupFilter === "all"
     ? byClient
-    : byClient.filter((p) => getGroupCode(p.clientUnit) === historyGroupFilter);
+    : byClient.filter((p) => getValidHistoryGroupCode(p.clientUnit, getGroupCode) === historyGroupFilter);
   const byDeliveryStatus = byGroup.filter((p) => {
     if (historyDeliveryFilter === "all") return true;
     const status = p.receiptDeliveryStatus === "pending" ? "pending" : "sent";
