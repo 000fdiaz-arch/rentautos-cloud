@@ -5,6 +5,7 @@ import { loadCloudCollectionClosures } from "../cloudData";
 import { supabase } from "../lib/supabase";
 import {
   buildReceivableRows,
+  computeReceivableSummary,
   createMockReceivableRows,
   DEFAULT_RECEIVABLE_FILTERS,
   filterReceivableRows,
@@ -44,8 +45,8 @@ import {
   toTimestamp,
   type CollectionClosuresByDate,
   type CollectionStatusFilter,
+  type DashboardFilter,
   type ExportField,
-  type GroupFilter,
   type ReceivablesViewMode
 } from "./receivables/receivablesPageRules";
 
@@ -71,7 +72,7 @@ export default function ReceivablesPage({
   const [selectedDetailRow, setSelectedDetailRow] = useState<ReceivableRow | null>(null);
   const [collectionStatusByClient, setCollectionStatusByClient] = useState<Record<string, CollectionStatusRecord>>({});
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<CollectionStatusFilter>("all");
-  const [groupFilter, setGroupFilter] = useState<GroupFilter>("all");
+  const [dashboardFilter, setDashboardFilter] = useState<DashboardFilter>("none");
   const [viewMode, setViewMode] = useState<ReceivablesViewMode>("cartera");
   const [collectionClosuresByDate, setCollectionClosuresByDate] = useState<CollectionClosuresByDate>({});
   const [selectedHistoryDate, setSelectedHistoryDate] = useState<string>("");
@@ -225,15 +226,27 @@ export default function ReceivablesPage({
     return groups.sort((a, b) => a.localeCompare(b));
   }, [baseRows]);
 
+  const summary = useMemo(() => computeReceivableSummary(baseRows, payments, now), [baseRows, now, payments]);
   const filteredRows = useMemo(() => filterReceivableRows(baseRows, filters), [baseRows, filters]);
-  const filteredByGroupRows = useMemo(() => {
-    if (groupFilter === "all") return filteredRows;
-    return filteredRows.filter((row) => getGroupFromUnit(row.unitId) === groupFilter);
-  }, [filteredRows, groupFilter]);
+  const filteredByDashboardRows = useMemo(() => {
+    if (dashboardFilter === "none") return filteredRows;
+    if (dashboardFilter === "totalPorCobrar") return filteredRows.filter((row) => row.totalPending > 0);
+    if (dashboardFilter === "totalVencido") return filteredRows.filter((row) => row.state === "vencido" || row.state === "critico");
+    if (dashboardFilter === "proximoAVencer") return filteredRows.filter((row) => row.state === "proximo" || row.state === "venceHoy");
+    if (dashboardFilter === "clientesMorosos") return filteredRows.filter((row) => row.state === "critico");
+    if (dashboardFilter === "cobradoEsteMes") {
+      return filteredRows.filter((row) => {
+        if (!row.lastPaymentDate) return false;
+        const parsed = new Date(`${row.lastPaymentDate}T12:00:00`);
+        return parsed.getFullYear() === now.getFullYear() && parsed.getMonth() === now.getMonth();
+      });
+    }
+    return filteredRows;
+  }, [dashboardFilter, filteredRows, now]);
   const filteredByCollectionStatusRows = useMemo(() => {
-    if (collectionStatusFilter === "all") return filteredByGroupRows;
-    return filteredByGroupRows.filter((row) => getEffectiveStatus(row) === collectionStatusFilter);
-  }, [collectionStatusFilter, filteredByGroupRows, collectionStatusByClient, now]);
+    if (collectionStatusFilter === "all") return filteredByDashboardRows;
+    return filteredByDashboardRows.filter((row) => getEffectiveStatus(row) === collectionStatusFilter);
+  }, [collectionStatusFilter, filteredByDashboardRows, collectionStatusByClient, now]);
 
   const rows = useMemo(
     () => sortReceivableRows(filteredByCollectionStatusRows, sortField, sortDirection),
@@ -247,6 +260,22 @@ export default function ReceivablesPage({
   }, [now]);
   const isTodayCollectionClosed = !!collectionClosuresByDate[todayDateKey];
   const selectedHistoryClosure = selectedHistoryDate ? collectionClosuresByDate[selectedHistoryDate] ?? null : null;
+  const routeCollectionRowsCount = useMemo(
+    () => baseRows.filter((row) => hasRouteCollection(row)).length,
+    [baseRows, collectionStatusByClient]
+  );
+  const pendingCollectionRowsCount = useMemo(
+    () => baseRows.filter((row) => row.totalPending > 0 && !getEffectiveStatus(row)).length,
+    [baseRows, collectionStatusByClient, now]
+  );
+  const dashboardFilterLabel = {
+    none: "",
+    totalPorCobrar: "Total por cobrar",
+    totalVencido: "Saldo vencido",
+    proximoAVencer: "Proximo a vencer",
+    clientesMorosos: "Morosos criticos",
+    cobradoEsteMes: "Cobrados este mes"
+  } satisfies Record<DashboardFilter, string>;
 
   function updateFilter<K extends keyof ReceivableFilters>(key: K, value: ReceivableFilters[K]) {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -270,8 +299,12 @@ export default function ReceivablesPage({
 
   function clearFilters() {
     setFilters(DEFAULT_RECEIVABLE_FILTERS);
-    setGroupFilter("all");
     setCollectionStatusFilter("all");
+    setDashboardFilter("none");
+  }
+
+  function toggleDashboardFilter(value: DashboardFilter): void {
+    setDashboardFilter((current) => (current === value ? "none" : value));
   }
 
   function handleSort(field: ReceivableSortField) {
@@ -521,10 +554,79 @@ export default function ReceivablesPage({
   }
   return (
     <>
-      <section className="hero ar-hero"><div><h1>Cuentas por Cobrar</h1><p>Control de saldos vencidos y proximos a vencer.</p></div></section>
+      <section className="hero ar-hero">
+        <div>
+          <h1>Cuentas por Cobrar</h1>
+          <p>Control de saldos vencidos, cobros en ruta y seguimiento diario.</p>
+        </div>
+        <div className="ar-hero-actions">
+          <span className="ar-filter-count">{pendingCollectionRowsCount} pendiente(s) de gestion</span>
+          <span className="ar-filter-count">{routeCollectionRowsCount} en ruta</span>
+        </div>
+      </section>
+
+      <section className="summary-grid ar-summary-grid" aria-label="Resumen de cuentas por cobrar">
+        <button
+          type="button"
+          className={`summary-card summary-card--interactive ar-summary-card--debt ${dashboardFilter === "totalPorCobrar" ? "summary-card--selected" : ""}`}
+          onClick={() => toggleDashboardFilter("totalPorCobrar")}
+        >
+          <span>Total por cobrar</span>
+          <strong>{formatCurrency(summary.totalPorCobrar)}</strong>
+          <small>{baseRows.filter((row) => row.totalPending > 0).length} cliente(s) con saldo</small>
+        </button>
+        <button
+          type="button"
+          className={`summary-card summary-card--interactive ar-summary-card--debt ${dashboardFilter === "totalVencido" ? "summary-card--selected" : ""}`}
+          onClick={() => toggleDashboardFilter("totalVencido")}
+        >
+          <span>Saldo vencido</span>
+          <strong>{formatCurrency(summary.totalVencido)}</strong>
+          <small>{baseRows.filter((row) => row.state === "vencido" || row.state === "critico").length} cliente(s) atrasado(s)</small>
+        </button>
+        <button
+          type="button"
+          className={`summary-card summary-card--interactive ar-summary-card--warn ${dashboardFilter === "proximoAVencer" ? "summary-card--selected" : ""}`}
+          onClick={() => toggleDashboardFilter("proximoAVencer")}
+        >
+          <span>Proximo a vencer</span>
+          <strong>{formatCurrency(summary.proximoAVencer)}</strong>
+          <small>Incluye vencimientos de hoy</small>
+        </button>
+        <button
+          type="button"
+          className={`summary-card summary-card--interactive ar-summary-card--neutral ${dashboardFilter === "clientesMorosos" ? "summary-card--selected" : ""}`}
+          onClick={() => toggleDashboardFilter("clientesMorosos")}
+        >
+          <span>Morosos criticos</span>
+          <strong>{baseRows.filter((row) => row.state === "critico").length}</strong>
+          <small>{summary.clientesMorosos} cliente(s) en mora total</small>
+        </button>
+        <button
+          type="button"
+          className={`summary-card summary-card--interactive ar-summary-card--good ${dashboardFilter === "cobradoEsteMes" ? "summary-card--selected" : ""}`}
+          onClick={() => toggleDashboardFilter("cobradoEsteMes")}
+        >
+          <span>Cobrado este mes</span>
+          <strong>{formatCurrency(summary.cobradoEsteMes)}</strong>
+          <small>Segun historial de pagos visible</small>
+        </button>
+      </section>
+
+      {dashboardFilter !== "none" && (
+        <div className="ar-quick-filter-banner">
+          <div className="ar-quick-filter-content">
+            <span className="ar-quick-filter-badge">Filtro rapido</span>
+            <strong className="ar-quick-filter-title">{dashboardFilterLabel[dashboardFilter]}</strong>
+            <span className="ar-quick-filter-subtitle">La tabla muestra {rows.length} registro(s) despues de aplicar filtros.</span>
+          </div>
+          <button type="button" className="button ghost small" onClick={() => setDashboardFilter("none")}>Quitar filtro</button>
+        </div>
+      )}
 
       <ReceivablesFiltersPanel
         filters={filters}
+        availableGroups={availableGroups}
         onFilterChange={updateFilter}
         onStateFilterToggle={handleStateFilterToggle}
         onClearFilters={clearFilters}
@@ -561,20 +663,6 @@ export default function ReceivablesPage({
                   <option value="all">Todos</option>
                   {COLLECTION_STATUS_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="ar-toolbar-filter">
-                <span className="ar-toolbar-filter-label">Grupo</span>
-                <select
-                  className="ar-toolbar-filter-select"
-                  value={groupFilter}
-                  onChange={(event) => setGroupFilter(event.target.value)}
-                  disabled={viewMode === "historial"}
-                >
-                  <option value="all">Todos</option>
-                  {availableGroups.map((group) => (
-                    <option key={group} value={group}>{group}</option>
                   ))}
                 </select>
               </label>

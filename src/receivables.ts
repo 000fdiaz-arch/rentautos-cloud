@@ -24,7 +24,7 @@ export type ReceivableFilters = {
   unitSearch: string;
   cedulaSearch: string;
   state: ReceivableState[];
-  group: "all" | "A" | "B" | "C" | "D" | "T";
+  group: "all" | string;
   plan: "all" | BillingFrequency;
   dateFrom: string;
   dateTo: string;

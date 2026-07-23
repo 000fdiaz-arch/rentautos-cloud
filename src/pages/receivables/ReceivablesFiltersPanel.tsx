@@ -3,6 +3,7 @@ import { STATE_FILTER_OPTIONS } from "./receivablesPageRules";
 
 type Props = {
   filters: ReceivableFilters;
+  availableGroups: string[];
   onFilterChange: <K extends keyof ReceivableFilters>(key: K, value: ReceivableFilters[K]) => void;
   onStateFilterToggle: (value: ReceivableState | "all") => void;
   onClearFilters: () => void;
@@ -10,6 +11,7 @@ type Props = {
 
 export function ReceivablesFiltersPanel({
   filters,
+  availableGroups,
   onFilterChange,
   onStateFilterToggle,
   onClearFilters
@@ -62,6 +64,18 @@ export function ReceivablesFiltersPanel({
             <option value="weekly">Semanal</option>
             <option value="biweekly">Quincenal</option>
             <option value="monthly">Mensual</option>
+          </select>
+        </label>
+        <label className="ar-filter-field">
+          <span className="ar-filter-label">Grupo</span>
+          <select
+            value={filters.group}
+            onChange={(event) => onFilterChange("group", event.target.value)}
+          >
+            <option value="all">Todos</option>
+            {availableGroups.map((group) => (
+              <option key={group} value={group}>{group}</option>
+            ))}
           </select>
         </label>
         <div className="ar-filter-field ar-filter-field--states">

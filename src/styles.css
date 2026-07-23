@@ -5844,6 +5844,23 @@ select.control-op-badge {
 .ar-summary-grid .summary-card {
   width: 100%;
   text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.ar-summary-grid button.summary-card {
+  appearance: none;
+}
+
+.ar-summary-grid .summary-card small {
+  display: block;
+  margin-top: 8px;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .ar-summary-card--debt {
