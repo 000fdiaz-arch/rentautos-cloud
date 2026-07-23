@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { STATE_LABEL, type ReceivableRow } from "../../receivables";
 import type { Client } from "../../types";
@@ -19,10 +19,12 @@ type Props = {
   todayDateKey: string;
   now: Date;
   isTodayCollectionClosed: boolean;
-  whatsAppUrl: string;
+  whatsAppMessage: string;
   onSelectDetail: (row: ReceivableRow) => void;
   onRemoveFieldManagement: (clientId: string) => void;
   onCollectionStatusChange: (clientId: string, nextStatus: string) => void;
+  onWhatsAppMessageCopied: (clientId: string, message: string) => void;
+  onWhatsAppMessageSent: (clientId: string, message: string) => void;
   onCallLaterCommentChange: (clientId: string, value: string) => void;
   onOpenFieldManagementModal: (clientId: string) => void;
 };
@@ -44,25 +46,58 @@ function hasRouteCollection(statusRecord: CollectionStatusRecord | undefined): b
   return hasType && !!statusRecord.managementAmount && statusRecord.managementAmount > 0;
 }
 
+function normalizeWhatsAppPhone(value: string | undefined): string {
+  const digits = value?.replace(/\D/g, "") ?? "";
+  if (digits.length === 8) return `507${digits}`;
+  if (digits.length >= 10) return digits;
+  return "";
+}
+
 function ReceivableTableRowComponent({
   row,
   statusRecord,
   operationalStatus,
   now,
   isTodayCollectionClosed,
-  whatsAppUrl,
+  whatsAppMessage,
   onSelectDetail,
   onRemoveFieldManagement,
   onCollectionStatusChange,
+  onWhatsAppMessageCopied,
+  onWhatsAppMessageSent,
   onCallLaterCommentChange,
   onOpenFieldManagementModal
 }: Props) {
+  const [copiedWhatsAppMessage, setCopiedWhatsAppMessage] = useState(false);
   const paidToday = hasPaymentToday(row, now);
   const autoPaid = row.state === "alDia" || paidToday;
   const routeCollection = hasRouteCollection(statusRecord);
   const hasManualStatus = !!statusRecord?.status;
   const effectiveStatus = getEffectiveStatus(row, statusRecord, now);
   const storedComment = statusRecord?.comment ?? "";
+  const messageWasCopied = copiedWhatsAppMessage || !!statusRecord?.whatsAppMessageCopiedAt;
+  const messageWasSent = !!statusRecord?.whatsAppMessageSentAt;
+  const whatsAppPhone = normalizeWhatsAppPhone(row.whatsAppPhone);
+  const sentAt = statusRecord?.whatsAppMessageSentAt ? new Date(statusRecord.whatsAppMessageSentAt) : null;
+  const sentTime = sentAt && !Number.isNaN(sentAt.getTime())
+    ? sentAt.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" })
+    : "";
+
+  async function handleWhatsAppClick(): Promise<void> {
+    window.open(whatsAppPhone ? `https://wa.me/${whatsAppPhone}` : "https://wa.me/", "_blank", "noopener,noreferrer");
+    try {
+      await navigator.clipboard.writeText(whatsAppMessage);
+      onWhatsAppMessageCopied(row.id, whatsAppMessage);
+      setCopiedWhatsAppMessage(true);
+      window.setTimeout(() => setCopiedWhatsAppMessage(false), 2500);
+    } catch {
+      window.alert("No se pudo copiar el mensaje. Copialo manualmente antes de confirmar el envio.");
+    }
+  }
+
+  function handleConfirmWhatsAppSent(): void {
+    onWhatsAppMessageSent(row.id, whatsAppMessage);
+  }
 
   return (
     <tr className={statusRecord?.managementType ? "ar-row--route" : ""}>
@@ -130,9 +165,34 @@ function ReceivableTableRowComponent({
       <td className="ar-actions-cell ar-actions-cell--compact">
         <div className="ar-actions-stack">
           <button type="button" className="button ghost small" onClick={() => onSelectDetail(row)}>Ver detalle</button>
-          <a className="button ghost small ar-whatsapp-link" href={whatsAppUrl} target="_blank" rel="noreferrer">
-            WhatsApp
-          </a>
+          <button
+            type="button"
+            className="button ghost small ar-whatsapp-link"
+            onClick={() => void handleWhatsAppClick()}
+            disabled={isTodayCollectionClosed}
+          >
+            {messageWasSent ? "Reenviar WhatsApp" : "Copiar y abrir WhatsApp"}
+          </button>
+          {messageWasSent ? (
+            <span className="ar-whatsapp-status ar-whatsapp-status--sent">
+              Enviado{sentTime ? ` ${sentTime}` : ""}
+            </span>
+          ) : messageWasCopied ? (
+            <div className="ar-whatsapp-confirm-box">
+              <span>{whatsAppPhone ? "Chat abierto. Pegalo en WhatsApp y envialo." : "Sin numero guardado. Busca el chat, pega el mensaje y envialo."}</span>
+              <button
+                type="button"
+                className="button small ar-whatsapp-confirm-button"
+                onClick={handleConfirmWhatsAppSent}
+                disabled={isTodayCollectionClosed}
+              >
+                Si, ya lo envie
+              </button>
+            </div>
+          ) : null}
+          {!whatsAppPhone && !messageWasSent && (
+            <span className="ar-whatsapp-phone-missing">Falta WhatsApp</span>
+          )}
           <button
             type="button"
             className="button ghost small"
@@ -153,5 +213,7 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.operationalStatus === next.operationalStatus &&
   previous.todayDateKey === next.todayDateKey &&
   previous.isTodayCollectionClosed === next.isTodayCollectionClosed &&
-  previous.whatsAppUrl === next.whatsAppUrl
+  previous.whatsAppMessage === next.whatsAppMessage &&
+  previous.onWhatsAppMessageCopied === next.onWhatsAppMessageCopied &&
+  previous.onWhatsAppMessageSent === next.onWhatsAppMessageSent
 ));

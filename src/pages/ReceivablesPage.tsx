@@ -329,18 +329,33 @@ export default function ReceivablesPage({
     return hasType && !!management.managementAmount && management.managementAmount > 0;
   }
 
-  function buildWhatsAppReceivableUrl(row: ReceivableRow): string {
+  function buildWhatsAppReceivableMessage(row: ReceivableRow): string {
     const today = formatDateForTitle(now);
     const pending = formatCurrency(row.totalPending);
     const installmentsText = row.overdueInstallments > 0
-      ? ` (${row.overdueInstallments} cuota${row.overdueInstallments === 1 ? "" : "s"} atrasada${row.overdueInstallments === 1 ? "" : "s"})`
-      : "";
+      ? `${row.overdueInstallments} cuota${row.overdueInstallments === 1 ? "" : "s"} atrasada${row.overdueInstallments === 1 ? "" : "s"}`
+      : "Sin cuotas atrasadas";
+    const emoji = {
+      hello: String.fromCodePoint(0x1F44B),
+      warning: `${String.fromCodePoint(0x26A0)}${String.fromCodePoint(0xFE0F)}`,
+      money: String.fromCodePoint(0x1F4B5),
+      pin: String.fromCodePoint(0x1F4CC),
+      check: String.fromCodePoint(0x2705),
+      thanks: String.fromCodePoint(0x1F64F)
+    };
     const message = [
-      `Hola ${row.name}.`,
-      `Saldo pendiente al ${today}: ${pending}${installmentsText}.`,
-      "Por favor realizar el pago. Gracias."
+      `${emoji.hello} Hola, ${row.name}.`,
+      "",
+      `${emoji.warning} Tiene un saldo pendiente al ${today}.`,
+      "",
+      `${emoji.money} Monto a pagar: ${pending}`,
+      `${emoji.pin} Detalle: ${installmentsText}`,
+      "",
+      `${emoji.check} Por favor, realice el pago lo antes posible.`,
+      "",
+      `${emoji.thanks} Gracias.`
     ].join("\n");
-    return `https://wa.me/?text=${encodeURIComponent(message)}`;
+    return message;
   }
 
   function getEffectiveStatus(row: ReceivableRow): CollectionStatus | "" {
@@ -372,6 +387,54 @@ export default function ReceivablesPage({
         status: nextStatus,
         comment: nextStatus === "call_later" ? normalizeComment(currentComment) : "",
         updatedAt: new Date().toISOString()
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
+      return {
+        ...current,
+        [clientId]: updatedRecord
+      };
+    });
+  }
+
+  function handleWhatsAppMessageCopied(clientId: string, message: string): void {
+    markClientStatusAsSaving(clientId);
+    setCollectionStatusByClient((current) => {
+      const previous = current[clientId];
+      const updatedRecord: CollectionStatusRecord = {
+        status: previous?.status ?? "reminder",
+        comment: previous?.comment ?? "",
+        updatedAt: new Date().toISOString(),
+        managementType: previous?.managementType,
+        managementAmount: previous?.managementAmount,
+        managementComment: previous?.managementComment,
+        managementUpdatedAt: previous?.managementUpdatedAt,
+        whatsAppMessageCopiedAt: new Date().toISOString(),
+        whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+        whatsAppMessageText: message
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
+      return {
+        ...current,
+        [clientId]: updatedRecord
+      };
+    });
+  }
+
+  function handleWhatsAppMessageSent(clientId: string, message: string): void {
+    markClientStatusAsSaving(clientId);
+    setCollectionStatusByClient((current) => {
+      const previous = current[clientId];
+      const updatedRecord: CollectionStatusRecord = {
+        status: previous?.status ?? "reminder",
+        comment: previous?.comment ?? "",
+        updatedAt: new Date().toISOString(),
+        managementType: previous?.managementType,
+        managementAmount: previous?.managementAmount,
+        managementComment: previous?.managementComment,
+        managementUpdatedAt: previous?.managementUpdatedAt,
+        whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt ?? new Date().toISOString(),
+        whatsAppMessageSentAt: new Date().toISOString(),
+        whatsAppMessageText: message
       };
       optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return {
@@ -828,10 +891,12 @@ export default function ReceivablesPage({
                   todayDateKey={todayDateKey}
                   now={now}
                   isTodayCollectionClosed={isTodayCollectionClosed}
-                  whatsAppUrl={buildWhatsAppReceivableUrl(row)}
+                  whatsAppMessage={buildWhatsAppReceivableMessage(row)}
                   onSelectDetail={setSelectedDetailRow}
                   onRemoveFieldManagement={handleRemoveFieldManagement}
                   onCollectionStatusChange={handleCollectionStatusChange}
+                  onWhatsAppMessageCopied={handleWhatsAppMessageCopied}
+                  onWhatsAppMessageSent={handleWhatsAppMessageSent}
                   onCallLaterCommentChange={handleCallLaterCommentChange}
                   onOpenFieldManagementModal={handleOpenFieldManagementModal}
                 />

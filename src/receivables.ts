@@ -42,6 +42,7 @@ export type ReceivableRow = {
   unitId: string;
   name: string;
   cedula: string;
+  whatsAppPhone?: string;
   group: string;
   plan: BillingFrequency;
   weeklyChargeDay?: WeeklyChargeDay;
@@ -196,6 +197,7 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
         unitId: client.unitId,
         name: client.name,
         cedula: client.cedula ?? "-",
+        whatsAppPhone: client.whatsAppPhone,
         group: getGroupFromUnit(client.unitId),
         plan: client.frequency,
         weeklyChargeDay: client.frequency === "weekly" ? (client.weeklyChargeDay ?? "monday") : undefined,

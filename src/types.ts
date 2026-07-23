@@ -61,6 +61,7 @@ export type Client = {
   unitId: string;
   name: string;
   cedula?: string;
+  whatsAppPhone?: string;
   rentAmount: number;
   frequency: BillingFrequency;
   chargeFirstSunday?: boolean;

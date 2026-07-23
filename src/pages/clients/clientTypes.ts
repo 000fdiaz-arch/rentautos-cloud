@@ -14,6 +14,7 @@ export type ClientForm = {
   unitId: string;
   cedula: string;
   name: string;
+  whatsAppPhone: string;
   firstChargeDate: string;
   rentAmount: string;
   frequency: BillingFrequency;

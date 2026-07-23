@@ -35,6 +35,7 @@ import {
   buildClient,
   createOtherChargeForm,
   getOperationalReferenceDate,
+  normalizePhoneDigits,
   parseIntegerOrNull,
   parseNumberOrNull
 } from "./clients/clientRules";
@@ -434,6 +435,7 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
       unitId: client.unitId,
       cedula: client.cedula ?? "",
       name: client.name,
+      whatsAppPhone: normalizePhoneDigits(client.whatsAppPhone ?? ""),
       firstChargeDate: client.firstChargeDate ?? getBusinessDateKey(),
       rentAmount: String(client.rentAmount),
       frequency: client.frequency,

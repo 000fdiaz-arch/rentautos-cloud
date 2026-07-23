@@ -64,6 +64,7 @@ export const initialForm: ClientForm = {
   unitId: "",
   cedula: "",
   name: "",
+  whatsAppPhone: "",
   firstChargeDate: getBusinessDateKey(),
   rentAmount: "",
   frequency: "monthly",

@@ -139,14 +139,18 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   const managementAmount = Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : undefined;
   const managementComment = typeof row.managementComment === "string" ? normalizeFieldManagementComment(row.managementComment.trim()) : "";
   const managementUpdatedAt = typeof row.managementUpdatedAt === "string" ? row.managementUpdatedAt : undefined;
+  const whatsAppMessageCopiedAt = typeof row.whatsAppMessageCopiedAt === "string" ? row.whatsAppMessageCopiedAt : undefined;
+  const whatsAppMessageSentAt = typeof row.whatsAppMessageSentAt === "string" ? row.whatsAppMessageSentAt : undefined;
+  const whatsAppMessageText = typeof row.whatsAppMessageText === "string" ? row.whatsAppMessageText : undefined;
+  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText };
   if (status === "no_answer" || status === "reminder" || status === "call_later" || status === "paid") {
-    return { status, comment, updatedAt, managementType, managementAmount, managementComment, managementUpdatedAt };
+    return { status, comment, updatedAt, managementType, managementAmount, managementComment, managementUpdatedAt, ...messageAudit };
   }
   if (row.actionType === "cobrar") {
-    return { status: "reminder", comment, updatedAt, managementType: "solo_cobrar", managementAmount, managementComment, managementUpdatedAt };
+    return { status: "reminder", comment, updatedAt, managementType: "solo_cobrar", managementAmount, managementComment, managementUpdatedAt, ...messageAudit };
   }
   if (row.actionType === "quitarOCobrar") {
-    return { status: "call_later", comment, updatedAt, managementType: "cobrar_o_quitar", managementAmount, managementComment, managementUpdatedAt };
+    return { status: "call_later", comment, updatedAt, managementType: "cobrar_o_quitar", managementAmount, managementComment, managementUpdatedAt, ...messageAudit };
   }
   return null;
 }

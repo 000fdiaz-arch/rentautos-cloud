@@ -6342,6 +6342,61 @@ select.control-op-badge {
   text-decoration: none;
 }
 
+.ar-whatsapp-confirm-box {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid #f2c94c;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #713f12;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.ar-whatsapp-confirm-button {
+  width: 100%;
+  min-height: 30px;
+  border-color: #16a34a;
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.ar-whatsapp-confirm-button:hover {
+  background: #15803d;
+}
+
+.ar-whatsapp-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.ar-whatsapp-status--sent {
+  border: 1px solid rgba(22, 163, 74, 0.32);
+  background: #dcfce7;
+  color: #166534;
+}
+
+.ar-whatsapp-phone-missing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 4px 7px;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
 .ar-actions-stack {
   display: flex;
   flex-direction: column;

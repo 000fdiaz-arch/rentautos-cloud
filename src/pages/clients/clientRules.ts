@@ -27,6 +27,10 @@ export function normalizePersonName(value: string): string {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase().replace(/\s+/g, " ");
 }
 
+export function normalizePhoneDigits(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
 export function formatPaymentDateKey(dateKey: string): string {
   const parsed = parseDateKey(dateKey);
   if (!parsed) return dateKey;
@@ -98,6 +102,7 @@ export function buildClient(form: ClientForm, existing?: Client): Client {
     unitId: form.unitId.trim(),
     cedula: form.cedula.trim() || undefined,
     name: form.name.trim(),
+    whatsAppPhone: normalizePhoneDigits(form.whatsAppPhone) || undefined,
     rentAmount: Number(form.rentAmount),
     frequency: form.frequency,
     chargeFirstSunday: form.frequency === "daily" && form.chargeFirstSunday,

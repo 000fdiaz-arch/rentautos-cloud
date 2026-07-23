@@ -10,4 +10,7 @@ export type CollectionStatusRecord = {
   managementAmount?: number;
   managementComment?: string;
   managementUpdatedAt?: string;
+  whatsAppMessageCopiedAt?: string;
+  whatsAppMessageSentAt?: string;
+  whatsAppMessageText?: string;
 };

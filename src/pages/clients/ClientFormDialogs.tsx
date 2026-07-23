@@ -1,7 +1,7 @@
 import type { Dispatch, FormEvent, SetStateAction } from "react";
 import type { BillingFrequency, WeeklyChargeDay } from "../../types";
 import { FREQUENCY_LABEL } from "./clientConstants";
-import { createOtherChargeForm } from "./clientRules";
+import { createOtherChargeForm, normalizePhoneDigits } from "./clientRules";
 import type { ClientForm, EditClientTab } from "./clientTypes";
 
 type SharedProps = {
@@ -74,6 +74,9 @@ export function EditClientDialog({
                         </label>
                         <label>Nombre
                           <input type="text" value={form.name} onChange={(e) => setForm((c) => ({ ...c, name: e.target.value }))} placeholder="Ej. Richard Alexander" className={errorFields.has("name") ? "input-error" : undefined} required />
+                        </label>
+                        <label>WhatsApp
+                          <input type="tel" inputMode="numeric" pattern="[0-9]*" value={form.whatsAppPhone} onChange={(e) => setForm((c) => ({ ...c, whatsAppPhone: normalizePhoneDigits(e.target.value) }))} placeholder="Ej. 68842222" />
                         </label>
                         <label>Fecha primer cobro
                           <input type="date" value={form.firstChargeDate} onChange={(e) => setForm((c) => ({ ...c, firstChargeDate: e.target.value }))} className={errorFields.has("firstChargeDate") ? "input-error" : undefined} required />
@@ -232,6 +235,10 @@ export function CreateClientDialog({
                 <label>
                   Nombre
                   <input type="text" value={form.name} onChange={(e) => setForm((c) => ({ ...c, name: e.target.value }))} placeholder="Ej. Richard Alexander" className={errorFields.has("name") ? "input-error" : undefined} required />
+                </label>
+                <label>
+                  WhatsApp
+                  <input type="tel" inputMode="numeric" pattern="[0-9]*" value={form.whatsAppPhone} onChange={(e) => setForm((c) => ({ ...c, whatsAppPhone: normalizePhoneDigits(e.target.value) }))} placeholder="Ej. 68842222" />
                 </label>
                 <label>
                   Fecha primer cobro
