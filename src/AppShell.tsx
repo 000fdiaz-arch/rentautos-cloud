@@ -23,6 +23,7 @@ import {
   deleteCloudLeadEvaluation,
   deleteCloudPayment,
   loadCloudBankRules,
+  loadCloudChargeRunsWithDetails,
   loadCloudClients,
   loadCloudLeadEvaluations,
   loadCloudLateFeeSettings,
@@ -31,6 +32,7 @@ import {
   loadControlUnits,
   registerCloudPaymentDeltas,
   saveCloudBankRules,
+  saveCloudChargeRuns,
   saveControlUnit,
   saveCloudLeadEvaluation,
   saveCloudLateFeeSettings,
@@ -283,6 +285,7 @@ export default function AppShell({
 
   async function buildBackupExtraData(): Promise<BackupExtraData> {
     let fleetUnits: unknown[] = [];
+    let cloudChargeRuns: unknown[] | null = null;
     const indexedPendingBankItems = await loadPendingBankItemsFromIndexedDb();
     const indexedManualAssignmentAudit = await loadManualBankAssignmentAuditFromIndexedDb();
     if (cloudDataUserId) {
@@ -290,6 +293,13 @@ export default function AppShell({
         fleetUnits = await loadControlUnits(cloudDataUserId);
       } catch (error) {
         console.error("No se pudieron incluir autos en el respaldo.", error);
+      }
+      if (isSupabaseOnlyMode) {
+        try {
+          cloudChargeRuns = await loadCloudChargeRunsWithDetails(cloudDataUserId);
+        } catch (error) {
+          console.error("No se pudieron incluir corridas de cierre en el respaldo.", error);
+        }
       }
     }
     return {
@@ -304,7 +314,7 @@ export default function AppShell({
       notifiedPayments: parseLocalJson("cobrapp.module2.notified.v1", []) as unknown[],
       cashClosings: parseLocalJson("cobrapp.module2.cash_closings.v1", []) as unknown[],
       cashClosingAudit: parseLocalJson("cobrapp.module2.cash_closing_audit.v1", []) as unknown[],
-      chargeRuns: parseLocalJson("cobrapp.module2.charge_runs.v1", []) as unknown[],
+      chargeRuns: cloudChargeRuns ?? parseLocalJson("cobrapp.module2.charge_runs.v1", []) as unknown[],
       streetManagement: parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>,
       leadEvaluations,
       fleetUnits,
@@ -644,7 +654,14 @@ export default function AppShell({
       localStorage.setItem("cobrapp.module2.notified.v1", JSON.stringify(report.normalizedData["cobrapp.module2.notified.v1"] ?? []));
       localStorage.setItem("cobrapp.module2.cash_closings.v1", JSON.stringify(report.normalizedData["cobrapp.module2.cash_closings.v1"] ?? []));
       localStorage.setItem("cobrapp.module2.cash_closing_audit.v1", JSON.stringify(report.normalizedData["cobrapp.module2.cash_closing_audit.v1"] ?? []));
-      localStorage.setItem("cobrapp.module2.charge_runs.v1", JSON.stringify(report.normalizedData["cobrapp.module2.charge_runs.v1"] ?? []));
+      const importedChargeRuns = Array.isArray(report.normalizedData["cobrapp.module2.charge_runs.v1"])
+        ? report.normalizedData["cobrapp.module2.charge_runs.v1"] as never[]
+        : [];
+      if (cloudDataUserId && isSupabaseOnlyMode) {
+        await saveCloudChargeRuns(cloudDataUserId, importedChargeRuns);
+      } else {
+        localStorage.setItem("cobrapp.module2.charge_runs.v1", JSON.stringify(importedChargeRuns));
+      }
       localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(report.normalizedData["cobrapp.module3.street_management.v1"] ?? {}));
       await persistLeadEvaluations(Array.isArray(report.normalizedData["cobrapp.module4.leads.v1"]) ? report.normalizedData["cobrapp.module4.leads.v1"] as LeadEvaluation[] : []);
       if (cloudDataUserId) {

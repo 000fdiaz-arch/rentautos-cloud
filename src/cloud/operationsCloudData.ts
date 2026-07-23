@@ -3,6 +3,7 @@ import { dedupeLoad, getCloudClient, PAGE_SIZE, type DataRow, type SingletonData
 import type {
   CashClosing,
   CashClosingAuditEvent,
+  CashCloseClientSnapshot,
   ChargeRun
 } from "../pages/payments/paymentTypes";
 import { stableEqual } from "../stableSerialize";
@@ -210,12 +211,304 @@ export async function saveCloudCashClosingAudit(userId: string, rows: CashClosin
   await replaceCloudArrayRows(userId, "cash_closing_audit_cloud", rows, (row, index) => row.id || `row-${index + 1}`);
 }
 
+type ModularChargeRunHeaderRow = {
+  id: string;
+  closing_date: string;
+  target_date: string;
+  expected_clients: number | string | null;
+  charged_clients: number | string | null;
+  anomaly_clients: number | string | null;
+  charged_total: number | string | null;
+  status?: "pending" | "completed" | "reverted" | string | null;
+  created_at_text: string;
+  reverted_at?: string | null;
+  reverted_reason?: string | null;
+  reverted_by?: string | null;
+};
+
+function isMissingModularChargeRunsSchema(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: unknown; message?: unknown };
+  const code = typeof record.code === "string" ? record.code : "";
+  const message = typeof record.message === "string" ? record.message : "";
+  return code === "42P01" || code === "PGRST205" || message.includes("charge_run_headers_cloud");
+}
+
+function numberFromCloud(value: unknown): number {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function chargeRunFromHeader(row: ModularChargeRunHeaderRow): ChargeRun {
+  return {
+    id: row.id,
+    closingDate: row.closing_date,
+    targetDate: row.target_date,
+    expectedClients: numberFromCloud(row.expected_clients),
+    chargedClients: numberFromCloud(row.charged_clients),
+    anomalyClients: numberFromCloud(row.anomaly_clients),
+    chargedTotal: numberFromCloud(row.charged_total),
+    createdAt: row.created_at_text,
+    status: row.status === "pending" || row.status === "completed" || row.status === "reverted" ? row.status : undefined,
+    revertedAt: typeof row.reverted_at === "string" ? row.reverted_at : undefined,
+    revertedReason: typeof row.reverted_reason === "string" ? row.reverted_reason : undefined,
+    revertedBy: typeof row.reverted_by === "string" ? row.reverted_by : undefined
+  };
+}
+
+function toChargeRunHeaderPayload(userId: string, run: ChargeRun): Record<string, unknown> {
+  return {
+    user_id: userId,
+    id: run.id,
+    closing_date: run.closingDate,
+    target_date: run.targetDate,
+    expected_clients: run.expectedClients,
+    charged_clients: run.chargedClients,
+    anomaly_clients: run.anomalyClients,
+    charged_total: run.chargedTotal,
+    status: run.status ?? null,
+    created_at_text: run.createdAt,
+    reverted_at: run.revertedAt ?? null,
+    reverted_reason: run.revertedReason ?? null,
+    reverted_by: run.revertedBy ?? null,
+    updated_at: new Date().toISOString()
+  };
+}
+
+async function loadLegacyCloudChargeRun(userId: string, runId: string): Promise<ChargeRun | null> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("charge_runs_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .eq("id", runId)
+    .maybeSingle();
+  if (error) return null;
+  const payload = (data as { data?: unknown } | null)?.data;
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as ChargeRun
+    : null;
+}
+
 export async function loadCloudChargeRuns(userId: string): Promise<ChargeRun[]> {
-  return loadCloudArrayRows<ChargeRun>(userId, "charge_runs_cloud");
+  const client = getCloudClient();
+  try {
+    const rows: ChargeRun[] = [];
+    let lastId = "";
+    while (true) {
+      let query = client
+        .from("charge_run_headers_cloud")
+        .select("id,closing_date,target_date,expected_clients,charged_clients,anomaly_clients,charged_total,status,created_at_text,reverted_at,reverted_reason,reverted_by")
+        .eq("user_id", userId)
+        .order("id", { ascending: true })
+        .limit(PAGE_SIZE);
+      if (lastId) query = query.gt("id", lastId);
+      const { data, error } = await query;
+      if (error) throw error;
+      const batch = (data ?? []) as ModularChargeRunHeaderRow[];
+      rows.push(...batch.map(chargeRunFromHeader));
+      if (batch.length < PAGE_SIZE) break;
+      lastId = batch[batch.length - 1]?.id ?? lastId;
+      if (!lastId) break;
+    }
+    const legacyRows = await loadCloudArrayRows<ChargeRun>(userId, "charge_runs_cloud").catch(() => []);
+    const byId = new Map<string, ChargeRun>();
+    for (const run of legacyRows) byId.set(run.id, run);
+    for (const run of rows) byId.set(run.id, run);
+    return [...byId.values()];
+  } catch (error) {
+    if (isMissingModularChargeRunsSchema(error)) {
+      return loadCloudArrayRows<ChargeRun>(userId, "charge_runs_cloud");
+    }
+    throw error;
+  }
+}
+
+export async function loadCloudChargeRunSnapshots(userId: string, runId: string): Promise<CashCloseClientSnapshot[]> {
+  const client = getCloudClient();
+  try {
+    const snapshots: CashCloseClientSnapshot[] = [];
+    let lastClientId = "";
+    while (true) {
+      let query = client
+        .from("charge_run_snapshots_cloud")
+        .select("client_id,data")
+        .eq("user_id", userId)
+        .eq("run_id", runId)
+        .order("client_id", { ascending: true })
+        .limit(PAGE_SIZE);
+      if (lastClientId) query = query.gt("client_id", lastClientId);
+      const { data, error } = await query;
+      if (error) throw error;
+      const batch = (data ?? []) as Array<{ client_id?: string; data?: unknown }>;
+      snapshots.push(...batch
+        .map((row) => row.data)
+        .filter((item): item is CashCloseClientSnapshot => Boolean(item) && typeof item === "object" && !Array.isArray(item)));
+      if (batch.length < PAGE_SIZE) break;
+      lastClientId = batch[batch.length - 1]?.client_id ?? lastClientId;
+      if (!lastClientId) break;
+    }
+    if (snapshots.length > 0) return snapshots;
+    return (await loadLegacyCloudChargeRun(userId, runId))?.clientSnapshots ?? [];
+  } catch (error) {
+    if (!isMissingModularChargeRunsSchema(error)) throw error;
+    return (await loadLegacyCloudChargeRun(userId, runId))?.clientSnapshots ?? [];
+  }
+}
+
+export async function loadCloudChargeRunLateFeeEntryIds(userId: string, runId: string): Promise<string[]> {
+  const client = getCloudClient();
+  try {
+    const entryIds: string[] = [];
+    let lastEntryId = "";
+    while (true) {
+      let query = client
+        .from("charge_run_late_fee_entries_cloud")
+        .select("entry_id")
+        .eq("user_id", userId)
+        .eq("run_id", runId)
+        .order("entry_id", { ascending: true })
+        .limit(PAGE_SIZE);
+      if (lastEntryId) query = query.gt("entry_id", lastEntryId);
+      const { data, error } = await query;
+      if (error) throw error;
+      const batch = (data ?? []) as Array<{ entry_id?: string }>;
+      entryIds.push(...batch.map((row) => row.entry_id).filter((id): id is string => typeof id === "string"));
+      if (batch.length < PAGE_SIZE) break;
+      lastEntryId = batch[batch.length - 1]?.entry_id ?? lastEntryId;
+      if (!lastEntryId) break;
+    }
+    if (entryIds.length > 0) return entryIds;
+    return (await loadLegacyCloudChargeRun(userId, runId))?.lateFeeEntryIds ?? [];
+  } catch (error) {
+    if (!isMissingModularChargeRunsSchema(error)) throw error;
+    return (await loadLegacyCloudChargeRun(userId, runId))?.lateFeeEntryIds ?? [];
+  }
+}
+
+export async function loadCloudChargeRunsWithDetails(userId: string): Promise<ChargeRun[]> {
+  const runs = await loadCloudChargeRuns(userId);
+  return Promise.all(runs.map(async (run) => {
+    const [clientSnapshots, lateFeeEntryIds] = await Promise.all([
+      loadCloudChargeRunSnapshots(userId, run.id).catch(() => run.clientSnapshots ?? []),
+      loadCloudChargeRunLateFeeEntryIds(userId, run.id).catch(() => run.lateFeeEntryIds ?? [])
+    ]);
+    return {
+      ...run,
+      clientSnapshots: clientSnapshots.length > 0 ? clientSnapshots : run.clientSnapshots,
+      lateFeeEntryIds: lateFeeEntryIds.length > 0 ? lateFeeEntryIds : run.lateFeeEntryIds
+    };
+  }));
 }
 
 export async function saveCloudChargeRuns(userId: string, rows: ChargeRun[]): Promise<void> {
-  await replaceCloudArrayRows(userId, "charge_runs_cloud", rows, (row, index) => row.id || `row-${index + 1}`);
+  const client = getCloudClient();
+  try {
+    const headerRows = rows.map((row) => toChargeRunHeaderPayload(userId, row));
+
+    if (headerRows.length > 0) {
+      const { error } = await client
+        .from("charge_run_headers_cloud")
+        .upsert(headerRows, { onConflict: "user_id,id" });
+      if (error) throw error;
+    }
+
+    const { data: existingRows, error: selectError } = await client
+      .from("charge_run_headers_cloud")
+      .select("id")
+      .eq("user_id", userId);
+    if (selectError) throw selectError;
+
+    const keepIds = new Set(rows.map((row) => row.id));
+    const staleIds = ((existingRows ?? []) as Array<{ id?: string }>)
+      .map((row) => row.id)
+      .filter((id): id is string => typeof id === "string" && !keepIds.has(id));
+    if (staleIds.length > 0) {
+      const { error: deleteError } = await client
+        .from("charge_run_headers_cloud")
+        .delete()
+        .eq("user_id", userId)
+        .in("id", staleIds);
+      if (deleteError) throw deleteError;
+    }
+
+    for (const run of rows) {
+      if (Array.isArray(run.clientSnapshots)) {
+        const snapshotRows = run.clientSnapshots.map((snapshot, index) => ({
+          user_id: userId,
+          run_id: run.id,
+          client_id: snapshot.clientId || `row-${index + 1}`,
+          data: snapshot,
+          updated_at: new Date().toISOString()
+        }));
+        if (snapshotRows.length > 0) {
+          const { error } = await client
+            .from("charge_run_snapshots_cloud")
+            .upsert(snapshotRows, { onConflict: "user_id,run_id,client_id" });
+          if (error) throw error;
+        }
+        const keepClientIds = new Set(snapshotRows.map((row) => row.client_id));
+        const { data: existingSnapshots, error: existingSnapshotsError } = await client
+          .from("charge_run_snapshots_cloud")
+          .select("client_id")
+          .eq("user_id", userId)
+          .eq("run_id", run.id);
+        if (existingSnapshotsError) throw existingSnapshotsError;
+        const staleClientIds = ((existingSnapshots ?? []) as Array<{ client_id?: string }>)
+          .map((row) => row.client_id)
+          .filter((id): id is string => typeof id === "string" && !keepClientIds.has(id));
+        if (staleClientIds.length > 0) {
+          const { error } = await client
+            .from("charge_run_snapshots_cloud")
+            .delete()
+            .eq("user_id", userId)
+            .eq("run_id", run.id)
+            .in("client_id", staleClientIds);
+          if (error) throw error;
+        }
+      }
+
+      if (Array.isArray(run.lateFeeEntryIds)) {
+        const entryRows = run.lateFeeEntryIds.map((entryId) => ({
+          user_id: userId,
+          run_id: run.id,
+          entry_id: entryId,
+          updated_at: new Date().toISOString()
+        }));
+        if (entryRows.length > 0) {
+          const { error } = await client
+            .from("charge_run_late_fee_entries_cloud")
+            .upsert(entryRows, { onConflict: "user_id,run_id,entry_id" });
+          if (error) throw error;
+        }
+        const keepEntryIds = new Set(entryRows.map((row) => row.entry_id));
+        const { data: existingEntries, error: existingEntriesError } = await client
+          .from("charge_run_late_fee_entries_cloud")
+          .select("entry_id")
+          .eq("user_id", userId)
+          .eq("run_id", run.id);
+        if (existingEntriesError) throw existingEntriesError;
+        const staleEntryIds = ((existingEntries ?? []) as Array<{ entry_id?: string }>)
+          .map((row) => row.entry_id)
+          .filter((id): id is string => typeof id === "string" && !keepEntryIds.has(id));
+        if (staleEntryIds.length > 0) {
+          const { error } = await client
+            .from("charge_run_late_fee_entries_cloud")
+            .delete()
+            .eq("user_id", userId)
+            .eq("run_id", run.id)
+            .in("entry_id", staleEntryIds);
+          if (error) throw error;
+        }
+      }
+    }
+  } catch (error) {
+    if (isMissingModularChargeRunsSchema(error)) {
+      await replaceCloudArrayRows(userId, "charge_runs_cloud", rows, (row, index) => row.id || `row-${index + 1}`);
+      return;
+    }
+    throw error;
+  }
 }
 
 export async function loadCloudLeadEvaluations(userId: string): Promise<LeadEvaluation[]> {

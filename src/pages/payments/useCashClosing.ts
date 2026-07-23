@@ -3,6 +3,8 @@ import { getBusinessDateKey, isChargeDay, parseDateKey, startOfDay, toDateKey } 
 import {
   loadCloudCashClosingAudit,
   loadCloudCashClosings,
+  loadCloudChargeRunLateFeeEntryIds,
+  loadCloudChargeRunSnapshots,
   loadCloudCollectionClosures,
   loadCloudChargeRuns,
   loadCloudStreetManagement,
@@ -15,6 +17,7 @@ import {
 import { formatCurrency } from "../../format";
 import { applyLateFeesForClosingDate, subtractOtherCharge } from "../../lateFees";
 import { supabase } from "../../lib/supabase";
+import { isSupabaseOnlyMode } from "../../persistenceMode";
 import { buildReceivableRows } from "../../receivables";
 import { loadLateFeeLedger, saveLateFeeLedger } from "../../storage";
 import type { Client, LateFeeLedgerEntry, LateFeeSettings, Payment } from "../../types";
@@ -82,13 +85,13 @@ export default function useCashClosing({
   onCashClose,
   dataOwnerUserId
 }: Options) {
-  const [cashClosings, setCashClosings] = useState<CashClosing[]>(() => loadCashClosings());
+  const [cashClosings, setCashClosings] = useState<CashClosing[]>(() => (isSupabaseOnlyMode ? [] : loadCashClosings()));
   const [cashClosingDate, setCashClosingDate] = useState<string>(getBusinessDateKey());
   const [cashClosingActor, setCashClosingActor] = useState<string>("Operador");
   const [cashClosingInfo, setCashClosingInfo] = useState<string>("");
   const [cashClosingError, setCashClosingError] = useState<string>("");
-  const [cashClosingAudit, setCashClosingAudit] = useState<CashClosingAuditEvent[]>(() => loadCashClosingAudit());
-  const [chargeRuns, setChargeRuns] = useState<ChargeRun[]>(() => loadChargeRuns());
+  const [cashClosingAudit, setCashClosingAudit] = useState<CashClosingAuditEvent[]>(() => (isSupabaseOnlyMode ? [] : loadCashClosingAudit()));
+  const [chargeRuns, setChargeRuns] = useState<ChargeRun[]>(() => (isSupabaseOnlyMode ? [] : loadChargeRuns()));
   const [lateFeeLedger, setLateFeeLedger] = useState<LateFeeLedgerEntry[]>(() => loadLateFeeLedger());
   const [lastCloseReport, setLastCloseReport] = useState<ChargeCloseReport | null>(null);
   const [reopenTargetDate, setReopenTargetDate] = useState<string | null>(null);
@@ -129,9 +132,11 @@ export default function useCashClosing({
     setCashClosingAudit(normalizedAudit);
     setChargeRuns(normalizedRuns);
     setCashLedgerClosedDates(normalizedLedgerClosedDates);
-    saveCashClosings(normalizedClosings);
-    saveCashClosingAudit(normalizedAudit);
-    saveChargeRuns(normalizedRuns);
+    if (!isSupabaseOnlyMode) {
+      saveCashClosings(normalizedClosings);
+      saveCashClosingAudit(normalizedAudit);
+      saveChargeRuns(normalizedRuns);
+    }
   }
 
   useEffect(() => {
@@ -166,6 +171,7 @@ export default function useCashClosing({
       .on("postgres_changes", { event: "*", schema: "public", table: "cash_closings_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, scheduleReload)
       .on("postgres_changes", { event: "*", schema: "public", table: "cash_closing_audit_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, scheduleReload)
       .on("postgres_changes", { event: "*", schema: "public", table: "charge_runs_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, scheduleReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "charge_run_headers_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, scheduleReload)
       .on("postgres_changes", { event: "*", schema: "public", table: "cash_day_closings", filter: `owner_user_id=eq.${dataOwnerUserId}` }, scheduleReload)
       .subscribe();
     return () => {
@@ -177,7 +183,7 @@ export default function useCashClosing({
   async function persistCashClosings(next: CashClosing[]): Promise<void> {
     const normalized = dedupeCashClosings(next);
     setCashClosings(normalized);
-    saveCashClosings(normalized);
+    if (!isSupabaseOnlyMode) saveCashClosings(normalized);
     if (dataOwnerUserId) {
       await saveCloudCashClosings(dataOwnerUserId, normalized);
     }
@@ -185,7 +191,7 @@ export default function useCashClosing({
 
   async function persistCashClosingAudit(next: CashClosingAuditEvent[]): Promise<void> {
     setCashClosingAudit(next);
-    saveCashClosingAudit(next);
+    if (!isSupabaseOnlyMode) saveCashClosingAudit(next);
     if (dataOwnerUserId) {
       await saveCloudCashClosingAudit(dataOwnerUserId, next);
     }
@@ -193,7 +199,7 @@ export default function useCashClosing({
 
   async function persistChargeRuns(next: ChargeRun[]): Promise<void> {
     setChargeRuns(next);
-    saveChargeRuns(next);
+    if (!isSupabaseOnlyMode) saveChargeRuns(next);
     if (dataOwnerUserId) {
       await saveCloudChargeRuns(dataOwnerUserId, next);
     }
@@ -732,20 +738,32 @@ async function handleConfirmReopen(): Promise<void> {
   setCashClosingInfo("Revirtiendo cierre...");
   setCashClosingError("");
   try {
-    const runToRevert = chargeRuns.find((run) =>
+    const candidateRunToRevert = chargeRuns.find((run) =>
       run.closingDate === reopenTargetDate &&
-      run.status !== "reverted" &&
-      Array.isArray(run.clientSnapshots) &&
-      run.clientSnapshots.length > 0
+      run.status !== "reverted"
     );
-    const legacyRun = chargeRuns.find((run) =>
-      run.closingDate === reopenTargetDate &&
-      run.status !== "reverted" &&
-      (!Array.isArray(run.clientSnapshots) || run.clientSnapshots.length === 0)
-    );
-    if (!runToRevert && legacyRun) {
+    let runToRevert = candidateRunToRevert;
+    if (runToRevert && dataOwnerUserId) {
+      const [cloudSnapshots, cloudLateFeeEntryIds] = await Promise.all([
+        Array.isArray(runToRevert.clientSnapshots) && runToRevert.clientSnapshots.length > 0
+          ? Promise.resolve(runToRevert.clientSnapshots)
+          : loadCloudChargeRunSnapshots(dataOwnerUserId, runToRevert.id),
+        Array.isArray(runToRevert.lateFeeEntryIds) && runToRevert.lateFeeEntryIds.length > 0
+          ? Promise.resolve(runToRevert.lateFeeEntryIds)
+          : loadCloudChargeRunLateFeeEntryIds(dataOwnerUserId, runToRevert.id)
+      ]);
+      runToRevert = {
+        ...runToRevert,
+        clientSnapshots: cloudSnapshots,
+        lateFeeEntryIds: cloudLateFeeEntryIds
+      };
+    }
+    const legacyRun = runToRevert && (!Array.isArray(runToRevert.clientSnapshots) || runToRevert.clientSnapshots.length === 0)
+      ? runToRevert
+      : undefined;
+    if (legacyRun) {
       setCashClosingError(
-        `La caja de ${reopenTargetDate} fue cerrada con una version anterior y no tiene snapshot financiero. No se puede reabrir automaticamente sin riesgo de alterar balances.`
+        `La caja de ${reopenTargetDate} no tiene snapshot financiero disponible. No se puede reabrir automaticamente sin riesgo de alterar balances.`
       );
       setCashClosingInfo("");
       return;
