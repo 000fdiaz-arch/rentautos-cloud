@@ -7,7 +7,7 @@ alter table public.fleet_units_cloud
 alter table public.fleet_units_cloud
   add constraint fleet_units_cloud_unit_id_format_chk
   check (
-    unit_id ~ '^[ABCDT]([1-9][0-9]?|100)$'
-  );
+    unit_id ~ '^[ABCDT](0?[1-9]|[1-9][0-9]|100)$'
+  ) not valid;
 
 notify pgrst, 'reload schema';
