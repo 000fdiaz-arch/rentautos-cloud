@@ -171,6 +171,36 @@ async function saveArrayKey(userId: string, key: ArrayKey, raw: string | null): 
     id: makeRowId(key, rec, idx),
     data: rec
   })));
+  const nextIds = new Set(rows.map((row) => row.id));
+
+  const existingIds: string[] = [];
+  let from = 0;
+  while (true) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await supabase
+      .from(table)
+      .select("id")
+      .eq("user_id", userId)
+      .range(from, to);
+    if (error) throw error;
+    const batch = (data ?? [])
+      .map((row) => String((row as { id?: unknown }).id ?? ""))
+      .filter((id) => id.length > 0);
+    existingIds.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  const staleIds = existingIds.filter((id) => !nextIds.has(id));
+  for (let index = 0; index < staleIds.length; index += PAGE_SIZE) {
+    const batch = staleIds.slice(index, index + PAGE_SIZE);
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq("user_id", userId)
+      .in("id", batch);
+    if (error) throw error;
+  }
 
   if (rows.length > 0) {
     const { error } = await supabase.from(table).upsert(rows, { onConflict: "user_id,id" });
