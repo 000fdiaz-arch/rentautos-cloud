@@ -2,11 +2,10 @@ import { memo, useState } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { STATE_LABEL, type ReceivableRow } from "../../receivables";
 import type { Client } from "../../types";
-import type { CollectionStatusRecord } from "./receivablesTypes";
+import type { CollectionStatus, CollectionStatusRecord } from "./receivablesTypes";
 import {
   COLLECTION_CUT_OPTIONS,
   COLLECTION_STATUS_OPTIONS,
-  REGULAR_COLLECTION_STATUS_OPTIONS,
   clientOperationalStatusLabel,
   clientOperationalStatusTone,
   pendingSummaryText,
@@ -23,6 +22,7 @@ type Props = {
   now: Date;
   isTodayCollectionClosed: boolean;
   collectionCutItems: Partial<Record<CollectionCutKey, CollectionClosureItem>>;
+  visibleCutKey: CollectionCutKey | "all";
   whatsAppMessage: string;
   onSelectDetail: (row: ReceivableRow) => void;
   onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
@@ -55,6 +55,12 @@ function cutDisplayLabel(cutKey: CollectionCutKey): string {
   return "CIERRE";
 }
 
+function getStatusOptionsForCut(cutKey: CollectionCutKey): Array<{ value: CollectionStatus; label: string }> {
+  if (cutKey === "morning") return COLLECTION_STATUS_OPTIONS.filter((option) => option.value !== "route_collection");
+  if (cutKey === "afternoon") return COLLECTION_STATUS_OPTIONS.filter((option) => option.value !== "reminder" && option.value !== "route_collection");
+  return COLLECTION_STATUS_OPTIONS.filter((option) => option.value !== "reminder");
+}
+
 function lastPaymentLabel(lastPaymentDate: string | null, now: Date): string {
   if (!lastPaymentDate) return "Sin pagos";
   const paymentDate = new Date(`${lastPaymentDate}T12:00:00`);
@@ -67,6 +73,10 @@ function lastPaymentLabel(lastPaymentDate: string | null, now: Date): string {
   return `Último pago hace ${days} días`;
 }
 
+function hasOverdueDebt(row: ReceivableRow): boolean {
+  return row.overdueBalance > 0 || row.overdueInstallments > 0 || row.state === "vencido" || row.state === "critico";
+}
+
 function ReceivableTableRowComponent({
   row,
   statusRecord,
@@ -74,6 +84,7 @@ function ReceivableTableRowComponent({
   now,
   isTodayCollectionClosed,
   collectionCutItems,
+  visibleCutKey,
   whatsAppMessage,
   onSelectDetail,
   onCollectionCutStatusChange,
@@ -86,6 +97,8 @@ function ReceivableTableRowComponent({
   const [copiedWhatsAppMessage, setCopiedWhatsAppMessage] = useState(false);
   const messageWasCopied = copiedWhatsAppMessage || !!statusRecord?.whatsAppMessageCopiedAt;
   const messageWasSent = !!statusRecord?.whatsAppMessageSentAt;
+  const requiresWhatsAppManagement = hasOverdueDebt(row);
+  const whatsAppIsResolved = messageWasSent || !requiresWhatsAppManagement;
   const whatsAppPhone = normalizeWhatsAppPhone(row.whatsAppPhone);
   const lastPaymentIsToday = row.lastPaymentDate
     ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) === formatDate(now)
@@ -94,14 +107,19 @@ function ReceivableTableRowComponent({
   const sentTime = sentAt && !Number.isNaN(sentAt.getTime())
     ? sentAt.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" })
     : "";
-  const whatsAppButtonTitle = messageWasSent
-    ? `WhatsApp enviado${sentTime ? ` a las ${sentTime}` : ""}`
-    : messageWasCopied
-      ? "WhatsApp abierto: confirma cuando lo envies"
-      : whatsAppPhone
-        ? "Abrir WhatsApp y copiar mensaje"
-        : "Falta WhatsApp: agregar o editar numero";
-  const whatsAppTone = messageWasSent ? "sent" : messageWasCopied ? "opened" : whatsAppPhone ? "ready" : "missing";
+  const whatsAppButtonTitle = !requiresWhatsAppManagement
+    ? "Realizado: sin saldo atrasado"
+    : messageWasSent
+      ? `WhatsApp enviado${sentTime ? ` a las ${sentTime}` : ""}`
+      : messageWasCopied
+        ? "WhatsApp abierto: confirma cuando lo envies"
+        : whatsAppPhone
+          ? "Abrir WhatsApp y copiar mensaje"
+          : "Falta WhatsApp: agregar o editar numero";
+  const whatsAppTone = whatsAppIsResolved ? "sent" : messageWasCopied ? "opened" : whatsAppPhone ? "ready" : "missing";
+  const visibleCutOptions = visibleCutKey === "all"
+    ? COLLECTION_CUT_OPTIONS
+    : COLLECTION_CUT_OPTIONS.filter((option) => option.key === visibleCutKey);
 
   async function handleWhatsAppClick(): Promise<void> {
     if (!whatsAppPhone) {
@@ -125,8 +143,9 @@ function ReceivableTableRowComponent({
 
   function renderCutCell(cutKey: CollectionCutKey) {
     const item = collectionCutItems[cutKey];
-    const value = item?.collectionStatus ?? "";
-    const statusOptions = cutKey === "night" ? COLLECTION_STATUS_OPTIONS : REGULAR_COLLECTION_STATUS_OPTIONS;
+    const rawValue = item?.collectionStatus ?? "";
+    const statusOptions = getStatusOptionsForCut(cutKey);
+    const value = statusOptions.some((option) => option.value === rawValue) ? rawValue : "";
     return (
       <div className={`ar-cut-stack-row ar-cut-stack-row--${cutKey}`}>
         <span className="ar-cut-stack-label">{cutDisplayLabel(cutKey)}</span>
@@ -179,7 +198,7 @@ function ReceivableTableRowComponent({
               <div className="ar-client-summary-grid">
                 <div className="ar-card-actions ar-card-actions--compact">
                   <strong className="ar-unit-id">{row.unitId}</strong>
-                  {messageWasSent ? (
+                  {whatsAppIsResolved ? (
                     <span
                       className="ar-whatsapp-status ar-whatsapp-status--sent ar-whatsapp-icon-button ar-whatsapp-icon-button--sent"
                       title={whatsAppButtonTitle}
@@ -202,7 +221,7 @@ function ReceivableTableRowComponent({
                   <span className={clientOperationalStatusTone(operationalStatus)}>
                     {clientOperationalStatusLabel(operationalStatus)}
                   </span>
-                  {!messageWasSent && messageWasCopied ? (
+                  {!whatsAppIsResolved && messageWasCopied ? (
                     <div className="ar-whatsapp-confirm-box ar-whatsapp-confirm-box--unit ar-whatsapp-confirm-box--inline">
                       <span>Confirma cuando lo envies.</span>
                       <button
@@ -245,7 +264,7 @@ function ReceivableTableRowComponent({
 
           <div className="ar-card-management ar-cut-cell ar-cut-cell--stacked">
             <div className="ar-cut-stack">
-              {COLLECTION_CUT_OPTIONS.map((option) => (
+              {visibleCutOptions.map((option) => (
                 <div key={option.key}>
                   {renderCutCell(option.key)}
                 </div>
@@ -265,6 +284,7 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.todayDateKey === next.todayDateKey &&
   previous.isTodayCollectionClosed === next.isTodayCollectionClosed &&
   previous.collectionCutItems === next.collectionCutItems &&
+  previous.visibleCutKey === next.visibleCutKey &&
   previous.whatsAppMessage === next.whatsAppMessage &&
   previous.onCollectionCutStatusChange === next.onCollectionCutStatusChange &&
   previous.onCollectionCutCommentChange === next.onCollectionCutCommentChange &&

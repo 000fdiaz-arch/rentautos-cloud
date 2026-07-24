@@ -5956,6 +5956,212 @@ select.control-op-badge {
   margin-bottom: 8px;
 }
 
+.ar-cut-progress-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 14px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.ar-cut-view-toggle {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ar-cut-view-toggle span {
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ar-cut-view-toggle button {
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid #d8e2ef;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.ar-cut-view-toggle button:hover {
+  border-color: #99f6e4;
+  color: #0f766e;
+}
+
+.ar-cut-view-toggle button.is-active {
+  border-color: #0f766e;
+  background: #0f766e;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(15, 118, 110, 0.16);
+}
+
+.ar-cut-view-toggle button strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  min-height: 18px;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #0f172a;
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+.ar-cut-view-toggle button.is-active strong {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+.ar-whatsapp-view-toggle {
+  padding-bottom: 2px;
+}
+
+.ar-cut-progress-card {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #d8e7f0;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.ar-cut-progress-card--night {
+  border-color: #b7e4db;
+  background: #fbfffe;
+}
+
+.ar-cut-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ar-cut-progress-head strong {
+  color: #0f172a;
+  font-size: 0.92rem;
+}
+
+.ar-cut-progress-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 7px;
+  background: #e0f2fe;
+  color: #075985;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+}
+
+.ar-cut-progress-card--afternoon .ar-cut-progress-label {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.ar-cut-progress-card--night .ar-cut-progress-label {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
+.ar-cut-progress-track {
+  height: 8px;
+  margin-top: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.ar-cut-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0f766e, #14b8a6);
+}
+
+.ar-cut-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 7px;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.ar-cut-progress-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+  min-height: 23px;
+}
+
+.ar-cut-progress-pill,
+.ar-cut-progress-empty {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 3px 7px;
+  border-radius: 999px;
+  border: 1px solid #d8e2ef;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.66rem;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.ar-cut-progress-pill--no_answer {
+  color: #991b1b;
+  border-color: #fecaca;
+  background: #fff1f2;
+}
+
+.ar-cut-progress-pill--reminder {
+  color: #5b21b6;
+  border-color: #ddd6fe;
+  background: #faf5ff;
+}
+
+.ar-cut-progress-pill--call_later {
+  color: #0f766e;
+  border-color: #99f6e4;
+  background: #f0fdfa;
+}
+
+.ar-cut-progress-pill--paid {
+  color: #166534;
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.ar-cut-progress-pill--route_collection {
+  color: #9a3412;
+  border-color: #fdba74;
+  background: #fff7ed;
+}
+
+.ar-cut-progress-empty {
+  color: #64748b;
+}
+
 .ar-sub-actions-row .ar-filter-actions {
   flex: 1;
 }

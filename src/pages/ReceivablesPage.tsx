@@ -67,6 +67,45 @@ type Props = {
   onStreetManagementPersist?: (value: Record<string, unknown>) => Promise<boolean> | boolean;
 };
 
+type WhatsAppContactFilter = "all" | "missing" | "ready" | "opened" | "sent";
+
+const WHATSAPP_REALIZED_CLEANUP_KEY = "cobrapp.module3.whatsapp_realized_cleanup.v1";
+
+function getStatusOptionsForCut(cutKey: CollectionCutKey): Array<{ value: CollectionStatus; label: string }> {
+  if (cutKey === "morning") return COLLECTION_STATUS_OPTIONS.filter((option) => option.value !== "route_collection");
+  if (cutKey === "afternoon") return COLLECTION_STATUS_OPTIONS.filter((option) => option.value !== "reminder" && option.value !== "route_collection");
+  return COLLECTION_STATUS_OPTIONS.filter((option) => option.value !== "reminder");
+}
+
+function normalizeWhatsAppPhoneForFilter(value: string | undefined): string {
+  const digits = value?.replace(/\D/g, "") ?? "";
+  if (digits.length === 8) return `507${digits}`;
+  if (digits.length >= 10) return digits;
+  return "";
+}
+
+function hasOverdueDebtForWhatsApp(row: ReceivableRow): boolean {
+  return row.overdueBalance > 0 || row.overdueInstallments > 0 || row.state === "vencido" || row.state === "critico";
+}
+
+function getWhatsAppContactStatus(row: ReceivableRow, record: CollectionStatusRecord | undefined): Exclude<WhatsAppContactFilter, "all"> {
+  if (!hasOverdueDebtForWhatsApp(row)) return "sent";
+  if (record?.whatsAppMessageSentAt) return "sent";
+  if (record?.whatsAppMessageCopiedAt) return "opened";
+  if (!normalizeWhatsAppPhoneForFilter(row.whatsAppPhone)) return "missing";
+  return "ready";
+}
+
+function removeWhatsAppAudit(record: CollectionStatusRecord): CollectionStatusRecord {
+  const {
+    whatsAppMessageCopiedAt: _whatsAppMessageCopiedAt,
+    whatsAppMessageSentAt: _whatsAppMessageSentAt,
+    whatsAppMessageText: _whatsAppMessageText,
+    ...rest
+  } = record;
+  return rest;
+}
+
 export default function ReceivablesPage({
   clients,
   payments,
@@ -82,9 +121,11 @@ export default function ReceivablesPage({
   const [selectedDetailRow, setSelectedDetailRow] = useState<ReceivableRow | null>(null);
   const [collectionStatusByClient, setCollectionStatusByClient] = useState<Record<string, CollectionStatusRecord>>({});
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<CollectionStatusFilter>("all");
+  const [whatsAppContactFilter, setWhatsAppContactFilter] = useState<WhatsAppContactFilter>("all");
   const [dashboardFilter, setDashboardFilter] = useState<DashboardFilter>("none");
   const [viewMode, setViewMode] = useState<ReceivablesViewMode>("cartera");
   const [collectionClosuresByDate, setCollectionClosuresByDate] = useState<CollectionClosuresByDate>({});
+  const [visibleCollectionCut, setVisibleCollectionCut] = useState<CollectionCutKey | "all">("all");
   const [selectedHistoryDate, setSelectedHistoryDate] = useState<string>("");
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -225,6 +266,26 @@ export default function ReceivablesPage({
     return buildReceivableRows(clients, payments, now);
   }, [clients, now, payments]);
 
+  useEffect(() => {
+    if (localStorage.getItem(WHATSAPP_REALIZED_CLEANUP_KEY) === "done") return;
+    const entries = Object.entries(collectionStatusByClient);
+    if (entries.length === 0) return;
+
+    let changed = false;
+    const cleaned = Object.fromEntries(entries.map(([clientId, record]) => {
+      if (!record.whatsAppMessageCopiedAt && !record.whatsAppMessageSentAt && !record.whatsAppMessageText) {
+        return [clientId, record] as const;
+      }
+      changed = true;
+      return [clientId, removeWhatsAppAudit(record)] as const;
+    }));
+
+    if (changed) {
+      localStorage.setItem(WHATSAPP_REALIZED_CLEANUP_KEY, "done");
+      setCollectionStatusByClient(cleaned);
+    }
+  }, [collectionStatusByClient]);
+
   const clientStatusById = useMemo(() => {
     const map = new Map<string, Client["status"]>();
     for (const client of clients) map.set(client.id, client.status);
@@ -263,10 +324,29 @@ export default function ReceivablesPage({
     if (collectionStatusFilter === "all") return filteredByDashboardRows;
     return filteredByDashboardRows.filter((row) => getEffectiveStatus(row) === collectionStatusFilter);
   }, [collectionStatusFilter, filteredByDashboardRows, collectionStatusByClient, now]);
+  const whatsAppContactCounts = useMemo(() => {
+    const counts: Record<WhatsAppContactFilter, number> = {
+      all: filteredByCollectionStatusRows.length,
+      missing: 0,
+      ready: 0,
+      opened: 0,
+      sent: 0
+    };
+    for (const row of filteredByCollectionStatusRows) {
+      counts[getWhatsAppContactStatus(row, collectionStatusByClient[row.id])] += 1;
+    }
+    return counts;
+  }, [collectionStatusByClient, filteredByCollectionStatusRows]);
+  const filteredByWhatsAppRows = useMemo(() => {
+    if (whatsAppContactFilter === "all") return filteredByCollectionStatusRows;
+    return filteredByCollectionStatusRows.filter((row) => (
+      getWhatsAppContactStatus(row, collectionStatusByClient[row.id]) === whatsAppContactFilter
+    ));
+  }, [collectionStatusByClient, filteredByCollectionStatusRows, whatsAppContactFilter]);
 
   const rows = useMemo(
-    () => sortReceivableRows(filteredByCollectionStatusRows, sortField, sortDirection),
-    [filteredByCollectionStatusRows, sortDirection, sortField]
+    () => sortReceivableRows(filteredByWhatsAppRows, sortField, sortDirection),
+    [filteredByWhatsAppRows, sortDirection, sortField]
   );
   const todayDateKey = useMemo(() => {
     const year = now.getFullYear();
@@ -279,6 +359,33 @@ export default function ReceivablesPage({
     () => getCollectionClosureCuts(collectionClosuresByDate[todayDateKey]),
     [collectionClosuresByDate, todayDateKey]
   );
+  const collectionCutProgress = useMemo(() => {
+    const visibleClientIds = new Set(rows.map((row) => row.id));
+    const total = rows.length;
+    return COLLECTION_CUT_OPTIONS.map((option) => {
+      const statusCounts: Record<CollectionStatus, number> = {
+        no_answer: 0,
+        reminder: 0,
+        call_later: 0,
+        paid: 0,
+        route_collection: 0
+      };
+      const validStatuses = new Set(getStatusOptionsForCut(option.key).map((item) => item.value));
+      const managedItems = (todayCollectionCuts[option.key]?.items ?? [])
+        .filter((item) => visibleClientIds.has(item.clientId) && validStatuses.has(item.collectionStatus));
+      for (const item of managedItems) statusCounts[item.collectionStatus] += 1;
+      const managed = managedItems.length;
+      return {
+        key: option.key,
+        label: option.key === "morning" ? "AM" : option.key === "afternoon" ? "PM" : "CIERRE",
+        managed,
+        total,
+        pending: Math.max(0, total - managed),
+        percent: total > 0 ? Math.round((managed / total) * 100) : 0,
+        statusCounts
+      };
+    });
+  }, [rows, todayCollectionCuts]);
   const selectedHistoryCuts = useMemo(
     () => selectedHistoryDate ? getCollectionClosureCuts(collectionClosuresByDate[selectedHistoryDate]) : {},
     [collectionClosuresByDate, selectedHistoryDate]
@@ -593,14 +700,15 @@ export default function ReceivablesPage({
     const nextStatus = patch.status !== undefined
       ? patch.status
       : existingItem?.collectionStatus ?? "";
+    const validStatuses = new Set(getStatusOptionsForCut(cutKey).map((option) => option.value));
 
     const itemsWithoutClient = existingItems.filter((item) => item.clientId !== clientId);
     let nextItems = itemsWithoutClient;
-    if (nextStatus === "no_answer" || nextStatus === "reminder" || nextStatus === "call_later" || nextStatus === "paid" || nextStatus === "route_collection") {
+    if (validStatuses.has(nextStatus as CollectionStatus)) {
       const nextComment = patch.comment !== undefined ? patch.comment : existingItem?.comment ?? "";
       nextItems = [
         ...itemsWithoutClient,
-        buildCutItem(row, nextStatus, nextComment)
+        buildCutItem(row, nextStatus as CollectionStatus, nextComment)
       ].sort((a, b) => a.unitId.localeCompare(b.unitId, undefined, { numeric: true }));
     }
 
@@ -1017,6 +1125,75 @@ export default function ReceivablesPage({
 
       <section className="panel ar-ledger-panel">
         <div className="panel-head"><h2>Cartera de clientes</h2></div>
+        {viewMode === "cartera" && (
+          <div className="ar-cut-progress-panel" aria-label="Avance de gestion por corte">
+            <div className="ar-cut-view-toggle ar-whatsapp-view-toggle" aria-label="Filtrar por estado de WhatsApp">
+              <span>WhatsApp</span>
+              {([
+                ["all", "Todos"],
+                ["missing", "Sin numero"],
+                ["ready", "Por enviar"],
+                ["opened", "Pendientes"],
+                ["sent", "Completados"]
+              ] as Array<[WhatsAppContactFilter, string]>).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={whatsAppContactFilter === value ? "is-active" : ""}
+                  onClick={() => setWhatsAppContactFilter(value)}
+                >
+                  {label} <strong>{whatsAppContactCounts[value]}</strong>
+                </button>
+              ))}
+            </div>
+            <div className="ar-cut-view-toggle" aria-label="Filtrar vista de cortes">
+              <span>Ver corte</span>
+              <button
+                type="button"
+                className={visibleCollectionCut === "all" ? "is-active" : ""}
+                onClick={() => setVisibleCollectionCut("all")}
+              >
+                Todos
+              </button>
+              {COLLECTION_CUT_OPTIONS.map((option) => {
+                const label = option.key === "morning" ? "AM" : option.key === "afternoon" ? "PM" : "CIERRE";
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    className={visibleCollectionCut === option.key ? "is-active" : ""}
+                    onClick={() => setVisibleCollectionCut(option.key)}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            {collectionCutProgress.map((cut) => (
+              <article key={cut.key} className={`ar-cut-progress-card ar-cut-progress-card--${cut.key}`}>
+                <div className="ar-cut-progress-head">
+                  <span className="ar-cut-progress-label">{cut.label}</span>
+                  <strong>{cut.managed}/{cut.total}</strong>
+                </div>
+                <div className="ar-cut-progress-track" aria-hidden="true">
+                  <span style={{ width: `${cut.percent}%` }} />
+                </div>
+                <div className="ar-cut-progress-meta">
+                  <span>{cut.percent}% gestionado</span>
+                  <span>{cut.pending} faltan</span>
+                </div>
+                <div className="ar-cut-progress-breakdown">
+                  {COLLECTION_STATUS_OPTIONS.filter((option) => cut.statusCounts[option.value] > 0).map((option) => (
+                    <span key={option.value} className={`ar-cut-progress-pill ar-cut-progress-pill--${option.value}`}>
+                      {cut.statusCounts[option.value]} {option.label.replace(/\.$/, "")}
+                    </span>
+                  ))}
+                  {cut.managed === 0 ? <span className="ar-cut-progress-empty">Sin gestiones</span> : null}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
         <div className="table-scroll ar-ledger-scroll" ref={tableScrollRef}>
           <table className="ar-table ar-table--compact">
             <tbody>
@@ -1072,6 +1249,7 @@ export default function ReceivablesPage({
                   now={now}
                   isTodayCollectionClosed={isTodayCollectionClosed}
                   collectionCutItems={getCutItemsForClient(todayCollectionCuts, row.id)}
+                  visibleCutKey={visibleCollectionCut}
                   whatsAppMessage={buildWhatsAppReceivableMessage(row)}
                   onSelectDetail={setSelectedDetailRow}
                   onCollectionCutStatusChange={handleCollectionCutStatusChange}
