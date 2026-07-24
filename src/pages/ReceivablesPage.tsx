@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { exportReceivablesToExcel, exportReceivablesToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
-import { loadCloudCollectionClosures } from "../cloudData";
+import { loadCloudCollectionClosures, saveCloudCollectionClosures } from "../cloudData";
 import { supabase } from "../lib/supabase";
 import {
   buildReceivableRows,
@@ -31,19 +31,27 @@ import { ReceivablesFiltersPanel } from "./receivables/ReceivablesFiltersPanel";
 import { exportRouteCollection } from "./receivables/routeCollectionExport";
 import {
   COLLECTION_STATUS_OPTIONS,
+  COLLECTION_CUT_OPTIONS,
   INITIAL_EXPORT_FIELDS,
   clientOperationalStatusLabel,
+  getCollectionClosureCuts,
+  getCollectionClosureDateKeys,
+  hasCollectionClosureCut,
   formatDateForTitle,
   isToday,
   normalizeComment,
   normalizeFieldManagementComment,
+  normalizeSupportNote,
   parseCollectionStatusMapFromStorage,
   pendingSummaryText,
   planLabelForExport,
   renderSortIcon,
   stateToneClass,
   toTimestamp,
+  type CollectionClosureItem,
+  type CollectionClosureSnapshot,
   type CollectionClosuresByDate,
+  type CollectionCutKey,
   type CollectionStatusFilter,
   type DashboardFilter,
   type ExportField,
@@ -53,6 +61,7 @@ import {
 type Props = {
   clients: Client[];
   payments: Payment[];
+  onClientsChange?: (next: Client[]) => void | Promise<void>;
   dataOwnerUserId?: string | null;
   streetManagementData?: Record<string, unknown>;
   onStreetManagementPersist?: (value: Record<string, unknown>) => Promise<boolean> | boolean;
@@ -61,6 +70,7 @@ type Props = {
 export default function ReceivablesPage({
   clients,
   payments,
+  onClientsChange,
   dataOwnerUserId,
   streetManagementData,
   onStreetManagementPersist
@@ -78,11 +88,17 @@ export default function ReceivablesPage({
   const [selectedHistoryDate, setSelectedHistoryDate] = useState<string>("");
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [collectionCutMessage, setCollectionCutMessage] = useState<string | null>(null);
+  const [isSavingCollectionCut, setIsSavingCollectionCut] = useState<CollectionCutKey | null>(null);
   const [isExportConfigOpen, setIsExportConfigOpen] = useState<boolean>(false);
   const [routeExportFormat, setRouteExportFormat] = useState<RouteExportFormat>("jpg");
   const [isRouteExportMenuOpen, setIsRouteExportMenuOpen] = useState<boolean>(false);
   const [exportFields, setExportFields] = useState<ExportField[]>(INITIAL_EXPORT_FIELDS);
   const [fieldManagementModalClientId, setFieldManagementModalClientId] = useState<string | null>(null);
+  const [whatsAppModalClientId, setWhatsAppModalClientId] = useState<string | null>(null);
+  const [whatsAppPhoneDraft, setWhatsAppPhoneDraft] = useState<string>("");
+  const [whatsAppPhoneError, setWhatsAppPhoneError] = useState<string>("");
+  const [isSavingWhatsAppPhone, setIsSavingWhatsAppPhone] = useState<boolean>(false);
   const [fieldManagementDraftByClient, setFieldManagementDraftByClient] = useState<
     Record<string, { type: FieldManagementType | ""; amount: string; comment: string }>
   >({});
@@ -194,7 +210,7 @@ export default function ReceivablesPage({
   }, [dataOwnerUserId]);
 
   useEffect(() => {
-    const historyDates = Object.keys(collectionClosuresByDate).sort((a, b) => b.localeCompare(a));
+    const historyDates = getCollectionClosureDateKeys(collectionClosuresByDate);
     if (historyDates.length === 0) {
       setSelectedHistoryDate("");
       return;
@@ -258,8 +274,47 @@ export default function ReceivablesPage({
     const day = String(now.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
   }, [now]);
-  const isTodayCollectionClosed = !!collectionClosuresByDate[todayDateKey];
-  const selectedHistoryClosure = selectedHistoryDate ? collectionClosuresByDate[selectedHistoryDate] ?? null : null;
+  const isTodayCollectionClosed = hasCollectionClosureCut(collectionClosuresByDate, todayDateKey, "night");
+  const todayCollectionCuts = useMemo(
+    () => getCollectionClosureCuts(collectionClosuresByDate[todayDateKey]),
+    [collectionClosuresByDate, todayDateKey]
+  );
+  const selectedHistoryCuts = useMemo(
+    () => selectedHistoryDate ? getCollectionClosureCuts(collectionClosuresByDate[selectedHistoryDate]) : {},
+    [collectionClosuresByDate, selectedHistoryDate]
+  );
+  const selectedHistoryRows = useMemo(() => {
+    const rowsByClient = new Map<string, {
+      clientId: string;
+      unitId: string;
+      clientName: string;
+      lastPaymentDate: string | null;
+      receivableState: string;
+      totalPending: number;
+      cuts: Partial<Record<CollectionCutKey, CollectionClosureItem>>;
+    }>();
+    for (const option of COLLECTION_CUT_OPTIONS) {
+      const closure = selectedHistoryCuts[option.key];
+      if (!closure) continue;
+      for (const item of closure.items) {
+        const existing = rowsByClient.get(item.clientId);
+        if (existing) {
+          existing.cuts[option.key] = item;
+          continue;
+        }
+        rowsByClient.set(item.clientId, {
+          clientId: item.clientId,
+          unitId: item.unitId,
+          clientName: item.clientName,
+          lastPaymentDate: item.lastPaymentDate,
+          receivableState: item.receivableState,
+          totalPending: item.totalPending,
+          cuts: { [option.key]: item }
+        });
+      }
+    }
+    return Array.from(rowsByClient.values()).sort((a, b) => a.unitId.localeCompare(b.unitId, undefined, { numeric: true }));
+  }, [selectedHistoryCuts]);
   const routeCollectionRowsCount = useMemo(
     () => baseRows.filter((row) => hasRouteCollection(row)).length,
     [baseRows, collectionStatusByClient]
@@ -331,6 +386,10 @@ export default function ReceivablesPage({
 
   function buildWhatsAppReceivableMessage(row: ReceivableRow): string {
     const today = formatDateForTitle(now);
+    const firstName = row.name.trim().split(/\s+/)[0] || row.name;
+    const lastPayment = row.lastPaymentDate
+      ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`))
+      : "Sin pagos registrados";
     const pending = formatCurrency(row.totalPending);
     const installmentsText = row.overdueInstallments > 0
       ? `${row.overdueInstallments} cuota${row.overdueInstallments === 1 ? "" : "s"} atrasada${row.overdueInstallments === 1 ? "" : "s"}`
@@ -344,11 +403,12 @@ export default function ReceivablesPage({
       thanks: String.fromCodePoint(0x1F64F)
     };
     const message = [
-      `${emoji.hello} Hola, ${row.name}.`,
+      `${emoji.hello} Hola, ${firstName}.`,
       "",
       `${emoji.warning} Tiene un saldo pendiente al ${today}.`,
       "",
       `${emoji.money} Monto a pagar: ${pending}`,
+      `${emoji.pin} Ultimo pago: ${lastPayment}`,
       `${emoji.pin} Detalle: ${installmentsText}`,
       "",
       `${emoji.check} Por favor, realice el pago lo antes posible.`,
@@ -363,6 +423,216 @@ export default function ReceivablesPage({
     if (stored) return stored;
     if (hasAutoPaidStatus(row)) return "paid";
     return "";
+  }
+
+  function getCutItemsForClient(
+    cuts: Partial<Record<CollectionCutKey, { items: CollectionClosureItem[] }>>,
+    clientId: string
+  ): Partial<Record<CollectionCutKey, CollectionClosureItem>> {
+    const cutItems: Partial<Record<CollectionCutKey, CollectionClosureItem>> = {};
+    for (const option of COLLECTION_CUT_OPTIONS) {
+      const item = cuts[option.key]?.items.find((cutItem) => cutItem.clientId === clientId);
+      if (item) cutItems[option.key] = item;
+    }
+    return cutItems;
+  }
+
+  function renderCutStatusCell(item: CollectionClosureItem | undefined) {
+    if (!item) return <span className="ar-cut-empty">Sin corte</span>;
+    const label = COLLECTION_STATUS_OPTIONS.find((option) => option.value === item.collectionStatus)?.label ?? "Sin estado";
+    return (
+      <div className="ar-cut-cell-content">
+        <span className={`ar-cut-status ar-cut-status--${item.collectionStatus}`}>{label}</span>
+        {item.comment ? <span className="hint ar-cut-comment">Comentario: {item.comment}</span> : null}
+        <div className="ar-cut-actions">
+          {item.whatsAppMessageSentAt ? <span>WhatsApp enviado</span> : item.whatsAppMessageCopiedAt ? <span>WhatsApp abierto</span> : null}
+          {item.managementAmount ? (
+            <span>
+              Ruta {formatCurrency(item.managementAmount)}
+              {item.managementType === "cobrar_o_quitar" ? " / quitar" : ""}
+            </span>
+          ) : null}
+          {item.managementComment ? <span>{item.managementComment}</span> : null}
+        </div>
+      </div>
+    );
+  }
+
+  function renderHistoryCutStack(item: CollectionClosureItem | undefined, cutKey: CollectionCutKey) {
+    return (
+      <div className={`ar-cut-stack-row ar-cut-stack-row--${cutKey}`}>
+        <span className="ar-cut-stack-label">
+          {cutKey === "morning" ? "AM" : cutKey === "afternoon" ? "PM" : "CIERRE"}
+        </span>
+        {renderCutStatusCell(item)}
+      </div>
+    );
+  }
+
+  function normalizeWhatsAppDraft(value: string): string {
+    return value.replace(/\D/g, "").slice(0, 12);
+  }
+
+  function handleOpenWhatsAppPhoneModal(clientId: string): void {
+    const client = clients.find((item) => item.id === clientId);
+    setWhatsAppModalClientId(clientId);
+    setWhatsAppPhoneDraft(normalizeWhatsAppDraft(client?.whatsAppPhone ?? ""));
+    setWhatsAppPhoneError("");
+  }
+
+  async function handleSaveWhatsAppPhone(): Promise<void> {
+    if (!whatsAppModalClientId) return;
+    const normalized = normalizeWhatsAppDraft(whatsAppPhoneDraft);
+    if (normalized.length > 0 && normalized.length < 8) {
+      setWhatsAppPhoneError("Ingresa al menos 8 digitos.");
+      return;
+    }
+    if (!onClientsChange) {
+      setWhatsAppPhoneError("No tienes permisos para editar clientes desde esta pantalla.");
+      return;
+    }
+    setIsSavingWhatsAppPhone(true);
+    setWhatsAppPhoneError("");
+    try {
+      const nextClients = clients.map((client) => (
+        client.id === whatsAppModalClientId
+          ? { ...client, whatsAppPhone: normalized || undefined }
+          : client
+      ));
+      await onClientsChange(nextClients);
+      setWhatsAppModalClientId(null);
+      setWhatsAppPhoneDraft("");
+    } catch (error) {
+      console.error("No se pudo guardar el WhatsApp del cliente.", error);
+      setWhatsAppPhoneError("No se pudo guardar el WhatsApp. Intenta nuevamente.");
+    } finally {
+      setIsSavingWhatsAppPhone(false);
+    }
+  }
+
+  function handleSupportNoteChange(clientId: string, value: string): void {
+    markClientStatusAsSaving(clientId);
+    const note = normalizeSupportNote(value);
+    setCollectionStatusByClient((current) => {
+      const previous = current[clientId];
+      const updatedRecord: CollectionStatusRecord = {
+        status: previous?.status ?? "reminder",
+        comment: previous?.comment ?? "",
+        updatedAt: previous?.updatedAt ?? new Date().toISOString(),
+        managementType: previous?.managementType,
+        managementAmount: previous?.managementAmount,
+        managementComment: previous?.managementComment,
+        managementUpdatedAt: previous?.managementUpdatedAt,
+        whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+        whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+        whatsAppMessageText: previous?.whatsAppMessageText,
+        supportNote: note,
+        supportNoteUpdatedAt: new Date().toISOString()
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
+      return {
+        ...current,
+        [clientId]: updatedRecord
+      };
+    });
+  }
+
+  function computeCutTotals(items: CollectionClosureItem[]): Record<CollectionStatus, number> {
+    const totals: Record<CollectionStatus, number> = {
+      no_answer: 0,
+      reminder: 0,
+      call_later: 0,
+      paid: 0,
+      route_collection: 0
+    };
+    for (const item of items) totals[item.collectionStatus] += 1;
+    return totals;
+  }
+
+  function buildCutItem(row: ReceivableRow, status: CollectionStatus, comment: string): CollectionClosureItem {
+    const statusRecord = collectionStatusByClient[row.id];
+    return {
+      clientId: row.id,
+      unitId: row.unitId,
+      clientName: row.name,
+      lastPaymentDate: row.lastPaymentDate,
+      receivableState: row.state,
+      totalPending: row.totalPending,
+      collectionStatus: status,
+      comment: status === "call_later" ? normalizeComment(comment) : "",
+      autoApplied: false,
+      managementType: statusRecord?.managementType,
+      managementAmount: statusRecord?.managementAmount,
+      managementComment: statusRecord?.managementComment,
+      whatsAppMessageCopiedAt: statusRecord?.whatsAppMessageCopiedAt,
+      whatsAppMessageSentAt: statusRecord?.whatsAppMessageSentAt
+    };
+  }
+
+  function persistCollectionClosures(nextClosures: CollectionClosuresByDate): void {
+    setCollectionClosuresByDate(nextClosures);
+    if (!dataOwnerUserId) {
+      setCollectionCutMessage("No se pudo guardar el corte: falta conexion con la nube del negocio.");
+      return;
+    }
+    void saveCloudCollectionClosures(dataOwnerUserId, nextClosures as Record<string, unknown>)
+      .catch((error) => {
+        console.error("No se pudo guardar el corte de cobranza.", error);
+        setCollectionCutMessage("No se pudo guardar el corte de cobranza.");
+      });
+  }
+
+  function updateCollectionCutItem(cutKey: CollectionCutKey, clientId: string, patch: { status?: string; comment?: string }): void {
+    const row = baseRows.find((item) => item.id === clientId);
+    if (!row) return;
+    const cutOption = COLLECTION_CUT_OPTIONS.find((option) => option.key === cutKey);
+    const existingCuts = getCollectionClosureCuts(collectionClosuresByDate[todayDateKey]);
+    const existingClosure = existingCuts[cutKey];
+    const existingItems = existingClosure?.items ?? [];
+    const existingItem = existingItems.find((item) => item.clientId === clientId);
+    const nextStatus = patch.status !== undefined
+      ? patch.status
+      : existingItem?.collectionStatus ?? "";
+
+    const itemsWithoutClient = existingItems.filter((item) => item.clientId !== clientId);
+    let nextItems = itemsWithoutClient;
+    if (nextStatus === "no_answer" || nextStatus === "reminder" || nextStatus === "call_later" || nextStatus === "paid" || nextStatus === "route_collection") {
+      const nextComment = patch.comment !== undefined ? patch.comment : existingItem?.comment ?? "";
+      nextItems = [
+        ...itemsWithoutClient,
+        buildCutItem(row, nextStatus, nextComment)
+      ].sort((a, b) => a.unitId.localeCompare(b.unitId, undefined, { numeric: true }));
+    }
+
+    const nextClosure: CollectionClosureSnapshot = {
+      date: todayDateKey,
+      cutKey,
+      cutLabel: cutOption?.shortLabel ?? "Corte",
+      closedAt: existingClosure?.closedAt ?? new Date().toISOString(),
+      actor: existingClosure?.actor ?? "Operador",
+      reason: cutOption?.label ?? "Corte de cobranza",
+      totals: computeCutTotals(nextItems),
+      items: nextItems
+    };
+    const nextClosures: CollectionClosuresByDate = {
+      ...collectionClosuresByDate,
+      [todayDateKey]: {
+        date: todayDateKey,
+        cuts: {
+          ...existingCuts,
+          [cutKey]: nextClosure
+        }
+      }
+    };
+    persistCollectionClosures(nextClosures);
+  }
+
+  function handleCollectionCutStatusChange(cutKey: CollectionCutKey, clientId: string, nextStatus: string): void {
+    updateCollectionCutItem(cutKey, clientId, { status: nextStatus });
+  }
+
+  function handleCollectionCutCommentChange(cutKey: CollectionCutKey, clientId: string, value: string): void {
+    updateCollectionCutItem(cutKey, clientId, { comment: value });
   }
 
   function markClientStatusAsSaving(clientId: string): void {
@@ -383,10 +653,20 @@ export default function ReceivablesPage({
     }
     setCollectionStatusByClient((current) => {
       const currentComment = current[clientId]?.comment ?? "";
+      const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
         status: nextStatus,
         comment: nextStatus === "call_later" ? normalizeComment(currentComment) : "",
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        managementType: previous?.managementType,
+        managementAmount: previous?.managementAmount,
+        managementComment: previous?.managementComment,
+        managementUpdatedAt: previous?.managementUpdatedAt,
+        whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+        whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+        whatsAppMessageText: previous?.whatsAppMessageText,
+        supportNote: previous?.supportNote,
+        supportNoteUpdatedAt: previous?.supportNoteUpdatedAt
       };
       optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return {
@@ -410,7 +690,9 @@ export default function ReceivablesPage({
         managementUpdatedAt: previous?.managementUpdatedAt,
         whatsAppMessageCopiedAt: new Date().toISOString(),
         whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
-        whatsAppMessageText: message
+        whatsAppMessageText: message,
+        supportNote: previous?.supportNote,
+        supportNoteUpdatedAt: previous?.supportNoteUpdatedAt
       };
       optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return {
@@ -434,7 +716,9 @@ export default function ReceivablesPage({
         managementUpdatedAt: previous?.managementUpdatedAt,
         whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt ?? new Date().toISOString(),
         whatsAppMessageSentAt: new Date().toISOString(),
-        whatsAppMessageText: message
+        whatsAppMessageText: message,
+        supportNote: previous?.supportNote,
+        supportNoteUpdatedAt: previous?.supportNoteUpdatedAt
       };
       optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return {
@@ -448,10 +732,20 @@ export default function ReceivablesPage({
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const currentStatus = current[clientId]?.status ?? "call_later";
+      const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
         status: currentStatus,
         comment: normalizeComment(value),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        managementType: previous?.managementType,
+        managementAmount: previous?.managementAmount,
+        managementComment: previous?.managementComment,
+        managementUpdatedAt: previous?.managementUpdatedAt,
+        whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+        whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+        whatsAppMessageText: previous?.whatsAppMessageText,
+        supportNote: previous?.supportNote,
+        supportNoteUpdatedAt: previous?.supportNoteUpdatedAt
       };
       optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return {
@@ -516,7 +810,12 @@ export default function ReceivablesPage({
         managementType,
         managementAmount: parsedAmount,
         managementComment: normalizeFieldManagementComment(draft.comment),
-        managementUpdatedAt: new Date().toISOString()
+        managementUpdatedAt: new Date().toISOString(),
+        whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+        whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+        whatsAppMessageText: previous?.whatsAppMessageText,
+        supportNote: previous?.supportNote,
+        supportNoteUpdatedAt: previous?.supportNoteUpdatedAt
       };
       optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return {
@@ -615,6 +914,79 @@ export default function ReceivablesPage({
       setIsExporting(false);
     }
   }
+
+  async function handleSaveCollectionCut(cutKey: CollectionCutKey): Promise<void> {
+    setCollectionCutMessage(null);
+    setExportError(null);
+    if (!dataOwnerUserId) {
+      setCollectionCutMessage("No se pudo guardar el corte: falta conexion con la nube del negocio.");
+      return;
+    }
+    const cutOption = COLLECTION_CUT_OPTIONS.find((option) => option.key === cutKey);
+    const cutLabel = cutOption?.shortLabel ?? "Corte";
+    setIsSavingCollectionCut(cutKey);
+    try {
+      const closureTotals: Record<CollectionStatus, number> = {
+        no_answer: 0,
+        reminder: 0,
+        call_later: 0,
+        paid: 0,
+        route_collection: 0
+      };
+      const closureItems = baseRows.map((row) => {
+        const statusRecord = collectionStatusByClient[row.id];
+        const status = getEffectiveStatus(row) || "reminder";
+        closureTotals[status] += 1;
+        return {
+          clientId: row.id,
+          unitId: row.unitId,
+          clientName: row.name,
+          lastPaymentDate: row.lastPaymentDate,
+          receivableState: row.state,
+          totalPending: row.totalPending,
+          collectionStatus: status,
+          comment: status === "call_later" ? (statusRecord?.comment ?? "").slice(0, 5) : "",
+          autoApplied: !statusRecord?.status,
+          managementType: statusRecord?.managementType,
+          managementAmount: statusRecord?.managementAmount,
+          managementComment: statusRecord?.managementComment,
+          whatsAppMessageCopiedAt: statusRecord?.whatsAppMessageCopiedAt,
+          whatsAppMessageSentAt: statusRecord?.whatsAppMessageSentAt
+        };
+      });
+      const snapshot = {
+        date: todayDateKey,
+        cutKey,
+        cutLabel,
+        closedAt: new Date().toISOString(),
+        actor: "Operador",
+        reason: cutOption?.label ?? cutLabel,
+        totals: closureTotals,
+        items: closureItems
+      };
+      const cloudClosures = await loadCloudCollectionClosures(dataOwnerUserId) as CollectionClosuresByDate;
+      const existingCuts = getCollectionClosureCuts(cloudClosures[todayDateKey]);
+      const nextClosures: CollectionClosuresByDate = {
+        ...cloudClosures,
+        [todayDateKey]: {
+          date: todayDateKey,
+          cuts: {
+            ...existingCuts,
+            [cutKey]: snapshot
+          }
+        }
+      };
+      await saveCloudCollectionClosures(dataOwnerUserId, nextClosures as Record<string, unknown>);
+      setCollectionClosuresByDate(nextClosures);
+      setSelectedHistoryDate(todayDateKey);
+      setCollectionCutMessage(`${cutLabel} guardado con ${closureItems.length} registro(s).`);
+    } catch (error) {
+      console.error("No se pudo guardar el corte de cobranza.", error);
+      setCollectionCutMessage("No se pudo guardar el corte de cobranza.");
+    } finally {
+      setIsSavingCollectionCut(null);
+    }
+  }
   return (
     <>
       <section className="hero ar-hero">
@@ -622,58 +994,6 @@ export default function ReceivablesPage({
           <h1>Cuentas por Cobrar</h1>
           <p>Control de saldos vencidos, cobros en ruta y seguimiento diario.</p>
         </div>
-        <div className="ar-hero-actions">
-          <span className="ar-filter-count">{pendingCollectionRowsCount} pendiente(s) de gestion</span>
-          <span className="ar-filter-count">{routeCollectionRowsCount} en ruta</span>
-        </div>
-      </section>
-
-      <section className="summary-grid ar-summary-grid" aria-label="Resumen de cuentas por cobrar">
-        <button
-          type="button"
-          className={`summary-card summary-card--interactive ar-summary-card--debt ${dashboardFilter === "totalPorCobrar" ? "summary-card--selected" : ""}`}
-          onClick={() => toggleDashboardFilter("totalPorCobrar")}
-        >
-          <span>Total por cobrar</span>
-          <strong>{formatCurrency(summary.totalPorCobrar)}</strong>
-          <small>{baseRows.filter((row) => row.totalPending > 0).length} cliente(s) con saldo</small>
-        </button>
-        <button
-          type="button"
-          className={`summary-card summary-card--interactive ar-summary-card--debt ${dashboardFilter === "totalVencido" ? "summary-card--selected" : ""}`}
-          onClick={() => toggleDashboardFilter("totalVencido")}
-        >
-          <span>Saldo vencido</span>
-          <strong>{formatCurrency(summary.totalVencido)}</strong>
-          <small>{baseRows.filter((row) => row.state === "vencido" || row.state === "critico").length} cliente(s) atrasado(s)</small>
-        </button>
-        <button
-          type="button"
-          className={`summary-card summary-card--interactive ar-summary-card--warn ${dashboardFilter === "proximoAVencer" ? "summary-card--selected" : ""}`}
-          onClick={() => toggleDashboardFilter("proximoAVencer")}
-        >
-          <span>Proximo a vencer</span>
-          <strong>{formatCurrency(summary.proximoAVencer)}</strong>
-          <small>Incluye vencimientos de hoy</small>
-        </button>
-        <button
-          type="button"
-          className={`summary-card summary-card--interactive ar-summary-card--neutral ${dashboardFilter === "clientesMorosos" ? "summary-card--selected" : ""}`}
-          onClick={() => toggleDashboardFilter("clientesMorosos")}
-        >
-          <span>Morosos criticos</span>
-          <strong>{baseRows.filter((row) => row.state === "critico").length}</strong>
-          <small>{summary.clientesMorosos} cliente(s) en mora total</small>
-        </button>
-        <button
-          type="button"
-          className={`summary-card summary-card--interactive ar-summary-card--good ${dashboardFilter === "cobradoEsteMes" ? "summary-card--selected" : ""}`}
-          onClick={() => toggleDashboardFilter("cobradoEsteMes")}
-        >
-          <span>Cobrado este mes</span>
-          <strong>{formatCurrency(summary.cobradoEsteMes)}</strong>
-          <small>Segun historial de pagos visible</small>
-        </button>
       </section>
 
       {dashboardFilter !== "none" && (
@@ -695,190 +1015,50 @@ export default function ReceivablesPage({
         onClearFilters={clearFilters}
       />
 
-      <section className="panel">
+      <section className="panel ar-ledger-panel">
         <div className="panel-head"><h2>Cartera de clientes</h2></div>
-        <div className="ar-view-tabs" role="tablist" aria-label="Vistas de cuentas por cobrar">
-          <button type="button" className={`button small ${viewMode === "cartera" ? "primary" : "ghost"}`} onClick={() => setViewMode("cartera")}>
-            Cartera
-          </button>
-          <button type="button" className={`button small ${viewMode === "historial" ? "primary" : "ghost"}`} onClick={() => setViewMode("historial")}>
-            Historial
-          </button>
-          {viewMode === "cartera" && isTodayCollectionClosed && (
-            <span className="hint" style={{ marginLeft: 10 }}>Gestion de cobranza cerrada hoy. Solo lectura.</span>
-          )}
-        </div>
-        <div className="ar-sticky-stack">
-          <div className="ar-sub-actions-row">
-            <div className="ar-filter-actions">
-              <button type="button" className="button ghost small" onClick={() => setIsExportConfigOpen((open) => !open)}>{isExportConfigOpen ? "Cerrar campos" : "Campos exportables"}</button>
-              <button type="button" className="button primary small" onClick={handleExportExcel} disabled={isExporting}>{isExporting ? "Exportando..." : "Exportar Excel"}</button>
-              <button type="button" className="button ghost small" onClick={handleExportPdf} disabled={isExporting}>Exportar PDF</button>
-              <span className="hint">Mostrando {rows.length} registro(s)</span>
-              <label className="ar-toolbar-filter">
-                <span className="ar-toolbar-filter-label">Cobranza</span>
-                <select
-                  className="ar-toolbar-filter-select"
-                  value={collectionStatusFilter}
-                  onChange={(event) => setCollectionStatusFilter(event.target.value as CollectionStatusFilter)}
-                  disabled={viewMode === "historial"}
-                >
-                  <option value="all">Todos</option>
-                  {COLLECTION_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="ar-export-route-menu-wrap">
-              <button
-                type="button"
-                className="button small ar-export-route-btn"
-                onClick={() => setIsRouteExportMenuOpen((open) => !open)}
-                disabled={isExporting}
-                aria-haspopup="menu"
-                aria-expanded={isRouteExportMenuOpen}
-              >
-                Export Cobro en Ruta ({routeExportFormat.toUpperCase()})
-              </button>
-              {isRouteExportMenuOpen && (
-                <div className="ar-export-route-menu" role="menu" aria-label="Formatos de exportacion">
-                  <button
-                    type="button"
-                    className="ar-export-route-menu-item"
-                    onClick={() => {
-                      setRouteExportFormat("pdf");
-                      setIsRouteExportMenuOpen(false);
-                      void handleExportCobroEnRuta("pdf");
-                    }}
-                    disabled={isExporting}
-                  >
-                    PDF
-                  </button>
-                  <button
-                    type="button"
-                    className="ar-export-route-menu-item"
-                    onClick={() => {
-                      setRouteExportFormat("jpg");
-                      setIsRouteExportMenuOpen(false);
-                      void handleExportCobroEnRuta("jpg");
-                    }}
-                    disabled={isExporting}
-                  >
-                    JPG
-                  </button>
-                  <button
-                    type="button"
-                    className="ar-export-route-menu-item"
-                    onClick={() => {
-                      setRouteExportFormat("excel");
-                      setIsRouteExportMenuOpen(false);
-                      void handleExportCobroEnRuta("excel");
-                    }}
-                    disabled={isExporting}
-                  >
-                    EXCEL
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-        {viewMode === "historial" && (
-          <div className="ar-history-panel">
-            <div className="ar-history-controls">
-              <label className="ar-toolbar-filter">
-                <span className="ar-toolbar-filter-label">Fecha de cierre</span>
-                <select
-                  className="ar-toolbar-filter-select"
-                  value={selectedHistoryDate}
-                  onChange={(event) => setSelectedHistoryDate(event.target.value)}
-                >
-                  {Object.keys(collectionClosuresByDate).sort((a, b) => b.localeCompare(a)).map((dateKey) => (
-                    <option key={dateKey} value={dateKey}>
-                      {formatDate(new Date(`${dateKey}T12:00:00`))}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            {!selectedHistoryClosure ? (
-              <p className="hint">No hay cierres de cobranza guardados.</p>
-            ) : (
-              <>
-                <div className="summary-grid ar-summary-grid" style={{ marginTop: 10 }}>
-                  <div className="summary-card"><span>No responde</span><strong>{selectedHistoryClosure.totals.no_answer ?? 0}</strong></div>
-                  <div className="summary-card"><span>Recordatorio</span><strong>{selectedHistoryClosure.totals.reminder ?? 0}</strong></div>
-                  <div className="summary-card"><span>Llamar mas tarde</span><strong>{selectedHistoryClosure.totals.call_later ?? 0}</strong></div>
-                  <div className="summary-card"><span>Pago confirmado</span><strong>{selectedHistoryClosure.totals.paid ?? 0}</strong></div>
-                </div>
-                <p className="hint" style={{ marginTop: 8 }}>
-                  Cierre: {formatDate(new Date(`${selectedHistoryClosure.date}T12:00:00`))} | Operador: {selectedHistoryClosure.actor} | Motivo: {selectedHistoryClosure.reason}
-                </p>
-              </>
-            )}
-          </div>
-        )}
-        {isExportConfigOpen && <div className="export-panel"><p className="export-title">Selecciona las columnas a exportar</p><div className="export-fields">{exportFields.map((field) => <label key={field.key} className="export-field-label"><input type="checkbox" checked={field.enabled} onChange={() => setExportFields((current) => current.map((item) => (item.key === field.key ? { ...item, enabled: !item.enabled } : item)))} />{field.label}</label>)}</div></div>}
-        {exportError && <p className="hint error-text">{exportError}</p>}
-        <div className="table-scroll" ref={tableScrollRef}>
+        <div className="table-scroll ar-ledger-scroll" ref={tableScrollRef}>
           <table className="ar-table ar-table--compact">
-            <thead>
-              <tr>
-                <th>
-                  <button type="button" className="sort-button ar-columns-head-btn" onClick={() => handleSort("unitId")}>
-                    Unidad <span className={`sort-icon ${sortField === "unitId" ? "active" : ""}`}>{renderSortIcon(sortField === "unitId", sortDirection)}</span>
-                  </button>
-                </th>
-                <th>
-                  <button type="button" className="sort-button ar-columns-head-btn" onClick={() => handleSort("totalPending")}>
-                    Pendiente <span className={`sort-icon ${sortField === "totalPending" ? "active" : ""}`}>{renderSortIcon(sortField === "totalPending", sortDirection)}</span>
-                  </button>
-                </th>
-                <th>
-                  <button type="button" className="sort-button ar-columns-head-btn" onClick={() => handleSort("lastPaymentDate")}>
-                    Ult. pago / Estado <span className={`sort-icon ${sortField === "lastPaymentDate" ? "active" : ""}`}>{renderSortIcon(sortField === "lastPaymentDate", sortDirection)}</span>
-                  </button>
-                </th>
-                <th>Estado cobranza</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
             <tbody>
               {viewMode === "historial" ? (
-                !selectedHistoryClosure || selectedHistoryClosure.items.length === 0 ? (
+                selectedHistoryRows.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="empty" style={{ textAlign: "center" }}>
+                    <td colSpan={4} className="empty" style={{ textAlign: "center" }}>
                       No hay datos en este cierre.
                     </td>
                   </tr>
-                ) : selectedHistoryClosure.items.map((item) => (
-                  <tr key={`${selectedHistoryClosure.date}-${item.clientId}`}>
+                ) : selectedHistoryRows.map((item) => (
+                  <tr key={`${selectedHistoryDate}-${item.clientId}`}>
                     <td><strong className="ar-unit-id">{item.unitId}</strong></td>
                     <td className="ar-pending-cell">
-                      <span className="client-name">{formatCurrency(item.totalPending)}</span>
-                      <span className="debt-meta ar-truncate-line" title={item.clientName}>{item.clientName}</span>
-                    </td>
-                    <td>
-                      <div>{item.lastPaymentDate ? formatDate(new Date(`${item.lastPaymentDate}T12:00:00`)) : <span className="amount-muted">Sin pagos</span>}</div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
-                        <span className={stateToneClass(item.receivableState as ReceivableState)}>{STATE_LABEL[item.receivableState as ReceivableState] ?? item.receivableState}</span>
+                      <div className="ar-client-money-layout">
+                        <div className="ar-client-money-main">
+                          <span className="client-name">{formatCurrency(item.totalPending)}</span>
+                          <span className="debt-meta ar-truncate-line" title={item.clientName}>{item.clientName}</span>
+                        </div>
+                        <div className="ar-account-status-stack">
+                          <span className="ar-last-payment-date">
+                            {item.lastPaymentDate ? formatDate(new Date(`${item.lastPaymentDate}T12:00:00`)) : "Sin pagos"}
+                          </span>
+                          <span className={stateToneClass(item.receivableState as ReceivableState)}>{STATE_LABEL[item.receivableState as ReceivableState] ?? item.receivableState}</span>
+                        </div>
                       </div>
                     </td>
-                    <td className="ar-collection-cell">
-                      <div className="ar-collection-wrap">
-                        <span>{COLLECTION_STATUS_OPTIONS.find((option) => option.value === item.collectionStatus)?.label ?? "Sin estado"}</span>
-                        {item.comment ? <span className="hint ar-collection-note">Comentario: {item.comment}</span> : null}
+                    <td className="ar-support-note-cell"><span className="hint">-</span></td>
+                    <td className="ar-cut-cell ar-cut-cell--stacked">
+                      <div className="ar-cut-stack">
+                        {COLLECTION_CUT_OPTIONS.map((option) => (
+                          <div key={option.key}>
+                            {renderHistoryCutStack(item.cuts[option.key], option.key)}
+                          </div>
+                        ))}
                       </div>
-                    </td>
-                    <td className="ar-actions-cell ar-actions-cell--compact">
-                      <span className="hint">Cerrado</span>
                     </td>
                   </tr>
                 ))
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="empty" style={{ textAlign: "center" }}>
+                  <td colSpan={4} className="empty" style={{ textAlign: "center" }}>
                     No hay resultados para los filtros seleccionados.
                   </td>
                 </tr>
@@ -891,14 +1071,15 @@ export default function ReceivablesPage({
                   todayDateKey={todayDateKey}
                   now={now}
                   isTodayCollectionClosed={isTodayCollectionClosed}
+                  collectionCutItems={getCutItemsForClient(todayCollectionCuts, row.id)}
                   whatsAppMessage={buildWhatsAppReceivableMessage(row)}
                   onSelectDetail={setSelectedDetailRow}
-                  onRemoveFieldManagement={handleRemoveFieldManagement}
-                  onCollectionStatusChange={handleCollectionStatusChange}
+                  onCollectionCutStatusChange={handleCollectionCutStatusChange}
+                  onCollectionCutCommentChange={handleCollectionCutCommentChange}
                   onWhatsAppMessageCopied={handleWhatsAppMessageCopied}
                   onWhatsAppMessageSent={handleWhatsAppMessageSent}
-                  onCallLaterCommentChange={handleCallLaterCommentChange}
-                  onOpenFieldManagementModal={handleOpenFieldManagementModal}
+                  onEditWhatsAppPhone={handleOpenWhatsAppPhoneModal}
+                  onSupportNoteChange={handleSupportNoteChange}
                 />
               ))}
             </tbody>
@@ -906,67 +1087,44 @@ export default function ReceivablesPage({
         </div>
       </section>
 
-      {fieldManagementModalClientId && (() => {
-        const row = rows.find((item) => item.id === fieldManagementModalClientId) ?? baseRows.find((item) => item.id === fieldManagementModalClientId) ?? null;
-        if (!row) return null;
-        const draft = fieldManagementDraftByClient[row.id] ?? {
-          type: collectionStatusByClient[row.id]?.managementType ?? "",
-          amount: collectionStatusByClient[row.id]?.managementAmount ? String(collectionStatusByClient[row.id]?.managementAmount) : "",
-          comment: collectionStatusByClient[row.id]?.managementComment ?? ""
-        };
-        const error = fieldManagementErrorByClient[row.id] ?? "";
+      {whatsAppModalClientId && (() => {
+        const client = clients.find((item) => item.id === whatsAppModalClientId);
+        const row = baseRows.find((item) => item.id === whatsAppModalClientId);
+        if (!client && !row) return null;
         return (
           <div className="modal-overlay">
-            <div className="modal ar-detail-modal ar-field-management-modal">
+            <div className="modal ar-detail-modal ar-whatsapp-phone-modal">
               <div className="modal-header">
-                <h2>Cobro en Ruta - {row.unitId}</h2>
-                <button type="button" className="modal-close" onClick={() => setFieldManagementModalClientId(null)}>X</button>
+                <h2>WhatsApp - {row?.unitId ?? client?.unitId}</h2>
+                <button type="button" className="modal-close" onClick={() => setWhatsAppModalClientId(null)}>X</button>
               </div>
               <div className="modal-body">
                 <div className="ar-detail-grid">
-                  <div><span className="hint">Unidad</span><p><strong>{row.unitId}</strong></p></div>
-                  <div><span className="hint">Cliente</span><p><strong>{row.name}</strong></p></div>
-                  <div><span className="hint">Pendiente</span><p className="amount-debt">{pendingSummaryText(row.totalPending, row.rentAmount)}</p></div>
-                  <div><span className="hint">Ult. pago</span><p>{row.lastPaymentDate ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) : "Sin pagos"}</p></div>
+                  <div><span className="hint">Cliente</span><p><strong>{row?.name ?? client?.name}</strong></p></div>
+                  <div><span className="hint">Unidad</span><p>{row?.unitId ?? client?.unitId}</p></div>
                 </div>
-                <div className="ar-field-management-box ar-field-management-box--modal">
-                  <label className="ar-field-management-label">
-                    Tipo de gestion
-                    <select
-                      value={draft.type}
-                      onChange={(event) => handleFieldManagementDraftChange(row.id, { type: event.target.value as FieldManagementType | "" })}
-                    >
-                      <option value="">Seleccionar</option>
-                      <option value="solo_cobrar">Solo cobrar</option>
-                      <option value="cobrar_o_quitar">Cobrar o quitar</option>
-                    </select>
-                  </label>
-                  <label className="ar-field-management-label">
-                    Monto a pagar
-                    <input
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      value={draft.amount}
-                      onChange={(event) => handleFieldManagementDraftChange(row.id, { amount: event.target.value })}
-                      placeholder="0.00"
-                    />
-                  </label>
-                  <label className="ar-field-management-label">
-                    Comentario (max 25)
-                    <input
-                      type="text"
-                      maxLength={25}
-                      value={draft.comment}
-                      onChange={(event) => handleFieldManagementDraftChange(row.id, { comment: event.target.value })}
-                    />
-                  </label>
-                  {error ? <span className="hint error-text">{error}</span> : null}
-                </div>
+                <label className="ar-field-management-label ar-whatsapp-phone-field">
+                  WhatsApp
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={whatsAppPhoneDraft}
+                    onChange={(event) => {
+                      setWhatsAppPhoneDraft(normalizeWhatsAppDraft(event.target.value));
+                      setWhatsAppPhoneError("");
+                    }}
+                    placeholder="Ej. 68842222"
+                    autoFocus
+                  />
+                </label>
+                {whatsAppPhoneError ? <span className="hint error-text">{whatsAppPhoneError}</span> : null}
               </div>
               <div className="modal-actions ar-detail-actions">
-                <button type="button" className="button ghost" onClick={() => setFieldManagementModalClientId(null)}>Cancelar</button>
-                <button type="button" className="button primary" onClick={() => handleSaveFieldManagement(row.id)}>Guardar cobro en ruta</button>
+                <button type="button" className="button ghost" onClick={() => setWhatsAppModalClientId(null)} disabled={isSavingWhatsAppPhone}>Cancelar</button>
+                <button type="button" className="button primary" onClick={() => void handleSaveWhatsAppPhone()} disabled={isSavingWhatsAppPhone}>
+                  {isSavingWhatsAppPhone ? "Guardando..." : "Guardar WhatsApp"}
+                </button>
               </div>
             </div>
           </div>

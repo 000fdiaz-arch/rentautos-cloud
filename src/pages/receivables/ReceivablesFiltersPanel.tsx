@@ -17,14 +17,7 @@ export function ReceivablesFiltersPanel({
   onClearFilters
 }: Props) {
   return (
-    <section className="panel ar-filters-panel">
-      <div className="ar-filters-head">
-        <div>
-          <h2>Filtros</h2>
-          <span className="hint">Refina la cartera visible</span>
-        </div>
-        <button type="button" className="button ghost small" onClick={onClearFilters}>Limpiar</button>
-      </div>
+    <section className="ar-filters-panel">
       <div className="ar-filters-grid">
         <label className="ar-filter-field">
           <span className="ar-filter-label">Unidad</span>
@@ -100,6 +93,7 @@ export function ReceivablesFiltersPanel({
             ))}
           </div>
         </div>
+        <button type="button" className="button ghost small ar-clear-filters-button" onClick={onClearFilters}>Limpiar</button>
       </div>
     </section>
   );

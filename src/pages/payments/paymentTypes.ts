@@ -174,12 +174,20 @@ export type HistoryCopyFeedback = {
 };
 
 
-export type CollectionStatus = "no_answer" | "reminder" | "call_later" | "paid";
+export type CollectionStatus = "no_answer" | "reminder" | "call_later" | "paid" | "route_collection";
+export type CollectionCutKey = "morning" | "afternoon" | "night";
 
 export type CollectionStatusRecord = {
   status: CollectionStatus;
   comment: string;
   updatedAt: string;
+  managementType?: "solo_cobrar" | "cobrar_o_quitar";
+  managementAmount?: number;
+  managementComment?: string;
+  managementUpdatedAt?: string;
+  whatsAppMessageCopiedAt?: string;
+  whatsAppMessageSentAt?: string;
+  whatsAppMessageText?: string;
 };
 
 export type CollectionClosureItem = {
@@ -192,10 +200,17 @@ export type CollectionClosureItem = {
   collectionStatus: CollectionStatus;
   comment: string;
   autoApplied: boolean;
+  managementType?: "solo_cobrar" | "cobrar_o_quitar";
+  managementAmount?: number;
+  managementComment?: string;
+  whatsAppMessageCopiedAt?: string;
+  whatsAppMessageSentAt?: string;
 };
 
 export type CollectionClosureSnapshot = {
   date: string;
+  cutKey?: CollectionCutKey;
+  cutLabel?: string;
   closedAt: string;
   actor: string;
   reason: string;
@@ -203,7 +218,13 @@ export type CollectionClosureSnapshot = {
   items: CollectionClosureItem[];
 };
 
-export type CollectionClosuresByDate = Record<string, CollectionClosureSnapshot>;
+export type CollectionClosureDay = {
+  date: string;
+  cuts: Partial<Record<CollectionCutKey, CollectionClosureSnapshot>>;
+};
+
+export type CollectionClosureEntry = CollectionClosureSnapshot | CollectionClosureDay;
+export type CollectionClosuresByDate = Record<string, CollectionClosureEntry>;
 
 
 export type ManualPaymentAllocation = {

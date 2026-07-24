@@ -154,14 +154,57 @@ function parsePaymentDate(dateKey: string): number {
   return parseDateKey(dateKey)?.getTime() ?? Number.NEGATIVE_INFINITY;
 }
 
+function normalizeIdentityText(value: string | undefined): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function normalizeUnit(value: string | undefined): string {
+  return normalizeIdentityText(value).replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeCedula(value: string | undefined): string {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+function paymentMatchesClientIdentity(payment: Payment, client: Client): boolean {
+  const clientCedula = normalizeCedula(client.cedula);
+  const paymentCedula = normalizeCedula(payment.clientCedula);
+  if (clientCedula && paymentCedula && clientCedula === paymentCedula) return true;
+
+  const clientName = normalizeIdentityText(client.name);
+  const paymentName = normalizeIdentityText(payment.clientName);
+  return !!clientName && clientName === paymentName;
+}
+
+function mergePaymentLists(...lists: Payment[][]): Payment[] {
+  const byId = new Map<string, Payment>();
+  for (const list of lists) {
+    for (const payment of list) byId.set(payment.id, payment);
+  }
+  return [...byId.values()].sort((a, b) => parsePaymentDate(b.dateApplied) - parsePaymentDate(a.dateApplied));
+}
+
 export function buildReceivableRows(clients: Client[], payments: Payment[], now: Date): ReceivableRow[] {
   const referenceDate = startOfDay(now);
   const paymentsByClient = new Map<string, Payment[]>();
+  const paymentsByUnit = new Map<string, Payment[]>();
 
   for (const payment of payments) {
     const list = paymentsByClient.get(payment.clientId) ?? [];
     list.push(payment);
     paymentsByClient.set(payment.clientId, list);
+
+    const normalizedUnit = normalizeUnit(payment.clientUnit);
+    if (normalizedUnit) {
+      const unitList = paymentsByUnit.get(normalizedUnit) ?? [];
+      unitList.push(payment);
+      paymentsByUnit.set(normalizedUnit, unitList);
+    }
   }
 
   for (const list of paymentsByClient.values()) {
@@ -186,7 +229,10 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
         ? roundMoney(Math.min(client.balance, overdueInstallments * Math.max(0, client.rentAmount)))
         : 0;
 
-      const clientPayments = paymentsByClient.get(client.id) ?? [];
+      const directPayments = paymentsByClient.get(client.id) ?? [];
+      const identityUnitPayments = (paymentsByUnit.get(normalizeUnit(client.unitId)) ?? [])
+        .filter((payment) => payment.clientId !== client.id && paymentMatchesClientIdentity(payment, client));
+      const clientPayments = mergePaymentLists(directPayments, identityUnitPayments);
       const lastPayment = clientPayments[0];
       const contractTotal = roundMoney(Math.max(1, client.installmentsAgreed * client.rentAmount + sumOtherCharges(client)));
       const totalPaid = roundMoney(clamp(contractTotal - Math.max(0, client.balance), 0, contractTotal));

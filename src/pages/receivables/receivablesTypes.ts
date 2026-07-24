@@ -1,4 +1,4 @@
-export type CollectionStatus = "no_answer" | "reminder" | "call_later" | "paid";
+export type CollectionStatus = "no_answer" | "reminder" | "call_later" | "paid" | "route_collection";
 export type FieldManagementType = "solo_cobrar" | "cobrar_o_quitar";
 export type RouteExportFormat = "jpg" | "pdf" | "excel";
 
@@ -13,4 +13,6 @@ export type CollectionStatusRecord = {
   whatsAppMessageCopiedAt?: string;
   whatsAppMessageSentAt?: string;
   whatsAppMessageText?: string;
+  supportNote?: string;
+  supportNoteUpdatedAt?: string;
 };

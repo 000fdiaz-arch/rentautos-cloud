@@ -26,11 +26,19 @@ export function parseCollectionStatusesFromStorage(rawValue?: string | null): Re
       if (!value || typeof value !== "object") continue;
       const row = value as Record<string, unknown>;
       const status = row.status;
-      if (status !== "no_answer" && status !== "reminder" && status !== "call_later" && status !== "paid") continue;
+      if (status !== "no_answer" && status !== "reminder" && status !== "call_later" && status !== "paid" && status !== "route_collection") continue;
+      const rawAmount = typeof row.managementAmount === "number" ? row.managementAmount : Number(row.managementAmount);
       next[clientId] = {
         status,
         comment: typeof row.comment === "string" ? row.comment.slice(0, 5) : "",
-        updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : new Date().toISOString()
+        updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : new Date().toISOString(),
+        managementType: row.managementType === "solo_cobrar" || row.managementType === "cobrar_o_quitar" ? row.managementType : undefined,
+        managementAmount: Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : undefined,
+        managementComment: typeof row.managementComment === "string" ? row.managementComment.slice(0, 25) : "",
+        managementUpdatedAt: typeof row.managementUpdatedAt === "string" ? row.managementUpdatedAt : undefined,
+        whatsAppMessageCopiedAt: typeof row.whatsAppMessageCopiedAt === "string" ? row.whatsAppMessageCopiedAt : undefined,
+        whatsAppMessageSentAt: typeof row.whatsAppMessageSentAt === "string" ? row.whatsAppMessageSentAt : undefined,
+        whatsAppMessageText: typeof row.whatsAppMessageText === "string" ? row.whatsAppMessageText : undefined
       };
     }
     return next;

@@ -9,6 +9,7 @@ export type ExportField = { key: ExportFieldKey; label: string; enabled: boolean
 export type CollectionStatusFilter = "all" | CollectionStatus;
 export type GroupFilter = "all" | string;
 export type ReceivablesViewMode = "cartera" | "historial";
+export type CollectionCutKey = "morning" | "afternoon" | "night";
 
 export type CollectionClosureItem = {
   clientId: string;
@@ -20,10 +21,17 @@ export type CollectionClosureItem = {
   collectionStatus: CollectionStatus;
   comment: string;
   autoApplied: boolean;
+  managementType?: FieldManagementType;
+  managementAmount?: number;
+  managementComment?: string;
+  whatsAppMessageCopiedAt?: string;
+  whatsAppMessageSentAt?: string;
 };
 
 export type CollectionClosureSnapshot = {
   date: string;
+  cutKey?: CollectionCutKey;
+  cutLabel?: string;
   closedAt: string;
   actor: string;
   reason: string;
@@ -31,7 +39,19 @@ export type CollectionClosureSnapshot = {
   items: CollectionClosureItem[];
 };
 
-export type CollectionClosuresByDate = Record<string, CollectionClosureSnapshot>;
+export type CollectionClosureDay = {
+  date: string;
+  cuts: Partial<Record<CollectionCutKey, CollectionClosureSnapshot>>;
+};
+
+export type CollectionClosureEntry = CollectionClosureSnapshot | CollectionClosureDay;
+export type CollectionClosuresByDate = Record<string, CollectionClosureEntry>;
+
+export const COLLECTION_CUT_OPTIONS: Array<{ key: CollectionCutKey; label: string; shortLabel: string }> = [
+  { key: "morning", label: "Primer corte de cobranza", shortLabel: "Corte 1" },
+  { key: "afternoon", label: "Segundo corte de cobranza", shortLabel: "Corte 2" },
+  { key: "night", label: "Cierre final de cobranza", shortLabel: "Cierre final" }
+];
 
 export const STATE_FILTER_OPTIONS: Array<{ value: ReceivableState; label: string }> = [
   { value: "alDia", label: "Al dia" },
@@ -45,8 +65,11 @@ export const COLLECTION_STATUS_OPTIONS: Array<{ value: CollectionStatus; label: 
   { value: "no_answer", label: "Llamada no responde, se dejo mensaje." },
   { value: "reminder", label: "Mensaje recordatorio." },
   { value: "call_later", label: "Llamar mas tarde." },
-  { value: "paid", label: "Pago confirmado." }
+  { value: "paid", label: "Pago confirmado." },
+  { value: "route_collection", label: "Cobro en ruta." }
 ];
+
+export const REGULAR_COLLECTION_STATUS_OPTIONS = COLLECTION_STATUS_OPTIONS.filter((option) => option.value !== "route_collection");
 
 export const INITIAL_EXPORT_FIELDS: ExportField[] = [
   { key: "unitId", label: "Unidad", enabled: true },
@@ -60,6 +83,39 @@ export const INITIAL_EXPORT_FIELDS: ExportField[] = [
 ];
 
 export const COLLECTION_CLOSURES_KEY = "cobrapp.module3.collection_closures.v1";
+
+export function isCollectionClosureDay(value: CollectionClosureEntry | undefined): value is CollectionClosureDay {
+  return !!value && typeof value === "object" && "cuts" in value && !!value.cuts && typeof value.cuts === "object";
+}
+
+export function getCollectionClosureCuts(entry: CollectionClosureEntry | undefined): Partial<Record<CollectionCutKey, CollectionClosureSnapshot>> {
+  if (!entry) return {};
+  if (isCollectionClosureDay(entry)) return entry.cuts;
+  const cutKey = entry.cutKey ?? "night";
+  return { [cutKey]: entry };
+}
+
+export function getCollectionClosureCut(
+  closures: CollectionClosuresByDate,
+  dateKey: string,
+  cutKey: CollectionCutKey
+): CollectionClosureSnapshot | null {
+  return getCollectionClosureCuts(closures[dateKey])[cutKey] ?? null;
+}
+
+export function hasCollectionClosureCut(
+  closures: CollectionClosuresByDate,
+  dateKey: string,
+  cutKey: CollectionCutKey
+): boolean {
+  return !!getCollectionClosureCut(closures, dateKey, cutKey);
+}
+
+export function getCollectionClosureDateKeys(closures: CollectionClosuresByDate): string[] {
+  return Object.keys(closures)
+    .filter((dateKey) => Object.keys(getCollectionClosureCuts(closures[dateKey])).length > 0)
+    .sort((a, b) => b.localeCompare(a));
+}
 
 export function renderSortIcon(active: boolean, direction: SortDirection): string {
   if (!active) return "<>";
@@ -110,6 +166,10 @@ export function normalizeFieldManagementComment(value: string): string {
   return value.slice(0, 25);
 }
 
+export function normalizeSupportNote(value: string): string {
+  return value.slice(0, 300);
+}
+
 export function toTimestamp(value: string | undefined): number {
   if (!value) return 0;
   const parsed = Date.parse(value);
@@ -142,8 +202,10 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   const whatsAppMessageCopiedAt = typeof row.whatsAppMessageCopiedAt === "string" ? row.whatsAppMessageCopiedAt : undefined;
   const whatsAppMessageSentAt = typeof row.whatsAppMessageSentAt === "string" ? row.whatsAppMessageSentAt : undefined;
   const whatsAppMessageText = typeof row.whatsAppMessageText === "string" ? row.whatsAppMessageText : undefined;
-  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText };
-  if (status === "no_answer" || status === "reminder" || status === "call_later" || status === "paid") {
+  const supportNote = typeof row.supportNote === "string" ? normalizeSupportNote(row.supportNote.trim()) : "";
+  const supportNoteUpdatedAt = typeof row.supportNoteUpdatedAt === "string" ? row.supportNoteUpdatedAt : undefined;
+  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt };
+  if (status === "no_answer" || status === "reminder" || status === "call_later" || status === "paid" || status === "route_collection") {
     return { status, comment, updatedAt, managementType, managementAmount, managementComment, managementUpdatedAt, ...messageAudit };
   }
   if (row.actionType === "cobrar") {

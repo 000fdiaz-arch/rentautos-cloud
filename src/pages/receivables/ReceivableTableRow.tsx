@@ -2,14 +2,17 @@ import { memo, useState } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { STATE_LABEL, type ReceivableRow } from "../../receivables";
 import type { Client } from "../../types";
-import type { CollectionStatus, CollectionStatusRecord } from "./receivablesTypes";
+import type { CollectionStatusRecord } from "./receivablesTypes";
 import {
+  COLLECTION_CUT_OPTIONS,
   COLLECTION_STATUS_OPTIONS,
+  REGULAR_COLLECTION_STATUS_OPTIONS,
   clientOperationalStatusLabel,
   clientOperationalStatusTone,
-  isToday,
   pendingSummaryText,
-  stateToneClass
+  stateToneClass,
+  type CollectionClosureItem,
+  type CollectionCutKey
 } from "./receivablesPageRules";
 
 type Props = {
@@ -19,32 +22,16 @@ type Props = {
   todayDateKey: string;
   now: Date;
   isTodayCollectionClosed: boolean;
+  collectionCutItems: Partial<Record<CollectionCutKey, CollectionClosureItem>>;
   whatsAppMessage: string;
   onSelectDetail: (row: ReceivableRow) => void;
-  onRemoveFieldManagement: (clientId: string) => void;
-  onCollectionStatusChange: (clientId: string, nextStatus: string) => void;
+  onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
+  onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
   onWhatsAppMessageCopied: (clientId: string, message: string) => void;
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
-  onCallLaterCommentChange: (clientId: string, value: string) => void;
-  onOpenFieldManagementModal: (clientId: string) => void;
+  onEditWhatsAppPhone: (clientId: string) => void;
+  onSupportNoteChange: (clientId: string, value: string) => void;
 };
-
-function hasPaymentToday(row: ReceivableRow, now: Date): boolean {
-  if (!row.lastPaymentDate) return false;
-  return isToday(new Date(`${row.lastPaymentDate}T12:00:00`), now);
-}
-
-function getEffectiveStatus(row: ReceivableRow, statusRecord: CollectionStatusRecord | undefined, now: Date): CollectionStatus | "" {
-  if (statusRecord?.status) return statusRecord.status;
-  if (row.state === "alDia" || hasPaymentToday(row, now)) return "paid";
-  return "";
-}
-
-function hasRouteCollection(statusRecord: CollectionStatusRecord | undefined): boolean {
-  if (!statusRecord) return false;
-  const hasType = statusRecord.managementType === "solo_cobrar" || statusRecord.managementType === "cobrar_o_quitar";
-  return hasType && !!statusRecord.managementAmount && statusRecord.managementAmount > 0;
-}
 
 function normalizeWhatsAppPhone(value: string | undefined): string {
   const digits = value?.replace(/\D/g, "") ?? "";
@@ -53,37 +40,74 @@ function normalizeWhatsAppPhone(value: string | undefined): string {
   return "";
 }
 
+function WhatsAppIcon() {
+  return (
+    <svg className="ar-whatsapp-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 4.2a7.8 7.8 0 0 0-6.64 11.9l-.73 3.27 3.35-.7A7.8 7.8 0 1 0 12 4.2Z" />
+      <path d="M9.05 8.2c-.23.14-.92.62-.92 1.78 0 1.58 1.29 3.15 2.38 4.02 1.13.9 2.86 1.82 4.22 1.43.62-.18 1.07-.77 1.17-1.24.04-.2 0-.36-.18-.45l-1.55-.74c-.21-.1-.4-.07-.55.12l-.52.66c-.14.17-.34.22-.55.13a5.8 5.8 0 0 1-2.44-2.1c-.12-.2-.1-.4.05-.56l.47-.5c.14-.15.18-.36.1-.55l-.7-1.63c-.08-.18-.27-.32-.48-.37Z" />
+    </svg>
+  );
+}
+
+function cutDisplayLabel(cutKey: CollectionCutKey): string {
+  if (cutKey === "morning") return "AM";
+  if (cutKey === "afternoon") return "PM";
+  return "CIERRE";
+}
+
+function lastPaymentLabel(lastPaymentDate: string | null, now: Date): string {
+  if (!lastPaymentDate) return "Sin pagos";
+  const paymentDate = new Date(`${lastPaymentDate}T12:00:00`);
+  const referenceDate = new Date(now);
+  paymentDate.setHours(0, 0, 0, 0);
+  referenceDate.setHours(0, 0, 0, 0);
+  const days = Math.max(0, Math.round((referenceDate.getTime() - paymentDate.getTime()) / (24 * 60 * 60 * 1000)));
+  if (days === 0) return "PAGÓ HOY";
+  if (days === 1) return "Último pago hace 1 día";
+  return `Último pago hace ${days} días`;
+}
+
 function ReceivableTableRowComponent({
   row,
   statusRecord,
   operationalStatus,
   now,
   isTodayCollectionClosed,
+  collectionCutItems,
   whatsAppMessage,
   onSelectDetail,
-  onRemoveFieldManagement,
-  onCollectionStatusChange,
+  onCollectionCutStatusChange,
+  onCollectionCutCommentChange,
   onWhatsAppMessageCopied,
   onWhatsAppMessageSent,
-  onCallLaterCommentChange,
-  onOpenFieldManagementModal
+  onEditWhatsAppPhone,
+  onSupportNoteChange
 }: Props) {
   const [copiedWhatsAppMessage, setCopiedWhatsAppMessage] = useState(false);
-  const paidToday = hasPaymentToday(row, now);
-  const autoPaid = row.state === "alDia" || paidToday;
-  const routeCollection = hasRouteCollection(statusRecord);
-  const hasManualStatus = !!statusRecord?.status;
-  const effectiveStatus = getEffectiveStatus(row, statusRecord, now);
-  const storedComment = statusRecord?.comment ?? "";
   const messageWasCopied = copiedWhatsAppMessage || !!statusRecord?.whatsAppMessageCopiedAt;
   const messageWasSent = !!statusRecord?.whatsAppMessageSentAt;
   const whatsAppPhone = normalizeWhatsAppPhone(row.whatsAppPhone);
+  const lastPaymentIsToday = row.lastPaymentDate
+    ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) === formatDate(now)
+    : false;
   const sentAt = statusRecord?.whatsAppMessageSentAt ? new Date(statusRecord.whatsAppMessageSentAt) : null;
   const sentTime = sentAt && !Number.isNaN(sentAt.getTime())
     ? sentAt.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" })
     : "";
+  const whatsAppButtonTitle = messageWasSent
+    ? `WhatsApp enviado${sentTime ? ` a las ${sentTime}` : ""}`
+    : messageWasCopied
+      ? "WhatsApp abierto: confirma cuando lo envies"
+      : whatsAppPhone
+        ? "Abrir WhatsApp y copiar mensaje"
+        : "Falta WhatsApp: agregar o editar numero";
+  const whatsAppTone = messageWasSent ? "sent" : messageWasCopied ? "opened" : whatsAppPhone ? "ready" : "missing";
 
   async function handleWhatsAppClick(): Promise<void> {
+    if (!whatsAppPhone) {
+      onEditWhatsAppPhone(row.id);
+      return;
+    }
     window.open(whatsAppPhone ? `https://wa.me/${whatsAppPhone}` : "https://wa.me/", "_blank", "noopener,noreferrer");
     try {
       await navigator.clipboard.writeText(whatsAppMessage);
@@ -99,109 +123,136 @@ function ReceivableTableRowComponent({
     onWhatsAppMessageSent(row.id, whatsAppMessage);
   }
 
-  return (
-    <tr className={statusRecord?.managementType ? "ar-row--route" : ""}>
-      <td><strong className="ar-unit-id">{row.unitId}</strong></td>
-      <td className="ar-pending-cell">
-        <span className="client-name">{pendingSummaryText(row.totalPending, row.rentAmount)}</span>
-        <span className={`debt-meta ${row.rentAmount > 0 ? "amount-debt" : "amount-good"}`}>Letra: {formatCurrency(row.rentAmount)}</span>
-        <span className="debt-meta ar-truncate-line" title={row.name}>{row.name}</span>
-      </td>
-      <td>
-        <div>{row.lastPaymentDate ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) : <span className="amount-muted">Sin pagos</span>}</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
-          <span className={stateToneClass(row.state)}>{STATE_LABEL[row.state]}</span>
-          <span className={clientOperationalStatusTone(operationalStatus)}>
-            {clientOperationalStatusLabel(operationalStatus)}
-          </span>
-        </div>
-      </td>
-      <td className="ar-collection-cell">
-        <div className="ar-collection-wrap">
-          {routeCollection && (
-            <span className="ar-route-collection-tag">
-              COBRO EN RUTA
-              <button
-                type="button"
-                className="ar-route-collection-remove"
-                onClick={() => onRemoveFieldManagement(row.id)}
-                aria-label={`Quitar cobro en ruta de ${row.unitId}`}
-                title="Quitar de cobro en ruta"
-                disabled={isTodayCollectionClosed}
-              >
-                x
-              </button>
-            </span>
-          )}
+  function renderCutCell(cutKey: CollectionCutKey) {
+    const item = collectionCutItems[cutKey];
+    const value = item?.collectionStatus ?? "";
+    const statusOptions = cutKey === "night" ? COLLECTION_STATUS_OPTIONS : REGULAR_COLLECTION_STATUS_OPTIONS;
+    return (
+      <div className={`ar-cut-stack-row ar-cut-stack-row--${cutKey}`}>
+        <span className="ar-cut-stack-label">{cutDisplayLabel(cutKey)}</span>
+        <div className="ar-cut-cell-content">
           <select
-            className="ar-collection-select"
-            value={effectiveStatus}
-            onChange={(event) => onCollectionStatusChange(row.id, event.target.value)}
+            className={`ar-cut-select ar-cut-select--${value || "empty"}`}
+            value={value}
+            onChange={(event) => onCollectionCutStatusChange(cutKey, row.id, event.target.value)}
             disabled={isTodayCollectionClosed}
           >
             <option value="">Seleccionar</option>
-            {COLLECTION_STATUS_OPTIONS.map((option) => (
+            {statusOptions.map((option) => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
-          {effectiveStatus === "call_later" && (
+          {value === "call_later" ? (
             <input
               type="text"
-              className="ar-collection-comment"
+              className="ar-cut-comment-input"
               maxLength={5}
-              placeholder="Comentario (max 5)"
-              value={storedComment}
-              onChange={(event) => onCallLaterCommentChange(row.id, event.target.value)}
+              placeholder="Comentario"
+              value={item?.comment ?? ""}
+              onChange={(event) => onCollectionCutCommentChange(cutKey, row.id, event.target.value)}
               disabled={isTodayCollectionClosed}
             />
-          )}
-          {autoPaid && !hasManualStatus && (
-            <span className="hint ar-collection-note">
-              {paidToday ? "Sugerido automatico por pago de hoy." : "Sugerido automatico por cliente al dia."}
-            </span>
-          )}
-        </div>
-      </td>
-      <td className="ar-actions-cell ar-actions-cell--compact">
-        <div className="ar-actions-stack">
-          <button type="button" className="button ghost small" onClick={() => onSelectDetail(row)}>Ver detalle</button>
-          <button
-            type="button"
-            className="button ghost small ar-whatsapp-link"
-            onClick={() => void handleWhatsAppClick()}
-            disabled={isTodayCollectionClosed}
-          >
-            {messageWasSent ? "Reenviar WhatsApp" : "Copiar y abrir WhatsApp"}
-          </button>
-          {messageWasSent ? (
-            <span className="ar-whatsapp-status ar-whatsapp-status--sent">
-              Enviado{sentTime ? ` ${sentTime}` : ""}
-            </span>
-          ) : messageWasCopied ? (
-            <div className="ar-whatsapp-confirm-box">
-              <span>{whatsAppPhone ? "Chat abierto. Pegalo en WhatsApp y envialo." : "Sin numero guardado. Busca el chat, pega el mensaje y envialo."}</span>
-              <button
-                type="button"
-                className="button small ar-whatsapp-confirm-button"
-                onClick={handleConfirmWhatsAppSent}
-                disabled={isTodayCollectionClosed}
-              >
-                Si, ya lo envie
-              </button>
-            </div>
+          ) : item?.comment ? (
+            <span className="hint ar-cut-comment">Comentario: {item.comment}</span>
           ) : null}
-          {!whatsAppPhone && !messageWasSent && (
-            <span className="ar-whatsapp-phone-missing">Falta WhatsApp</span>
-          )}
-          <button
-            type="button"
-            className="button ghost small"
-            onClick={() => onOpenFieldManagementModal(row.id)}
-            disabled={isTodayCollectionClosed}
-          >
-            Cobro en Ruta
-          </button>
+          <div className="ar-cut-actions">
+            {item?.whatsAppMessageSentAt ? <span>WhatsApp enviado</span> : item?.whatsAppMessageCopiedAt ? <span>WhatsApp abierto</span> : null}
+            {item?.managementAmount ? (
+              <span>
+                Ruta {formatCurrency(item.managementAmount)}
+                {item.managementType === "cobrar_o_quitar" ? " / quitar" : ""}
+              </span>
+            ) : null}
+            {item?.managementComment ? <span>{item.managementComment}</span> : null}
+          </div>
         </div>
+      </div>
+    );
+  }
+
+  return (
+    <tr className="ar-card-row">
+      <td colSpan={4} className="ar-card-cell">
+        <article className={`ar-receivable-card ${statusRecord?.managementType ? "ar-receivable-card--route" : ""}`}>
+          <div className="ar-card-finance">
+            <div className="ar-client-money-main">
+              <div className="ar-client-summary-grid">
+                <div className="ar-card-actions ar-card-actions--compact">
+                  <strong className="ar-unit-id">{row.unitId}</strong>
+                  {messageWasSent ? (
+                    <span
+                      className="ar-whatsapp-status ar-whatsapp-status--sent ar-whatsapp-icon-button ar-whatsapp-icon-button--sent"
+                      title={whatsAppButtonTitle}
+                      aria-label={whatsAppButtonTitle}
+                    >
+                      <WhatsAppIcon />
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className={`button ghost small ar-whatsapp-link ar-whatsapp-unit-button ar-whatsapp-icon-button ar-whatsapp-icon-button--${whatsAppTone}`}
+                      onClick={() => void handleWhatsAppClick()}
+                      disabled={isTodayCollectionClosed}
+                      title={whatsAppButtonTitle}
+                      aria-label={whatsAppButtonTitle}
+                    >
+                      <WhatsAppIcon />
+                    </button>
+                  )}
+                  <span className={clientOperationalStatusTone(operationalStatus)}>
+                    {clientOperationalStatusLabel(operationalStatus)}
+                  </span>
+                  {!messageWasSent && messageWasCopied ? (
+                    <div className="ar-whatsapp-confirm-box ar-whatsapp-confirm-box--unit ar-whatsapp-confirm-box--inline">
+                      <span>Confirma cuando lo envies.</span>
+                      <button
+                        type="button"
+                        className="button small ar-whatsapp-confirm-button"
+                        onClick={handleConfirmWhatsAppSent}
+                        disabled={isTodayCollectionClosed}
+                      >
+                        Enviado
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="ar-client-summary-main">
+                  <span className="client-name">{pendingSummaryText(row.totalPending, row.rentAmount)}</span>
+                  <span className={`debt-meta ${row.rentAmount > 0 ? "amount-debt" : "amount-good"}`}>Letra: {formatCurrency(row.rentAmount)}</span>
+                  <span className="debt-meta ar-truncate-line" title={row.name}>{row.name}</span>
+                  <div className="ar-payment-state-row">
+                    <span className={`ar-last-payment-date ${lastPaymentIsToday ? "ar-last-payment-date--today" : ""}`}>
+                      {lastPaymentLabel(row.lastPaymentDate, now)}
+                    </span>
+                    <span className={stateToneClass(row.state)}>{STATE_LABEL[row.state]}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="ar-card-notes ar-support-note-cell">
+            <textarea
+              className="ar-support-note-inline"
+              value={statusRecord?.supportNote ?? ""}
+              onChange={(event) => onSupportNoteChange(row.id, event.target.value)}
+              placeholder="Nota..."
+              maxLength={300}
+              rows={3}
+              disabled={isTodayCollectionClosed}
+            />
+          </div>
+
+          <div className="ar-card-management ar-cut-cell ar-cut-cell--stacked">
+            <div className="ar-cut-stack">
+              {COLLECTION_CUT_OPTIONS.map((option) => (
+                <div key={option.key}>
+                  {renderCutCell(option.key)}
+                </div>
+              ))}
+            </div>
+          </div>
+        </article>
       </td>
     </tr>
   );
@@ -213,7 +264,12 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.operationalStatus === next.operationalStatus &&
   previous.todayDateKey === next.todayDateKey &&
   previous.isTodayCollectionClosed === next.isTodayCollectionClosed &&
+  previous.collectionCutItems === next.collectionCutItems &&
   previous.whatsAppMessage === next.whatsAppMessage &&
+  previous.onCollectionCutStatusChange === next.onCollectionCutStatusChange &&
+  previous.onCollectionCutCommentChange === next.onCollectionCutCommentChange &&
   previous.onWhatsAppMessageCopied === next.onWhatsAppMessageCopied &&
-  previous.onWhatsAppMessageSent === next.onWhatsAppMessageSent
+  previous.onWhatsAppMessageSent === next.onWhatsAppMessageSent &&
+  previous.onEditWhatsAppPhone === next.onEditWhatsAppPhone &&
+  previous.onSupportNoteChange === next.onSupportNoteChange
 ));
