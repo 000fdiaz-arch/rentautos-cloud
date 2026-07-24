@@ -246,7 +246,7 @@ export default function AppShell({
       })
       .catch((error) => {
         console.error("No se pudo cargar Leads desde Supabase.", error);
-        if (!cancelled) setLeadsCloudError("No se pudieron cargar los Leads desde nube.");
+        if (!cancelled) setLeadsCloudError(`No se pudieron cargar los Leads desde nube. ${describeCloudError(error)}`);
       })
       .finally(() => {
         if (!cancelled) setLeadsLoading(false);
