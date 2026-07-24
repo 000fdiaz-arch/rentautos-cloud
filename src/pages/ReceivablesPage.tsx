@@ -10,7 +10,6 @@ import {
   DEFAULT_RECEIVABLE_FILTERS,
   filterReceivableRows,
   getGroupFromUnit,
-  PLAN_LABEL,
   sortReceivableRows,
   STATE_LABEL,
   type ReceivableFilters,
@@ -24,10 +23,14 @@ import type {
   CollectionStatus,
   CollectionStatusRecord,
   FieldManagementType,
-  RouteExportFormat
+  RouteExportFormat,
+  WhatsAppContactFilter
 } from "./receivables/receivablesTypes";
-import { ReceivableTableRow } from "./receivables/ReceivableTableRow";
+import { ReceivableDetailModal } from "./receivables/ReceivableDetailModal";
 import { ReceivablesFiltersPanel } from "./receivables/ReceivablesFiltersPanel";
+import { ReceivablesCutProgressPanel } from "./receivables/ReceivablesCutProgressPanel";
+import { ReceivablesLedgerTable, type ReceivablesHistoryRow } from "./receivables/ReceivablesLedgerTable";
+import { WhatsAppPhoneModal } from "./receivables/WhatsAppPhoneModal";
 import { exportRouteCollection } from "./receivables/routeCollectionExport";
 import {
   COLLECTION_STATUS_OPTIONS,
@@ -46,7 +49,6 @@ import {
   pendingSummaryText,
   planLabelForExport,
   renderSortIcon,
-  stateToneClass,
   toTimestamp,
   type CollectionClosureItem,
   type CollectionClosureSnapshot,
@@ -66,8 +68,6 @@ type Props = {
   streetManagementData?: Record<string, unknown>;
   onStreetManagementPersist?: (value: Record<string, unknown>) => Promise<boolean> | boolean;
 };
-
-type WhatsAppContactFilter = "all" | "missing" | "ready" | "opened" | "sent";
 
 const WHATSAPP_REALIZED_CLEANUP_KEY = "cobrapp.module3.whatsapp_realized_cleanup.v1";
 
@@ -391,15 +391,7 @@ export default function ReceivablesPage({
     [collectionClosuresByDate, selectedHistoryDate]
   );
   const selectedHistoryRows = useMemo(() => {
-    const rowsByClient = new Map<string, {
-      clientId: string;
-      unitId: string;
-      clientName: string;
-      lastPaymentDate: string | null;
-      receivableState: string;
-      totalPending: number;
-      cuts: Partial<Record<CollectionCutKey, CollectionClosureItem>>;
-    }>();
+    const rowsByClient = new Map<string, ReceivablesHistoryRow>();
     for (const option of COLLECTION_CUT_OPTIONS) {
       const closure = selectedHistoryCuts[option.key];
       if (!closure) continue;
@@ -530,50 +522,6 @@ export default function ReceivablesPage({
     if (stored) return stored;
     if (hasAutoPaidStatus(row)) return "paid";
     return "";
-  }
-
-  function getCutItemsForClient(
-    cuts: Partial<Record<CollectionCutKey, { items: CollectionClosureItem[] }>>,
-    clientId: string
-  ): Partial<Record<CollectionCutKey, CollectionClosureItem>> {
-    const cutItems: Partial<Record<CollectionCutKey, CollectionClosureItem>> = {};
-    for (const option of COLLECTION_CUT_OPTIONS) {
-      const item = cuts[option.key]?.items.find((cutItem) => cutItem.clientId === clientId);
-      if (item) cutItems[option.key] = item;
-    }
-    return cutItems;
-  }
-
-  function renderCutStatusCell(item: CollectionClosureItem | undefined) {
-    if (!item) return <span className="ar-cut-empty">Sin corte</span>;
-    const label = COLLECTION_STATUS_OPTIONS.find((option) => option.value === item.collectionStatus)?.label ?? "Sin estado";
-    return (
-      <div className="ar-cut-cell-content">
-        <span className={`ar-cut-status ar-cut-status--${item.collectionStatus}`}>{label}</span>
-        {item.comment ? <span className="hint ar-cut-comment">Comentario: {item.comment}</span> : null}
-        <div className="ar-cut-actions">
-          {item.whatsAppMessageSentAt ? <span>WhatsApp enviado</span> : item.whatsAppMessageCopiedAt ? <span>WhatsApp abierto</span> : null}
-          {item.managementAmount ? (
-            <span>
-              Ruta {formatCurrency(item.managementAmount)}
-              {item.managementType === "cobrar_o_quitar" ? " / quitar" : ""}
-            </span>
-          ) : null}
-          {item.managementComment ? <span>{item.managementComment}</span> : null}
-        </div>
-      </div>
-    );
-  }
-
-  function renderHistoryCutStack(item: CollectionClosureItem | undefined, cutKey: CollectionCutKey) {
-    return (
-      <div className={`ar-cut-stack-row ar-cut-stack-row--${cutKey}`}>
-        <span className="ar-cut-stack-label">
-          {cutKey === "morning" ? "AM" : cutKey === "afternoon" ? "PM" : "CIERRE"}
-        </span>
-        {renderCutStatusCell(item)}
-      </div>
-    );
   }
 
   function normalizeWhatsAppDraft(value: string): string {
@@ -1095,6 +1043,14 @@ export default function ReceivablesPage({
       setIsSavingCollectionCut(null);
     }
   }
+
+  const whatsAppModalClient = whatsAppModalClientId
+    ? clients.find((item) => item.id === whatsAppModalClientId)
+    : undefined;
+  const whatsAppModalRow = whatsAppModalClientId
+    ? baseRows.find((item) => item.id === whatsAppModalClientId)
+    : undefined;
+
   return (
     <>
       <section className="hero ar-hero">
@@ -1126,190 +1082,61 @@ export default function ReceivablesPage({
       <section className="panel ar-ledger-panel">
         <div className="panel-head"><h2>Cartera de clientes</h2></div>
         {viewMode === "cartera" && (
-          <div className="ar-cut-progress-panel" aria-label="Avance de gestion por corte">
-            <div className="ar-cut-view-toggle ar-whatsapp-view-toggle" aria-label="Filtrar por estado de WhatsApp">
-              <span>WhatsApp</span>
-              {([
-                ["all", "Todos"],
-                ["missing", "Sin numero"],
-                ["ready", "Por enviar"],
-                ["opened", "Pendientes"],
-                ["sent", "Completados"]
-              ] as Array<[WhatsAppContactFilter, string]>).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={whatsAppContactFilter === value ? "is-active" : ""}
-                  onClick={() => setWhatsAppContactFilter(value)}
-                >
-                  {label} <strong>{whatsAppContactCounts[value]}</strong>
-                </button>
-              ))}
-            </div>
-            <div className="ar-cut-view-toggle" aria-label="Filtrar vista de cortes">
-              <span>Ver corte</span>
-              <button
-                type="button"
-                className={visibleCollectionCut === "all" ? "is-active" : ""}
-                onClick={() => setVisibleCollectionCut("all")}
-              >
-                Todos
-              </button>
-              {COLLECTION_CUT_OPTIONS.map((option) => {
-                const label = option.key === "morning" ? "AM" : option.key === "afternoon" ? "PM" : "CIERRE";
-                return (
-                  <button
-                    key={option.key}
-                    type="button"
-                    className={visibleCollectionCut === option.key ? "is-active" : ""}
-                    onClick={() => setVisibleCollectionCut(option.key)}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-            {collectionCutProgress.map((cut) => (
-              <article key={cut.key} className={`ar-cut-progress-card ar-cut-progress-card--${cut.key}`}>
-                <div className="ar-cut-progress-head">
-                  <span className="ar-cut-progress-label">{cut.label}</span>
-                  <strong>{cut.managed}/{cut.total}</strong>
-                </div>
-                <div className="ar-cut-progress-track" aria-hidden="true">
-                  <span style={{ width: `${cut.percent}%` }} />
-                </div>
-                <div className="ar-cut-progress-meta">
-                  <span>{cut.percent}% gestionado</span>
-                  <span>{cut.pending} faltan</span>
-                </div>
-                <div className="ar-cut-progress-breakdown">
-                  {COLLECTION_STATUS_OPTIONS.filter((option) => cut.statusCounts[option.value] > 0).map((option) => (
-                    <span key={option.value} className={`ar-cut-progress-pill ar-cut-progress-pill--${option.value}`}>
-                      {cut.statusCounts[option.value]} {option.label.replace(/\.$/, "")}
-                    </span>
-                  ))}
-                  {cut.managed === 0 ? <span className="ar-cut-progress-empty">Sin gestiones</span> : null}
-                </div>
-              </article>
-            ))}
-          </div>
+          <ReceivablesCutProgressPanel
+            whatsAppContactFilter={whatsAppContactFilter}
+            whatsAppContactCounts={whatsAppContactCounts}
+            visibleCollectionCut={visibleCollectionCut}
+            collectionCutProgress={collectionCutProgress}
+            onWhatsAppContactFilterChange={setWhatsAppContactFilter}
+            onVisibleCollectionCutChange={setVisibleCollectionCut}
+          />
         )}
-        <div className="table-scroll ar-ledger-scroll" ref={tableScrollRef}>
-          <table className="ar-table ar-table--compact">
-            <tbody>
-              {viewMode === "historial" ? (
-                selectedHistoryRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="empty" style={{ textAlign: "center" }}>
-                      No hay datos en este cierre.
-                    </td>
-                  </tr>
-                ) : selectedHistoryRows.map((item) => (
-                  <tr key={`${selectedHistoryDate}-${item.clientId}`}>
-                    <td><strong className="ar-unit-id">{item.unitId}</strong></td>
-                    <td className="ar-pending-cell">
-                      <div className="ar-client-money-layout">
-                        <div className="ar-client-money-main">
-                          <span className="client-name">{formatCurrency(item.totalPending)}</span>
-                          <span className="debt-meta ar-truncate-line" title={item.clientName}>{item.clientName}</span>
-                        </div>
-                        <div className="ar-account-status-stack">
-                          <span className="ar-last-payment-date">
-                            {item.lastPaymentDate ? formatDate(new Date(`${item.lastPaymentDate}T12:00:00`)) : "Sin pagos"}
-                          </span>
-                          <span className={stateToneClass(item.receivableState as ReceivableState)}>{STATE_LABEL[item.receivableState as ReceivableState] ?? item.receivableState}</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="ar-support-note-cell"><span className="hint">-</span></td>
-                    <td className="ar-cut-cell ar-cut-cell--stacked">
-                      <div className="ar-cut-stack">
-                        {COLLECTION_CUT_OPTIONS.map((option) => (
-                          <div key={option.key}>
-                            {renderHistoryCutStack(item.cuts[option.key], option.key)}
-                          </div>
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              ) : rows.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="empty" style={{ textAlign: "center" }}>
-                    No hay resultados para los filtros seleccionados.
-                  </td>
-                </tr>
-              ) : rows.map((row) => (
-                <ReceivableTableRow
-                  key={row.id}
-                  row={row}
-                  statusRecord={collectionStatusByClient[row.id]}
-                  operationalStatus={clientStatusById.get(row.id) ?? "activo"}
-                  todayDateKey={todayDateKey}
-                  now={now}
-                  isTodayCollectionClosed={isTodayCollectionClosed}
-                  collectionCutItems={getCutItemsForClient(todayCollectionCuts, row.id)}
-                  visibleCutKey={visibleCollectionCut}
-                  whatsAppMessage={buildWhatsAppReceivableMessage(row)}
-                  onSelectDetail={setSelectedDetailRow}
-                  onCollectionCutStatusChange={handleCollectionCutStatusChange}
-                  onCollectionCutCommentChange={handleCollectionCutCommentChange}
-                  onWhatsAppMessageCopied={handleWhatsAppMessageCopied}
-                  onWhatsAppMessageSent={handleWhatsAppMessageSent}
-                  onEditWhatsAppPhone={handleOpenWhatsAppPhoneModal}
-                  onSupportNoteChange={handleSupportNoteChange}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ReceivablesLedgerTable
+          tableScrollRef={tableScrollRef}
+          viewMode={viewMode}
+          selectedHistoryDate={selectedHistoryDate}
+          selectedHistoryRows={selectedHistoryRows}
+          rows={rows}
+          collectionStatusByClient={collectionStatusByClient}
+          clientStatusById={clientStatusById}
+          todayDateKey={todayDateKey}
+          now={now}
+          isTodayCollectionClosed={isTodayCollectionClosed}
+          todayCollectionCuts={todayCollectionCuts}
+          visibleCollectionCut={visibleCollectionCut}
+          buildWhatsAppReceivableMessage={buildWhatsAppReceivableMessage}
+          onSelectDetail={setSelectedDetailRow}
+          onCollectionCutStatusChange={handleCollectionCutStatusChange}
+          onCollectionCutCommentChange={handleCollectionCutCommentChange}
+          onWhatsAppMessageCopied={handleWhatsAppMessageCopied}
+          onWhatsAppMessageSent={handleWhatsAppMessageSent}
+          onEditWhatsAppPhone={handleOpenWhatsAppPhoneModal}
+          onSupportNoteChange={handleSupportNoteChange}
+        />
       </section>
 
-      {whatsAppModalClientId && (() => {
-        const client = clients.find((item) => item.id === whatsAppModalClientId);
-        const row = baseRows.find((item) => item.id === whatsAppModalClientId);
-        if (!client && !row) return null;
-        return (
-          <div className="modal-overlay">
-            <div className="modal ar-detail-modal ar-whatsapp-phone-modal">
-              <div className="modal-header">
-                <h2>WhatsApp - {row?.unitId ?? client?.unitId}</h2>
-                <button type="button" className="modal-close" onClick={() => setWhatsAppModalClientId(null)}>X</button>
-              </div>
-              <div className="modal-body">
-                <div className="ar-detail-grid">
-                  <div><span className="hint">Cliente</span><p><strong>{row?.name ?? client?.name}</strong></p></div>
-                  <div><span className="hint">Unidad</span><p>{row?.unitId ?? client?.unitId}</p></div>
-                </div>
-                <label className="ar-field-management-label ar-whatsapp-phone-field">
-                  WhatsApp
-                  <input
-                    type="tel"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={whatsAppPhoneDraft}
-                    onChange={(event) => {
-                      setWhatsAppPhoneDraft(normalizeWhatsAppDraft(event.target.value));
-                      setWhatsAppPhoneError("");
-                    }}
-                    placeholder="Ej. 68842222"
-                    autoFocus
-                  />
-                </label>
-                {whatsAppPhoneError ? <span className="hint error-text">{whatsAppPhoneError}</span> : null}
-              </div>
-              <div className="modal-actions ar-detail-actions">
-                <button type="button" className="button ghost" onClick={() => setWhatsAppModalClientId(null)} disabled={isSavingWhatsAppPhone}>Cancelar</button>
-                <button type="button" className="button primary" onClick={() => void handleSaveWhatsAppPhone()} disabled={isSavingWhatsAppPhone}>
-                  {isSavingWhatsAppPhone ? "Guardando..." : "Guardar WhatsApp"}
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {whatsAppModalClientId && (
+        <WhatsAppPhoneModal
+          client={whatsAppModalClient}
+          row={whatsAppModalRow}
+          draft={whatsAppPhoneDraft}
+          error={whatsAppPhoneError}
+          saving={isSavingWhatsAppPhone}
+          onDraftChange={(value) => {
+            setWhatsAppPhoneDraft(normalizeWhatsAppDraft(value));
+            setWhatsAppPhoneError("");
+          }}
+          onClose={() => setWhatsAppModalClientId(null)}
+          onSave={() => void handleSaveWhatsAppPhone()}
+        />
+      )}
 
-      {selectedDetailRow && <div className="modal-overlay"><div className="modal ar-detail-modal"><div className="modal-header"><h2>Detalle de cuenta - {selectedDetailRow.unitId}</h2><button type="button" className="modal-close" onClick={() => setSelectedDetailRow(null)}>X</button></div><div className="modal-body"><div className="ar-detail-grid"><div><span className="hint">Cliente</span><p><strong>{selectedDetailRow.name}</strong></p></div><div><span className="hint">Cedula</span><p>{selectedDetailRow.cedula}</p></div><div><span className="hint">Unidad</span><p>{selectedDetailRow.unitId}</p></div><div><span className="hint">Grupo</span><p>{selectedDetailRow.group || "-"}</p></div><div><span className="hint">Datos contrato</span><p>{PLAN_LABEL[selectedDetailRow.plan]} | Total contrato: {formatCurrency(selectedDetailRow.contractTotal)}</p></div><div><span className="hint">Proxima fecha pago</span><p>{selectedDetailRow.nextDueDate ? formatDate(new Date(`${selectedDetailRow.nextDueDate}T12:00:00`)) : "-"}</p></div><div><span className="hint">Saldo vencido</span><p className="amount-debt">{formatCurrency(selectedDetailRow.overdueBalance)}</p></div><div><span className="hint">Total pendiente</span><p className="amount-debt">{formatCurrency(selectedDetailRow.totalPending)}</p></div></div></div><div className="modal-actions ar-detail-actions"><button type="button" className="button ghost" onClick={() => setSelectedDetailRow(null)}>Cerrar</button></div></div></div>}
+      {selectedDetailRow && (
+        <ReceivableDetailModal
+          row={selectedDetailRow}
+          onClose={() => setSelectedDetailRow(null)}
+        />
+      )}
     </>
   );
 }
