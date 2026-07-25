@@ -3,7 +3,8 @@
 
 drop view if exists public.vw_control_unidades;
 
-create view public.vw_control_unidades as
+create view public.vw_control_unidades
+with (security_invoker = true) as
 with active_clients as (
   select distinct on (c.user_id, upper(trim(c.data->>'unitId')))
     c.user_id,

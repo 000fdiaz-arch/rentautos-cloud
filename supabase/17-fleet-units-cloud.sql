@@ -37,7 +37,8 @@ with check (public.can_access_owner_data(user_id));
 
 grant select, insert, update, delete on public.fleet_units_cloud to authenticated;
 
-create or replace view public.vw_control_unidades as
+create or replace view public.vw_control_unidades
+with (security_invoker = true) as
 with active_clients as (
   select distinct on (c.user_id, upper(c.data->>'unitId'))
     c.user_id,
