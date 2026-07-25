@@ -8735,3 +8735,556 @@ select.control-op-badge {
     grid-template-columns: 1fr;
   }
 }
+
+/* -- Insurance workflow -- */
+
+.insurance-workflow-page {
+  display: grid;
+  gap: 16px;
+}
+
+.insurance-workflow-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 0;
+}
+
+.insurance-workflow-header h2,
+.workflow-detail-head h3 {
+  margin: 0;
+}
+
+.workflow-eyebrow,
+.workflow-progress span,
+.workflow-responsibility > span,
+.workflow-case-card span,
+.workflow-detail-head span,
+.workflow-checklist > span {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.workflow-progress {
+  min-width: 130px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #eff6ff;
+  padding: 12px;
+  text-align: right;
+}
+
+.workflow-progress strong {
+  display: block;
+  color: #1d4ed8;
+  font-size: 1.35rem;
+  margin-top: 4px;
+}
+
+.workflow-intake-panel {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(220px, 1fr) minmax(180px, 0.9fr) minmax(320px, 1.4fr);
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 0;
+}
+
+.workflow-responsibility {
+  display: grid;
+  gap: 6px;
+}
+
+.workflow-responsibility > div {
+  display: inline-flex;
+  gap: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 4px;
+}
+
+.workflow-responsibility button {
+  flex: 1;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 800;
+  padding: 9px 10px;
+}
+
+.workflow-responsibility button.active {
+  background: #ffffff;
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+}
+
+.workflow-driver-source {
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.25;
+  text-transform: none;
+}
+
+.workflow-driver-source--found {
+  color: var(--color-good);
+}
+
+.workflow-driver-source--not_found {
+  color: var(--color-debt);
+}
+
+.insurance-workflow-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.workflow-map-panel,
+.workflow-detail-panel {
+  margin-bottom: 0;
+}
+
+.workflow-map {
+  display: grid;
+  gap: 10px;
+}
+
+.workflow-step {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-left-width: 5px;
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 12px;
+  text-align: left;
+}
+
+.workflow-step:hover,
+.workflow-step.active {
+  border-color: rgba(15, 118, 110, 0.55);
+  border-left-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
+}
+
+.workflow-step > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #334155;
+  font-weight: 900;
+}
+
+.workflow-step small,
+.workflow-step em,
+.workflow-case-card small {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  font-style: normal;
+}
+
+.workflow-step strong {
+  display: block;
+  margin: 2px 0;
+  font-size: 0.98rem;
+}
+
+.workflow-step--trial {
+  border-left-color: #2563eb;
+}
+
+.workflow-step--insurance {
+  border-left-color: #7e22ce;
+}
+
+.workflow-step--billing {
+  border-left-color: #f59e0b;
+}
+
+.workflow-step--payment {
+  border-left-color: #16a34a;
+}
+
+.workflow-case-card {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.workflow-case-card strong {
+  display: block;
+  margin: 5px 0 3px;
+}
+
+.workflow-detail-head {
+  display: grid;
+  gap: 4px;
+  margin-top: 16px;
+}
+
+.workflow-detail-panel p {
+  color: #334155;
+  line-height: 1.45;
+}
+
+.workflow-detail-list {
+  display: grid;
+  gap: 9px;
+  margin: 16px 0;
+}
+
+.workflow-detail-list div {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 10px;
+  border-bottom: 1px solid #eef2f7;
+  padding-bottom: 8px;
+}
+
+.workflow-detail-list dt {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.workflow-detail-list dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.workflow-checklist {
+  display: grid;
+  gap: 9px;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  background: #eef2ff;
+  padding: 12px;
+}
+
+.workflow-checklist label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: #334155;
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.workflow-form-panel,
+.workflow-responsibility-panel,
+.workflow-cases-panel,
+.workflow-calendar-panel {
+  margin-bottom: 0;
+}
+
+.workflow-form-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.workflow-message {
+  margin: 8px 0 0;
+  color: var(--color-primary);
+  font-weight: 800;
+}
+
+.workflow-form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+  margin-top: 16px;
+}
+
+.workflow-form-grid textarea {
+  min-height: 92px;
+  resize: vertical;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+.workflow-form-notes {
+  grid-column: 1 / -1;
+}
+
+.workflow-responsibility-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-responsibility-panel > span {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.workflow-responsibility-panel > div {
+  display: inline-flex;
+  gap: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 4px;
+}
+
+.workflow-responsibility-panel button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 800;
+  padding: 9px 12px;
+}
+
+.workflow-responsibility-panel button.active {
+  background: #ffffff;
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+}
+
+.workflow-bottom-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(420px, 1.05fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.workflow-case-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.workflow-case-list > button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 11px 12px;
+  text-align: left;
+}
+
+.workflow-case-list > button:hover,
+.workflow-case-list > button.active {
+  border-color: rgba(15, 118, 110, 0.55);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
+}
+
+.workflow-case-list span,
+.workflow-case-list small {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+
+.workflow-case-list em {
+  width: fit-content;
+  margin-top: 5px;
+  color: var(--color-debt);
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.workflow-calendar-panel .panel-head input {
+  max-width: 160px;
+}
+
+.workflow-calendar-weekdays,
+.workflow-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.workflow-calendar-weekdays {
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+
+.workflow-calendar-weekdays span {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.workflow-calendar-grid button,
+.workflow-calendar-grid div {
+  min-height: 70px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--color-text);
+  padding: 7px;
+  text-align: left;
+}
+
+.workflow-calendar-grid button {
+  cursor: pointer;
+}
+
+.workflow-calendar-grid button:hover,
+.workflow-calendar-grid button.active {
+  border-color: rgba(15, 118, 110, 0.55);
+  background: #f0fdfa;
+}
+
+.workflow-calendar-grid button > span {
+  display: block;
+  font-weight: 900;
+  margin-bottom: 5px;
+}
+
+.workflow-calendar-grid small {
+  display: block;
+  width: 100%;
+  border-radius: 6px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.7rem;
+  font-weight: 800;
+  margin-top: 3px;
+  overflow: hidden;
+  padding: 3px 5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-calendar-events {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 12px;
+}
+
+.workflow-calendar-events > strong {
+  color: var(--color-text);
+}
+
+.workflow-calendar-events button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.workflow-calendar-events span {
+  border-radius: 999px;
+  background: var(--color-good-bg);
+  color: var(--color-good);
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 3px 8px;
+}
+
+@media (max-width: 1120px) {
+  .workflow-intake-panel,
+  .workflow-form-grid,
+  .insurance-workflow-layout,
+  .workflow-bottom-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-responsibility > div {
+    width: 100%;
+  }
+
+  .workflow-responsibility-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workflow-responsibility-panel > div {
+    width: 100%;
+  }
+
+  .workflow-responsibility-panel button {
+    flex: 1;
+  }
+}
+
+@media (max-width: 700px) {
+  .insurance-workflow-header {
+    flex-direction: column;
+  }
+
+  .workflow-progress {
+    width: 100%;
+    text-align: left;
+  }
+
+  .workflow-responsibility > div {
+    flex-direction: column;
+  }
+
+  .workflow-form-actions,
+  .workflow-responsibility-panel > div {
+    flex-direction: column;
+  }
+
+  .workflow-detail-list div {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-calendar-grid button,
+  .workflow-calendar-grid div {
+    min-height: 48px;
+    padding: 5px;
+  }
+
+  .workflow-calendar-grid small {
+    display: none;
+  }
+}
