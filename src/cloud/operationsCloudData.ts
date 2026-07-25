@@ -1,5 +1,5 @@
 import type { BankRule, LateFeeSettings, LeadEvaluation, OtherChargesRetentionByClient, PaymentPromise } from "../types";
-import { dedupeLoad, getCloudClient, PAGE_SIZE, type DataRow, type SingletonDataRow } from "./cloudClient";
+import { dedupeLoad, getCloudClient, PAGE_SIZE, withCloudRetry, type DataRow, type SingletonDataRow } from "./cloudClient";
 import type {
   CashClosing,
   CashClosingAuditEvent,
@@ -713,22 +713,38 @@ export async function saveCloudCollectionClosures(userId: string, value: Record<
 }
 
 export async function loadControlUnits(userId: string): Promise<ControlUnitRow[]> {
+  return dedupeLoad(`control-units:${userId}`, () => loadControlUnitsUncached(userId));
+}
+
+async function loadControlUnitsUncached(userId: string): Promise<ControlUnitRow[]> {
   const client = getCloudClient();
   const allRows: ControlUnitRow[] = [];
   let from = 0;
 
   while (true) {
     const to = from + PAGE_SIZE - 1;
-    const { data, error } = await client
-      .from("vw_control_unidades")
-      .select("*")
+    const { data, error } = await withCloudRetry(() => client
+      .from("fleet_units_cloud")
+      .select("user_id,unit_id,company,brand_model,engine_serial,chassis_serial,plate,cupo,observation,is_exception,exception_note,operational_status,model_year,color,transmission_type,mileage")
       .eq("user_id", userId)
       .order("unit_id", { ascending: true })
-      .range(from, to);
+      .range(from, to));
 
     if (error) throw error;
 
-    const batch = (data ?? []) as ControlUnitRow[];
+    const batch = ((data ?? []) as ControlUnitRow[]).map((row) => ({
+      ...row,
+      year: row.model_year,
+      transmission: row.transmission_type,
+      kilometrage: row.mileage,
+      kilometraje: row.mileage,
+      client_id: null,
+      client_name: null,
+      client_cedula: null,
+      financial_balance: null,
+      financial_status: "sin_cliente",
+      last_payment_date: null
+    }));
     allRows.push(...batch);
     if (batch.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
