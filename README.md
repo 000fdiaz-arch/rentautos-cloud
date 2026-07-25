@@ -107,6 +107,8 @@ Ejecutar en SQL Editor (orden recomendado):
 21. `supabase/23-admin-permissions-guard.sql`
 22. `supabase/24-unique-receipt-number.sql`
 23. `supabase/25-fleet-unit-status-rpc.sql`
+24. `supabase/26-modular-charge-runs.sql`
+25. `supabase/27-cash-day-summary-performance.sql`
 
 Despues:
 - Crear usuario desde UI de login/registro.

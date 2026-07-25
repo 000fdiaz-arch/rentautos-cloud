@@ -636,24 +636,22 @@ select
   c.status,
   c.closed_at
 from public.cash_day_openings o
-left join (
+left join lateral (
   select
-    owner_user_id,
-    opening_date,
-    sum(case when movement_type = 'income' then amount else 0 end) as income_total,
-    sum(case when movement_type = 'expense' then amount else 0 end) as expense_total
-  from public.cash_day_movements
-  group by owner_user_id, opening_date
-) m on m.owner_user_id = o.owner_user_id and m.opening_date = o.opening_date
-left join (
+    sum(case when m.movement_type = 'income' then m.amount else 0 end) as income_total,
+    sum(case when m.movement_type = 'expense' then m.amount else 0 end) as expense_total
+  from public.cash_day_movements m
+  where m.owner_user_id = o.owner_user_id
+    and m.opening_date = o.opening_date
+) m on true
+left join lateral (
   select
-    owner_user_id,
-    opening_date,
-    sum(case when adjustment_type = 'income_adjustment' then amount else 0 end) as adjustment_income_total,
-    sum(case when adjustment_type = 'expense_adjustment' then amount else 0 end) as adjustment_expense_total
-  from public.cash_day_adjustments
-  group by owner_user_id, opening_date
-) a on a.owner_user_id = o.owner_user_id and a.opening_date = o.opening_date
+    sum(case when a.adjustment_type = 'income_adjustment' then a.amount else 0 end) as adjustment_income_total,
+    sum(case when a.adjustment_type = 'expense_adjustment' then a.amount else 0 end) as adjustment_expense_total
+  from public.cash_day_adjustments a
+  where a.owner_user_id = o.owner_user_id
+    and a.opening_date = o.opening_date
+) a on true
 left join public.cash_day_closings c
   on c.owner_user_id = o.owner_user_id and c.opening_date = o.opening_date;
 
