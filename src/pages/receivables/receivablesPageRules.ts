@@ -61,17 +61,30 @@ export const STATE_FILTER_OPTIONS: Array<{ value: ReceivableState; label: string
   { value: "critico", label: "Moroso critico" }
 ];
 
-export const COLLECTION_STATUS_OPTIONS: Array<{ value: CollectionStatus; label: string }> = [
-  { value: "pending", label: "Pendiente." },
-  { value: "contacted", label: "Contactado." },
-  { value: "covered", label: "Cubierto." },
-  { value: "route", label: "Ruta." },
-  { value: "no_answer", label: "Llamada no responde, se dejo mensaje." },
-  { value: "reminder", label: "Mensaje recordatorio." },
-  { value: "call_later", label: "Llamar mas tarde." },
-  { value: "paid", label: "Pago confirmado." },
-  { value: "route_collection", label: "Cobro en ruta." },
-  { value: "route_not_sent", label: "No enviado a ruta." }
+export const COLLECTION_STATUS_HELP: Record<CollectionStatus, string> = {
+  pending: "Se le debe generar una accion de cobro.",
+  contacted: "Culmina la gestion: el saldo pendiente es permitido.",
+  covered: "Cliente al dia, sin saldo vencido que gestionar.",
+  route: "Se manda a buscar porque el saldo pendiente lo amerita.",
+  no_answer: "Llamada no responde, se dejo mensaje.",
+  reminder: "Mensaje recordatorio enviado.",
+  call_later: "Cliente pide llamar mas tarde.",
+  paid: "Pago confirmado.",
+  route_collection: "Cobro en ruta.",
+  route_not_sent: "No enviado a ruta."
+};
+
+export const COLLECTION_STATUS_OPTIONS: Array<{ value: CollectionStatus; label: string; description: string }> = [
+  { value: "pending", label: "Pendiente", description: COLLECTION_STATUS_HELP.pending },
+  { value: "contacted", label: "Contactado", description: COLLECTION_STATUS_HELP.contacted },
+  { value: "covered", label: "Cubierto", description: COLLECTION_STATUS_HELP.covered },
+  { value: "route", label: "Ruta", description: COLLECTION_STATUS_HELP.route },
+  { value: "no_answer", label: "Llamada no responde", description: COLLECTION_STATUS_HELP.no_answer },
+  { value: "reminder", label: "Mensaje recordatorio", description: COLLECTION_STATUS_HELP.reminder },
+  { value: "call_later", label: "Llamar mas tarde", description: COLLECTION_STATUS_HELP.call_later },
+  { value: "paid", label: "Pago confirmado", description: COLLECTION_STATUS_HELP.paid },
+  { value: "route_collection", label: "Cobro en ruta", description: COLLECTION_STATUS_HELP.route_collection },
+  { value: "route_not_sent", label: "No enviado a ruta", description: COLLECTION_STATUS_HELP.route_not_sent }
 ];
 
 export const DAILY_COLLECTION_STATUS_OPTIONS = COLLECTION_STATUS_OPTIONS.filter((option) => (
@@ -211,6 +224,9 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   const managementAmount = Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : undefined;
   const managementComment = typeof row.managementComment === "string" ? normalizeFieldManagementComment(row.managementComment.trim()) : "";
   const managementUpdatedAt = typeof row.managementUpdatedAt === "string" ? row.managementUpdatedAt : undefined;
+  const rawRouteReleaseAmount = typeof row.routeReleaseAmount === "number" ? row.routeReleaseAmount : Number(row.routeReleaseAmount);
+  const routeReleaseAmount = Number.isFinite(rawRouteReleaseAmount) && rawRouteReleaseAmount > 0 ? rawRouteReleaseAmount : undefined;
+  const routeReleaseUpdatedAt = typeof row.routeReleaseUpdatedAt === "string" ? row.routeReleaseUpdatedAt : undefined;
   const whatsAppMessageCopiedAt = typeof row.whatsAppMessageCopiedAt === "string" ? row.whatsAppMessageCopiedAt : undefined;
   const whatsAppMessageSentAt = typeof row.whatsAppMessageSentAt === "string" ? row.whatsAppMessageSentAt : undefined;
   const whatsAppMessageText = typeof row.whatsAppMessageText === "string" ? row.whatsAppMessageText : undefined;
@@ -218,7 +234,7 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   const supportNoteUpdatedAt = typeof row.supportNoteUpdatedAt === "string" ? row.supportNoteUpdatedAt : undefined;
   const paymentPromiseDate = typeof row.paymentPromiseDate === "string" ? row.paymentPromiseDate : undefined;
   const paymentPromiseUpdatedAt = typeof row.paymentPromiseUpdatedAt === "string" ? row.paymentPromiseUpdatedAt : undefined;
-  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt, paymentPromiseDate, paymentPromiseUpdatedAt };
+  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt, paymentPromiseDate, paymentPromiseUpdatedAt, routeReleaseAmount, routeReleaseUpdatedAt };
   if (
     status === "pending" ||
     status === "contacted" ||

@@ -6,6 +6,7 @@ import type { CollectionStatus, CollectionStatusRecord } from "./receivablesType
 import {
   COLLECTION_CUT_OPTIONS,
   DAILY_COLLECTION_STATUS_OPTIONS,
+  COLLECTION_STATUS_HELP,
   clientOperationalStatusLabel,
   clientOperationalStatusTone,
   pendingSummaryText,
@@ -27,6 +28,7 @@ type Props = {
   onSelectDetail: (row: ReceivableRow) => void;
   onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
   onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
+  onRouteReleaseAmountChange: (clientId: string, value: string) => void;
   onWhatsAppMessageCopied: (clientId: string, message: string) => void;
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
   onEditWhatsAppPhone: (clientId: string) => void;
@@ -55,7 +57,7 @@ function cutDisplayLabel(cutKey: CollectionCutKey): string {
   return "Corte 2";
 }
 
-function getStatusOptionsForCut(_cutKey: CollectionCutKey): Array<{ value: CollectionStatus; label: string }> {
+function getStatusOptionsForCut(_cutKey: CollectionCutKey): Array<{ value: CollectionStatus; label: string; description: string }> {
   return DAILY_COLLECTION_STATUS_OPTIONS;
 }
 
@@ -86,7 +88,12 @@ function hasOverdueDebt(row: ReceivableRow): boolean {
 }
 
 function shouldDefaultToCovered(row: ReceivableRow): boolean {
-  return row.state !== "vencido" && row.state !== "critico";
+  return row.totalPending <= 0;
+}
+
+function defaultCollectionStatus(row: ReceivableRow, cutKey: CollectionCutKey): CollectionStatus | "" {
+  if (cutKey !== "night") return "";
+  return shouldDefaultToCovered(row) ? "covered" : "pending";
 }
 
 function ReceivableTableRowComponent({
@@ -101,6 +108,7 @@ function ReceivableTableRowComponent({
   onSelectDetail,
   onCollectionCutStatusChange,
   onCollectionCutCommentChange,
+  onRouteReleaseAmountChange,
   onWhatsAppMessageCopied,
   onWhatsAppMessageSent,
   onEditWhatsAppPhone,
@@ -155,9 +163,11 @@ function ReceivableTableRowComponent({
 
   function renderCutCell(cutKey: CollectionCutKey) {
     const item = collectionCutItems[cutKey];
-    const rawValue = item?.collectionStatus ?? (cutKey === "night" && shouldDefaultToCovered(row) ? "covered" : "");
+    const rawValue = item?.collectionStatus ?? (cutKey === "night" ? statusRecord?.status : undefined) ?? defaultCollectionStatus(row, cutKey);
     const statusOptions = getStatusOptionsForCut(cutKey);
     const value = statusOptions.some((option) => option.value === rawValue) ? rawValue : "";
+    const routeReleaseAmount = item?.managementAmount ?? statusRecord?.routeReleaseAmount;
+    const selectedStatusHelp = value ? COLLECTION_STATUS_HELP[value as CollectionStatus] : undefined;
     return (
       <div className={`ar-cut-stack-row ar-cut-stack-row--${cutKey}`}>
         <span className="ar-cut-stack-label">{cutDisplayLabel(cutKey)}</span>
@@ -165,23 +175,40 @@ function ReceivableTableRowComponent({
           <select
             className={`ar-cut-select ar-cut-select--${value || "empty"}`}
             value={value}
+            title={selectedStatusHelp}
+            aria-label={selectedStatusHelp ? `Gestion: ${selectedStatusHelp}` : "Gestion"}
             onChange={(event) => onCollectionCutStatusChange(cutKey, row.id, event.target.value)}
             disabled={isTodayCollectionClosed}
           >
-            <option value="">Seleccionar</option>
             {statusOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
+              <option key={option.value} value={option.value} title={option.description}>{option.label}</option>
             ))}
           </select>
           {item?.comment ? (
             <span className="hint ar-cut-comment">Comentario: {item.comment}</span>
           ) : null}
+          {value === "route" ? (
+            <label className="ar-route-release-field">
+              <span>Min. para liberar</span>
+              <input
+                className="ar-route-release-input"
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={routeReleaseAmount ?? ""}
+                onChange={(event) => onRouteReleaseAmountChange(row.id, event.target.value)}
+                placeholder={row.totalPending > 0 ? row.totalPending.toFixed(2) : "0.00"}
+                disabled={isTodayCollectionClosed}
+              />
+            </label>
+          ) : null}
           <div className="ar-cut-actions">
             {item?.whatsAppMessageSentAt ? <span>WhatsApp enviado</span> : item?.whatsAppMessageCopiedAt ? <span>WhatsApp abierto</span> : null}
-            {item?.managementAmount ? (
+            {value === "route" && routeReleaseAmount ? (
               <span>
-                Ruta {formatCurrency(item.managementAmount)}
-                {item.managementType === "cobrar_o_quitar" ? " / quitar" : ""}
+                Libera con {formatCurrency(routeReleaseAmount)}
+                {item?.managementType === "cobrar_o_quitar" ? " / quitar" : ""}
               </span>
             ) : null}
             {item?.managementComment ? <span>{item.managementComment}</span> : null}
@@ -298,6 +325,7 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.whatsAppMessage === next.whatsAppMessage &&
   previous.onCollectionCutStatusChange === next.onCollectionCutStatusChange &&
   previous.onCollectionCutCommentChange === next.onCollectionCutCommentChange &&
+  previous.onRouteReleaseAmountChange === next.onRouteReleaseAmountChange &&
   previous.onWhatsAppMessageCopied === next.onWhatsAppMessageCopied &&
   previous.onWhatsAppMessageSent === next.onWhatsAppMessageSent &&
   previous.onEditWhatsAppPhone === next.onEditWhatsAppPhone &&

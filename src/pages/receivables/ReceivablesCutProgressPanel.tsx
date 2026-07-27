@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { CollectionStatus, WhatsAppContactFilter } from "./receivablesTypes";
 import {
+  COLLECTION_STATUS_HELP,
   DAILY_COLLECTION_STATUS_OPTIONS,
   type CollectionCutKey
 } from "./receivablesPageRules";
@@ -64,7 +65,11 @@ export const ReceivablesCutProgressPanel = memo(function ReceivablesCutProgressP
           </div>
           <div className="ar-cut-progress-breakdown">
             {DAILY_COLLECTION_STATUS_OPTIONS.filter((option) => cut.statusCounts[option.value] > 0).map((option) => (
-              <span key={option.value} className={`ar-cut-progress-pill ar-cut-progress-pill--${option.value}`}>
+              <span
+                key={option.value}
+                className={`ar-cut-progress-pill ar-cut-progress-pill--${option.value}`}
+                title={COLLECTION_STATUS_HELP[option.value]}
+              >
                 {cut.statusCounts[option.value]} {option.label.replace(/\.$/, "")}
               </span>
             ))}

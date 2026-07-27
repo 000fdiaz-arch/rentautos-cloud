@@ -6,6 +6,7 @@ import type { CollectionStatus, CollectionStatusRecord } from "./receivablesType
 import { ReceivableTableRow } from "./ReceivableTableRow";
 import {
   COLLECTION_CUT_OPTIONS,
+  COLLECTION_STATUS_HELP,
   COLLECTION_STATUS_OPTIONS,
   stateToneClass,
   type CollectionClosureItem,
@@ -40,6 +41,7 @@ type Props = {
   onSelectDetail: (row: ReceivableRow) => void;
   onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
   onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
+  onRouteReleaseAmountChange: (clientId: string, value: string) => void;
   onWhatsAppMessageCopied: (clientId: string, message: string) => void;
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
   onEditWhatsAppPhone: (clientId: string) => void;
@@ -64,7 +66,12 @@ function renderCutStatusCell(item: CollectionClosureItem | undefined) {
   const label = COLLECTION_STATUS_OPTIONS.find((option) => option.value === item.collectionStatus)?.label ?? "Sin estado";
   return (
     <div className="ar-cut-cell-content">
-      <span className={`ar-cut-status ar-cut-status--${item.collectionStatus}`}>{label}</span>
+      <span
+        className={`ar-cut-status ar-cut-status--${item.collectionStatus}`}
+        title={COLLECTION_STATUS_HELP[item.collectionStatus]}
+      >
+        {label}
+      </span>
       {item.comment ? <span className="hint ar-cut-comment">Comentario: {item.comment}</span> : null}
       <div className="ar-cut-actions">
         {item.whatsAppMessageSentAt ? <span>WhatsApp enviado</span> : item.whatsAppMessageCopiedAt ? <span>WhatsApp abierto</span> : null}
@@ -109,6 +116,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   onSelectDetail,
   onCollectionCutStatusChange,
   onCollectionCutCommentChange,
+  onRouteReleaseAmountChange,
   onWhatsAppMessageCopied,
   onWhatsAppMessageSent,
   onEditWhatsAppPhone,
@@ -186,6 +194,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               onSelectDetail={onSelectDetail}
               onCollectionCutStatusChange={onCollectionCutStatusChange}
               onCollectionCutCommentChange={onCollectionCutCommentChange}
+              onRouteReleaseAmountChange={onRouteReleaseAmountChange}
               onWhatsAppMessageCopied={onWhatsAppMessageCopied}
               onWhatsAppMessageSent={onWhatsAppMessageSent}
               onEditWhatsAppPhone={onEditWhatsAppPhone}
