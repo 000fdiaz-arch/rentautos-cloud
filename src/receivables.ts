@@ -1,4 +1,5 @@
 import { findNextChargeDay, getDebtStartDate, isChargeDay, parseDateKey, startOfDay, toDateKey } from "./billing";
+import type { ControlUnitRow } from "./cloudData";
 import type { BillingFrequency, Client, Payment, WeeklyChargeDay } from "./types";
 
 export type ReceivableState = "alDia" | "proximo" | "venceHoy" | "vencido" | "critico";
@@ -63,6 +64,8 @@ export type ReceivableRow = {
   state: ReceivableState;
   totalOtherCharges: number;
   recentPayments: ReceivablePaymentSnapshot[];
+  hasActiveClient: boolean;
+  operationalStatus?: string;
 };
 
 export type ReceivableSummary = {
@@ -167,6 +170,28 @@ function normalizeUnit(value: string | undefined): string {
   return normalizeIdentityText(value).replace(/[^a-z0-9]/g, "");
 }
 
+function parseUnitSortParts(unitId: string): { group: string; number: number; suffix: string } {
+  const normalized = unitId.trim().toUpperCase();
+  const match = normalized.match(/^([A-Z]+)\D*0*(\d+)(.*)$/);
+  if (!match) return { group: normalized, number: Number.POSITIVE_INFINITY, suffix: "" };
+  return {
+    group: match[1] ?? normalized,
+    number: Number(match[2] ?? Number.POSITIVE_INFINITY),
+    suffix: match[3] ?? ""
+  };
+}
+
+export function compareUnitIds(left: string, right: string): number {
+  const a = parseUnitSortParts(left);
+  const b = parseUnitSortParts(right);
+  const group = a.group.localeCompare(b.group, "es", { sensitivity: "base" });
+  if (group !== 0) return group;
+  if (a.number !== b.number) return a.number - b.number;
+  const suffix = a.suffix.localeCompare(b.suffix, "es", { sensitivity: "base", numeric: true });
+  if (suffix !== 0) return suffix;
+  return left.localeCompare(right, "es", { sensitivity: "base", numeric: true });
+}
+
 function normalizeCedula(value: string | undefined): string {
   return (value ?? "").replace(/\D/g, "");
 }
@@ -189,10 +214,16 @@ function mergePaymentLists(...lists: Payment[][]): Payment[] {
   return [...byId.values()].sort((a, b) => parsePaymentDate(b.dateApplied) - parsePaymentDate(a.dateApplied));
 }
 
-export function buildReceivableRows(clients: Client[], payments: Payment[], now: Date): ReceivableRow[] {
+export function buildReceivableRows(clients: Client[], payments: Payment[], now: Date, fleetUnits: ControlUnitRow[] = []): ReceivableRow[] {
   const referenceDate = startOfDay(now);
   const paymentsByClient = new Map<string, Payment[]>();
   const paymentsByUnit = new Map<string, Payment[]>();
+  const activeClients = clients.filter((client) => !client.archivedAt);
+  const activeClientByUnit = new Map<string, Client>();
+  for (const client of activeClients) {
+    const normalizedUnit = normalizeUnit(client.unitId);
+    if (normalizedUnit && !activeClientByUnit.has(normalizedUnit)) activeClientByUnit.set(normalizedUnit, client);
+  }
 
   for (const payment of payments) {
     const list = paymentsByClient.get(payment.clientId) ?? [];
@@ -211,9 +242,7 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
     list.sort((a, b) => parsePaymentDate(b.dateApplied) - parsePaymentDate(a.dateApplied));
   }
 
-  return clients
-    .filter((client) => !client.archivedAt)
-    .map((client) => {
+  function rowFromClient(client: Client, operationalStatus: string = client.status): ReceivableRow {
       const debtStartDate = getDebtStartDate(client, referenceDate);
       const nextChargeDate = debtStartDate ?? findNextChargeDay(client, referenceDate);
       const nextDueDate = nextChargeDate ? toDateKey(nextChargeDate) : null;
@@ -225,8 +254,8 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
         : null;
       const state = computeReceivableState(client.balance, daysLate, daysUntilDue);
       const overdueInstallments = computeOverdueInstallments(client, debtStartDate, referenceDate);
-      const overdueBalance = overdueInstallments > 0
-        ? roundMoney(Math.min(client.balance, overdueInstallments * Math.max(0, client.rentAmount)))
+      const overdueBalance = debtStartDate && client.balance > 0
+        ? roundMoney(Math.max(0, client.balance))
         : 0;
 
       const directPayments = paymentsByClient.get(client.id) ?? [];
@@ -268,9 +297,62 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
           dateApplied: payment.dateApplied,
           amountReceived: roundMoney(payment.amountReceived),
           appliedToRent: roundMoney(payment.appliedToRent)
-        }))
+        })),
+        hasActiveClient: true,
+        operationalStatus
       } satisfies ReceivableRow;
-    });
+  }
+
+  function rowFromFleetUnit(unit: ControlUnitRow): ReceivableRow {
+    const unitId = String(unit.unit_id ?? "").trim().toUpperCase();
+    return {
+      id: `fleet-${normalizeUnit(unitId)}`,
+      unitId,
+      name: "Sin cliente activo",
+      cedula: "-",
+      group: getGroupFromUnit(unitId),
+      plan: "daily",
+      nextDueDate: null,
+      daysLate: -1,
+      overdueInstallments: 0,
+      overdueBalance: 0,
+      totalPending: 0,
+      lastPaymentDate: null,
+      lastPaymentAmount: 0,
+      percentPaid: 0,
+      installmentsAgreed: 0,
+      installmentsPaid: 0,
+      installmentsRemaining: 0,
+      rentAmount: 0,
+      contractTotal: 0,
+      totalPaid: 0,
+      state: "alDia",
+      totalOtherCharges: 0,
+      recentPayments: [],
+      hasActiveClient: false,
+      operationalStatus: String(unit.operational_status ?? "libre")
+    };
+  }
+
+  if (fleetUnits.length === 0) return activeClients.map((client) => rowFromClient(client)).sort((a, b) => compareUnitIds(a.unitId, b.unitId));
+
+  const rows: ReceivableRow[] = [];
+  const seenUnits = new Set<string>();
+  for (const unit of fleetUnits) {
+    const unitId = typeof unit.unit_id === "string" ? unit.unit_id.trim().toUpperCase() : "";
+    const normalizedUnit = normalizeUnit(unitId);
+    if (!normalizedUnit || seenUnits.has(normalizedUnit)) continue;
+    seenUnits.add(normalizedUnit);
+    const client = activeClientByUnit.get(normalizedUnit);
+    rows.push(client ? rowFromClient(client, String(unit.operational_status ?? client.status)) : rowFromFleetUnit({ ...unit, unit_id: unitId }));
+  }
+  for (const client of activeClients) {
+    const normalizedUnit = normalizeUnit(client.unitId);
+    if (!normalizedUnit || seenUnits.has(normalizedUnit)) continue;
+    seenUnits.add(normalizedUnit);
+    rows.push(rowFromClient(client));
+  }
+  return rows.sort((a, b) => compareUnitIds(a.unitId, b.unitId));
 }
 
 function isInDateRange(value: string | null, from: string, to: string): boolean {
@@ -292,7 +374,7 @@ export function filterReceivableRows(rows: ReceivableRow[], filters: ReceivableF
     if (cedulaSearch && !row.cedula.toLowerCase().includes(cedulaSearch)) return false;
     if (filters.state.length > 0 && !filters.state.includes(row.state)) return false;
     if (filters.group !== "all" && row.group !== filters.group) return false;
-    if (filters.plan !== "all" && row.plan !== filters.plan) return false;
+    if (filters.plan !== "all" && (!row.hasActiveClient || row.plan !== filters.plan)) return false;
     if (!isInDateRange(row.nextDueDate, filters.dateFrom, filters.dateTo)) return false;
     return true;
   });
@@ -322,7 +404,7 @@ export function sortReceivableRows(rows: ReceivableRow[], field: ReceivableSortF
   return [...rows].sort((a, b) => {
     let comparison = 0;
 
-    if (field === "unitId") comparison = compareText(a.unitId, b.unitId);
+    if (field === "unitId") comparison = compareUnitIds(a.unitId, b.unitId);
     if (field === "name") comparison = compareText(a.name, b.name);
     if (field === "group") comparison = compareText(a.group, b.group);
     if (field === "plan") comparison = planOrder[a.plan] - planOrder[b.plan];
@@ -341,7 +423,7 @@ export function sortReceivableRows(rows: ReceivableRow[], field: ReceivableSortF
     }
 
     if (comparison === 0) {
-      const tieBreak = compareText(a.unitId, b.unitId);
+      const tieBreak = compareUnitIds(a.unitId, b.unitId);
       comparison = direction === "asc" ? tieBreak : -tieBreak;
     }
 
@@ -424,7 +506,9 @@ export function createMockReceivableRows(now: Date): ReceivableRow[] {
       contractTotal: 2050,
       totalPaid: 820,
       state: "critico",
-      totalOtherCharges: 0
+      totalOtherCharges: 0,
+      hasActiveClient: true,
+      operationalStatus: "activo"
     },
     {
       id: "mock-2",
@@ -449,7 +533,9 @@ export function createMockReceivableRows(now: Date): ReceivableRow[] {
       contractTotal: 930,
       totalPaid: 540,
       state: "vencido",
-      totalOtherCharges: 25
+      totalOtherCharges: 25,
+      hasActiveClient: true,
+      operationalStatus: "activo"
     },
     {
       id: "mock-3",
@@ -473,7 +559,9 @@ export function createMockReceivableRows(now: Date): ReceivableRow[] {
       contractTotal: 610,
       totalPaid: 435,
       state: "vencido",
-      totalOtherCharges: 0
+      totalOtherCharges: 0,
+      hasActiveClient: true,
+      operationalStatus: "activo"
     },
     {
       id: "mock-4",
@@ -497,7 +585,9 @@ export function createMockReceivableRows(now: Date): ReceivableRow[] {
       contractTotal: 520,
       totalPaid: 260,
       state: "venceHoy",
-      totalOtherCharges: 0
+      totalOtherCharges: 0,
+      hasActiveClient: true,
+      operationalStatus: "activo"
     },
     {
       id: "mock-5",
@@ -521,7 +611,9 @@ export function createMockReceivableRows(now: Date): ReceivableRow[] {
       contractTotal: 820,
       totalPaid: 515,
       state: "proximo",
-      totalOtherCharges: 30
+      totalOtherCharges: 30,
+      hasActiveClient: true,
+      operationalStatus: "activo"
     },
     {
       id: "mock-6",
@@ -546,7 +638,9 @@ export function createMockReceivableRows(now: Date): ReceivableRow[] {
       contractTotal: 1240,
       totalPaid: 1240,
       state: "alDia",
-      totalOtherCharges: 0
+      totalOtherCharges: 0,
+      hasActiveClient: true,
+      operationalStatus: "activo"
     },
     {
       id: "mock-7",
@@ -570,7 +664,9 @@ export function createMockReceivableRows(now: Date): ReceivableRow[] {
       contractTotal: 4800,
       totalPaid: 960,
       state: "critico",
-      totalOtherCharges: 0
+      totalOtherCharges: 0,
+      hasActiveClient: true,
+      operationalStatus: "activo"
     },
     {
       id: "mock-8",
@@ -594,7 +690,9 @@ export function createMockReceivableRows(now: Date): ReceivableRow[] {
       contractTotal: 440,
       totalPaid: 140,
       state: "proximo",
-      totalOtherCharges: 0
+      totalOtherCharges: 0,
+      hasActiveClient: true,
+      operationalStatus: "activo"
     },
     {
       id: "mock-9",
@@ -618,7 +716,9 @@ export function createMockReceivableRows(now: Date): ReceivableRow[] {
       contractTotal: 710,
       totalPaid: 340,
       state: "vencido",
-      totalOtherCharges: 15
+      totalOtherCharges: 15,
+      hasActiveClient: true,
+      operationalStatus: "activo"
     },
     {
       id: "mock-10",
@@ -643,7 +743,9 @@ export function createMockReceivableRows(now: Date): ReceivableRow[] {
       contractTotal: 1330,
       totalPaid: 1240,
       state: "alDia",
-      totalOtherCharges: 0
+      totalOtherCharges: 0,
+      hasActiveClient: true,
+      operationalStatus: "activo"
     }
   ];
 

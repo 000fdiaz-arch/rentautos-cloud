@@ -30,7 +30,7 @@ function rowData(row: ReceivableRow, statusByClient: Record<string, CollectionSt
   return {
     unit: row.unitId,
     client: row.name,
-    installments: `${formatCurrency(row.totalPending)} (${lateInstallmentsLabel(row.totalPending, row.rentAmount)})`,
+    installments: `${formatCurrency(row.overdueBalance)} (${lateInstallmentsLabel(row.overdueBalance, row.rentAmount)})`,
     type: management?.managementType === "solo_cobrar" ? "Solo cobrar" : "Cobrar/quitar",
     amount: management?.managementAmount ?? 0,
     comment: (management?.managementComment ?? "").trim().slice(0, 25) || "-",

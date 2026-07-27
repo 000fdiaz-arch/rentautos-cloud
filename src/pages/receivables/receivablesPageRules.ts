@@ -48,8 +48,6 @@ export type CollectionClosureEntry = CollectionClosureSnapshot | CollectionClosu
 export type CollectionClosuresByDate = Record<string, CollectionClosureEntry>;
 
 export const COLLECTION_CUT_OPTIONS: Array<{ key: CollectionCutKey; label: string; shortLabel: string }> = [
-  { key: "morning", label: "Primer corte de cobranza", shortLabel: "Corte 1" },
-  { key: "afternoon", label: "Segundo corte de cobranza", shortLabel: "Corte 2" },
   { key: "night", label: "Gestion diaria de cobranza", shortLabel: "Gestion diaria" }
 ];
 
@@ -63,9 +61,9 @@ export const STATE_FILTER_OPTIONS: Array<{ value: ReceivableState; label: string
 
 export const COLLECTION_STATUS_HELP: Record<CollectionStatus, string> = {
   pending: "Se le debe generar una accion de cobro.",
-  contacted: "Culmina la gestion: el saldo pendiente es permitido.",
+  contacted: "Culmina la gestion: la renta vencida es permitida.",
   covered: "Cliente al dia, sin saldo vencido que gestionar.",
-  route: "Se manda a buscar porque el saldo pendiente lo amerita.",
+  route: "Enviar a cobro en ruta; requiere monto minimo para liberar.",
   no_answer: "Llamada no responde, se dejo mensaje.",
   reminder: "Mensaje recordatorio enviado.",
   call_later: "Cliente pide llamar mas tarde.",
@@ -78,7 +76,7 @@ export const COLLECTION_STATUS_OPTIONS: Array<{ value: CollectionStatus; label: 
   { value: "pending", label: "Pendiente", description: COLLECTION_STATUS_HELP.pending },
   { value: "contacted", label: "Contactado", description: COLLECTION_STATUS_HELP.contacted },
   { value: "covered", label: "Cubierto", description: COLLECTION_STATUS_HELP.covered },
-  { value: "route", label: "Ruta", description: COLLECTION_STATUS_HELP.route },
+  { value: "route", label: "Cobro en ruta", description: COLLECTION_STATUS_HELP.route },
   { value: "no_answer", label: "Llamada no responde", description: COLLECTION_STATUS_HELP.no_answer },
   { value: "reminder", label: "Mensaje recordatorio", description: COLLECTION_STATUS_HELP.reminder },
   { value: "call_later", label: "Llamar mas tarde", description: COLLECTION_STATUS_HELP.call_later },
@@ -100,7 +98,7 @@ export const INITIAL_EXPORT_FIELDS: ExportField[] = [
   { key: "unitId", label: "Unidad", enabled: true },
   { key: "name", label: "Nombre", enabled: true },
   { key: "rentAmount", label: "Letra", enabled: true },
-  { key: "pendingSummary", label: "Cuentas pendiente", enabled: true },
+  { key: "pendingSummary", label: "Renta vencida", enabled: true },
   { key: "lastPaymentDate", label: "Ultima fecha de pago", enabled: true },
   { key: "state", label: "Estado", enabled: true },
   { key: "collectionStatus", label: "ESTADO COBRANZA", enabled: true },
@@ -155,28 +153,33 @@ export function stateToneClass(state: ReceivableRow["state"]): string {
   return "ar-badge ar-badge--critical";
 }
 
-export function clientOperationalStatusLabel(status: Client["status"]): string {
-  if (status === "activo") return "Activo";
-  if (status === "cliente_enfermo") return "Enfermo";
-  if (status === "taller") return "Taller";
-  if (status === "chapisteria") return "Chapisteria";
-  if (status === "custodia") return "Custodia";
-  if (status === "en_busqueda") return "En busqueda";
-  return "Archivado";
+export function clientOperationalStatusLabel(status: Client["status"] | "libre" | string): string {
+  const normalized = status.trim().toLowerCase();
+  if (normalized === "libre") return "LIBRE";
+  if (normalized === "activo") return "Activo";
+  if (normalized === "cliente_enfermo") return "Enfermo";
+  if (normalized === "taller") return "Taller";
+  if (normalized === "chapisteria") return "Chapisteria";
+  if (normalized === "custodia") return "Custodia";
+  if (normalized === "en_busqueda") return "En busqueda";
+  if (normalized === "archivado") return "Archivado";
+  return normalized.length > 0 ? status : "Sin estado";
 }
 
-export function clientOperationalStatusTone(status: Client["status"]): string {
-  if (status === "activo") return "ar-badge ar-badge--good";
-  if (status === "cliente_enfermo") return "ar-badge ar-badge--warn";
-  if (status === "taller" || status === "chapisteria") return "ar-badge ar-badge--today";
-  if (status === "custodia" || status === "en_busqueda") return "ar-badge ar-badge--debt";
+export function clientOperationalStatusTone(status: Client["status"] | "libre" | string): string {
+  const normalized = status.trim().toLowerCase();
+  if (normalized === "libre") return "ar-badge ar-badge--neutral";
+  if (normalized === "activo") return "ar-badge ar-badge--good";
+  if (normalized === "cliente_enfermo") return "ar-badge ar-badge--warn";
+  if (normalized === "taller" || normalized === "chapisteria") return "ar-badge ar-badge--today";
+  if (normalized === "custodia" || normalized === "en_busqueda") return "ar-badge ar-badge--debt";
   return "ar-badge ar-badge--critical";
 }
 
 export function pendingSummaryText(totalPending: number, rentAmount: number): string {
   const installments = rentAmount > 0 ? Math.ceil(totalPending / rentAmount) : 0;
   if (installments <= 0) return formatCurrency(totalPending);
-  return `${formatCurrency(totalPending)} (${installments} ${installments === 1 ? "cuota atrasada" : "cuotas atrasadas"})`;
+  return `${formatCurrency(totalPending)} (${installments} ${installments === 1 ? "cuota" : "cuotas"})`;
 }
 
 export function isToday(date: Date, now: Date): boolean {

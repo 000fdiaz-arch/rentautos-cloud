@@ -77,7 +77,7 @@ function renderCutStatusCell(item: CollectionClosureItem | undefined) {
         {item.whatsAppMessageSentAt ? <span>WhatsApp enviado</span> : item.whatsAppMessageCopiedAt ? <span>WhatsApp abierto</span> : null}
         {item.managementAmount ? (
           <span>
-            Ruta {formatCurrency(item.managementAmount)}
+            Cobro en ruta {formatCurrency(item.managementAmount)}
             {item.managementType === "cobrar_o_quitar" ? " / quitar" : ""}
           </span>
         ) : null}
@@ -184,7 +184,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               key={row.id}
               row={row}
               statusRecord={collectionStatusByClient[row.id]}
-              operationalStatus={clientStatusById.get(row.id) ?? "activo"}
+              operationalStatus={row.operationalStatus ?? clientStatusById.get(row.id) ?? "activo"}
               todayDateKey={todayDateKey}
               now={now}
               isTodayCollectionClosed={isTodayCollectionClosed}

@@ -511,6 +511,21 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
     };
   }
 
+  async function applyClientStatusThroughFleet(client: Client, nextStatus: Client["status"], comment: string): Promise<void> {
+    const unitId = client.unitId.trim().toUpperCase();
+    if (!dataOwnerUserId || !unitId) {
+      await persist(clients.map((current) => current.id === client.id ? applyClientStatusChange(current, nextStatus, comment) : current));
+      return;
+    }
+
+    await setControlUnitStatus(dataOwnerUserId, unitId, nextStatus);
+    if (onClientsRefresh) {
+      await onClientsRefresh();
+      return;
+    }
+    await persist(clients.map((current) => current.id === client.id ? applyClientStatusChange(current, nextStatus, comment) : current));
+  }
+
   function handleStatusSelection(client: Client, nextStatus: Client["status"]): void {
     if (!isStatusAllowedForClient(client, nextStatus)) {
       setErrors(["'Cliente Enfermo' solo aplica para clientes de plan diario."]);
@@ -520,7 +535,8 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
 
     const needsComment = requiresComment(nextStatus);
     if (!needsComment) {
-      void persist(clients.map((c) => (c.id === client.id ? applyClientStatusChange(c, nextStatus, "") : c))).catch(() => {
+      void applyClientStatusThroughFleet(client, nextStatus, "").catch((error) => {
+        console.error("No se pudo guardar el cambio de estado desde Autos.", error);
         setErrors(["No se pudo guardar el cambio de estado en la nube. Intenta de nuevo."]);
       });
       return;
@@ -533,10 +549,14 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
     const comment = statusDialog.comment.trim();
     if (requiresComment(statusDialog.nextStatus) && !comment) return;
     try {
-      await persist(clients.map((c) =>
-        c.id === statusDialog.clientId ? applyClientStatusChange(c, statusDialog.nextStatus, comment) : c
-      ));
-    } catch {
+      const client = clients.find((current) => current.id === statusDialog.clientId);
+      if (!client) {
+        setErrors(["No se encontro el cliente para cambiar estado."]);
+        return;
+      }
+      await applyClientStatusThroughFleet(client, statusDialog.nextStatus, comment);
+    } catch (error) {
+      console.error("No se pudo guardar el cambio de estado desde Autos.", error);
       setErrors(["No se pudo guardar el cambio de estado en la nube. Intenta de nuevo."]);
       return;
     }

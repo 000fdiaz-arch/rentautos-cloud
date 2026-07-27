@@ -1,7 +1,6 @@
 import { memo, useState } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { PLAN_LABEL, STATE_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivables";
-import type { Client } from "../../types";
 import type { CollectionStatus, CollectionStatusRecord } from "./receivablesTypes";
 import {
   COLLECTION_CUT_OPTIONS,
@@ -9,7 +8,6 @@ import {
   COLLECTION_STATUS_HELP,
   clientOperationalStatusLabel,
   clientOperationalStatusTone,
-  pendingSummaryText,
   stateToneClass,
   type CollectionClosureItem,
   type CollectionCutKey
@@ -18,7 +16,7 @@ import {
 type Props = {
   row: ReceivableRow;
   statusRecord?: CollectionStatusRecord;
-  operationalStatus: Client["status"];
+  operationalStatus: string;
   todayDateKey: string;
   now: Date;
   isTodayCollectionClosed: boolean;
@@ -53,8 +51,7 @@ function WhatsAppIcon() {
 
 function cutDisplayLabel(cutKey: CollectionCutKey): string {
   if (cutKey === "night") return "Gestion";
-  if (cutKey === "morning") return "Corte 1";
-  return "Corte 2";
+  return "Gestion";
 }
 
 function getStatusOptionsForCut(_cutKey: CollectionCutKey): Array<{ value: CollectionStatus; label: string; description: string }> {
@@ -68,9 +65,9 @@ function lastPaymentLabel(lastPaymentDate: string | null, now: Date): string {
   paymentDate.setHours(0, 0, 0, 0);
   referenceDate.setHours(0, 0, 0, 0);
   const days = Math.max(0, Math.round((referenceDate.getTime() - paymentDate.getTime()) / (24 * 60 * 60 * 1000)));
-  if (days === 0) return "PAGÓ HOY";
-  if (days === 1) return "Último pago hace 1 día";
-  return `Último pago hace ${days} días`;
+  if (days === 0) return "PAGO HOY";
+  if (days === 1) return "Ultimo pago hace 1 dia";
+  return `Ultimo pago hace ${days} dias`;
 }
 
 function dateKeyLabel(dateKey: string | null): string {
@@ -79,6 +76,7 @@ function dateKeyLabel(dateKey: string | null): string {
 }
 
 function planDetailLabel(row: ReceivableRow): string {
+  if (!row.hasActiveClient) return "Sin plan";
   if (row.plan === "weekly" && row.weeklyChargeDay) return `${PLAN_LABEL[row.plan]} / ${WEEKDAY_LABEL[row.weeklyChargeDay]}`;
   return PLAN_LABEL[row.plan];
 }
@@ -140,6 +138,7 @@ function ReceivableTableRowComponent({
   const visibleCutOptions = visibleCutKey === "all"
     ? COLLECTION_CUT_OPTIONS
     : COLLECTION_CUT_OPTIONS.filter((option) => option.key === visibleCutKey);
+  const totalDue = row.overdueBalance + row.totalOtherCharges;
 
   async function handleWhatsAppClick(): Promise<void> {
     if (!whatsAppPhone) {
@@ -170,7 +169,13 @@ function ReceivableTableRowComponent({
     const selectedStatusHelp = value ? COLLECTION_STATUS_HELP[value as CollectionStatus] : undefined;
     return (
       <div className={`ar-cut-stack-row ar-cut-stack-row--${cutKey}`}>
-        <span className="ar-cut-stack-label">{cutDisplayLabel(cutKey)}</span>
+        <div className="ar-cut-stack-head">
+          <span className="ar-cut-stack-label">{cutDisplayLabel(cutKey)}</span>
+          <span className={clientOperationalStatusTone(operationalStatus)}>
+            {clientOperationalStatusLabel(operationalStatus)}
+          </span>
+          {!row.hasActiveClient ? <span className="ar-mini-badge ar-mini-badge--muted">Sin cliente</span> : null}
+        </div>
         <div className="ar-cut-cell-content">
           <select
             className={`ar-cut-select ar-cut-select--${value || "empty"}`}
@@ -198,7 +203,7 @@ function ReceivableTableRowComponent({
                 inputMode="decimal"
                 value={routeReleaseAmount ?? ""}
                 onChange={(event) => onRouteReleaseAmountChange(row.id, event.target.value)}
-                placeholder={row.totalPending > 0 ? row.totalPending.toFixed(2) : "0.00"}
+                placeholder={row.overdueBalance > 0 ? row.overdueBalance.toFixed(2) : "0.00"}
                 disabled={isTodayCollectionClosed}
               />
             </label>
@@ -265,8 +270,9 @@ function ReceivableTableRowComponent({
                   ) : null}
                 </div>
                 <div className="ar-client-summary-main">
-                  <span className="client-name ar-balance-main">{pendingSummaryText(row.totalPending, row.rentAmount)}</span>
-                  <span className={`debt-meta ar-rent-line ${row.rentAmount > 0 ? "amount-debt" : "amount-good"}`}>Letra: {formatCurrency(row.rentAmount)}</span>
+                  <span className={`debt-meta ar-rent-line ${row.rentAmount > 0 ? "amount-debt" : "amount-good"}`}>
+                    {row.hasActiveClient ? `Letra: ${formatCurrency(row.rentAmount)}` : "Sin renta activa"}
+                  </span>
                   <span className="debt-meta ar-truncate-line ar-client-person" title={row.name}>{row.name}</span>
                   <div className="ar-payment-state-row">
                     <span className={`ar-last-payment-date ${lastPaymentIsToday ? "ar-last-payment-date--today" : ""}`}>
@@ -275,10 +281,12 @@ function ReceivableTableRowComponent({
                     <span className={stateToneClass(row.state)}>{STATE_LABEL[row.state]}</span>
                   </div>
                   <div className="ar-card-key-grid">
-                    <span className="ar-metric-chip ar-metric-chip--plan"><small>Plan</small>{planDetailLabel(row)}</span>
+                    <span className={`ar-metric-chip ar-metric-chip--plan ar-metric-chip--plan-${row.hasActiveClient ? row.plan : "none"}`}><small>Plan</small>{planDetailLabel(row)}</span>
                     <span className="ar-metric-chip ar-metric-chip--date"><small>Proximo</small>{dateKeyLabel(row.nextDueDate)}</span>
                     <span className="ar-metric-chip ar-metric-chip--late"><small>Atraso</small>{row.daysLate > 0 ? `${row.daysLate} dias` : "Sin atraso"}</span>
-                    <span className="ar-metric-chip ar-metric-chip--debt"><small>Vencido</small>{formatCurrency(row.overdueBalance)}</span>
+                    <span className="ar-metric-chip ar-metric-chip--debt"><small>Renta vencida</small>{formatCurrency(row.overdueBalance)}</span>
+                    <span className="ar-metric-chip ar-metric-chip--debt"><small>Otros cargos</small>{formatCurrency(row.totalOtherCharges)}</span>
+                    <span className="ar-metric-chip ar-metric-chip--debt"><small>Total general</small>{formatCurrency(totalDue)}</span>
                   </div>
                 </div>
               </div>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { exportReceivablesToExcel, exportReceivablesToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
-import { loadCloudCollectionClosures, saveCloudCollectionClosures } from "../cloudData";
+import { loadCloudCollectionClosures, loadControlUnits, saveCloudCollectionClosures, type ControlUnitRow } from "../cloudData";
 import { supabase } from "../lib/supabase";
 import {
   buildReceivableRows,
@@ -141,6 +141,11 @@ function paymentReleasesRoute(payment: Payment, clientId: string, releaseAmount:
   return !!routeDateKey && payment.dateApplied >= routeDateKey;
 }
 
+function hasRouteReleaseAmount(record: CollectionStatusRecord | undefined): boolean {
+  const amount = record?.routeReleaseAmount ?? record?.managementAmount;
+  return typeof amount === "number" && amount > 0;
+}
+
 export default function ReceivablesPage({
   clients,
   payments,
@@ -181,6 +186,7 @@ export default function ReceivablesPage({
   >({});
   const [fieldManagementErrorByClient, setFieldManagementErrorByClient] = useState<Record<string, string>>({});
   const [statusSavingByClient, setStatusSavingByClient] = useState<Record<string, boolean>>({});
+  const [fleetUnits, setFleetUnits] = useState<ControlUnitRow[]>([]);
 
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const persistStreetTimerRef = useRef<number | null>(null);
@@ -194,6 +200,25 @@ export default function ReceivablesPage({
     const timerId = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timerId);
   }, []);
+
+  useEffect(() => {
+    if (!dataOwnerUserId) {
+      setFleetUnits([]);
+      return;
+    }
+    let cancelled = false;
+    loadControlUnits(dataOwnerUserId)
+      .then((rows) => {
+        if (!cancelled) setFleetUnits(rows);
+      })
+      .catch((error) => {
+        console.error("No se pudo cargar la flota para cuentas por cobrar.", error);
+        if (!cancelled) setFleetUnits([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dataOwnerUserId]);
 
   useEffect(() => {
     const parsed = parseCollectionStatusMapFromStorage(JSON.stringify(streetManagementData ?? {}));
@@ -316,8 +341,8 @@ export default function ReceivablesPage({
 
   const baseRows = useMemo(() => {
     if (clients.length === 0) return createMockReceivableRows(now);
-    return buildReceivableRows(clients, payments, now);
-  }, [clients, now, payments]);
+    return buildReceivableRows(clients, payments, now, fleetUnits);
+  }, [clients, fleetUnits, now, payments]);
 
   useEffect(() => {
     tableScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
@@ -603,10 +628,11 @@ export default function ReceivablesPage({
     const lastPayment = row.lastPaymentDate
       ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`))
       : "Sin pagos registrados";
-    const pending = formatCurrency(row.totalPending);
-    const installmentsText = row.overdueInstallments > 0
-      ? `${row.overdueInstallments} cuota${row.overdueInstallments === 1 ? "" : "s"} atrasada${row.overdueInstallments === 1 ? "" : "s"}`
-      : "Sin cuotas atrasadas";
+    const pending = formatCurrency(row.overdueBalance);
+    const installments = row.rentAmount > 0 ? Math.ceil(row.overdueBalance / row.rentAmount) : 0;
+    const installmentsText = installments > 0
+      ? `${installments} cuota${installments === 1 ? "" : "s"}`
+      : "Sin cuotas vencidas";
     const emoji = {
       hello: String.fromCodePoint(0x1F44B),
       warning: `${String.fromCodePoint(0x26A0)}${String.fromCodePoint(0xFE0F)}`,
@@ -618,9 +644,9 @@ export default function ReceivablesPage({
     const message = [
       `${emoji.hello} Hola, ${firstName}.`,
       "",
-      `${emoji.warning} Tiene un saldo pendiente al ${today}.`,
+      `${emoji.warning} Tiene renta vencida al ${today}.`,
       "",
-      `${emoji.money} Monto a pagar: ${pending}`,
+      `${emoji.money} Renta vencida: ${pending}`,
       `${emoji.pin} Ultimo pago: ${lastPayment}`,
       `${emoji.pin} Detalle: ${installmentsText}`,
       "",
@@ -1133,20 +1159,21 @@ export default function ReceivablesPage({
   }
 
   async function handleExportExcel() {
-    const headers = ["Unidad", "Pendiente", "Ult. pago / Estado", "ESTADO COBRANZA", "COBRO EN RUTA"];
+    const headers = ["Unidad", "Renta vencida", "Ult. pago / Estado", "ESTADO COBRANZA", "COBRO EN RUTA"];
     setIsExporting(true);
     setExportError(null);
     try {
       await exportReceivablesToExcel(headers, rows.map((row) => headers.map((header) => {
         const effectiveStatus = getEffectiveStatus(row);
         const collectionStatusLabel = COLLECTION_STATUS_OPTIONS.find((option) => option.value === effectiveStatus)?.label ?? "Seleccionar";
+        const totalDue = row.overdueBalance + row.totalOtherCharges;
         if (header === "Unidad") return row.unitId;
-        if (header === "Pendiente") {
-          return `${pendingSummaryText(row.totalPending, row.rentAmount)} | Letra: ${formatCurrency(row.rentAmount)} | ${row.name}`;
+        if (header === "Renta vencida") {
+          return `${pendingSummaryText(row.overdueBalance, row.rentAmount)} | Otros cargos: ${formatCurrency(row.totalOtherCharges)} | Total general: ${formatCurrency(totalDue)} | Letra: ${formatCurrency(row.rentAmount)} | ${row.name}`;
         }
         if (header === "Ult. pago / Estado") {
           const sourceClient = clients.find((client) => client.id === row.id);
-          const operationalStatus = sourceClient?.status ?? "activo";
+          const operationalStatus = row.operationalStatus ?? sourceClient?.status ?? "activo";
           const lastPaymentLabel = row.lastPaymentDate ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) : "Sin pagos";
           return `${lastPaymentLabel} | ${STATE_LABEL[row.state]} | ${clientOperationalStatusLabel(operationalStatus)}`;
         }
@@ -1173,7 +1200,9 @@ export default function ReceivablesPage({
         if (field.key === "unitId") return row.unitId;
         if (field.key === "name") return row.name;
         if (field.key === "rentAmount") return row.rentAmount;
-        if (field.key === "pendingSummary") return pendingSummaryText(row.totalPending, row.rentAmount);
+        if (field.key === "pendingSummary") {
+          return `${pendingSummaryText(row.overdueBalance, row.rentAmount)} | Otros cargos: ${formatCurrency(row.totalOtherCharges)} | Total general: ${formatCurrency(row.overdueBalance + row.totalOtherCharges)}`;
+        }
         if (field.key === "lastPaymentDate") return row.lastPaymentDate ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) : "-";
         if (field.key === "collectionStatus") return COLLECTION_STATUS_OPTIONS.find((option) => option.value === effectiveStatus)?.label ?? "Seleccionar";
         if (field.key === "routeCollection") return hasRouteCollection(row) || isNightRouteCollection(row) ? "SI" : "NO";
@@ -1190,6 +1219,11 @@ export default function ReceivablesPage({
     setExportError(null);
     setIsExporting(true);
     try {
+      const routeRowsMissingAmount = baseRows.filter((row) => isNightRouteCollection(row) && !hasRouteReleaseAmount(collectionStatusByClient[row.id]));
+      if (routeRowsMissingAmount.length > 0) {
+        setExportError(`Falta monto minimo para liberar en ${routeRowsMissingAmount.length} unidad(es) en cobro en ruta.`);
+        return;
+      }
       const statusByClientForRoute = { ...collectionStatusByClient };
       for (const row of baseRows) {
         if (!isNightRouteCollection(row) || hasRouteCollection(row)) continue;
@@ -1198,7 +1232,7 @@ export default function ReceivablesPage({
           comment: "",
           updatedAt: new Date().toISOString(),
           managementType: "solo_cobrar",
-          managementAmount: row.totalPending,
+          managementAmount: collectionStatusByClient[row.id]?.routeReleaseAmount ?? collectionStatusByClient[row.id]?.managementAmount,
           managementComment: "Ruta"
         };
       }
@@ -1225,6 +1259,13 @@ export default function ReceivablesPage({
     }
     const cutOption = COLLECTION_CUT_OPTIONS.find((option) => option.key === cutKey);
     const cutLabel = cutKey === "night" ? "Gestion diaria" : cutOption?.shortLabel ?? "Corte";
+    if (cutKey === "night") {
+      const routeRowsMissingAmount = baseRows.filter((row) => getEffectiveStatus(row) === "route" && !hasRouteReleaseAmount(collectionStatusByClient[row.id]));
+      if (routeRowsMissingAmount.length > 0) {
+        setCollectionCutMessage(`Falta monto minimo para liberar en ${routeRowsMissingAmount.length} unidad(es) en cobro en ruta.`);
+        return;
+      }
+    }
     setIsSavingCollectionCut(cutKey);
     try {
       const validStatuses = new Set(getStatusOptionsForCut(cutKey).map((option) => option.value));
@@ -1315,7 +1356,7 @@ export default function ReceivablesPage({
                 onClick={() => void handleSaveCollectionCut("night")}
                 disabled={isSavingCollectionCut !== null}
               >
-                {isSavingCollectionCut === "night" ? "Guardando..." : "Guardar gestion"}
+                {isSavingCollectionCut === "night" ? "Cerrando..." : "Cerrar gestion del dia"}
               </button>
               <button type="button" className="button ghost small" onClick={() => void handleExportExcel()} disabled={isExporting}>Excel</button>
               <button type="button" className="button ghost small" onClick={() => void handleExportPdf()} disabled={isExporting}>PDF</button>

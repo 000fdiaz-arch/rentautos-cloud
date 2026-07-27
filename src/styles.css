@@ -6686,13 +6686,13 @@ select.control-op-badge {
 .ar-receivable-card {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(690px, 1.2fr) minmax(410px, 0.8fr);
+  grid-template-columns: minmax(700px, 1.35fr) minmax(500px, 0.65fr);
   grid-template-areas: "client workflow";
-  gap: 14px;
+  gap: 12px;
   align-items: stretch;
   justify-content: stretch;
   width: 100%;
-  padding: 14px 16px 14px 20px;
+  padding: 12px 14px 12px 20px;
   border: 1px solid #d7e4ee;
   border-radius: 10px;
   background: linear-gradient(90deg, #ffffff 0%, #ffffff 58%, #f7fffd 100%);
@@ -6754,15 +6754,16 @@ select.control-op-badge {
 
 .ar-client-summary-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 9px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 12px;
   min-width: 0;
+  align-items: start;
 }
 
 .ar-client-summary-main {
   display: grid;
-  grid-template-columns: minmax(260px, 0.78fr) minmax(330px, 1fr);
-  column-gap: 20px;
+  grid-template-columns: minmax(230px, 0.34fr) minmax(0, 0.66fr);
+  column-gap: 12px;
   gap: 5px;
   min-width: 0;
   align-self: start;
@@ -6800,10 +6801,11 @@ select.control-op-badge {
 .ar-card-workflow {
   grid-area: workflow;
   display: grid;
+  grid-template-columns: minmax(210px, 0.42fr) minmax(260px, 0.58fr);
   gap: 8px;
   align-items: start;
-  align-self: stretch;
-  padding: 12px;
+  align-self: center;
+  padding: 10px;
   border: 1px solid #a7ddd5;
   border-radius: 11px;
   background: linear-gradient(180deg, #f0fffb 0%, #fbfffe 100%);
@@ -6822,12 +6824,12 @@ select.control-op-badge {
 }
 
 .ar-card-key-grid {
-  display: flex;
+  display: grid;
   align-items: center;
-  flex-wrap: wrap;
+  grid-template-columns: repeat(3, minmax(118px, 1fr));
   gap: 8px;
   grid-column: 2;
-  grid-row: 1 / span 4;
+  grid-row: 1 / span 3;
   align-self: center;
   margin-top: 0;
 }
@@ -6854,7 +6856,7 @@ select.control-op-badge {
 .ar-card-key-grid span {
   display: grid;
   gap: 4px;
-  min-width: 150px;
+  min-width: 0;
   padding: 10px 12px;
   border: 1px solid #d7e4ee;
   border-radius: 10px;
@@ -6865,6 +6867,36 @@ select.control-op-badge {
 .ar-metric-chip--plan {
   color: #334155;
   border-color: #d8e2ef !important;
+  background: #f8fafc !important;
+}
+
+.ar-metric-chip--plan-daily {
+  color: #0f766e;
+  border-color: #99f6e4 !important;
+  background: #f0fdfa !important;
+}
+
+.ar-metric-chip--plan-weekly {
+  color: #1d4ed8;
+  border-color: #bfdbfe !important;
+  background: #eff6ff !important;
+}
+
+.ar-metric-chip--plan-biweekly {
+  color: #5b21b6;
+  border-color: #ddd6fe !important;
+  background: #f5f3ff !important;
+}
+
+.ar-metric-chip--plan-monthly {
+  color: #b45309;
+  border-color: #fed7aa !important;
+  background: #fff7ed !important;
+}
+
+.ar-metric-chip--plan-none {
+  color: #475569;
+  border-color: #cbd5e1 !important;
   background: #f8fafc !important;
 }
 
@@ -6888,7 +6920,12 @@ select.control-op-badge {
 
 .ar-metric-chip--date small,
 .ar-metric-chip--late small,
-.ar-metric-chip--debt small {
+.ar-metric-chip--debt small,
+.ar-metric-chip--plan-daily small,
+.ar-metric-chip--plan-weekly small,
+.ar-metric-chip--plan-biweekly small,
+.ar-metric-chip--plan-monthly small,
+.ar-metric-chip--plan-none small {
   color: currentColor;
   opacity: 0.72;
 }
@@ -6909,17 +6946,22 @@ select.control-op-badge {
 
 @media (max-width: 1380px) {
   .ar-receivable-card {
-    grid-template-columns: minmax(600px, 1fr) minmax(380px, 0.8fr);
+    grid-template-columns: minmax(620px, 1.2fr) minmax(430px, 0.8fr);
     gap: 12px;
   }
 
-  .ar-client-summary-main {
-    grid-template-columns: minmax(245px, 0.8fr) minmax(290px, 1fr);
-    column-gap: 14px;
+  .ar-client-summary-grid {
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 10px;
   }
 
-  .ar-card-key-grid span {
-    min-width: 132px;
+  .ar-client-summary-main {
+    grid-template-columns: minmax(210px, 0.34fr) minmax(0, 0.66fr);
+    column-gap: 10px;
+  }
+
+  .ar-card-key-grid {
+    grid-template-columns: repeat(3, minmax(108px, 1fr));
   }
 
   .ar-card-data-grid {
@@ -6944,6 +6986,10 @@ select.control-op-badge {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .ar-client-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .ar-balance-main,
   .ar-rent-line,
   .ar-client-person,
@@ -6955,6 +7001,7 @@ select.control-op-badge {
   .ar-card-key-grid {
     grid-row: auto;
     margin-top: 7px;
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
   }
 
   .ar-card-finance {
@@ -6963,6 +7010,8 @@ select.control-op-badge {
 
   .ar-card-workflow {
     grid-column: 1;
+    grid-template-columns: minmax(0, 1fr);
+    align-self: stretch;
   }
 
   .ar-card-notes .ar-support-note-inline {
@@ -7039,6 +7088,12 @@ select.control-op-badge {
   color: #166534;
   background: #dcfce7;
   border-color: #86efac;
+}
+
+.ar-badge--neutral {
+  color: #475569;
+  background: #f8fafc;
+  border-color: #cbd5e1;
 }
 
 .ar-badge--warn {
@@ -7156,18 +7211,18 @@ select.control-op-badge {
 
 .ar-cut-stack {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
 .ar-cut-stack-row {
   display: grid;
-  grid-template-columns: 94px minmax(180px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   min-width: 0;
-  min-height: 52px;
-  padding: 9px 10px;
+  min-height: 0;
+  padding: 8px;
   border: 1px solid #99d8d0;
   border-radius: 10px;
   background: #eafffa;
@@ -7182,8 +7237,8 @@ select.control-op-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 34px;
-  padding: 0 12px;
+  min-height: 30px;
+  padding: 0 10px;
   border-radius: 9px;
   background: #ccfbf1;
   color: #0f766e;
@@ -7192,6 +7247,32 @@ select.control-op-badge {
   letter-spacing: 0;
   line-height: 1;
   white-space: nowrap;
+}
+
+.ar-cut-stack-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ar-mini-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid #d8e2ef;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ar-mini-badge--muted {
+  color: #475569;
+  background: #f8fafc;
 }
 
 .ar-cut-stack-row--morning .ar-cut-stack-label {
@@ -7229,8 +7310,8 @@ select.control-op-badge {
 }
 
 .ar-cut-select {
-  min-height: 38px;
-  padding: 7px 11px;
+  min-height: 34px;
+  padding: 6px 10px;
 }
 
 .ar-cut-select--empty {
@@ -7474,9 +7555,9 @@ select.control-op-badge {
 
 .ar-support-note-inline {
   width: 100%;
-  min-height: 54px;
+  min-height: 40px;
   resize: vertical;
-  padding: 7px 0 0;
+  padding: 5px 0 0;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -7825,8 +7906,8 @@ select.control-op-badge {
   display: grid;
   grid-template-rows: auto 1fr;
   width: 100%;
-  min-height: 86px;
-  padding: 11px 12px;
+  min-height: 76px;
+  padding: 8px 10px;
   border: 1px solid #c7dedb;
   border-radius: 10px;
   background: #ffffff;

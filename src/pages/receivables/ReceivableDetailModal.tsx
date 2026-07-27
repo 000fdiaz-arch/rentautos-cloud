@@ -8,6 +8,11 @@ type Props = {
 };
 
 export const ReceivableDetailModal = memo(function ReceivableDetailModal({ row, onClose }: Props) {
+  const totalDue = row.overdueBalance + row.totalOtherCharges;
+  const overdueInstallments = row.rentAmount > 0 ? Math.ceil(row.overdueBalance / row.rentAmount) : 0;
+  const overdueLabel = overdueInstallments > 0
+    ? `${formatCurrency(row.overdueBalance)} (${overdueInstallments} ${overdueInstallments === 1 ? "cuota" : "cuotas"})`
+    : formatCurrency(row.overdueBalance);
   return (
     <div className="modal-overlay">
       <div className="modal ar-detail-modal">
@@ -23,8 +28,9 @@ export const ReceivableDetailModal = memo(function ReceivableDetailModal({ row, 
             <div><span className="hint">Grupo</span><p>{row.group || "-"}</p></div>
             <div><span className="hint">Datos contrato</span><p>{PLAN_LABEL[row.plan]} | Total contrato: {formatCurrency(row.contractTotal)}</p></div>
             <div><span className="hint">Proxima fecha pago</span><p>{row.nextDueDate ? formatDate(new Date(`${row.nextDueDate}T12:00:00`)) : "-"}</p></div>
-            <div><span className="hint">Saldo vencido</span><p className="amount-debt">{formatCurrency(row.overdueBalance)}</p></div>
-            <div><span className="hint">Total pendiente</span><p className="amount-debt">{formatCurrency(row.totalPending)}</p></div>
+            <div><span className="hint">Renta vencida</span><p className="amount-debt">{overdueLabel}</p></div>
+            <div><span className="hint">Otros cargos</span><p className="amount-debt">{formatCurrency(row.totalOtherCharges)}</p></div>
+            <div><span className="hint">Total general</span><p className="amount-debt">{formatCurrency(totalDue)}</p></div>
             <div><span className="hint">Estado</span><p>{STATE_LABEL[row.state]}</p></div>
           </div>
         </div>
