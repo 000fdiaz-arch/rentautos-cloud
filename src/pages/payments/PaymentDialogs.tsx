@@ -113,3 +113,51 @@ export function DeletePaymentDialog({
     </div>
   );
 }
+
+type DeletePaymentsDialogProps = {
+  payments: Payment[];
+  isDateClosed: (dateKey: string) => boolean;
+  onCancel: () => void;
+  onConfirm: (payments: Payment[]) => void;
+};
+
+export function DeletePaymentsDialog({
+  payments,
+  isDateClosed,
+  onCancel,
+  onConfirm
+}: DeletePaymentsDialogProps) {
+  if (payments.length === 0) return null;
+  const closedPayments = payments.filter((payment) => isDateClosed(payment.dateApplied));
+  const totalAmount = payments.reduce((sum, payment) => sum + payment.amountReceived, 0);
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal">
+        <h3 className="modal-title">Eliminar pagos seleccionados</h3>
+        <p className="modal-body">
+          Confirmas que deseas eliminar <strong>{payments.length}</strong> recibo(s) por{" "}
+          <strong>{formatCurrency(totalAmount)}</strong>?<br /><br />
+          El saldo de cada cliente sera revertido automaticamente.
+          {closedPayments.length > 0 && (
+            <>
+              <br /><br />
+              Hay {closedPayments.length} recibo(s) con caja cerrada. Debes gestionar un ajuste, no eliminar esos pagos.
+            </>
+          )}
+        </p>
+        <div className="modal-actions">
+          <button type="button" className="button ghost" onClick={onCancel}>Cancelar</button>
+          <button
+            type="button"
+            className="button danger"
+            disabled={closedPayments.length > 0}
+            onClick={() => onConfirm(payments)}
+          >
+            Eliminar seleccionados
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

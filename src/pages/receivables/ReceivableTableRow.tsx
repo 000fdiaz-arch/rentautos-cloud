@@ -1,11 +1,11 @@
 import { memo, useState } from "react";
 import { formatCurrency, formatDate } from "../../format";
-import { STATE_LABEL, type ReceivableRow } from "../../receivables";
+import { PLAN_LABEL, STATE_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivables";
 import type { Client } from "../../types";
 import type { CollectionStatus, CollectionStatusRecord } from "./receivablesTypes";
 import {
   COLLECTION_CUT_OPTIONS,
-  COLLECTION_STATUS_OPTIONS,
+  DAILY_COLLECTION_STATUS_OPTIONS,
   clientOperationalStatusLabel,
   clientOperationalStatusTone,
   pendingSummaryText,
@@ -50,15 +50,13 @@ function WhatsAppIcon() {
 }
 
 function cutDisplayLabel(cutKey: CollectionCutKey): string {
-  if (cutKey === "morning") return "AM";
-  if (cutKey === "afternoon") return "PM";
-  return "CIERRE";
+  if (cutKey === "night") return "Gestion";
+  if (cutKey === "morning") return "Corte 1";
+  return "Corte 2";
 }
 
-function getStatusOptionsForCut(cutKey: CollectionCutKey): Array<{ value: CollectionStatus; label: string }> {
-  if (cutKey === "morning") return COLLECTION_STATUS_OPTIONS.filter((option) => option.value !== "route_collection");
-  if (cutKey === "afternoon") return COLLECTION_STATUS_OPTIONS.filter((option) => option.value !== "reminder" && option.value !== "route_collection");
-  return COLLECTION_STATUS_OPTIONS.filter((option) => option.value !== "reminder");
+function getStatusOptionsForCut(_cutKey: CollectionCutKey): Array<{ value: CollectionStatus; label: string }> {
+  return DAILY_COLLECTION_STATUS_OPTIONS;
 }
 
 function lastPaymentLabel(lastPaymentDate: string | null, now: Date): string {
@@ -73,8 +71,22 @@ function lastPaymentLabel(lastPaymentDate: string | null, now: Date): string {
   return `Último pago hace ${days} días`;
 }
 
+function dateKeyLabel(dateKey: string | null): string {
+  if (!dateKey) return "-";
+  return formatDate(new Date(`${dateKey}T12:00:00`));
+}
+
+function planDetailLabel(row: ReceivableRow): string {
+  if (row.plan === "weekly" && row.weeklyChargeDay) return `${PLAN_LABEL[row.plan]} / ${WEEKDAY_LABEL[row.weeklyChargeDay]}`;
+  return PLAN_LABEL[row.plan];
+}
+
 function hasOverdueDebt(row: ReceivableRow): boolean {
   return row.overdueBalance > 0 || row.overdueInstallments > 0 || row.state === "vencido" || row.state === "critico";
+}
+
+function shouldDefaultToCovered(row: ReceivableRow): boolean {
+  return row.state !== "vencido" && row.state !== "critico";
 }
 
 function ReceivableTableRowComponent({
@@ -143,7 +155,7 @@ function ReceivableTableRowComponent({
 
   function renderCutCell(cutKey: CollectionCutKey) {
     const item = collectionCutItems[cutKey];
-    const rawValue = item?.collectionStatus ?? "";
+    const rawValue = item?.collectionStatus ?? (cutKey === "night" && shouldDefaultToCovered(row) ? "covered" : "");
     const statusOptions = getStatusOptionsForCut(cutKey);
     const value = statusOptions.some((option) => option.value === rawValue) ? rawValue : "";
     return (
@@ -161,17 +173,7 @@ function ReceivableTableRowComponent({
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
-          {value === "call_later" ? (
-            <input
-              type="text"
-              className="ar-cut-comment-input"
-              maxLength={5}
-              placeholder="Comentario"
-              value={item?.comment ?? ""}
-              onChange={(event) => onCollectionCutCommentChange(cutKey, row.id, event.target.value)}
-              disabled={isTodayCollectionClosed}
-            />
-          ) : item?.comment ? (
+          {item?.comment ? (
             <span className="hint ar-cut-comment">Comentario: {item.comment}</span>
           ) : null}
           <div className="ar-cut-actions">
@@ -236,39 +238,47 @@ function ReceivableTableRowComponent({
                   ) : null}
                 </div>
                 <div className="ar-client-summary-main">
-                  <span className="client-name">{pendingSummaryText(row.totalPending, row.rentAmount)}</span>
-                  <span className={`debt-meta ${row.rentAmount > 0 ? "amount-debt" : "amount-good"}`}>Letra: {formatCurrency(row.rentAmount)}</span>
-                  <span className="debt-meta ar-truncate-line" title={row.name}>{row.name}</span>
+                  <span className="client-name ar-balance-main">{pendingSummaryText(row.totalPending, row.rentAmount)}</span>
+                  <span className={`debt-meta ar-rent-line ${row.rentAmount > 0 ? "amount-debt" : "amount-good"}`}>Letra: {formatCurrency(row.rentAmount)}</span>
+                  <span className="debt-meta ar-truncate-line ar-client-person" title={row.name}>{row.name}</span>
                   <div className="ar-payment-state-row">
                     <span className={`ar-last-payment-date ${lastPaymentIsToday ? "ar-last-payment-date--today" : ""}`}>
                       {lastPaymentLabel(row.lastPaymentDate, now)}
                     </span>
                     <span className={stateToneClass(row.state)}>{STATE_LABEL[row.state]}</span>
                   </div>
+                  <div className="ar-card-key-grid">
+                    <span className="ar-metric-chip ar-metric-chip--plan"><small>Plan</small>{planDetailLabel(row)}</span>
+                    <span className="ar-metric-chip ar-metric-chip--date"><small>Proximo</small>{dateKeyLabel(row.nextDueDate)}</span>
+                    <span className="ar-metric-chip ar-metric-chip--late"><small>Atraso</small>{row.daysLate > 0 ? `${row.daysLate} dias` : "Sin atraso"}</span>
+                    <span className="ar-metric-chip ar-metric-chip--debt"><small>Vencido</small>{formatCurrency(row.overdueBalance)}</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="ar-card-notes ar-support-note-cell">
-            <textarea
-              className="ar-support-note-inline"
-              value={statusRecord?.supportNote ?? ""}
-              onChange={(event) => onSupportNoteChange(row.id, event.target.value)}
-              placeholder="Nota..."
-              maxLength={300}
-              rows={3}
-              disabled={isTodayCollectionClosed}
-            />
-          </div>
-
-          <div className="ar-card-management ar-cut-cell ar-cut-cell--stacked">
-            <div className="ar-cut-stack">
-              {visibleCutOptions.map((option) => (
-                <div key={option.key}>
-                  {renderCutCell(option.key)}
-                </div>
-              ))}
+          <div className="ar-card-workflow">
+            <div className="ar-card-management ar-cut-cell ar-cut-cell--stacked">
+              <div className="ar-cut-stack">
+                {visibleCutOptions.map((option) => (
+                  <div key={option.key}>
+                    {renderCutCell(option.key)}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="ar-note-shell ar-support-note-cell">
+              <span className="ar-note-title">Nota</span>
+              <textarea
+                className="ar-support-note-inline"
+                value={statusRecord?.supportNote ?? ""}
+                onChange={(event) => onSupportNoteChange(row.id, event.target.value)}
+                placeholder="Escribe una nota rapida..."
+                maxLength={300}
+                rows={3}
+                disabled={isTodayCollectionClosed}
+              />
             </div>
           </div>
         </article>

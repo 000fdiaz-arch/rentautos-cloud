@@ -22,10 +22,13 @@ import {
 import {
   deleteCloudLeadEvaluation,
   deleteCloudPayment,
+  deleteCloudPayments,
   loadCloudBankRules,
   loadCloudChargeRunsWithDetails,
   loadCloudClients,
+  loadCloudLeadEvaluation,
   loadCloudLeadEvaluations,
+  loadCloudLeadEvaluationSummaries,
   loadCloudLateFeeSettings,
   loadCloudOtherChargesRetention,
   loadCloudPayments,
@@ -239,7 +242,7 @@ export default function AppShell({
     }
     setLeadsLoading(true);
     setLeadsCloudError("");
-    void loadCloudLeadEvaluations(cloudDataUserId)
+    void loadCloudLeadEvaluationSummaries(cloudDataUserId)
       .then((items) => {
         if (cancelled) return;
         setLeadEvaluations(items);
@@ -318,7 +321,12 @@ export default function AppShell({
       cashClosingAudit: parseLocalJson("cobrapp.module2.cash_closing_audit.v1", []) as unknown[],
       chargeRuns: cloudChargeRuns ?? parseLocalJson("cobrapp.module2.charge_runs.v1", []) as unknown[],
       streetManagement: parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>,
-      leadEvaluations,
+      leadEvaluations: cloudDataUserId
+        ? await loadCloudLeadEvaluations(cloudDataUserId).catch((error) => {
+            console.error("No se pudieron incluir Leads completos en el respaldo.", error);
+            return leadEvaluations;
+          })
+        : leadEvaluations,
       fleetUnits,
       statusFilter: String(localStorage.getItem("cobrapp.clients.status_filter.v1") ?? "active")
     };
@@ -425,7 +433,7 @@ export default function AppShell({
     return true;
   }
 
-  async function persistDeletedPayment(nextClients: Client[], nextPayments: Payment[], deletedPaymentId: string): Promise<boolean> {
+  async function persistDeletedPayments(nextClients: Client[], nextPayments: Payment[], deletedPaymentIds: string[]): Promise<boolean> {
     if (!canEditPayments) return false;
     if (userId && !cloudReady) return false;
     const previousClients = clients;
@@ -435,7 +443,11 @@ export default function AppShell({
       setSyncStatus("syncing");
       try {
         await syncCloudClientsDelta(cloudDataUserId, previousClients, nextClients);
-        await deleteCloudPayment(cloudDataUserId, deletedPaymentId);
+        if (deletedPaymentIds.length === 1) {
+          await deleteCloudPayment(cloudDataUserId, deletedPaymentIds[0]);
+        } else {
+          await deleteCloudPayments(cloudDataUserId, deletedPaymentIds);
+        }
       } catch (error) {
         console.error("No se pudo eliminar el pago en Supabase.", error);
         try {
@@ -462,6 +474,10 @@ export default function AppShell({
     setLastSyncAt(new Date().toLocaleTimeString());
     setHasPendingChanges(true);
     return true;
+  }
+
+  async function persistDeletedPayment(nextClients: Client[], nextPayments: Payment[], deletedPaymentId: string): Promise<boolean> {
+    return persistDeletedPayments(nextClients, nextPayments, [deletedPaymentId]);
   }
 
   function reloadSettingsFromLocalCache(): void {
@@ -557,6 +573,14 @@ export default function AppShell({
       setLeadsCloudError(`No se pudo guardar el Lead en nube. ${describeCloudError(error)}`);
       throw error;
     }
+  }
+
+  async function loadFullLeadEvaluation(evaluationId: string): Promise<LeadEvaluation | null> {
+    if (!cloudDataUserId) return null;
+    const full = await loadCloudLeadEvaluation(cloudDataUserId, evaluationId);
+    if (!full) return null;
+    setLeadEvaluations((current) => current.map((item) => item.id === full.id ? full : item));
+    return full;
   }
 
   function handleFleetClientStatusSync(payload: {
@@ -783,6 +807,7 @@ export default function AppShell({
           <LeadsPage
             evaluations={leadEvaluations}
             onEvaluationsChange={persistLeadEvaluations}
+            onEvaluationLoad={loadFullLeadEvaluation}
             loading={leadsLoading}
             cloudError={leadsCloudError}
             readOnly={!canEditLeads}
@@ -799,6 +824,7 @@ export default function AppShell({
             onPaymentsChange={persistPayments}
             onPersistClientPayment={persistClientsAndPayments}
             onDeletePayment={persistDeletedPayment}
+            onDeletePayments={persistDeletedPayments}
             dataOwnerUserId={cloudDataUserId}
             isPaymentHistoryLoaded={fullPaymentHistoryLoaded}
             onRefreshPayments={refreshPaymentsFromSource}

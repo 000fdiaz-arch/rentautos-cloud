@@ -427,6 +427,17 @@ export async function deleteCloudPayment(userId: string, paymentId: string): Pro
   if (error) throw error;
 }
 
+export async function deleteCloudPayments(userId: string, paymentIds: string[]): Promise<void> {
+  if (paymentIds.length === 0) return;
+  const client = getCloudClient();
+  const { error } = await client
+    .from("payments_cloud")
+    .delete()
+    .eq("user_id", userId)
+    .in("id", paymentIds);
+  if (error) throw error;
+}
+
 export async function syncCloudPaymentsDelta(
   userId: string,
   previousPayments: Payment[],

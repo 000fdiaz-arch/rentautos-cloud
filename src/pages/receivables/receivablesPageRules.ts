@@ -50,7 +50,7 @@ export type CollectionClosuresByDate = Record<string, CollectionClosureEntry>;
 export const COLLECTION_CUT_OPTIONS: Array<{ key: CollectionCutKey; label: string; shortLabel: string }> = [
   { key: "morning", label: "Primer corte de cobranza", shortLabel: "Corte 1" },
   { key: "afternoon", label: "Segundo corte de cobranza", shortLabel: "Corte 2" },
-  { key: "night", label: "Cierre final de cobranza", shortLabel: "Cierre final" }
+  { key: "night", label: "Gestion diaria de cobranza", shortLabel: "Gestion diaria" }
 ];
 
 export const STATE_FILTER_OPTIONS: Array<{ value: ReceivableState; label: string }> = [
@@ -62,14 +62,26 @@ export const STATE_FILTER_OPTIONS: Array<{ value: ReceivableState; label: string
 ];
 
 export const COLLECTION_STATUS_OPTIONS: Array<{ value: CollectionStatus; label: string }> = [
+  { value: "pending", label: "Pendiente." },
+  { value: "contacted", label: "Contactado." },
+  { value: "covered", label: "Cubierto." },
+  { value: "route", label: "Ruta." },
   { value: "no_answer", label: "Llamada no responde, se dejo mensaje." },
   { value: "reminder", label: "Mensaje recordatorio." },
   { value: "call_later", label: "Llamar mas tarde." },
   { value: "paid", label: "Pago confirmado." },
-  { value: "route_collection", label: "Cobro en ruta." }
+  { value: "route_collection", label: "Cobro en ruta." },
+  { value: "route_not_sent", label: "No enviado a ruta." }
 ];
 
-export const REGULAR_COLLECTION_STATUS_OPTIONS = COLLECTION_STATUS_OPTIONS.filter((option) => option.value !== "route_collection");
+export const DAILY_COLLECTION_STATUS_OPTIONS = COLLECTION_STATUS_OPTIONS.filter((option) => (
+  option.value === "pending" ||
+  option.value === "contacted" ||
+  option.value === "covered" ||
+  option.value === "route"
+));
+
+export const REGULAR_COLLECTION_STATUS_OPTIONS = DAILY_COLLECTION_STATUS_OPTIONS;
 
 export const INITIAL_EXPORT_FIELDS: ExportField[] = [
   { key: "unitId", label: "Unidad", enabled: true },
@@ -204,8 +216,21 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   const whatsAppMessageText = typeof row.whatsAppMessageText === "string" ? row.whatsAppMessageText : undefined;
   const supportNote = typeof row.supportNote === "string" ? normalizeSupportNote(row.supportNote.trim()) : "";
   const supportNoteUpdatedAt = typeof row.supportNoteUpdatedAt === "string" ? row.supportNoteUpdatedAt : undefined;
-  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt };
-  if (status === "no_answer" || status === "reminder" || status === "call_later" || status === "paid" || status === "route_collection") {
+  const paymentPromiseDate = typeof row.paymentPromiseDate === "string" ? row.paymentPromiseDate : undefined;
+  const paymentPromiseUpdatedAt = typeof row.paymentPromiseUpdatedAt === "string" ? row.paymentPromiseUpdatedAt : undefined;
+  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt, paymentPromiseDate, paymentPromiseUpdatedAt };
+  if (
+    status === "pending" ||
+    status === "contacted" ||
+    status === "covered" ||
+    status === "route" ||
+    status === "no_answer" ||
+    status === "reminder" ||
+    status === "call_later" ||
+    status === "paid" ||
+    status === "route_collection" ||
+    status === "route_not_sent"
+  ) {
     return { status, comment, updatedAt, managementType, managementAmount, managementComment, managementUpdatedAt, ...messageAudit };
   }
   if (row.actionType === "cobrar") {

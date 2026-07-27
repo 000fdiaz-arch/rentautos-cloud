@@ -28,6 +28,7 @@ type LeadVerdict = {
 type Props = {
   evaluations: LeadEvaluation[];
   onEvaluationsChange: (next: LeadEvaluation[]) => Promise<void>;
+  onEvaluationLoad?: (evaluationId: string) => Promise<LeadEvaluation | null>;
   loading: boolean;
   cloudError: string;
   readOnly?: boolean;
@@ -140,7 +141,7 @@ function buildFormFromEvaluation(evaluation: LeadEvaluation): LeadForm {
   };
 }
 
-export default function LeadsPage({ evaluations, onEvaluationsChange, loading, cloudError, readOnly = false }: Props) {
+export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluationLoad, loading, cloudError, readOnly = false }: Props) {
   const [form, setForm] = useState<LeadForm>(initialForm);
   const [queryCedula, setQueryCedula] = useState("");
   const [flowMode, setFlowMode] = useState<LeadFlowMode>("idle");
@@ -207,6 +208,20 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
     setForm((current) => ({ ...current, attachmentName: file.name, attachmentDataUrl: dataUrl }));
   }
 
+  async function loadEvaluationForViewing(evaluation: LeadEvaluation): Promise<LeadEvaluation> {
+    if (evaluation.attachmentDataUrl || !onEvaluationLoad) return evaluation;
+    return await onEvaluationLoad(evaluation.id) ?? evaluation;
+  }
+
+  async function openEvaluation(evaluation: LeadEvaluation): Promise<void> {
+    const fullEvaluation = await loadEvaluationForViewing(evaluation);
+    setForm(buildFormFromEvaluation(fullEvaluation));
+    setQueryCedula(fullEvaluation.cedula);
+    setFlowMode("viewing");
+    setMessage("Esta registrado. Se cargo el dictamen anterior.");
+    setErrors([]);
+  }
+
   function handleConsultCedula(): void {
     const cedula = normalizeCedula(queryCedula);
     if (!cedula) {
@@ -223,10 +238,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
       setErrors([]);
       return;
     }
-    setForm(buildFormFromEvaluation(match));
-    setFlowMode("viewing");
-    setMessage("Esta registrado. Se cargo el dictamen anterior.");
-    setErrors([]);
+    void openEvaluation(match);
   }
 
   function buildDictamenText(targetForm: LeadForm, targetVerdict: LeadVerdict, withDetails = false): string {
@@ -607,13 +619,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, loading, c
                     <button
                       type="button"
                       className="button ghost small"
-                      onClick={() => {
-                        setForm(buildFormFromEvaluation(evaluation));
-                        setQueryCedula(evaluation.cedula);
-                        setFlowMode("viewing");
-                        setMessage("Esta registrado. Se cargo el dictamen anterior.");
-                        setErrors([]);
-                      }}
+                      onClick={() => void openEvaluation(evaluation)}
                     >
                       Abrir
                     </button>

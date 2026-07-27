@@ -45,6 +45,7 @@ import {
 } from "./payments/bankPaymentRules";
 import {
   DeletePaymentDialog,
+  DeletePaymentsDialog,
   PaymentPreviewDialog,
   ReopenCashDialog
 } from "./payments/PaymentDialogs";
@@ -78,6 +79,7 @@ type Props = {
   onPaymentsChange: (next: Payment[]) => void;
   onPersistClientPayment?: (nextClients: Client[], nextPayments: Payment[]) => Promise<boolean>;
   onDeletePayment?: (nextClients: Client[], nextPayments: Payment[], deletedPaymentId: string) => Promise<boolean>;
+  onDeletePayments?: (nextClients: Client[], nextPayments: Payment[], deletedPaymentIds: string[]) => Promise<boolean>;
   dataOwnerUserId?: string | null;
   isPaymentHistoryLoaded?: boolean;
   onRefreshPayments?: () => Promise<void>;
@@ -103,6 +105,7 @@ export default function PaymentsPage({
   onPaymentsChange,
   onPersistClientPayment,
   onDeletePayment,
+  onDeletePayments,
   dataOwnerUserId,
   isPaymentHistoryLoaded = true,
   onRefreshPayments,
@@ -125,6 +128,7 @@ export default function PaymentsPage({
   const [historyFocusRequest, setHistoryFocusRequest] = useState<HistoryFocusRequest | null>(null);
   const [historyPreviewPayment, setHistoryPreviewPayment] = useState<Payment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
+  const [bulkDeleteTargets, setBulkDeleteTargets] = useState<Payment[]>([]);
   const {
     cashClosings,
     cashClosingDate,
@@ -653,6 +657,31 @@ export default function PaymentsPage({
     return true;
   }
 
+  function buildStateAfterDeletedPayments(deletedPayments: Payment[]): { updatedClients: Client[]; updatedPayments: Payment[] } {
+    const deletedByClientId = new Map<string, Payment[]>();
+    for (const payment of deletedPayments) {
+      deletedByClientId.set(payment.clientId, [...(deletedByClientId.get(payment.clientId) ?? []), payment]);
+    }
+    const updatedClients = clients.map((c) => {
+      const clientPayments = deletedByClientId.get(c.id);
+      if (!clientPayments) return c;
+      return clientPayments.reduce((current, payment) => ({
+          ...current,
+          balance: roundMoney(current.balance + payment.appliedToRent),
+          advanceBalance: roundMoney(Math.max(0, (current.advanceBalance ?? 0) - (payment.advanceApplied ?? 0))),
+          savings: roundMoney(Math.max(0, current.savings - payment.centavosAhorro)),
+          installmentsRemaining: current.installmentsRemaining + getInstallmentsTotalInPayment(payment),
+          installmentsPaid: Math.max(0, current.installmentsPaid - getInstallmentsTotalInPayment(payment)),
+          fines: restoreFinesAfterDelete(current.fines, payment.finesApplied),
+          tickets: restoreTicketsAfterDelete(current.tickets, payment.ticketsApplied),
+          otherCharges: restoreOtherChargesAfterDelete(current.otherCharges, payment.otherChargesApplied)
+        }), c);
+    });
+    const deletedIds = new Set(deletedPayments.map((payment) => payment.id));
+    const updatedPayments = payments.filter((p) => !deletedIds.has(p.id));
+    return { updatedClients, updatedPayments };
+  }
+
   async function handleDeletePayment(payment: Payment): Promise<void> {
     if (readOnly) return;
     if (isDateClosed(payment.dateApplied)) {
@@ -660,21 +689,7 @@ export default function PaymentsPage({
       setDeleteTarget(null);
       return;
     }
-    const updatedClients = clients.map((c) => {
-      if (c.id !== payment.clientId) return c;
-      return {
-        ...c,
-        balance: roundMoney(c.balance + payment.appliedToRent),
-        advanceBalance: roundMoney(Math.max(0, (c.advanceBalance ?? 0) - (payment.advanceApplied ?? 0))),
-        savings: roundMoney(Math.max(0, c.savings - payment.centavosAhorro)),
-        installmentsRemaining: c.installmentsRemaining + getInstallmentsTotalInPayment(payment),
-        installmentsPaid: Math.max(0, c.installmentsPaid - getInstallmentsTotalInPayment(payment)),
-        fines: restoreFinesAfterDelete(c.fines, payment.finesApplied),
-        tickets: restoreTicketsAfterDelete(c.tickets, payment.ticketsApplied),
-        otherCharges: restoreOtherChargesAfterDelete(c.otherCharges, payment.otherChargesApplied)
-      };
-    });
-    const updatedPayments = payments.filter((p) => p.id !== payment.id);
+    const { updatedClients, updatedPayments } = buildStateAfterDeletedPayments([payment]);
     if (onDeletePayment) {
       const saved = await onDeletePayment(updatedClients, updatedPayments, payment.id);
       if (!saved) {
@@ -686,6 +701,35 @@ export default function PaymentsPage({
       onPaymentsChange(updatedPayments);
     }
     setDeleteTarget(null);
+  }
+
+  async function handleDeletePayments(selectedPayments: Payment[]): Promise<void> {
+    if (readOnly || selectedPayments.length === 0) return;
+    const closedPayment = selectedPayments.find((payment) => isDateClosed(payment.dateApplied));
+    if (closedPayment) {
+      setErrors([`No se puede eliminar el recibo ${closedPayment.receiptNumber}: la caja de ${closedPayment.dateApplied} esta cerrada.`]);
+      setBulkDeleteTargets([]);
+      return;
+    }
+    const { updatedClients, updatedPayments } = buildStateAfterDeletedPayments(selectedPayments);
+    const deletedPaymentIds = selectedPayments.map((payment) => payment.id);
+    if (onDeletePayments) {
+      const saved = await onDeletePayments(updatedClients, updatedPayments, deletedPaymentIds);
+      if (!saved) {
+        setErrors(["No se pudieron eliminar los recibos seleccionados en nube. Actualiza el historial y vuelve a intentar."]);
+        return;
+      }
+    } else if (onDeletePayment && selectedPayments.length === 1) {
+      const saved = await onDeletePayment(updatedClients, updatedPayments, selectedPayments[0].id);
+      if (!saved) {
+        setErrors([`No se pudo eliminar el recibo ${selectedPayments[0].receiptNumber} en nube. Actualiza el historial y vuelve a intentar.`]);
+        return;
+      }
+    } else {
+      onClientsChange(updatedClients);
+      onPaymentsChange(updatedPayments);
+    }
+    setBulkDeleteTargets([]);
   }
 
 
@@ -865,6 +909,7 @@ export default function PaymentsPage({
         focusRequest={historyFocusRequest}
         onPreviewPayment={setHistoryPreviewPayment}
         onDeletePayment={readOnly ? undefined : setDeleteTarget}
+        onDeletePayments={readOnly ? undefined : setBulkDeleteTargets}
         readOnly={readOnly}
       />
 
@@ -886,6 +931,12 @@ export default function PaymentsPage({
         isDateClosed={isDateClosed}
         onCancel={() => setDeleteTarget(null)}
         onConfirm={(payment) => void handleDeletePayment(payment)}
+      />}
+      {!readOnly && <DeletePaymentsDialog
+        payments={bulkDeleteTargets}
+        isDateClosed={isDateClosed}
+        onCancel={() => setBulkDeleteTargets([])}
+        onConfirm={(selectedPayments) => void handleDeletePayments(selectedPayments)}
       />}
     </div>
   );

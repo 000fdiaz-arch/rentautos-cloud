@@ -666,7 +666,12 @@ async function handleCloseCashForDate(): Promise<void> {
       reminder: 0,
       call_later: 0,
       paid: 0,
-      route_collection: 0
+      route_collection: 0,
+      route_not_sent: 0,
+      pending: 0,
+      contacted: 0,
+      covered: 0,
+      route: 0
     };
     const closureItems: CollectionClosureItem[] = receivableRows.map((row) => {
       const resolved = resolveCollectionStatusForClosure(row, statusesByClient, date);

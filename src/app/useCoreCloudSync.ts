@@ -32,7 +32,7 @@ import {
 } from "./appShellRules";
 
 const PENDING_CORE_SYNC_KEY = "cobrapp.cloud.pending_core_sync.v1";
-const CORE_DATA_FALLBACK_POLL_MS = 5 * 60_000;
+const CORE_DATA_FALLBACK_POLL_MS = 30 * 60_000;
 const INITIAL_PAYMENTS_LIMIT = 300;
 const CLOUD_BOOT_BLOCK_MS = 10_000;
 const PERF_LOGS_ENABLED = import.meta.env.VITE_PERF_LOGS === "1";

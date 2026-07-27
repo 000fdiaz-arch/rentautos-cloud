@@ -174,7 +174,17 @@ export type HistoryCopyFeedback = {
 };
 
 
-export type CollectionStatus = "no_answer" | "reminder" | "call_later" | "paid" | "route_collection";
+export type CollectionStatus =
+  | "pending"
+  | "contacted"
+  | "covered"
+  | "route"
+  | "no_answer"
+  | "reminder"
+  | "call_later"
+  | "paid"
+  | "route_collection"
+  | "route_not_sent";
 export type CollectionCutKey = "morning" | "afternoon" | "night";
 
 export type CollectionStatusRecord = {
@@ -188,6 +198,8 @@ export type CollectionStatusRecord = {
   whatsAppMessageCopiedAt?: string;
   whatsAppMessageSentAt?: string;
   whatsAppMessageText?: string;
+  paymentPromiseDate?: string;
+  paymentPromiseUpdatedAt?: string;
 };
 
 export type CollectionClosureItem = {

@@ -44,6 +44,7 @@ type Props = {
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
   onEditWhatsAppPhone: (clientId: string) => void;
   onSupportNoteChange: (clientId: string, value: string) => void;
+  onClearFilters: () => void;
 };
 
 function getCutItemsForClient(
@@ -80,10 +81,11 @@ function renderCutStatusCell(item: CollectionClosureItem | undefined) {
 }
 
 function renderHistoryCutStack(item: CollectionClosureItem | undefined, cutKey: CollectionCutKey) {
+  const cutOption = COLLECTION_CUT_OPTIONS.find((option) => option.key === cutKey);
   return (
     <div className={`ar-cut-stack-row ar-cut-stack-row--${cutKey}`}>
       <span className="ar-cut-stack-label">
-        {cutKey === "morning" ? "AM" : cutKey === "afternoon" ? "PM" : "CIERRE"}
+        {cutOption?.shortLabel ?? "Gestion"}
       </span>
       {renderCutStatusCell(item)}
     </div>
@@ -110,8 +112,23 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   onWhatsAppMessageCopied,
   onWhatsAppMessageSent,
   onEditWhatsAppPhone,
-  onSupportNoteChange
+  onSupportNoteChange,
+  onClearFilters
 }: Props) {
+  if (viewMode === "cartera" && rows.length === 0) {
+    return (
+      <div className="table-scroll ar-ledger-scroll" ref={tableScrollRef}>
+        <div className="ar-empty-results">
+          <strong>No hay clientes para esos filtros</strong>
+          <span>Prueba con otro estado o limpia los filtros para volver a ver la cartera.</span>
+          <button type="button" className="button ghost small" onClick={onClearFilters}>
+            Limpiar filtros
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="table-scroll ar-ledger-scroll" ref={tableScrollRef}>
       <table className="ar-table ar-table--compact">
@@ -120,7 +137,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
             selectedHistoryRows.length === 0 ? (
               <tr>
                 <td colSpan={4} className="empty" style={{ textAlign: "center" }}>
-                  No hay datos en este cierre.
+                  No hay datos en esta gestion.
                 </td>
               </tr>
             ) : selectedHistoryRows.map((item) => (
@@ -154,12 +171,6 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                 </td>
               </tr>
             ))
-          ) : rows.length === 0 ? (
-            <tr>
-              <td colSpan={4} className="empty" style={{ textAlign: "center" }}>
-                No hay resultados para los filtros seleccionados.
-              </td>
-            </tr>
           ) : rows.map((row) => (
             <ReceivableTableRow
               key={row.id}

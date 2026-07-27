@@ -42,6 +42,7 @@ type Props = {
   focusRequest: HistoryFocusRequest | null;
   onPreviewPayment: (payment: Payment) => void;
   onDeletePayment?: (payment: Payment) => void;
+  onDeletePayments?: (payments: Payment[]) => void;
   readOnly?: boolean;
 };
 
@@ -74,6 +75,7 @@ export default function PaymentHistoryPanel({
   focusRequest,
   onPreviewPayment,
   onDeletePayment,
+  onDeletePayments,
   readOnly = false
 }: Props) {
   const [historyClientId, setHistoryClientId] = useState<string>("all");
@@ -342,6 +344,10 @@ const historySelectedRows = useMemo(() => {
     .map((id) => historyRowsById.get(id))
     .filter((row): row is Payment => Boolean(row));
 }, [historySelectedPaymentIds, historyRowsById]);
+const selectedClosedHistoryRows = useMemo(
+  () => historySelectedRows.filter((payment) => isDateClosed(payment.dateApplied)),
+  [historySelectedRows, isDateClosed]
+);
 
 const isAllHistoryRowsSelected = historyRows.length > 0 && historySelectedRows.length === historyRows.length;
 
@@ -703,6 +709,17 @@ function handleRepairTodayPaymentDates(): void {
                   >
                     {isHistoryBulkDownloading ? "Generando ZIP..." : `Descargar seleccionados (${historySelectedRows.length})`}
                   </button>
+                  {!readOnly && onDeletePayments && (
+                    <button
+                      type="button"
+                      className="button danger small"
+                      onClick={() => onDeletePayments(historySelectedRows)}
+                      disabled={historySelectedRows.length === 0 || selectedClosedHistoryRows.length > 0}
+                      title={selectedClosedHistoryRows.length > 0 ? "Hay recibos de caja cerrada en la seleccion" : "Elimina los recibos seleccionados"}
+                    >
+                      Eliminar seleccionados ({historySelectedRows.length})
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="button ghost small"

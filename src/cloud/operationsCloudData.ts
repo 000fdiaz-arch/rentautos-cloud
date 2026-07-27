@@ -536,6 +536,136 @@ export async function loadCloudLeadEvaluations(userId: string): Promise<LeadEval
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
+type LeadEvaluationSummaryRow = {
+  id?: unknown;
+  cedula?: unknown;
+  birthDate?: unknown;
+  age?: unknown;
+  attachmentName?: unknown;
+  noCases?: unknown;
+  hasGpsTamperingReport?: unknown;
+  hasLegalCases?: unknown;
+  hasViolenceReports?: unknown;
+  hasDuiReports?: unknown;
+  hasPiracyReports?: unknown;
+  collisionReports?: unknown;
+  pendingDailyReports?: unknown;
+  decision?: unknown;
+  extraDeposit?: unknown;
+  blockers?: unknown;
+  extraDepositReasons?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+};
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function numberValue(value: unknown): number {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function booleanValue(value: unknown): boolean {
+  return value === true || value === "true";
+}
+
+function stringArrayValue(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item ?? "")).filter((item) => item.length > 0) : [];
+}
+
+function leadDecisionValue(value: unknown): LeadEvaluation["decision"] {
+  return value === "aplica_con_abono" || value === "no_aplica" ? value : "aplica";
+}
+
+function leadSummaryFromRow(row: LeadEvaluationSummaryRow): LeadEvaluation {
+  const id = stringValue(row.id);
+  const now = new Date().toISOString();
+  return {
+    id,
+    cedula: stringValue(row.cedula),
+    birthDate: stringValue(row.birthDate),
+    age: numberValue(row.age),
+    attachmentName: stringValue(row.attachmentName) || undefined,
+    noCases: booleanValue(row.noCases),
+    hasGpsTamperingReport: booleanValue(row.hasGpsTamperingReport),
+    hasLegalCases: booleanValue(row.hasLegalCases),
+    hasViolenceReports: booleanValue(row.hasViolenceReports),
+    hasDuiReports: booleanValue(row.hasDuiReports),
+    hasPiracyReports: booleanValue(row.hasPiracyReports),
+    collisionReports: numberValue(row.collisionReports),
+    pendingDailyReports: numberValue(row.pendingDailyReports),
+    decision: leadDecisionValue(row.decision),
+    extraDeposit: numberValue(row.extraDeposit),
+    blockers: stringArrayValue(row.blockers),
+    extraDepositReasons: stringArrayValue(row.extraDepositReasons),
+    createdAt: stringValue(row.createdAt) || now,
+    updatedAt: stringValue(row.updatedAt) || now
+  };
+}
+
+export async function loadCloudLeadEvaluationSummaries(userId: string): Promise<LeadEvaluation[]> {
+  const client = getCloudClient();
+  const allRows: LeadEvaluationSummaryRow[] = [];
+  let lastId = "";
+  const select = [
+    "id",
+    "data->cedula",
+    "data->birthDate",
+    "data->age",
+    "data->attachmentName",
+    "data->noCases",
+    "data->hasGpsTamperingReport",
+    "data->hasLegalCases",
+    "data->hasViolenceReports",
+    "data->hasDuiReports",
+    "data->hasPiracyReports",
+    "data->collisionReports",
+    "data->pendingDailyReports",
+    "data->decision",
+    "data->extraDeposit",
+    "data->blockers",
+    "data->extraDepositReasons",
+    "data->createdAt",
+    "data->updatedAt"
+  ].join(",");
+  while (true) {
+    let query = client
+      .from("lead_evaluations_cloud")
+      .select(select)
+      .eq("user_id", userId)
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (lastId) query = query.gt("id", lastId);
+    const { data, error } = await query;
+    if (error) throw error;
+    const batch = (data ?? []) as LeadEvaluationSummaryRow[];
+    allRows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    lastId = stringValue(batch[batch.length - 1]?.id) || lastId;
+    if (!lastId) break;
+  }
+  return allRows
+    .map(leadSummaryFromRow)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export async function loadCloudLeadEvaluation(userId: string, evaluationId: string): Promise<LeadEvaluation | null> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("lead_evaluations_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .eq("id", evaluationId)
+    .maybeSingle();
+  if (error) throw error;
+  const payload = (data as { data?: unknown } | null)?.data;
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as LeadEvaluation
+    : null;
+}
+
 export async function saveCloudLeadEvaluations(userId: string, evaluations: LeadEvaluation[]): Promise<void> {
   const client = getCloudClient();
   const rows = evaluations.map((item) => ({
