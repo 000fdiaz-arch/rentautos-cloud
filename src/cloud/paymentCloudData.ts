@@ -3,6 +3,8 @@ import { dedupeLoad, getCloudClient, hasRowChanged, PAGE_SIZE, withCloudRetry, t
 
 const BANK_PAYMENT_METHODS = new Set(["ACH Express", "Deposito Bancario", "Transferencia Bancaria"]);
 
+type PaymentDataRow = DataRow<Payment> & { updated_at?: string | null };
+
 function normalizeCloudFolioToken(value: string): string {
   return value
     .normalize("NFD")
@@ -47,6 +49,40 @@ function parseReceiptSequence(receiptNumber: unknown): number | null {
 
 function formatReceiptSequence(seq: number): string {
   return `REC-${String(seq).padStart(4, "0")}`;
+}
+
+function isCloudStatementTimeout(error: unknown): boolean {
+  const record = typeof error === "object" && error !== null ? error as Record<string, unknown> : null;
+  const code = typeof record?.code === "string" ? record.code : "";
+  const message = error instanceof Error
+    ? error.message
+    : typeof record?.message === "string"
+    ? record.message
+    : "";
+  const details = typeof record?.details === "string" ? record.details : "";
+  const normalized = `${code} ${message} ${details}`.toLowerCase();
+  return code === "57014" || normalized.includes("statement timeout") || normalized.includes("canceling statement");
+}
+
+function getPaymentSortTime(row: PaymentDataRow): number {
+  const value = row.updated_at ?? row.data?.createdAt ?? "";
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function compareRecentPaymentRows(left: PaymentDataRow, right: PaymentDataRow): number {
+  return getPaymentSortTime(right) - getPaymentSortTime(left);
+}
+
+async function runCloudPaymentQuery<T>(
+  queryFactory: () => PromiseLike<{ data: T | null; error: unknown }>
+): Promise<T> {
+  const { data } = await withCloudRetry(async () => {
+    const result = await queryFactory();
+    if (result.error) throw result.error;
+    return result;
+  });
+  return data as T;
 }
 
 async function loadCloudMaxReceiptSequence(userId: string): Promise<number> {
@@ -130,14 +166,20 @@ export async function loadCloudPaymentsPage(
   const limit = Math.max(1, Math.min(PAGE_SIZE, Math.floor(options?.limit ?? 200)));
   const offset = Math.max(0, Math.floor(options?.offset ?? 0));
   const to = offset + limit - 1;
-  const { data, error } = await client
-    .from("payments_cloud")
-    .select("id,data")
-    .eq("user_id", userId)
-    .order("updated_at", { ascending: false })
-    .range(offset, to);
-  if (error) throw error;
-  const rows = (data ?? []) as DataRow<Payment>[];
+  let rows: PaymentDataRow[];
+  try {
+    rows = await runCloudPaymentQuery(() => client
+      .from("payments_cloud")
+      .select("id,data,updated_at")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .range(offset, to)) as PaymentDataRow[];
+  } catch (error) {
+    if (!isCloudStatementTimeout(error)) throw error;
+    rows = (await loadCloudPaymentRowsByIdScan(userId))
+      .sort(compareRecentPaymentRows)
+      .slice(offset, offset + limit);
+  }
   return rows.map((row) => row.data);
 }
 
@@ -148,15 +190,42 @@ export async function loadCloudPaymentsRecent(userId: string, limit = 300): Prom
 
 async function loadCloudPaymentsRecentUncached(userId: string, safeLimit: number): Promise<Payment[]> {
   const client = getCloudClient();
-  const { data, error } = await client
-    .from("payments_cloud")
-    .select("id,data")
-    .eq("user_id", userId)
-    .order("updated_at", { ascending: false })
-    .range(0, safeLimit - 1);
-  if (error) throw error;
-  const rows = (data ?? []) as DataRow<Payment>[];
+  let rows: PaymentDataRow[];
+  try {
+    rows = await runCloudPaymentQuery(() => client
+      .from("payments_cloud")
+      .select("id,data,updated_at")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .range(0, safeLimit - 1)) as PaymentDataRow[];
+  } catch (error) {
+    if (!isCloudStatementTimeout(error)) throw error;
+    rows = (await loadCloudPaymentRowsByIdScan(userId))
+      .sort(compareRecentPaymentRows)
+      .slice(0, safeLimit);
+  }
   return rows.map((row) => row.data);
+}
+
+async function loadCloudPaymentRowsByIdScan(userId: string): Promise<PaymentDataRow[]> {
+  const client = getCloudClient();
+  const allRows: PaymentDataRow[] = [];
+  let lastId = "";
+  while (true) {
+    let query = client
+      .from("payments_cloud")
+      .select("id,data,updated_at")
+      .eq("user_id", userId)
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (lastId) query = query.gt("id", lastId);
+    const batch = await runCloudPaymentQuery(() => query) as PaymentDataRow[];
+    allRows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    lastId = batch[batch.length - 1]?.id ?? lastId;
+    if (!lastId) break;
+  }
+  return allRows;
 }
 
 export async function loadCloudProcessedPaymentFolios(userId: string, candidateFolios?: Iterable<string>): Promise<Set<string>> {

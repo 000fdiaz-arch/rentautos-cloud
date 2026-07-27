@@ -853,19 +853,21 @@ async function loadControlUnitsUncached(userId: string): Promise<ControlUnitRow[
 
   while (true) {
     const to = from + PAGE_SIZE - 1;
-    const { data, error } = await withCloudRetry(() => client
+    const result = await withCloudRetry(() => client
       .from("fleet_units_cloud")
-      .select("user_id,unit_id,company,brand_model,engine_serial,chassis_serial,plate,cupo,observation,is_exception,exception_note,operational_status,model_year,color,transmission_type,mileage")
+      .select("*")
       .eq("user_id", userId)
       .order("unit_id", { ascending: true })
       .range(from, to));
+    let data = result.data as ControlUnitRow[] | null;
+    let error = result.error;
 
     if (error) throw error;
 
     const batch = ((data ?? []) as ControlUnitRow[]).map((row) => ({
       ...row,
-      year: row.model_year,
-      transmission: row.transmission_type,
+      year: row.model_year ?? row.year,
+      transmission: row.transmission_type ?? row.transmission,
       kilometrage: row.mileage,
       kilometraje: row.mileage,
       client_id: null,
