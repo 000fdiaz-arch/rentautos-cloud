@@ -200,6 +200,19 @@ export default function ReceivablesPage({
   const latestCollectionStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
   const streetManagementDataRef = useRef<Record<string, unknown>>(streetManagementData ?? {});
 
+  function collectionRecordTimestamp(record: CollectionStatusRecord | undefined): number {
+    if (!record) return 0;
+    return Math.max(
+      toTimestamp(record.updatedAt),
+      toTimestamp(record.managementUpdatedAt),
+      toTimestamp(record.routeReleaseUpdatedAt),
+      toTimestamp(record.supportNoteUpdatedAt),
+      toTimestamp(record.whatsAppMessageCopiedAt),
+      toTimestamp(record.whatsAppMessageSentAt),
+      toTimestamp(record.paymentPromiseUpdatedAt)
+    );
+  }
+
   useEffect(() => {
     const timerId = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timerId);
@@ -211,7 +224,7 @@ export default function ReceivablesPage({
     const optimistic = optimisticStatusByClientRef.current;
     for (const [clientId, optimisticRecord] of Object.entries(optimistic)) {
       const incoming = merged[clientId];
-      if (!incoming || toTimestamp(incoming.updatedAt) < toTimestamp(optimisticRecord.updatedAt)) {
+      if (!incoming || collectionRecordTimestamp(incoming) < collectionRecordTimestamp(optimisticRecord)) {
         merged[clientId] = optimisticRecord;
         continue;
       }
@@ -303,7 +316,7 @@ export default function ReceivablesPage({
           streetPersistPendingRef.current = false;
         }
       })();
-    }, 100);
+    }, 500);
   }, [collectionStatusByClient, dataOwnerUserId, onStreetManagementPersist]);
 
   useEffect(() => {
@@ -786,12 +799,13 @@ export default function ReceivablesPage({
     if (isTodayCollectionClosed) return;
     markClientStatusAsSaving(clientId);
     const note = normalizeSupportNote(value);
+    const nowIso = new Date().toISOString();
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
         status: previous?.status ?? "pending",
         comment: previous?.comment ?? "",
-        updatedAt: previous?.updatedAt ?? new Date().toISOString(),
+        updatedAt: nowIso,
         managementType: previous?.managementType,
         managementAmount: previous?.managementAmount,
         managementComment: previous?.managementComment,
@@ -802,7 +816,7 @@ export default function ReceivablesPage({
         whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
         whatsAppMessageText: previous?.whatsAppMessageText,
         supportNote: note,
-        supportNoteUpdatedAt: new Date().toISOString(),
+        supportNoteUpdatedAt: nowIso,
         paymentPromiseDate: previous?.paymentPromiseDate,
         paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
       };

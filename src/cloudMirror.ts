@@ -84,6 +84,7 @@ const INDEXED_DB_ARRAY_KEY_MAP: Partial<Record<ArrayKey, string>> = {
 
 type InitializeCloudMirrorOptions = {
   skipKeys?: string[];
+  hydrateKeys?: string[];
 };
 
 function asArrayKey(key: string): ArrayKey | null {
@@ -373,14 +374,16 @@ export async function initializeCloudMirror(userId: string, options?: Initialize
   currentUserId = userId;
   patchLocalStorage();
   const skipKeys = new Set(options?.skipKeys ?? []);
+  const hydrateKeys = options?.hydrateKeys ? new Set(options.hydrateKeys) : null;
+  const shouldHydrate = (key: string): boolean => !skipKeys.has(key) && (!hydrateKeys || hydrateKeys.has(key));
   isHydrating = true;
   try {
     await Promise.all([
       ...Object.keys(ARRAY_TABLE_MAP)
-        .filter((key) => !skipKeys.has(key))
+        .filter(shouldHydrate)
         .map((key) => hydrateArrayKey(userId, key as ArrayKey)),
       ...Object.keys(SINGLETON_TABLE_MAP)
-        .filter((key) => !skipKeys.has(key))
+        .filter(shouldHydrate)
         .map((key) => hydrateSingletonKey(userId, key as SingletonKey))
     ]);
   } finally {

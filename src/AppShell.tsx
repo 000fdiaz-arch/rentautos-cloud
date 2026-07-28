@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import {
   loadClients,
   loadPayments,
@@ -81,6 +81,35 @@ const FLEET_UNIT_RESTORE_FIELDS = [
   "mileage"
 ] as const;
 
+const PAYMENT_MIRROR_KEYS = [
+  "cobrapp.module2.pending_bank.v1",
+  "cobrapp.module2.pending_card.v1",
+  "cobrapp.module2.manual_assignment_audit.v1",
+  "cobrapp.module2.late_fee_ledger.v1",
+  "cobrapp.module2.notified.v1",
+  "cobrapp.module2.cash_closings.v1",
+  "cobrapp.module2.cash_closing_audit.v1",
+  "cobrapp.module2.charge_runs.v1",
+  "cobrapp.payments.seq.v1",
+  "cobrapp.clients.daily_collection.v1",
+  "cobrapp.clients.daily_collection_am_seals.v1",
+  "cobrapp.clients.daily_collection_pm_seals.v1",
+  "cobrapp.clients.daily_collection_close_seals.v1",
+  "cobrapp.clients.daily_collection_promises.v1",
+  "cobrapp.clients.daily_collection_street_actions.v1"
+] as const;
+
+const RECEIVABLES_MIRROR_KEYS = [
+  "cobrapp.module3.street_management.v1",
+  "cobrapp.module3.collection_closures.v1"
+] as const;
+
+const SETTINGS_MIRROR_KEYS = [
+  "cobrapp.settings.bank_rules.v1",
+  "cobrapp.settings.late_fee_settings.v1",
+  "cobrapp.settings.other_charges_retention.v1"
+] as const;
+
 type AppShellProps = {
   userId?: string;
   userEmail?: string;
@@ -138,7 +167,17 @@ export default function AppShell({
   const canViewSettingsPage = canViewSettings || canManageUsers;
   const isReadOnlyReceivables = isReadOnlyExperience || !canEditReceivables;
   const shouldSyncCoreData = canViewClients || canViewPayments || canViewReceivables || canViewSettingsPage;
-  const shouldLoadCloudSettings = canViewPayments || canViewReceivables || canViewSettingsPage;
+  const shouldLoadCloudSettings = canViewPayments || canViewSettingsPage;
+  const cloudMirrorHydrationKeys = useMemo(() => {
+    const keys = new Set<string>();
+    if (canViewPayments) {
+      PAYMENT_MIRROR_KEYS.forEach((key) => keys.add(key));
+      SETTINGS_MIRROR_KEYS.forEach((key) => keys.add(key));
+    }
+    if (canViewReceivables) RECEIVABLES_MIRROR_KEYS.forEach((key) => keys.add(key));
+    if (canViewSettingsPage) SETTINGS_MIRROR_KEYS.forEach((key) => keys.add(key));
+    return [...keys];
+  }, [canViewPayments, canViewReceivables, canViewSettingsPage]);
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = effectiveOwnerUserId ?? dataOwnerUserId ?? userId;
   const [page, setPage] = useState<AppPage>(() => getFirstVisiblePage({
@@ -185,6 +224,7 @@ export default function AppShell({
     userId,
     ownerUserId: cloudDataUserId,
     isReadOnly: isReadOnlyReceivables,
+    cloudMirrorHydrationKeys,
     clients,
     payments,
     setClients,

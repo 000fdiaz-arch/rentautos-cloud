@@ -57,6 +57,7 @@ type UseCoreCloudSyncOptions = {
   userId?: string;
   ownerUserId?: string;
   isReadOnly: boolean;
+  cloudMirrorHydrationKeys?: string[];
   clients: Client[];
   payments: Payment[];
   setClients: Dispatch<SetStateAction<Client[]>>;
@@ -81,6 +82,7 @@ export function useCoreCloudSync({
   userId,
   ownerUserId,
   isReadOnly,
+  cloudMirrorHydrationKeys,
   clients,
   payments,
   setClients,
@@ -312,14 +314,19 @@ export function useCoreCloudSync({
         const bootstrapPayments = isSupabaseOnlyMode
           ? cloudPayments
           : cloudPayments.length > 0 ? mergeById(payments.length > 0 ? payments : localPayments, cloudPayments) : payments.length > 0 ? payments : localPayments;
-        const duplicateRepair = repairDuplicateActiveUnits(bootstrapClients);
+        const duplicateRepair = isReadOnly
+          ? { clients: bootstrapClients, changed: false }
+          : repairDuplicateActiveUnits(bootstrapClients);
         if (duplicateRepair.changed) await saveCloudClients(ownerUserId, duplicateRepair.clients);
         setClients(duplicateRepair.clients);
         setPayments(bootstrapPayments);
         setFullPaymentHistoryLoaded(false);
         onSettingsReload();
         saveCoreCache(duplicateRepair.clients, bootstrapPayments);
-        await measureAsync("cloud mirror bootstrap", () => initializeCloudMirror(ownerUserId, { skipKeys: CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS }));
+        await measureAsync("cloud mirror bootstrap", () => initializeCloudMirror(ownerUserId, {
+          skipKeys: CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS,
+          hydrateKeys: cloudMirrorHydrationKeys
+        }));
         if (cancelled) return;
         onSettingsReload();
         setSyncStatus("ok");
@@ -337,7 +344,7 @@ export function useCoreCloudSync({
       cancelled = true;
       disableCloudMirror();
     };
-  }, [enabled, ownerUserId, isReadOnly]);
+  }, [enabled, ownerUserId, isReadOnly, cloudMirrorHydrationKeys]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -355,7 +362,9 @@ export function useCoreCloudSync({
           loadCloudPaymentsRecent(ownerUserId, INITIAL_PAYMENTS_LIMIT)
         ]);
         if (cancelled) return;
-        const repaired = repairDuplicateActiveUnits(cloudClients);
+        const repaired = isReadOnly
+          ? { clients: cloudClients, changed: false }
+          : repairDuplicateActiveUnits(cloudClients);
         if (repaired.changed) await saveCloudClients(ownerUserId, repaired.clients);
         setClients(repaired.clients);
         setPayments((current) => mergeById(current, cloudPayments));
