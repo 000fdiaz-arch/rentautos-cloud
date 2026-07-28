@@ -386,7 +386,7 @@ export default function AppShell({
   }
 
   async function persistClients(next: Client[]): Promise<void> {
-    if (!canEditClients && !canEditPayments && !canEditSettings) return;
+    if (!canEditClients && !canEditPayments && !canEditSettings && !canEditReceivables) return;
     if (userId && !cloudReady) return;
     const previousClients = clients;
     const previousPayments = payments;

@@ -1,4 +1,5 @@
 export type CollectionStatus =
+  | "unassigned"
   | "pending"
   | "contacted"
   | "covered"

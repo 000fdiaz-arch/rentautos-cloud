@@ -6310,6 +6310,12 @@ select.control-op-badge {
   background: #f8fafc;
 }
 
+.ar-cut-progress-pill--unassigned {
+  color: #854d0e;
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
 .ar-cut-progress-pill--contacted {
   color: #075985;
   border-color: #bae6fd;
@@ -7358,6 +7364,12 @@ select.control-op-badge {
   background: #f8fafc;
 }
 
+.ar-cut-select--unassigned {
+  color: #854d0e;
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
 .ar-cut-select--contacted {
   color: #075985;
   border-color: #bae6fd;
@@ -7440,6 +7452,12 @@ select.control-op-badge {
   color: #475569;
   background: #f8fafc;
   border-color: #cbd5e1;
+}
+
+.ar-cut-status--unassigned {
+  color: #854d0e;
+  background: #fffbeb;
+  border-color: #fde68a;
 }
 
 .ar-cut-status--contacted {

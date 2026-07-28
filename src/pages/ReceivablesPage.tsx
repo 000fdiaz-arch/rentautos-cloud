@@ -81,6 +81,7 @@ function getStatusOptionsForCut(cutKey: CollectionCutKey): Array<{ value: Collec
 
 function createEmptyCollectionStatusCounts(): Record<CollectionStatus, number> {
   return {
+    unassigned: 0,
     no_answer: 0,
     reminder: 0,
     call_later: 0,
@@ -511,14 +512,14 @@ export default function ReceivablesPage({
   const collectionStatusCounts = useMemo(() => {
     const counts = createEmptyCollectionStatusCounts();
     for (const row of filteredRows) {
-      const status = getEffectiveStatus(row) || "pending";
+      const status = getEffectiveStatus(row) || "unassigned";
       counts[status] += 1;
     }
     return counts;
   }, [filteredRows, collectionStatusByClient, todayCollectionCuts]);
   const managementAlertCount = collectionStatusFilter === "covered"
     ? collectionStatusCounts.covered
-    : collectionStatusCounts.pending + collectionStatusCounts.contacted + collectionStatusCounts.route;
+    : collectionStatusCounts.unassigned + collectionStatusCounts.pending + collectionStatusCounts.contacted + collectionStatusCounts.route;
   const managementAlertText = collectionStatusFilter === "covered"
     ? `${managementAlertCount} gestion${managementAlertCount === 1 ? "" : "es"} cubierta${managementAlertCount === 1 ? "" : "s"}`
     : `${managementAlertCount} gestion${managementAlertCount === 1 ? "" : "es"} pendiente${managementAlertCount === 1 ? "" : "s"}`;
@@ -601,7 +602,10 @@ export default function ReceivablesPage({
     [baseRows, collectionStatusByClient, todayCollectionCuts]
   );
   const closureBlockers = useMemo(() => {
-    const pendingManagementRows = baseRows.filter((row) => getEffectiveStatus(row) === "pending");
+    const pendingManagementRows = baseRows.filter((row) => {
+      const status = getEffectiveStatus(row);
+      return status === "unassigned" || status === "pending";
+    });
     const pendingWhatsAppRows = baseRows.filter((row) => getWhatsAppContactStatus(row, collectionStatusByClient[row.id]) !== "sent");
     return {
       pendingManagementRows,
@@ -616,15 +620,18 @@ export default function ReceivablesPage({
     const dailyStatus = getCutItemForClient("night", row.id)?.collectionStatus;
     if (dailyStatus) return dailyStatus;
     const stored = statusByClient[row.id]?.status;
-    if (stored === "pending" || stored === "contacted" || stored === "covered" || stored === "route") return stored;
+    if (stored === "unassigned" || stored === "pending" || stored === "contacted" || stored === "covered" || stored === "route") return stored;
     if (stored === "paid") return "covered";
     if (stored === "route_collection") return "route";
     if (shouldDefaultToCovered(row)) return "covered";
-    return "pending";
+    return "unassigned";
   }
 
   function buildClosureBlockersForStatus(statusByClient: Record<string, CollectionStatusRecord>) {
-    const pendingManagementRows = baseRows.filter((row) => getEffectiveStatusFromMap(row, statusByClient) === "pending");
+    const pendingManagementRows = baseRows.filter((row) => {
+      const status = getEffectiveStatusFromMap(row, statusByClient);
+      return status === "unassigned" || status === "pending";
+    });
     const pendingWhatsAppRows = baseRows.filter((row) => getWhatsAppContactStatus(row, statusByClient[row.id]) !== "sent");
     return { pendingManagementRows, pendingWhatsAppRows };
   }
@@ -724,11 +731,11 @@ export default function ReceivablesPage({
     const dailyStatus = getCutItemForClient("night", row.id)?.collectionStatus;
     if (dailyStatus) return dailyStatus;
     const stored = collectionStatusByClient[row.id]?.status;
-    if (stored === "pending" || stored === "contacted" || stored === "covered" || stored === "route") return stored;
+    if (stored === "unassigned" || stored === "pending" || stored === "contacted" || stored === "covered" || stored === "route") return stored;
     if (stored === "paid") return "covered";
     if (stored === "route_collection") return "route";
     if (shouldDefaultToCovered(row)) return "covered";
-    return "pending";
+    return "unassigned";
   }
 
   function getCutItemForClient(cutKey: CollectionCutKey, clientId: string): CollectionClosureItem | undefined {
@@ -803,7 +810,7 @@ export default function ReceivablesPage({
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
-        status: previous?.status ?? "pending",
+        status: previous?.status ?? "unassigned",
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
         managementType: previous?.managementType,
@@ -983,7 +990,7 @@ export default function ReceivablesPage({
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
-        status: previous?.status ?? "pending",
+        status: previous?.status ?? "unassigned",
         comment: previous?.comment ?? "",
         updatedAt: new Date().toISOString(),
         managementType: previous?.managementType,
@@ -1014,7 +1021,7 @@ export default function ReceivablesPage({
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
-        status: previous?.status ?? "pending",
+        status: previous?.status ?? "unassigned",
         comment: previous?.comment ?? "",
         updatedAt: new Date().toISOString(),
         managementType: previous?.managementType,
@@ -1291,7 +1298,7 @@ export default function ReceivablesPage({
       }
       if (blockerMessages.length > 0) {
         setCollectionCutMessage(`No se puede cerrar la gestion de ${receivablesDateLabel}: ${blockerMessages.join(" y ")}.`);
-        if (freshClosureBlockers.pendingManagementRows.length > 0) setCollectionStatusFilter("pending");
+        if (freshClosureBlockers.pendingManagementRows.length > 0) setCollectionStatusFilter("unassigned");
         else setWhatsAppContactFilter("pending");
         return;
       }
@@ -1314,7 +1321,7 @@ export default function ReceivablesPage({
         const existingItem = getCutItemForClient(cutKey, row.id);
         const savedStatus = existingItem?.collectionStatus;
         const autoStatus = cutKey === "night"
-          ? (shouldDefaultToCovered(row) ? "covered" : "pending")
+          ? (shouldDefaultToCovered(row) ? "covered" : "unassigned")
           : (hasAutoPaidStatus(row) ? "paid" : "");
         const freshStatus = getEffectiveStatusFromMap(row, statusByClientForClosure);
         const status = savedStatus && validStatuses.has(savedStatus)

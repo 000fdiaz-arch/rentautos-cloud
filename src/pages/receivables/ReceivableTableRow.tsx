@@ -91,7 +91,7 @@ function shouldDefaultToCovered(row: ReceivableRow): boolean {
 
 function defaultCollectionStatus(row: ReceivableRow, cutKey: CollectionCutKey): CollectionStatus | "" {
   if (cutKey !== "night") return "";
-  return shouldDefaultToCovered(row) ? "covered" : "pending";
+  return shouldDefaultToCovered(row) ? "covered" : "unassigned";
 }
 
 function ReceivableTableRowComponent({

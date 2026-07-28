@@ -60,6 +60,7 @@ export const STATE_FILTER_OPTIONS: Array<{ value: ReceivableState; label: string
 ];
 
 export const COLLECTION_STATUS_HELP: Record<CollectionStatus, string> = {
+  unassigned: "Aun no se ha seleccionado una gestion.",
   pending: "Se le debe generar una accion de cobro.",
   contacted: "Culmina la gestion: la renta vencida es permitida.",
   covered: "Cliente al dia, sin saldo vencido que gestionar.",
@@ -73,6 +74,7 @@ export const COLLECTION_STATUS_HELP: Record<CollectionStatus, string> = {
 };
 
 export const COLLECTION_STATUS_OPTIONS: Array<{ value: CollectionStatus; label: string; description: string }> = [
+  { value: "unassigned", label: "Por asignar", description: COLLECTION_STATUS_HELP.unassigned },
   { value: "pending", label: "Pendiente", description: COLLECTION_STATUS_HELP.pending },
   { value: "contacted", label: "Contactado", description: COLLECTION_STATUS_HELP.contacted },
   { value: "covered", label: "Cubierto", description: COLLECTION_STATUS_HELP.covered },
@@ -86,6 +88,7 @@ export const COLLECTION_STATUS_OPTIONS: Array<{ value: CollectionStatus; label: 
 ];
 
 export const DAILY_COLLECTION_STATUS_OPTIONS = COLLECTION_STATUS_OPTIONS.filter((option) => (
+  option.value === "unassigned" ||
   option.value === "pending" ||
   option.value === "contacted" ||
   option.value === "covered" ||
@@ -237,6 +240,7 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt, paymentPromiseDate, paymentPromiseUpdatedAt, routeReleaseAmount, routeReleaseUpdatedAt };
   if (
     status === "pending" ||
+    status === "unassigned" ||
     status === "contacted" ||
     status === "covered" ||
     status === "route" ||
