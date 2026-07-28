@@ -40,11 +40,9 @@ export function formatPaymentDateKey(dateKey: string): string {
 
 export function operationalToneClass(value: Client["status"]): string {
   if (value === "activo") return "control-op-badge control-op-badge--activo";
-  if (value === "cliente_enfermo") return "control-op-badge control-op-badge--enfermo";
   if (value === "taller") return "control-op-badge control-op-badge--taller";
   if (value === "chapisteria") return "control-op-badge control-op-badge--chapisteria";
   if (value === "custodia") return "control-op-badge control-op-badge--custodia";
-  if (value === "en_busqueda") return "control-op-badge control-op-badge--busqueda";
   return "control-op-badge control-op-badge--archivado";
 }
 

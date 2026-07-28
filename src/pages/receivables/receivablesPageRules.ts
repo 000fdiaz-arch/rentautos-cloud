@@ -157,11 +157,9 @@ export function clientOperationalStatusLabel(status: Client["status"] | "libre" 
   const normalized = status.trim().toLowerCase();
   if (normalized === "libre") return "LIBRE";
   if (normalized === "activo") return "Activo";
-  if (normalized === "cliente_enfermo") return "Enfermo";
   if (normalized === "taller") return "Taller";
   if (normalized === "chapisteria") return "Chapisteria";
   if (normalized === "custodia") return "Custodia";
-  if (normalized === "en_busqueda") return "En busqueda";
   if (normalized === "archivado") return "Archivado";
   return normalized.length > 0 ? status : "Sin estado";
 }
@@ -170,9 +168,8 @@ export function clientOperationalStatusTone(status: Client["status"] | "libre" |
   const normalized = status.trim().toLowerCase();
   if (normalized === "libre") return "ar-badge ar-badge--neutral";
   if (normalized === "activo") return "ar-badge ar-badge--good";
-  if (normalized === "cliente_enfermo") return "ar-badge ar-badge--warn";
   if (normalized === "taller" || normalized === "chapisteria") return "ar-badge ar-badge--today";
-  if (normalized === "custodia" || normalized === "en_busqueda") return "ar-badge ar-badge--debt";
+  if (normalized === "custodia") return "ar-badge ar-badge--debt";
   return "ar-badge ar-badge--critical";
 }
 

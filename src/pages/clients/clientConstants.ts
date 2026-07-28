@@ -44,19 +44,15 @@ export const WEEKLY_CHARGE_DAY_OPTIONS: { value: WeeklyChargeDay; label: string 
 export const CASH_CLOSINGS_KEY = "cobrapp.module2.cash_closings.v1";
 export const STATUS_EDIT_OPTIONS: Client["status"][] = [
   "activo",
-  "cliente_enfermo",
   "taller",
   "chapisteria",
-  "custodia",
-  "en_busqueda"
+  "custodia"
 ];
 export const STATUS_LABEL: Record<Client["status"], string> = {
   activo: "Activo",
-  cliente_enfermo: "Cliente Enfermo",
   taller: "Taller",
   chapisteria: "Chapisteria",
   custodia: "Custodia",
-  en_busqueda: "En busqueda",
   archivado: "Archivado"
 };
 

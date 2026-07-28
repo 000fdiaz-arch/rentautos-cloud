@@ -165,13 +165,13 @@ function normalizeClient(item: unknown): Client | null {
   const rawStatus = typeof raw.status === "string" ? raw.status.trim().toLowerCase() : "";
   const status: ClientStatus =
     rawStatus === "activo" ||
-    rawStatus === "cliente_enfermo" ||
     rawStatus === "taller" ||
     rawStatus === "chapisteria" ||
     rawStatus === "custodia" ||
-    rawStatus === "en_busqueda" ||
     rawStatus === "archivado"
       ? rawStatus
+      : rawStatus === "cliente_enfermo" || rawStatus === "en_busqueda"
+      ? "activo"
       : rawStatus === "active"
       ? "activo"
       : rawStatus === "inactive"

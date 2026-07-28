@@ -476,11 +476,6 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
     setIsFormOpen(true);
   }
 
-  function isStatusAllowedForClient(client: Client, nextStatus: Client["status"]): boolean {
-    if (nextStatus !== "cliente_enfermo") return true;
-    return client.frequency === "daily";
-  }
-
   function requiresComment(nextStatus: Client["status"]): boolean {
     return nextStatus === "taller" || nextStatus === "chapisteria" || nextStatus === "custodia" || nextStatus === "archivado";
   }
@@ -527,10 +522,6 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
   }
 
   function handleStatusSelection(client: Client, nextStatus: Client["status"]): void {
-    if (!isStatusAllowedForClient(client, nextStatus)) {
-      setErrors(["'Cliente Enfermo' solo aplica para clientes de plan diario."]);
-      return;
-    }
     if (nextStatus === client.status) return;
 
     const needsComment = requiresComment(nextStatus);

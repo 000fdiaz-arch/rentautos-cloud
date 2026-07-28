@@ -1,5 +1,15 @@
--- Rentautos: asegurar cambio atomico de estado de Autos y reparar estados partidos.
--- Ejecutar despues de 28-control-unidades-link-active-clients.sql.
+-- Rentautos: retirar estados cliente_enfermo y en_busqueda.
+-- Ejecutar despues de 36-receivables-realtime-publication.sql.
+
+update public.clients_cloud
+set data = jsonb_set(data, '{status}', to_jsonb('activo'::text), true),
+    updated_at = now()
+where lower(coalesce(data->>'status', '')) in ('cliente_enfermo', 'en_busqueda');
+
+update public.fleet_units_cloud
+set operational_status = 'activo',
+    updated_at = now()
+where lower(coalesce(operational_status, '')) in ('cliente_enfermo', 'en_busqueda');
 
 create or replace function public.set_fleet_unit_status(
   p_owner_user_id uuid,
@@ -126,23 +136,5 @@ end;
 $$;
 
 grant execute on function public.set_fleet_unit_status(uuid, text, text) to authenticated;
-
-with active_clients as (
-  select distinct on (c.user_id, upper(trim(c.data->>'unitId')))
-    c.user_id,
-    upper(trim(c.data->>'unitId')) as unit_id,
-    lower(coalesce(c.data->>'status', 'activo')) as status
-  from public.clients_cloud c
-  where nullif(trim(c.data->>'unitId'), '') is not null
-    and lower(coalesce(c.data->>'status', 'activo')) <> 'archivado'
-  order by c.user_id, upper(trim(c.data->>'unitId')), c.updated_at desc
-)
-update public.fleet_units_cloud f
-set operational_status = ac.status,
-    updated_at = now()
-from active_clients ac
-where f.user_id = ac.user_id
-  and upper(trim(f.unit_id)) = ac.unit_id
-  and lower(coalesce(f.operational_status, '')) is distinct from ac.status;
 
 notify pgrst, 'reload schema';

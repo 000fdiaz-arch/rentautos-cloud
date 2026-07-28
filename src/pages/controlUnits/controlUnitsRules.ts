@@ -64,11 +64,9 @@ export const UNIT_GROUP_MAX: Record<"A" | "B" | "C" | "D" | "T", number> = {
 export const FLEET_STATUS_OPTIONS: Array<{ value: FleetStatus; label: string }> = [
   { value: "libre", label: "LIBRE" },
   { value: "activo", label: "Activo" },
-  { value: "cliente_enfermo", label: "Cliente enfermo" },
   { value: "taller", label: "Taller" },
   { value: "chapisteria", label: "Chapisteria" },
   { value: "custodia", label: "Custodia" },
-  { value: "en_busqueda", label: "En busqueda" },
   { value: "archivado", label: "Archivado" }
 ];
 
@@ -136,11 +134,9 @@ export function statusLabel(value: string): string {
   const normalized = value.trim().toLowerCase();
   if (normalized === "libre") return "LIBRE";
   if (normalized === "activo") return "Activo";
-  if (normalized === "cliente_enfermo") return "Cliente enfermo";
   if (normalized === "taller") return "Taller";
   if (normalized === "chapisteria") return "Chapisteria";
   if (normalized === "custodia") return "Custodia";
-  if (normalized === "en_busqueda") return "En busqueda";
   if (normalized === "archivado") return "Archivado";
   return normalized.length > 0 ? value : "Sin estado";
 }
@@ -149,11 +145,9 @@ export function statusBadgeClass(value: string): string {
   const normalized = value.trim().toLowerCase();
   if (normalized === "libre") return "control-op-badge control-op-badge--sin-estado";
   if (normalized === "activo") return "control-op-badge control-op-badge--activo";
-  if (normalized === "cliente_enfermo") return "control-op-badge control-op-badge--enfermo";
   if (normalized === "taller") return "control-op-badge control-op-badge--taller";
   if (normalized === "chapisteria") return "control-op-badge control-op-badge--chapisteria";
   if (normalized === "custodia") return "control-op-badge control-op-badge--custodia";
-  if (normalized === "en_busqueda") return "control-op-badge control-op-badge--busqueda";
   if (normalized === "archivado") return "control-op-badge control-op-badge--archivado";
   return "control-op-badge control-op-badge--sin-estado";
 }

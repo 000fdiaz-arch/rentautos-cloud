@@ -856,11 +856,12 @@ async function loadControlUnitsUncached(userId: string): Promise<ControlUnitRow[
   const client = getCloudClient();
   const allRows: ControlUnitRow[] = [];
   let from = 0;
+  let useFleetTableFallback = false;
 
   while (true) {
     const to = from + PAGE_SIZE - 1;
     const result = await withCloudRetry(() => client
-      .from("fleet_units_cloud")
+      .from(useFleetTableFallback ? "fleet_units_cloud" : "vw_control_unidades")
       .select("*")
       .eq("user_id", userId)
       .order("unit_id", { ascending: true })
@@ -868,7 +869,18 @@ async function loadControlUnitsUncached(userId: string): Promise<ControlUnitRow[
     let data = result.data as ControlUnitRow[] | null;
     let error = result.error;
 
-    if (error) throw error;
+    if (error) {
+      const record = error as { code?: unknown; message?: unknown };
+      const code = typeof record.code === "string" ? record.code : "";
+      const message = typeof record.message === "string" ? record.message : "";
+      if (!useFleetTableFallback && (code === "42P01" || code === "PGRST205" || message.includes("vw_control_unidades"))) {
+        useFleetTableFallback = true;
+        from = 0;
+        allRows.length = 0;
+        continue;
+      }
+      throw error;
+    }
 
     const batch = ((data ?? []) as ControlUnitRow[]).map((row) => ({
       ...row,
@@ -876,12 +888,12 @@ async function loadControlUnitsUncached(userId: string): Promise<ControlUnitRow[
       transmission: row.transmission_type ?? row.transmission,
       kilometrage: row.mileage,
       kilometraje: row.mileage,
-      client_id: null,
-      client_name: null,
-      client_cedula: null,
-      financial_balance: null,
-      financial_status: "sin_cliente",
-      last_payment_date: null
+      client_id: useFleetTableFallback ? null : row.client_id,
+      client_name: useFleetTableFallback ? null : row.client_name,
+      client_cedula: useFleetTableFallback ? null : row.client_cedula,
+      financial_balance: useFleetTableFallback ? null : row.financial_balance,
+      financial_status: useFleetTableFallback ? "sin_cliente" : row.financial_status,
+      last_payment_date: useFleetTableFallback ? null : row.last_payment_date
     }));
     allRows.push(...batch);
     if (batch.length < PAGE_SIZE) break;

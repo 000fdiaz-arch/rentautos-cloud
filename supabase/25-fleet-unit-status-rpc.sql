@@ -30,11 +30,9 @@ begin
   if v_status not in (
     'libre',
     'activo',
-    'cliente_enfermo',
     'taller',
     'chapisteria',
     'custodia',
-    'en_busqueda',
     'archivado'
   ) then
     raise exception 'Estado de auto invalido: %', v_status;
@@ -48,17 +46,6 @@ begin
 
   if not found then
     raise exception 'Unidad % no encontrada', v_unit_id;
-  end if;
-
-  if v_status = 'cliente_enfermo' and exists (
-    select 1
-    from public.clients_cloud
-    where user_id = p_owner_user_id
-      and upper(coalesce(data->>'unitId', '')) = v_unit_id
-      and coalesce(data->>'status', 'activo') <> 'archivado'
-      and coalesce(data->>'frequency', '') <> 'daily'
-  ) then
-    raise exception 'Cliente Enfermo solo aplica para clientes de plan diario';
   end if;
 
   if v_status in ('libre', 'archivado') then

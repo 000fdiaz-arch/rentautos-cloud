@@ -5,15 +5,14 @@ function normalizeClientStatus(rawStatus: unknown, archivedAt: unknown): ClientS
   const value = typeof rawStatus === "string" ? rawStatus.trim().toLowerCase() : "";
   if (
     value === "activo" ||
-    value === "cliente_enfermo" ||
     value === "taller" ||
     value === "chapisteria" ||
     value === "custodia" ||
-    value === "en_busqueda" ||
     value === "archivado"
   ) {
     return value;
   }
+  if (value === "cliente_enfermo" || value === "en_busqueda") return "activo";
   if (value === "active") return "activo";
   if (value === "inactive") return "archivado";
   if (typeof archivedAt === "string" && archivedAt.trim().length > 0) return "archivado";

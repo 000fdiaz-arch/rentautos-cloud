@@ -1146,12 +1146,6 @@ select.control-op-badge {
   border-color: #86efac;
 }
 
-.control-op-badge--enfermo {
-  color: #92400e;
-  background: #fef3c7;
-  border-color: #fcd34d;
-}
-
 .control-op-badge--taller {
   color: #1d4ed8;
   background: #dbeafe;
@@ -1168,12 +1162,6 @@ select.control-op-badge {
   color: #9a3412;
   background: #ffedd5;
   border-color: #fdba74;
-}
-
-.control-op-badge--busqueda {
-  color: #b45309;
-  background: #fef3c7;
-  border-color: #f59e0b;
 }
 
 .control-op-badge--archivado {

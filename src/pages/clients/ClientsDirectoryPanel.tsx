@@ -405,11 +405,7 @@ export function ClientsDirectoryPanel({
                               title={client.statusComment ? `Motivo: ${client.statusComment}` : undefined}
                             >
                               {STATUS_EDIT_OPTIONS.map((status) => (
-                                <option
-                                  key={status}
-                                  value={status}
-                                  disabled={status === "cliente_enfermo" && client.frequency !== "daily"}
-                                >
+                                <option key={status} value={status}>
                                   {STATUS_LABEL[status]}
                                 </option>
                               ))}

@@ -49,11 +49,9 @@ export type ClientTicket = {
 
 export type ClientStatus =
   | "activo"
-  | "cliente_enfermo"
   | "taller"
   | "chapisteria"
   | "custodia"
-  | "en_busqueda"
   | "archivado";
 
 export type Client = {
