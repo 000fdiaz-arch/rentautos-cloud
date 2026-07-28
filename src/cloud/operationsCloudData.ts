@@ -755,7 +755,49 @@ function toIsoTimestamp(value: unknown): number {
 function rowTimestamp(value: unknown): number {
   if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
   const row = value as Record<string, unknown>;
-  return Math.max(toIsoTimestamp(row.updatedAt), toIsoTimestamp(row.managementUpdatedAt));
+  return Math.max(
+    toIsoTimestamp(row.updatedAt),
+    toIsoTimestamp(row.managementUpdatedAt),
+    toIsoTimestamp(row.routeReleaseUpdatedAt),
+    toIsoTimestamp(row.supportNoteUpdatedAt),
+    toIsoTimestamp(row.whatsAppMessageCopiedAt),
+    toIsoTimestamp(row.whatsAppMessageSentAt),
+    toIsoTimestamp(row.paymentPromiseUpdatedAt)
+  );
+}
+
+function recordOrNull(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function mergeStreetManagementRow(currentValue: unknown, patchValue: unknown): unknown {
+  const current = recordOrNull(currentValue);
+  const patch = recordOrNull(patchValue);
+  if (!current || !patch) return patchValue;
+
+  const merged: Record<string, unknown> = { ...current, ...patch };
+  const currentWhatsAppTs = Math.max(
+    toIsoTimestamp(current.whatsAppMessageCopiedAt),
+    toIsoTimestamp(current.whatsAppMessageSentAt)
+  );
+  const patchWhatsAppTs = Math.max(
+    toIsoTimestamp(patch.whatsAppMessageCopiedAt),
+    toIsoTimestamp(patch.whatsAppMessageSentAt)
+  );
+
+  if (currentWhatsAppTs > patchWhatsAppTs) {
+    merged.whatsAppMessageCopiedAt = current.whatsAppMessageCopiedAt;
+    merged.whatsAppMessageSentAt = current.whatsAppMessageSentAt;
+    merged.whatsAppMessageText = current.whatsAppMessageText;
+  }
+
+  if (toIsoTimestamp(current.supportNoteUpdatedAt) > toIsoTimestamp(patch.supportNoteUpdatedAt)) {
+    merged.supportNote = current.supportNote;
+    merged.supportNoteUpdatedAt = current.supportNoteUpdatedAt;
+  }
+
+  return merged;
 }
 
 export async function syncCloudStreetManagementDelta(
@@ -814,7 +856,7 @@ export async function syncCloudStreetManagementDelta(
     const currentTs = rowTimestamp(currentRow);
     if (clearedAt > 0 && patchTs <= clearedAt) continue;
     if (!currentRow || patchTs >= currentTs) {
-      merged[clientId] = patchValue;
+      merged[clientId] = mergeStreetManagementRow(currentRow, patchValue);
     }
   }
 
