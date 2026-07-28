@@ -125,6 +125,11 @@ function ReceivableTableRowComponent({
   const sentTime = sentAt && !Number.isNaN(sentAt.getTime())
     ? sentAt.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" })
     : "";
+  const whatsAppActivityLabel = messageWasSent
+    ? `WhatsApp enviado${sentTime ? ` ${sentTime}` : ""}`
+    : messageWasCopied
+      ? "WhatsApp abierto"
+      : "";
   const whatsAppButtonTitle = !requiresWhatsAppManagement
     ? "Realizado: sin saldo atrasado"
     : messageWasSent
@@ -231,7 +236,14 @@ function ReceivableTableRowComponent({
             <div className="ar-client-money-main">
               <div className="ar-client-summary-grid">
                 <div className="ar-card-actions ar-card-actions--compact">
-                  <strong className="ar-unit-id">{row.unitId}</strong>
+                  <div className="ar-unit-stack">
+                    <strong className="ar-unit-id">{row.unitId}</strong>
+                    {whatsAppActivityLabel ? (
+                      <span className={`ar-whatsapp-audit-badge ar-whatsapp-audit-badge--${messageWasSent ? "sent" : "opened"}`}>
+                        {whatsAppActivityLabel}
+                      </span>
+                    ) : null}
+                  </div>
                   {whatsAppIsResolved ? (
                     <span
                       className="ar-whatsapp-status ar-whatsapp-status--sent ar-whatsapp-icon-button ar-whatsapp-icon-button--sent"

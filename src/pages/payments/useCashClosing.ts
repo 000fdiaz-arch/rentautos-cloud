@@ -1,37 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
-import { getBusinessDateKey, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../../billing";
+import { getBusinessDateKey, isChargeDay, parseDateKey, toDateKey } from "../../billing";
 import {
   loadCloudCashClosingAudit,
   loadCloudCashClosings,
   loadCloudChargeRunLateFeeEntryIds,
   loadCloudChargeRunSnapshots,
-  loadCloudCollectionClosures,
   loadCloudChargeRuns,
-  loadCloudStreetManagement,
   saveCloudCashClosingAudit,
   saveCloudCashClosings,
-  saveCloudCollectionClosures,
-  saveCloudChargeRuns,
-  saveCloudStreetManagement
+  saveCloudChargeRuns
 } from "../../cloudData";
 import { formatCurrency } from "../../format";
 import { applyLateFeesForClosingDate, subtractOtherCharge } from "../../lateFees";
 import { supabase } from "../../lib/supabase";
 import { isSupabaseOnlyMode } from "../../persistenceMode";
-import { buildReceivableRows } from "../../receivables";
 import { loadLateFeeLedger, saveLateFeeLedger } from "../../storage";
 import type { Client, LateFeeLedgerEntry, LateFeeSettings, Payment } from "../../types";
 import { loadCashSummaryRange } from "../../cashLedger";
 import { stableEqual } from "../../stableSerialize";
-import {
-  resolveCollectionStatusForClosure,
-  roundMoney
-} from "./paymentRules";
+import { roundMoney } from "./paymentRules";
 import {
   loadCashClosingAudit,
   loadCashClosings,
   loadChargeRuns,
-  parseCollectionStatusesFromStorage,
   saveCashClosingAudit,
   saveCashClosings,
   saveChargeRuns
@@ -43,12 +34,7 @@ import type {
   CashCloseClientSnapshot,
   ChargeCloseReport,
   ChargeReportRow,
-  ChargeRun,
-  CollectionClosureDay,
-  CollectionClosureItem,
-  CollectionClosureEntry,
-  CollectionClosureSnapshot,
-  CollectionStatus
+  ChargeRun
 } from "./paymentTypes";
 
 type Options = {
@@ -77,16 +63,6 @@ function dedupeCashClosings(rows: CashClosing[]): CashClosing[] {
     }
   }
   return [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
-}
-
-function getExistingCollectionClosureCuts(
-  entry: CollectionClosureEntry | undefined
-): Partial<Record<"morning" | "afternoon" | "night", CollectionClosureSnapshot>> {
-  if (!entry) return {};
-  const maybeDay = entry as CollectionClosureDay;
-  if (maybeDay.cuts && typeof maybeDay.cuts === "object") return maybeDay.cuts;
-  const snapshot = entry as CollectionClosureSnapshot;
-  return { [snapshot.cutKey ?? "night"]: snapshot };
 }
 
 export default function useCashClosing({
@@ -656,68 +632,6 @@ async function handleCloseCashForDate(): Promise<void> {
     };
     const nextAudit = [event, ...cashClosingAudit].slice(0, 300);
     await persistCashClosingAudit(nextAudit);
-
-    const closureDateRef = parseDateKey(date) ?? startOfDay(new Date());
-    const receivableRows = buildReceivableRows(clients, payments, closureDateRef);
-    const streetManagement = await loadCloudStreetManagement(dataOwnerUserId);
-    const statusesByClient = parseCollectionStatusesFromStorage(JSON.stringify(streetManagement));
-    const closureTotals: Record<CollectionStatus, number> = {
-      no_answer: 0,
-      reminder: 0,
-      call_later: 0,
-      paid: 0,
-      route_collection: 0,
-      route_not_sent: 0,
-      pending: 0,
-      contacted: 0,
-      covered: 0,
-      route: 0
-    };
-    const closureItems: CollectionClosureItem[] = receivableRows.map((row) => {
-      const resolved = resolveCollectionStatusForClosure(row, statusesByClient, date);
-      const statusRecord = statusesByClient[row.id];
-      closureTotals[resolved.status] += 1;
-      return {
-        clientId: row.id,
-        unitId: row.unitId,
-        clientName: row.name,
-        lastPaymentDate: row.lastPaymentDate,
-        receivableState: row.state,
-        totalPending: row.totalPending,
-        collectionStatus: resolved.status,
-        comment: resolved.comment,
-        autoApplied: resolved.autoApplied,
-        managementType: statusRecord?.managementType,
-        managementAmount: statusRecord?.managementAmount,
-        managementComment: statusRecord?.managementComment,
-        whatsAppMessageCopiedAt: statusRecord?.whatsAppMessageCopiedAt,
-        whatsAppMessageSentAt: statusRecord?.whatsAppMessageSentAt
-      };
-    });
-    const collectionClosureSnapshot: CollectionClosureSnapshot = {
-      date,
-      cutKey: "night",
-      cutLabel: "Cierre final",
-      closedAt: new Date().toISOString(),
-      actor,
-      reason,
-      totals: closureTotals,
-      items: closureItems
-    };
-    const cloudClosures = await loadCloudCollectionClosures(dataOwnerUserId);
-    const existingCuts = getExistingCollectionClosureCuts(cloudClosures[date] as CollectionClosureEntry | undefined);
-    const nextClosures = {
-      ...cloudClosures,
-      [date]: {
-        date,
-        cuts: {
-          ...existingCuts,
-          night: collectionClosureSnapshot
-        }
-      }
-    };
-    await saveCloudCollectionClosures(dataOwnerUserId, nextClosures);
-    await saveCloudStreetManagement(dataOwnerUserId, {});
 
     const chargeInfo = chargeResult.alreadyProcessed
       ? `Cobros de ${chargeResult.targetDate} ya estaban aplicados previamente.`

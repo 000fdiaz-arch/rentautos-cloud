@@ -798,8 +798,13 @@ export async function syncCloudStreetManagementDelta(
   if (selectError) throw selectError;
   const currentData = normalizeRecord((data as { data?: unknown } | null)?.data);
   const merged: Record<string, unknown> = { ...currentData };
+  const clearedAt = rowTimestamp(currentData.__clearedAt);
 
   for (const [clientId, patchValue] of Object.entries(changedPatch)) {
+    if (clientId === "__clearedAt") {
+      if (rowTimestamp(patchValue) >= clearedAt) merged.__clearedAt = patchValue;
+      continue;
+    }
     if (patchValue === null) {
       delete merged[clientId];
       continue;
@@ -807,6 +812,7 @@ export async function syncCloudStreetManagementDelta(
     const currentRow = merged[clientId];
     const patchTs = rowTimestamp(patchValue);
     const currentTs = rowTimestamp(currentRow);
+    if (clearedAt > 0 && patchTs <= clearedAt) continue;
     if (!currentRow || patchTs >= currentTs) {
       merged[clientId] = patchValue;
     }

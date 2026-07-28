@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { exportReceivablesToExcel, exportReceivablesToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
-import { loadCloudCollectionClosures, loadControlUnits, saveCloudCollectionClosures, type ControlUnitRow } from "../cloudData";
+import {
+  loadCloudCollectionClosures,
+  loadCloudStreetManagement,
+  loadControlUnits,
+  saveCloudCollectionClosures,
+  saveCloudStreetManagement,
+  syncCloudStreetManagementDelta,
+  type ControlUnitRow
+} from "../cloudData";
 import { supabase } from "../lib/supabase";
 import {
   buildReceivableRows,
@@ -50,7 +58,6 @@ import {
   renderSortIcon,
   toTimestamp,
   type CollectionClosureItem,
-  type CollectionClosureSnapshot,
   type CollectionClosuresByDate,
   type CollectionCutKey,
   type CollectionStatusFilter,
@@ -63,11 +70,10 @@ type Props = {
   payments: Payment[];
   onClientsChange?: (next: Client[]) => void | Promise<void>;
   dataOwnerUserId?: string | null;
+  receivablesDateKey?: string;
   streetManagementData?: Record<string, unknown>;
   onStreetManagementPersist?: (value: Record<string, unknown>) => Promise<boolean> | boolean;
 };
-
-const WHATSAPP_REALIZED_CLEANUP_KEY = "cobrapp.module3.whatsapp_realized_cleanup.v1";
 
 function getStatusOptionsForCut(cutKey: CollectionCutKey): Array<{ value: CollectionStatus; label: string; description: string }> {
   return cutKey === "night" ? DAILY_COLLECTION_STATUS_OPTIONS : COLLECTION_STATUS_OPTIONS;
@@ -107,16 +113,6 @@ function getWhatsAppContactStatus(row: ReceivableRow, record: CollectionStatusRe
   return "ready";
 }
 
-function removeWhatsAppAudit(record: CollectionStatusRecord): CollectionStatusRecord {
-  const {
-    whatsAppMessageCopiedAt: _whatsAppMessageCopiedAt,
-    whatsAppMessageSentAt: _whatsAppMessageSentAt,
-    whatsAppMessageText: _whatsAppMessageText,
-    ...rest
-  } = record;
-  return rest;
-}
-
 function parsePositiveMoneyInput(value: string | null): number | null {
   if (value === null) return null;
   const normalized = value.replace(/[$,\s]/g, "");
@@ -132,6 +128,12 @@ function dateKeyFromTimestampValue(value: string | undefined): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function dateFromDateKey(dateKey: string, fallback: Date): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return fallback;
+  const date = new Date(`${dateKey}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? fallback : date;
 }
 
 function paymentReleasesRoute(payment: Payment, clientId: string, releaseAmount: number, routeStartedAt: number, routeDateKey: string): boolean {
@@ -151,6 +153,7 @@ export default function ReceivablesPage({
   payments,
   onClientsChange,
   dataOwnerUserId,
+  receivablesDateKey,
   streetManagementData,
   onStreetManagementPersist
 }: Props) {
@@ -195,11 +198,54 @@ export default function ReceivablesPage({
   const optimisticStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
   const saveTokenByClientRef = useRef<Record<string, number>>({});
   const latestCollectionStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
+  const streetManagementDataRef = useRef<Record<string, unknown>>(streetManagementData ?? {});
 
   useEffect(() => {
     const timerId = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timerId);
   }, []);
+
+  const applyStreetManagementData = useCallback((rawData: Record<string, unknown>): void => {
+    const parsed = parseCollectionStatusMapFromStorage(JSON.stringify(rawData ?? {}));
+    const merged: Record<string, CollectionStatusRecord> = { ...parsed };
+    const optimistic = optimisticStatusByClientRef.current;
+    for (const [clientId, optimisticRecord] of Object.entries(optimistic)) {
+      const incoming = merged[clientId];
+      if (!incoming || toTimestamp(incoming.updatedAt) < toTimestamp(optimisticRecord.updatedAt)) {
+        merged[clientId] = optimisticRecord;
+        continue;
+      }
+      delete optimistic[clientId];
+    }
+    const incomingSerialized = JSON.stringify(merged);
+    if (streetPersistPendingRef.current && incomingSerialized !== lastStreetSnapshotRef.current) return;
+    setCollectionStatusByClient(merged);
+    latestCollectionStatusByClientRef.current = merged;
+    lastStreetSnapshotRef.current = incomingSerialized;
+  }, []);
+
+  useEffect(() => {
+    streetManagementDataRef.current = streetManagementData ?? {};
+    if (!dataOwnerUserId) applyStreetManagementData(streetManagementDataRef.current);
+  }, [applyStreetManagementData, dataOwnerUserId, streetManagementData]);
+
+  const loadStreetManagementFromCloud = useCallback(async (): Promise<void> => {
+    if (!dataOwnerUserId) {
+      applyStreetManagementData(streetManagementDataRef.current);
+      return;
+    }
+    try {
+      const cloudData = await loadCloudStreetManagement(dataOwnerUserId);
+      applyStreetManagementData(cloudData);
+    } catch (error) {
+      console.error("No se pudo cargar gestion de cobranza desde nube.", error);
+      applyStreetManagementData(streetManagementDataRef.current);
+    }
+  }, [applyStreetManagementData, dataOwnerUserId]);
+
+  useEffect(() => {
+    void loadStreetManagementFromCloud();
+  }, [loadStreetManagementFromCloud]);
 
   useEffect(() => {
     if (!dataOwnerUserId) {
@@ -221,24 +267,6 @@ export default function ReceivablesPage({
   }, [dataOwnerUserId]);
 
   useEffect(() => {
-    const parsed = parseCollectionStatusMapFromStorage(JSON.stringify(streetManagementData ?? {}));
-    const merged: Record<string, CollectionStatusRecord> = { ...parsed };
-    const optimistic = optimisticStatusByClientRef.current;
-    for (const [clientId, optimisticRecord] of Object.entries(optimistic)) {
-      const incoming = merged[clientId];
-      if (!incoming || toTimestamp(incoming.updatedAt) < toTimestamp(optimisticRecord.updatedAt)) {
-        merged[clientId] = optimisticRecord;
-        continue;
-      }
-      delete optimistic[clientId];
-    }
-    const incomingSerialized = JSON.stringify(merged);
-    if (streetPersistPendingRef.current && incomingSerialized !== lastStreetSnapshotRef.current) return;
-    setCollectionStatusByClient(merged);
-    lastStreetSnapshotRef.current = incomingSerialized;
-  }, [streetManagementData]);
-
-  useEffect(() => {
     const serialized = JSON.stringify(collectionStatusByClient);
     latestCollectionStatusByClientRef.current = collectionStatusByClient;
     if (serialized === lastStreetSnapshotRef.current) return;
@@ -248,43 +276,55 @@ export default function ReceivablesPage({
     persistStreetTimerRef.current = window.setTimeout(() => {
       void (async () => {
         const saveTokenSnapshot = { ...saveTokenByClientRef.current };
-        if (onStreetManagementPersist) {
-          const ok = await onStreetManagementPersist(collectionStatusByClient as Record<string, unknown>);
-          if (ok === false) {
-            setStatusSavingByClient((current) => {
-              const next = { ...current };
-              for (const [clientId, token] of Object.entries(saveTokenSnapshot)) {
-                if (saveTokenByClientRef.current[clientId] === token) next[clientId] = false;
-              }
-              return next;
-            });
-            streetPersistPendingRef.current = false;
-            return;
+        const previousSnapshot = parseCollectionStatusMapFromStorage(lastStreetSnapshotRef.current);
+        try {
+          if (dataOwnerUserId) {
+            await syncCloudStreetManagementDelta(
+              dataOwnerUserId,
+              previousSnapshot as Record<string, unknown>,
+              collectionStatusByClient as Record<string, unknown>
+            );
+          } else if (onStreetManagementPersist) {
+            const ok = await onStreetManagementPersist(collectionStatusByClient as Record<string, unknown>);
+            if (ok === false) return;
           }
+          lastStreetSnapshotRef.current = serialized;
+        } catch (error) {
+          console.error("No se pudo guardar la gestion de cobranza.", error);
+          setCollectionCutMessage("No se pudo guardar la gestion de cobranza. Revisa la conexion e intenta nuevamente.");
+        } finally {
+          setStatusSavingByClient((current) => {
+            const next = { ...current };
+            for (const [clientId, token] of Object.entries(saveTokenSnapshot)) {
+              if (saveTokenByClientRef.current[clientId] === token) next[clientId] = false;
+            }
+            return next;
+          });
+          streetPersistPendingRef.current = false;
         }
-        lastStreetSnapshotRef.current = serialized;
-        setStatusSavingByClient((current) => {
-          const next = { ...current };
-          for (const [clientId, token] of Object.entries(saveTokenSnapshot)) {
-            if (saveTokenByClientRef.current[clientId] === token) next[clientId] = false;
-          }
-          return next;
-        });
-        streetPersistPendingRef.current = false;
       })();
     }, 100);
-  }, [collectionStatusByClient, onStreetManagementPersist]);
+  }, [collectionStatusByClient, dataOwnerUserId, onStreetManagementPersist]);
 
   useEffect(() => {
     return () => {
       if (persistStreetTimerRef.current) window.clearTimeout(persistStreetTimerRef.current);
-      if (streetPersistPendingRef.current && onStreetManagementPersist) {
+      if (streetPersistPendingRef.current) {
         const latestStatusByClient = latestCollectionStatusByClientRef.current;
+        const previousSnapshot = parseCollectionStatusMapFromStorage(lastStreetSnapshotRef.current);
         lastStreetSnapshotRef.current = JSON.stringify(latestStatusByClient);
-        void onStreetManagementPersist(latestStatusByClient as Record<string, unknown>);
+        if (dataOwnerUserId) {
+          void syncCloudStreetManagementDelta(
+            dataOwnerUserId,
+            previousSnapshot as Record<string, unknown>,
+            latestStatusByClient as Record<string, unknown>
+          );
+        } else if (onStreetManagementPersist) {
+          void onStreetManagementPersist(latestStatusByClient as Record<string, unknown>);
+        }
       }
     };
-  }, [onStreetManagementPersist]);
+  }, [dataOwnerUserId, onStreetManagementPersist]);
 
   const loadCollectionClosuresFromCloud = useCallback(async (): Promise<void> => {
     if (!dataOwnerUserId) {
@@ -310,16 +350,22 @@ export default function ReceivablesPage({
       setCollectionClosuresLoaded(false);
       return;
     }
-    if (viewMode !== "historial" || collectionClosuresLoaded) return;
+    if (collectionClosuresLoaded) return;
     void loadCollectionClosuresFromCloud();
-  }, [collectionClosuresLoaded, dataOwnerUserId, loadCollectionClosuresFromCloud, viewMode]);
+  }, [collectionClosuresLoaded, dataOwnerUserId, loadCollectionClosuresFromCloud]);
 
   useEffect(() => {
     if (!dataOwnerUserId || !supabase || !collectionClosuresLoaded) return;
     const client = supabase;
     const channel = client
       .channel(`collection-closures-live-${dataOwnerUserId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "collection_closures_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "collection_closures_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, (payload) => {
+        const nextData = (payload.new as { data?: unknown } | null)?.data;
+        if (nextData && typeof nextData === "object" && !Array.isArray(nextData)) {
+          setCollectionClosuresByDate(nextData as CollectionClosuresByDate);
+          setCollectionClosuresLoaded(true);
+          return;
+        }
         void loadCollectionClosuresFromCloud();
       })
       .subscribe();
@@ -327,6 +373,25 @@ export default function ReceivablesPage({
       void client.removeChannel(channel);
     };
   }, [collectionClosuresLoaded, dataOwnerUserId, loadCollectionClosuresFromCloud]);
+
+  useEffect(() => {
+    if (!dataOwnerUserId || !supabase) return;
+    const client = supabase;
+    const channel = client
+      .channel(`street-management-live-${dataOwnerUserId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "street_management_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, (payload) => {
+        const nextData = (payload.new as { data?: unknown } | null)?.data;
+        if (nextData && typeof nextData === "object" && !Array.isArray(nextData)) {
+          applyStreetManagementData(nextData as Record<string, unknown>);
+          return;
+        }
+        void loadStreetManagementFromCloud();
+      })
+      .subscribe();
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [applyStreetManagementData, dataOwnerUserId, loadStreetManagementFromCloud]);
 
   useEffect(() => {
     const historyDates = getCollectionClosureDateKeys(collectionClosuresByDate);
@@ -339,34 +404,24 @@ export default function ReceivablesPage({
     }
   }, [collectionClosuresByDate, selectedHistoryDate]);
 
+  const todayDateKey = useMemo(() => {
+    const fallbackYear = now.getFullYear();
+    const fallbackMonth = String(now.getMonth() + 1).padStart(2, "0");
+    const fallbackDay = String(now.getDate()).padStart(2, "0");
+    const fallback = `${fallbackYear}-${fallbackMonth}-${fallbackDay}`;
+    return receivablesDateKey && /^\d{4}-\d{2}-\d{2}$/.test(receivablesDateKey) ? receivablesDateKey : fallback;
+  }, [now, receivablesDateKey]);
+  const receivablesDate = useMemo(() => dateFromDateKey(todayDateKey, now), [now, todayDateKey]);
+  const receivablesDateLabel = useMemo(() => formatDate(receivablesDate), [receivablesDate]);
+
   const baseRows = useMemo(() => {
-    if (clients.length === 0) return createMockReceivableRows(now);
-    return buildReceivableRows(clients, payments, now, fleetUnits);
-  }, [clients, fleetUnits, now, payments]);
+    if (clients.length === 0) return createMockReceivableRows(receivablesDate);
+    return buildReceivableRows(clients, payments, receivablesDate, fleetUnits);
+  }, [clients, fleetUnits, payments, receivablesDate]);
 
   useEffect(() => {
     tableScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [collectionStatusFilter, filters, sortDirection, sortField, viewMode, whatsAppContactFilter]);
-
-  useEffect(() => {
-    if (localStorage.getItem(WHATSAPP_REALIZED_CLEANUP_KEY) === "done") return;
-    const entries = Object.entries(collectionStatusByClient);
-    if (entries.length === 0) return;
-
-    let changed = false;
-    const cleaned = Object.fromEntries(entries.map(([clientId, record]) => {
-      if (!record.whatsAppMessageCopiedAt && !record.whatsAppMessageSentAt && !record.whatsAppMessageText) {
-        return [clientId, record] as const;
-      }
-      changed = true;
-      return [clientId, removeWhatsAppAudit(record)] as const;
-    }));
-
-    if (changed) {
-      localStorage.setItem(WHATSAPP_REALIZED_CLEANUP_KEY, "done");
-      setCollectionStatusByClient(cleaned);
-    }
-  }, [collectionStatusByClient]);
 
   const clientStatusById = useMemo(() => {
     const map = new Map<string, Client["status"]>();
@@ -385,17 +440,12 @@ export default function ReceivablesPage({
     return groups.sort((a, b) => a.localeCompare(b));
   }, [baseRows]);
 
-  const todayDateKey = useMemo(() => {
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-    const day = String(now.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  }, [now]);
-  const isTodayCollectionClosed = false;
   const todayCollectionCuts = useMemo(
     () => getCollectionClosureCuts(collectionClosuresByDate[todayDateKey]),
     [collectionClosuresByDate, todayDateKey]
   );
+  const isCollectionDateClosed = !!todayCollectionCuts.night;
+  const isTodayCollectionClosed = isCollectionClosuresLoading || isCollectionDateClosed;
 
   useEffect(() => {
     const routeEntries = Object.entries(collectionStatusByClient).filter(([, record]) => (
@@ -441,35 +491,8 @@ export default function ReceivablesPage({
     if (changedStatus) {
       setCollectionStatusByClient(nextStatusByClient);
       latestCollectionStatusByClientRef.current = nextStatusByClient;
-      if (onStreetManagementPersist) {
-        lastStreetSnapshotRef.current = JSON.stringify(nextStatusByClient);
-        void onStreetManagementPersist(nextStatusByClient as Record<string, unknown>);
-      }
     }
-
-    const todayClosure = todayCollectionCuts.night;
-    if (!todayClosure) return;
-    const nextItems = todayClosure.items.map((item) => (
-      releasedClientIds.has(item.clientId) && item.collectionStatus === "route"
-        ? { ...item, collectionStatus: "contacted" as CollectionStatus, autoApplied: false }
-        : item
-    ));
-    if (nextItems.every((item, index) => item === todayClosure.items[index])) return;
-    persistCollectionClosures({
-      ...collectionClosuresByDate,
-      [todayDateKey]: {
-        date: todayDateKey,
-        cuts: {
-          ...todayCollectionCuts,
-          night: {
-            ...todayClosure,
-            totals: computeCutTotals(nextItems),
-            items: nextItems
-          }
-        }
-      }
-    });
-  }, [collectionStatusByClient, collectionClosuresByDate, payments, todayCollectionCuts, todayDateKey]);
+  }, [collectionStatusByClient, payments]);
 
   const filteredRows = useMemo(() => filterReceivableRows(baseRows, filters), [baseRows, filters]);
   const collectionStatusCounts = useMemo(() => {
@@ -564,7 +587,34 @@ export default function ReceivablesPage({
     () => baseRows.filter((row) => hasRouteCollection(row) || isNightRouteCollection(row)).length,
     [baseRows, collectionStatusByClient, todayCollectionCuts]
   );
+  const closureBlockers = useMemo(() => {
+    const pendingManagementRows = baseRows.filter((row) => getEffectiveStatus(row) === "pending");
+    const pendingWhatsAppRows = baseRows.filter((row) => getWhatsAppContactStatus(row, collectionStatusByClient[row.id]) !== "sent");
+    return {
+      pendingManagementRows,
+      pendingWhatsAppRows
+    };
+  }, [baseRows, collectionStatusByClient, todayCollectionCuts]);
 
+  function getEffectiveStatusFromMap(
+    row: ReceivableRow,
+    statusByClient: Record<string, CollectionStatusRecord>
+  ): CollectionStatus | "" {
+    const dailyStatus = getCutItemForClient("night", row.id)?.collectionStatus;
+    if (dailyStatus) return dailyStatus;
+    const stored = statusByClient[row.id]?.status;
+    if (stored === "pending" || stored === "contacted" || stored === "covered" || stored === "route") return stored;
+    if (stored === "paid") return "covered";
+    if (stored === "route_collection") return "route";
+    if (shouldDefaultToCovered(row)) return "covered";
+    return "pending";
+  }
+
+  function buildClosureBlockersForStatus(statusByClient: Record<string, CollectionStatusRecord>) {
+    const pendingManagementRows = baseRows.filter((row) => getEffectiveStatusFromMap(row, statusByClient) === "pending");
+    const pendingWhatsAppRows = baseRows.filter((row) => getWhatsAppContactStatus(row, statusByClient[row.id]) !== "sent");
+    return { pendingManagementRows, pendingWhatsAppRows };
+  }
   function updateFilter<K extends keyof ReceivableFilters>(key: K, value: ReceivableFilters[K]) {
     setFilters((current) => ({ ...current, [key]: value }));
   }
@@ -694,6 +744,7 @@ export default function ReceivablesPage({
   }
 
   function handleOpenWhatsAppPhoneModal(clientId: string): void {
+    if (isTodayCollectionClosed) return;
     const client = clients.find((item) => item.id === clientId);
     setWhatsAppModalClientId(clientId);
     setWhatsAppPhoneDraft(normalizeWhatsAppDraft(client?.whatsAppPhone ?? ""));
@@ -701,6 +752,7 @@ export default function ReceivablesPage({
   }
 
   async function handleSaveWhatsAppPhone(): Promise<void> {
+    if (isTodayCollectionClosed) return;
     if (!whatsAppModalClientId) return;
     const normalized = normalizeWhatsAppDraft(whatsAppPhoneDraft);
     if (normalized.length > 0 && normalized.length < 8) {
@@ -731,12 +783,13 @@ export default function ReceivablesPage({
   }
 
   function handleSupportNoteChange(clientId: string, value: string): void {
+    if (isTodayCollectionClosed) return;
     markClientStatusAsSaving(clientId);
     const note = normalizeSupportNote(value);
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
-        status: previous?.status ?? "reminder",
+        status: previous?.status ?? "pending",
         comment: previous?.comment ?? "",
         updatedAt: previous?.updatedAt ?? new Date().toISOString(),
         managementType: previous?.managementType,
@@ -767,97 +820,33 @@ export default function ReceivablesPage({
     return totals;
   }
 
-  function buildCutItem(row: ReceivableRow, status: CollectionStatus, comment: string): CollectionClosureItem {
-    const statusRecord = collectionStatusByClient[row.id];
-    return {
-      clientId: row.id,
-      unitId: row.unitId,
-      clientName: row.name,
-      lastPaymentDate: row.lastPaymentDate,
-      receivableState: row.state,
-      totalPending: row.totalPending,
-      collectionStatus: status,
-      comment: status === "call_later" ? normalizeComment(comment) : "",
-      autoApplied: false,
-      managementType: statusRecord?.managementType,
-      managementAmount: statusRecord?.managementAmount,
-      managementComment: statusRecord?.managementComment,
-      whatsAppMessageCopiedAt: statusRecord?.whatsAppMessageCopiedAt,
-      whatsAppMessageSentAt: statusRecord?.whatsAppMessageSentAt
-    };
-  }
-
-  function persistCollectionClosures(nextClosures: CollectionClosuresByDate): void {
-    setCollectionClosuresByDate(nextClosures);
-    setCollectionClosuresLoaded(true);
-    if (!dataOwnerUserId) {
-      setCollectionCutMessage("No se pudo guardar el corte: falta conexion con la nube del negocio.");
-      return;
+  async function clearLiveCollectionStatusAfterClosure(): Promise<void> {
+    const emptyStatus: Record<string, CollectionStatusRecord> = {};
+    const clearMarker: Record<string, unknown> = { __clearedAt: { updatedAt: new Date().toISOString() } };
+    if (persistStreetTimerRef.current) {
+      window.clearTimeout(persistStreetTimerRef.current);
+      persistStreetTimerRef.current = null;
     }
-    void saveCloudCollectionClosures(dataOwnerUserId, nextClosures as Record<string, unknown>)
-      .catch((error) => {
-        console.error("No se pudo guardar el corte de cobranza.", error);
-        setCollectionCutMessage("No se pudo guardar el corte de cobranza.");
-      });
-  }
-
-  function updateCollectionCutItem(cutKey: CollectionCutKey, clientId: string, patch: { status?: string; comment?: string; managementAmount?: number | null }): void {
-    const row = baseRows.find((item) => item.id === clientId);
-    if (!row) return;
-    const cutOption = COLLECTION_CUT_OPTIONS.find((option) => option.key === cutKey);
-    const existingCuts = getCollectionClosureCuts(collectionClosuresByDate[todayDateKey]);
-    const existingClosure = existingCuts[cutKey];
-    const existingItems = existingClosure?.items ?? [];
-    const existingItem = existingItems.find((item) => item.clientId === clientId);
-    const nextStatus = patch.status !== undefined
-      ? patch.status
-      : existingItem?.collectionStatus ?? "";
-    const validStatuses = new Set(getStatusOptionsForCut(cutKey).map((option) => option.value));
-
-    const itemsWithoutClient = existingItems.filter((item) => item.clientId !== clientId);
-    let nextItems = itemsWithoutClient;
-    if (validStatuses.has(nextStatus as CollectionStatus)) {
-      const nextComment = patch.comment !== undefined ? patch.comment : existingItem?.comment ?? "";
-      const hasManagementAmountPatch = Object.prototype.hasOwnProperty.call(patch, "managementAmount");
-      const nextItem = buildCutItem(row, nextStatus as CollectionStatus, nextComment);
-      if (hasManagementAmountPatch) {
-        nextItem.managementAmount = patch.managementAmount ?? undefined;
-        nextItem.managementType = nextStatus === "route" ? "solo_cobrar" : nextItem.managementType;
-      }
-      nextItems = [
-        ...itemsWithoutClient,
-        nextItem
-      ].sort((a, b) => a.unitId.localeCompare(b.unitId, undefined, { numeric: true }));
+    optimisticStatusByClientRef.current = {};
+    saveTokenByClientRef.current = {};
+    latestCollectionStatusByClientRef.current = emptyStatus;
+    lastStreetSnapshotRef.current = JSON.stringify(emptyStatus);
+    streetPersistPendingRef.current = false;
+    setStatusSavingByClient({});
+    setCollectionStatusByClient(emptyStatus);
+    if (dataOwnerUserId) {
+      await saveCloudStreetManagement(dataOwnerUserId, clearMarker);
+    } else if (onStreetManagementPersist) {
+      const ok = await onStreetManagementPersist(clearMarker);
+      if (ok === false) throw new Error("No se pudieron limpiar los estados vivos de cobranza.");
     }
-
-    const nextClosure: CollectionClosureSnapshot = {
-      date: todayDateKey,
-      cutKey,
-      cutLabel: cutKey === "night" ? "Gestion diaria" : cutOption?.shortLabel ?? "Corte",
-      closedAt: existingClosure?.closedAt ?? new Date().toISOString(),
-      actor: existingClosure?.actor ?? "Operador",
-      reason: cutKey === "night" ? "Gestion diaria de cobranza" : cutOption?.label ?? "Corte de cobranza",
-      totals: computeCutTotals(nextItems),
-      items: nextItems
-    };
-    const nextClosures: CollectionClosuresByDate = {
-      ...collectionClosuresByDate,
-      [todayDateKey]: {
-        date: todayDateKey,
-        cuts: {
-          ...existingCuts,
-          [cutKey]: nextClosure
-        }
-      }
-    };
-    persistCollectionClosures(nextClosures);
   }
 
   function handleCollectionCutStatusChange(cutKey: CollectionCutKey, clientId: string, nextStatus: string): void {
+    if (isTodayCollectionClosed) return;
     const nowIso = new Date().toISOString();
     const previous = collectionStatusByClient[clientId];
     const routeReleaseAmount = nextStatus === "route" ? previous?.routeReleaseAmount : undefined;
-    updateCollectionCutItem(cutKey, clientId, { status: nextStatus, managementAmount: routeReleaseAmount ?? null });
     if (cutKey !== "night") return;
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
@@ -889,10 +878,10 @@ export default function ReceivablesPage({
   }
 
   function handleRouteReleaseAmountChange(clientId: string, value: string): void {
+    if (isTodayCollectionClosed) return;
     const parsedAmount = parsePositiveMoneyInput(value);
     const nextAmount = parsedAmount ?? undefined;
     const nowIso = new Date().toISOString();
-    updateCollectionCutItem("night", clientId, { managementAmount: nextAmount ?? null });
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
@@ -923,7 +912,9 @@ export default function ReceivablesPage({
   }
 
   function handleCollectionCutCommentChange(cutKey: CollectionCutKey, clientId: string, value: string): void {
-    updateCollectionCutItem(cutKey, clientId, { comment: value });
+    if (isTodayCollectionClosed) return;
+    if (cutKey !== "night") return;
+    handleSupportNoteChange(clientId, value);
   }
 
   function markClientStatusAsSaving(clientId: string): void {
@@ -932,6 +923,7 @@ export default function ReceivablesPage({
   }
 
   function handleCollectionStatusChange(clientId: string, nextStatus: string): void {
+    if (isTodayCollectionClosed) return;
     markClientStatusAsSaving(clientId);
     if (nextStatus !== "no_answer" && nextStatus !== "reminder" && nextStatus !== "call_later" && nextStatus !== "paid") {
       setCollectionStatusByClient((current) => {
@@ -972,11 +964,12 @@ export default function ReceivablesPage({
   }
 
   function handleWhatsAppMessageCopied(clientId: string, message: string): void {
+    if (isTodayCollectionClosed) return;
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
-        status: previous?.status ?? "reminder",
+        status: previous?.status ?? "pending",
         comment: previous?.comment ?? "",
         updatedAt: new Date().toISOString(),
         managementType: previous?.managementType,
@@ -1002,11 +995,12 @@ export default function ReceivablesPage({
   }
 
   function handleWhatsAppMessageSent(clientId: string, message: string): void {
+    if (isTodayCollectionClosed) return;
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
-        status: previous?.status ?? "reminder",
+        status: previous?.status ?? "pending",
         comment: previous?.comment ?? "",
         updatedAt: new Date().toISOString(),
         managementType: previous?.managementType,
@@ -1032,6 +1026,7 @@ export default function ReceivablesPage({
   }
 
   function handleCallLaterCommentChange(clientId: string, value: string): void {
+    if (isTodayCollectionClosed) return;
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const currentStatus = current[clientId]?.status ?? "call_later";
@@ -1095,6 +1090,7 @@ export default function ReceivablesPage({
   }
 
   function handleSaveFieldManagement(clientId: string): void {
+    if (isTodayCollectionClosed) return;
     markClientStatusAsSaving(clientId);
     const draft = fieldManagementDraftByClient[clientId] ?? { type: "", amount: "", comment: "" };
     if (draft.type !== "solo_cobrar" && draft.type !== "cobrar_o_quitar") {
@@ -1139,6 +1135,7 @@ export default function ReceivablesPage({
   }
 
   function handleRemoveFieldManagement(clientId: string): void {
+    if (isTodayCollectionClosed) return;
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
@@ -1253,14 +1250,41 @@ export default function ReceivablesPage({
   async function handleSaveCollectionCut(cutKey: CollectionCutKey): Promise<void> {
     setCollectionCutMessage(null);
     setExportError(null);
+    if (isTodayCollectionClosed) {
+      setCollectionCutMessage(`La gestion de ${receivablesDateLabel} ya esta cerrada. Puedes auditarla en Historial.`);
+      return;
+    }
     if (!dataOwnerUserId) {
       setCollectionCutMessage("No se pudo guardar el corte: falta conexion con la nube del negocio.");
       return;
     }
     const cutOption = COLLECTION_CUT_OPTIONS.find((option) => option.key === cutKey);
     const cutLabel = cutKey === "night" ? "Gestion diaria" : cutOption?.shortLabel ?? "Corte";
+    let statusByClientForClosure = collectionStatusByClient;
+    if (dataOwnerUserId) {
+      const cloudStreetManagement = await loadCloudStreetManagement(dataOwnerUserId);
+      statusByClientForClosure = parseCollectionStatusMapFromStorage(JSON.stringify(cloudStreetManagement));
+      applyStreetManagementData(cloudStreetManagement);
+    }
     if (cutKey === "night") {
-      const routeRowsMissingAmount = baseRows.filter((row) => getEffectiveStatus(row) === "route" && !hasRouteReleaseAmount(collectionStatusByClient[row.id]));
+      const freshClosureBlockers = buildClosureBlockersForStatus(statusByClientForClosure);
+      const blockerMessages: string[] = [];
+      if (freshClosureBlockers.pendingManagementRows.length > 0) {
+        blockerMessages.push(`${freshClosureBlockers.pendingManagementRows.length} unidad(es) con gestion pendiente`);
+      }
+      if (freshClosureBlockers.pendingWhatsAppRows.length > 0) {
+        blockerMessages.push(`${freshClosureBlockers.pendingWhatsAppRows.length} WhatsApp pendiente(s) por enviar o confirmar`);
+      }
+      if (blockerMessages.length > 0) {
+        setCollectionCutMessage(`No se puede cerrar la gestion de ${receivablesDateLabel}: ${blockerMessages.join(" y ")}.`);
+        if (freshClosureBlockers.pendingManagementRows.length > 0) setCollectionStatusFilter("pending");
+        else setWhatsAppContactFilter("pending");
+        return;
+      }
+      const routeRowsMissingAmount = baseRows.filter((row) => (
+        getEffectiveStatusFromMap(row, statusByClientForClosure) === "route" &&
+        !hasRouteReleaseAmount(statusByClientForClosure[row.id])
+      ));
       if (routeRowsMissingAmount.length > 0) {
         setCollectionCutMessage(`Falta monto minimo para liberar en ${routeRowsMissingAmount.length} unidad(es) en cobro en ruta.`);
         return;
@@ -1272,13 +1296,18 @@ export default function ReceivablesPage({
       const eligibleRows = cutKey === "night" ? baseRows : baseRows.filter((row) => isRowEligibleForCut(row, cutKey));
       const closureItems: CollectionClosureItem[] = [];
       for (const row of eligibleRows) {
-        const statusRecord = collectionStatusByClient[row.id];
+        const statusRecord = statusByClientForClosure[row.id];
         const existingItem = getCutItemForClient(cutKey, row.id);
         const savedStatus = existingItem?.collectionStatus;
         const autoStatus = cutKey === "night"
           ? (shouldDefaultToCovered(row) ? "covered" : "pending")
           : (hasAutoPaidStatus(row) ? "paid" : "");
-        const status = savedStatus && validStatuses.has(savedStatus) ? savedStatus : autoStatus;
+        const freshStatus = getEffectiveStatusFromMap(row, statusByClientForClosure);
+        const status = savedStatus && validStatuses.has(savedStatus)
+          ? savedStatus
+          : freshStatus && validStatuses.has(freshStatus)
+            ? freshStatus
+            : autoStatus;
         if (!status || !validStatuses.has(status)) continue;
         closureItems.push({
           clientId: row.id,
@@ -1324,6 +1353,7 @@ export default function ReceivablesPage({
       setCollectionClosuresByDate(nextClosures);
       setCollectionClosuresLoaded(true);
       setSelectedHistoryDate(todayDateKey);
+      await clearLiveCollectionStatusAfterClosure();
       setCollectionCutMessage(`${cutLabel} guardada con ${closureItems.length} registro(s).`);
     } catch (error) {
       console.error("No se pudo guardar el corte de cobranza.", error);
@@ -1347,6 +1377,10 @@ export default function ReceivablesPage({
           <div className="ar-ledger-title">
             <h1>Cuentas por cobrar</h1>
             <p>Gestiona estados, notas y ruta de cobro desde una sola lista.</p>
+            <p className="ar-ledger-date-note">
+              Fecha de gestion: <strong>{receivablesDateLabel}</strong>
+              {isCollectionClosuresLoading ? " | Validando cierre..." : isCollectionDateClosed ? " | Gestion cerrada" : " | Gestion abierta"}
+            </p>
           </div>
           {viewMode === "cartera" ? (
             <div className="ar-collection-cuts-actions">
@@ -1354,9 +1388,9 @@ export default function ReceivablesPage({
                 type="button"
                 className="button ghost small"
                 onClick={() => void handleSaveCollectionCut("night")}
-                disabled={isSavingCollectionCut !== null}
+                disabled={isSavingCollectionCut !== null || isTodayCollectionClosed}
               >
-                {isSavingCollectionCut === "night" ? "Cerrando..." : "Cerrar gestion del dia"}
+                {isCollectionClosuresLoading ? "Validando..." : isCollectionDateClosed ? "Gestion cerrada" : isSavingCollectionCut === "night" ? "Cerrando..." : "Cerrar gestion del dia"}
               </button>
               <button type="button" className="button ghost small" onClick={() => void handleExportExcel()} disabled={isExporting}>Excel</button>
               <button type="button" className="button ghost small" onClick={() => void handleExportPdf()} disabled={isExporting}>PDF</button>

@@ -22,6 +22,7 @@ as $$
         "leads": {"view": true, "edit": true},
         "clients": {"view": true, "edit": true},
         "payments": {"view": true, "edit": true},
+        "receivables": {"view": true, "edit": true},
         "control_units": {"view": true, "edit": true},
         "settings": {"view": true, "edit": true},
         "users": {"view": true, "edit": true}
@@ -31,6 +32,7 @@ as $$
         "leads": {"view": true, "edit": true},
         "clients": {"view": true, "edit": true},
         "payments": {"view": true, "edit": true},
+        "receivables": {"view": true, "edit": true},
         "control_units": {"view": true, "edit": true},
         "settings": {"view": false, "edit": false},
         "users": {"view": false, "edit": false}
@@ -40,6 +42,7 @@ as $$
         "leads": {"view": false, "edit": false},
         "clients": {"view": false, "edit": false},
         "payments": {"view": false, "edit": false},
+        "receivables": {"view": false, "edit": false},
         "control_units": {"view": true, "edit": false},
         "settings": {"view": false, "edit": false},
         "users": {"view": false, "edit": false}
@@ -212,8 +215,8 @@ begin
       ('payment_promises_cloud', 'payments'),
       ('lead_evaluations_cloud', 'leads'),
       ('fleet_units_cloud', 'control_units'),
-      ('street_management_cloud', 'settings'),
-      ('collection_closures_cloud', 'settings'),
+      ('street_management_cloud', 'receivables'),
+      ('collection_closures_cloud', 'receivables'),
       ('clients_daily_collection_cloud', 'payments'),
       ('clients_daily_collection_am_seals_cloud', 'payments'),
       ('clients_daily_collection_pm_seals_cloud', 'payments'),

@@ -5994,6 +5994,15 @@ select.control-op-badge {
   font-size: 0.84rem;
 }
 
+.ar-ledger-title .ar-ledger-date-note {
+  color: #334155;
+  font-weight: 800;
+}
+
+.ar-ledger-date-note strong {
+  color: #0f766e;
+}
+
 .ar-ledger-toolbar {
   display: flex;
   align-items: center;
@@ -7881,6 +7890,40 @@ select.control-op-badge {
   font-size: 1.08rem;
   font-weight: 900;
   letter-spacing: 0;
+}
+
+.ar-unit-stack {
+  display: inline-flex;
+  min-width: 92px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.ar-whatsapp-audit-badge {
+  display: inline-flex;
+  min-height: 20px;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 0.64rem;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ar-whatsapp-audit-badge--opened {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.ar-whatsapp-audit-badge--sent {
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
 }
 
 .ar-card-actions--compact > .button:not(.ar-whatsapp-link) {
