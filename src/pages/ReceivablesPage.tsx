@@ -262,6 +262,19 @@ export default function ReceivablesPage({
   }, [loadStreetManagementFromCloud]);
 
   useEffect(() => {
+    if (!dataOwnerUserId) return;
+    function refreshWhenVisible(): void {
+      if (document.visibilityState === "visible") void loadStreetManagementFromCloud();
+    }
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [dataOwnerUserId, loadStreetManagementFromCloud]);
+
+  useEffect(() => {
     if (!dataOwnerUserId) {
       setFleetUnits([]);
       return;
@@ -303,6 +316,7 @@ export default function ReceivablesPage({
             if (ok === false) return;
           }
           lastStreetSnapshotRef.current = serialized;
+          if (dataOwnerUserId) void loadStreetManagementFromCloud();
         } catch (error) {
           console.error("No se pudo guardar la gestion de cobranza.", error);
           setCollectionCutMessage("No se pudo guardar la gestion de cobranza. Revisa la conexion e intenta nuevamente.");
@@ -318,7 +332,7 @@ export default function ReceivablesPage({
         }
       })();
     }, 500);
-  }, [collectionStatusByClient, dataOwnerUserId, onStreetManagementPersist]);
+  }, [collectionStatusByClient, dataOwnerUserId, loadStreetManagementFromCloud, onStreetManagementPersist]);
 
   useEffect(() => {
     return () => {
