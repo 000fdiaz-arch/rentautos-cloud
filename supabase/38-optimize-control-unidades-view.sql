@@ -1,5 +1,18 @@
--- Rentautos: corregir enlace Cliente <-> Auto en vw_control_unidades.
--- Ejecutar despues de 27-fleet-units-realtime-sync.sql.
+-- Rentautos: optimizar vw_control_unidades para evitar statement timeout.
+-- Ejecutar despues de 37-remove-deprecated-client-statuses.sql.
+--
+-- La pantalla de Autos necesita estado real auto/cliente, no agregados de pagos.
+-- El max(dateApplied) sobre payments_cloud hacia que la vista pudiera escanear
+-- historiales grandes y provocar canceling statement due to statement timeout.
+
+create index if not exists clients_cloud_user_unit_status_updated_idx
+on public.clients_cloud (
+  user_id,
+  upper(trim(data->>'unitId')),
+  lower(coalesce(data->>'status', 'activo')),
+  updated_at desc
+)
+where nullif(trim(data->>'unitId'), '') is not null;
 
 drop view if exists public.vw_control_unidades;
 
@@ -59,3 +72,5 @@ left join active_clients ac
  and ac.unit_id = upper(trim(f.unit_id));
 
 grant select on public.vw_control_unidades to authenticated;
+
+notify pgrst, 'reload schema';
