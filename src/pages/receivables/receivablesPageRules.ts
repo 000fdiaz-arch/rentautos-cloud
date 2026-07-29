@@ -9,6 +9,7 @@ export type ExportField = { key: ExportFieldKey; label: string; enabled: boolean
 export type CollectionStatusFilter = "all" | CollectionStatus;
 export type GroupFilter = "all" | string;
 export type ReceivablesViewMode = "cartera" | "historial";
+export type ReceivablesWorkflowTab = "management" | "route";
 export type CollectionCutKey = "morning" | "afternoon" | "night";
 
 export type CollectionClosureItem = {
@@ -94,6 +95,14 @@ export const DAILY_COLLECTION_STATUS_OPTIONS = COLLECTION_STATUS_OPTIONS.filter(
   option.value === "covered" ||
   option.value === "route"
 ));
+
+export const ROUTE_COLLECTION_STATUS_OPTIONS: Array<{ value: CollectionStatus; label: string; description: string }> = [
+  { value: "route", label: "Pendiente", description: "Asignado a cobro en ruta, pendiente de resultado." },
+  { value: "route_collection", label: "En ruta", description: "La cuenta esta en gestion de calle." },
+  { value: "paid", label: "Cobrado", description: "Pago confirmado durante la ruta." },
+  { value: "route_not_sent", label: "No cobrado", description: "La ruta no logro cobrar esta cuenta." },
+  { value: "call_later", label: "Reprogramado", description: "La visita o cobro queda para seguimiento posterior." }
+];
 
 export const REGULAR_COLLECTION_STATUS_OPTIONS = DAILY_COLLECTION_STATUS_OPTIONS;
 

@@ -9,6 +9,44 @@ type Options = {
   now: Date;
 };
 
+type RouteTypePalette = {
+  rowFill: [number, number, number];
+  typeFill: [number, number, number];
+  text: [number, number, number];
+  border: [number, number, number];
+  excelRowFill: string;
+  excelTypeFill: string;
+  excelText: string;
+  excelBorder: string;
+};
+
+const ROUTE_TYPE_PALETTE: Record<NonNullable<CollectionStatusRecord["managementType"]>, RouteTypePalette> = {
+  solo_cobrar: {
+    rowFill: [240, 253, 250],
+    typeFill: [204, 251, 241],
+    text: [15, 118, 110],
+    border: [94, 234, 212],
+    excelRowFill: "FFF0FDFA",
+    excelTypeFill: "FFCCFBF1",
+    excelText: "FF0F766E",
+    excelBorder: "FF5EEAD4"
+  },
+  cobrar_o_quitar: {
+    rowFill: [255, 247, 237],
+    typeFill: [254, 215, 170],
+    text: [154, 52, 18],
+    border: [251, 146, 60],
+    excelRowFill: "FFFFF7ED",
+    excelTypeFill: "FFFED7AA",
+    excelText: "FF9A3412",
+    excelBorder: "FFFB923C"
+  }
+};
+
+function routeTypePalette(type: CollectionStatusRecord["managementType"]): RouteTypePalette {
+  return type === "cobrar_o_quitar" ? ROUTE_TYPE_PALETTE.cobrar_o_quitar : ROUTE_TYPE_PALETTE.solo_cobrar;
+}
+
 function lateInstallmentsLabel(totalPending: number, rentAmount: number): string {
   if (rentAmount <= 0) return "0";
   const installments = Math.ceil(totalPending / rentAmount);
@@ -53,24 +91,65 @@ async function exportPdf(options: Options, rows: ReceivableRow[]): Promise<void>
     startY: 14,
     styles: { fontSize: 8, cellPadding: 2 },
     headStyles: { fillColor: [15, 118, 110], textColor: 255, fontStyle: "bold" },
-    alternateRowStyles: { fillColor: [248, 250, 252] }
+    didParseCell: (hookData: any) => {
+      if (hookData.section !== "body") return;
+      const sourceRow = rows[hookData.row.index];
+      if (!sourceRow) return;
+      const data = rowData(sourceRow, options.statusByClient);
+      const palette = routeTypePalette(data.managementType);
+      hookData.cell.styles.fillColor = palette.rowFill;
+      if (hookData.column.index === 3) {
+        hookData.cell.styles.fillColor = palette.typeFill;
+        hookData.cell.styles.textColor = palette.text;
+        hookData.cell.styles.fontStyle = "bold";
+        hookData.cell.styles.lineColor = palette.border;
+        hookData.cell.styles.lineWidth = 0.2;
+      }
+    }
   });
   doc.save(`lista-cobro-en-ruta-${options.now.toISOString().slice(0, 10)}.pdf`);
 }
 
 async function exportExcel(options: Options, rows: ReceivableRow[]): Promise<void> {
-  const xlsx = await import("xlsx");
-  const dataRows = rows.map((row) => {
-    const data = rowData(row, options.statusByClient);
-    return [data.unit, data.client, data.installments, data.type, data.amount, data.comment];
+  const exceljs = await import("exceljs");
+  const workbook = new exceljs.Workbook();
+  const worksheet = workbook.addWorksheet("Cobro en ruta");
+  const headers = ["Unidad", "Cliente", "Cuotas", "Tipo", "Monto", "Coment."];
+  worksheet.addRow(headers);
+  worksheet.getRow(1).eachCell((cell) => {
+    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F766E" } };
   });
-  const worksheet = xlsx.utils.aoa_to_sheet([
-    ["Unidad", "Cliente", "Cuotas", "Tipo", "Monto", "Coment."],
-    ...dataRows
-  ]);
-  const workbook = xlsx.utils.book_new();
-  xlsx.utils.book_append_sheet(workbook, worksheet, "Cobro en ruta");
-  const bytes = xlsx.write(workbook, { type: "array", bookType: "xlsx" });
+  for (const row of rows) {
+    const data = rowData(row, options.statusByClient);
+    const excelRow = worksheet.addRow([data.unit, data.client, data.installments, data.type, data.amount, data.comment]);
+    const palette = routeTypePalette(data.managementType);
+    excelRow.eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: palette.excelRowFill } };
+      cell.border = {
+        top: { style: "thin", color: { argb: "FFE2E8F0" } },
+        bottom: { style: "thin", color: { argb: "FFE2E8F0" } }
+      };
+    });
+    const typeCell = excelRow.getCell(4);
+    typeCell.font = { bold: true, color: { argb: palette.excelText } };
+    typeCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: palette.excelTypeFill } };
+    typeCell.border = {
+      top: { style: "thin", color: { argb: palette.excelBorder } },
+      left: { style: "thin", color: { argb: palette.excelBorder } },
+      bottom: { style: "thin", color: { argb: palette.excelBorder } },
+      right: { style: "thin", color: { argb: palette.excelBorder } }
+    };
+  }
+  headers.forEach((header, index) => {
+    const maxLength = Math.max(header.length, ...rows.map((row) => {
+      const data = rowData(row, options.statusByClient);
+      return String([data.unit, data.client, data.installments, data.type, data.amount, data.comment][index] ?? "").length;
+    }));
+    worksheet.getColumn(index + 1).width = Math.min(42, Math.max(10, maxLength + 2));
+  });
+  worksheet.getColumn(5).numFmt = "$#,##0.00";
+  const bytes = await workbook.xlsx.writeBuffer();
   const url = URL.createObjectURL(new Blob([bytes], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   }));
@@ -158,7 +237,7 @@ function exportImage(options: Options, rows: ReceivableRow[]): void {
   roundedRect(context, left, top, tableWidth, headerHeight, 8);
   context.fillStyle = gradient;
   context.fill();
-  const columns = { unit: left + 28, client: left + 155, installments: left + 700, type: left + 995, amount: left + 1170, comment: left + 1320 };
+  const columns = { unit: left + 28, client: left + 155, installments: left + 700, type: left + 985, amount: left + 1225, comment: left + 1375 };
   context.fillStyle = "#ffffff";
   context.font = "bold 24px Segoe UI, Arial, sans-serif";
   ["Unidad", "Cliente", "Cuotas", "Tipo", "Monto", "Coment."].forEach((label, index) => {
@@ -167,9 +246,10 @@ function exportImage(options: Options, rows: ReceivableRow[]): void {
 
   rows.forEach((row, index) => {
     const data = rowData(row, options.statusByClient);
+    const palette = routeTypePalette(data.managementType);
     const y = top + headerHeight + index * rowHeight;
     const baseline = y + Math.floor(rowHeight * 0.66);
-    context.fillStyle = index % 2 === 0 ? "#fcfdff" : "#f7f9fc";
+    context.fillStyle = `rgb(${palette.rowFill.join(",")})`;
     context.fillRect(left, y, tableWidth, rowHeight);
     context.strokeStyle = "#e7edf5";
     context.beginPath();
@@ -183,7 +263,18 @@ function exportImage(options: Options, rows: ReceivableRow[]): void {
     context.fillStyle = "#1e293b";
     drawText(context, data.client, columns.client, baseline, columns.installments - columns.client - 18);
     drawText(context, data.installments, columns.installments, baseline, columns.type - columns.installments - 18);
-    drawText(context, data.type, columns.type, baseline, columns.amount - columns.type - 18);
+    const typeX = columns.type - 8;
+    const typeY = y + Math.max(8, Math.floor((rowHeight - 34) / 2));
+    const typeWidth = columns.amount - columns.type - 30;
+    const typeHeight = 34;
+    roundedRect(context, typeX, typeY, typeWidth, typeHeight, 8);
+    context.fillStyle = `rgb(${palette.typeFill.join(",")})`;
+    context.fill();
+    context.strokeStyle = `rgb(${palette.border.join(",")})`;
+    context.stroke();
+    context.fillStyle = `rgb(${palette.text.join(",")})`;
+    context.font = `bold ${Math.max(15, rowFont - 1)}px Segoe UI, Arial, sans-serif`;
+    drawText(context, data.type, columns.type, baseline, columns.amount - columns.type - 36);
     context.font = `bold ${rowFont}px Segoe UI, Arial, sans-serif`;
     context.fillStyle = "#0b5e58";
     drawText(context, formatCurrency(data.amount), columns.amount, baseline, columns.comment - columns.amount - 18, "right");

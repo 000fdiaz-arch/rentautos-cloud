@@ -2,7 +2,7 @@ import { memo, type RefObject } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { STATE_LABEL, type ReceivableRow, type ReceivableState } from "../../receivables";
 import type { Client } from "../../types";
-import type { CollectionStatus, CollectionStatusRecord } from "./receivablesTypes";
+import type { CollectionStatusRecord } from "./receivablesTypes";
 import { ReceivableTableRow } from "./ReceivableTableRow";
 import {
   COLLECTION_CUT_OPTIONS,
@@ -11,7 +11,8 @@ import {
   stateToneClass,
   type CollectionClosureItem,
   type CollectionCutKey,
-  type ReceivablesViewMode
+  type ReceivablesViewMode,
+  type ReceivablesWorkflowTab
 } from "./receivablesPageRules";
 
 export type ReceivablesHistoryRow = {
@@ -35,13 +36,17 @@ type Props = {
   todayDateKey: string;
   now: Date;
   isTodayCollectionClosed: boolean;
+  workflowTab: ReceivablesWorkflowTab;
   todayCollectionCuts: Partial<Record<CollectionCutKey, { items: CollectionClosureItem[] }>>;
   visibleCollectionCut: CollectionCutKey | "all";
   buildWhatsAppReceivableMessage: (row: ReceivableRow) => string;
   onSelectDetail: (row: ReceivableRow) => void;
   onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
   onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
+  onRouteManagementTypeChange: (clientId: string, value: "solo_cobrar" | "cobrar_o_quitar") => void;
+  onRouteManagementCommentChange: (clientId: string, value: string) => void;
   onRouteReleaseAmountChange: (clientId: string, value: string) => void;
+  onRemoveFromRoute: (clientId: string) => void;
   onWhatsAppMessageCopied: (clientId: string, message: string) => void;
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
   onEditWhatsAppPhone: (clientId: string) => void;
@@ -99,6 +104,10 @@ function renderHistoryCutStack(item: CollectionClosureItem | undefined, cutKey: 
   );
 }
 
+function firstName(value: string): string {
+  return value.trim().split(/\s+/)[0] || value;
+}
+
 export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   tableScrollRef,
   viewMode,
@@ -110,13 +119,17 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   todayDateKey,
   now,
   isTodayCollectionClosed,
+  workflowTab,
   todayCollectionCuts,
   visibleCollectionCut,
   buildWhatsAppReceivableMessage,
   onSelectDetail,
   onCollectionCutStatusChange,
   onCollectionCutCommentChange,
+  onRouteManagementTypeChange,
+  onRouteManagementCommentChange,
   onRouteReleaseAmountChange,
+  onRemoveFromRoute,
   onWhatsAppMessageCopied,
   onWhatsAppMessageSent,
   onEditWhatsAppPhone,
@@ -133,6 +146,96 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
             Limpiar filtros
           </button>
         </div>
+      </div>
+    );
+  }
+
+  if (viewMode === "cartera" && workflowTab === "route") {
+    return (
+      <div className="table-scroll ar-ledger-scroll" ref={tableScrollRef}>
+        <table className="ar-table ar-route-list-table">
+          <thead>
+            <tr>
+              <th>Unidad</th>
+              <th>Cliente</th>
+              <th>Atraso</th>
+              <th>Ult. pago</th>
+              <th>Renta vencida</th>
+              <th>Tipo</th>
+              <th>Min. liberar</th>
+              <th>Comentario</th>
+              <th>Accion</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const statusRecord = collectionStatusByClient[row.id];
+              const routeReleaseAmount = statusRecord?.routeReleaseAmount ?? statusRecord?.managementAmount;
+              return (
+                <tr key={row.id}>
+                  <td><strong className="ar-unit-id">{row.unitId}</strong></td>
+                  <td>
+                    <span className="client-name ar-route-client-name" title={row.name}>{firstName(row.name)}</span>
+                  </td>
+                  <td>{row.daysLate > 0 ? `${row.daysLate} dias` : "Sin atraso"}</td>
+                  <td>
+                    <div className="ar-account-status-stack">
+                      <span className="ar-last-payment-date">
+                        {row.lastPaymentDate ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) : "Sin pagos"}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="amount-debt">{formatCurrency(row.overdueBalance)}</td>
+                  <td>
+                    <select
+                      className="ar-route-list-type"
+                      value={statusRecord?.managementType ?? "solo_cobrar"}
+                      onChange={(event) => onRouteManagementTypeChange(row.id, event.target.value as "solo_cobrar" | "cobrar_o_quitar")}
+                      disabled={isTodayCollectionClosed}
+                    >
+                      <option value="solo_cobrar">Solo cobrar</option>
+                      <option value="cobrar_o_quitar">Cobrar o quitar</option>
+                    </select>
+                  </td>
+                  <td>
+                    <input
+                      className="ar-route-list-amount"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={routeReleaseAmount ?? ""}
+                      onChange={(event) => onRouteReleaseAmountChange(row.id, event.target.value)}
+                      placeholder={row.overdueBalance > 0 ? row.overdueBalance.toFixed(2) : "0.00"}
+                      disabled={isTodayCollectionClosed}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="ar-route-list-comment"
+                      type="text"
+                      value={statusRecord?.managementComment ?? ""}
+                      onChange={(event) => onRouteManagementCommentChange(row.id, event.target.value)}
+                      placeholder="Comentario..."
+                      maxLength={25}
+                      disabled={isTodayCollectionClosed}
+                    />
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="button ghost small ar-route-list-remove"
+                      onClick={() => onRemoveFromRoute(row.id)}
+                      disabled={isTodayCollectionClosed}
+                    >
+                      Sacar
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     );
   }
@@ -188,6 +291,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               todayDateKey={todayDateKey}
               now={now}
               isTodayCollectionClosed={isTodayCollectionClosed}
+              workflowTab={workflowTab}
               collectionCutItems={getCutItemsForClient(todayCollectionCuts, row.id)}
               visibleCutKey={visibleCollectionCut}
               whatsAppMessage={buildWhatsAppReceivableMessage(row)}

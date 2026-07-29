@@ -43,6 +43,7 @@ import {
   COLLECTION_STATUS_HELP,
   COLLECTION_CUT_OPTIONS,
   DAILY_COLLECTION_STATUS_OPTIONS,
+  ROUTE_COLLECTION_STATUS_OPTIONS,
   INITIAL_EXPORT_FIELDS,
   clientOperationalStatusLabel,
   getCollectionClosureCuts,
@@ -62,7 +63,8 @@ import {
   type CollectionCutKey,
   type CollectionStatusFilter,
   type ExportField,
-  type ReceivablesViewMode
+  type ReceivablesViewMode,
+  type ReceivablesWorkflowTab
 } from "./receivables/receivablesPageRules";
 
 type Props = {
@@ -149,6 +151,14 @@ function hasRouteReleaseAmount(record: CollectionStatusRecord | undefined): bool
   return typeof amount === "number" && amount > 0;
 }
 
+function routeMissingAmountMessage(rows: ReceivableRow[]): string {
+  const units = rows.map((row) => row.unitId).filter(Boolean);
+  const visibleUnits = units.slice(0, 8).join(", ");
+  const extraCount = Math.max(0, units.length - 8);
+  const unitText = visibleUnits ? ` Unidad${units.length === 1 ? "" : "es"}: ${visibleUnits}${extraCount > 0 ? ` y ${extraCount} mas` : ""}.` : "";
+  return `Falta Min. liberar en ${rows.length} unidad(es) en cobro en ruta.${unitText}`;
+}
+
 export default function ReceivablesPage({
   clients,
   payments,
@@ -166,6 +176,7 @@ export default function ReceivablesPage({
   const [collectionStatusByClient, setCollectionStatusByClient] = useState<Record<string, CollectionStatusRecord>>({});
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<CollectionStatusFilter>("all");
   const [whatsAppContactFilter, setWhatsAppContactFilter] = useState<WhatsAppContactFilter>("all");
+  const [workflowTab, setWorkflowTab] = useState<ReceivablesWorkflowTab>("management");
   const viewMode: ReceivablesViewMode = "cartera";
   const [collectionClosuresByDate, setCollectionClosuresByDate] = useState<CollectionClosuresByDate>({});
   const [collectionClosuresLoaded, setCollectionClosuresLoaded] = useState<boolean>(false);
@@ -460,7 +471,7 @@ export default function ReceivablesPage({
 
   useEffect(() => {
     tableScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
-  }, [collectionStatusFilter, filters, sortDirection, sortField, viewMode, whatsAppContactFilter]);
+  }, [collectionStatusFilter, filters, sortDirection, sortField, viewMode, whatsAppContactFilter, workflowTab]);
 
   const clientStatusById = useMemo(() => {
     const map = new Map<string, Client["status"]>();
@@ -530,27 +541,43 @@ export default function ReceivablesPage({
   }, [collectionStatusByClient, payments]);
 
   const filteredRows = useMemo(() => filterReceivableRows(baseRows, filters), [baseRows, filters]);
+  const routeWorkflowRowsCount = useMemo(
+    () => baseRows.filter((row) => isRouteWorkflowRow(row)).length,
+    [baseRows, collectionStatusByClient, todayCollectionCuts]
+  );
+  const managementWorkflowRowsCount = baseRows.length;
+  const workflowRows = useMemo(() => (
+    workflowTab === "route"
+      ? filteredRows.filter((row) => isRouteWorkflowRow(row))
+      : filteredRows
+  ), [filteredRows, workflowTab, collectionStatusByClient, todayCollectionCuts]);
   const collectionStatusCounts = useMemo(() => {
     const counts = createEmptyCollectionStatusCounts();
-    for (const row of filteredRows) {
-      const status = getEffectiveStatus(row) || "unassigned";
+    for (const row of workflowRows) {
+      const status = getWorkflowStatus(row) || "unassigned";
       counts[status] += 1;
     }
     return counts;
-  }, [filteredRows, collectionStatusByClient, todayCollectionCuts]);
-  const managementAlertCount = collectionStatusFilter === "covered"
+  }, [workflowRows, collectionStatusByClient, todayCollectionCuts]);
+  const routePendingCount = collectionStatusCounts.route + collectionStatusCounts.route_collection;
+  const managementAlertCount = workflowTab === "route"
+    ? routePendingCount
+    : collectionStatusFilter === "covered"
     ? collectionStatusCounts.covered
     : collectionStatusCounts.pending;
-  const managementAlertText = collectionStatusFilter === "covered"
+  const managementAlertText = workflowTab === "route"
+    ? `${managementAlertCount} cobro${managementAlertCount === 1 ? "" : "s"} en ruta activo${managementAlertCount === 1 ? "" : "s"}`
+    : collectionStatusFilter === "covered"
     ? `${managementAlertCount} gestion${managementAlertCount === 1 ? "" : "es"} cubierta${managementAlertCount === 1 ? "" : "s"}`
     : `${managementAlertCount} gestion${managementAlertCount === 1 ? "" : "es"} pendiente${managementAlertCount === 1 ? "" : "s"}`;
+  const collectionStatusFilterOptions = workflowTab === "route" ? ROUTE_COLLECTION_STATUS_OPTIONS : DAILY_COLLECTION_STATUS_OPTIONS;
   const collectionStatusFilterHelp = collectionStatusFilter === "all"
     ? "Muestra todos los estados de gestion."
-    : COLLECTION_STATUS_HELP[collectionStatusFilter];
+    : collectionStatusFilterOptions.find((option) => option.value === collectionStatusFilter)?.description ?? COLLECTION_STATUS_HELP[collectionStatusFilter];
   const filteredByCollectionStatusRows = useMemo(() => {
-    if (collectionStatusFilter === "all") return filteredRows;
-    return filteredRows.filter((row) => getEffectiveStatus(row) === collectionStatusFilter);
-  }, [collectionStatusFilter, filteredRows, collectionStatusByClient, now, todayCollectionCuts]);
+    if (collectionStatusFilter === "all") return workflowRows;
+    return workflowRows.filter((row) => getWorkflowStatus(row) === collectionStatusFilter);
+  }, [collectionStatusFilter, workflowRows, collectionStatusByClient, now, todayCollectionCuts, workflowTab]);
   const whatsAppContactCounts = useMemo(() => {
     const counts: Record<WhatsAppContactFilter, number> = {
       all: filteredByCollectionStatusRows.length,
@@ -618,10 +645,6 @@ export default function ReceivablesPage({
     }
     return Array.from(rowsByClient.values()).sort((a, b) => a.unitId.localeCompare(b.unitId, undefined, { numeric: true }));
   }, [selectedHistoryCuts]);
-  const routeCollectionRowsCount = useMemo(
-    () => baseRows.filter((row) => hasRouteCollection(row) || isNightRouteCollection(row)).length,
-    [baseRows, collectionStatusByClient, todayCollectionCuts]
-  );
   const closureBlockers = useMemo(() => {
     const pendingManagementRows = baseRows.filter((row) => {
       const status = getEffectiveStatus(row);
@@ -710,7 +733,22 @@ export default function ReceivablesPage({
 
   function isNightRouteCollection(row: ReceivableRow): boolean {
     const status = getCutItemForClient("night", row.id)?.collectionStatus;
-    return status === "route" || status === "route_collection";
+    const storedStatus = collectionStatusByClient[row.id]?.status;
+    return status === "route" || status === "route_collection" || storedStatus === "route" || storedStatus === "route_collection";
+  }
+
+  function isRouteWorkflowRow(row: ReceivableRow): boolean {
+    const record = collectionStatusByClient[row.id];
+    const status = getEffectiveStatus(row);
+    return (
+      status === "route" ||
+      status === "route_collection" ||
+      status === "route_not_sent" ||
+      (status === "paid" && !!record?.managementType) ||
+      (status === "call_later" && !!record?.managementType) ||
+      hasRouteCollection(row) ||
+      isNightRouteCollection(row)
+    );
   }
 
   function buildWhatsAppReceivableMessage(row: ReceivableRow): string {
@@ -757,6 +795,14 @@ export default function ReceivablesPage({
     if (stored === "route_collection") return "route";
     if (shouldDefaultToCovered(row)) return "covered";
     return "unassigned";
+  }
+
+  function getWorkflowStatus(row: ReceivableRow): CollectionStatus | "" {
+    if (workflowTab === "route") {
+      const stored = collectionStatusByClient[row.id]?.status;
+      if (stored === "route" || stored === "route_collection" || stored === "route_not_sent" || stored === "paid" || stored === "call_later") return stored;
+    }
+    return getEffectiveStatus(row);
   }
 
   function getCutItemForClient(cutKey: CollectionCutKey, clientId: string): CollectionClosureItem | undefined {
@@ -907,8 +953,6 @@ export default function ReceivablesPage({
   function handleCollectionCutStatusChange(cutKey: CollectionCutKey, clientId: string, nextStatus: string): void {
     if (isTodayCollectionClosed) return;
     const nowIso = new Date().toISOString();
-    const previous = collectionStatusByClient[clientId];
-    const routeReleaseAmount = nextStatus === "route" ? previous?.routeReleaseAmount : undefined;
     if (cutKey !== "night") return;
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
@@ -917,12 +961,12 @@ export default function ReceivablesPage({
         status: nextStatus as CollectionStatus,
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
-        managementType: nextStatus === "route" ? "solo_cobrar" : undefined,
-        managementAmount: nextStatus === "route" ? routeReleaseAmount : undefined,
-        managementComment: nextStatus === "route" ? previous?.managementComment : "",
-        managementUpdatedAt: nextStatus === "route" ? nowIso : undefined,
-        routeReleaseAmount: nextStatus === "route" ? routeReleaseAmount : undefined,
-        routeReleaseUpdatedAt: nextStatus === "route" ? nowIso : undefined,
+        managementType: undefined,
+        managementAmount: undefined,
+        managementComment: "",
+        managementUpdatedAt: undefined,
+        routeReleaseAmount: undefined,
+        routeReleaseUpdatedAt: undefined,
         whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
         whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
         whatsAppMessageText: previous?.whatsAppMessageText,
@@ -930,6 +974,137 @@ export default function ReceivablesPage({
         supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
         paymentPromiseDate: previous?.paymentPromiseDate,
         paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
+      return {
+        ...current,
+        [clientId]: updatedRecord
+      };
+    });
+  }
+
+  function handleRouteWorkflowStatusChange(clientId: string, nextStatus: string): void {
+    if (isTodayCollectionClosed) return;
+    if (!ROUTE_COLLECTION_STATUS_OPTIONS.some((option) => option.value === nextStatus)) return;
+    const nowIso = new Date().toISOString();
+    markClientStatusAsSaving(clientId);
+    setCollectionStatusByClient((current) => {
+      const previous = current[clientId];
+      const updatedRecord: CollectionStatusRecord = {
+        status: nextStatus as CollectionStatus,
+        comment: previous?.comment ?? "",
+        updatedAt: nowIso,
+        managementType: previous?.managementType ?? "solo_cobrar",
+        managementAmount: previous?.managementAmount ?? previous?.routeReleaseAmount,
+        managementComment: previous?.managementComment ?? "",
+        managementUpdatedAt: previous?.managementUpdatedAt ?? nowIso,
+        routeReleaseAmount: previous?.routeReleaseAmount ?? previous?.managementAmount,
+        routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt ?? nowIso,
+        whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+        whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+        whatsAppMessageText: previous?.whatsAppMessageText,
+        supportNote: previous?.supportNote,
+        supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+        paymentPromiseDate: previous?.paymentPromiseDate,
+        paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
+      return {
+        ...current,
+        [clientId]: updatedRecord
+      };
+    });
+  }
+
+  function handleRouteManagementTypeChange(clientId: string, managementType: FieldManagementType): void {
+    if (isTodayCollectionClosed) return;
+    const nowIso = new Date().toISOString();
+    markClientStatusAsSaving(clientId);
+    setCollectionStatusByClient((current) => {
+      const previous = current[clientId];
+      const updatedRecord: CollectionStatusRecord = {
+        status: previous?.status ?? "route",
+        comment: previous?.comment ?? "",
+        updatedAt: nowIso,
+        managementType,
+        managementAmount: previous?.managementAmount ?? previous?.routeReleaseAmount,
+        managementComment: previous?.managementComment ?? "",
+        managementUpdatedAt: nowIso,
+        routeReleaseAmount: previous?.routeReleaseAmount ?? previous?.managementAmount,
+        routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt
+          ?? (previous?.routeReleaseAmount || previous?.managementAmount ? nowIso : undefined),
+        whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+        whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+        whatsAppMessageText: previous?.whatsAppMessageText,
+        supportNote: previous?.supportNote,
+        supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+        paymentPromiseDate: previous?.paymentPromiseDate,
+        paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
+      return {
+        ...current,
+        [clientId]: updatedRecord
+      };
+    });
+  }
+
+  function handleRouteManagementCommentChange(clientId: string, value: string): void {
+    if (isTodayCollectionClosed) return;
+    const nowIso = new Date().toISOString();
+    markClientStatusAsSaving(clientId);
+    setCollectionStatusByClient((current) => {
+      const previous = current[clientId];
+      const updatedRecord: CollectionStatusRecord = {
+        status: previous?.status ?? "route",
+        comment: previous?.comment ?? "",
+        updatedAt: nowIso,
+        managementType: previous?.managementType ?? "solo_cobrar",
+        managementAmount: previous?.managementAmount ?? previous?.routeReleaseAmount,
+        managementComment: normalizeFieldManagementComment(value),
+        managementUpdatedAt: nowIso,
+        routeReleaseAmount: previous?.routeReleaseAmount ?? previous?.managementAmount,
+        routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt,
+        whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+        whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+        whatsAppMessageText: previous?.whatsAppMessageText,
+        supportNote: previous?.supportNote,
+        supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+        paymentPromiseDate: previous?.paymentPromiseDate,
+        paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
+      return {
+        ...current,
+        [clientId]: updatedRecord
+      };
+    });
+  }
+
+  function handleRemoveFromRoute(clientId: string): void {
+    if (isTodayCollectionClosed) return;
+    const nowIso = new Date().toISOString();
+    markClientStatusAsSaving(clientId);
+    setCollectionStatusByClient((current) => {
+      const previous = current[clientId];
+      if (!previous) return current;
+      const updatedRecord: CollectionStatusRecord = {
+        status: "unassigned",
+        comment: previous.comment ?? "",
+        updatedAt: nowIso,
+        managementType: undefined,
+        managementAmount: undefined,
+        managementComment: "",
+        managementUpdatedAt: undefined,
+        routeReleaseAmount: undefined,
+        routeReleaseUpdatedAt: undefined,
+        whatsAppMessageCopiedAt: previous.whatsAppMessageCopiedAt,
+        whatsAppMessageSentAt: previous.whatsAppMessageSentAt,
+        whatsAppMessageText: previous.whatsAppMessageText,
+        supportNote: previous.supportNote,
+        supportNoteUpdatedAt: previous.supportNoteUpdatedAt,
+        paymentPromiseDate: previous.paymentPromiseDate,
+        paymentPromiseUpdatedAt: previous.paymentPromiseUpdatedAt
       };
       optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return {
@@ -947,8 +1122,11 @@ export default function ReceivablesPage({
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
+      const previousRouteStatus = previous?.status && ROUTE_COLLECTION_STATUS_OPTIONS.some((option) => option.value === previous.status)
+        ? previous.status
+        : "route";
       const updatedRecord: CollectionStatusRecord = {
-        status: "route",
+        status: previousRouteStatus,
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
         managementType: "solo_cobrar",
@@ -1280,7 +1458,7 @@ export default function ReceivablesPage({
     try {
       const routeRowsMissingAmount = baseRows.filter((row) => isNightRouteCollection(row) && !hasRouteReleaseAmount(collectionStatusByClient[row.id]));
       if (routeRowsMissingAmount.length > 0) {
-        setExportError(`Falta monto minimo para liberar en ${routeRowsMissingAmount.length} unidad(es) en cobro en ruta.`);
+        setExportError(routeMissingAmountMessage(routeRowsMissingAmount));
         return;
       }
       const statusByClientForRoute = { ...collectionStatusByClient };
@@ -1348,7 +1526,7 @@ export default function ReceivablesPage({
         !hasRouteReleaseAmount(statusByClientForClosure[row.id])
       ));
       if (routeRowsMissingAmount.length > 0) {
-        setCollectionCutMessage(`Falta monto minimo para liberar en ${routeRowsMissingAmount.length} unidad(es) en cobro en ruta.`);
+        setCollectionCutMessage(routeMissingAmountMessage(routeRowsMissingAmount));
         return;
       }
     }
@@ -1458,10 +1636,37 @@ export default function ReceivablesPage({
           ) : null}
         </div>
 
+        <div className="ar-workflow-tabs" role="tablist" aria-label="Flujo de cuentas por cobrar">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={workflowTab === "management"}
+            className={workflowTab === "management" ? "is-active" : ""}
+            onClick={() => {
+              setWorkflowTab("management");
+              setCollectionStatusFilter("all");
+            }}
+          >
+            Gestion <strong>{managementWorkflowRowsCount}</strong>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={workflowTab === "route"}
+            className={workflowTab === "route" ? "is-active" : ""}
+            onClick={() => {
+              setWorkflowTab("route");
+              setCollectionStatusFilter("all");
+            }}
+          >
+            Cobro en Ruta <strong>{routeWorkflowRowsCount}</strong>
+          </button>
+        </div>
+
         <div className="ar-ledger-toolbar">
           <div className="ar-view-tabs">
             <label className="ar-toolbar-filter ar-toolbar-filter--management">
-              <span className="ar-toolbar-filter-label">Gestion</span>
+              <span className="ar-toolbar-filter-label">{workflowTab === "route" ? "Ruta" : "Gestion"}</span>
               <select
                 className="ar-toolbar-filter-select ar-toolbar-filter-select--management"
                 value={collectionStatusFilter}
@@ -1470,7 +1675,7 @@ export default function ReceivablesPage({
                 onChange={(event) => setCollectionStatusFilter(event.target.value as CollectionStatusFilter)}
               >
                 <option value="all" title="Muestra todos los estados de gestion.">Todos</option>
-                {DAILY_COLLECTION_STATUS_OPTIONS.map((option) => (
+                {collectionStatusFilterOptions.map((option) => (
                   <option key={option.value} value={option.value} title={option.description}>{option.label}</option>
                 ))}
               </select>
@@ -1506,7 +1711,30 @@ export default function ReceivablesPage({
             >
               {whatsAppAlertText}
             </button>
-            <span className="ar-results-count">Mostrando {rows.length} de {baseRows.length}</span>
+            <span className="ar-results-count">Mostrando {rows.length} de {workflowTab === "route" ? routeWorkflowRowsCount : managementWorkflowRowsCount}</span>
+            {workflowTab === "route" ? (
+              <div className="ar-route-export-actions">
+                <button
+                  type="button"
+                  className="button ghost small"
+                  onClick={() => void handleExportCobroEnRuta()}
+                  disabled={isExporting || routeWorkflowRowsCount === 0}
+                >
+                  {isExporting ? "Exportando..." : "Exportar ruta"}
+                </button>
+                <select
+                  className="ar-route-export-format"
+                  value={routeExportFormat}
+                  onChange={(event) => setRouteExportFormat(event.target.value as RouteExportFormat)}
+                  disabled={isExporting}
+                  aria-label="Formato de exportacion de cobro en ruta"
+                >
+                  <option value="jpg">JPG</option>
+                  <option value="pdf">PDF</option>
+                  <option value="excel">Excel</option>
+                </select>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -1531,13 +1759,19 @@ export default function ReceivablesPage({
           todayDateKey={todayDateKey}
           now={now}
           isTodayCollectionClosed={isTodayCollectionClosed}
+          workflowTab={workflowTab}
           todayCollectionCuts={todayCollectionCuts}
           visibleCollectionCut={visibleCollectionCut}
           buildWhatsAppReceivableMessage={buildWhatsAppReceivableMessage}
           onSelectDetail={setSelectedDetailRow}
-          onCollectionCutStatusChange={handleCollectionCutStatusChange}
+          onCollectionCutStatusChange={workflowTab === "route"
+            ? (_cutKey, clientId, nextStatus) => handleRouteWorkflowStatusChange(clientId, nextStatus)
+            : handleCollectionCutStatusChange}
           onCollectionCutCommentChange={handleCollectionCutCommentChange}
+          onRouteManagementTypeChange={handleRouteManagementTypeChange}
+          onRouteManagementCommentChange={handleRouteManagementCommentChange}
           onRouteReleaseAmountChange={handleRouteReleaseAmountChange}
+          onRemoveFromRoute={handleRemoveFromRoute}
           onWhatsAppMessageCopied={handleWhatsAppMessageCopied}
           onWhatsAppMessageSent={handleWhatsAppMessageSent}
           onEditWhatsAppPhone={handleOpenWhatsAppPhoneModal}

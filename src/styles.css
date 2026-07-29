@@ -5944,6 +5944,7 @@ select.control-op-badge {
 .ar-ledger-panel > .ar-filters-panel,
 .ar-ledger-panel > .panel-head,
 .ar-ledger-panel > .ar-view-tabs,
+.ar-ledger-panel > .ar-workflow-tabs,
 .ar-ledger-panel > .ar-collection-cuts-panel,
 .ar-ledger-panel > .ar-sticky-stack,
 .ar-ledger-panel > .ar-history-panel,
@@ -5991,6 +5992,55 @@ select.control-op-badge {
   color: #0f766e;
 }
 
+.ar-workflow-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 4px;
+  border: 1px solid #d8e2ef;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.ar-workflow-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.ar-workflow-tabs button strong {
+  min-width: 24px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.ar-workflow-tabs button.is-active {
+  border-color: #99d8d0;
+  background: #eafffa;
+  color: #0f766e;
+  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.1);
+}
+
+.ar-workflow-tabs button.is-active strong {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
 .ar-ledger-toolbar {
   display: flex;
   align-items: center;
@@ -6023,6 +6073,139 @@ select.control-op-badge {
   color: #475569;
   font-size: 0.76rem;
   font-weight: 800;
+}
+
+.ar-route-export-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ar-route-export-format {
+  min-height: 30px;
+  border: 1px solid #d8e2ef;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 0.76rem;
+  font-weight: 800;
+  padding: 4px 8px;
+}
+
+.ar-route-list-table {
+  min-width: 1180px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.ar-route-list-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 9px 10px;
+  border-bottom: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.ar-route-list-table tbody td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #334155;
+  font-size: 0.82rem;
+  vertical-align: middle;
+}
+
+.ar-route-list-table tbody tr:nth-child(even) td {
+  background: #fffaf3;
+}
+
+.ar-route-list-table tbody tr:hover td {
+  background: #fff7ed;
+}
+
+.ar-route-client-name {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ar-route-list-amount {
+  width: 110px;
+  min-height: 32px;
+  border: 1px solid #fed7aa;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #7c2d12;
+  font-size: 0.84rem;
+  font-weight: 900;
+  padding: 5px 8px;
+}
+
+.ar-route-list-comment {
+  width: 180px;
+  min-height: 32px;
+  border: 1px solid #d8e2ef;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 5px 8px;
+}
+
+.ar-route-list-remove {
+  min-width: 70px;
+  color: #9a3412;
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.ar-route-list-remove:hover:not(:disabled) {
+  border-color: #fb923c;
+  background: #ffedd5;
+  color: #7c2d12;
+}
+
+.ar-route-list-type {
+  width: 158px;
+  min-width: 158px;
+  min-height: 32px;
+  border: 1px solid #fed7aa;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #7c2d12;
+  font-size: 0.8rem;
+  font-weight: 900;
+  padding: 5px 24px 5px 8px;
+}
+
+.ar-route-list-note {
+  width: 190px;
+  min-height: 34px;
+  resize: vertical;
+  border: 1px solid #d8e2ef;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 0.78rem;
+  padding: 5px 7px;
+}
+
+.ar-route-list-amount:focus,
+.ar-route-list-comment:focus,
+.ar-route-list-type:focus,
+.ar-route-list-note:focus {
+  border-color: #fb923c;
+  box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.16);
+  outline: none;
 }
 
 .ar-whatsapp-alert {
@@ -7494,6 +7677,26 @@ select.control-op-badge {
   border: 1px solid #fdba74;
   border-radius: 9px;
   background: #fff7ed;
+}
+
+.ar-route-tab-handoff {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 4px 8px;
+  border: 1px solid #fdba74;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.ar-card-key-grid--route {
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
 }
 
 .ar-route-release-field span {

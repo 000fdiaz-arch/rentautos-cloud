@@ -5,12 +5,14 @@ import type { CollectionStatus, CollectionStatusRecord } from "./receivablesType
 import {
   COLLECTION_CUT_OPTIONS,
   DAILY_COLLECTION_STATUS_OPTIONS,
+  ROUTE_COLLECTION_STATUS_OPTIONS,
   COLLECTION_STATUS_HELP,
   clientOperationalStatusLabel,
   clientOperationalStatusTone,
   stateToneClass,
   type CollectionClosureItem,
-  type CollectionCutKey
+  type CollectionCutKey,
+  type ReceivablesWorkflowTab
 } from "./receivablesPageRules";
 
 type Props = {
@@ -20,6 +22,7 @@ type Props = {
   todayDateKey: string;
   now: Date;
   isTodayCollectionClosed: boolean;
+  workflowTab: ReceivablesWorkflowTab;
   collectionCutItems: Partial<Record<CollectionCutKey, CollectionClosureItem>>;
   visibleCutKey: CollectionCutKey | "all";
   whatsAppMessage: string;
@@ -68,6 +71,12 @@ function getStatusOptionsForCut(_cutKey: CollectionCutKey): Array<{ value: Colle
   return DAILY_COLLECTION_STATUS_OPTIONS;
 }
 
+function getRouteStatusLabel(status: CollectionStatus): string {
+  return ROUTE_COLLECTION_STATUS_OPTIONS.find((option) => option.value === status)?.label
+    ?? DAILY_COLLECTION_STATUS_OPTIONS.find((option) => option.value === status)?.label
+    ?? status;
+}
+
 function lastPaymentLabel(lastPaymentDate: string | null, now: Date): string {
   if (!lastPaymentDate) return "Sin pagos";
   const paymentDate = new Date(`${lastPaymentDate}T12:00:00`);
@@ -110,6 +119,7 @@ function ReceivableTableRowComponent({
   operationalStatus,
   now,
   isTodayCollectionClosed,
+  workflowTab,
   collectionCutItems,
   visibleCutKey,
   whatsAppMessage,
@@ -155,6 +165,8 @@ function ReceivableTableRowComponent({
     ? COLLECTION_CUT_OPTIONS
     : COLLECTION_CUT_OPTIONS.filter((option) => option.key === visibleCutKey);
   const totalDue = row.overdueBalance + row.totalOtherCharges;
+  const isRouteHighlighted = statusRecord?.managementType || statusRecord?.status === "route" || statusRecord?.status === "route_collection";
+  const isRouteWorkflow = workflowTab === "route";
 
   async function handleWhatsAppClick(): Promise<void> {
     if (!whatsAppPhone) {
@@ -179,10 +191,11 @@ function ReceivableTableRowComponent({
   function renderCutCell(cutKey: CollectionCutKey) {
     const item = collectionCutItems[cutKey];
     const rawValue = item?.collectionStatus ?? (cutKey === "night" ? statusRecord?.status : undefined) ?? defaultCollectionStatus(row, cutKey);
-    const statusOptions = getStatusOptionsForCut(cutKey);
+    const statusOptions = workflowTab === "route" ? ROUTE_COLLECTION_STATUS_OPTIONS : getStatusOptionsForCut(cutKey);
     const value = statusOptions.some((option) => option.value === rawValue) ? rawValue : "";
     const routeReleaseAmount = item?.managementAmount ?? statusRecord?.routeReleaseAmount;
     const selectedStatusHelp = value ? COLLECTION_STATUS_HELP[value as CollectionStatus] : undefined;
+    const showRouteReleaseField = workflowTab === "route" && (value === "route" || value === "route_collection" || value === "route_not_sent" || value === "call_later");
     return (
       <div className={`ar-cut-stack-row ar-cut-stack-row--${cutKey}`}>
         <div className="ar-cut-stack-head">
@@ -205,10 +218,13 @@ function ReceivableTableRowComponent({
               <option key={option.value} value={option.value} title={option.description}>{option.label}</option>
             ))}
           </select>
+          {workflowTab === "management" && value === "route" ? (
+            <span className="ar-route-tab-handoff">Asignado a Cobro en Ruta</span>
+          ) : null}
           {item?.comment ? (
             <span className="hint ar-cut-comment">Comentario: {item.comment}</span>
           ) : null}
-          {value === "route" ? (
+          {showRouteReleaseField ? (
             <label className="ar-route-release-field">
               <span>Min. para liberar</span>
               <input
@@ -232,6 +248,7 @@ function ReceivableTableRowComponent({
                 {item?.managementType === "cobrar_o_quitar" ? " / quitar" : ""}
               </span>
             ) : null}
+            {workflowTab === "route" && value ? <span>{getRouteStatusLabel(value as CollectionStatus)}</span> : null}
             {item?.managementComment ? <span>{item.managementComment}</span> : null}
           </div>
         </div>
@@ -242,54 +259,58 @@ function ReceivableTableRowComponent({
   return (
     <tr className="ar-card-row">
       <td colSpan={4} className="ar-card-cell">
-        <article className={`ar-receivable-card ${statusRecord?.managementType ? "ar-receivable-card--route" : ""}`}>
+        <article className={`ar-receivable-card ${isRouteHighlighted ? "ar-receivable-card--route" : ""}`}>
           <div className="ar-card-finance">
             <div className="ar-client-money-main">
               <div className="ar-client-summary-grid">
                 <div className="ar-card-actions ar-card-actions--compact">
                   <div className="ar-unit-stack">
                     <strong className="ar-unit-id">{row.unitId}</strong>
-                    {whatsAppActivityLabel ? (
+                    {!isRouteWorkflow && whatsAppActivityLabel ? (
                       <span className={`ar-whatsapp-audit-badge ar-whatsapp-audit-badge--${messageWasSent ? "sent" : "opened"}`}>
                         {whatsAppActivityLabel}
                       </span>
                     ) : null}
                   </div>
-                  {whatsAppIsResolved ? (
-                    <span
-                      className="ar-whatsapp-status ar-whatsapp-status--sent ar-whatsapp-icon-button ar-whatsapp-icon-button--sent"
-                      title={whatsAppButtonTitle}
-                      aria-label={whatsAppButtonTitle}
-                    >
-                      <WhatsAppIcon />
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className={`button ghost small ar-whatsapp-link ar-whatsapp-unit-button ar-whatsapp-icon-button ar-whatsapp-icon-button--${whatsAppTone}`}
-                      onClick={() => void handleWhatsAppClick()}
-                      disabled={isTodayCollectionClosed}
-                      title={whatsAppButtonTitle}
-                      aria-label={whatsAppButtonTitle}
-                    >
-                      <WhatsAppIcon />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="button ghost small ar-whatsapp-phone-edit"
-                    onClick={() => onEditWhatsAppPhone(row.id)}
-                    disabled={isTodayCollectionClosed}
-                    title={editWhatsAppTitle}
-                    aria-label={editWhatsAppTitle}
-                  >
-                    <PhoneEditIcon />
-                    <span className="ar-whatsapp-phone-edit-dot" aria-hidden="true" />
-                  </button>
+                  {!isRouteWorkflow ? (
+                    <>
+                      {whatsAppIsResolved ? (
+                        <span
+                          className="ar-whatsapp-status ar-whatsapp-status--sent ar-whatsapp-icon-button ar-whatsapp-icon-button--sent"
+                          title={whatsAppButtonTitle}
+                          aria-label={whatsAppButtonTitle}
+                        >
+                          <WhatsAppIcon />
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className={`button ghost small ar-whatsapp-link ar-whatsapp-unit-button ar-whatsapp-icon-button ar-whatsapp-icon-button--${whatsAppTone}`}
+                          onClick={() => void handleWhatsAppClick()}
+                          disabled={isTodayCollectionClosed}
+                          title={whatsAppButtonTitle}
+                          aria-label={whatsAppButtonTitle}
+                        >
+                          <WhatsAppIcon />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="button ghost small ar-whatsapp-phone-edit"
+                        onClick={() => onEditWhatsAppPhone(row.id)}
+                        disabled={isTodayCollectionClosed}
+                        title={editWhatsAppTitle}
+                        aria-label={editWhatsAppTitle}
+                      >
+                        <PhoneEditIcon />
+                        <span className="ar-whatsapp-phone-edit-dot" aria-hidden="true" />
+                      </button>
+                    </>
+                  ) : null}
                   <span className={clientOperationalStatusTone(operationalStatus)}>
                     {clientOperationalStatusLabel(operationalStatus)}
                   </span>
-                  {!whatsAppIsResolved && messageWasCopied ? (
+                  {!isRouteWorkflow && !whatsAppIsResolved && messageWasCopied ? (
                     <div className="ar-whatsapp-confirm-box ar-whatsapp-confirm-box--unit ar-whatsapp-confirm-box--inline">
                       <span>Confirma cuando lo envies.</span>
                       <button
@@ -305,7 +326,7 @@ function ReceivableTableRowComponent({
                 </div>
                 <div className="ar-client-summary-main">
                   <span className={`debt-meta ar-rent-line ${row.rentAmount > 0 ? "amount-debt" : "amount-good"}`}>
-                    {row.hasActiveClient ? `Letra: ${formatCurrency(row.rentAmount)}` : "Sin renta activa"}
+                    {isRouteWorkflow ? `Total a gestionar: ${formatCurrency(totalDue)}` : row.hasActiveClient ? `Letra: ${formatCurrency(row.rentAmount)}` : "Sin renta activa"}
                   </span>
                   <span className="debt-meta ar-truncate-line ar-client-person" title={row.name}>{row.name}</span>
                   <div className="ar-payment-state-row">
@@ -314,14 +335,22 @@ function ReceivableTableRowComponent({
                     </span>
                     <span className={stateToneClass(row.state)}>{STATE_LABEL[row.state]}</span>
                   </div>
-                  <div className="ar-card-key-grid">
-                    <span className={`ar-metric-chip ar-metric-chip--plan ar-metric-chip--plan-${row.hasActiveClient ? row.plan : "none"}`}><small>Plan</small>{planDetailLabel(row)}</span>
-                    <span className="ar-metric-chip ar-metric-chip--date"><small>Proximo</small>{dateKeyLabel(row.nextDueDate)}</span>
-                    <span className="ar-metric-chip ar-metric-chip--late"><small>Atraso</small>{row.daysLate > 0 ? `${row.daysLate} dias` : "Sin atraso"}</span>
-                    <span className="ar-metric-chip ar-metric-chip--debt"><small>Renta vencida</small>{formatCurrency(row.overdueBalance)}</span>
-                    <span className="ar-metric-chip ar-metric-chip--debt"><small>Otros cargos</small>{formatCurrency(row.totalOtherCharges)}</span>
-                    <span className="ar-metric-chip ar-metric-chip--debt"><small>Total general</small>{formatCurrency(totalDue)}</span>
-                  </div>
+                  {isRouteWorkflow ? (
+                    <div className="ar-card-key-grid ar-card-key-grid--route">
+                      <span className="ar-metric-chip ar-metric-chip--debt"><small>Renta vencida</small>{formatCurrency(row.overdueBalance)}</span>
+                      <span className="ar-metric-chip ar-metric-chip--debt"><small>Otros cargos</small>{formatCurrency(row.totalOtherCharges)}</span>
+                      <span className="ar-metric-chip ar-metric-chip--late"><small>Atraso</small>{row.daysLate > 0 ? `${row.daysLate} dias` : "Sin atraso"}</span>
+                    </div>
+                  ) : (
+                    <div className="ar-card-key-grid">
+                      <span className={`ar-metric-chip ar-metric-chip--plan ar-metric-chip--plan-${row.hasActiveClient ? row.plan : "none"}`}><small>Plan</small>{planDetailLabel(row)}</span>
+                      <span className="ar-metric-chip ar-metric-chip--date"><small>Proximo</small>{dateKeyLabel(row.nextDueDate)}</span>
+                      <span className="ar-metric-chip ar-metric-chip--late"><small>Atraso</small>{row.daysLate > 0 ? `${row.daysLate} dias` : "Sin atraso"}</span>
+                      <span className="ar-metric-chip ar-metric-chip--debt"><small>Renta vencida</small>{formatCurrency(row.overdueBalance)}</span>
+                      <span className="ar-metric-chip ar-metric-chip--debt"><small>Otros cargos</small>{formatCurrency(row.totalOtherCharges)}</span>
+                      <span className="ar-metric-chip ar-metric-chip--debt"><small>Total general</small>{formatCurrency(totalDue)}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -362,6 +391,7 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.operationalStatus === next.operationalStatus &&
   previous.todayDateKey === next.todayDateKey &&
   previous.isTodayCollectionClosed === next.isTodayCollectionClosed &&
+  previous.workflowTab === next.workflowTab &&
   previous.collectionCutItems === next.collectionCutItems &&
   previous.visibleCutKey === next.visibleCutKey &&
   previous.whatsAppMessage === next.whatsAppMessage &&
