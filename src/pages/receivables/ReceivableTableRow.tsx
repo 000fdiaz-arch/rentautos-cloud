@@ -155,7 +155,7 @@ function ReceivableTableRowComponent({
   const whatsAppButtonTitle = !requiresWhatsAppManagement
     ? "Realizado: sin saldo atrasado"
     : messageWasSent
-      ? `WhatsApp enviado${sentTime ? ` a las ${sentTime}` : ""}`
+      ? `Volver a abrir WhatsApp y copiar mensaje actualizado${sentTime ? ` (enviado a las ${sentTime})` : ""}`
       : messageWasCopied
         ? "WhatsApp abierto: confirma cuando lo envies"
         : whatsAppPhone
@@ -286,7 +286,7 @@ function ReceivableTableRowComponent({
                   </div>
                   {!isRouteWorkflow ? (
                     <>
-                      {whatsAppIsResolved ? (
+                      {whatsAppIsResolved && !messageWasSent ? (
                         <span
                           className="ar-whatsapp-status ar-whatsapp-status--sent ar-whatsapp-icon-button ar-whatsapp-icon-button--sent"
                           title={whatsAppButtonTitle}
