@@ -26,6 +26,7 @@ type Props = {
   collectionCutItems: Partial<Record<CollectionCutKey, CollectionClosureItem>>;
   visibleCutKey: CollectionCutKey | "all";
   whatsAppMessage: string;
+  whatsAppGroupRows?: ReceivableRow[];
   onSelectDetail: (row: ReceivableRow) => void;
   onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
   onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
@@ -123,6 +124,7 @@ function ReceivableTableRowComponent({
   collectionCutItems,
   visibleCutKey,
   whatsAppMessage,
+  whatsAppGroupRows,
   onSelectDetail,
   onCollectionCutStatusChange,
   onCollectionCutCommentChange,
@@ -167,6 +169,8 @@ function ReceivableTableRowComponent({
   const totalDue = row.overdueBalance + row.totalOtherCharges;
   const isRouteHighlighted = statusRecord?.managementType || statusRecord?.status === "route" || statusRecord?.status === "route_collection";
   const isRouteWorkflow = workflowTab === "route";
+  const groupedWhatsAppRows = whatsAppGroupRows?.filter((item) => item.id !== row.id) ?? [];
+  const groupedWhatsAppUnits = groupedWhatsAppRows.map((item) => item.unitId).filter(Boolean);
 
   async function handleWhatsAppClick(): Promise<void> {
     if (!whatsAppPhone) {
@@ -266,6 +270,14 @@ function ReceivableTableRowComponent({
                 <div className="ar-card-actions ar-card-actions--compact">
                   <div className="ar-unit-stack">
                     <strong className="ar-unit-id">{row.unitId}</strong>
+                    {!isRouteWorkflow && groupedWhatsAppUnits.length > 0 ? (
+                      <span
+                        className="ar-whatsapp-group-badge"
+                        title={`Mensaje conjunto: ${[row.unitId, ...groupedWhatsAppUnits].join(", ")}`}
+                      >
+                        +{groupedWhatsAppUnits.length} unidad{groupedWhatsAppUnits.length === 1 ? "" : "es"}
+                      </span>
+                    ) : null}
                     {!isRouteWorkflow && whatsAppActivityLabel ? (
                       <span className={`ar-whatsapp-audit-badge ar-whatsapp-audit-badge--${messageWasSent ? "sent" : "opened"}`}>
                         {whatsAppActivityLabel}

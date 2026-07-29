@@ -8173,6 +8173,23 @@ select.control-op-badge {
   gap: 4px;
 }
 
+.ar-whatsapp-group-badge {
+  display: inline-flex;
+  min-height: 20px;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  background: #f0fdf4;
+  color: #15803d;
+  font-size: 0.64rem;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .ar-whatsapp-audit-badge {
   display: inline-flex;
   min-height: 20px;

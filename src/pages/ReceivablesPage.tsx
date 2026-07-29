@@ -109,6 +109,10 @@ function hasOverdueDebtForWhatsApp(row: ReceivableRow): boolean {
   return row.overdueBalance > 0 || row.overdueInstallments > 0 || row.state === "vencido" || row.state === "critico";
 }
 
+function totalDueForWhatsApp(row: ReceivableRow): number {
+  return Math.max(0, row.overdueBalance + row.totalOtherCharges);
+}
+
 function getWhatsAppContactStatus(row: ReceivableRow, record: CollectionStatusRecord | undefined): Exclude<WhatsAppContactFilter, "all" | "pending"> {
   if (!hasOverdueDebtForWhatsApp(row)) return "sent";
   if (record?.whatsAppMessageSentAt) return "sent";
@@ -542,6 +546,22 @@ export default function ReceivablesPage({
   }, [collectionStatusByClient, payments]);
 
   const filteredRows = useMemo(() => filterReceivableRows(baseRows, filters), [baseRows, filters]);
+  const whatsAppGroupRowsByClient = useMemo(() => {
+    const rowsByPhone = new Map<string, ReceivableRow[]>();
+    const rowsByClient = new Map<string, ReceivableRow[]>();
+    for (const row of baseRows) {
+      const phone = normalizeWhatsAppPhoneForFilter(row.whatsAppPhone);
+      if (!phone || !hasOverdueDebtForWhatsApp(row)) continue;
+      const phoneRows = rowsByPhone.get(phone) ?? [];
+      phoneRows.push(row);
+      rowsByPhone.set(phone, phoneRows);
+    }
+    for (const groupRows of rowsByPhone.values()) {
+      const sortedGroupRows = sortReceivableRows(groupRows, "unitId", "asc");
+      for (const row of sortedGroupRows) rowsByClient.set(row.id, sortedGroupRows);
+    }
+    return rowsByClient;
+  }, [baseRows]);
   const routeWorkflowRowsCount = useMemo(
     () => baseRows.filter((row) => isRouteWorkflowRow(row)).length,
     [baseRows, collectionStatusByClient, todayCollectionCuts]
@@ -753,6 +773,9 @@ export default function ReceivablesPage({
   }
 
   function buildWhatsAppReceivableMessage(row: ReceivableRow): string {
+    const groupedRows = whatsAppGroupRowsByClient.get(row.id) ?? [row];
+    if (groupedRows.length > 1) return buildWhatsAppReceivableGroupMessage(groupedRows);
+
     const today = formatDateForTitle(now);
     const firstName = row.name.trim().split(/\s+/)[0] || row.name;
     const lastPayment = row.lastPaymentDate
@@ -842,6 +865,38 @@ export default function ReceivablesPage({
       `${emoji.thanks} Gracias.`
     ].join("\n");
     return message;
+  }
+
+  function buildWhatsAppReceivableGroupMessage(groupRows: ReceivableRow[]): string {
+    const today = formatDateForTitle(now);
+    const primaryRow = groupRows[0];
+    const firstName = primaryRow.name.trim().split(/\s+/)[0] || primaryRow.name;
+    const totalPending = groupRows.reduce((sum, item) => sum + totalDueForWhatsApp(item), 0);
+    const emoji = {
+      hello: String.fromCodePoint(0x1F44B),
+      warning: `${String.fromCodePoint(0x26A0)}${String.fromCodePoint(0xFE0F)}`,
+      money: String.fromCodePoint(0x1F4B5),
+      check: String.fromCodePoint(0x2705),
+      thanks: String.fromCodePoint(0x1F64F)
+    };
+    const unitBlocks = groupRows.map((item) => {
+      const unitTotal = totalDueForWhatsApp(item);
+      return `Unidad ${item.unitId}: ${formatCurrency(unitTotal)}`;
+    });
+
+    return [
+      `${emoji.hello} Hola, ${firstName}.`,
+      "",
+      `${emoji.warning} Saldo pendiente al ${today}:`,
+      unitBlocks.join("\n"),
+      `${emoji.money} Total pendiente: ${formatCurrency(totalPending)}`,
+      "",
+      `${emoji.check} Agradecemos su pago. ${emoji.thanks}`
+    ].join("\n");
+  }
+
+  function getWhatsAppGroupRows(row: ReceivableRow): ReceivableRow[] {
+    return whatsAppGroupRowsByClient.get(row.id) ?? [row];
   }
 
   function getEffectiveStatus(row: ReceivableRow): CollectionStatus | "" {
@@ -1263,63 +1318,71 @@ export default function ReceivablesPage({
 
   function handleWhatsAppMessageCopied(clientId: string, message: string): void {
     if (isTodayCollectionClosed) return;
-    markClientStatusAsSaving(clientId);
+    const targetRows = whatsAppGroupRowsByClient.get(clientId) ?? baseRows.filter((row) => row.id === clientId);
+    const targetClientIds = targetRows.length > 0 ? targetRows.map((row) => row.id) : [clientId];
+    for (const targetClientId of targetClientIds) markClientStatusAsSaving(targetClientId);
+    const copiedAt = new Date().toISOString();
     setCollectionStatusByClient((current) => {
-      const previous = current[clientId];
-      const updatedRecord: CollectionStatusRecord = {
-        status: previous?.status ?? "unassigned",
-        comment: previous?.comment ?? "",
-        updatedAt: new Date().toISOString(),
-        managementType: previous?.managementType,
-        managementAmount: previous?.managementAmount,
-        managementComment: previous?.managementComment,
-        managementUpdatedAt: previous?.managementUpdatedAt,
-        routeReleaseAmount: previous?.routeReleaseAmount,
-        routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt,
-        whatsAppMessageCopiedAt: new Date().toISOString(),
-        whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
-        whatsAppMessageText: message,
-        supportNote: previous?.supportNote,
-        supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
-        paymentPromiseDate: previous?.paymentPromiseDate,
-        paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
-      };
-      optimisticStatusByClientRef.current[clientId] = updatedRecord;
-      return {
-        ...current,
-        [clientId]: updatedRecord
-      };
+      const next = { ...current };
+      for (const targetClientId of targetClientIds) {
+        const previous = current[targetClientId];
+        const updatedRecord: CollectionStatusRecord = {
+          status: previous?.status ?? "unassigned",
+          comment: previous?.comment ?? "",
+          updatedAt: copiedAt,
+          managementType: previous?.managementType,
+          managementAmount: previous?.managementAmount,
+          managementComment: previous?.managementComment,
+          managementUpdatedAt: previous?.managementUpdatedAt,
+          routeReleaseAmount: previous?.routeReleaseAmount,
+          routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt,
+          whatsAppMessageCopiedAt: copiedAt,
+          whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+          whatsAppMessageText: message,
+          supportNote: previous?.supportNote,
+          supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+          paymentPromiseDate: previous?.paymentPromiseDate,
+          paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
+        };
+        optimisticStatusByClientRef.current[targetClientId] = updatedRecord;
+        next[targetClientId] = updatedRecord;
+      }
+      return next;
     });
   }
 
   function handleWhatsAppMessageSent(clientId: string, message: string): void {
     if (isTodayCollectionClosed) return;
-    markClientStatusAsSaving(clientId);
+    const targetRows = whatsAppGroupRowsByClient.get(clientId) ?? baseRows.filter((row) => row.id === clientId);
+    const targetClientIds = targetRows.length > 0 ? targetRows.map((row) => row.id) : [clientId];
+    for (const targetClientId of targetClientIds) markClientStatusAsSaving(targetClientId);
+    const sentAt = new Date().toISOString();
     setCollectionStatusByClient((current) => {
-      const previous = current[clientId];
-      const updatedRecord: CollectionStatusRecord = {
-        status: previous?.status ?? "unassigned",
-        comment: previous?.comment ?? "",
-        updatedAt: new Date().toISOString(),
-        managementType: previous?.managementType,
-        managementAmount: previous?.managementAmount,
-        managementComment: previous?.managementComment,
-        managementUpdatedAt: previous?.managementUpdatedAt,
-        routeReleaseAmount: previous?.routeReleaseAmount,
-        routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt,
-        whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt ?? new Date().toISOString(),
-        whatsAppMessageSentAt: new Date().toISOString(),
-        whatsAppMessageText: message,
-        supportNote: previous?.supportNote,
-        supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
-        paymentPromiseDate: previous?.paymentPromiseDate,
-        paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
-      };
-      optimisticStatusByClientRef.current[clientId] = updatedRecord;
-      return {
-        ...current,
-        [clientId]: updatedRecord
-      };
+      const next = { ...current };
+      for (const targetClientId of targetClientIds) {
+        const previous = current[targetClientId];
+        const updatedRecord: CollectionStatusRecord = {
+          status: previous?.status ?? "unassigned",
+          comment: previous?.comment ?? "",
+          updatedAt: sentAt,
+          managementType: previous?.managementType,
+          managementAmount: previous?.managementAmount,
+          managementComment: previous?.managementComment,
+          managementUpdatedAt: previous?.managementUpdatedAt,
+          routeReleaseAmount: previous?.routeReleaseAmount,
+          routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt,
+          whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt ?? sentAt,
+          whatsAppMessageSentAt: sentAt,
+          whatsAppMessageText: message,
+          supportNote: previous?.supportNote,
+          supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+          paymentPromiseDate: previous?.paymentPromiseDate,
+          paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
+        };
+        optimisticStatusByClientRef.current[targetClientId] = updatedRecord;
+        next[targetClientId] = updatedRecord;
+      }
+      return next;
     });
   }
 
@@ -1821,6 +1884,7 @@ export default function ReceivablesPage({
           todayCollectionCuts={todayCollectionCuts}
           visibleCollectionCut={visibleCollectionCut}
           buildWhatsAppReceivableMessage={buildWhatsAppReceivableMessage}
+          getWhatsAppGroupRows={getWhatsAppGroupRows}
           onSelectDetail={setSelectedDetailRow}
           onCollectionCutStatusChange={workflowTab === "route"
             ? (_cutKey, clientId, nextStatus) => handleRouteWorkflowStatusChange(clientId, nextStatus)
