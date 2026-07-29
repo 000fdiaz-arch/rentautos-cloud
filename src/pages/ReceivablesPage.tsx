@@ -105,8 +105,12 @@ function normalizeWhatsAppPhoneForFilter(value: string | undefined): string {
   return "";
 }
 
+function isWhatsAppEligibleUnit(row: ReceivableRow): boolean {
+  return row.hasActiveClient && (row.operationalStatus ?? "activo").trim().toLowerCase() === "activo";
+}
+
 function hasOverdueDebtForWhatsApp(row: ReceivableRow): boolean {
-  return row.overdueBalance > 0 || row.overdueInstallments > 0 || row.state === "vencido" || row.state === "critico";
+  return isWhatsAppEligibleUnit(row) && (row.overdueBalance > 0 || row.overdueInstallments > 0 || row.state === "vencido" || row.state === "critico");
 }
 
 function totalDueForWhatsApp(row: ReceivableRow): number {

@@ -101,8 +101,12 @@ function planDetailLabel(row: ReceivableRow): string {
   return PLAN_LABEL[row.plan];
 }
 
-function hasOverdueDebt(row: ReceivableRow): boolean {
-  return row.overdueBalance > 0 || row.overdueInstallments > 0 || row.state === "vencido" || row.state === "critico";
+function isWhatsAppEligibleUnit(row: ReceivableRow, operationalStatus: string): boolean {
+  return row.hasActiveClient && operationalStatus.trim().toLowerCase() === "activo";
+}
+
+function hasOverdueDebt(row: ReceivableRow, operationalStatus: string): boolean {
+  return isWhatsAppEligibleUnit(row, operationalStatus) && (row.overdueBalance > 0 || row.overdueInstallments > 0 || row.state === "vencido" || row.state === "critico");
 }
 
 function shouldDefaultToCovered(row: ReceivableRow): boolean {
@@ -137,7 +141,8 @@ function ReceivableTableRowComponent({
   const [copiedWhatsAppMessage, setCopiedWhatsAppMessage] = useState(false);
   const messageWasCopied = copiedWhatsAppMessage || !!statusRecord?.whatsAppMessageCopiedAt;
   const messageWasSent = !!statusRecord?.whatsAppMessageSentAt;
-  const requiresWhatsAppManagement = hasOverdueDebt(row);
+  const isEligibleForWhatsApp = isWhatsAppEligibleUnit(row, operationalStatus);
+  const requiresWhatsAppManagement = hasOverdueDebt(row, operationalStatus);
   const whatsAppIsResolved = messageWasSent || !requiresWhatsAppManagement;
   const whatsAppPhone = normalizeWhatsAppPhone(row.whatsAppPhone);
   const lastPaymentIsToday = row.lastPaymentDate
@@ -152,7 +157,9 @@ function ReceivableTableRowComponent({
     : messageWasCopied
       ? "WhatsApp abierto"
       : "";
-  const whatsAppButtonTitle = !requiresWhatsAppManagement
+  const whatsAppButtonTitle = !isEligibleForWhatsApp
+    ? row.hasActiveClient ? "Unidad no activa: no requiere WhatsApp" : "Sin cliente activo: no requiere WhatsApp"
+    : !requiresWhatsAppManagement
     ? "Realizado: sin saldo atrasado"
     : messageWasSent
       ? `Volver a abrir WhatsApp y copiar mensaje actualizado${sentTime ? ` (enviado a las ${sentTime})` : ""}`
@@ -286,7 +293,7 @@ function ReceivableTableRowComponent({
                   </div>
                   {!isRouteWorkflow ? (
                     <>
-                      {whatsAppIsResolved && !messageWasSent ? (
+                      {!isEligibleForWhatsApp || (whatsAppIsResolved && !messageWasSent) ? (
                         <span
                           className="ar-whatsapp-status ar-whatsapp-status--sent ar-whatsapp-icon-button ar-whatsapp-icon-button--sent"
                           title={whatsAppButtonTitle}
@@ -306,17 +313,19 @@ function ReceivableTableRowComponent({
                           <WhatsAppIcon />
                         </button>
                       )}
-                      <button
-                        type="button"
-                        className="button ghost small ar-whatsapp-phone-edit"
-                        onClick={() => onEditWhatsAppPhone(row.id)}
-                        disabled={isTodayCollectionClosed}
-                        title={editWhatsAppTitle}
-                        aria-label={editWhatsAppTitle}
-                      >
-                        <PhoneEditIcon />
-                        <span className="ar-whatsapp-phone-edit-dot" aria-hidden="true" />
-                      </button>
+                      {isEligibleForWhatsApp ? (
+                        <button
+                          type="button"
+                          className="button ghost small ar-whatsapp-phone-edit"
+                          onClick={() => onEditWhatsAppPhone(row.id)}
+                          disabled={isTodayCollectionClosed}
+                          title={editWhatsAppTitle}
+                          aria-label={editWhatsAppTitle}
+                        >
+                          <PhoneEditIcon />
+                          <span className="ar-whatsapp-phone-edit-dot" aria-hidden="true" />
+                        </button>
+                      ) : null}
                     </>
                   ) : null}
                   <span className={clientOperationalStatusTone(operationalStatus)}>
