@@ -166,7 +166,7 @@ export default function ReceivablesPage({
   const [collectionStatusByClient, setCollectionStatusByClient] = useState<Record<string, CollectionStatusRecord>>({});
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<CollectionStatusFilter>("all");
   const [whatsAppContactFilter, setWhatsAppContactFilter] = useState<WhatsAppContactFilter>("all");
-  const [viewMode, setViewMode] = useState<ReceivablesViewMode>("cartera");
+  const viewMode: ReceivablesViewMode = "cartera";
   const [collectionClosuresByDate, setCollectionClosuresByDate] = useState<CollectionClosuresByDate>({});
   const [collectionClosuresLoaded, setCollectionClosuresLoaded] = useState<boolean>(false);
   const [isCollectionClosuresLoading, setIsCollectionClosuresLoading] = useState<boolean>(false);
@@ -176,6 +176,7 @@ export default function ReceivablesPage({
   const [exportError, setExportError] = useState<string | null>(null);
   const [collectionCutMessage, setCollectionCutMessage] = useState<string | null>(null);
   const [isSavingCollectionCut, setIsSavingCollectionCut] = useState<CollectionCutKey | null>(null);
+  const [isClearingCollectionManagement, setIsClearingCollectionManagement] = useState<boolean>(false);
   const [isExportConfigOpen, setIsExportConfigOpen] = useState<boolean>(false);
   const [routeExportFormat, setRouteExportFormat] = useState<RouteExportFormat>("jpg");
   const [isRouteExportMenuOpen, setIsRouteExportMenuOpen] = useState<boolean>(false);
@@ -468,12 +469,8 @@ export default function ReceivablesPage({
     return groups.sort((a, b) => a.localeCompare(b));
   }, [baseRows]);
 
-  const todayCollectionCuts = useMemo(
-    () => getCollectionClosureCuts(collectionClosuresByDate[todayDateKey]),
-    [collectionClosuresByDate, todayDateKey]
-  );
-  const isCollectionDateClosed = !!todayCollectionCuts.night;
-  const isTodayCollectionClosed = isCollectionClosuresLoading || isCollectionDateClosed;
+  const todayCollectionCuts: Partial<Record<CollectionCutKey, { items: CollectionClosureItem[] }>> = useMemo(() => ({}), []);
+  const isTodayCollectionClosed = false;
 
   useEffect(() => {
     const routeEntries = Object.entries(collectionStatusByClient).filter(([, record]) => (
@@ -874,6 +871,26 @@ export default function ReceivablesPage({
     } else if (onStreetManagementPersist) {
       const ok = await onStreetManagementPersist(clearMarker);
       if (ok === false) throw new Error("No se pudieron limpiar los estados vivos de cobranza.");
+    }
+  }
+
+  async function handleClearCollectionManagement(): Promise<void> {
+    setCollectionCutMessage(null);
+    setExportError(null);
+    setIsClearingCollectionManagement(true);
+    try {
+      await clearLiveCollectionStatusAfterClosure();
+      setCollectionStatusFilter("all");
+      setWhatsAppContactFilter("all");
+      setFieldManagementModalClientId(null);
+      setWhatsAppModalClientId(null);
+      setIsRouteExportMenuOpen(false);
+      setCollectionCutMessage("Gestion limpiada. La cartera volvio al formato de inicio.");
+    } catch (error) {
+      console.error("No se pudo limpiar la gestion de cobranza.", error);
+      setCollectionCutMessage("No se pudo limpiar la gestion de cobranza.");
+    } finally {
+      setIsClearingCollectionManagement(false);
     }
   }
 
@@ -1286,7 +1303,7 @@ export default function ReceivablesPage({
     setCollectionCutMessage(null);
     setExportError(null);
     if (isTodayCollectionClosed) {
-      setCollectionCutMessage(`La gestion de ${receivablesDateLabel} ya esta cerrada. Puedes auditarla en Historial.`);
+      setCollectionCutMessage(`La gestion de ${receivablesDateLabel} ya esta cerrada.`);
       return;
     }
     if (!dataOwnerUserId) {
@@ -1414,7 +1431,7 @@ export default function ReceivablesPage({
             <p>Gestiona estados, notas y ruta de cobro desde una sola lista.</p>
             <p className="ar-ledger-date-note">
               Fecha de gestion: <strong>{receivablesDateLabel}</strong>
-              {isCollectionClosuresLoading ? " | Validando cierre..." : isCollectionDateClosed ? " | Gestion cerrada" : " | Gestion abierta"}
+              {" | Gestion abierta"}
             </p>
           </div>
           {viewMode === "cartera" ? (
@@ -1422,67 +1439,17 @@ export default function ReceivablesPage({
               <button
                 type="button"
                 className="button ghost small"
-                onClick={() => void handleSaveCollectionCut("night")}
-                disabled={isSavingCollectionCut !== null || isTodayCollectionClosed}
+                onClick={() => void handleClearCollectionManagement()}
+                disabled={isClearingCollectionManagement}
               >
-                {isCollectionClosuresLoading ? "Validando..." : isCollectionDateClosed ? "Gestion cerrada" : isSavingCollectionCut === "night" ? "Cerrando..." : "Cerrar gestion del dia"}
+                {isClearingCollectionManagement ? "Limpiando gestion..." : "Limpiar gestion"}
               </button>
-              <button type="button" className="button ghost small" onClick={() => void handleExportExcel()} disabled={isExporting}>Excel</button>
-              <button type="button" className="button ghost small" onClick={() => void handleExportPdf()} disabled={isExporting}>PDF</button>
-              <div className="ar-export-route-menu-wrap">
-                <button
-                  type="button"
-                  className="button small ar-export-route-btn"
-                  onClick={() => setIsRouteExportMenuOpen((current) => !current)}
-                  disabled={isExporting || routeCollectionRowsCount === 0}
-                >
-                  Cobro en ruta
-                </button>
-                {isRouteExportMenuOpen ? (
-                  <div className="ar-export-route-menu">
-                    {([
-                      ["jpg", "Exportar JPG"],
-                      ["pdf", "Exportar PDF"],
-                      ["excel", "Exportar Excel"]
-                    ] as Array<[RouteExportFormat, string]>).map(([format, label]) => (
-                      <button
-                        key={format}
-                        type="button"
-                        className="ar-export-route-menu-item"
-                        onClick={() => {
-                          setRouteExportFormat(format);
-                          setIsRouteExportMenuOpen(false);
-                          void handleExportCobroEnRuta(format);
-                        }}
-                        disabled={isExporting}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
             </div>
           ) : null}
         </div>
 
         <div className="ar-ledger-toolbar">
           <div className="ar-view-tabs">
-            <button
-              type="button"
-              className={`button small ${viewMode === "cartera" ? "primary" : "ghost"}`}
-              onClick={() => setViewMode("cartera")}
-            >
-              Cartera
-            </button>
-            <button
-              type="button"
-              className={`button small ${viewMode === "historial" ? "primary" : "ghost"}`}
-              onClick={() => setViewMode("historial")}
-              disabled={!dataOwnerUserId || isCollectionClosuresLoading}
-            >
-              {isCollectionClosuresLoading ? "Cargando..." : "Historial"}
-            </button>
             <label className="ar-toolbar-filter ar-toolbar-filter--management">
               <span className="ar-toolbar-filter-label">Gestion</span>
               <select
@@ -1530,20 +1497,6 @@ export default function ReceivablesPage({
               {whatsAppAlertText}
             </button>
             <span className="ar-results-count">Mostrando {rows.length} de {baseRows.length}</span>
-            {viewMode === "historial" ? (
-              <label className="ar-toolbar-filter">
-                <span className="ar-toolbar-filter-label">Fecha</span>
-                <select
-                  className="ar-toolbar-filter-select"
-                  value={selectedHistoryDate}
-                  onChange={(event) => setSelectedHistoryDate(event.target.value)}
-                >
-                  {getCollectionClosureDateKeys(collectionClosuresByDate).map((dateKey) => (
-                    <option key={dateKey} value={dateKey}>{formatDate(new Date(`${dateKey}T12:00:00`))}</option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
           </div>
         </div>
 

@@ -93,7 +93,7 @@ export function ReceivablesFiltersPanel({
             ))}
           </div>
         </div>
-        <button type="button" className="button ghost small ar-clear-filters-button" onClick={onClearFilters}>Limpiar</button>
+        <button type="button" className="button ghost small ar-clear-filters-button" onClick={onClearFilters}>Limpiar filtros</button>
       </div>
     </section>
   );
