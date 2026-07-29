@@ -49,6 +49,16 @@ function WhatsAppIcon() {
   );
 }
 
+function PhoneEditIcon() {
+  return (
+    <svg className="ar-phone-edit-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M8.3 5.2 6.4 7.1c-.54.54-.64 1.37-.25 2.03a22 22 0 0 0 8.72 8.72c.66.39 1.49.29 2.03-.25l1.9-1.9a1.35 1.35 0 0 0 0-1.91l-1.47-1.47a1.35 1.35 0 0 0-1.78-.12l-1.05.77a.8.8 0 0 1-.9.04 12.6 12.6 0 0 1-4.61-4.61.8.8 0 0 1 .04-.9l.77-1.05a1.35 1.35 0 0 0-.12-1.78L10.21 5.2a1.35 1.35 0 0 0-1.91 0Z" />
+      <path d="m14.9 6.7 2.4 2.4" />
+      <path d="m18 3.6 2.4 2.4-6.5 6.5-2.8.4.4-2.8L18 3.6Z" />
+    </svg>
+  );
+}
+
 function cutDisplayLabel(cutKey: CollectionCutKey): string {
   if (cutKey === "night") return "Gestion";
   return "Gestion";
@@ -139,6 +149,7 @@ function ReceivableTableRowComponent({
         : whatsAppPhone
           ? "Abrir WhatsApp y copiar mensaje"
           : "Falta WhatsApp: agregar o editar numero";
+  const editWhatsAppTitle = whatsAppPhone ? `Actualizar WhatsApp ${whatsAppPhone}` : "Agregar WhatsApp";
   const whatsAppTone = whatsAppIsResolved ? "sent" : messageWasCopied ? "opened" : whatsAppPhone ? "ready" : "missing";
   const visibleCutOptions = visibleCutKey === "all"
     ? COLLECTION_CUT_OPTIONS
@@ -264,6 +275,17 @@ function ReceivableTableRowComponent({
                       <WhatsAppIcon />
                     </button>
                   )}
+                  <button
+                    type="button"
+                    className="button ghost small ar-whatsapp-phone-edit"
+                    onClick={() => onEditWhatsAppPhone(row.id)}
+                    disabled={isTodayCollectionClosed}
+                    title={editWhatsAppTitle}
+                    aria-label={editWhatsAppTitle}
+                  >
+                    <PhoneEditIcon />
+                    <span className="ar-whatsapp-phone-edit-dot" aria-hidden="true" />
+                  </button>
                   <span className={clientOperationalStatusTone(operationalStatus)}>
                     {clientOperationalStatusLabel(operationalStatus)}
                   </span>

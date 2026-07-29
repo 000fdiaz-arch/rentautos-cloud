@@ -197,6 +197,7 @@ export default function ReceivablesPage({
   const persistStreetTimerRef = useRef<number | null>(null);
   const lastStreetSnapshotRef = useRef<string>("");
   const streetPersistPendingRef = useRef<boolean>(false);
+  const streetManagementLoadedRef = useRef<boolean>(false);
   const optimisticStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
   const saveTokenByClientRef = useRef<Record<string, number>>({});
   const latestCollectionStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
@@ -237,12 +238,20 @@ export default function ReceivablesPage({
     setCollectionStatusByClient(merged);
     latestCollectionStatusByClientRef.current = merged;
     lastStreetSnapshotRef.current = incomingSerialized;
+    streetManagementLoadedRef.current = true;
   }, []);
 
   useEffect(() => {
     streetManagementDataRef.current = streetManagementData ?? {};
     if (!dataOwnerUserId) applyStreetManagementData(streetManagementDataRef.current);
   }, [applyStreetManagementData, dataOwnerUserId, streetManagementData]);
+
+  useEffect(() => {
+    streetManagementLoadedRef.current = false;
+    streetPersistPendingRef.current = false;
+    lastStreetSnapshotRef.current = "";
+    setCollectionStatusByClient({});
+  }, [dataOwnerUserId]);
 
   const loadStreetManagementFromCloud = useCallback(async (): Promise<void> => {
     if (!dataOwnerUserId) {
@@ -297,6 +306,7 @@ export default function ReceivablesPage({
   useEffect(() => {
     const serialized = JSON.stringify(collectionStatusByClient);
     latestCollectionStatusByClientRef.current = collectionStatusByClient;
+    if (dataOwnerUserId && !streetManagementLoadedRef.current) return;
     if (serialized === lastStreetSnapshotRef.current) return;
     streetPersistPendingRef.current = true;
 
@@ -530,7 +540,7 @@ export default function ReceivablesPage({
   }, [filteredRows, collectionStatusByClient, todayCollectionCuts]);
   const managementAlertCount = collectionStatusFilter === "covered"
     ? collectionStatusCounts.covered
-    : collectionStatusCounts.unassigned + collectionStatusCounts.pending + collectionStatusCounts.contacted + collectionStatusCounts.route;
+    : collectionStatusCounts.pending;
   const managementAlertText = collectionStatusFilter === "covered"
     ? `${managementAlertCount} gestion${managementAlertCount === 1 ? "" : "es"} cubierta${managementAlertCount === 1 ? "" : "s"}`
     : `${managementAlertCount} gestion${managementAlertCount === 1 ? "" : "es"} pendiente${managementAlertCount === 1 ? "" : "s"}`;
@@ -791,7 +801,7 @@ export default function ReceivablesPage({
       return;
     }
     if (!onClientsChange) {
-      setWhatsAppPhoneError("No tienes permisos para editar clientes desde esta pantalla.");
+      setWhatsAppPhoneError("No tienes permisos para actualizar este WhatsApp en la nube.");
       return;
     }
     setIsSavingWhatsAppPhone(true);
