@@ -18,6 +18,7 @@ import {
   filterReceivableRows,
   getGroupFromUnit,
   sortReceivableRows,
+  PLAN_LABEL,
   STATE_LABEL,
   type ReceivableFilters,
   type ReceivableRow,
@@ -757,29 +758,86 @@ export default function ReceivablesPage({
     const lastPayment = row.lastPaymentDate
       ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`))
       : "Sin pagos registrados";
-    const pending = formatCurrency(row.overdueBalance);
-    const installments = row.rentAmount > 0 ? Math.ceil(row.overdueBalance / row.rentAmount) : 0;
-    const installmentsText = installments > 0
-      ? `${installments} cuota${installments === 1 ? "" : "s"}`
-      : "Sin cuotas vencidas";
+    const totalPending = Math.max(0, row.totalPending);
+    const overdueInstallments = Math.max(0, row.overdueInstallments);
+    const overdueAmountFromInstallments = row.rentAmount > 0
+      ? Math.min(totalPending, overdueInstallments * row.rentAmount)
+      : 0;
+    const fallbackOverdueAmount = overdueInstallments === 0 && (row.state === "vencido" || row.state === "critico")
+      ? totalPending
+      : 0;
+    const overdueAmount = Math.max(overdueAmountFromInstallments, fallbackOverdueAmount);
+    const currentAmount = Math.max(0, totalPending - overdueAmount);
+    const hasOverdue = overdueAmount > 0;
+    const hasCurrent = currentAmount > 0;
+    const planLabel = PLAN_LABEL[row.plan]?.toLowerCase() ?? "plan";
+    const currentPeriodLabel: Record<ReceivableRow["plan"], string> = {
+      daily: "del dia de hoy",
+      weekly: "de la semana actual",
+      biweekly: "de la quincena actual",
+      monthly: "del mes actual"
+    };
+    function installmentText(amount: number, statusLabel: string): string {
+      const installments = row.rentAmount > 0 ? Math.ceil(amount / row.rentAmount) : 0;
+      if (installments <= 0) return "";
+      return `${installments} cuota${installments === 1 ? "" : "s"} ${planLabel}${statusLabel ? ` ${statusLabel}` : ""}`;
+    }
+
+    const detailParts = [
+      installmentText(overdueAmount, "vencida"),
+      installmentText(currentAmount, "corriente")
+    ].filter(Boolean);
+    const installmentsText = detailParts.length > 0
+      ? detailParts.join(" + ")
+      : "Sin cuotas pendientes";
     const emoji = {
       hello: String.fromCodePoint(0x1F44B),
+      info: `${String.fromCodePoint(0x2139)}${String.fromCodePoint(0xFE0F)}`,
       warning: `${String.fromCodePoint(0x26A0)}${String.fromCodePoint(0xFE0F)}`,
       money: String.fromCodePoint(0x1F4B5),
       pin: String.fromCodePoint(0x1F4CC),
       check: String.fromCodePoint(0x2705),
       thanks: String.fromCodePoint(0x1F64F)
     };
+
+    if (hasOverdue && hasCurrent) {
+      return [
+        `${emoji.hello} Hola, ${firstName}.`,
+        "",
+        `${emoji.warning} Tiene saldo pendiente al ${today}.`,
+        "",
+        `${emoji.money} Total pendiente: ${formatCurrency(totalPending)}`,
+        `${emoji.pin} Detalle: incluye renta vencida y saldo corriente`,
+        "",
+        `${emoji.check} Agradecemos pueda realizar el pago pronto.`,
+        "",
+        `${emoji.thanks} Gracias.`
+      ].join("\n");
+    }
+
+    if (!hasOverdue && hasCurrent) {
+      return [
+        `${emoji.hello} Hola, ${firstName}.`,
+        "",
+        `${emoji.info} Saldo corriente ${currentPeriodLabel[row.plan]}: ${formatCurrency(currentAmount)}`,
+        `${emoji.pin} Detalle: ${installmentsText}`,
+        "",
+        `${emoji.check} Por favor, realice el pago durante el periodo correspondiente.`,
+        "",
+        `${emoji.thanks} Gracias.`
+      ].join("\n");
+    }
+
     const message = [
       `${emoji.hello} Hola, ${firstName}.`,
       "",
       `${emoji.warning} Tiene renta vencida al ${today}.`,
       "",
-      `${emoji.money} Renta vencida: ${pending}`,
+      `${emoji.money} Renta vencida: ${formatCurrency(overdueAmount)}`,
       `${emoji.pin} Ultimo pago: ${lastPayment}`,
       `${emoji.pin} Detalle: ${installmentsText}`,
       "",
-      `${emoji.check} Por favor, realice el pago lo antes posible.`,
+      `${emoji.check} Agradecemos pueda realizar el pago pronto.`,
       "",
       `${emoji.thanks} Gracias.`
     ].join("\n");
