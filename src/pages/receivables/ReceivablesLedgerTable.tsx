@@ -55,6 +55,7 @@ type Props = {
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
   onEditWhatsAppPhone: (clientId: string) => void;
   onSupportNoteChange: (clientId: string, value: string) => void;
+  onContactTimeChange: (clientId: string, value: string) => void;
   onClearFilters: () => void;
 };
 
@@ -90,6 +91,7 @@ function renderCutStatusCell(item: CollectionClosureItem | undefined) {
             {item.managementType === "cobrar_o_quitar" ? " / quitar" : ""}
           </span>
         ) : null}
+        {item.contactTime ? <span>Contactar {item.contactTime}</span> : null}
         {item.managementComment ? <span>{item.managementComment}</span> : null}
       </div>
     </div>
@@ -140,6 +142,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   onWhatsAppMessageSent,
   onEditWhatsAppPhone,
   onSupportNoteChange,
+  onContactTimeChange,
   onClearFilters
 }: Props) {
   const [customRouteEditorByClient, setCustomRouteEditorByClient] = useState<Record<string, boolean>>({});
@@ -361,6 +364,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               onWhatsAppMessageSent={onWhatsAppMessageSent}
               onEditWhatsAppPhone={onEditWhatsAppPhone}
               onSupportNoteChange={onSupportNoteChange}
+              onContactTimeChange={onContactTimeChange}
             />
           ))}
         </tbody>

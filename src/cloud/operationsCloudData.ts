@@ -782,6 +782,7 @@ function rowTimestamp(value: unknown): number {
     toIsoTimestamp(row.managementUpdatedAt),
     toIsoTimestamp(row.routeReleaseUpdatedAt),
     toIsoTimestamp(row.supportNoteUpdatedAt),
+    toIsoTimestamp(row.contactTimeUpdatedAt),
     toIsoTimestamp(row.whatsAppMessageCopiedAt),
     toIsoTimestamp(row.whatsAppMessageSentAt),
     toIsoTimestamp(row.paymentPromiseUpdatedAt)
@@ -817,6 +818,11 @@ function mergeStreetManagementRow(currentValue: unknown, patchValue: unknown): u
   if (toIsoTimestamp(current.supportNoteUpdatedAt) > toIsoTimestamp(patch.supportNoteUpdatedAt)) {
     merged.supportNote = current.supportNote;
     merged.supportNoteUpdatedAt = current.supportNoteUpdatedAt;
+  }
+
+  if (toIsoTimestamp(current.contactTimeUpdatedAt) > toIsoTimestamp(patch.contactTimeUpdatedAt)) {
+    merged.contactTime = current.contactTime;
+    merged.contactTimeUpdatedAt = current.contactTimeUpdatedAt;
   }
 
   return merged;

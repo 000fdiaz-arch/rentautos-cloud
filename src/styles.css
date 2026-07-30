@@ -6302,6 +6302,33 @@ select.control-op-badge {
   transform: translateY(-1px);
 }
 
+.ar-contact-time-sort {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 5px 11px;
+  border: 1px solid #99f6e4;
+  border-radius: 999px;
+  background: #f0fdfa;
+  color: #0f766e;
+  font-size: 0.78rem;
+  font-weight: 900;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.ar-contact-time-sort:hover,
+.ar-contact-time-sort.is-active {
+  border-color: #2dd4bf;
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.14);
+  transform: translateY(-1px);
+}
+
+.ar-contact-time-sort.is-active {
+  background: #ccfbf1;
+}
+
 .ar-management-alert {
   display: inline-flex;
   align-items: center;
@@ -7569,7 +7596,9 @@ select.control-op-badge {
 
 .ar-cut-select {
   min-height: 34px;
-  padding: 6px 10px;
+  padding: 6px 20px 6px 8px;
+  font-size: 0.82rem;
+  font-weight: 800;
 }
 
 .ar-cut-select--empty {
@@ -7749,6 +7778,93 @@ select.control-op-badge {
   border: 1px solid #fdba74;
   border-radius: 9px;
   background: #fff7ed;
+}
+
+.ar-contact-time-note {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px 7px 5px 9px;
+  border: 1px solid #d8e2ef;
+  border-left-width: 4px;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.ar-contact-time-note span {
+  flex: 0 0 auto;
+  min-width: 58px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ar-contact-time-note label {
+  flex: 0 0 auto;
+}
+
+.ar-contact-time-note--missing {
+  border-color: #e2e8f0;
+  border-left-color: #94a3b8;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.ar-contact-time-note--scheduled {
+  border-color: #bfdbfe;
+  border-left-color: #38bdf8;
+  background: #f0f9ff;
+  color: #075985;
+}
+
+.ar-contact-time-note--soon {
+  border-color: #c4b5fd;
+  border-left-color: #8b5cf6;
+  background: #f5f3ff;
+  color: #5b21b6;
+}
+
+.ar-contact-time-note--overdue {
+  border-color: #fed7aa;
+  border-left-color: #fb923c;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.ar-contact-time-input {
+  width: 82px;
+  min-width: 0;
+  min-height: 24px;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+  color: inherit;
+  font-size: 0.72rem;
+  font-weight: 900;
+  padding: 2px 6px;
+  text-align: center;
+}
+
+.ar-contact-time-input::placeholder {
+  color: #94a3b8;
+  font-weight: 800;
+}
+
+.ar-contact-time-input:focus {
+  border-color: currentColor;
+  box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.16);
+  outline: none;
+}
+
+.ar-contact-time-input:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
 }
 
 .ar-route-tab-handoff {
@@ -8309,7 +8425,8 @@ select.control-op-badge {
 
 .ar-note-shell {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
+  gap: 4px;
   width: 100%;
   min-height: 76px;
   padding: 8px 10px;

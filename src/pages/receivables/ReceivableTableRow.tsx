@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { PLAN_LABEL, STATE_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivables";
 import type { CollectionStatus, CollectionStatusRecord } from "./receivablesTypes";
@@ -7,8 +7,10 @@ import {
   DAILY_COLLECTION_STATUS_OPTIONS,
   ROUTE_COLLECTION_STATUS_OPTIONS,
   COLLECTION_STATUS_HELP,
+  CONTACT_TIME_OPTIONS,
   clientOperationalStatusLabel,
   clientOperationalStatusTone,
+  normalizeContactTime,
   stateToneClass,
   type CollectionClosureItem,
   type CollectionCutKey,
@@ -35,6 +37,7 @@ type Props = {
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
   onEditWhatsAppPhone: (clientId: string) => void;
   onSupportNoteChange: (clientId: string, value: string) => void;
+  onContactTimeChange: (clientId: string, value: string) => void;
 };
 
 function normalizeWhatsAppPhone(value: string | undefined): string {
@@ -118,6 +121,26 @@ function defaultCollectionStatus(row: ReceivableRow, cutKey: CollectionCutKey): 
   return shouldDefaultToCovered(row) ? "covered" : "unassigned";
 }
 
+function contactTimeMinutes(value: string | undefined): number | null {
+  const match = value?.match(/^(\d{1,2}):(\d{2})\s(AM|PM)$/);
+  if (!match) return null;
+  const hour12 = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour12) || !Number.isFinite(minute)) return null;
+  const hour24 = (hour12 % 12) + (match[3] === "PM" ? 12 : 0);
+  return hour24 * 60 + minute;
+}
+
+function contactTimeMeta(value: string | undefined, now: Date): { tone: "missing" | "overdue" | "soon" | "scheduled"; label: string } {
+  const minutes = contactTimeMinutes(value);
+  if (minutes === null || !value) return { tone: "missing", label: "Llamada" };
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const diff = minutes - currentMinutes;
+  if (diff < 0) return { tone: "overdue", label: "Vencida" };
+  if (diff <= 60) return { tone: "soon", label: "Próxima" };
+  return { tone: "scheduled", label: "Llamada" };
+}
+
 function ReceivableTableRowComponent({
   row,
   statusRecord,
@@ -136,7 +159,8 @@ function ReceivableTableRowComponent({
   onWhatsAppMessageCopied,
   onWhatsAppMessageSent,
   onEditWhatsAppPhone,
-  onSupportNoteChange
+  onSupportNoteChange,
+  onContactTimeChange
 }: Props) {
   const [copiedWhatsAppMessage, setCopiedWhatsAppMessage] = useState(false);
   const messageWasCopied = copiedWhatsAppMessage || !!statusRecord?.whatsAppMessageCopiedAt;
@@ -178,6 +202,11 @@ function ReceivableTableRowComponent({
   const isRouteWorkflow = workflowTab === "route";
   const groupedWhatsAppRows = whatsAppGroupRows?.filter((item) => item.id !== row.id) ?? [];
   const groupedWhatsAppUnits = groupedWhatsAppRows.map((item) => item.unitId).filter(Boolean);
+  const [contactTimeDraft, setContactTimeDraft] = useState(statusRecord?.contactTime ?? "");
+
+  useEffect(() => {
+    setContactTimeDraft(statusRecord?.contactTime ?? "");
+  }, [statusRecord?.contactTime]);
 
   async function handleWhatsAppClick(): Promise<void> {
     if (!whatsAppPhone) {
@@ -197,6 +226,18 @@ function ReceivableTableRowComponent({
 
   function handleConfirmWhatsAppSent(): void {
     onWhatsAppMessageSent(row.id, whatsAppMessage);
+  }
+
+  function handleContactTimeDraftChange(value: string): void {
+    const draft = value.toUpperCase().replace(/\s+/g, " ").slice(0, 8);
+    setContactTimeDraft(draft);
+    const normalized = normalizeContactTime(draft);
+    if (normalized || draft === "") onContactTimeChange(row.id, normalized ?? "");
+  }
+
+  function handleContactTimeDraftBlur(): void {
+    const normalized = normalizeContactTime(contactTimeDraft);
+    setContactTimeDraft(normalized ?? statusRecord?.contactTime ?? "");
   }
 
   function renderCutCell(cutKey: CollectionCutKey) {
@@ -266,6 +307,9 @@ function ReceivableTableRowComponent({
       </div>
     );
   }
+
+  const showContactTimeSupport = workflowTab === "management" && statusRecord?.status === "pending";
+  const contactMeta = contactTimeMeta(statusRecord?.contactTime, now);
 
   return (
     <tr className="ar-card-row">
@@ -389,6 +433,30 @@ function ReceivableTableRowComponent({
             </div>
             <div className="ar-note-shell ar-support-note-cell">
               <span className="ar-note-title">Nota</span>
+              {showContactTimeSupport ? (
+                <div className={`ar-contact-time-note ar-contact-time-note--${contactMeta.tone}`}>
+                  <span>{contactMeta.label}</span>
+                  <label title={statusRecord?.contactTime ? `Editar hora ${statusRecord.contactTime}` : "Agregar hora de contacto"}>
+                    <input
+                      className="ar-contact-time-input"
+                      type="text"
+                      list={`contact-time-options-${row.id}`}
+                      value={contactTimeDraft}
+                      onChange={(event) => handleContactTimeDraftChange(event.target.value)}
+                      onBlur={handleContactTimeDraftBlur}
+                      disabled={isTodayCollectionClosed}
+                      placeholder="8:30 AM"
+                      maxLength={8}
+                      aria-label={`Hora de contacto de ${row.unitId}`}
+                    />
+                    <datalist id={`contact-time-options-${row.id}`}>
+                      {CONTACT_TIME_OPTIONS.map((time) => (
+                        <option key={time} value={time}>{time}</option>
+                      ))}
+                    </datalist>
+                  </label>
+                </div>
+              ) : null}
               <textarea
                 className="ar-support-note-inline"
                 value={statusRecord?.supportNote ?? ""}
@@ -422,5 +490,6 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.onWhatsAppMessageCopied === next.onWhatsAppMessageCopied &&
   previous.onWhatsAppMessageSent === next.onWhatsAppMessageSent &&
   previous.onEditWhatsAppPhone === next.onEditWhatsAppPhone &&
-  previous.onSupportNoteChange === next.onSupportNoteChange
+  previous.onSupportNoteChange === next.onSupportNoteChange &&
+  previous.onContactTimeChange === next.onContactTimeChange
 ));

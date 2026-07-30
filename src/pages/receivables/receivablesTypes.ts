@@ -32,6 +32,8 @@ export type CollectionStatusRecord = {
   whatsAppMessageText?: string;
   supportNote?: string;
   supportNoteUpdatedAt?: string;
+  contactTime?: string;
+  contactTimeUpdatedAt?: string;
   paymentPromiseDate?: string;
   paymentPromiseUpdatedAt?: string;
 };

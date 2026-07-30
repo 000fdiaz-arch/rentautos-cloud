@@ -92,7 +92,9 @@ function routeRows(options: Options) {
       const management = options.statusByClient[row.id];
       return Boolean(management?.managementType && management.managementAmount && management.managementAmount > 0);
     })
-    .sort((left, right) => left.unitId.localeCompare(right.unitId));
+    .sort((left, right) => {
+      return left.unitId.localeCompare(right.unitId);
+    });
 }
 
 function rowData(row: ReceivableRow, statusByClient: Record<string, CollectionStatusRecord>) {

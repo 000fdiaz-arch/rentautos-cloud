@@ -25,6 +25,7 @@ export type CollectionClosureItem = {
   managementType?: FieldManagementType;
   managementAmount?: number;
   managementComment?: string;
+  contactTime?: string;
   whatsAppMessageCopiedAt?: string;
   whatsAppMessageSentAt?: string;
 };
@@ -208,6 +209,29 @@ export function normalizeSupportNote(value: string): string {
   return value.slice(0, 300);
 }
 
+export function normalizeContactTime(value: string): string | undefined {
+  const trimmed = value.replace(/\s+/g, " ").trim().toUpperCase();
+  if (!trimmed) return undefined;
+  if (CONTACT_TIME_OPTIONS.includes(trimmed)) return trimmed;
+  const compact = trimmed.replace(/\./g, "");
+  const match = compact.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/);
+  if (!match) return undefined;
+  const hour = Number(match[1]);
+  const minute = match[2] ? Number(match[2]) : 0;
+  if (!Number.isInteger(hour) || hour < 1 || hour > 12) return undefined;
+  if (minute !== 0 && minute !== 30) return undefined;
+  const normalized = `${hour}:${String(minute).padStart(2, "0")} ${match[3]}`;
+  return CONTACT_TIME_OPTIONS.includes(normalized) ? normalized : undefined;
+}
+
+export const CONTACT_TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
+  const hour24 = Math.floor(index / 2);
+  const minute = index % 2 === 0 ? "00" : "30";
+  const period = hour24 < 12 ? "AM" : "PM";
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return `${hour12}:${minute} ${period}`;
+});
+
 export function normalizeRouteAssignment(value: string): RouteAssignment | undefined {
   const normalized = value.replace(/\s+/g, " ").trim().toUpperCase().slice(0, 12);
   return normalized ? normalized as RouteAssignment : undefined;
@@ -252,9 +276,11 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   const whatsAppMessageText = typeof row.whatsAppMessageText === "string" ? row.whatsAppMessageText : undefined;
   const supportNote = typeof row.supportNote === "string" ? normalizeSupportNote(row.supportNote.trim()) : "";
   const supportNoteUpdatedAt = typeof row.supportNoteUpdatedAt === "string" ? row.supportNoteUpdatedAt : undefined;
+  const contactTime = typeof row.contactTime === "string" ? normalizeContactTime(row.contactTime) : undefined;
+  const contactTimeUpdatedAt = typeof row.contactTimeUpdatedAt === "string" ? row.contactTimeUpdatedAt : undefined;
   const paymentPromiseDate = typeof row.paymentPromiseDate === "string" ? row.paymentPromiseDate : undefined;
   const paymentPromiseUpdatedAt = typeof row.paymentPromiseUpdatedAt === "string" ? row.paymentPromiseUpdatedAt : undefined;
-  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt, paymentPromiseDate, paymentPromiseUpdatedAt, routeReleaseAmount, routeReleaseUpdatedAt, routeAssignment, routeAssignmentUpdatedAt };
+  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt, contactTime, contactTimeUpdatedAt, paymentPromiseDate, paymentPromiseUpdatedAt, routeReleaseAmount, routeReleaseUpdatedAt, routeAssignment, routeAssignmentUpdatedAt };
   if (
     status === "pending" ||
     status === "unassigned" ||

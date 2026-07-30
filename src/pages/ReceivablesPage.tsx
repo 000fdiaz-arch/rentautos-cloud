@@ -52,6 +52,7 @@ import {
   formatDateForTitle,
   isToday,
   normalizeComment,
+  normalizeContactTime,
   normalizeFieldManagementComment,
   normalizeRouteAssignment,
   normalizeSupportNote,
@@ -236,6 +237,7 @@ export default function ReceivablesPage({
   const [collectionStatusByClient, setCollectionStatusByClient] = useState<Record<string, CollectionStatusRecord>>({});
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<CollectionStatusFilter>("all");
   const [whatsAppContactFilter, setWhatsAppContactFilter] = useState<WhatsAppContactFilter>("all");
+  const [prioritizeContactTime, setPrioritizeContactTime] = useState<boolean>(false);
   const [workflowTab, setWorkflowTab] = useState<ReceivablesWorkflowTab>("management");
   const viewMode: ReceivablesViewMode = "cartera";
   const [collectionClosuresByDate, setCollectionClosuresByDate] = useState<CollectionClosuresByDate>({});
@@ -281,6 +283,7 @@ export default function ReceivablesPage({
       toTimestamp(record.managementUpdatedAt),
       toTimestamp(record.routeReleaseUpdatedAt),
       toTimestamp(record.supportNoteUpdatedAt),
+      toTimestamp(record.contactTimeUpdatedAt),
       toTimestamp(record.whatsAppMessageCopiedAt),
       toTimestamp(record.whatsAppMessageSentAt),
       toTimestamp(record.paymentPromiseUpdatedAt)
@@ -715,10 +718,28 @@ export default function ReceivablesPage({
     ));
   }, [collectionStatusByClient, filteredByCollectionStatusRows, whatsAppContactFilter]);
 
-  const sortedRows = useMemo(
-    () => sortReceivableRows(filteredByWhatsAppRows, sortField, sortDirection),
-    [filteredByWhatsAppRows, sortDirection, sortField]
-  );
+  function contactTimeMinutes(row: ReceivableRow): number {
+    if (getEffectiveStatus(row) !== "pending") return Number.POSITIVE_INFINITY;
+    const time = collectionStatusByClient[row.id]?.contactTime;
+    if (!time) return Number.POSITIVE_INFINITY;
+    const match = time.match(/^(\d{1,2}):(\d{2})\s(AM|PM)$/);
+    if (!match) return Number.POSITIVE_INFINITY;
+    const hour12 = Number(match[1]);
+    const minute = Number(match[2]);
+    if (!Number.isFinite(hour12) || !Number.isFinite(minute)) return Number.POSITIVE_INFINITY;
+    const hour24 = (hour12 % 12) + (match[3] === "PM" ? 12 : 0);
+    return hour24 * 60 + minute;
+  }
+
+  const sortedRows = useMemo(() => {
+    const naturalRows = sortReceivableRows(filteredByWhatsAppRows, sortField, sortDirection);
+    if (!prioritizeContactTime) return naturalRows;
+    return [...naturalRows].sort((a, b) => {
+      const timeDiff = contactTimeMinutes(a) - contactTimeMinutes(b);
+      if (timeDiff !== 0) return timeDiff;
+      return a.unitId.localeCompare(b.unitId, undefined, { numeric: true });
+    });
+  }, [collectionStatusByClient, filteredByWhatsAppRows, prioritizeContactTime, sortDirection, sortField]);
   const rows = sortedRows;
   const selectedHistoryCuts = useMemo(
     () => selectedHistoryDate ? getCollectionClosureCuts(collectionClosuresByDate[selectedHistoryDate]) : {},
@@ -751,7 +772,7 @@ export default function ReceivablesPage({
   const closureBlockers = useMemo(() => {
     const pendingManagementRows = baseRows.filter((row) => {
       const status = getEffectiveStatus(row);
-      return status === "unassigned" || status === "pending";
+      return status === "unassigned";
     });
     const pendingWhatsAppRows = baseRows.filter((row) => getWhatsAppContactStatus(row, collectionStatusByClient[row.id]) !== "sent");
     return {
@@ -777,7 +798,7 @@ export default function ReceivablesPage({
   function buildClosureBlockersForStatus(statusByClient: Record<string, CollectionStatusRecord>) {
     const pendingManagementRows = baseRows.filter((row) => {
       const status = getEffectiveStatusFromMap(row, statusByClient);
-      return status === "unassigned" || status === "pending";
+      return status === "unassigned";
     });
     const pendingWhatsAppRows = baseRows.filter((row) => getWhatsAppContactStatus(row, statusByClient[row.id]) !== "sent");
     return { pendingManagementRows, pendingWhatsAppRows };
@@ -1086,6 +1107,7 @@ export default function ReceivablesPage({
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
+        ...previous,
         status: previous?.status ?? "unassigned",
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
@@ -1104,6 +1126,29 @@ export default function ReceivablesPage({
         supportNoteUpdatedAt: nowIso,
         paymentPromiseDate: previous?.paymentPromiseDate,
         paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
+      return {
+        ...current,
+        [clientId]: updatedRecord
+      };
+    });
+  }
+
+  function handleContactTimeChange(clientId: string, value: string): void {
+    if (isTodayCollectionClosed) return;
+    markClientStatusAsSaving(clientId);
+    const contactTime = normalizeContactTime(value);
+    const nowIso = new Date().toISOString();
+    setCollectionStatusByClient((current) => {
+      const previous = current[clientId];
+      const updatedRecord: CollectionStatusRecord = {
+        ...previous,
+        status: previous?.status ?? "unassigned",
+        comment: previous?.comment ?? "",
+        updatedAt: nowIso,
+        contactTime,
+        contactTimeUpdatedAt: nowIso
       };
       optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return {
@@ -1169,6 +1214,7 @@ export default function ReceivablesPage({
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
+        ...previous,
         status: nextStatus as CollectionStatus,
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
@@ -1204,6 +1250,7 @@ export default function ReceivablesPage({
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
+        ...previous,
         status: nextStatus as CollectionStatus,
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
@@ -1238,6 +1285,7 @@ export default function ReceivablesPage({
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
+        ...previous,
         status: previous?.status ?? "route",
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
@@ -1273,6 +1321,7 @@ export default function ReceivablesPage({
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
+        ...previous,
         status: previous?.status ?? "route",
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
@@ -1308,6 +1357,7 @@ export default function ReceivablesPage({
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
+        ...previous,
         status: previous?.status ?? "route",
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
@@ -1343,6 +1393,7 @@ export default function ReceivablesPage({
       const previous = current[clientId];
       if (!previous) return current;
       const updatedRecord: CollectionStatusRecord = {
+        ...previous,
         status: "unassigned",
         comment: previous.comment ?? "",
         updatedAt: nowIso,
@@ -1382,6 +1433,7 @@ export default function ReceivablesPage({
         ? previous.status
         : "route";
       const updatedRecord: CollectionStatusRecord = {
+        ...previous,
         status: previousRouteStatus,
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
@@ -1436,6 +1488,7 @@ export default function ReceivablesPage({
       const currentComment = current[clientId]?.comment ?? "";
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
+        ...previous,
         status: nextStatus,
         comment: nextStatus === "call_later" ? normalizeComment(currentComment) : "",
         updatedAt: new Date().toISOString(),
@@ -1472,6 +1525,7 @@ export default function ReceivablesPage({
       for (const targetClientId of targetClientIds) {
         const previous = current[targetClientId];
         const updatedRecord: CollectionStatusRecord = {
+          ...previous,
           status: previous?.status ?? "unassigned",
           comment: previous?.comment ?? "",
           updatedAt: copiedAt,
@@ -1488,6 +1542,8 @@ export default function ReceivablesPage({
           whatsAppMessageText: message,
           supportNote: previous?.supportNote,
           supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+          contactTime: previous?.contactTime,
+          contactTimeUpdatedAt: previous?.contactTimeUpdatedAt,
           paymentPromiseDate: previous?.paymentPromiseDate,
           paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
         };
@@ -1509,6 +1565,7 @@ export default function ReceivablesPage({
       for (const targetClientId of targetClientIds) {
         const previous = current[targetClientId];
         const updatedRecord: CollectionStatusRecord = {
+          ...previous,
           status: previous?.status ?? "unassigned",
           comment: previous?.comment ?? "",
           updatedAt: sentAt,
@@ -1542,6 +1599,7 @@ export default function ReceivablesPage({
       const currentStatus = current[clientId]?.status ?? "call_later";
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
+        ...previous,
         status: currentStatus,
         comment: normalizeComment(value),
         updatedAt: new Date().toISOString(),
@@ -1619,6 +1677,7 @@ export default function ReceivablesPage({
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
+        ...previous,
         status: previous?.status ?? "reminder",
         comment: previous?.comment ?? "",
         updatedAt: previous?.updatedAt ?? new Date().toISOString(),
@@ -1884,6 +1943,7 @@ export default function ReceivablesPage({
           managementType: statusRecord?.managementType,
           managementAmount: statusRecord?.managementAmount,
           managementComment: statusRecord?.managementComment,
+          contactTime: statusRecord?.contactTime,
           whatsAppMessageCopiedAt: statusRecord?.whatsAppMessageCopiedAt,
           whatsAppMessageSentAt: statusRecord?.whatsAppMessageSentAt
         });
@@ -2033,6 +2093,13 @@ export default function ReceivablesPage({
             >
               {whatsAppAlertText}
             </button>
+            <button
+              type="button"
+              className={`ar-contact-time-sort ${prioritizeContactTime ? "is-active" : ""}`}
+              onClick={() => setPrioritizeContactTime((current) => !current)}
+            >
+              {prioritizeContactTime ? "Agenda de llamadas" : "Proximo contacto"}
+            </button>
             <span className="ar-results-count">Mostrando {rows.length} de {workflowTab === "route" ? routeWorkflowRowsCount : managementWorkflowRowsCount}</span>
             {workflowTab === "route" ? (
               <div className="ar-route-export-actions">
@@ -2100,6 +2167,7 @@ export default function ReceivablesPage({
           onWhatsAppMessageSent={handleWhatsAppMessageSent}
           onEditWhatsAppPhone={handleOpenWhatsAppPhoneModal}
           onSupportNoteChange={handleSupportNoteChange}
+          onContactTimeChange={handleContactTimeChange}
           onClearFilters={clearFilters}
         />
       </section>
