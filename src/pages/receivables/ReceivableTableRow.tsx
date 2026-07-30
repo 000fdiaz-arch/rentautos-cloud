@@ -105,8 +105,12 @@ function isWhatsAppEligibleUnit(row: ReceivableRow, operationalStatus: string): 
   return row.hasActiveClient && operationalStatus.trim().toLowerCase() === "activo";
 }
 
+function overdueRentForWhatsApp(row: ReceivableRow): number {
+  return Math.max(0, Math.min(row.overdueBalance, row.totalPending));
+}
+
 function hasOverdueDebt(row: ReceivableRow, operationalStatus: string): boolean {
-  return isWhatsAppEligibleUnit(row, operationalStatus) && (row.overdueBalance > 0 || row.overdueInstallments > 0 || row.state === "vencido" || row.state === "critico");
+  return isWhatsAppEligibleUnit(row, operationalStatus) && overdueRentForWhatsApp(row) > 0;
 }
 
 function shouldDefaultToCovered(row: ReceivableRow): boolean {

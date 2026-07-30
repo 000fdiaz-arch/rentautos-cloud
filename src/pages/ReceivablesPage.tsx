@@ -109,12 +109,12 @@ function isWhatsAppEligibleUnit(row: ReceivableRow): boolean {
   return row.hasActiveClient && (row.operationalStatus ?? "activo").trim().toLowerCase() === "activo";
 }
 
-function hasOverdueDebtForWhatsApp(row: ReceivableRow): boolean {
-  return isWhatsAppEligibleUnit(row) && (row.overdueBalance > 0 || row.overdueInstallments > 0 || row.state === "vencido" || row.state === "critico");
+function overdueRentForWhatsApp(row: ReceivableRow): number {
+  return Math.max(0, Math.min(row.overdueBalance, row.totalPending));
 }
 
-function totalDueForWhatsApp(row: ReceivableRow): number {
-  return Math.max(0, row.overdueBalance + row.totalOtherCharges);
+function hasOverdueDebtForWhatsApp(row: ReceivableRow): boolean {
+  return isWhatsAppEligibleUnit(row) && overdueRentForWhatsApp(row) > 0;
 }
 
 function getWhatsAppContactStatus(row: ReceivableRow, record: CollectionStatusRecord | undefined): Exclude<WhatsAppContactFilter, "all" | "pending"> {
@@ -785,25 +785,8 @@ export default function ReceivablesPage({
     const lastPayment = row.lastPaymentDate
       ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`))
       : "Sin pagos registrados";
-    const totalPending = Math.max(0, row.totalPending);
-    const overdueInstallments = Math.max(0, row.overdueInstallments);
-    const overdueAmountFromInstallments = row.rentAmount > 0
-      ? Math.min(totalPending, overdueInstallments * row.rentAmount)
-      : 0;
-    const fallbackOverdueAmount = overdueInstallments === 0 && (row.state === "vencido" || row.state === "critico")
-      ? totalPending
-      : 0;
-    const overdueAmount = Math.max(overdueAmountFromInstallments, fallbackOverdueAmount);
-    const currentAmount = Math.max(0, totalPending - overdueAmount);
-    const hasOverdue = overdueAmount > 0;
-    const hasCurrent = currentAmount > 0;
+    const overdueAmount = overdueRentForWhatsApp(row);
     const planLabel = PLAN_LABEL[row.plan]?.toLowerCase() ?? "plan";
-    const currentPeriodLabel: Record<ReceivableRow["plan"], string> = {
-      daily: "del dia de hoy",
-      weekly: "de la semana actual",
-      biweekly: "de la quincena actual",
-      monthly: "del mes actual"
-    };
     function installmentText(amount: number, statusLabel: string): string {
       const installments = row.rentAmount > 0 ? Math.ceil(amount / row.rentAmount) : 0;
       if (installments <= 0) return "";
@@ -811,8 +794,7 @@ export default function ReceivablesPage({
     }
 
     const detailParts = [
-      installmentText(overdueAmount, "vencida"),
-      installmentText(currentAmount, "corriente")
+      installmentText(overdueAmount, "vencida")
     ].filter(Boolean);
     const installmentsText = detailParts.length > 0
       ? detailParts.join(" + ")
@@ -826,34 +808,6 @@ export default function ReceivablesPage({
       check: String.fromCodePoint(0x2705),
       thanks: String.fromCodePoint(0x1F64F)
     };
-
-    if (hasOverdue && hasCurrent) {
-      return [
-        `${emoji.hello} Hola, ${firstName}.`,
-        "",
-        `${emoji.warning} Tiene saldo pendiente al ${today}.`,
-        "",
-        `${emoji.money} Total pendiente: ${formatCurrency(totalPending)}`,
-        `${emoji.pin} Detalle: incluye renta vencida y saldo corriente`,
-        "",
-        `${emoji.check} Agradecemos pueda realizar el pago pronto.`,
-        "",
-        `${emoji.thanks} Gracias.`
-      ].join("\n");
-    }
-
-    if (!hasOverdue && hasCurrent) {
-      return [
-        `${emoji.hello} Hola, ${firstName}.`,
-        "",
-        `${emoji.info} Saldo corriente ${currentPeriodLabel[row.plan]}: ${formatCurrency(currentAmount)}`,
-        `${emoji.pin} Detalle: ${installmentsText}`,
-        "",
-        `${emoji.check} Por favor, realice el pago durante el periodo correspondiente.`,
-        "",
-        `${emoji.thanks} Gracias.`
-      ].join("\n");
-    }
 
     const message = [
       `${emoji.hello} Hola, ${firstName}.`,
@@ -875,7 +829,7 @@ export default function ReceivablesPage({
     const today = formatDateForTitle(now);
     const primaryRow = groupRows[0];
     const firstName = primaryRow.name.trim().split(/\s+/)[0] || primaryRow.name;
-    const totalPending = groupRows.reduce((sum, item) => sum + totalDueForWhatsApp(item), 0);
+    const totalOverdueRent = groupRows.reduce((sum, item) => sum + overdueRentForWhatsApp(item), 0);
     const emoji = {
       hello: String.fromCodePoint(0x1F44B),
       warning: `${String.fromCodePoint(0x26A0)}${String.fromCodePoint(0xFE0F)}`,
@@ -884,16 +838,16 @@ export default function ReceivablesPage({
       thanks: String.fromCodePoint(0x1F64F)
     };
     const unitBlocks = groupRows.map((item) => {
-      const unitTotal = totalDueForWhatsApp(item);
-      return `Unidad ${item.unitId}: ${formatCurrency(unitTotal)}`;
+      const unitOverdueRent = overdueRentForWhatsApp(item);
+      return `Unidad ${item.unitId}: ${formatCurrency(unitOverdueRent)}`;
     });
 
     return [
       `${emoji.hello} Hola, ${firstName}.`,
       "",
-      `${emoji.warning} Saldo pendiente al ${today}:`,
+      `${emoji.warning} Renta vencida al ${today}:`,
       unitBlocks.join("\n"),
-      `${emoji.money} Total pendiente: ${formatCurrency(totalPending)}`,
+      `${emoji.money} Total renta vencida: ${formatCurrency(totalOverdueRent)}`,
       "",
       `${emoji.check} Agradecemos su pago. ${emoji.thanks}`
     ].join("\n");
