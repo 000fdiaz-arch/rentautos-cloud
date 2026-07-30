@@ -105,12 +105,8 @@ function isWhatsAppEligibleUnit(row: ReceivableRow, operationalStatus: string): 
   return row.hasActiveClient && operationalStatus.trim().toLowerCase() === "activo";
 }
 
-function overdueRentForWhatsApp(row: ReceivableRow): number {
-  return Math.max(0, Math.min(row.overdueBalance, row.totalPending));
-}
-
-function hasOverdueDebt(row: ReceivableRow, operationalStatus: string): boolean {
-  return isWhatsAppEligibleUnit(row, operationalStatus) && overdueRentForWhatsApp(row) > 0;
+function hasPendingRent(row: ReceivableRow, operationalStatus: string): boolean {
+  return isWhatsAppEligibleUnit(row, operationalStatus) && row.totalPending > 0;
 }
 
 function shouldDefaultToCovered(row: ReceivableRow): boolean {
@@ -146,7 +142,7 @@ function ReceivableTableRowComponent({
   const messageWasCopied = copiedWhatsAppMessage || !!statusRecord?.whatsAppMessageCopiedAt;
   const messageWasSent = !!statusRecord?.whatsAppMessageSentAt;
   const isEligibleForWhatsApp = isWhatsAppEligibleUnit(row, operationalStatus);
-  const requiresWhatsAppManagement = hasOverdueDebt(row, operationalStatus);
+  const requiresWhatsAppManagement = hasPendingRent(row, operationalStatus);
   const whatsAppIsResolved = messageWasSent || !requiresWhatsAppManagement;
   const whatsAppPhone = normalizeWhatsAppPhone(row.whatsAppPhone);
   const lastPaymentIsToday = row.lastPaymentDate
@@ -164,7 +160,7 @@ function ReceivableTableRowComponent({
   const whatsAppButtonTitle = !isEligibleForWhatsApp
     ? row.hasActiveClient ? "Unidad no activa: no requiere WhatsApp" : "Sin cliente activo: no requiere WhatsApp"
     : !requiresWhatsAppManagement
-    ? "Realizado: sin saldo atrasado"
+    ? "Realizado: sin saldo pendiente"
     : messageWasSent
       ? `Volver a abrir WhatsApp y copiar mensaje actualizado${sentTime ? ` (enviado a las ${sentTime})` : ""}`
       : messageWasCopied

@@ -109,16 +109,58 @@ function isWhatsAppEligibleUnit(row: ReceivableRow): boolean {
   return row.hasActiveClient && (row.operationalStatus ?? "activo").trim().toLowerCase() === "activo";
 }
 
-function overdueRentForWhatsApp(row: ReceivableRow): number {
-  return Math.max(0, Math.min(row.overdueBalance, row.totalPending));
+function adjustedMonthlyChargeDate(year: number, monthIndex: number, monthlyChargeDay: number): Date {
+  const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+  const date = new Date(year, monthIndex, Math.min(monthlyChargeDay, lastDay));
+  if (date.getDay() === 0) date.setDate(date.getDate() + 1);
+  return date;
 }
 
-function hasOverdueDebtForWhatsApp(row: ReceivableRow): boolean {
-  return isWhatsAppEligibleUnit(row) && overdueRentForWhatsApp(row) > 0;
+function isReceivableChargeDay(row: ReceivableRow, date: Date): boolean {
+  const weekDay = date.getDay();
+  if (row.plan === "daily") {
+    if (weekDay >= 1 && weekDay <= 6) return true;
+    return weekDay === 0 && !!row.chargeFirstSunday && row.installmentsPaid <= 7;
+  }
+  if (row.plan === "weekly") {
+    const dayMap: Record<NonNullable<ReceivableRow["weeklyChargeDay"]>, number> = {
+      monday: 1,
+      tuesday: 2,
+      wednesday: 3,
+      thursday: 4,
+      friday: 5,
+      saturday: 6
+    };
+    return weekDay === dayMap[row.weeklyChargeDay ?? "monday"];
+  }
+  if (row.plan === "biweekly") {
+    const day = date.getDate();
+    if (day === 15) return true;
+    if (date.getMonth() === 1) return day === new Date(date.getFullYear(), 2, 0).getDate();
+    return day === 30;
+  }
+  const monthlyChargeDay = row.monthlyChargeDay ?? 1;
+  const adjusted = adjustedMonthlyChargeDate(date.getFullYear(), date.getMonth(), monthlyChargeDay);
+  return adjusted.getDate() === date.getDate();
+}
+
+function overdueRentForWhatsAppDate(row: ReceivableRow, date: Date): number {
+  const pendingInstallments = row.rentAmount > 0 ? Math.ceil(row.totalPending / row.rentAmount) : 0;
+  const currentInstallments = isReceivableChargeDay(row, date) && pendingInstallments > 0 ? 1 : 0;
+  const overdueInstallments = Math.max(0, Math.min(row.overdueInstallments, pendingInstallments - currentInstallments));
+  return Math.max(0, Math.min(row.totalPending, overdueInstallments * row.rentAmount));
+}
+
+function currentRentForWhatsApp(row: ReceivableRow, date: Date): number {
+  return Math.max(0, row.totalPending - overdueRentForWhatsAppDate(row, date));
+}
+
+function hasPendingRentForWhatsApp(row: ReceivableRow): boolean {
+  return isWhatsAppEligibleUnit(row) && row.totalPending > 0;
 }
 
 function getWhatsAppContactStatus(row: ReceivableRow, record: CollectionStatusRecord | undefined): Exclude<WhatsAppContactFilter, "all" | "pending"> {
-  if (!hasOverdueDebtForWhatsApp(row)) return "sent";
+  if (!hasPendingRentForWhatsApp(row)) return "sent";
   if (record?.whatsAppMessageSentAt) return "sent";
   if (record?.whatsAppMessageCopiedAt) return "opened";
   if (!normalizeWhatsAppPhoneForFilter(row.whatsAppPhone)) return "missing";
@@ -467,25 +509,6 @@ export default function ReceivablesPage({
     if (!dataOwnerUserId || !supabase) return;
     const client = supabase;
     const channel = client
-      .channel(`street-management-live-${dataOwnerUserId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "street_management_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, (payload) => {
-        const nextData = (payload.new as { data?: unknown } | null)?.data;
-        if (nextData && typeof nextData === "object" && !Array.isArray(nextData)) {
-          applyStreetManagementData(nextData as Record<string, unknown>);
-          return;
-        }
-        void loadStreetManagementFromCloud();
-      })
-      .subscribe();
-    return () => {
-      void client.removeChannel(channel);
-    };
-  }, [applyStreetManagementData, dataOwnerUserId, loadStreetManagementFromCloud]);
-
-  useEffect(() => {
-    if (!dataOwnerUserId || !supabase) return;
-    const client = supabase;
-    const channel = client
       .channel(`street-management-items-live-${dataOwnerUserId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "street_management_items_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, (payload) => {
         applyStreetManagementItemPayload(payload);
@@ -599,7 +622,7 @@ export default function ReceivablesPage({
     const rowsByClient = new Map<string, ReceivableRow[]>();
     for (const row of baseRows) {
       const phone = normalizeWhatsAppPhoneForFilter(row.whatsAppPhone);
-      if (!phone || !hasOverdueDebtForWhatsApp(row)) continue;
+      if (!phone || !hasPendingRentForWhatsApp(row)) continue;
       const phoneRows = rowsByPhone.get(phone) ?? [];
       phoneRows.push(row);
       rowsByPhone.set(phone, phoneRows);
@@ -829,13 +852,27 @@ export default function ReceivablesPage({
     const lastPayment = row.lastPaymentDate
       ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`))
       : "Sin pagos registrados";
-    const overdueAmount = overdueRentForWhatsApp(row);
+    const totalPending = Math.max(0, row.totalPending);
+    const overdueAmount = overdueRentForWhatsAppDate(row, now);
+    const currentAmount = currentRentForWhatsApp(row, now);
+    const hasOverdue = overdueAmount > 0;
+    const hasCurrent = currentAmount > 0;
     const planLabel = PLAN_LABEL[row.plan]?.toLowerCase() ?? "plan";
+    const currentPeriodLabel: Record<ReceivableRow["plan"], string> = {
+      daily: "del dia de hoy",
+      weekly: "de la semana actual",
+      biweekly: "de la quincena actual",
+      monthly: "del mes actual"
+    };
     function installmentText(amount: number, statusLabel: string): string {
       const installments = row.rentAmount > 0 ? Math.ceil(amount / row.rentAmount) : 0;
       if (installments <= 0) return "";
       return `${installments} cuota${installments === 1 ? "" : "s"} ${planLabel}${statusLabel ? ` ${statusLabel}` : ""}`;
     }
+    const mixedInstallmentsText = [
+      installmentText(overdueAmount, "vencida"),
+      installmentText(currentAmount, "corriente")
+    ].filter(Boolean).join(" + ");
 
     const detailParts = [
       installmentText(overdueAmount, "vencida")
@@ -856,13 +893,30 @@ export default function ReceivablesPage({
     const message = [
       `${emoji.hello} Hola, ${firstName}.`,
       "",
-      `${emoji.warning} Tiene renta vencida al ${today}.`,
+      hasOverdue && hasCurrent
+        ? `${emoji.warning} Tiene saldo pendiente al ${today}.`
+        : hasCurrent
+          ? `${emoji.info} Saldo corriente ${currentPeriodLabel[row.plan]}: ${formatCurrency(currentAmount)}`
+          : `${emoji.warning} Tiene renta vencida al ${today}.`,
       "",
-      `${emoji.money} Renta vencida: ${formatCurrency(overdueAmount)}`,
-      `${emoji.pin} Ultimo pago: ${lastPayment}`,
-      `${emoji.pin} Detalle: ${installmentsText}`,
+      ...(hasOverdue && hasCurrent
+        ? [
+            `${emoji.money} Total pendiente: ${formatCurrency(totalPending)}`,
+            `${emoji.pin} Detalle: ${mixedInstallmentsText || "incluye renta vencida y saldo corriente"}`
+          ]
+        : hasCurrent
+          ? [
+              `${emoji.pin} Detalle: ${installmentText(currentAmount, "corriente") || installmentsText}`
+            ]
+          : [
+              `${emoji.money} Renta vencida: ${formatCurrency(overdueAmount)}`,
+              `${emoji.pin} Ultimo pago: ${lastPayment}`,
+              `${emoji.pin} Detalle: ${installmentsText}`
+            ]),
       "",
-      `${emoji.check} Agradecemos pueda realizar el pago pronto.`,
+      hasCurrent && !hasOverdue
+        ? `${emoji.check} Por favor, realice el pago durante el periodo correspondiente.`
+        : `${emoji.check} Agradecemos pueda realizar el pago pronto.`,
       "",
       `${emoji.thanks} Gracias.`
     ].join("\n");
@@ -873,27 +927,56 @@ export default function ReceivablesPage({
     const today = formatDateForTitle(now);
     const primaryRow = groupRows[0];
     const firstName = primaryRow.name.trim().split(/\s+/)[0] || primaryRow.name;
-    const totalOverdueRent = groupRows.reduce((sum, item) => sum + overdueRentForWhatsApp(item), 0);
+    const totalOverdueRent = groupRows.reduce((sum, item) => sum + overdueRentForWhatsAppDate(item, now), 0);
+    const totalCurrentRent = groupRows.reduce((sum, item) => sum + currentRentForWhatsApp(item, now), 0);
+    const totalPendingRent = groupRows.reduce((sum, item) => sum + Math.max(0, item.totalPending), 0);
+    const totalOverdueInstallments = groupRows.reduce((sum, item) => {
+      const amount = overdueRentForWhatsAppDate(item, now);
+      return sum + (item.rentAmount > 0 ? Math.ceil(amount / item.rentAmount) : 0);
+    }, 0);
+    const totalCurrentInstallments = groupRows.reduce((sum, item) => {
+      const amount = currentRentForWhatsApp(item, now);
+      return sum + (item.rentAmount > 0 ? Math.ceil(amount / item.rentAmount) : 0);
+    }, 0);
+    const hasOverdue = totalOverdueRent > 0;
+    const hasCurrent = totalCurrentRent > 0;
+    const mixedGroupDetail = [
+      totalOverdueInstallments > 0 ? `${totalOverdueInstallments} cuota${totalOverdueInstallments === 1 ? "" : "s"} vencida${totalOverdueInstallments === 1 ? "" : "s"}` : "",
+      totalCurrentInstallments > 0 ? `${totalCurrentInstallments} cuota${totalCurrentInstallments === 1 ? "" : "s"} corriente${totalCurrentInstallments === 1 ? "" : "s"}` : ""
+    ].filter(Boolean).join(" + ");
     const emoji = {
       hello: String.fromCodePoint(0x1F44B),
+      info: `${String.fromCodePoint(0x2139)}${String.fromCodePoint(0xFE0F)}`,
       warning: `${String.fromCodePoint(0x26A0)}${String.fromCodePoint(0xFE0F)}`,
       money: String.fromCodePoint(0x1F4B5),
+      pin: String.fromCodePoint(0x1F4CC),
       check: String.fromCodePoint(0x2705),
       thanks: String.fromCodePoint(0x1F64F)
     };
     const unitBlocks = groupRows.map((item) => {
-      const unitOverdueRent = overdueRentForWhatsApp(item);
-      return `Unidad ${item.unitId}: ${formatCurrency(unitOverdueRent)}`;
+      const amount = hasCurrent ? Math.max(0, item.totalPending) : overdueRentForWhatsAppDate(item, now);
+      return `Unidad ${item.unitId}: ${formatCurrency(amount)}`;
     });
 
     return [
       `${emoji.hello} Hola, ${firstName}.`,
       "",
-      `${emoji.warning} Renta vencida al ${today}:`,
+      hasOverdue && hasCurrent
+        ? `${emoji.warning} Tiene saldo pendiente al ${today}:`
+        : hasCurrent
+          ? `${emoji.info} Saldo corriente del dia de hoy:`
+          : `${emoji.warning} Renta vencida al ${today}:`,
       unitBlocks.join("\n"),
-      `${emoji.money} Total renta vencida: ${formatCurrency(totalOverdueRent)}`,
+      hasCurrent
+        ? `${emoji.money} Total pendiente: ${formatCurrency(totalPendingRent)}`
+        : `${emoji.money} Total renta vencida: ${formatCurrency(totalOverdueRent)}`,
+      ...(hasOverdue && hasCurrent ? [`${emoji.pin} Detalle: ${mixedGroupDetail || "incluye renta vencida y saldo corriente"}`] : []),
       "",
-      `${emoji.check} Agradecemos su pago. ${emoji.thanks}`
+      hasCurrent && !hasOverdue
+        ? `${emoji.check} Por favor, realice el pago durante el periodo correspondiente.`
+        : `${emoji.check} Agradecemos pueda realizar el pago pronto.`,
+      "",
+      `${emoji.thanks} Gracias.`
     ].join("\n");
   }
 

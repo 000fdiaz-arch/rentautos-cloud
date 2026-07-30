@@ -40,7 +40,6 @@ const CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS = [
   "cobrapp.module1.clients.v1",
   "cobrapp.module2.payments.v1",
   "cobrapp.module2.charge_runs.v1",
-  "cobrapp.module3.street_management.v1",
   "cobrapp.module3.collection_closures.v1",
   "cobrapp.clients.daily_collection.v1",
   "cobrapp.clients.daily_collection_am_seals.v1",

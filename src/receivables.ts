@@ -47,6 +47,8 @@ export type ReceivableRow = {
   group: string;
   plan: BillingFrequency;
   weeklyChargeDay?: WeeklyChargeDay;
+  chargeFirstSunday?: boolean;
+  monthlyChargeDay?: number;
   nextDueDate: string | null;
   daysLate: number;
   overdueInstallments: number;
@@ -276,6 +278,8 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
         group: getGroupFromUnit(client.unitId),
         plan: client.frequency,
         weeklyChargeDay: client.frequency === "weekly" ? (client.weeklyChargeDay ?? "monday") : undefined,
+        chargeFirstSunday: client.chargeFirstSunday,
+        monthlyChargeDay: client.frequency === "monthly" ? client.monthlyChargeDay : undefined,
         nextDueDate,
         daysLate,
         overdueInstallments,

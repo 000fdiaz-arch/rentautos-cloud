@@ -100,7 +100,6 @@ const PAYMENT_MIRROR_KEYS = [
 ] as const;
 
 const RECEIVABLES_MIRROR_KEYS = [
-  "cobrapp.module3.street_management.v1",
   "cobrapp.module3.collection_closures.v1"
 ] as const;
 

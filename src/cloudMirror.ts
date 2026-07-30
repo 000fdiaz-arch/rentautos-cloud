@@ -18,7 +18,6 @@ type SingletonKey =
   | "cobrapp.settings.late_fee_settings.v1"
   | "cobrapp.settings.other_charges_retention.v1"
   | "cobrapp.clients.status_filter.v1"
-  | "cobrapp.module3.street_management.v1"
   | "cobrapp.module3.collection_closures.v1"
   | "cobrapp.clients.daily_collection.v1"
   | "cobrapp.clients.daily_collection_am_seals.v1"
@@ -45,7 +44,6 @@ const SINGLETON_TABLE_MAP: Record<SingletonKey, string> = {
   "cobrapp.settings.late_fee_settings.v1": "late_fee_settings_cloud",
   "cobrapp.settings.other_charges_retention.v1": "other_charges_retention_cloud",
   "cobrapp.clients.status_filter.v1": "client_ui_prefs_cloud",
-  "cobrapp.module3.street_management.v1": "street_management_cloud",
   "cobrapp.module3.collection_closures.v1": "collection_closures_cloud",
   "cobrapp.clients.daily_collection.v1": "clients_daily_collection_cloud",
   "cobrapp.clients.daily_collection_am_seals.v1": "clients_daily_collection_am_seals_cloud",
@@ -75,7 +73,6 @@ const DAILY_COLLECTION_PM_SEALS_KEY = "cobrapp.clients.daily_collection_pm_seals
 const DAILY_COLLECTION_CLOSE_SEALS_KEY = "cobrapp.clients.daily_collection_close_seals.v1";
 const DAILY_COLLECTION_PROMISES_KEY = "cobrapp.clients.daily_collection_promises.v1";
 const DAILY_COLLECTION_STREET_ACTIONS_KEY = "cobrapp.clients.daily_collection_street_actions.v1";
-const STREET_MANAGEMENT_KEY = "cobrapp.module3.street_management.v1";
 const INDEXED_DB_SENTINEL = "__indexeddb__";
 const INDEXED_DB_ARRAY_KEY_MAP: Partial<Record<ArrayKey, string>> = {
   "cobrapp.module2.pending_bank.v1": "pending_bank.v1",
@@ -465,39 +462,7 @@ function mergeStreetActions(current: Record<string, unknown>, incoming: Record<s
   return merged;
 }
 
-function recordTimestamp(value: unknown): string {
-  if (!isPlainRecord(value)) return "";
-  return newerIso(
-    newerIso(value.updatedAt, value.managementUpdatedAt),
-    newerIso(value.supportNoteUpdatedAt, value.routeReleaseUpdatedAt)
-  );
-}
-
-function mergeStreetManagement(current: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
-  const merged: Record<string, unknown> = { ...current };
-  const currentClearedAt = recordTimestamp(current.__clearedAt);
-  const incomingClearedAt = recordTimestamp(incoming.__clearedAt);
-  const clearedAt = newerIso(currentClearedAt, incomingClearedAt);
-  for (const clientId of Object.keys(current)) {
-    if (clientId === "__clearedAt") continue;
-    if (!(clientId in incoming)) delete merged[clientId];
-  }
-  if (incomingClearedAt) merged.__clearedAt = incoming.__clearedAt;
-  else if (currentClearedAt) merged.__clearedAt = current.__clearedAt;
-  for (const [clientId, incomingValue] of Object.entries(incoming)) {
-    if (clientId === "__clearedAt") continue;
-    if (!isPlainRecord(incomingValue)) continue;
-    if (clearedAt && newerIso(clearedAt, recordTimestamp(incomingValue)) === clearedAt) continue;
-    const currentValue = merged[clientId];
-    if (!isPlainRecord(currentValue) || newerIso(recordTimestamp(currentValue), recordTimestamp(incomingValue)) === recordTimestamp(incomingValue)) {
-      merged[clientId] = incomingValue;
-    }
-  }
-  return merged;
-}
-
 function mergeSingletonPayload(key: SingletonKey, current: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
-  if (key === STREET_MANAGEMENT_KEY) return mergeStreetManagement(current, incoming);
   if (key === DAILY_COLLECTION_KEY) return mergeDailyCollection(current, incoming);
   if (key === DAILY_COLLECTION_AM_SEALS_KEY || key === DAILY_COLLECTION_PM_SEALS_KEY || key === DAILY_COLLECTION_CLOSE_SEALS_KEY) {
     return mergeIsoByKey(current, incoming);
