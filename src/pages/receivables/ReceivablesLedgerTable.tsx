@@ -1,4 +1,4 @@
-import { memo, type RefObject } from "react";
+import { memo, useState, type RefObject } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { STATE_LABEL, type ReceivableRow, type ReceivableState } from "../../receivables";
 import type { Client } from "../../types";
@@ -8,6 +8,8 @@ import {
   COLLECTION_CUT_OPTIONS,
   COLLECTION_STATUS_HELP,
   COLLECTION_STATUS_OPTIONS,
+  ROUTE_ASSIGNMENT_OPTIONS,
+  normalizeRouteAssignment,
   stateToneClass,
   type CollectionClosureItem,
   type CollectionCutKey,
@@ -46,6 +48,7 @@ type Props = {
   onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
   onRouteManagementTypeChange: (clientId: string, value: "solo_cobrar" | "cobrar_o_quitar") => void;
   onRouteManagementCommentChange: (clientId: string, value: string) => void;
+  onRouteAssignmentChange: (clientId: string, value: string) => void;
   onRouteReleaseAmountChange: (clientId: string, value: string) => void;
   onRemoveFromRoute: (clientId: string) => void;
   onWhatsAppMessageCopied: (clientId: string, message: string) => void;
@@ -130,6 +133,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   onCollectionCutCommentChange,
   onRouteManagementTypeChange,
   onRouteManagementCommentChange,
+  onRouteAssignmentChange,
   onRouteReleaseAmountChange,
   onRemoveFromRoute,
   onWhatsAppMessageCopied,
@@ -138,6 +142,8 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   onSupportNoteChange,
   onClearFilters
 }: Props) {
+  const [customRouteEditorByClient, setCustomRouteEditorByClient] = useState<Record<string, boolean>>({});
+
   if (viewMode === "cartera" && rows.length === 0) {
     return (
       <div className="table-scroll ar-ledger-scroll" ref={tableScrollRef}>
@@ -166,6 +172,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               <th>Tipo</th>
               <th>Min. liberar</th>
               <th>Comentario</th>
+              <th>Ruta</th>
               <th>Accion</th>
             </tr>
           </thead>
@@ -173,6 +180,9 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
             {rows.map((row) => {
               const statusRecord = collectionStatusByClient[row.id];
               const routeReleaseAmount = statusRecord?.routeReleaseAmount ?? statusRecord?.managementAmount;
+              const routeAssignment = statusRecord?.routeAssignment ?? "";
+              const isCustomRouteAssignment = !!routeAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(routeAssignment);
+              const isCustomRouteEditorOpen = isCustomRouteAssignment || !!customRouteEditorByClient[row.id];
               return (
                 <tr key={row.id}>
                   <td><strong className="ar-unit-id">{row.unitId}</strong></td>
@@ -222,6 +232,51 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                       maxLength={25}
                       disabled={isTodayCollectionClosed}
                     />
+                  </td>
+                  <td>
+                    <div className="ar-route-assignment-cell">
+                      {isCustomRouteEditorOpen ? (
+                        <input
+                          className="ar-route-list-route-custom"
+                          type="text"
+                          value={routeAssignment}
+                          onChange={(event) => onRouteAssignmentChange(row.id, event.target.value)}
+                          onBlur={(event) => {
+                            const normalized = normalizeRouteAssignment(event.target.value);
+                            if (event.target.value !== (normalized ?? "")) onRouteAssignmentChange(row.id, normalized ?? "");
+                            if (!normalized) setCustomRouteEditorByClient((current) => ({ ...current, [row.id]: false }));
+                          }}
+                          autoFocus
+                          placeholder="Escribe ruta"
+                          maxLength={12}
+                          disabled={isTodayCollectionClosed}
+                          aria-label={`Ruta manual de ${row.unitId}`}
+                        />
+                      ) : (
+                        <select
+                          className="ar-route-list-route"
+                          value={routeAssignment}
+                          onChange={(event) => {
+                            const selected = event.target.value;
+                            if (selected === "__custom") {
+                              setCustomRouteEditorByClient((current) => ({ ...current, [row.id]: true }));
+                              onRouteAssignmentChange(row.id, "");
+                              return;
+                            }
+                            setCustomRouteEditorByClient((current) => ({ ...current, [row.id]: false }));
+                            onRouteAssignmentChange(row.id, selected);
+                          }}
+                          disabled={isTodayCollectionClosed}
+                          aria-label={`Ruta de ${row.unitId}`}
+                        >
+                          <option value="">Sin ruta</option>
+                          {ROUTE_ASSIGNMENT_OPTIONS.map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                          <option value="__custom">Otra</option>
+                        </select>
+                      )}
+                    </div>
                   </td>
                   <td>
                     <button

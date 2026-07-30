@@ -6093,7 +6093,7 @@ select.control-op-badge {
 }
 
 .ar-route-list-table {
-  min-width: 1260px;
+  min-width: 1360px;
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
@@ -6133,6 +6133,11 @@ select.control-op-badge {
 
 .ar-route-list-table th:nth-child(9),
 .ar-route-list-table td:nth-child(9) {
+  width: 118px;
+}
+
+.ar-route-list-table th:nth-child(10),
+.ar-route-list-table td:nth-child(10) {
   width: 92px;
 }
 
@@ -6200,6 +6205,32 @@ select.control-op-badge {
   padding: 5px 8px;
 }
 
+.ar-route-assignment-cell {
+  display: grid;
+  gap: 5px;
+}
+
+.ar-route-list-route,
+.ar-route-list-route-custom {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid #bfd7ea;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #1f4f6f;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 5px 8px;
+}
+
+.ar-route-list-route {
+  padding-right: 22px;
+}
+
+.ar-route-list-route-custom {
+  text-transform: uppercase;
+}
+
 .ar-route-list-remove {
   min-width: 70px;
   color: #9a3412;
@@ -6241,6 +6272,8 @@ select.control-op-badge {
 .ar-route-list-amount:focus,
 .ar-route-list-comment:focus,
 .ar-route-list-type:focus,
+.ar-route-list-route:focus,
+.ar-route-list-route-custom:focus,
 .ar-route-list-note:focus {
   border-color: #fb923c;
   box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.16);

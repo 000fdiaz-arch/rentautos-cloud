@@ -53,6 +53,7 @@ import {
   isToday,
   normalizeComment,
   normalizeFieldManagementComment,
+  normalizeRouteAssignment,
   normalizeSupportNote,
   parseCollectionStatusMapFromStorage,
   pendingSummaryText,
@@ -208,6 +209,14 @@ function routeMissingAmountMessage(rows: ReceivableRow[]): string {
   const extraCount = Math.max(0, units.length - 8);
   const unitText = visibleUnits ? ` Unidad${units.length === 1 ? "" : "es"}: ${visibleUnits}${extraCount > 0 ? ` y ${extraCount} mas` : ""}.` : "";
   return `Falta Min. liberar en ${rows.length} unidad(es) en cobro en ruta.${unitText}`;
+}
+
+function routeMissingAssignmentMessage(rows: ReceivableRow[]): string {
+  const units = rows.map((row) => row.unitId).filter(Boolean);
+  const visibleUnits = units.slice(0, 8).join(", ");
+  const extraCount = Math.max(0, units.length - 8);
+  const unitText = visibleUnits ? ` Unidad${units.length === 1 ? "" : "es"}: ${visibleUnits}${extraCount > 0 ? ` y ${extraCount} mas` : ""}.` : "";
+  return `Falta asignar Ruta en ${rows.length} unidad(es) en cobro en ruta.${unitText}`;
 }
 
 export default function ReceivablesPage({
@@ -604,7 +613,9 @@ export default function ReceivablesPage({
         managementComment: "",
         managementUpdatedAt: undefined,
         routeReleaseAmount: undefined,
-        routeReleaseUpdatedAt: undefined
+        routeReleaseUpdatedAt: undefined,
+        routeAssignment: undefined,
+        routeAssignmentUpdatedAt: undefined
       };
       optimisticStatusByClientRef.current[clientId] = updatedRecord;
       nextStatusByClient[clientId] = updatedRecord;
@@ -1084,6 +1095,8 @@ export default function ReceivablesPage({
         managementUpdatedAt: previous?.managementUpdatedAt,
         routeReleaseAmount: previous?.routeReleaseAmount,
         routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt,
+        routeAssignment: previous?.routeAssignment,
+        routeAssignmentUpdatedAt: previous?.routeAssignmentUpdatedAt,
         whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
         whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
         whatsAppMessageText: previous?.whatsAppMessageText,
@@ -1165,6 +1178,8 @@ export default function ReceivablesPage({
         managementUpdatedAt: undefined,
         routeReleaseAmount: undefined,
         routeReleaseUpdatedAt: undefined,
+        routeAssignment: undefined,
+        routeAssignmentUpdatedAt: undefined,
         whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
         whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
         whatsAppMessageText: previous?.whatsAppMessageText,
@@ -1198,6 +1213,8 @@ export default function ReceivablesPage({
         managementUpdatedAt: previous?.managementUpdatedAt ?? nowIso,
         routeReleaseAmount: previous?.routeReleaseAmount ?? previous?.managementAmount,
         routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt ?? nowIso,
+        routeAssignment: previous?.routeAssignment,
+        routeAssignmentUpdatedAt: previous?.routeAssignmentUpdatedAt,
         whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
         whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
         whatsAppMessageText: previous?.whatsAppMessageText,
@@ -1231,6 +1248,8 @@ export default function ReceivablesPage({
         routeReleaseAmount: previous?.routeReleaseAmount ?? previous?.managementAmount,
         routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt
           ?? (previous?.routeReleaseAmount || previous?.managementAmount ? nowIso : undefined),
+        routeAssignment: previous?.routeAssignment,
+        routeAssignmentUpdatedAt: previous?.routeAssignmentUpdatedAt,
         whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
         whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
         whatsAppMessageText: previous?.whatsAppMessageText,
@@ -1263,6 +1282,43 @@ export default function ReceivablesPage({
         managementUpdatedAt: nowIso,
         routeReleaseAmount: previous?.routeReleaseAmount ?? previous?.managementAmount,
         routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt,
+        routeAssignment: previous?.routeAssignment,
+        routeAssignmentUpdatedAt: previous?.routeAssignmentUpdatedAt,
+        whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+        whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+        whatsAppMessageText: previous?.whatsAppMessageText,
+        supportNote: previous?.supportNote,
+        supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+        paymentPromiseDate: previous?.paymentPromiseDate,
+        paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
+      return {
+        ...current,
+        [clientId]: updatedRecord
+      };
+    });
+  }
+
+  function handleRouteAssignmentChange(clientId: string, value: string): void {
+    if (isTodayCollectionClosed) return;
+    const routeAssignment = normalizeRouteAssignment(value);
+    const nowIso = new Date().toISOString();
+    markClientStatusAsSaving(clientId);
+    setCollectionStatusByClient((current) => {
+      const previous = current[clientId];
+      const updatedRecord: CollectionStatusRecord = {
+        status: previous?.status ?? "route",
+        comment: previous?.comment ?? "",
+        updatedAt: nowIso,
+        managementType: previous?.managementType ?? "solo_cobrar",
+        managementAmount: previous?.managementAmount ?? previous?.routeReleaseAmount,
+        managementComment: previous?.managementComment ?? "",
+        managementUpdatedAt: previous?.managementUpdatedAt ?? nowIso,
+        routeReleaseAmount: previous?.routeReleaseAmount ?? previous?.managementAmount,
+        routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt,
+        routeAssignment,
+        routeAssignmentUpdatedAt: routeAssignment ? nowIso : undefined,
         whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
         whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
         whatsAppMessageText: previous?.whatsAppMessageText,
@@ -1296,6 +1352,8 @@ export default function ReceivablesPage({
         managementUpdatedAt: undefined,
         routeReleaseAmount: undefined,
         routeReleaseUpdatedAt: undefined,
+        routeAssignment: undefined,
+        routeAssignmentUpdatedAt: undefined,
         whatsAppMessageCopiedAt: previous.whatsAppMessageCopiedAt,
         whatsAppMessageSentAt: previous.whatsAppMessageSentAt,
         whatsAppMessageText: previous.whatsAppMessageText,
@@ -1333,6 +1391,8 @@ export default function ReceivablesPage({
         managementUpdatedAt: nowIso,
         routeReleaseAmount: nextAmount,
         routeReleaseUpdatedAt: nextAmount ? nowIso : undefined,
+        routeAssignment: previous?.routeAssignment,
+        routeAssignmentUpdatedAt: previous?.routeAssignmentUpdatedAt,
         whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
         whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
         whatsAppMessageText: previous?.whatsAppMessageText,
@@ -1421,6 +1481,8 @@ export default function ReceivablesPage({
           managementUpdatedAt: previous?.managementUpdatedAt,
           routeReleaseAmount: previous?.routeReleaseAmount,
           routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt,
+          routeAssignment: previous?.routeAssignment,
+          routeAssignmentUpdatedAt: previous?.routeAssignmentUpdatedAt,
           whatsAppMessageCopiedAt: copiedAt,
           whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
           whatsAppMessageText: message,
@@ -1456,6 +1518,8 @@ export default function ReceivablesPage({
           managementUpdatedAt: previous?.managementUpdatedAt,
           routeReleaseAmount: previous?.routeReleaseAmount,
           routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt,
+          routeAssignment: previous?.routeAssignment,
+          routeAssignmentUpdatedAt: previous?.routeAssignmentUpdatedAt,
           whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt ?? sentAt,
           whatsAppMessageSentAt: sentAt,
           whatsAppMessageText: message,
@@ -1487,6 +1551,8 @@ export default function ReceivablesPage({
         managementUpdatedAt: previous?.managementUpdatedAt,
         routeReleaseAmount: previous?.routeReleaseAmount,
         routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt,
+        routeAssignment: previous?.routeAssignment,
+        routeAssignmentUpdatedAt: previous?.routeAssignmentUpdatedAt,
         whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
         whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
         whatsAppMessageText: previous?.whatsAppMessageText,
@@ -1681,6 +1747,15 @@ export default function ReceivablesPage({
         setExportError(routeMissingAmountMessage(routeRowsMissingAmount));
         return;
       }
+      const routeRowsMissingAssignment = baseRows.filter((row) => {
+        if (!isRouteRowFromMap(row)) return false;
+        const routeAssignment = statusByClientForRoute[row.id]?.routeAssignment;
+        return !routeAssignment || routeAssignment.trim().length === 0;
+      });
+      if (routeRowsMissingAssignment.length > 0) {
+        setExportError(routeMissingAssignmentMessage(routeRowsMissingAssignment));
+        return;
+      }
       const previousStatusByClientForRoute = { ...statusByClientForRoute };
       const exportedAt = new Date().toISOString();
       for (const row of baseRows) {
@@ -1697,6 +1772,8 @@ export default function ReceivablesPage({
           managementUpdatedAt: previous?.managementUpdatedAt ?? exportedAt,
           routeReleaseAmount,
           routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt ?? exportedAt,
+          routeAssignment: previous?.routeAssignment,
+          routeAssignmentUpdatedAt: previous?.routeAssignmentUpdatedAt,
           whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
           whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
           whatsAppMessageText: previous?.whatsAppMessageText,
@@ -2016,6 +2093,7 @@ export default function ReceivablesPage({
           onCollectionCutCommentChange={handleCollectionCutCommentChange}
           onRouteManagementTypeChange={handleRouteManagementTypeChange}
           onRouteManagementCommentChange={handleRouteManagementCommentChange}
+          onRouteAssignmentChange={handleRouteAssignmentChange}
           onRouteReleaseAmountChange={handleRouteReleaseAmountChange}
           onRemoveFromRoute={handleRemoveFromRoute}
           onWhatsAppMessageCopied={handleWhatsAppMessageCopied}

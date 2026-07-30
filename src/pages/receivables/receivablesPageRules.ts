@@ -1,7 +1,7 @@
 import { formatCurrency } from "../../format";
 import { PLAN_LABEL, type ReceivableRow, type ReceivableState, type SortDirection } from "../../receivables";
 import type { Client } from "../../types";
-import type { CollectionStatus, CollectionStatusRecord, FieldManagementType } from "./receivablesTypes";
+import type { CollectionStatus, CollectionStatusRecord, FieldManagementType, RouteAssignment } from "./receivablesTypes";
 
 export type DashboardFilter = "none" | "totalPorCobrar" | "totalVencido" | "proximoAVencer" | "clientesMorosos" | "cobradoEsteMes";
 export type ExportFieldKey = "unitId" | "name" | "rentAmount" | "pendingSummary" | "lastPaymentDate" | "state" | "collectionStatus" | "routeCollection";
@@ -105,6 +105,7 @@ export const ROUTE_COLLECTION_STATUS_OPTIONS: Array<{ value: CollectionStatus; l
 ];
 
 export const REGULAR_COLLECTION_STATUS_OPTIONS = DAILY_COLLECTION_STATUS_OPTIONS;
+export const ROUTE_ASSIGNMENT_OPTIONS: RouteAssignment[] = ["PTY", "WC", "CL"];
 
 export const INITIAL_EXPORT_FIELDS: ExportField[] = [
   { key: "unitId", label: "Unidad", enabled: true },
@@ -207,6 +208,11 @@ export function normalizeSupportNote(value: string): string {
   return value.slice(0, 300);
 }
 
+export function normalizeRouteAssignment(value: string): RouteAssignment | undefined {
+  const normalized = value.replace(/\s+/g, " ").trim().toUpperCase().slice(0, 12);
+  return normalized ? normalized as RouteAssignment : undefined;
+}
+
 export function toTimestamp(value: string | undefined): number {
   if (!value) return 0;
   const parsed = Date.parse(value);
@@ -239,6 +245,8 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   const rawRouteReleaseAmount = typeof row.routeReleaseAmount === "number" ? row.routeReleaseAmount : Number(row.routeReleaseAmount);
   const routeReleaseAmount = Number.isFinite(rawRouteReleaseAmount) && rawRouteReleaseAmount > 0 ? rawRouteReleaseAmount : undefined;
   const routeReleaseUpdatedAt = typeof row.routeReleaseUpdatedAt === "string" ? row.routeReleaseUpdatedAt : undefined;
+  const routeAssignment = typeof row.routeAssignment === "string" ? normalizeRouteAssignment(row.routeAssignment) : undefined;
+  const routeAssignmentUpdatedAt = typeof row.routeAssignmentUpdatedAt === "string" ? row.routeAssignmentUpdatedAt : undefined;
   const whatsAppMessageCopiedAt = typeof row.whatsAppMessageCopiedAt === "string" ? row.whatsAppMessageCopiedAt : undefined;
   const whatsAppMessageSentAt = typeof row.whatsAppMessageSentAt === "string" ? row.whatsAppMessageSentAt : undefined;
   const whatsAppMessageText = typeof row.whatsAppMessageText === "string" ? row.whatsAppMessageText : undefined;
@@ -246,7 +254,7 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   const supportNoteUpdatedAt = typeof row.supportNoteUpdatedAt === "string" ? row.supportNoteUpdatedAt : undefined;
   const paymentPromiseDate = typeof row.paymentPromiseDate === "string" ? row.paymentPromiseDate : undefined;
   const paymentPromiseUpdatedAt = typeof row.paymentPromiseUpdatedAt === "string" ? row.paymentPromiseUpdatedAt : undefined;
-  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt, paymentPromiseDate, paymentPromiseUpdatedAt, routeReleaseAmount, routeReleaseUpdatedAt };
+  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt, paymentPromiseDate, paymentPromiseUpdatedAt, routeReleaseAmount, routeReleaseUpdatedAt, routeAssignment, routeAssignmentUpdatedAt };
   if (
     status === "pending" ||
     status === "unassigned" ||
