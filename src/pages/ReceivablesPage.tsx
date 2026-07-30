@@ -243,22 +243,54 @@ export default function ReceivablesPage({
 
   const applyStreetManagementData = useCallback((rawData: Record<string, unknown>): void => {
     const parsed = parseCollectionStatusMapFromStorage(JSON.stringify(rawData ?? {}));
-    const merged: Record<string, CollectionStatusRecord> = { ...parsed };
-    const optimistic = optimisticStatusByClientRef.current;
-    for (const [clientId, optimisticRecord] of Object.entries(optimistic)) {
-      const incoming = merged[clientId];
-      if (!incoming || collectionRecordTimestamp(incoming) < collectionRecordTimestamp(optimisticRecord)) {
-        merged[clientId] = optimisticRecord;
-        continue;
+    optimisticStatusByClientRef.current = {};
+    setCollectionStatusByClient((current) => {
+      const next: Record<string, CollectionStatusRecord> = { ...parsed };
+      for (const [clientId, currentRecord] of Object.entries(current)) {
+        const incomingRecord = parsed[clientId];
+        if (incomingRecord && collectionRecordTimestamp(currentRecord) > collectionRecordTimestamp(incomingRecord)) {
+          next[clientId] = currentRecord;
+        }
       }
-      delete optimistic[clientId];
-    }
-    const incomingSerialized = JSON.stringify(merged);
-    if (streetPersistPendingRef.current && incomingSerialized !== lastStreetSnapshotRef.current) return;
-    setCollectionStatusByClient(merged);
-    latestCollectionStatusByClientRef.current = merged;
-    lastStreetSnapshotRef.current = incomingSerialized;
-    streetManagementLoadedRef.current = true;
+      latestCollectionStatusByClientRef.current = next;
+      lastStreetSnapshotRef.current = JSON.stringify(next);
+      streetManagementLoadedRef.current = true;
+      return next;
+    });
+  }, []);
+
+  const applyStreetManagementItemPayload = useCallback((payload: unknown): void => {
+    const event = payload && typeof payload === "object"
+      ? payload as { eventType?: unknown; new?: unknown; old?: unknown }
+      : null;
+    const eventType = typeof event?.eventType === "string" ? event.eventType : "";
+    const row = (eventType === "DELETE" ? event?.old : event?.new) as { client_id?: unknown; data?: unknown } | undefined;
+    const clientId = typeof row?.client_id === "string" ? row.client_id : "";
+    if (!clientId) return;
+    setCollectionStatusByClient((current) => {
+      const next: Record<string, CollectionStatusRecord> = clientId === "__clearedAt"
+        ? {}
+        : { ...current };
+      if (clientId !== "__clearedAt") {
+        if (eventType === "DELETE") {
+          delete next[clientId];
+        } else {
+          const parsed = parseCollectionStatusMapFromStorage(JSON.stringify({ [clientId]: row?.data }));
+          if (parsed[clientId]) {
+            const currentRecord = current[clientId];
+            next[clientId] = collectionRecordTimestamp(currentRecord) > collectionRecordTimestamp(parsed[clientId])
+              ? currentRecord
+              : parsed[clientId];
+          }
+          else delete next[clientId];
+        }
+      }
+      delete optimisticStatusByClientRef.current[clientId];
+      latestCollectionStatusByClientRef.current = next;
+      lastStreetSnapshotRef.current = JSON.stringify(next);
+      streetManagementLoadedRef.current = true;
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -331,38 +363,36 @@ export default function ReceivablesPage({
     streetPersistPendingRef.current = true;
 
     if (persistStreetTimerRef.current) window.clearTimeout(persistStreetTimerRef.current);
-    persistStreetTimerRef.current = window.setTimeout(() => {
-      void (async () => {
-        const saveTokenSnapshot = { ...saveTokenByClientRef.current };
-        const previousSnapshot = parseCollectionStatusMapFromStorage(lastStreetSnapshotRef.current);
-        try {
-          if (dataOwnerUserId) {
-            await syncCloudStreetManagementDelta(
-              dataOwnerUserId,
-              previousSnapshot as Record<string, unknown>,
-              collectionStatusByClient as Record<string, unknown>
-            );
-          } else if (onStreetManagementPersist) {
-            const ok = await onStreetManagementPersist(collectionStatusByClient as Record<string, unknown>);
-            if (ok === false) return;
-          }
-          lastStreetSnapshotRef.current = serialized;
-          if (dataOwnerUserId) void loadStreetManagementFromCloud();
-        } catch (error) {
-          console.error("No se pudo guardar la gestion de cobranza.", error);
-          setCollectionCutMessage("No se pudo guardar la gestion de cobranza. Revisa la conexion e intenta nuevamente.");
-        } finally {
-          setStatusSavingByClient((current) => {
-            const next = { ...current };
-            for (const [clientId, token] of Object.entries(saveTokenSnapshot)) {
-              if (saveTokenByClientRef.current[clientId] === token) next[clientId] = false;
-            }
-            return next;
-          });
-          streetPersistPendingRef.current = false;
+    persistStreetTimerRef.current = null;
+    void (async () => {
+      const saveTokenSnapshot = { ...saveTokenByClientRef.current };
+      const previousSnapshot = parseCollectionStatusMapFromStorage(lastStreetSnapshotRef.current);
+      try {
+        if (dataOwnerUserId) {
+          await syncCloudStreetManagementDelta(
+            dataOwnerUserId,
+            previousSnapshot as Record<string, unknown>,
+            collectionStatusByClient as Record<string, unknown>
+          );
+        } else if (onStreetManagementPersist) {
+          const ok = await onStreetManagementPersist(collectionStatusByClient as Record<string, unknown>);
+          if (ok === false) return;
         }
-      })();
-    }, 500);
+        lastStreetSnapshotRef.current = serialized;
+      } catch (error) {
+        console.error("No se pudo guardar la gestion de cobranza.", error);
+        setCollectionCutMessage("No se pudo guardar la gestion de cobranza. Revisa la conexion e intenta nuevamente.");
+      } finally {
+        setStatusSavingByClient((current) => {
+          const next = { ...current };
+          for (const [clientId, token] of Object.entries(saveTokenSnapshot)) {
+            if (saveTokenByClientRef.current[clientId] === token) next[clientId] = false;
+          }
+          return next;
+        });
+        streetPersistPendingRef.current = false;
+      }
+    })();
   }, [collectionStatusByClient, dataOwnerUserId, loadStreetManagementFromCloud, onStreetManagementPersist]);
 
   useEffect(() => {
@@ -451,6 +481,20 @@ export default function ReceivablesPage({
       void client.removeChannel(channel);
     };
   }, [applyStreetManagementData, dataOwnerUserId, loadStreetManagementFromCloud]);
+
+  useEffect(() => {
+    if (!dataOwnerUserId || !supabase) return;
+    const client = supabase;
+    const channel = client
+      .channel(`street-management-items-live-${dataOwnerUserId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "street_management_items_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, (payload) => {
+        applyStreetManagementItemPayload(payload);
+      })
+      .subscribe();
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [applyStreetManagementItemPayload, dataOwnerUserId]);
 
   useEffect(() => {
     const historyDates = getCollectionClosureDateKeys(collectionClosuresByDate);
@@ -1200,7 +1244,7 @@ export default function ReceivablesPage({
         status: previousRouteStatus,
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
-        managementType: "solo_cobrar",
+        managementType: previous?.managementType ?? "solo_cobrar",
         managementAmount: nextAmount,
         managementComment: previous?.managementComment ?? "",
         managementUpdatedAt: nowIso,
@@ -1535,22 +1579,61 @@ export default function ReceivablesPage({
     setExportError(null);
     setIsExporting(true);
     try {
-      const routeRowsMissingAmount = baseRows.filter((row) => isNightRouteCollection(row) && !hasRouteReleaseAmount(collectionStatusByClient[row.id]));
+      let statusByClientForRoute = { ...collectionStatusByClient };
+      if (dataOwnerUserId) {
+        const cloudStreetManagement = await loadCloudStreetManagement(dataOwnerUserId);
+        statusByClientForRoute = parseCollectionStatusMapFromStorage(JSON.stringify(cloudStreetManagement));
+      }
+      const isRouteRowFromMap = (row: ReceivableRow): boolean => {
+        const storedStatus = statusByClientForRoute[row.id]?.status;
+        return storedStatus === "route" || storedStatus === "route_collection";
+      };
+      const hasRouteCollectionFromMap = (row: ReceivableRow): boolean => {
+        const management = statusByClientForRoute[row.id];
+        const hasType = management?.managementType === "solo_cobrar" || management?.managementType === "cobrar_o_quitar";
+        return hasType && !!management?.managementAmount && management.managementAmount > 0;
+      };
+      const routeRowsMissingAmount = baseRows.filter((row) => isRouteRowFromMap(row) && !hasRouteReleaseAmount(statusByClientForRoute[row.id]));
       if (routeRowsMissingAmount.length > 0) {
         setExportError(routeMissingAmountMessage(routeRowsMissingAmount));
         return;
       }
-      const statusByClientForRoute = { ...collectionStatusByClient };
+      const previousStatusByClientForRoute = { ...statusByClientForRoute };
+      const exportedAt = new Date().toISOString();
       for (const row of baseRows) {
-        if (!isNightRouteCollection(row) || hasRouteCollection(row)) continue;
+        if (!isRouteRowFromMap(row) || hasRouteCollectionFromMap(row)) continue;
+        const previous = statusByClientForRoute[row.id];
+        const routeReleaseAmount = previous?.routeReleaseAmount ?? previous?.managementAmount;
         statusByClientForRoute[row.id] = {
           status: "route_collection",
-          comment: "",
-          updatedAt: new Date().toISOString(),
-          managementType: "solo_cobrar",
-          managementAmount: collectionStatusByClient[row.id]?.routeReleaseAmount ?? collectionStatusByClient[row.id]?.managementAmount,
-          managementComment: "Ruta"
+          comment: previous?.comment ?? "",
+          updatedAt: exportedAt,
+          managementType: previous?.managementType ?? "solo_cobrar",
+          managementAmount: routeReleaseAmount,
+          managementComment: previous?.managementComment || "Ruta",
+          managementUpdatedAt: previous?.managementUpdatedAt ?? exportedAt,
+          routeReleaseAmount,
+          routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt ?? exportedAt,
+          whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+          whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+          whatsAppMessageText: previous?.whatsAppMessageText,
+          supportNote: previous?.supportNote,
+          supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+          paymentPromiseDate: previous?.paymentPromiseDate,
+          paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
         };
+      }
+      if (dataOwnerUserId) {
+        await syncCloudStreetManagementDelta(
+          dataOwnerUserId,
+          previousStatusByClientForRoute as Record<string, unknown>,
+          statusByClientForRoute as Record<string, unknown>
+        );
+        applyStreetManagementData(statusByClientForRoute as Record<string, unknown>);
+      } else if (onStreetManagementPersist) {
+        const ok = await onStreetManagementPersist(statusByClientForRoute as Record<string, unknown>);
+        if (ok === false) throw new Error("No se pudo guardar Cobro en Ruta.");
+        applyStreetManagementData(statusByClientForRoute as Record<string, unknown>);
       }
       const exported = await exportRouteCollection({
         rows: baseRows,

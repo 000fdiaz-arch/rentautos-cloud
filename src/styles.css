@@ -6093,9 +6093,47 @@ select.control-op-badge {
 }
 
 .ar-route-list-table {
-  min-width: 1180px;
+  min-width: 1260px;
   border-collapse: separate;
   border-spacing: 0;
+  table-layout: fixed;
+}
+
+.ar-route-list-table th:nth-child(1),
+.ar-route-list-table td:nth-child(1) {
+  width: 108px;
+}
+
+.ar-route-list-table th:nth-child(2),
+.ar-route-list-table td:nth-child(2) {
+  width: 190px;
+}
+
+.ar-route-list-table th:nth-child(3),
+.ar-route-list-table td:nth-child(3),
+.ar-route-list-table th:nth-child(4),
+.ar-route-list-table td:nth-child(4) {
+  width: 112px;
+}
+
+.ar-route-list-table th:nth-child(5),
+.ar-route-list-table td:nth-child(5) {
+  width: 132px;
+}
+
+.ar-route-list-table th:nth-child(6),
+.ar-route-list-table td:nth-child(6) {
+  width: 178px;
+}
+
+.ar-route-list-table th:nth-child(7),
+.ar-route-list-table td:nth-child(7) {
+  width: 136px;
+}
+
+.ar-route-list-table th:nth-child(9),
+.ar-route-list-table td:nth-child(9) {
+  width: 92px;
 }
 
 .ar-route-list-table thead th {
@@ -6138,7 +6176,8 @@ select.control-op-badge {
 }
 
 .ar-route-list-amount {
-  width: 110px;
+  width: 100%;
+  max-width: 116px;
   min-height: 32px;
   border: 1px solid #fed7aa;
   border-radius: 7px;
@@ -6175,8 +6214,8 @@ select.control-op-badge {
 }
 
 .ar-route-list-type {
-  width: 158px;
-  min-width: 158px;
+  width: 100%;
+  min-width: 0;
   min-height: 32px;
   border: 1px solid #fed7aa;
   border-radius: 7px;

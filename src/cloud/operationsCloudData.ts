@@ -728,21 +728,82 @@ export async function loadCloudStreetManagement(userId: string): Promise<Record<
 
 async function loadCloudStreetManagementUncached(userId: string): Promise<Record<string, unknown>> {
   const client = getCloudClient();
-  const { data, error } = await client
+  const legacyResult = await client
     .from("street_management_cloud")
     .select("data")
     .eq("user_id", userId)
     .maybeSingle();
-  if (error) throw error;
-  return normalizeRecord((data as SingletonDataRow | null)?.data);
+  if (legacyResult.error) throw legacyResult.error;
+  const legacyData = normalizeRecord((legacyResult.data as SingletonDataRow | null)?.data);
+
+  const { data, error } = await client
+    .from("street_management_items_cloud")
+    .select("client_id,data")
+    .eq("user_id", userId);
+  if (error) {
+    if (isMissingStreetManagementItemsSchema(error)) return legacyData;
+    throw error;
+  }
+  const rows = (data ?? []) as Array<{ client_id?: unknown; data?: unknown }>;
+  if (rows.length === 0) {
+    if (Object.keys(legacyData).length > 0) await replaceCloudStreetManagementItems(userId, legacyData);
+    return legacyData;
+  }
+  const byClient: Record<string, unknown> = {};
+  for (const row of rows) {
+    const clientId = typeof row.client_id === "string" ? row.client_id : "";
+    if (!clientId) continue;
+    byClient[clientId] = normalizeCloudValue(row.data);
+  }
+  return byClient;
 }
 
 export async function saveCloudStreetManagement(userId: string, value: Record<string, unknown>): Promise<void> {
+  try {
+    await replaceCloudStreetManagementItems(userId, value);
+    await saveCloudStreetManagementLegacy(userId, value);
+    return;
+  } catch (error) {
+    if (!isMissingStreetManagementItemsSchema(error)) throw error;
+  }
+  await saveCloudStreetManagementLegacy(userId, value);
+}
+
+async function saveCloudStreetManagementLegacy(userId: string, value: Record<string, unknown>): Promise<void> {
   const client = getCloudClient();
   const normalized = normalizeCloudValue(value) as Record<string, unknown>;
   const { error } = await client
     .from("street_management_cloud")
     .upsert({ user_id: userId, data: normalized }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+function isMissingStreetManagementItemsSchema(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: unknown; message?: unknown };
+  const code = typeof record.code === "string" ? record.code : "";
+  const message = typeof record.message === "string" ? record.message : "";
+  return code === "42P01" || code === "PGRST205" || message.includes("street_management_items_cloud");
+}
+
+async function replaceCloudStreetManagementItems(userId: string, value: Record<string, unknown>): Promise<void> {
+  const client = getCloudClient();
+  const normalized = normalizeCloudValue(value) as Record<string, unknown>;
+  const rows = Object.entries(normalized).map(([clientId, data]) => ({
+    user_id: userId,
+    client_id: clientId,
+    data,
+    updated_at: new Date().toISOString()
+  }));
+  const { error: deleteError } = await client
+    .from("street_management_items_cloud")
+    .delete()
+    .eq("user_id", userId);
+  if (deleteError) throw deleteError;
+  if (rows.length === 0) return;
+  const { error } = await client
+    .from("street_management_items_cloud")
+    .upsert(rows, { onConflict: "user_id,client_id" });
   if (error) throw error;
 }
 
@@ -805,6 +866,12 @@ export async function syncCloudStreetManagementDelta(
   previousValue: Record<string, unknown>,
   nextValue: Record<string, unknown>
 ): Promise<void> {
+  try {
+    await syncCloudStreetManagementItemsDelta(userId, previousValue, nextValue);
+    return;
+  } catch (error) {
+    if (!isMissingStreetManagementItemsSchema(error)) throw error;
+  }
   const client = getCloudClient();
   const prev = normalizeRecord(previousValue);
   const next = normalizeRecord(nextValue);
@@ -865,6 +932,99 @@ export async function syncCloudStreetManagementDelta(
     .from("street_management_cloud")
     .upsert({ user_id: userId, data: normalized }, { onConflict: "user_id" });
   if (error) throw error;
+}
+
+async function syncCloudStreetManagementItemsDelta(
+  userId: string,
+  previousValue: Record<string, unknown>,
+  nextValue: Record<string, unknown>
+): Promise<void> {
+  const client = getCloudClient();
+  const prev = normalizeRecord(previousValue);
+  const next = normalizeRecord(nextValue);
+  const changedPatch: Record<string, unknown | null> = {};
+
+  for (const [clientId, nextRow] of Object.entries(next)) {
+    const prevRow = prev[clientId];
+    const nextTs = rowTimestamp(nextRow);
+    const prevTs = rowTimestamp(prevRow);
+    if ((!prevRow || nextTs >= prevTs) && !stableEqual(prevRow, nextRow)) {
+      changedPatch[clientId] = nextRow;
+    }
+  }
+
+  for (const clientId of Object.keys(prev)) {
+    if (!(clientId in next)) changedPatch[clientId] = null;
+  }
+
+  const changedClientIds = Object.keys(changedPatch);
+  if (changedClientIds.length === 0) return;
+
+  if (changedPatch.__clearedAt) {
+    const { error: deleteError } = await client
+      .from("street_management_items_cloud")
+      .delete()
+      .eq("user_id", userId)
+      .neq("client_id", "__clearedAt");
+    if (deleteError) throw deleteError;
+  }
+
+  const currentRows = new Map<string, unknown>();
+  for (let index = 0; index < changedClientIds.length; index += PAGE_SIZE) {
+    const batch = changedClientIds.slice(index, index + PAGE_SIZE);
+    const { data, error } = await client
+      .from("street_management_items_cloud")
+      .select("client_id,data")
+      .eq("user_id", userId)
+      .in("client_id", batch);
+    if (error) throw error;
+    for (const row of (data ?? []) as Array<{ client_id?: unknown; data?: unknown }>) {
+      if (typeof row.client_id === "string") currentRows.set(row.client_id, row.data);
+    }
+  }
+
+  const upserts: Array<{ user_id: string; client_id: string; data: unknown; updated_at: string }> = [];
+  const deletes: string[] = [];
+  const clearedAt = rowTimestamp(changedPatch.__clearedAt ?? currentRows.get("__clearedAt"));
+
+  for (const [clientId, patchValue] of Object.entries(changedPatch)) {
+    if (patchValue === null) {
+      const currentRow = currentRows.get(clientId);
+      const prevRow = prev[clientId];
+      if (!currentRow || rowTimestamp(currentRow) <= rowTimestamp(prevRow)) deletes.push(clientId);
+      continue;
+    }
+    const currentRow = currentRows.get(clientId);
+    const patchTs = rowTimestamp(patchValue);
+    const currentTs = rowTimestamp(currentRow);
+    if (clientId !== "__clearedAt" && clearedAt > 0 && patchTs <= clearedAt) continue;
+    if (!currentRow || patchTs >= currentTs) {
+      upserts.push({
+        user_id: userId,
+        client_id: clientId,
+        data: normalizeCloudValue(mergeStreetManagementRow(currentRow, patchValue)),
+        updated_at: new Date().toISOString()
+      });
+    }
+  }
+
+  for (let index = 0; index < deletes.length; index += PAGE_SIZE) {
+    const batch = deletes.slice(index, index + PAGE_SIZE);
+    const { error } = await client
+      .from("street_management_items_cloud")
+      .delete()
+      .eq("user_id", userId)
+      .in("client_id", batch);
+    if (error) throw error;
+  }
+
+  for (let index = 0; index < upserts.length; index += PAGE_SIZE) {
+    const batch = upserts.slice(index, index + PAGE_SIZE);
+    const { error } = await client
+      .from("street_management_items_cloud")
+      .upsert(batch, { onConflict: "user_id,client_id" });
+    if (error) throw error;
+  }
 }
 
 export async function loadCloudCollectionClosures(userId: string): Promise<Record<string, unknown>> {

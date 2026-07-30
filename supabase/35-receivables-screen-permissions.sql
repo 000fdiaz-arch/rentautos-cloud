@@ -47,6 +47,7 @@ declare
 begin
   foreach table_name in array array[
     'street_management_cloud',
+    'street_management_items_cloud',
     'collection_closures_cloud'
   ] loop
     if to_regclass(format('public.%I', table_name)) is null then

@@ -216,6 +216,7 @@ begin
       ('lead_evaluations_cloud', 'leads'),
       ('fleet_units_cloud', 'control_units'),
       ('street_management_cloud', 'receivables'),
+      ('street_management_items_cloud', 'receivables'),
       ('collection_closures_cloud', 'receivables'),
       ('clients_daily_collection_cloud', 'payments'),
       ('clients_daily_collection_am_seals_cloud', 'payments'),
