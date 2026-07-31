@@ -11,6 +11,7 @@ import {
   clientOperationalStatusLabel,
   clientOperationalStatusTone,
   normalizeContactTime,
+  shouldDefaultToCovered,
   stateToneClass,
   type CollectionClosureItem,
   type CollectionCutKey,
@@ -112,13 +113,9 @@ function hasPendingRent(row: ReceivableRow, operationalStatus: string): boolean 
   return isWhatsAppEligibleUnit(row, operationalStatus) && row.totalPending > 0;
 }
 
-function shouldDefaultToCovered(row: ReceivableRow): boolean {
-  return row.totalPending <= 0;
-}
-
-function defaultCollectionStatus(row: ReceivableRow, cutKey: CollectionCutKey): CollectionStatus | "" {
+function defaultCollectionStatus(row: ReceivableRow, operationalStatus: string, cutKey: CollectionCutKey): CollectionStatus | "" {
   if (cutKey !== "night") return "";
-  return shouldDefaultToCovered(row) ? "covered" : "unassigned";
+  return shouldDefaultToCovered(row, operationalStatus) ? "covered" : "unassigned";
 }
 
 function contactTimeMinutes(value: string | undefined): number | null {
@@ -242,7 +239,7 @@ function ReceivableTableRowComponent({
 
   function renderCutCell(cutKey: CollectionCutKey) {
     const item = collectionCutItems[cutKey];
-    const rawValue = item?.collectionStatus ?? (cutKey === "night" ? statusRecord?.status : undefined) ?? defaultCollectionStatus(row, cutKey);
+    const rawValue = item?.collectionStatus ?? (cutKey === "night" ? statusRecord?.status : undefined) ?? defaultCollectionStatus(row, operationalStatus, cutKey);
     const statusOptions = workflowTab === "route" ? ROUTE_COLLECTION_STATUS_OPTIONS : getStatusOptionsForCut(cutKey);
     const value = statusOptions.some((option) => option.value === rawValue) ? rawValue : "";
     const routeReleaseAmount = item?.managementAmount ?? statusRecord?.routeReleaseAmount;

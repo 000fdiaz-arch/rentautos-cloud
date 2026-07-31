@@ -60,6 +60,7 @@ import {
   pendingSummaryText,
   planLabelForExport,
   renderSortIcon,
+  shouldDefaultToCovered,
   toTimestamp,
   type CollectionClosureItem,
   type CollectionClosuresByDate,
@@ -847,10 +848,6 @@ export default function ReceivablesPage({
 
   function hasAutoPaidStatus(row: ReceivableRow): boolean {
     return row.state === "alDia" || hasPaymentToday(row);
-  }
-
-  function shouldDefaultToCovered(row: ReceivableRow): boolean {
-    return row.totalPending <= 0;
   }
 
   function hasRouteCollection(row: ReceivableRow): boolean {

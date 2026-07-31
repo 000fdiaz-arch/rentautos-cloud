@@ -197,6 +197,14 @@ export function isToday(date: Date, now: Date): boolean {
   return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
 }
 
+export function hasActiveOperationalClient(row: ReceivableRow, operationalStatus = row.operationalStatus ?? "activo"): boolean {
+  return row.hasActiveClient && operationalStatus.trim().toLowerCase() === "activo";
+}
+
+export function shouldDefaultToCovered(row: ReceivableRow, operationalStatus = row.operationalStatus ?? "activo"): boolean {
+  return hasActiveOperationalClient(row, operationalStatus) && row.totalPending <= 0;
+}
+
 export function normalizeComment(value: string): string {
   return value.slice(0, 5);
 }
