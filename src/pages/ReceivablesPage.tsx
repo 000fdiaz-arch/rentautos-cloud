@@ -240,6 +240,7 @@ export default function ReceivablesPage({
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<CollectionStatusFilter>("all");
   const [whatsAppContactFilter, setWhatsAppContactFilter] = useState<WhatsAppContactFilter>("all");
   const [prioritizeContactTime, setPrioritizeContactTime] = useState<boolean>(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
   const [workflowTab, setWorkflowTab] = useState<ReceivablesWorkflowTab>("management");
   const viewMode: ReceivablesViewMode = "cartera";
   const [collectionClosuresByDate, setCollectionClosuresByDate] = useState<CollectionClosuresByDate>({});
@@ -830,6 +831,7 @@ export default function ReceivablesPage({
     setFilters(DEFAULT_RECEIVABLE_FILTERS);
     setCollectionStatusFilter("all");
     setWhatsAppContactFilter("all");
+    setMobileFiltersOpen(false);
   }
 
   function handleSort(field: ReceivableSortField) {
@@ -1998,6 +2000,14 @@ export default function ReceivablesPage({
   const whatsAppModalRow = whatsAppModalClientId
     ? baseRows.find((item) => item.id === whatsAppModalClientId)
     : undefined;
+  const activeAdvancedFilterCount = [
+    filters.unitSearch.trim(),
+    filters.clientSearch.trim(),
+    filters.cedulaSearch.trim(),
+    filters.plan !== DEFAULT_RECEIVABLE_FILTERS.plan ? filters.plan : "",
+    filters.group !== DEFAULT_RECEIVABLE_FILTERS.group ? filters.group : "",
+    filters.state.length > 0 ? "state" : ""
+  ].filter(Boolean).length;
 
   return (
     <>
@@ -2135,7 +2145,18 @@ export default function ReceivablesPage({
           </div>
         </div>
 
+        <button
+          type="button"
+          className={`ar-mobile-filter-toggle ${mobileFiltersOpen ? "is-open" : ""}`}
+          onClick={() => setMobileFiltersOpen((current) => !current)}
+          aria-expanded={mobileFiltersOpen}
+        >
+          <span>{mobileFiltersOpen ? "Ocultar filtros" : "Filtros"}</span>
+          {activeAdvancedFilterCount > 0 ? <strong>{activeAdvancedFilterCount}</strong> : null}
+        </button>
+
         <ReceivablesFiltersPanel
+          className={mobileFiltersOpen ? "is-mobile-open" : ""}
           filters={filters}
           availableGroups={availableGroups}
           onFilterChange={updateFilter}

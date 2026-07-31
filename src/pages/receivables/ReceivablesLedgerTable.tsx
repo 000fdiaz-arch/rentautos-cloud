@@ -9,6 +9,7 @@ import {
   COLLECTION_STATUS_HELP,
   COLLECTION_STATUS_OPTIONS,
   ROUTE_ASSIGNMENT_OPTIONS,
+  ROUTE_COLLECTION_STATUS_OPTIONS,
   normalizeRouteAssignment,
   stateToneClass,
   type CollectionClosureItem,
@@ -296,6 +297,143 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
             })}
           </tbody>
         </table>
+        <div className="ar-route-mobile-list" aria-label="Cobro en ruta">
+          {rows.map((row) => {
+            const statusRecord = collectionStatusByClient[row.id];
+            const routeReleaseAmount = statusRecord?.routeReleaseAmount ?? statusRecord?.managementAmount;
+            const routeAssignment = statusRecord?.routeAssignment ?? "";
+            const isCustomRouteAssignment = !!routeAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(routeAssignment);
+            const isCustomRouteEditorOpen = isCustomRouteAssignment || !!customRouteEditorByClient[row.id];
+            const routeStatus = ROUTE_COLLECTION_STATUS_OPTIONS.some((option) => option.value === statusRecord?.status)
+              ? statusRecord?.status ?? "route"
+              : "route";
+            return (
+              <article className="ar-route-mobile-card" key={`mobile-route-${row.id}`}>
+                <div className="ar-route-mobile-head">
+                  <div className="ar-route-mobile-unit">
+                    <strong className="ar-unit-id">{row.unitId}</strong>
+                    <span title={row.name}>{firstName(row.name)}</span>
+                  </div>
+                  <div className="ar-route-mobile-amount">
+                    <small>Renta vencida</small>
+                    <strong>{formatCurrency(row.overdueBalance)}</strong>
+                  </div>
+                </div>
+
+                <div className="ar-route-mobile-meta">
+                  <span>{row.daysLate > 0 ? `${row.daysLate} dias de atraso` : "Sin atraso"}</span>
+                  <span>{row.lastPaymentDate ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) : "Sin pagos"}</span>
+                </div>
+
+                <div className="ar-route-mobile-controls">
+                  <label>
+                    <span>Estado</span>
+                    <select
+                      className={`ar-cut-select ar-cut-select--${routeStatus}`}
+                      value={routeStatus}
+                      onChange={(event) => onCollectionCutStatusChange("night", row.id, event.target.value)}
+                      disabled={isTodayCollectionClosed}
+                    >
+                      {ROUTE_COLLECTION_STATUS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Tipo</span>
+                    <select
+                      className="ar-route-list-type"
+                      value={statusRecord?.managementType ?? "solo_cobrar"}
+                      onChange={(event) => onRouteManagementTypeChange(row.id, event.target.value as "solo_cobrar" | "cobrar_o_quitar")}
+                      disabled={isTodayCollectionClosed}
+                    >
+                      <option value="solo_cobrar">Solo cobrar</option>
+                      <option value="cobrar_o_quitar">Cobrar o quitar</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Min. liberar</span>
+                    <input
+                      className="ar-route-list-amount"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={routeReleaseAmount ?? ""}
+                      onChange={(event) => onRouteReleaseAmountChange(row.id, event.target.value)}
+                      placeholder={row.overdueBalance > 0 ? row.overdueBalance.toFixed(2) : "0.00"}
+                      disabled={isTodayCollectionClosed}
+                    />
+                  </label>
+                  <label>
+                    <span>Ruta</span>
+                    {isCustomRouteEditorOpen ? (
+                      <input
+                        className="ar-route-list-route-custom"
+                        type="text"
+                        value={routeAssignment}
+                        onChange={(event) => onRouteAssignmentChange(row.id, event.target.value)}
+                        onBlur={(event) => {
+                          const normalized = normalizeRouteAssignment(event.target.value);
+                          if (event.target.value !== (normalized ?? "")) onRouteAssignmentChange(row.id, normalized ?? "");
+                          if (!normalized) setCustomRouteEditorByClient((current) => ({ ...current, [row.id]: false }));
+                        }}
+                        placeholder="Escribe ruta"
+                        maxLength={12}
+                        disabled={isTodayCollectionClosed}
+                        aria-label={`Ruta manual de ${row.unitId}`}
+                      />
+                    ) : (
+                      <select
+                        className="ar-route-list-route"
+                        value={routeAssignment}
+                        onChange={(event) => {
+                          const selected = event.target.value;
+                          if (selected === "__custom") {
+                            setCustomRouteEditorByClient((current) => ({ ...current, [row.id]: true }));
+                            onRouteAssignmentChange(row.id, "");
+                            return;
+                          }
+                          setCustomRouteEditorByClient((current) => ({ ...current, [row.id]: false }));
+                          onRouteAssignmentChange(row.id, selected);
+                        }}
+                        disabled={isTodayCollectionClosed}
+                        aria-label={`Ruta de ${row.unitId}`}
+                      >
+                        <option value="">Sin ruta</option>
+                        {ROUTE_ASSIGNMENT_OPTIONS.map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                        <option value="__custom">Otra</option>
+                      </select>
+                    )}
+                  </label>
+                  <label className="ar-route-mobile-comment">
+                    <span>Comentario</span>
+                    <input
+                      className="ar-route-list-comment"
+                      type="text"
+                      value={statusRecord?.managementComment ?? ""}
+                      onChange={(event) => onRouteManagementCommentChange(row.id, event.target.value)}
+                      placeholder="Comentario..."
+                      maxLength={25}
+                      disabled={isTodayCollectionClosed}
+                    />
+                  </label>
+                </div>
+
+                <button
+                  type="button"
+                  className="button ghost small ar-route-list-remove ar-route-mobile-remove"
+                  onClick={() => onRemoveFromRoute(row.id)}
+                  disabled={isTodayCollectionClosed}
+                >
+                  Sacar de ruta
+                </button>
+              </article>
+            );
+          })}
+        </div>
       </div>
     );
   }

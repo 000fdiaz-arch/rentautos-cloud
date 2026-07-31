@@ -4,6 +4,7 @@ import { STATE_FILTER_OPTIONS } from "./receivablesPageRules";
 type Props = {
   filters: ReceivableFilters;
   availableGroups: string[];
+  className?: string;
   onFilterChange: <K extends keyof ReceivableFilters>(key: K, value: ReceivableFilters[K]) => void;
   onStateFilterToggle: (value: ReceivableState | "all") => void;
   onClearFilters: () => void;
@@ -12,12 +13,13 @@ type Props = {
 export function ReceivablesFiltersPanel({
   filters,
   availableGroups,
+  className = "",
   onFilterChange,
   onStateFilterToggle,
   onClearFilters
 }: Props) {
   return (
-    <section className="ar-filters-panel">
+    <section className={`ar-filters-panel ${className}`.trim()}>
       <div className="ar-filters-grid">
         <label className="ar-filter-field">
           <span className="ar-filter-label">Unidad</span>
