@@ -750,6 +750,7 @@ export async function saveCloudStreetManagement(userId: string, value: Record<st
 async function replaceCloudStreetManagementItems(userId: string, value: Record<string, unknown>): Promise<void> {
   const client = getCloudClient();
   const normalized = normalizeCloudValue(value) as Record<string, unknown>;
+  const isClearOperation = Object.keys(normalized).length === 1 && Object.prototype.hasOwnProperty.call(normalized, "__clearedAt");
   const rows = Object.entries(normalized).map(([clientId, data]) => ({
     user_id: userId,
     client_id: clientId,
@@ -766,6 +767,15 @@ async function replaceCloudStreetManagementItems(userId: string, value: Record<s
     .from("street_management_items_cloud")
     .upsert(rows, { onConflict: "user_id,client_id" });
   if (error) throw error;
+  if (isClearOperation) {
+    const { count, error: countError } = await client
+      .from("street_management_items_cloud")
+      .select("client_id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .neq("client_id", "__clearedAt");
+    if (countError) throw countError;
+    if ((count ?? 0) > 0) throw new Error(`La gestion quedo parcialmente limpia (${count} registro(s)).`);
+  }
 }
 
 function toIsoTimestamp(value: unknown): number {

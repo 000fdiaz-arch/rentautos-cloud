@@ -75,6 +75,7 @@ type Props = {
   payments: Payment[];
   onClientsChange?: (next: Client[]) => void | Promise<void>;
   dataOwnerUserId?: string | null;
+  readOnly?: boolean;
   receivablesDateKey?: string;
   streetManagementData?: Record<string, unknown>;
   onStreetManagementPersist?: (value: Record<string, unknown>) => Promise<boolean> | boolean;
@@ -225,6 +226,7 @@ export default function ReceivablesPage({
   payments,
   onClientsChange,
   dataOwnerUserId,
+  readOnly = false,
   receivablesDateKey,
   streetManagementData,
   onStreetManagementPersist
@@ -580,6 +582,7 @@ export default function ReceivablesPage({
 
   const todayCollectionCuts: Partial<Record<CollectionCutKey, { items: CollectionClosureItem[] }>> = useMemo(() => ({}), []);
   const isTodayCollectionClosed = false;
+  const isCollectionLocked = readOnly || isTodayCollectionClosed;
 
   useEffect(() => {
     const routeEntries = Object.entries(collectionStatusByClient).filter(([, record]) => (
@@ -1061,7 +1064,7 @@ export default function ReceivablesPage({
   }
 
   function handleOpenWhatsAppPhoneModal(clientId: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     const client = clients.find((item) => item.id === clientId);
     setWhatsAppModalClientId(clientId);
     setWhatsAppPhoneDraft(normalizeWhatsAppDraft(client?.whatsAppPhone ?? ""));
@@ -1069,7 +1072,7 @@ export default function ReceivablesPage({
   }
 
   async function handleSaveWhatsAppPhone(): Promise<void> {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     if (!whatsAppModalClientId) return;
     const normalized = normalizeWhatsAppDraft(whatsAppPhoneDraft);
     if (normalized.length > 0 && normalized.length < 8) {
@@ -1100,7 +1103,7 @@ export default function ReceivablesPage({
   }
 
   function handleSupportNoteChange(clientId: string, value: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     markClientStatusAsSaving(clientId);
     const note = normalizeSupportNote(value);
     const nowIso = new Date().toISOString();
@@ -1136,7 +1139,7 @@ export default function ReceivablesPage({
   }
 
   function handleContactTimeChange(clientId: string, value: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     markClientStatusAsSaving(clientId);
     const contactTime = normalizeContactTime(value);
     const nowIso = new Date().toISOString();
@@ -1165,6 +1168,7 @@ export default function ReceivablesPage({
   }
 
   async function clearLiveCollectionStatusAfterClosure(): Promise<void> {
+    if (readOnly) throw new Error("El usuario no tiene permiso para editar cuentas por cobrar.");
     const emptyStatus: Record<string, CollectionStatusRecord> = {};
     const clearMarker: Record<string, unknown> = { __clearedAt: { updatedAt: new Date().toISOString() } };
     if (persistStreetTimerRef.current) {
@@ -1180,6 +1184,9 @@ export default function ReceivablesPage({
     setCollectionStatusByClient(emptyStatus);
     if (dataOwnerUserId) {
       await saveCloudStreetManagement(dataOwnerUserId, clearMarker);
+      const cloudData = await loadCloudStreetManagement(dataOwnerUserId);
+      const remaining = Object.keys(parseCollectionStatusMapFromStorage(JSON.stringify(cloudData)));
+      if (remaining.length > 0) throw new Error(`La gestion quedo parcialmente limpia (${remaining.length} registro(s)).`);
     } else if (onStreetManagementPersist) {
       const ok = await onStreetManagementPersist(clearMarker);
       if (ok === false) throw new Error("No se pudieron limpiar los estados vivos de cobranza.");
@@ -1207,7 +1214,7 @@ export default function ReceivablesPage({
   }
 
   function handleCollectionCutStatusChange(cutKey: CollectionCutKey, clientId: string, nextStatus: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     const nowIso = new Date().toISOString();
     if (cutKey !== "night") return;
     markClientStatusAsSaving(clientId);
@@ -1243,7 +1250,7 @@ export default function ReceivablesPage({
   }
 
   function handleRouteWorkflowStatusChange(clientId: string, nextStatus: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     if (!ROUTE_COLLECTION_STATUS_OPTIONS.some((option) => option.value === nextStatus)) return;
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
@@ -1279,7 +1286,7 @@ export default function ReceivablesPage({
   }
 
   function handleRouteManagementTypeChange(clientId: string, managementType: FieldManagementType): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
@@ -1315,7 +1322,7 @@ export default function ReceivablesPage({
   }
 
   function handleRouteManagementCommentChange(clientId: string, value: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
@@ -1350,7 +1357,7 @@ export default function ReceivablesPage({
   }
 
   function handleRouteAssignmentChange(clientId: string, value: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     const routeAssignment = normalizeRouteAssignment(value);
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
@@ -1386,7 +1393,7 @@ export default function ReceivablesPage({
   }
 
   function handleRemoveFromRoute(clientId: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
@@ -1422,7 +1429,7 @@ export default function ReceivablesPage({
   }
 
   function handleRouteReleaseAmountChange(clientId: string, value: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     const parsedAmount = parsePositiveMoneyInput(value);
     const nextAmount = parsedAmount ?? undefined;
     const nowIso = new Date().toISOString();
@@ -1462,7 +1469,7 @@ export default function ReceivablesPage({
   }
 
   function handleCollectionCutCommentChange(cutKey: CollectionCutKey, clientId: string, value: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     if (cutKey !== "night") return;
     handleSupportNoteChange(clientId, value);
   }
@@ -1473,7 +1480,7 @@ export default function ReceivablesPage({
   }
 
   function handleCollectionStatusChange(clientId: string, nextStatus: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     markClientStatusAsSaving(clientId);
     if (nextStatus !== "no_answer" && nextStatus !== "reminder" && nextStatus !== "call_later" && nextStatus !== "paid") {
       setCollectionStatusByClient((current) => {
@@ -1515,7 +1522,7 @@ export default function ReceivablesPage({
   }
 
   function handleWhatsAppMessageCopied(clientId: string, message: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     const targetRows = whatsAppGroupRowsByClient.get(clientId) ?? baseRows.filter((row) => row.id === clientId);
     const targetClientIds = targetRows.length > 0 ? targetRows.map((row) => row.id) : [clientId];
     for (const targetClientId of targetClientIds) markClientStatusAsSaving(targetClientId);
@@ -1555,7 +1562,7 @@ export default function ReceivablesPage({
   }
 
   function handleWhatsAppMessageSent(clientId: string, message: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     const targetRows = whatsAppGroupRowsByClient.get(clientId) ?? baseRows.filter((row) => row.id === clientId);
     const targetClientIds = targetRows.length > 0 ? targetRows.map((row) => row.id) : [clientId];
     for (const targetClientId of targetClientIds) markClientStatusAsSaving(targetClientId);
@@ -1593,7 +1600,7 @@ export default function ReceivablesPage({
   }
 
   function handleCallLaterCommentChange(clientId: string, value: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const currentStatus = current[clientId]?.status ?? "call_later";
@@ -1660,7 +1667,7 @@ export default function ReceivablesPage({
   }
 
   function handleSaveFieldManagement(clientId: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     markClientStatusAsSaving(clientId);
     const draft = fieldManagementDraftByClient[clientId] ?? { type: "", amount: "", comment: "" };
     if (draft.type !== "solo_cobrar" && draft.type !== "cobrar_o_quitar") {
@@ -1706,7 +1713,7 @@ export default function ReceivablesPage({
   }
 
   function handleRemoveFieldManagement(clientId: string): void {
-    if (isTodayCollectionClosed) return;
+    if (isCollectionLocked) return;
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
@@ -1871,7 +1878,7 @@ export default function ReceivablesPage({
   async function handleSaveCollectionCut(cutKey: CollectionCutKey): Promise<void> {
     setCollectionCutMessage(null);
     setExportError(null);
-    if (isTodayCollectionClosed) {
+    if (isCollectionLocked) {
       setCollectionCutMessage(`La gestion de ${receivablesDateLabel} ya esta cerrada.`);
       return;
     }
@@ -2010,7 +2017,8 @@ export default function ReceivablesPage({
                 type="button"
                 className="button ghost small"
                 onClick={() => void handleClearCollectionManagement()}
-                disabled={isClearingCollectionManagement}
+                disabled={isClearingCollectionManagement || readOnly}
+                title={readOnly ? "No tienes permiso para editar cuentas por cobrar." : undefined}
               >
                 {isClearingCollectionManagement ? "Limpiando gestion..." : "Limpiar gestion"}
               </button>
@@ -2147,7 +2155,7 @@ export default function ReceivablesPage({
           clientStatusById={clientStatusById}
           todayDateKey={todayDateKey}
           now={now}
-          isTodayCollectionClosed={isTodayCollectionClosed}
+          isTodayCollectionClosed={isCollectionLocked}
           workflowTab={workflowTab}
           todayCollectionCuts={todayCollectionCuts}
           visibleCollectionCut={visibleCollectionCut}

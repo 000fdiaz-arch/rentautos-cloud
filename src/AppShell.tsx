@@ -881,6 +881,7 @@ export default function AppShell({
             payments={payments}
             onClientsChange={persistClients}
             dataOwnerUserId={cloudDataUserId}
+            readOnly={isReadOnlyReceivables}
             receivablesDateKey={receivablesDateKey}
             streetManagementData={parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>}
             onStreetManagementPersist={async (value) => {
