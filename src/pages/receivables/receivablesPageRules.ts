@@ -17,6 +17,7 @@ export type CollectionClosureItem = {
   unitId: string;
   clientName: string;
   lastPaymentDate: string | null;
+  lastPaymentAt?: string | null;
   receivableState: string;
   totalPending: number;
   collectionStatus: CollectionStatus;

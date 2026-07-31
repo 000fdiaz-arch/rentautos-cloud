@@ -12,7 +12,7 @@ export type CollectionStatus =
   | "route_not_sent";
 export type FieldManagementType = "solo_cobrar" | "cobrar_o_quitar";
 export type RouteExportFormat = "jpg" | "pdf" | "excel";
-export type WhatsAppContactFilter = "all" | "pending" | "missing" | "ready" | "opened" | "sent";
+export type WhatsAppContactFilter = "all" | "pending" | "ready" | "sent" | "idle";
 export type RouteAssignment = "PTY" | "WC" | "CL" | (string & {});
 
 export type CollectionStatusRecord = {

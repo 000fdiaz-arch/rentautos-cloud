@@ -23,6 +23,7 @@ export type ReceivablesHistoryRow = {
   unitId: string;
   clientName: string;
   lastPaymentDate: string | null;
+  lastPaymentAt?: string | null;
   receivableState: string;
   totalPending: number;
   cuts: Partial<Record<CollectionCutKey, CollectionClosureItem>>;
@@ -52,9 +53,7 @@ type Props = {
   onRouteAssignmentChange: (clientId: string, value: string) => void;
   onRouteReleaseAmountChange: (clientId: string, value: string) => void;
   onRemoveFromRoute: (clientId: string) => void;
-  onWhatsAppMessageCopied: (clientId: string, message: string) => void;
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
-  onEditWhatsAppPhone: (clientId: string) => void;
   onSupportNoteChange: (clientId: string, value: string) => void;
   onContactTimeChange: (clientId: string, value: string) => void;
   onClearFilters: () => void;
@@ -85,7 +84,7 @@ function renderCutStatusCell(item: CollectionClosureItem | undefined) {
       </span>
       {item.comment ? <span className="hint ar-cut-comment">Comentario: {item.comment}</span> : null}
       <div className="ar-cut-actions">
-        {item.whatsAppMessageSentAt ? <span>WhatsApp enviado</span> : item.whatsAppMessageCopiedAt ? <span>WhatsApp abierto</span> : null}
+        {item.whatsAppMessageSentAt ? <span>Enviado</span> : item.whatsAppMessageCopiedAt ? <span>Por enviar</span> : null}
         {item.managementAmount ? (
           <span>
             Cobro en ruta {formatCurrency(item.managementAmount)}
@@ -139,9 +138,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   onRouteAssignmentChange,
   onRouteReleaseAmountChange,
   onRemoveFromRoute,
-  onWhatsAppMessageCopied,
   onWhatsAppMessageSent,
-  onEditWhatsAppPhone,
   onSupportNoteChange,
   onContactTimeChange,
   onClearFilters
@@ -498,9 +495,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               onCollectionCutStatusChange={onCollectionCutStatusChange}
               onCollectionCutCommentChange={onCollectionCutCommentChange}
               onRouteReleaseAmountChange={onRouteReleaseAmountChange}
-              onWhatsAppMessageCopied={onWhatsAppMessageCopied}
               onWhatsAppMessageSent={onWhatsAppMessageSent}
-              onEditWhatsAppPhone={onEditWhatsAppPhone}
               onSupportNoteChange={onSupportNoteChange}
               onContactTimeChange={onContactTimeChange}
             />

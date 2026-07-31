@@ -209,6 +209,18 @@ const hasHistoryFilters = useMemo(
   [historyClientId, historyGroupFilter, historyDeliveryFilter, historyDateFrom, historyDateTo, hasHistoryColumnFilters]
 );
 
+const historyDeliveryCounts = useMemo(() => {
+  return payments.reduce(
+    (counts, payment) => {
+      const isSent = payment.receiptDeliveryStatus !== "pending" || historyCopiedPaymentIds.has(payment.id);
+      if (isSent) counts.sent += 1;
+      else counts.pending += 1;
+      return counts;
+    },
+    { pending: 0, sent: 0 }
+  );
+}, [historyCopiedPaymentIds, payments]);
+
 const filteredHistoryRows = useMemo(() => {
   if (historyDateRangeError) return [];
 
@@ -602,6 +614,29 @@ function handleRepairTodayPaymentDates(): void {
                   Limpiar fechas
                 </button>
               )}
+            </div>
+
+            <div className="history-delivery-summary" aria-label="Resumen de envio de recibos">
+              <button
+                type="button"
+                className={`history-delivery-chip history-delivery-chip--pending ${historyDeliveryFilter === "pending" ? "is-active" : ""}`}
+                onClick={() => {
+                  setHistoryDeliveryFilter("pending");
+                  setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
+                }}
+              >
+                Por enviar <strong>{historyDeliveryCounts.pending}</strong>
+              </button>
+              <button
+                type="button"
+                className={`history-delivery-chip history-delivery-chip--sent ${historyDeliveryFilter === "sent" ? "is-active" : ""}`}
+                onClick={() => {
+                  setHistoryDeliveryFilter("sent");
+                  setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
+                }}
+              >
+                Enviado <strong>{historyDeliveryCounts.sent}</strong>
+              </button>
             </div>
 
             {historyDateRangeError && <p className="hint error-text">{historyDateRangeError}</p>}

@@ -37,7 +37,6 @@ import type {
 import { ReceivableDetailModal } from "./receivables/ReceivableDetailModal";
 import { ReceivablesFiltersPanel } from "./receivables/ReceivablesFiltersPanel";
 import { ReceivablesLedgerTable, type ReceivablesHistoryRow } from "./receivables/ReceivablesLedgerTable";
-import { WhatsAppPhoneModal } from "./receivables/WhatsAppPhoneModal";
 import { exportRouteCollection } from "./receivables/routeCollectionExport";
 import {
   COLLECTION_STATUS_OPTIONS,
@@ -81,6 +80,8 @@ type Props = {
   streetManagementData?: Record<string, unknown>;
   onStreetManagementPersist?: (value: Record<string, unknown>) => Promise<boolean> | boolean;
 };
+
+const STATEMENT_SUGGESTION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function getStatusOptionsForCut(cutKey: CollectionCutKey): Array<{ value: CollectionStatus; label: string; description: string }> {
   return cutKey === "night" ? DAILY_COLLECTION_STATUS_OPTIONS : COLLECTION_STATUS_OPTIONS;
@@ -163,11 +164,25 @@ function hasPendingRentForWhatsApp(row: ReceivableRow): boolean {
   return isWhatsAppEligibleUnit(row) && row.totalPending > 0;
 }
 
-function getWhatsAppContactStatus(row: ReceivableRow, record: CollectionStatusRecord | undefined): Exclude<WhatsAppContactFilter, "all" | "pending"> {
-  if (!hasPendingRentForWhatsApp(row)) return "sent";
-  if (record?.whatsAppMessageSentAt) return "sent";
-  if (record?.whatsAppMessageCopiedAt) return "opened";
-  if (!normalizeWhatsAppPhoneForFilter(row.whatsAppPhone)) return "missing";
+function hasTimestampWithinWindow(value: string | undefined, now: Date, windowMs: number): boolean {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return now.getTime() - date.getTime() < windowMs;
+}
+
+function hasLastPaymentOutsideSuggestionWindow(row: ReceivableRow, now: Date): boolean {
+  const rawTimestamp = row.lastPaymentAt ?? (row.lastPaymentDate ? `${row.lastPaymentDate}T12:00:00` : "");
+  if (!rawTimestamp) return true;
+  const lastPaymentDate = new Date(rawTimestamp);
+  if (Number.isNaN(lastPaymentDate.getTime())) return true;
+  return now.getTime() - lastPaymentDate.getTime() >= STATEMENT_SUGGESTION_WINDOW_MS;
+}
+
+function getWhatsAppContactStatus(row: ReceivableRow, record: CollectionStatusRecord | undefined, now: Date): Exclude<WhatsAppContactFilter, "all" | "pending"> {
+  if (!hasPendingRentForWhatsApp(row)) return "idle";
+  if (hasTimestampWithinWindow(record?.whatsAppMessageSentAt, now, STATEMENT_SUGGESTION_WINDOW_MS)) return "sent";
+  if (!hasLastPaymentOutsideSuggestionWindow(row, now)) return "idle";
   return "ready";
 }
 
@@ -259,10 +274,6 @@ export default function ReceivablesPage({
   const [isRouteExportMenuOpen, setIsRouteExportMenuOpen] = useState<boolean>(false);
   const [exportFields, setExportFields] = useState<ExportField[]>(INITIAL_EXPORT_FIELDS);
   const [fieldManagementModalClientId, setFieldManagementModalClientId] = useState<string | null>(null);
-  const [whatsAppModalClientId, setWhatsAppModalClientId] = useState<string | null>(null);
-  const [whatsAppPhoneDraft, setWhatsAppPhoneDraft] = useState<string>("");
-  const [whatsAppPhoneError, setWhatsAppPhoneError] = useState<string>("");
-  const [isSavingWhatsAppPhone, setIsSavingWhatsAppPhone] = useState<boolean>(false);
   const [fieldManagementDraftByClient, setFieldManagementDraftByClient] = useState<
     Record<string, { type: FieldManagementType | ""; amount: string; comment: string }>
   >({});
@@ -693,35 +704,38 @@ export default function ReceivablesPage({
     const counts: Record<WhatsAppContactFilter, number> = {
       all: filteredByCollectionStatusRows.length,
       pending: 0,
-      missing: 0,
       ready: 0,
-      opened: 0,
-      sent: 0
+      sent: 0,
+      idle: 0
     };
     for (const row of filteredByCollectionStatusRows) {
-      const status = getWhatsAppContactStatus(row, collectionStatusByClient[row.id]);
+      const status = getWhatsAppContactStatus(row, collectionStatusByClient[row.id], now);
       counts[status] += 1;
-      if (status !== "sent") counts.pending += 1;
+      if (status === "ready") counts.pending += 1;
     }
     return counts;
-  }, [collectionStatusByClient, filteredByCollectionStatusRows]);
+  }, [collectionStatusByClient, filteredByCollectionStatusRows, now]);
   const whatsAppAlertCount = whatsAppContactFilter === "sent"
     ? whatsAppContactCounts.sent
+    : whatsAppContactFilter === "idle"
+    ? whatsAppContactCounts.idle
     : whatsAppContactCounts.pending;
   const whatsAppAlertText = whatsAppContactFilter === "sent"
-    ? `${whatsAppAlertCount} WhatsApp completado${whatsAppAlertCount === 1 ? "" : "s"}`
-    : `${whatsAppAlertCount} WhatsApp pendientes`;
+    ? `${whatsAppAlertCount} enviado${whatsAppAlertCount === 1 ? "" : "s"}`
+    : whatsAppContactFilter === "idle"
+    ? `${whatsAppAlertCount} sin sugerencia`
+    : `${whatsAppAlertCount} sugerido${whatsAppAlertCount === 1 ? "" : "s"}`;
   const filteredByWhatsAppRows = useMemo(() => {
     if (whatsAppContactFilter === "all") return filteredByCollectionStatusRows;
     if (whatsAppContactFilter === "pending") {
       return filteredByCollectionStatusRows.filter((row) => (
-        getWhatsAppContactStatus(row, collectionStatusByClient[row.id]) !== "sent"
+        getWhatsAppContactStatus(row, collectionStatusByClient[row.id], now) === "ready"
       ));
     }
     return filteredByCollectionStatusRows.filter((row) => (
-      getWhatsAppContactStatus(row, collectionStatusByClient[row.id]) === whatsAppContactFilter
+      getWhatsAppContactStatus(row, collectionStatusByClient[row.id], now) === whatsAppContactFilter
     ));
-  }, [collectionStatusByClient, filteredByCollectionStatusRows, whatsAppContactFilter]);
+  }, [collectionStatusByClient, filteredByCollectionStatusRows, now, whatsAppContactFilter]);
 
   function contactTimeMinutes(row: ReceivableRow): number {
     if (getEffectiveStatus(row) !== "pending") return Number.POSITIVE_INFINITY;
@@ -766,6 +780,7 @@ export default function ReceivablesPage({
           unitId: item.unitId,
           clientName: item.clientName,
           lastPaymentDate: item.lastPaymentDate,
+          lastPaymentAt: item.lastPaymentAt,
           receivableState: item.receivableState,
           totalPending: item.totalPending,
           cuts: { [option.key]: item }
@@ -779,7 +794,7 @@ export default function ReceivablesPage({
       const status = getEffectiveStatus(row);
       return status === "unassigned";
     });
-    const pendingWhatsAppRows = baseRows.filter((row) => getWhatsAppContactStatus(row, collectionStatusByClient[row.id]) !== "sent");
+    const pendingWhatsAppRows: ReceivableRow[] = [];
     return {
       pendingManagementRows,
       pendingWhatsAppRows
@@ -805,7 +820,7 @@ export default function ReceivablesPage({
       const status = getEffectiveStatusFromMap(row, statusByClient);
       return status === "unassigned";
     });
-    const pendingWhatsAppRows = baseRows.filter((row) => getWhatsAppContactStatus(row, statusByClient[row.id]) !== "sent");
+    const pendingWhatsAppRows: ReceivableRow[] = [];
     return { pendingManagementRows, pendingWhatsAppRows };
   }
   function updateFilter<K extends keyof ReceivableFilters>(key: K, value: ReceivableFilters[K]) {
@@ -914,45 +929,35 @@ export default function ReceivablesPage({
     const installmentsText = detailParts.length > 0
       ? detailParts.join(" + ")
       : "Sin cuotas pendientes";
-    const emoji = {
-      hello: String.fromCodePoint(0x1F44B),
-      info: `${String.fromCodePoint(0x2139)}${String.fromCodePoint(0xFE0F)}`,
-      warning: `${String.fromCodePoint(0x26A0)}${String.fromCodePoint(0xFE0F)}`,
-      money: String.fromCodePoint(0x1F4B5),
-      pin: String.fromCodePoint(0x1F4CC),
-      check: String.fromCodePoint(0x2705),
-      thanks: String.fromCodePoint(0x1F64F)
-    };
-
     const message = [
-      `${emoji.hello} Hola, ${firstName}.`,
+      `Hola, ${firstName}.`,
       "",
       hasOverdue && hasCurrent
-        ? `${emoji.warning} Tiene saldo pendiente al ${today}.`
+        ? `Le escribimos para recordarle que mantiene saldo pendiente al ${today}.`
         : hasCurrent
-          ? `${emoji.info} Saldo corriente ${currentPeriodLabel[row.plan]}: ${formatCurrency(currentAmount)}`
-          : `${emoji.warning} Tiene renta vencida al ${today}.`,
+          ? `Le escribimos sobre el saldo corriente ${currentPeriodLabel[row.plan]}: ${formatCurrency(currentAmount)}.`
+          : `Le escribimos para recordarle que tiene renta vencida al ${today}.`,
       "",
       ...(hasOverdue && hasCurrent
         ? [
-            `${emoji.money} Total pendiente: ${formatCurrency(totalPending)}`,
-            `${emoji.pin} Detalle: ${mixedInstallmentsText || "incluye renta vencida y saldo corriente"}`
+            `Total pendiente: ${formatCurrency(totalPending)}.`,
+            `Detalle: ${mixedInstallmentsText || "incluye renta vencida y saldo corriente"}.`
           ]
         : hasCurrent
           ? [
-              `${emoji.pin} Detalle: ${installmentText(currentAmount, "corriente") || installmentsText}`
+              `Detalle: ${installmentText(currentAmount, "corriente") || installmentsText}.`
             ]
           : [
-              `${emoji.money} Renta vencida: ${formatCurrency(overdueAmount)}`,
-              `${emoji.pin} Ultimo pago: ${lastPayment}`,
-              `${emoji.pin} Detalle: ${installmentsText}`
+              `Renta vencida: ${formatCurrency(overdueAmount)}.`,
+              `Ultimo pago registrado: ${lastPayment}.`,
+              `Detalle: ${installmentsText}.`
             ]),
       "",
       hasCurrent && !hasOverdue
-        ? `${emoji.check} Por favor, realice el pago durante el periodo correspondiente.`
-        : `${emoji.check} Agradecemos pueda realizar el pago pronto.`,
+        ? "Por favor, realice el pago durante el periodo correspondiente."
+        : "Agradecemos pueda realizar el pago pronto.",
       "",
-      `${emoji.thanks} Gracias.`
+      "Gracias."
     ].join("\n");
     return message;
   }
@@ -978,39 +983,30 @@ export default function ReceivablesPage({
       totalOverdueInstallments > 0 ? `${totalOverdueInstallments} cuota${totalOverdueInstallments === 1 ? "" : "s"} vencida${totalOverdueInstallments === 1 ? "" : "s"}` : "",
       totalCurrentInstallments > 0 ? `${totalCurrentInstallments} cuota${totalCurrentInstallments === 1 ? "" : "s"} corriente${totalCurrentInstallments === 1 ? "" : "s"}` : ""
     ].filter(Boolean).join(" + ");
-    const emoji = {
-      hello: String.fromCodePoint(0x1F44B),
-      info: `${String.fromCodePoint(0x2139)}${String.fromCodePoint(0xFE0F)}`,
-      warning: `${String.fromCodePoint(0x26A0)}${String.fromCodePoint(0xFE0F)}`,
-      money: String.fromCodePoint(0x1F4B5),
-      pin: String.fromCodePoint(0x1F4CC),
-      check: String.fromCodePoint(0x2705),
-      thanks: String.fromCodePoint(0x1F64F)
-    };
     const unitBlocks = groupRows.map((item) => {
       const amount = hasCurrent ? Math.max(0, item.totalPending) : overdueRentForWhatsAppDate(item, now);
       return `Unidad ${item.unitId}: ${formatCurrency(amount)}`;
     });
 
     return [
-      `${emoji.hello} Hola, ${firstName}.`,
+      `Hola, ${firstName}.`,
       "",
       hasOverdue && hasCurrent
-        ? `${emoji.warning} Tiene saldo pendiente al ${today}:`
+        ? `Le escribimos para recordarle que mantiene saldo pendiente al ${today}:`
         : hasCurrent
-          ? `${emoji.info} Saldo corriente del dia de hoy:`
-          : `${emoji.warning} Renta vencida al ${today}:`,
+          ? "Le escribimos sobre el saldo corriente del dia de hoy:"
+          : `Le escribimos para recordarle que tiene renta vencida al ${today}:`,
       unitBlocks.join("\n"),
       hasCurrent
-        ? `${emoji.money} Total pendiente: ${formatCurrency(totalPendingRent)}`
-        : `${emoji.money} Total renta vencida: ${formatCurrency(totalOverdueRent)}`,
-      ...(hasOverdue && hasCurrent ? [`${emoji.pin} Detalle: ${mixedGroupDetail || "incluye renta vencida y saldo corriente"}`] : []),
+        ? `Total pendiente: ${formatCurrency(totalPendingRent)}.`
+        : `Total renta vencida: ${formatCurrency(totalOverdueRent)}.`,
+      ...(hasOverdue && hasCurrent ? [`Detalle: ${mixedGroupDetail || "incluye renta vencida y saldo corriente"}.`] : []),
       "",
       hasCurrent && !hasOverdue
-        ? `${emoji.check} Por favor, realice el pago durante el periodo correspondiente.`
-        : `${emoji.check} Agradecemos pueda realizar el pago pronto.`,
+        ? "Por favor, realice el pago durante el periodo correspondiente."
+        : "Agradecemos pueda realizar el pago pronto.",
       "",
-      `${emoji.thanks} Gracias.`
+      "Gracias."
     ].join("\n");
   }
 
@@ -1056,49 +1052,6 @@ export default function ReceivablesPage({
     const afternoonItem = getCutItemForClient("afternoon", row.id);
     if (afternoonItem && isTerminalForCut("afternoon", afternoonItem.collectionStatus)) return false;
     return true;
-  }
-
-  function normalizeWhatsAppDraft(value: string): string {
-    return value.replace(/\D/g, "").slice(0, 12);
-  }
-
-  function handleOpenWhatsAppPhoneModal(clientId: string): void {
-    if (isCollectionLocked) return;
-    const client = clients.find((item) => item.id === clientId);
-    setWhatsAppModalClientId(clientId);
-    setWhatsAppPhoneDraft(normalizeWhatsAppDraft(client?.whatsAppPhone ?? ""));
-    setWhatsAppPhoneError("");
-  }
-
-  async function handleSaveWhatsAppPhone(): Promise<void> {
-    if (isCollectionLocked) return;
-    if (!whatsAppModalClientId) return;
-    const normalized = normalizeWhatsAppDraft(whatsAppPhoneDraft);
-    if (normalized.length > 0 && normalized.length < 8) {
-      setWhatsAppPhoneError("Ingresa al menos 8 digitos.");
-      return;
-    }
-    if (!onClientsChange) {
-      setWhatsAppPhoneError("No tienes permisos para actualizar este WhatsApp en la nube.");
-      return;
-    }
-    setIsSavingWhatsAppPhone(true);
-    setWhatsAppPhoneError("");
-    try {
-      const nextClients = clients.map((client) => (
-        client.id === whatsAppModalClientId
-          ? { ...client, whatsAppPhone: normalized || undefined }
-          : client
-      ));
-      await onClientsChange(nextClients);
-      setWhatsAppModalClientId(null);
-      setWhatsAppPhoneDraft("");
-    } catch (error) {
-      console.error("No se pudo guardar el WhatsApp del cliente.", error);
-      setWhatsAppPhoneError("No se pudo guardar el WhatsApp. Intenta nuevamente.");
-    } finally {
-      setIsSavingWhatsAppPhone(false);
-    }
   }
 
   function handleSupportNoteChange(clientId: string, value: string): void {
@@ -1201,7 +1154,6 @@ export default function ReceivablesPage({
       setCollectionStatusFilter("all");
       setWhatsAppContactFilter("all");
       setFieldManagementModalClientId(null);
-      setWhatsAppModalClientId(null);
       setIsRouteExportMenuOpen(false);
       setCollectionCutMessage("Gestion limpiada. La cartera volvio al formato de inicio.");
     } catch (error) {
@@ -1517,46 +1469,6 @@ export default function ReceivablesPage({
         ...current,
         [clientId]: updatedRecord
       };
-    });
-  }
-
-  function handleWhatsAppMessageCopied(clientId: string, message: string): void {
-    if (isCollectionLocked) return;
-    const targetRows = whatsAppGroupRowsByClient.get(clientId) ?? baseRows.filter((row) => row.id === clientId);
-    const targetClientIds = targetRows.length > 0 ? targetRows.map((row) => row.id) : [clientId];
-    for (const targetClientId of targetClientIds) markClientStatusAsSaving(targetClientId);
-    const copiedAt = new Date().toISOString();
-    setCollectionStatusByClient((current) => {
-      const next = { ...current };
-      for (const targetClientId of targetClientIds) {
-        const previous = current[targetClientId];
-        const updatedRecord: CollectionStatusRecord = {
-          ...previous,
-          status: previous?.status ?? "unassigned",
-          comment: previous?.comment ?? "",
-          updatedAt: copiedAt,
-          managementType: previous?.managementType,
-          managementAmount: previous?.managementAmount,
-          managementComment: previous?.managementComment,
-          managementUpdatedAt: previous?.managementUpdatedAt,
-          routeReleaseAmount: previous?.routeReleaseAmount,
-          routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt,
-          routeAssignment: previous?.routeAssignment,
-          routeAssignmentUpdatedAt: previous?.routeAssignmentUpdatedAt,
-          whatsAppMessageCopiedAt: copiedAt,
-          whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
-          whatsAppMessageText: message,
-          supportNote: previous?.supportNote,
-          supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
-          contactTime: previous?.contactTime,
-          contactTimeUpdatedAt: previous?.contactTimeUpdatedAt,
-          paymentPromiseDate: previous?.paymentPromiseDate,
-          paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
-        };
-        optimisticStatusByClientRef.current[targetClientId] = updatedRecord;
-        next[targetClientId] = updatedRecord;
-      }
-      return next;
     });
   }
 
@@ -1941,6 +1853,7 @@ export default function ReceivablesPage({
           unitId: row.unitId,
           clientName: row.name,
           lastPaymentDate: row.lastPaymentDate,
+          lastPaymentAt: row.lastPaymentAt,
           receivableState: row.state,
           totalPending: row.totalPending,
           collectionStatus: status,
@@ -1991,12 +1904,6 @@ export default function ReceivablesPage({
     }
   }
 
-  const whatsAppModalClient = whatsAppModalClientId
-    ? clients.find((item) => item.id === whatsAppModalClientId)
-    : undefined;
-  const whatsAppModalRow = whatsAppModalClientId
-    ? baseRows.find((item) => item.id === whatsAppModalClientId)
-    : undefined;
   const activeAdvancedFilterCount = [
     filters.unitSearch.trim(),
     filters.clientSearch.trim(),
@@ -2085,11 +1992,9 @@ export default function ReceivablesPage({
                 onChange={(event) => setWhatsAppContactFilter(event.target.value as WhatsAppContactFilter)}
               >
                 <option value="all">Todos</option>
-                <option value="pending">No completados</option>
-                <option value="missing">Sin numero</option>
-                <option value="ready">Por enviar</option>
-                <option value="opened">Pendientes</option>
-                <option value="sent">Completados</option>
+                <option value="pending">Sugeridos</option>
+                <option value="sent">Enviado</option>
+                <option value="idle">Sin sugerencia</option>
               </select>
             </label>
           </div>
@@ -2189,30 +2094,12 @@ export default function ReceivablesPage({
           onRouteAssignmentChange={handleRouteAssignmentChange}
           onRouteReleaseAmountChange={handleRouteReleaseAmountChange}
           onRemoveFromRoute={handleRemoveFromRoute}
-          onWhatsAppMessageCopied={handleWhatsAppMessageCopied}
           onWhatsAppMessageSent={handleWhatsAppMessageSent}
-          onEditWhatsAppPhone={handleOpenWhatsAppPhoneModal}
           onSupportNoteChange={handleSupportNoteChange}
           onContactTimeChange={handleContactTimeChange}
           onClearFilters={clearFilters}
         />
       </section>
-
-      {whatsAppModalClientId && (
-        <WhatsAppPhoneModal
-          client={whatsAppModalClient}
-          row={whatsAppModalRow}
-          draft={whatsAppPhoneDraft}
-          error={whatsAppPhoneError}
-          saving={isSavingWhatsAppPhone}
-          onDraftChange={(value) => {
-            setWhatsAppPhoneDraft(normalizeWhatsAppDraft(value));
-            setWhatsAppPhoneError("");
-          }}
-          onClose={() => setWhatsAppModalClientId(null)}
-          onSave={() => void handleSaveWhatsAppPhone()}
-        />
-      )}
 
       {selectedDetailRow && (
         <ReceivableDetailModal

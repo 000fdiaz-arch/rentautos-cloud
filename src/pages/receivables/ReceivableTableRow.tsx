@@ -1,4 +1,5 @@
 import { memo, useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
 import { formatCurrency, formatDate } from "../../format";
 import { PLAN_LABEL, STATE_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivables";
 import type { CollectionStatus, CollectionStatusRecord } from "./receivablesTypes";
@@ -34,35 +35,189 @@ type Props = {
   onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
   onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
   onRouteReleaseAmountChange: (clientId: string, value: string) => void;
-  onWhatsAppMessageCopied: (clientId: string, message: string) => void;
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
-  onEditWhatsAppPhone: (clientId: string) => void;
   onSupportNoteChange: (clientId: string, value: string) => void;
   onContactTimeChange: (clientId: string, value: string) => void;
 };
 
-function normalizeWhatsAppPhone(value: string | undefined): string {
-  const digits = value?.replace(/\D/g, "") ?? "";
-  if (digits.length === 8) return `507${digits}`;
-  if (digits.length >= 10) return digits;
-  return "";
+function safeFilenamePart(value: string): string {
+  return value.trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "cliente";
 }
 
-function WhatsAppIcon() {
+const STATEMENT_SUGGESTION_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function hasTimestampWithinWindow(value: string | undefined, now: Date, windowMs: number): boolean {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return now.getTime() - date.getTime() < windowMs;
+}
+
+function hasLastPaymentOutsideSuggestionWindow(row: ReceivableRow, now: Date): boolean {
+  const rawTimestamp = row.lastPaymentAt ?? (row.lastPaymentDate ? `${row.lastPaymentDate}T12:00:00` : "");
+  if (!rawTimestamp) return true;
+  const lastPaymentDate = new Date(rawTimestamp);
+  if (Number.isNaN(lastPaymentDate.getTime())) return true;
+  return now.getTime() - lastPaymentDate.getTime() >= STATEMENT_SUGGESTION_WINDOW_MS;
+}
+
+function formatElapsedDaysSince(value: string | null | undefined, now: Date): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const elapsedMs = Math.max(0, now.getTime() - date.getTime());
+  const elapsedDays = Math.floor(elapsedMs / STATEMENT_SUGGESTION_WINDOW_MS);
+  if (elapsedDays < 1) return "hace menos de 1 dia";
+  return `hace ${elapsedDays} dia${elapsedDays === 1 ? "" : "s"}`;
+}
+
+function formatStatementTimestamp(value: string | null | undefined, now: Date): string {
+  if (!value) return "Sin pagos registrados";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return formatDate(new Date(`${value.slice(0, 10)}T12:00:00`));
+  const elapsed = formatElapsedDaysSince(value, now);
+  return `${formatDate(date)} ${date.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" })}${elapsed ? ` (${elapsed})` : ""}`;
+}
+
+function StatementBalanceCard({ row, now }: { row: ReceivableRow; now: Date }) {
+  const planLabel = PLAN_LABEL[row.plan] ?? row.plan;
+  const overdueRent = row.daysLate > 0 ? Math.max(0, row.overdueBalance) : 0;
+  const currentRent = Math.max(0, row.totalPending - overdueRent);
+  const showOverdueRent = overdueRent > 0;
+  const overdueInstallments = showOverdueRent ? row.overdueInstallments : 0;
+  const lastPaymentValue = row.lastPaymentAt ?? (row.lastPaymentDate ? `${row.lastPaymentDate}T12:00:00` : null);
   return (
-    <svg className="ar-whatsapp-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M12 4.2a7.8 7.8 0 0 0-6.64 11.9l-.73 3.27 3.35-.7A7.8 7.8 0 1 0 12 4.2Z" />
-      <path d="M9.05 8.2c-.23.14-.92.62-.92 1.78 0 1.58 1.29 3.15 2.38 4.02 1.13.9 2.86 1.82 4.22 1.43.62-.18 1.07-.77 1.17-1.24.04-.2 0-.36-.18-.45l-1.55-.74c-.21-.1-.4-.07-.55.12l-.52.66c-.14.17-.34.22-.55.13a5.8 5.8 0 0 1-2.44-2.1c-.12-.2-.1-.4.05-.56l.47-.5c.14-.15.18-.36.1-.55l-.7-1.63c-.08-.18-.27-.32-.48-.37Z" />
-    </svg>
+    <div className="statement-card">
+      <div className="statement-topbar">
+        <div>
+          <div className="statement-title">Estado de cuenta actualizado</div>
+        </div>
+        <div className="statement-date">Al {formatDate(now)}</div>
+      </div>
+
+      <div className="statement-identity">
+        <div className="statement-unit-block">
+          <span>Unidad</span>
+          <strong>{row.unitId}</strong>
+        </div>
+        <div className="statement-client-block">
+          <span>Cliente</span>
+          <strong>{row.name || "Cliente"}</strong>
+          <em>Plan {planLabel.toLowerCase()} / {formatCurrency(row.rentAmount)}</em>
+        </div>
+      </div>
+
+      <div className="statement-total-panel">
+        <span>Pendiente por pagar</span>
+        <strong>{formatCurrency(Math.max(0, row.totalPending))}</strong>
+      </div>
+
+      <div className="statement-detail-panel">
+        <div className="statement-section-title">Resumen para pago</div>
+        {showOverdueRent ? (
+          <div className="statement-detail-row">
+            <span>Renta vencida <em>({overdueInstallments} cuota{overdueInstallments === 1 ? "" : "s"})</em></span>
+            <strong>{formatCurrency(overdueRent)}</strong>
+          </div>
+        ) : null}
+        <div className="statement-detail-row">
+          <span>Saldo corriente{showOverdueRent ? "" : " (no vencido)"}</span>
+          <strong>{formatCurrency(currentRent)}</strong>
+        </div>
+        <div className="statement-detail-row statement-detail-row--total">
+          <span>Total pendiente</span>
+          <strong>{formatCurrency(Math.max(0, row.totalPending))}</strong>
+        </div>
+      </div>
+
+      <div className="statement-last-payment">
+        <span>Ultimo pago recibido</span>
+        <strong>{formatStatementTimestamp(lastPaymentValue, now)}</strong>
+      </div>
+
+      <div className="statement-note">
+        Si ya realizo el pago recientemente, por favor ignore este aviso. Gracias.
+      </div>
+    </div>
   );
 }
 
-function PhoneEditIcon() {
+async function buildReceivableBalanceCanvas(row: ReceivableRow, now: Date): Promise<HTMLCanvasElement> {
+  const host = document.createElement("div");
+  host.style.position = "fixed";
+  host.style.left = "-10000px";
+  host.style.top = "0";
+  host.style.width = "528px";
+  host.style.pointerEvents = "none";
+  host.style.zIndex = "-1";
+  host.setAttribute("aria-hidden", "true");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+
+  try {
+    root.render(
+      <div className="receipt-page">
+        <div className="statement-export-frame">
+          <StatementBalanceCard row={row} now={now} />
+        </div>
+      </div>
+    );
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    if (document.fonts?.ready) await document.fonts.ready;
+    const target = host.querySelector(".statement-export-frame") as HTMLDivElement | null;
+    if (!target) throw new Error("No se pudo renderizar el estado de cuenta.");
+    const html2canvas = (await import("html2canvas")).default;
+    return html2canvas(target, {
+      scale: 1,
+      backgroundColor: "#ffffff",
+      useCORS: true,
+      width: target.scrollWidth,
+      height: target.scrollHeight
+    });
+  } finally {
+    root.unmount();
+    document.body.removeChild(host);
+  }
+}
+
+function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("No se pudo generar la imagen."));
+    }, "image/png");
+  });
+}
+
+function downloadReceivableBalanceImage(row: ReceivableRow, canvas: HTMLCanvasElement): void {
+  const link = document.createElement("a");
+  link.download = `saldo-${safeFilenamePart(row.unitId)}-${safeFilenamePart(row.name)}.png`;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
+async function copyReceivableBalanceImage(row: ReceivableRow, now: Date): Promise<"copied" | "downloaded"> {
+  const canvas = await buildReceivableBalanceCanvas(row, now);
+  const blob = await canvasToPngBlob(canvas);
+  const clipboard = navigator.clipboard as Clipboard & {
+    write?: (items: ClipboardItem[]) => Promise<void>;
+  };
+  if (typeof clipboard.write === "function" && typeof ClipboardItem !== "undefined") {
+    await clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+    return "copied";
+  }
+  downloadReceivableBalanceImage(row, canvas);
+  return "downloaded";
+}
+
+function BalanceImageIcon() {
   return (
     <svg className="ar-phone-edit-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M8.3 5.2 6.4 7.1c-.54.54-.64 1.37-.25 2.03a22 22 0 0 0 8.72 8.72c.66.39 1.49.29 2.03-.25l1.9-1.9a1.35 1.35 0 0 0 0-1.91l-1.47-1.47a1.35 1.35 0 0 0-1.78-.12l-1.05.77a.8.8 0 0 1-.9.04 12.6 12.6 0 0 1-4.61-4.61.8.8 0 0 1 .04-.9l.77-1.05a1.35 1.35 0 0 0-.12-1.78L10.21 5.2a1.35 1.35 0 0 0-1.91 0Z" />
-      <path d="m14.9 6.7 2.4 2.4" />
-      <path d="m18 3.6 2.4 2.4-6.5 6.5-2.8.4.4-2.8L18 3.6Z" />
+      <path d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+      <path d="M8 9.4h8" />
+      <path d="M8 13h5" />
+      <path d="M8 16.6h8" />
     </svg>
   );
 }
@@ -153,19 +308,19 @@ function ReceivableTableRowComponent({
   onCollectionCutStatusChange,
   onCollectionCutCommentChange,
   onRouteReleaseAmountChange,
-  onWhatsAppMessageCopied,
   onWhatsAppMessageSent,
-  onEditWhatsAppPhone,
   onSupportNoteChange,
   onContactTimeChange
 }: Props) {
-  const [copiedWhatsAppMessage, setCopiedWhatsAppMessage] = useState(false);
-  const messageWasCopied = copiedWhatsAppMessage || !!statusRecord?.whatsAppMessageCopiedAt;
-  const messageWasSent = !!statusRecord?.whatsAppMessageSentAt;
+  const [isCopyingBalanceImage, setIsCopyingBalanceImage] = useState(false);
+  const statementWasSentRecently = hasTimestampWithinWindow(statusRecord?.whatsAppMessageSentAt, now, STATEMENT_SUGGESTION_WINDOW_MS);
   const isEligibleForWhatsApp = isWhatsAppEligibleUnit(row, operationalStatus);
   const requiresWhatsAppManagement = hasPendingRent(row, operationalStatus);
-  const whatsAppIsResolved = messageWasSent || !requiresWhatsAppManagement;
-  const whatsAppPhone = normalizeWhatsAppPhone(row.whatsAppPhone);
+  const requiresStatementSuggestion = requiresWhatsAppManagement &&
+    hasLastPaymentOutsideSuggestionWindow(row, now) &&
+    !statementWasSentRecently;
+  const showStatementSuggestion = requiresStatementSuggestion || statementWasSentRecently;
+  const whatsAppIsResolved = statementWasSentRecently || !requiresStatementSuggestion;
   const lastPaymentIsToday = row.lastPaymentDate
     ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) === formatDate(now)
     : false;
@@ -173,24 +328,10 @@ function ReceivableTableRowComponent({
   const sentTime = sentAt && !Number.isNaN(sentAt.getTime())
     ? sentAt.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" })
     : "";
-  const whatsAppActivityLabel = messageWasSent
-    ? `WhatsApp enviado${sentTime ? ` ${sentTime}` : ""}`
-    : messageWasCopied
-      ? "WhatsApp abierto"
-      : "";
-  const whatsAppButtonTitle = !isEligibleForWhatsApp
-    ? row.hasActiveClient ? "Unidad no activa: no requiere WhatsApp" : "Sin cliente activo: no requiere WhatsApp"
-    : !requiresWhatsAppManagement
-    ? "Realizado: sin saldo pendiente"
-    : messageWasSent
-      ? `Volver a abrir WhatsApp y copiar mensaje actualizado${sentTime ? ` (enviado a las ${sentTime})` : ""}`
-      : messageWasCopied
-        ? "WhatsApp abierto: confirma cuando lo envies"
-        : whatsAppPhone
-          ? "Abrir WhatsApp y copiar mensaje"
-          : "Falta WhatsApp: agregar o editar numero";
-  const editWhatsAppTitle = whatsAppPhone ? `Actualizar WhatsApp ${whatsAppPhone}` : "Agregar WhatsApp";
-  const whatsAppTone = whatsAppIsResolved ? "sent" : messageWasCopied ? "opened" : whatsAppPhone ? "ready" : "missing";
+  const deliveryStatusTitle = whatsAppIsResolved
+    ? sentTime ? `Enviado a las ${sentTime}` : "Marcado como enviado"
+    : "Sugerido: marcar como enviado si lo mandaste manualmente";
+  const balanceImageTitle = "Copiar imagen de saldo";
   const visibleCutOptions = visibleCutKey === "all"
     ? COLLECTION_CUT_OPTIONS
     : COLLECTION_CUT_OPTIONS.filter((option) => option.key === visibleCutKey);
@@ -205,24 +346,23 @@ function ReceivableTableRowComponent({
     setContactTimeDraft(statusRecord?.contactTime ?? "");
   }, [statusRecord?.contactTime]);
 
-  async function handleWhatsAppClick(): Promise<void> {
-    if (!whatsAppPhone) {
-      onEditWhatsAppPhone(row.id);
-      return;
-    }
-    window.open(whatsAppPhone ? `https://wa.me/${whatsAppPhone}` : "https://wa.me/", "_blank", "noopener,noreferrer");
-    try {
-      await navigator.clipboard.writeText(whatsAppMessage);
-      onWhatsAppMessageCopied(row.id, whatsAppMessage);
-      setCopiedWhatsAppMessage(true);
-      window.setTimeout(() => setCopiedWhatsAppMessage(false), 2500);
-    } catch {
-      window.alert("No se pudo copiar el mensaje. Copialo manualmente antes de confirmar el envio.");
-    }
-  }
-
   function handleConfirmWhatsAppSent(): void {
     onWhatsAppMessageSent(row.id, whatsAppMessage);
+  }
+
+  async function handleCopyBalanceImage(): Promise<void> {
+    if (isCopyingBalanceImage) return;
+    setIsCopyingBalanceImage(true);
+    try {
+      const result = await copyReceivableBalanceImage(row, now);
+      if (result === "downloaded") {
+        window.alert("Tu navegador no permitio copiar la imagen. Se descargo el estado de cuenta como respaldo.");
+      }
+    } catch {
+      window.alert("No se pudo copiar la imagen del estado de cuenta. Intenta nuevamente desde un navegador compatible.");
+    } finally {
+      setIsCopyingBalanceImage(false);
+    }
   }
 
   function handleContactTimeDraftChange(value: string): void {
@@ -290,7 +430,6 @@ function ReceivableTableRowComponent({
             </label>
           ) : null}
           <div className="ar-cut-actions">
-            {item?.whatsAppMessageSentAt ? <span>WhatsApp enviado</span> : item?.whatsAppMessageCopiedAt ? <span>WhatsApp abierto</span> : null}
             {value === "route" && routeReleaseAmount ? (
               <span>
                 Libera con {formatCurrency(routeReleaseAmount)}
@@ -326,45 +465,32 @@ function ReceivableTableRowComponent({
                         +{groupedWhatsAppUnits.length} unidad{groupedWhatsAppUnits.length === 1 ? "" : "es"}
                       </span>
                     ) : null}
-                    {!isRouteWorkflow && whatsAppActivityLabel ? (
-                      <span className={`ar-whatsapp-audit-badge ar-whatsapp-audit-badge--${messageWasSent ? "sent" : "opened"}`}>
-                        {whatsAppActivityLabel}
-                      </span>
-                    ) : null}
                   </div>
                   {!isRouteWorkflow ? (
                     <>
-                      {!isEligibleForWhatsApp || (whatsAppIsResolved && !messageWasSent) ? (
-                        <span
-                          className="ar-whatsapp-status ar-whatsapp-status--sent ar-whatsapp-icon-button ar-whatsapp-icon-button--sent"
-                          title={whatsAppButtonTitle}
-                          aria-label={whatsAppButtonTitle}
-                        >
-                          <WhatsAppIcon />
-                        </span>
-                      ) : (
+                      {showStatementSuggestion && requiresStatementSuggestion ? (
                         <button
                           type="button"
-                          className={`button ghost small ar-whatsapp-link ar-whatsapp-unit-button ar-whatsapp-icon-button ar-whatsapp-icon-button--${whatsAppTone}`}
-                          onClick={() => void handleWhatsAppClick()}
-                          disabled={isTodayCollectionClosed}
-                          title={whatsAppButtonTitle}
-                          aria-label={whatsAppButtonTitle}
+                          className="button ghost small ar-whatsapp-phone-edit ar-whatsapp-image-button"
+                          onClick={() => void handleCopyBalanceImage()}
+                          disabled={isTodayCollectionClosed || isCopyingBalanceImage}
+                          title={balanceImageTitle}
+                          aria-label={balanceImageTitle}
                         >
-                          <WhatsAppIcon />
+                          <BalanceImageIcon />
                         </button>
-                      )}
-                      {isEligibleForWhatsApp ? (
+                      ) : null}
+                      {showStatementSuggestion ? (
                         <button
                           type="button"
-                          className="button ghost small ar-whatsapp-phone-edit"
-                          onClick={() => onEditWhatsAppPhone(row.id)}
-                          disabled={isTodayCollectionClosed}
-                          title={editWhatsAppTitle}
-                          aria-label={editWhatsAppTitle}
+                          className={`history-send-button ${whatsAppIsResolved ? "history-send-button--sent" : "history-send-button--pending"}`}
+                          onClick={handleConfirmWhatsAppSent}
+                          disabled={isTodayCollectionClosed || whatsAppIsResolved}
+                          title={deliveryStatusTitle}
+                          aria-label={deliveryStatusTitle}
                         >
-                          <PhoneEditIcon />
-                          <span className="ar-whatsapp-phone-edit-dot" aria-hidden="true" />
+                          <span aria-hidden="true">{whatsAppIsResolved ? "OK" : "..."}</span>
+                          {whatsAppIsResolved ? "Enviado" : "Sugerido"}
                         </button>
                       ) : null}
                     </>
@@ -372,19 +498,6 @@ function ReceivableTableRowComponent({
                   <span className={clientOperationalStatusTone(operationalStatus)}>
                     {clientOperationalStatusLabel(operationalStatus)}
                   </span>
-                  {!isRouteWorkflow && !whatsAppIsResolved && messageWasCopied ? (
-                    <div className="ar-whatsapp-confirm-box ar-whatsapp-confirm-box--unit ar-whatsapp-confirm-box--inline">
-                      <span>Confirma cuando lo envies.</span>
-                      <button
-                        type="button"
-                        className="button small ar-whatsapp-confirm-button"
-                        onClick={handleConfirmWhatsAppSent}
-                        disabled={isTodayCollectionClosed}
-                      >
-                        Enviado
-                      </button>
-                    </div>
-                  ) : null}
                 </div>
                 <div className="ar-client-summary-main">
                   <span className={`debt-meta ar-rent-line ${row.rentAmount > 0 ? "amount-debt" : "amount-good"}`}>
@@ -484,9 +597,7 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.onCollectionCutStatusChange === next.onCollectionCutStatusChange &&
   previous.onCollectionCutCommentChange === next.onCollectionCutCommentChange &&
   previous.onRouteReleaseAmountChange === next.onRouteReleaseAmountChange &&
-  previous.onWhatsAppMessageCopied === next.onWhatsAppMessageCopied &&
   previous.onWhatsAppMessageSent === next.onWhatsAppMessageSent &&
-  previous.onEditWhatsAppPhone === next.onEditWhatsAppPhone &&
   previous.onSupportNoteChange === next.onSupportNoteChange &&
   previous.onContactTimeChange === next.onContactTimeChange
 ));

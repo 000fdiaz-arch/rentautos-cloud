@@ -35,10 +35,9 @@ export const ReceivablesCutProgressPanel = memo(function ReceivablesCutProgressP
         <span>WhatsApp</span>
         {([
           ["all", "Todos"],
-          ["missing", "Sin numero"],
-          ["ready", "Por enviar"],
-          ["opened", "Pendientes"],
-          ["sent", "Completados"]
+          ["pending", "Sugeridos"],
+          ["sent", "Enviados"],
+          ["idle", "Sin sugerencia"]
         ] as Array<[WhatsAppContactFilter, string]>).map(([value, label]) => (
           <button
             key={value}

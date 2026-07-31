@@ -34,6 +34,7 @@ export type ReceivableFilters = {
 export type ReceivablePaymentSnapshot = {
   id: string;
   dateApplied: string;
+  createdAt?: string;
   amountReceived: number;
   appliedToRent: number;
 };
@@ -55,6 +56,7 @@ export type ReceivableRow = {
   overdueBalance: number;
   totalPending: number;
   lastPaymentDate: string | null;
+  lastPaymentAt?: string | null;
   lastPaymentAmount: number;
   percentPaid: number;
   installmentsAgreed: number;
@@ -286,6 +288,7 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
         overdueBalance,
         totalPending: roundMoney(Math.max(0, client.balance)),
         lastPaymentDate: lastPayment?.dateApplied ?? null,
+        lastPaymentAt: lastPayment?.createdAt ?? (lastPayment?.dateApplied ? `${lastPayment.dateApplied}T12:00:00` : null),
         lastPaymentAmount: roundMoney(lastPayment?.amountReceived ?? 0),
         percentPaid,
         installmentsAgreed: Math.max(0, client.installmentsAgreed),
@@ -299,6 +302,7 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
         recentPayments: clientPayments.slice(0, 5).map((payment) => ({
           id: payment.id,
           dateApplied: payment.dateApplied,
+          createdAt: payment.createdAt,
           amountReceived: roundMoney(payment.amountReceived),
           appliedToRent: roundMoney(payment.appliedToRent)
         })),
@@ -322,6 +326,7 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
       overdueBalance: 0,
       totalPending: 0,
       lastPaymentDate: null,
+      lastPaymentAt: null,
       lastPaymentAmount: 0,
       percentPaid: 0,
       installmentsAgreed: 0,
