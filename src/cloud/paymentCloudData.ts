@@ -4,6 +4,12 @@ import { dedupeLoad, getCloudClient, hasRowChanged, PAGE_SIZE, withCloudRetry, t
 const BANK_PAYMENT_METHODS = new Set(["ACH Express", "Deposito Bancario", "Transferencia Bancaria"]);
 
 type PaymentDataRow = DataRow<Payment> & { updated_at?: string | null };
+export type CloudLatestPaymentTarget = {
+  clientId: string;
+  unitId: string;
+  name: string;
+  cedula?: string;
+};
 
 function normalizeCloudFolioToken(value: string): string {
   return value
@@ -205,6 +211,101 @@ async function loadCloudPaymentsRecentUncached(userId: string, safeLimit: number
       .slice(0, safeLimit);
   }
   return rows.map((row) => row.data);
+}
+
+function comparePaymentDateDesc(left: Payment, right: Payment): number {
+  const byAppliedDate = right.dateApplied.localeCompare(left.dateApplied);
+  if (byAppliedDate !== 0) return byAppliedDate;
+  return right.createdAt.localeCompare(left.createdAt);
+}
+
+function chunkValues<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
+}
+
+function normalizePaymentLookupText(value: string | undefined): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function normalizePaymentLookupUnit(value: string | undefined): string {
+  return normalizePaymentLookupText(value).replace(/[^a-z0-9]/g, "");
+}
+
+function normalizePaymentLookupCedula(value: string | undefined): string {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+function paymentMatchesTargetIdentity(payment: Payment, target: CloudLatestPaymentTarget): boolean {
+  if (payment.clientId === target.clientId) return true;
+  if (normalizePaymentLookupUnit(payment.clientUnit) !== normalizePaymentLookupUnit(target.unitId)) return false;
+  const targetCedula = normalizePaymentLookupCedula(target.cedula);
+  const paymentCedula = normalizePaymentLookupCedula(payment.clientCedula);
+  if (targetCedula && paymentCedula && targetCedula === paymentCedula) return true;
+  return normalizePaymentLookupText(payment.clientName) === normalizePaymentLookupText(target.name);
+}
+
+export async function loadCloudLatestPaymentsForReceivableTargets(userId: string, targets: CloudLatestPaymentTarget[]): Promise<Payment[]> {
+  const uniqueTargets = [...new Map(
+    targets
+      .filter((target) => target.clientId.trim().length > 0)
+      .map((target) => [target.clientId, target])
+  ).values()];
+  if (uniqueTargets.length === 0) return [];
+
+  const client = getCloudClient();
+  const latestByClientId = new Map<string, Payment>();
+  const chunks = chunkValues(uniqueTargets, 20);
+
+  for (const chunk of chunks) {
+    let lastId = "";
+    while (true) {
+      const filters = [
+        ...chunk.map((target) => `data->>clientId.eq.${target.clientId}`),
+        ...chunk
+          .map((target) => target.unitId.trim())
+          .filter((unitId) => unitId.length > 0)
+          .map((unitId) => `data->>clientUnit.eq.${unitId}`)
+      ].join(",");
+      let query = client
+        .from("payments_cloud")
+        .select("id,data")
+        .eq("user_id", userId)
+        .or(filters)
+        .order("id", { ascending: true })
+        .limit(PAGE_SIZE);
+      if (lastId) query = query.gt("id", lastId);
+
+      const rows = await runCloudPaymentQuery(() => query) as DataRow<Payment>[];
+      for (const row of rows) {
+        const payment = row.data;
+        if (!payment) continue;
+        const target = chunk.find((item) => paymentMatchesTargetIdentity(payment, item));
+        if (!target) continue;
+        const current = latestByClientId.get(target.clientId);
+        if (!current || comparePaymentDateDesc(payment, current) < 0) latestByClientId.set(target.clientId, payment);
+      }
+
+      if (rows.length < PAGE_SIZE) break;
+      lastId = rows[rows.length - 1]?.id ?? lastId;
+      if (!lastId) break;
+    }
+  }
+
+  return [...latestByClientId.values()];
+}
+
+export async function loadCloudLatestPaymentsForClients(userId: string, clientIds: string[]): Promise<Payment[]> {
+  return loadCloudLatestPaymentsForReceivableTargets(
+    userId,
+    clientIds.map((clientId) => ({ clientId, unitId: "", name: "" }))
+  );
 }
 
 async function loadCloudPaymentRowsByIdScan(userId: string): Promise<PaymentDataRow[]> {

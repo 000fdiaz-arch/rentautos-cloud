@@ -883,6 +883,8 @@ export default function AppShell({
             dataOwnerUserId={cloudDataUserId}
             readOnly={isReadOnlyReceivables}
             receivablesDateKey={receivablesDateKey}
+            isPaymentHistoryLoaded={fullPaymentHistoryLoaded}
+            onRefreshPayments={refreshPaymentsFromSource}
             streetManagementData={parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>}
             onStreetManagementPersist={async (value) => {
               localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(value));

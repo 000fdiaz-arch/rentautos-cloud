@@ -79,12 +79,87 @@ function formatStatementTimestamp(value: string | null | undefined, now: Date): 
   return `${formatDate(date)} ${date.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" })}${elapsed ? ` (${elapsed})` : ""}`;
 }
 
+function isStatementChargeDay(row: ReceivableRow, date: Date): boolean {
+  const weekDay = date.getDay();
+  if (row.plan === "daily") {
+    if (weekDay >= 1 && weekDay <= 6) return true;
+    return weekDay === 0 && !!row.chargeFirstSunday && row.installmentsPaid <= 7;
+  }
+  if (row.plan === "weekly") {
+    const dayMap: Record<NonNullable<ReceivableRow["weeklyChargeDay"]>, number> = {
+      monday: 1,
+      tuesday: 2,
+      wednesday: 3,
+      thursday: 4,
+      friday: 5,
+      saturday: 6
+    };
+    return weekDay === dayMap[row.weeklyChargeDay ?? "monday"];
+  }
+  if (row.plan === "biweekly") {
+    const day = date.getDate();
+    if (day === 15) return true;
+    if (date.getMonth() === 1) return day === new Date(date.getFullYear(), 2, 0).getDate();
+    return day === 30;
+  }
+  const day = date.getDate();
+  const monthlyChargeDay = row.monthlyChargeDay ?? 1;
+  const adjustedMonthlyDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  return day === Math.min(monthlyChargeDay, adjustedMonthlyDay);
+}
+
+function roundStatementMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function statementRentSplit(row: ReceivableRow, now: Date): { overdueRent: number; currentRent: number } {
+  const totalPending = roundStatementMoney(Math.max(0, row.totalPending));
+  if (totalPending <= 0) return { overdueRent: 0, currentRent: 0 };
+  const currentRent = isStatementChargeDay(row, now)
+    ? roundStatementMoney(Math.min(Math.max(0, row.rentAmount), totalPending))
+    : roundStatementMoney(Math.max(0, totalPending - Math.max(0, row.overdueBalance)));
+  return {
+    overdueRent: roundStatementMoney(Math.max(0, totalPending - currentRent)),
+    currentRent
+  };
+}
+
+function statementInstallmentsLabel(amount: number, rentAmount: number): string {
+  if (rentAmount <= 0 || amount <= 0) return "";
+  const installments = amount / rentAmount;
+  const wholeInstallments = Math.floor(installments);
+  const hasPartialInstallment = amount - wholeInstallments * rentAmount > 0.01;
+  if (wholeInstallments <= 0) return hasPartialInstallment ? " (1 cuota parcial)" : "";
+  const wholeLabel = `${wholeInstallments} cuota${wholeInstallments === 1 ? "" : "s"}`;
+  return ` (${wholeLabel}${hasPartialInstallment ? " + parcial" : ""})`;
+}
+
+function statementRoundedInstallmentsLabel(amount: number, rentAmount: number): string {
+  if (rentAmount <= 0 || amount <= 0) return "";
+  const installments = Math.ceil(amount / rentAmount);
+  return ` (${installments} cuota${installments === 1 ? "" : "s"})`;
+}
+
+function statementWholeAndPartialRent(amount: number, rentAmount: number): { wholeRent: number; partialRent: number } {
+  if (rentAmount <= 0 || amount <= 0) return { wholeRent: roundStatementMoney(Math.max(0, amount)), partialRent: 0 };
+  const wholeInstallments = Math.floor(amount / rentAmount);
+  const wholeRent = roundStatementMoney(wholeInstallments * rentAmount);
+  return {
+    wholeRent,
+    partialRent: roundStatementMoney(Math.max(0, amount - wholeRent))
+  };
+}
+
 function StatementBalanceCard({ row, now }: { row: ReceivableRow; now: Date }) {
-  const planLabel = PLAN_LABEL[row.plan] ?? row.plan;
-  const overdueRent = row.daysLate > 0 ? Math.max(0, row.overdueBalance) : 0;
-  const currentRent = Math.max(0, row.totalPending - overdueRent);
-  const showOverdueRent = overdueRent > 0;
-  const overdueInstallments = showOverdueRent ? row.overdueInstallments : 0;
+  const planLabel = planDetailLabel(row);
+  const { overdueRent, currentRent } = statementRentSplit(row, now);
+  const { wholeRent: fullOverdueRent, partialRent: overduePartialRent } = statementWholeAndPartialRent(overdueRent, row.rentAmount);
+  const showOverduePartialRent = overduePartialRent > 0;
+  const showOverdueRent = fullOverdueRent > 0;
+  const showCurrentRent = currentRent > 0;
+  const overdueInstallmentsLabel = statementInstallmentsLabel(fullOverdueRent, row.rentAmount);
+  const currentInstallmentsLabel = statementInstallmentsLabel(currentRent, row.rentAmount);
+  const totalInstallmentsLabel = statementRoundedInstallmentsLabel(row.totalPending, row.rentAmount);
   const lastPaymentValue = row.lastPaymentAt ?? (row.lastPaymentDate ? `${row.lastPaymentDate}T12:00:00` : null);
   return (
     <div className="statement-card">
@@ -114,18 +189,26 @@ function StatementBalanceCard({ row, now }: { row: ReceivableRow; now: Date }) {
 
       <div className="statement-detail-panel">
         <div className="statement-section-title">Resumen para pago</div>
-        {showOverdueRent ? (
+        {showOverduePartialRent ? (
           <div className="statement-detail-row">
-            <span>Renta vencida <em>({overdueInstallments} cuota{overdueInstallments === 1 ? "" : "s"})</em></span>
-            <strong>{formatCurrency(overdueRent)}</strong>
+            <span>Saldo para bajar una cuota vencida <em>(1 cuota parcial)</em></span>
+            <strong>{formatCurrency(overduePartialRent)}</strong>
           </div>
         ) : null}
-        <div className="statement-detail-row">
-          <span>Saldo corriente{showOverdueRent ? "" : " (no vencido)"}</span>
-          <strong>{formatCurrency(currentRent)}</strong>
-        </div>
+        {showOverdueRent ? (
+          <div className="statement-detail-row">
+            <span>Renta vencida{overdueInstallmentsLabel ? <em>{overdueInstallmentsLabel}</em> : null}</span>
+            <strong>{formatCurrency(fullOverdueRent)}</strong>
+          </div>
+        ) : null}
+        {showCurrentRent ? (
+          <div className="statement-detail-row">
+            <span>Saldo corriente{showOverdueRent || showOverduePartialRent ? "" : " (no vencido)"}{currentInstallmentsLabel ? <em>{currentInstallmentsLabel}</em> : null}</span>
+            <strong>{formatCurrency(currentRent)}</strong>
+          </div>
+        ) : null}
         <div className="statement-detail-row statement-detail-row--total">
-          <span>Total pendiente</span>
+          <span>Total pendiente{totalInstallmentsLabel ? <em>{totalInstallmentsLabel}</em> : null}</span>
           <strong>{formatCurrency(Math.max(0, row.totalPending))}</strong>
         </div>
       </div>

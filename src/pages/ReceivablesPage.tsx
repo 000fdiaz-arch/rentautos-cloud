@@ -3,6 +3,7 @@ import { exportReceivablesToExcel, exportReceivablesToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
 import {
   loadCloudCollectionClosures,
+  loadCloudLatestPaymentsForReceivableTargets,
   loadCloudStreetManagement,
   loadControlUnits,
   saveCloudCollectionClosures,
@@ -77,6 +78,8 @@ type Props = {
   dataOwnerUserId?: string | null;
   readOnly?: boolean;
   receivablesDateKey?: string;
+  isPaymentHistoryLoaded?: boolean;
+  onRefreshPayments?: () => Promise<void>;
   streetManagementData?: Record<string, unknown>;
   onStreetManagementPersist?: (value: Record<string, unknown>) => Promise<boolean> | boolean;
 };
@@ -244,6 +247,8 @@ export default function ReceivablesPage({
   dataOwnerUserId,
   readOnly = false,
   receivablesDateKey,
+  isPaymentHistoryLoaded = true,
+  onRefreshPayments,
   streetManagementData,
   onStreetManagementPersist
 }: Props) {
@@ -280,6 +285,7 @@ export default function ReceivablesPage({
   const [fieldManagementErrorByClient, setFieldManagementErrorByClient] = useState<Record<string, string>>({});
   const [statusSavingByClient, setStatusSavingByClient] = useState<Record<string, boolean>>({});
   const [fleetUnits, setFleetUnits] = useState<ControlUnitRow[]>([]);
+  const [supplementalLastPayments, setSupplementalLastPayments] = useState<Payment[]>([]);
 
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const persistStreetTimerRef = useRef<number | null>(null);
@@ -290,6 +296,8 @@ export default function ReceivablesPage({
   const saveTokenByClientRef = useRef<Record<string, number>>({});
   const latestCollectionStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
   const streetManagementDataRef = useRef<Record<string, unknown>>(streetManagementData ?? {});
+  const lastPaymentLookupKeysRef = useRef<Set<string>>(new Set());
+  const fullPaymentHistoryRequestRef = useRef(false);
 
   function collectionRecordTimestamp(record: CollectionStatusRecord | undefined): number {
     if (!record) return 0;
@@ -567,10 +575,77 @@ export default function ReceivablesPage({
   const receivablesDate = useMemo(() => dateFromDateKey(todayDateKey, now), [now, todayDateKey]);
   const receivablesDateLabel = useMemo(() => formatDate(receivablesDate), [receivablesDate]);
 
+  const receivablePayments = useMemo(() => {
+    if (supplementalLastPayments.length === 0) return payments;
+    const byId = new Map<string, Payment>();
+    for (const payment of payments) byId.set(payment.id, payment);
+    for (const payment of supplementalLastPayments) {
+      if (!byId.has(payment.id)) byId.set(payment.id, payment);
+    }
+    return [...byId.values()];
+  }, [payments, supplementalLastPayments]);
+
   const baseRows = useMemo(() => {
     if (clients.length === 0) return createMockReceivableRows(receivablesDate);
-    return buildReceivableRows(clients, payments, receivablesDate, fleetUnits);
-  }, [clients, fleetUnits, payments, receivablesDate]);
+    return buildReceivableRows(clients, receivablePayments, receivablesDate, fleetUnits);
+  }, [clients, fleetUnits, receivablePayments, receivablesDate]);
+
+  useEffect(() => {
+    if (isPaymentHistoryLoaded || !onRefreshPayments || fullPaymentHistoryRequestRef.current) return;
+    const hasMissingLastPayment = baseRows.some((row) => row.hasActiveClient && !row.lastPaymentDate);
+    if (!hasMissingLastPayment) return;
+
+    fullPaymentHistoryRequestRef.current = true;
+    void onRefreshPayments().catch((error) => {
+      fullPaymentHistoryRequestRef.current = false;
+      console.error("No se pudo cargar el historial completo para ultimos pagos en cuentas por cobrar.", error);
+    });
+  }, [baseRows, isPaymentHistoryLoaded, onRefreshPayments]);
+
+  useEffect(() => {
+    setSupplementalLastPayments([]);
+    lastPaymentLookupKeysRef.current = new Set();
+    fullPaymentHistoryRequestRef.current = false;
+  }, [dataOwnerUserId]);
+
+  useEffect(() => {
+    if (!dataOwnerUserId || clients.length === 0) return;
+    const clientById = new Map(clients.map((client) => [client.id, client]));
+    const lookupTargets = baseRows
+      .filter((row) => row.hasActiveClient && !row.lastPaymentDate)
+      .map((row) => clientById.get(row.id))
+      .filter((client): client is Client => !!client)
+      .map((client) => ({
+        clientId: client.id,
+        unitId: client.unitId,
+        name: client.name,
+        cedula: client.cedula
+      }));
+    if (lookupTargets.length === 0) return;
+
+    const lookupKey = `${dataOwnerUserId}:${lookupTargets.map((target) => target.clientId).sort().join("|")}`;
+    if (lastPaymentLookupKeysRef.current.has(lookupKey)) return;
+    lastPaymentLookupKeysRef.current.add(lookupKey);
+
+    let cancelled = false;
+    void loadCloudLatestPaymentsForReceivableTargets(dataOwnerUserId, lookupTargets)
+      .then((latestPayments) => {
+        if (cancelled || latestPayments.length === 0) return;
+        setSupplementalLastPayments((current) => {
+          const byId = new Map<string, Payment>();
+          for (const payment of current) byId.set(payment.id, payment);
+          for (const payment of latestPayments) byId.set(payment.id, payment);
+          return [...byId.values()];
+        });
+      })
+      .catch((error) => {
+        console.error("No se pudieron completar los ultimos pagos para cuentas por cobrar.", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseRows, clients, dataOwnerUserId]);
 
   useEffect(() => {
     tableScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
