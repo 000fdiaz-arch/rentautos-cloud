@@ -85,6 +85,7 @@ type Props = {
 };
 
 const STATEMENT_SUGGESTION_WINDOW_MS = 24 * 60 * 60 * 1000;
+const CLEAR_COLLECTION_MANAGEMENT_CONFIRMATION = "LIMPIAR GESTION";
 
 function getStatusOptionsForCut(cutKey: CollectionCutKey): Array<{ value: CollectionStatus; label: string; description: string }> {
   return cutKey === "night" ? DAILY_COLLECTION_STATUS_OPTIONS : COLLECTION_STATUS_OPTIONS;
@@ -274,6 +275,8 @@ export default function ReceivablesPage({
   const [collectionCutMessage, setCollectionCutMessage] = useState<string | null>(null);
   const [isSavingCollectionCut, setIsSavingCollectionCut] = useState<CollectionCutKey | null>(null);
   const [isClearingCollectionManagement, setIsClearingCollectionManagement] = useState<boolean>(false);
+  const [isClearManagementConfirmOpen, setIsClearManagementConfirmOpen] = useState<boolean>(false);
+  const [clearManagementConfirmation, setClearManagementConfirmation] = useState<string>("");
   const [isExportConfigOpen, setIsExportConfigOpen] = useState<boolean>(false);
   const [routeExportFormat, setRouteExportFormat] = useState<RouteExportFormat>("jpg");
   const [isRouteExportMenuOpen, setIsRouteExportMenuOpen] = useState<boolean>(false);
@@ -743,6 +746,8 @@ export default function ReceivablesPage({
     [baseRows, collectionStatusByClient, todayCollectionCuts]
   );
   const managementWorkflowRowsCount = baseRows.length;
+  const clearableManagementRecordsCount = Object.keys(collectionStatusByClient).length;
+  const canConfirmClearManagement = clearManagementConfirmation.trim().toUpperCase() === CLEAR_COLLECTION_MANAGEMENT_CONFIRMATION;
   const workflowRows = useMemo(() => (
     workflowTab === "route"
       ? filteredRows.filter((row) => isRouteWorkflowRow(row))
@@ -1221,6 +1226,7 @@ export default function ReceivablesPage({
   }
 
   async function handleClearCollectionManagement(): Promise<void> {
+    if (!canConfirmClearManagement) return;
     setCollectionCutMessage(null);
     setExportError(null);
     setIsClearingCollectionManagement(true);
@@ -1230,6 +1236,8 @@ export default function ReceivablesPage({
       setWhatsAppContactFilter("all");
       setFieldManagementModalClientId(null);
       setIsRouteExportMenuOpen(false);
+      setIsClearManagementConfirmOpen(false);
+      setClearManagementConfirmation("");
       setCollectionCutMessage("Gestion limpiada. La cartera volvio al formato de inicio.");
     } catch (error) {
       console.error("No se pudo limpiar la gestion de cobranza.", error);
@@ -1237,6 +1245,12 @@ export default function ReceivablesPage({
     } finally {
       setIsClearingCollectionManagement(false);
     }
+  }
+
+  function cancelClearCollectionManagement(): void {
+    if (isClearingCollectionManagement) return;
+    setIsClearManagementConfirmOpen(false);
+    setClearManagementConfirmation("");
   }
 
   function handleCollectionCutStatusChange(cutKey: CollectionCutKey, clientId: string, nextStatus: string): void {
@@ -2005,7 +2019,12 @@ export default function ReceivablesPage({
               <button
                 type="button"
                 className="button ghost small"
-                onClick={() => void handleClearCollectionManagement()}
+                onClick={() => {
+                  setCollectionCutMessage(null);
+                  setExportError(null);
+                  setClearManagementConfirmation("");
+                  setIsClearManagementConfirmOpen(true);
+                }}
                 disabled={isClearingCollectionManagement || readOnly}
                 title={readOnly ? "No tienes permiso para editar cuentas por cobrar." : undefined}
               >
@@ -2182,6 +2201,45 @@ export default function ReceivablesPage({
           onClose={() => setSelectedDetailRow(null)}
         />
       )}
+
+      {isClearManagementConfirmOpen ? (
+        <div className="modal-overlay" onClick={cancelClearCollectionManagement}>
+          <div className="modal confirm-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Limpiar gestion</h2>
+              <button type="button" className="modal-close" onClick={cancelClearCollectionManagement} disabled={isClearingCollectionManagement}>X</button>
+            </div>
+            <div className="confirm-modal-body">
+              <p>
+                Esta accion borra los estados, notas y asignaciones vivas de cuentas por cobrar
+                {clearableManagementRecordsCount > 0 ? ` (${clearableManagementRecordsCount} registro${clearableManagementRecordsCount === 1 ? "" : "s"}).` : "."}
+              </p>
+              <label className="form-field">
+                Escribe {CLEAR_COLLECTION_MANAGEMENT_CONFIRMATION} para confirmar
+                <input
+                  value={clearManagementConfirmation}
+                  onChange={(event) => setClearManagementConfirmation(event.target.value)}
+                  disabled={isClearingCollectionManagement}
+                  autoFocus
+                />
+              </label>
+              <div className="confirm-modal-actions" style={{ marginTop: 16 }}>
+                <button
+                  type="button"
+                  className="button danger"
+                  onClick={() => void handleClearCollectionManagement()}
+                  disabled={isClearingCollectionManagement || !canConfirmClearManagement}
+                >
+                  {isClearingCollectionManagement ? "Limpiando..." : "Limpiar gestion"}
+                </button>
+                <button type="button" className="button ghost" onClick={cancelClearCollectionManagement} disabled={isClearingCollectionManagement}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
