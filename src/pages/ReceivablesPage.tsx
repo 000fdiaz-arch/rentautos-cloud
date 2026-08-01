@@ -247,8 +247,6 @@ export default function ReceivablesPage({
   dataOwnerUserId,
   readOnly = false,
   receivablesDateKey,
-  isPaymentHistoryLoaded = true,
-  onRefreshPayments,
   streetManagementData,
   onStreetManagementPersist
 }: Props) {
@@ -297,7 +295,6 @@ export default function ReceivablesPage({
   const latestCollectionStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
   const streetManagementDataRef = useRef<Record<string, unknown>>(streetManagementData ?? {});
   const lastPaymentLookupKeysRef = useRef<Set<string>>(new Set());
-  const fullPaymentHistoryRequestRef = useRef(false);
 
   function collectionRecordTimestamp(record: CollectionStatusRecord | undefined): number {
     if (!record) return 0;
@@ -591,21 +588,8 @@ export default function ReceivablesPage({
   }, [clients, fleetUnits, receivablePayments, receivablesDate]);
 
   useEffect(() => {
-    if (isPaymentHistoryLoaded || !onRefreshPayments || fullPaymentHistoryRequestRef.current) return;
-    const hasMissingLastPayment = baseRows.some((row) => row.hasActiveClient && !row.lastPaymentDate);
-    if (!hasMissingLastPayment) return;
-
-    fullPaymentHistoryRequestRef.current = true;
-    void onRefreshPayments().catch((error) => {
-      fullPaymentHistoryRequestRef.current = false;
-      console.error("No se pudo cargar el historial completo para ultimos pagos en cuentas por cobrar.", error);
-    });
-  }, [baseRows, isPaymentHistoryLoaded, onRefreshPayments]);
-
-  useEffect(() => {
     setSupplementalLastPayments([]);
     lastPaymentLookupKeysRef.current = new Set();
-    fullPaymentHistoryRequestRef.current = false;
   }, [dataOwnerUserId]);
 
   useEffect(() => {
