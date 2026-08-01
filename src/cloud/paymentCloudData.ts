@@ -263,6 +263,8 @@ export async function loadCloudLatestPaymentsForReceivableTargets(userId: string
   const targetByClientId = new Map(uniqueTargets.map((target) => [target.clientId, target]));
   const clientIds = uniqueTargets.map((target) => target.clientId);
   const unitIds = [...new Set(uniqueTargets.map((target) => target.unitId.trim()).filter((unitId) => unitId.length > 0))];
+  const latestByClientId = new Map<string, Payment>();
+  let fallbackTargets = uniqueTargets;
 
   try {
     const { data, error } = await client.rpc("latest_payments_for_receivable_targets", {
@@ -272,7 +274,6 @@ export async function loadCloudLatestPaymentsForReceivableTargets(userId: string
     });
     if (error) throw error;
 
-    const latestByClientId = new Map<string, Payment>();
     for (const row of (Array.isArray(data) ? data : []) as DataRow<Payment>[]) {
       const payment = row.data;
       if (!payment) continue;
@@ -284,14 +285,14 @@ export async function loadCloudLatestPaymentsForReceivableTargets(userId: string
       const current = latestByClientId.get(target.clientId);
       if (!current || comparePaymentDateDesc(payment, current) < 0) latestByClientId.set(target.clientId, payment);
     }
-    return [...latestByClientId.values()];
+    if (latestByClientId.size === uniqueTargets.length) return [...latestByClientId.values()];
+    fallbackTargets = uniqueTargets.filter((target) => !latestByClientId.has(target.clientId));
   } catch (error) {
     if (!isMissingRpcFunctionError(error)) throw error;
     console.warn("Ruta rapida de ultimos pagos no disponible; usando busqueda historica.", error);
   }
 
-  const latestByClientId = new Map<string, Payment>();
-  const chunks = chunkValues(uniqueTargets, 20);
+  const chunks = chunkValues(fallbackTargets, 20);
 
   for (const chunk of chunks) {
     let lastId = "";
