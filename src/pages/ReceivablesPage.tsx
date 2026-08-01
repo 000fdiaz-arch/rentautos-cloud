@@ -641,14 +641,10 @@ export default function ReceivablesPage({
     if (!hasMissingLastPayment) return;
 
     fullPaymentHistoryRequestRef.current = true;
-    const timeoutId = window.setTimeout(() => {
-      void onRefreshPayments().catch((error) => {
-        fullPaymentHistoryRequestRef.current = false;
-        console.error("No se pudo cargar el historial completo para ultimos pagos en cuentas por cobrar.", error);
-      });
-    }, 1200);
-
-    return () => window.clearTimeout(timeoutId);
+    void onRefreshPayments().catch((error) => {
+      fullPaymentHistoryRequestRef.current = false;
+      console.error("No se pudo cargar el historial completo para ultimos pagos en cuentas por cobrar.", error);
+    });
   }, [baseRows, isPaymentHistoryLoaded, onRefreshPayments]);
 
   useEffect(() => {
