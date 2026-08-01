@@ -288,8 +288,8 @@ export async function loadCloudLatestPaymentsForReceivableTargets(userId: string
     if (latestByClientId.size === uniqueTargets.length) return [...latestByClientId.values()];
     fallbackTargets = uniqueTargets.filter((target) => !latestByClientId.has(target.clientId));
   } catch (error) {
-    if (!isMissingRpcFunctionError(error)) throw error;
-    console.warn("Ruta rapida de ultimos pagos no disponible; usando busqueda historica.", error);
+    const reason = isMissingRpcFunctionError(error) ? "no disponible" : "fallo";
+    console.warn(`Ruta rapida de ultimos pagos ${reason}; usando busqueda historica.`, error);
   }
 
   const chunks = chunkValues(fallbackTargets, 20);
