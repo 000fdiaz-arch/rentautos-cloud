@@ -147,40 +147,45 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
         <div className="route-search-empty">No hay clientes activos en Cobro en Ruta.</div>
       ) : (
         <div className="route-search-list">
-          {visibleItems.map((item) => (
-            <article className={`route-search-card ${item.urgency && item.urgency !== "normal" ? `route-search-card--${item.urgency}` : ""}`} key={item.clientId}>
-              <div className="route-search-card-head">
-                <div>
-                  <strong>{item.unitId}</strong>
-                  <span>{firstName(item.clientName)}</span>
+          {visibleItems.map((item) => {
+            const managementTone = item.managementType === "cobrar_o_quitar" ? "remove" : "collect";
+            return (
+              <article className={`route-search-card route-search-card--${managementTone} ${item.urgency && item.urgency !== "normal" ? `route-search-card--${item.urgency}` : ""}`} key={item.clientId}>
+                <div className="route-search-card-head">
+                  <div>
+                    <strong>{item.unitId}</strong>
+                    <span>{firstName(item.clientName)}</span>
+                  </div>
+                  <span className="route-search-route">{item.routeAssignment || "Sin ruta"}</span>
                 </div>
-                <span className="route-search-route">{item.routeAssignment || "Sin ruta"}</span>
-              </div>
-              {item.urgency && item.urgency !== "normal" ? (
-                <div className={`route-search-alarm route-search-alarm--${item.urgency}`}>
-                  {item.urgency === "very_urgent" ? "Muy urgente" : "Urgente"}
+                {item.urgency && item.urgency !== "normal" ? (
+                  <div className={`route-search-alarm route-search-alarm--${item.urgency}`}>
+                    {item.urgency === "very_urgent" ? "Muy urgente" : "Urgente"}
+                  </div>
+                ) : null}
+                <div className="route-search-amounts">
+                  <div className="route-search-release-amount">
+                    <small>Min. liberar</small>
+                    <strong>{formatCurrency(item.releaseAmount)}</strong>
+                  </div>
+                  <div className="route-search-overdue-amount">
+                    <small>Vencido</small>
+                    <strong>{formatCurrency(item.overdueBalance)}</strong>
+                  </div>
                 </div>
-              ) : null}
-              <div className="route-search-amounts">
-                <div className="route-search-release-amount">
-                  <small>Min. liberar</small>
-                  <strong>{formatCurrency(item.releaseAmount)}</strong>
+                <div className="route-search-meta">
+                  <span className={`route-search-delay ${item.daysLate > 0 ? "route-search-delay--late" : "route-search-delay--ok"}`}>
+                    {item.daysLate > 0 ? `${item.daysLate} dias atraso` : "Sin atraso"}
+                  </span>
+                  <span className={`route-search-management route-search-management--${managementTone}`}>
+                    {item.managementType === "cobrar_o_quitar" ? "Cobrar o quitar" : "Solo cobrar"}
+                  </span>
+                  {item.whatsAppPhone ? <a className="route-search-phone" href={`tel:${item.whatsAppPhone}`}>{item.whatsAppPhone}</a> : null}
                 </div>
-                <div className="route-search-overdue-amount">
-                  <small>Vencido</small>
-                  <strong>{formatCurrency(item.overdueBalance)}</strong>
-                </div>
-              </div>
-              <div className="route-search-meta">
-                <span>{item.daysLate > 0 ? `${item.daysLate} dias atraso` : "Sin atraso"}</span>
-                <span className={`route-search-management route-search-management--${item.managementType === "cobrar_o_quitar" ? "remove" : "collect"}`}>
-                  {item.managementType === "cobrar_o_quitar" ? "Cobrar o quitar" : "Solo cobrar"}
-                </span>
-                {item.whatsAppPhone ? <a href={`tel:${item.whatsAppPhone}`}>{item.whatsAppPhone}</a> : null}
-              </div>
-              {item.comment ? <p className="route-search-comment">{item.comment}</p> : null}
-            </article>
-          ))}
+                {item.comment ? <p className="route-search-comment">{item.comment}</p> : null}
+              </article>
+            );
+          })}
         </div>
       )}
     </section>
