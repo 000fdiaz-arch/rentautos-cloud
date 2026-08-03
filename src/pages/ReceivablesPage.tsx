@@ -297,6 +297,46 @@ function formatActiveRouteAddedAt(value: string): string {
   return `${formatDate(date)} ${time}`;
 }
 
+function isRouteManagementRecord(record: CollectionStatusRecord | undefined): boolean {
+  if (!record) return false;
+  return (
+    record.status === "route" ||
+    record.status === "route_collection" ||
+    record.status === "route_not_sent" ||
+    !!record.managementType ||
+    typeof record.routeReleaseAmount === "number" ||
+    typeof record.managementAmount === "number"
+  );
+}
+
+function buildCoveredRouteRecord(previous: CollectionStatusRecord | undefined, updatedAt: string): CollectionStatusRecord {
+  return {
+    ...previous,
+    status: "covered",
+    comment: previous?.comment ?? "",
+    updatedAt,
+    managementType: undefined,
+    managementAmount: undefined,
+    managementComment: "",
+    managementUpdatedAt: undefined,
+    routeReleaseAmount: undefined,
+    routeReleaseUpdatedAt: undefined,
+    routeAssignment: undefined,
+    routeAssignmentUpdatedAt: undefined,
+    routeUrgency: undefined,
+    routeUrgencyUpdatedAt: undefined,
+    whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+    whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+    whatsAppMessageText: previous?.whatsAppMessageText,
+    supportNote: previous?.supportNote,
+    supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+    contactTime: previous?.contactTime,
+    contactTimeUpdatedAt: previous?.contactTimeUpdatedAt,
+    paymentPromiseDate: previous?.paymentPromiseDate,
+    paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
+  };
+}
+
 export default function ReceivablesPage({
   clients,
   payments,
@@ -870,6 +910,10 @@ export default function ReceivablesPage({
       .filter((item) => !activeRouteItemReleasedByPayment(item, payments))
       .sort(compareActiveRouteItems)
   ), [activeRouteItems, payments]);
+  const removedRouteClientIds = useMemo(
+    () => new Set(activeRouteItems.filter((item) => !!item.removedAt).map((item) => item.clientId)),
+    [activeRouteItems]
+  );
   const activeRouteFilterOptions = useMemo(() => (
     Array.from(new Set(activeVisibleRouteItems.map((item) => activeRouteFilterValue(item.routeAssignment))))
       .sort(compareActiveRouteFilterValues)
@@ -902,9 +946,27 @@ export default function ReceivablesPage({
     () => new Set(activeVisibleRouteItems.map((item) => item.clientId)),
     [activeVisibleRouteItems]
   );
+  useEffect(() => {
+    if (removedRouteClientIds.size === 0 || isCollectionLocked) return;
+    const nowIso = new Date().toISOString();
+    let changedStatus = false;
+    setCollectionStatusByClient((current) => {
+      const next = { ...current };
+      for (const clientId of removedRouteClientIds) {
+        const previous = next[clientId];
+        if (!isRouteManagementRecord(previous)) continue;
+        const updatedRecord = buildCoveredRouteRecord(previous, nowIso);
+        next[clientId] = updatedRecord;
+        optimisticStatusByClientRef.current[clientId] = updatedRecord;
+        markClientStatusAsSaving(clientId);
+        changedStatus = true;
+      }
+      return changedStatus ? next : current;
+    });
+  }, [collectionStatusByClient, isCollectionLocked, removedRouteClientIds]);
   const routeWorkflowRowsCount = useMemo(
     () => baseRows.filter((row) => isRouteReadyToSendRow(row)).length,
-    [activeVisibleRouteClientIds, baseRows, collectionStatusByClient, todayCollectionCuts]
+    [activeVisibleRouteClientIds, baseRows, collectionStatusByClient, removedRouteClientIds, todayCollectionCuts]
   );
   const publishedRouteAddRows = useMemo(
     () => baseRows.filter((row) => row.hasActiveClient && !activeVisibleRouteClientIds.has(row.id)),
@@ -925,7 +987,7 @@ export default function ReceivablesPage({
     workflowTab === "route"
       ? filteredRows.filter((row) => isRouteReadyToSendRow(row))
       : filteredRows
-  ), [activeVisibleRouteClientIds, filteredRows, workflowTab, collectionStatusByClient, todayCollectionCuts]);
+  ), [activeVisibleRouteClientIds, filteredRows, workflowTab, collectionStatusByClient, removedRouteClientIds, todayCollectionCuts]);
   const collectionStatusCounts = useMemo(() => {
     const counts = createEmptyCollectionStatusCounts();
     for (const row of workflowRows) {
@@ -1146,7 +1208,7 @@ export default function ReceivablesPage({
   }
 
   function isRouteReadyToSendRow(row: ReceivableRow): boolean {
-    return isRouteWorkflowRow(row) && !activeVisibleRouteClientIds.has(row.id);
+    return isRouteWorkflowRow(row) && !activeVisibleRouteClientIds.has(row.id) && !removedRouteClientIds.has(row.id);
   }
 
   function buildWhatsAppReceivableMessage(row: ReceivableRow): string {
@@ -1792,31 +1854,7 @@ export default function ReceivablesPage({
       markClientStatusAsSaving(clientId);
       setCollectionStatusByClient((current) => {
         const previous = current[clientId];
-        const updatedRecord: CollectionStatusRecord = {
-          ...previous,
-          status: "covered",
-          comment: previous?.comment ?? "",
-          updatedAt: removedAt,
-          managementType: undefined,
-          managementAmount: undefined,
-          managementComment: "",
-          managementUpdatedAt: undefined,
-          routeReleaseAmount: undefined,
-          routeReleaseUpdatedAt: undefined,
-          routeAssignment: undefined,
-          routeAssignmentUpdatedAt: undefined,
-          routeUrgency: undefined,
-          routeUrgencyUpdatedAt: undefined,
-          whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
-          whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
-          whatsAppMessageText: previous?.whatsAppMessageText,
-          supportNote: previous?.supportNote,
-          supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
-          contactTime: previous?.contactTime,
-          contactTimeUpdatedAt: previous?.contactTimeUpdatedAt,
-          paymentPromiseDate: previous?.paymentPromiseDate,
-          paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
-        };
+        const updatedRecord = buildCoveredRouteRecord(previous, removedAt);
         optimisticStatusByClientRef.current[clientId] = updatedRecord;
         return {
           ...current,
@@ -2300,7 +2338,11 @@ export default function ReceivablesPage({
       }
       const isRouteRowFromMap = (row: ReceivableRow): boolean => {
         const storedStatus = statusByClientForRoute[row.id]?.status;
-        return (storedStatus === "route" || storedStatus === "route_collection") && !activeVisibleRouteClientIds.has(row.id);
+        return (
+          (storedStatus === "route" || storedStatus === "route_collection") &&
+          !activeVisibleRouteClientIds.has(row.id) &&
+          !removedRouteClientIds.has(row.id)
+        );
       };
       const hasRouteCollectionFromMap = (row: ReceivableRow): boolean => {
         const management = statusByClientForRoute[row.id];
