@@ -1668,13 +1668,12 @@ export default function ReceivablesPage({
 
   function updatePublishedRouteItem(clientId: string, updater: (item: ActiveRouteItem) => ActiveRouteItem): void {
     if (readOnly || !dataOwnerUserId) return;
-    let updatedItem: ActiveRouteItem | null = null;
-    setActiveRouteItems((current) => current.map((item) => {
-      if (item.clientId !== clientId) return item;
-      updatedItem = updater(item);
-      return updatedItem;
-    }));
+    const currentItem = activeRouteItems.find((item) => item.clientId === clientId);
+    const updatedItem = currentItem ? updater(currentItem) : null;
     if (!updatedItem) return;
+    setActiveRouteItems((current) => current.map((item) => (
+      item.clientId === clientId ? updatedItem : item
+    )));
     void saveCloudActiveRouteItem(dataOwnerUserId, updatedItem).catch((error) => {
       console.error("No se pudo guardar la ruta publicada.", error);
       setActiveRouteError("No se pudo guardar la ruta publicada.");
