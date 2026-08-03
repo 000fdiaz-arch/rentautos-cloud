@@ -224,6 +224,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
                   <span className={`route-search-management route-search-management--${managementTone}`}>
                     {item.managementType === "cobrar_o_quitar" ? "Cobrar o quitar" : "Solo cobrar"}
                   </span>
+                  <span className="route-search-added-at">En calle {formatPublishedAt(item.publishedAt)}</span>
                   {item.whatsAppPhone ? <a className="route-search-phone" href={`tel:${item.whatsAppPhone}`}>{item.whatsAppPhone}</a> : null}
                 </div>
                 {item.comment ? <p className="route-search-comment">{item.comment}</p> : null}

@@ -290,6 +290,13 @@ function routeMissingAssignmentMessage(rows: ReceivableRow[]): string {
   return `Falta asignar Ruta en ${rows.length} unidad(es) en cobro en ruta.${unitText}`;
 }
 
+function formatActiveRouteAddedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const time = date.toLocaleTimeString("es-PA", { hour: "numeric", minute: "2-digit" });
+  return `${formatDate(date)} ${time}`;
+}
+
 export default function ReceivablesPage({
   clients,
   payments,
@@ -2779,7 +2786,10 @@ export default function ReceivablesPage({
                         return (
                           <tr key={item.clientId} className={routeUrgency !== "normal" ? `ar-route-urgency-row ar-route-urgency-row--${routeUrgency}` : undefined}>
                             <td><strong className="ar-unit-id">{item.unitId}</strong></td>
-                            <td><span className="client-name ar-route-client-name" title={item.clientName}>{item.clientName}</span></td>
+                            <td>
+                              <span className="client-name ar-route-client-name" title={item.clientName}>{item.clientName}</span>
+                              <span className="ar-route-added-at">En calle {formatActiveRouteAddedAt(item.publishedAt)}</span>
+                            </td>
                             <td>{item.daysLate > 0 ? `${item.daysLate} dias` : "Sin atraso"}</td>
                             <td className="amount-debt">{formatCurrency(item.overdueBalance)}</td>
                             <td>
@@ -2915,6 +2925,7 @@ export default function ReceivablesPage({
                         <div className="ar-route-mobile-meta">
                           <span>{item.daysLate > 0 ? `${item.daysLate} dias de atraso` : "Sin atraso"}</span>
                           <span>Vencido {formatCurrency(item.overdueBalance)}</span>
+                          <span>En calle {formatActiveRouteAddedAt(item.publishedAt)}</span>
                         </div>
                         <div className="ar-route-mobile-controls">
                           <label>

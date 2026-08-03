@@ -11599,6 +11599,12 @@ select.control-op-badge {
   color: #0f766e;
 }
 
+.route-search-meta .route-search-added-at {
+  border-color: #ddd6fe;
+  background: #f5f3ff;
+  color: #5b21b6;
+}
+
 .route-search-comment {
   margin: 10px 0 0;
   border: 1px solid #e0e7ff;
@@ -11729,6 +11735,15 @@ select.control-op-badge {
   font-size: 0.82rem;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ar-route-added-at {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+  margin-top: 3px;
   white-space: nowrap;
 }
 

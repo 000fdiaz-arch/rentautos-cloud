@@ -468,7 +468,14 @@ function ReceivableTableRowComponent({
 
   function renderCutCell(cutKey: CollectionCutKey) {
     const item = collectionCutItems[cutKey];
-    const rawValue = item?.collectionStatus ?? (cutKey === "night" ? statusRecord?.status : undefined) ?? defaultCollectionStatus(row, operationalStatus, cutKey);
+    const liveRouteStatus = cutKey === "night" && (
+      statusRecord?.status === "route" ||
+      statusRecord?.status === "route_collection" ||
+      statusRecord?.status === "route_not_sent"
+    )
+      ? statusRecord.status
+      : undefined;
+    const rawValue = liveRouteStatus ?? item?.collectionStatus ?? (cutKey === "night" ? statusRecord?.status : undefined) ?? defaultCollectionStatus(row, operationalStatus, cutKey);
     const statusOptions = workflowTab === "route" ? ROUTE_COLLECTION_STATUS_OPTIONS : getStatusOptionsForCut(cutKey);
     const value = statusOptions.some((option) => option.value === rawValue) ? rawValue : "";
     const routeReleaseAmount = item?.managementAmount ?? statusRecord?.routeReleaseAmount;
