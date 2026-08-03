@@ -478,8 +478,8 @@ export default function ReceivablesPage({
       const rows = await loadCloudActiveRouteItems(dataOwnerUserId);
       setActiveRouteItems(rows);
     } catch (error) {
-      console.error("No se pudo cargar la ruta publicada.", error);
-      setActiveRouteError("No se pudo cargar la ruta publicada.");
+      console.error("No se pudo cargar la ruta en calle.", error);
+      setActiveRouteError("No se pudo cargar la Ruta en calle.");
     } finally {
       setActiveRouteLoading(false);
     }
@@ -830,7 +830,7 @@ export default function ReceivablesPage({
       if (dataOwnerUserId) {
         for (const clientId of releasedClientIds) {
           void removeCloudActiveRouteItem(dataOwnerUserId, clientId, "paid").catch((error) => {
-            console.error("No se pudo limpiar la ruta publicada por pago.", error);
+            console.error("No se pudo limpiar la Ruta en calle por pago.", error);
           });
         }
       }
@@ -1613,7 +1613,7 @@ export default function ReceivablesPage({
     markClientStatusAsSaving(clientId);
     if (dataOwnerUserId) {
       void removeCloudActiveRouteItem(dataOwnerUserId, clientId, "removed").catch((error) => {
-        console.error("No se pudo sacar de la ruta publicada.", error);
+        console.error("No se pudo sacar de la Ruta en calle.", error);
       });
     }
     setCollectionStatusByClient((current) => {
@@ -1661,8 +1661,8 @@ export default function ReceivablesPage({
           : item
       )));
     } catch (error) {
-      console.error("No se pudo sacar de la ruta publicada.", error);
-      setActiveRouteError("No se pudo sacar de la ruta publicada.");
+      console.error("No se pudo sacar de la Ruta en calle.", error);
+      setActiveRouteError("No se pudo sacar de la Ruta en calle.");
     }
   }
 
@@ -1675,8 +1675,8 @@ export default function ReceivablesPage({
       item.clientId === clientId ? updatedItem : item
     )));
     void saveCloudActiveRouteItem(dataOwnerUserId, updatedItem).catch((error) => {
-      console.error("No se pudo guardar la ruta publicada.", error);
-      setActiveRouteError("No se pudo guardar la ruta publicada.");
+      console.error("No se pudo guardar la Ruta en calle.", error);
+      setActiveRouteError("No se pudo guardar la Ruta en calle.");
       void loadActiveRouteFromCloud();
     });
   }
@@ -1776,7 +1776,7 @@ export default function ReceivablesPage({
       });
       setIsAddPublishedRouteOpen(false);
     } catch (error) {
-      console.error("No se pudo agregar unidad a Vista Buscador.", error);
+      console.error("No se pudo agregar unidad a Ruta en calle.", error);
       setPublishedRouteDraftError("No se pudo agregar la unidad.");
     }
   }
@@ -2453,14 +2453,14 @@ export default function ReceivablesPage({
                   onClick={() => void handleExportCobroEnRuta()}
                   disabled={isExporting || routeWorkflowRowsCount === 0}
                 >
-                  {isExporting ? "Exportando..." : "Exportar ruta"}
+                  {isExporting ? "Enviando..." : "Enviar ruta"}
                 </button>
                 <select
                   className="ar-route-export-format"
                   value={routeExportFormat}
                   onChange={(event) => setRouteExportFormat(event.target.value as RouteExportFormat)}
                   disabled={isExporting}
-                  aria-label="Formato de exportacion de cobro en ruta"
+                  aria-label="Formato para enviar cobro en ruta"
                 >
                   <option value="jpg">JPG</option>
                   <option value="pdf">PDF</option>
@@ -2480,7 +2480,7 @@ export default function ReceivablesPage({
               className={routeSubTab === "current" ? "is-active" : ""}
               onClick={() => setRouteSubTab("current")}
             >
-              Ruta actual <strong>{routeWorkflowRowsCount}</strong>
+              Ruta para enviar <strong>{routeWorkflowRowsCount}</strong>
             </button>
             <button
               type="button"
@@ -2489,7 +2489,7 @@ export default function ReceivablesPage({
               className={routeSubTab === "published" ? "is-active" : ""}
               onClick={() => setRouteSubTab("published")}
             >
-              Vista Buscador <strong>{activeVisibleRouteItems.length}</strong>
+              Ruta en calle <strong>{activeVisibleRouteItems.length}</strong>
             </button>
           </div>
         ) : null}
@@ -2523,8 +2523,8 @@ export default function ReceivablesPage({
           <div className="ar-active-route-panel ar-active-route-panel--tab">
             <div className="ar-active-route-head">
               <div>
-                <strong>Vista Buscador</strong>
-                <span>{activeVisibleRouteItems.length} activo{activeVisibleRouteItems.length === 1 ? "" : "s"} publicados</span>
+                <strong>Ruta en calle</strong>
+                <span>{activeVisibleRouteItems.length} activo{activeVisibleRouteItems.length === 1 ? "" : "s"} en calle</span>
               </div>
               <div className="ar-active-route-actions">
                 <button
@@ -2680,7 +2680,7 @@ export default function ReceivablesPage({
                     </tbody>
                   </table>
                 </div>
-                <div className="ar-active-route-mobile-list" aria-label="Vista Buscador editable">
+                <div className="ar-active-route-mobile-list" aria-label="Ruta en calle editable">
                   {activeVisibleRouteItems.map((item) => {
                     const routeAssignment = item.routeAssignment ?? "";
                     const routeUrgency = item.urgency ?? "normal";
@@ -2807,7 +2807,7 @@ export default function ReceivablesPage({
                           disabled={readOnly}
                           title={readOnly ? "No tienes permiso para editar cuentas por cobrar." : undefined}
                         >
-                          Sacar de Vista Buscador
+                          Sacar de Ruta en calle
                         </button>
                       </article>
                     );
@@ -2816,7 +2816,7 @@ export default function ReceivablesPage({
               </>
             ) : (
               <p className="hint">
-                {activeRouteLoading ? "Cargando ruta publicada..." : "No hay clientes activos publicados para buscadores."}
+                {activeRouteLoading ? "Cargando ruta en calle..." : "No hay clientes activos en Ruta en calle."}
               </p>
             )}
           </div>
@@ -2867,7 +2867,7 @@ export default function ReceivablesPage({
         <div className="modal-overlay" onClick={() => setIsAddPublishedRouteOpen(false)}>
           <div className="modal ar-add-route-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2>Agregar unidad a Vista Buscador</h2>
+              <h2>Agregar unidad a Ruta en calle</h2>
               <button type="button" className="modal-close" onClick={() => setIsAddPublishedRouteOpen(false)}>X</button>
             </div>
             <div className="modal-body">

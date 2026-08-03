@@ -23,7 +23,7 @@ export const APP_SCREENS: Array<{ id: AppScreen; label: string }> = [
   { id: "clients", label: "Clientes" },
   { id: "payments", label: "Pagos" },
   { id: "receivables", label: "Cuentas por cobrar" },
-  { id: "route_search", label: "Vista Buscador" },
+  { id: "route_search", label: "Ruta en calle" },
   { id: "control_units", label: "Autos" },
   { id: "settings", label: "Configuraciones" },
   { id: "users", label: "Usuarios" }
