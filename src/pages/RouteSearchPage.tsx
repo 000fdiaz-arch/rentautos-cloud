@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { compareActiveRouteItems } from "../activeRouteOrdering";
+import {
+  ALL_ACTIVE_ROUTE_FILTER,
+  activeRouteFilterLabel,
+  activeRouteFilterValue,
+  compareActiveRouteFilterValues,
+  compareActiveRouteItems
+} from "../activeRouteOrdering";
 import { loadCloudActiveRouteItems, type ActiveRouteItem } from "../cloudData";
 import { formatCurrency, formatDate } from "../format";
 import { supabase } from "../lib/supabase";
@@ -50,6 +56,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [routeFilter, setRouteFilter] = useState(ALL_ACTIVE_ROUTE_FILTER);
   const [lastRefreshAt, setLastRefreshAt] = useState("");
 
   async function reload(): Promise<void> {
@@ -91,11 +98,27 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
     };
   }, [dataOwnerUserId]);
 
-  const visibleItems = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return items
+  const activeItems = useMemo(() => (
+    items
       .filter((item) => !item.removedAt)
       .filter((item) => !payments.some((payment) => paymentReleasesRoute(payment, item)))
+  ), [items, payments]);
+
+  const routeFilterOptions = useMemo(() => (
+    Array.from(new Set(activeItems.map((item) => activeRouteFilterValue(item.routeAssignment))))
+      .sort(compareActiveRouteFilterValues)
+  ), [activeItems]);
+
+  useEffect(() => {
+    if (routeFilter !== ALL_ACTIVE_ROUTE_FILTER && !routeFilterOptions.includes(routeFilter)) {
+      setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
+    }
+  }, [routeFilter, routeFilterOptions]);
+
+  const visibleItems = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return activeItems
+      .filter((item) => routeFilter === ALL_ACTIVE_ROUTE_FILTER || activeRouteFilterValue(item.routeAssignment) === routeFilter)
       .filter((item) => {
         if (!normalizedQuery) return true;
         return [
@@ -108,7 +131,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
         ].some((value) => value.toLowerCase().includes(normalizedQuery));
       })
       .sort(compareActiveRouteItems);
-  }, [items, payments, query]);
+  }, [activeItems, query, routeFilter]);
 
   const publishedAt = useMemo(() => {
     const timestamps = items.map((item) => toTimestamp(item.publishedAt)).filter((value) => value > 0);
@@ -140,6 +163,27 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
 
       {lastRefreshAt ? <p className="route-search-refresh">Ultima actualizacion: {lastRefreshAt}</p> : null}
       {error ? <p className="error-text">{error}</p> : null}
+      {routeFilterOptions.length > 0 ? (
+        <div className="route-search-filters" aria-label="Filtrar por ruta">
+          <button
+            type="button"
+            className={routeFilter === ALL_ACTIVE_ROUTE_FILTER ? "is-active" : ""}
+            onClick={() => setRouteFilter(ALL_ACTIVE_ROUTE_FILTER)}
+          >
+            Todas
+          </button>
+          {routeFilterOptions.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={routeFilter === option ? "is-active" : ""}
+              onClick={() => setRouteFilter(option)}
+            >
+              {activeRouteFilterLabel(option)}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {loading && visibleItems.length === 0 ? (
         <div className="route-search-empty">Cargando ruta...</div>

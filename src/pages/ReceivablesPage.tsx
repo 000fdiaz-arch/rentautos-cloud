@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { compareActiveRouteItems } from "../activeRouteOrdering";
+import {
+  ALL_ACTIVE_ROUTE_FILTER,
+  activeRouteFilterLabel,
+  activeRouteFilterValue,
+  compareActiveRouteFilterValues,
+  compareActiveRouteItems
+} from "../activeRouteOrdering";
 import { exportReceivablesToExcel, exportReceivablesToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
 import {
@@ -308,6 +314,7 @@ export default function ReceivablesPage({
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
   const [workflowTab, setWorkflowTab] = useState<ReceivablesWorkflowTab>("management");
   const [routeSubTab, setRouteSubTab] = useState<RouteSubTab>("current");
+  const [activeRouteFilter, setActiveRouteFilter] = useState<string>(ALL_ACTIVE_ROUTE_FILTER);
   const viewMode: ReceivablesViewMode = "cartera";
   const [collectionClosuresByDate, setCollectionClosuresByDate] = useState<CollectionClosuresByDate>({});
   const [collectionClosuresLoaded, setCollectionClosuresLoaded] = useState<boolean>(false);
@@ -865,6 +872,21 @@ export default function ReceivablesPage({
       .filter((item) => !activeRouteItemReleasedByPayment(item, payments))
       .sort(compareActiveRouteItems)
   ), [activeRouteItems, payments]);
+  const activeRouteFilterOptions = useMemo(() => (
+    Array.from(new Set(activeVisibleRouteItems.map((item) => activeRouteFilterValue(item.routeAssignment))))
+      .sort(compareActiveRouteFilterValues)
+  ), [activeVisibleRouteItems]);
+  useEffect(() => {
+    if (activeRouteFilter !== ALL_ACTIVE_ROUTE_FILTER && !activeRouteFilterOptions.includes(activeRouteFilter)) {
+      setActiveRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
+    }
+  }, [activeRouteFilter, activeRouteFilterOptions]);
+  const activeFilteredRouteItems = useMemo(() => (
+    activeVisibleRouteItems.filter((item) => (
+      activeRouteFilter === ALL_ACTIVE_ROUTE_FILTER ||
+      activeRouteFilterValue(item.routeAssignment) === activeRouteFilter
+    ))
+  ), [activeRouteFilter, activeVisibleRouteItems]);
   const activeVisibleRouteClientIds = useMemo(
     () => new Set(activeVisibleRouteItems.map((item) => item.clientId)),
     [activeVisibleRouteItems]
@@ -2533,7 +2555,9 @@ export default function ReceivablesPage({
             <div className="ar-active-route-head">
               <div>
                 <strong>Ruta en calle</strong>
-                <span>{activeVisibleRouteItems.length} activo{activeVisibleRouteItems.length === 1 ? "" : "s"} en calle</span>
+                <span>
+                  {activeFilteredRouteItems.length} de {activeVisibleRouteItems.length} activo{activeVisibleRouteItems.length === 1 ? "" : "s"} en calle
+                </span>
               </div>
               <div className="ar-active-route-actions">
                 <button
@@ -2556,7 +2580,28 @@ export default function ReceivablesPage({
               </div>
             </div>
             {activeRouteError ? <p className="error-text">{activeRouteError}</p> : null}
-            {activeVisibleRouteItems.length > 0 ? (
+            {activeRouteFilterOptions.length > 0 ? (
+              <div className="ar-active-route-filters" aria-label="Filtrar Ruta en calle">
+                <button
+                  type="button"
+                  className={activeRouteFilter === ALL_ACTIVE_ROUTE_FILTER ? "is-active" : ""}
+                  onClick={() => setActiveRouteFilter(ALL_ACTIVE_ROUTE_FILTER)}
+                >
+                  Todas
+                </button>
+                {activeRouteFilterOptions.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={activeRouteFilter === option ? "is-active" : ""}
+                    onClick={() => setActiveRouteFilter(option)}
+                  >
+                    {activeRouteFilterLabel(option)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {activeFilteredRouteItems.length > 0 ? (
               <>
                 <div className="table-scroll ar-active-route-scroll">
                   <table className="ar-table ar-active-route-table">
@@ -2575,7 +2620,7 @@ export default function ReceivablesPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {activeVisibleRouteItems.map((item) => {
+                      {activeFilteredRouteItems.map((item) => {
                         const routeAssignment = item.routeAssignment ?? "";
                         const routeUrgency = item.urgency ?? "normal";
                         const isCustomRouteAssignment = !!routeAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(routeAssignment);
@@ -2690,7 +2735,7 @@ export default function ReceivablesPage({
                   </table>
                 </div>
                 <div className="ar-active-route-mobile-list" aria-label="Ruta en calle editable">
-                  {activeVisibleRouteItems.map((item) => {
+                  {activeFilteredRouteItems.map((item) => {
                     const routeAssignment = item.routeAssignment ?? "";
                     const routeUrgency = item.urgency ?? "normal";
                     const isCustomRouteAssignment = !!routeAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(routeAssignment);
@@ -2825,7 +2870,11 @@ export default function ReceivablesPage({
               </>
             ) : (
               <p className="hint">
-                {activeRouteLoading ? "Cargando ruta en calle..." : "No hay clientes activos en Ruta en calle."}
+                {activeRouteLoading
+                  ? "Cargando ruta en calle..."
+                  : activeVisibleRouteItems.length > 0
+                  ? "No hay clientes en esa ruta."
+                  : "No hay clientes activos en Ruta en calle."}
               </p>
             )}
           </div>

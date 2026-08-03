@@ -1,10 +1,33 @@
 import type { ActiveRouteItem } from "./cloudData";
 
+export const ALL_ACTIVE_ROUTE_FILTER = "__all__";
+export const EMPTY_ACTIVE_ROUTE_FILTER = "__empty__";
+
+export function activeRouteFilterValue(routeAssignment: string | undefined): string {
+  const normalized = (routeAssignment ?? "").trim().toUpperCase();
+  return normalized || EMPTY_ACTIVE_ROUTE_FILTER;
+}
+
+export function activeRouteFilterLabel(value: string): string {
+  return value === EMPTY_ACTIVE_ROUTE_FILTER ? "Sin ruta" : value;
+}
+
 function routeRank(routeAssignment: string | undefined): number {
   const normalized = (routeAssignment ?? "").trim().toUpperCase();
   if (normalized === "PTY") return 0;
   if (normalized === "WC") return 2;
   return 1;
+}
+
+export function compareActiveRouteFilterValues(left: string, right: string): number {
+  const leftRoute = left === EMPTY_ACTIVE_ROUTE_FILTER ? "" : left;
+  const rightRoute = right === EMPTY_ACTIVE_ROUTE_FILTER ? "" : right;
+  const rankCompare = routeRank(leftRoute) - routeRank(rightRoute);
+  if (rankCompare !== 0) return rankCompare;
+  return leftRoute.localeCompare(rightRoute, "es", {
+    numeric: true,
+    sensitivity: "base"
+  });
 }
 
 function urgencyRank(urgency: ActiveRouteItem["urgency"]): number {

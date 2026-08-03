@@ -11333,6 +11333,43 @@ select.control-op-badge {
   margin-top: 12px;
 }
 
+.route-search-filters,
+.ar-active-route-filters {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 0 2px;
+}
+
+.route-search-filters {
+  margin-top: 8px;
+}
+
+.ar-active-route-filters {
+  margin-top: 2px;
+}
+
+.route-search-filters button,
+.ar-active-route-filters button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  border: 1px solid #d8e2ef;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 7px 12px;
+}
+
+.route-search-filters button.is-active,
+.ar-active-route-filters button.is-active {
+  border-color: rgba(15, 118, 110, 0.45);
+  background: #f0fdfa;
+  color: #0f766e;
+}
+
 .route-search-card {
   position: relative;
   overflow: hidden;
