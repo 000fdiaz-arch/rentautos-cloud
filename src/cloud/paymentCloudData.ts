@@ -4,6 +4,11 @@ import { dedupeLoad, getCloudClient, hasRowChanged, PAGE_SIZE, withCloudRetry, t
 const BANK_PAYMENT_METHODS = new Set(["ACH Express", "Deposito Bancario", "Transferencia Bancaria"]);
 
 type PaymentDataRow = DataRow<Payment> & { updated_at?: string | null };
+type LatestPaymentByClientRow = {
+  client_id?: string | null;
+  payment_id?: string | null;
+  data?: Payment | null;
+};
 export type CloudLatestPaymentTarget = {
   clientId: string;
   unitId: string;
@@ -135,6 +140,24 @@ function isMissingRpcFunctionError(error: unknown): boolean {
     normalized.includes("function register_client_payment_deltas") ||
     normalized.includes("function public.next_receipt_numbers") ||
     normalized.includes("function next_receipt_numbers")
+  );
+}
+
+function isMissingLatestPaymentsTableError(error: unknown): boolean {
+  const record = typeof error === "object" && error !== null ? error as Record<string, unknown> : null;
+  const code = typeof record?.code === "string" ? record.code : "";
+  const message = error instanceof Error
+    ? error.message
+    : typeof record?.message === "string"
+    ? record.message
+    : "";
+  const details = typeof record?.details === "string" ? record.details : "";
+  const normalized = `${code} ${message} ${details}`.toLowerCase();
+  return (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    normalized.includes("latest_payments_by_client_cloud") ||
+    normalized.includes("could not find the table")
   );
 }
 export async function loadCloudPayments(userId: string): Promise<Payment[]> {
@@ -276,8 +299,39 @@ export async function loadCloudLatestPaymentsForReceivableTargets(userId: string
     }
   }
 
+  async function loadFromLatestPaymentsTable(targets: CloudLatestPaymentTarget[]): Promise<boolean> {
+    try {
+      for (const chunk of chunkValues(targets, 100)) {
+        const clientIds = chunk.map((target) => target.clientId);
+        const rows = await runCloudPaymentQuery(() => client
+          .from("latest_payments_by_client_cloud")
+          .select("client_id,payment_id,data")
+          .eq("user_id", userId)
+          .in("client_id", clientIds)) as LatestPaymentByClientRow[];
+        const targetByClientId = new Map(chunk.map((target) => [target.clientId, target]));
+        for (const row of rows) {
+          const clientId = row.client_id ?? row.data?.clientId ?? "";
+          const target = targetByClientId.get(clientId);
+          const payment = row.data ?? null;
+          if (!target || !payment || !paymentMatchesTargetIdentity(payment, target)) continue;
+          const current = latestByClientId.get(target.clientId);
+          if (!current || comparePaymentDateDesc(payment, current) < 0) latestByClientId.set(target.clientId, payment);
+        }
+      }
+      return true;
+    } catch (error) {
+      if (isMissingLatestPaymentsTableError(error)) return false;
+      throw error;
+    }
+  }
+
+  await loadFromLatestPaymentsTable(uniqueTargets);
+  if (latestByClientId.size === uniqueTargets.length) return [...latestByClientId.values()];
+
   for (const chunk of chunkValues(uniqueTargets, 50)) {
-    const clientIds = chunk.map((target) => target.clientId);
+    const missingChunk = chunk.filter((target) => !latestByClientId.has(target.clientId));
+    if (missingChunk.length === 0) continue;
+    const clientIds = missingChunk.map((target) => target.clientId);
     let lastId = "";
     while (true) {
       let query = client
@@ -290,45 +344,7 @@ export async function loadCloudLatestPaymentsForReceivableTargets(userId: string
       if (lastId) query = query.gt("id", lastId);
 
       const rows = await runCloudPaymentQuery(() => query) as DataRow<Payment>[];
-      mergeRows(rows, chunk);
-      if (rows.length < PAGE_SIZE) break;
-      lastId = rows[rows.length - 1]?.id ?? lastId;
-      if (!lastId) break;
-    }
-  }
-
-  const fallbackTargets = uniqueTargets.filter((target) => !latestByClientId.has(target.clientId));
-  const chunks = chunkValues(fallbackTargets, 20);
-
-  for (const chunk of chunks) {
-    let lastId = "";
-    while (true) {
-      const filters = [
-        ...chunk.map((target) => `data->>clientId.eq.${target.clientId}`),
-        ...chunk
-          .map((target) => target.unitId.trim())
-          .filter((unitId) => unitId.length > 0)
-          .map((unitId) => `data->>clientUnit.eq.${unitId}`)
-      ].join(",");
-      let query = client
-        .from("payments_cloud")
-        .select("id,data")
-        .eq("user_id", userId)
-        .or(filters)
-        .order("id", { ascending: true })
-        .limit(PAGE_SIZE);
-      if (lastId) query = query.gt("id", lastId);
-
-      const rows = await runCloudPaymentQuery(() => query) as DataRow<Payment>[];
-      for (const row of rows) {
-        const payment = row.data;
-        if (!payment) continue;
-        const target = chunk.find((item) => paymentMatchesTargetIdentity(payment, item));
-        if (!target) continue;
-        const current = latestByClientId.get(target.clientId);
-        if (!current || comparePaymentDateDesc(payment, current) < 0) latestByClientId.set(target.clientId, payment);
-      }
-
+      mergeRows(rows, missingChunk);
       if (rows.length < PAGE_SIZE) break;
       lastId = rows[rows.length - 1]?.id ?? lastId;
       if (!lastId) break;
