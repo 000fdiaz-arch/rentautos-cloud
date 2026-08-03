@@ -1792,6 +1792,7 @@ export default function ReceivablesPage({
   async function handleRemoveFromPublishedRoute(clientId: string): Promise<void> {
     if (readOnly || !dataOwnerUserId) return;
     setActiveRouteError("");
+    const removedAt = new Date().toISOString();
     try {
       await removeCloudActiveRouteItem(dataOwnerUserId, clientId, "removed");
       setPublishedRouteCommentDraftByClient((current) => {
@@ -1801,9 +1802,43 @@ export default function ReceivablesPage({
       });
       setActiveRouteItems((current) => current.map((item) => (
         item.clientId === clientId
-          ? { ...item, removedAt: new Date().toISOString(), removedReason: "removed" }
+          ? { ...item, removedAt, removedReason: "removed" }
           : item
       )));
+      markClientStatusAsSaving(clientId);
+      setCollectionStatusByClient((current) => {
+        const previous = current[clientId];
+        const updatedRecord: CollectionStatusRecord = {
+          ...previous,
+          status: "covered",
+          comment: previous?.comment ?? "",
+          updatedAt: removedAt,
+          managementType: undefined,
+          managementAmount: undefined,
+          managementComment: "",
+          managementUpdatedAt: undefined,
+          routeReleaseAmount: undefined,
+          routeReleaseUpdatedAt: undefined,
+          routeAssignment: undefined,
+          routeAssignmentUpdatedAt: undefined,
+          routeUrgency: undefined,
+          routeUrgencyUpdatedAt: undefined,
+          whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+          whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+          whatsAppMessageText: previous?.whatsAppMessageText,
+          supportNote: previous?.supportNote,
+          supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+          contactTime: previous?.contactTime,
+          contactTimeUpdatedAt: previous?.contactTimeUpdatedAt,
+          paymentPromiseDate: previous?.paymentPromiseDate,
+          paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
+        };
+        optimisticStatusByClientRef.current[clientId] = updatedRecord;
+        return {
+          ...current,
+          [clientId]: updatedRecord
+        };
+      });
     } catch (error) {
       console.error("No se pudo sacar de la Ruta en calle.", error);
       setActiveRouteError("No se pudo sacar de la Ruta en calle.");
