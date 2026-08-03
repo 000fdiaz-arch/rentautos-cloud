@@ -75,16 +75,6 @@ function isCloudStatementTimeout(error: unknown): boolean {
   return code === "57014" || normalized.includes("statement timeout") || normalized.includes("canceling statement");
 }
 
-function getPaymentSortTime(row: PaymentDataRow): number {
-  const value = row.updated_at ?? row.data?.createdAt ?? "";
-  const timestamp = new Date(value).getTime();
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
-function compareRecentPaymentRows(left: PaymentDataRow, right: PaymentDataRow): number {
-  return getPaymentSortTime(right) - getPaymentSortTime(left);
-}
-
 async function runCloudPaymentQuery<T>(
   queryFactory: () => PromiseLike<{ data: T | null; error: unknown }>
 ): Promise<T> {
@@ -205,9 +195,7 @@ export async function loadCloudPaymentsPage(
       .range(offset, to)) as PaymentDataRow[];
   } catch (error) {
     if (!isCloudStatementTimeout(error)) throw error;
-    rows = (await loadCloudPaymentRowsByIdScan(userId))
-      .sort(compareRecentPaymentRows)
-      .slice(offset, offset + limit);
+    rows = [];
   }
   return rows.map((row) => row.data);
 }
@@ -229,9 +217,7 @@ async function loadCloudPaymentsRecentUncached(userId: string, safeLimit: number
       .range(0, safeLimit - 1)) as PaymentDataRow[];
   } catch (error) {
     if (!isCloudStatementTimeout(error)) throw error;
-    rows = (await loadCloudPaymentRowsByIdScan(userId))
-      .sort(compareRecentPaymentRows)
-      .slice(0, safeLimit);
+    rows = [];
   }
   return rows.map((row) => row.data);
 }
@@ -359,27 +345,6 @@ export async function loadCloudLatestPaymentsForClients(userId: string, clientId
     userId,
     clientIds.map((clientId) => ({ clientId, unitId: "", name: "" }))
   );
-}
-
-async function loadCloudPaymentRowsByIdScan(userId: string): Promise<PaymentDataRow[]> {
-  const client = getCloudClient();
-  const allRows: PaymentDataRow[] = [];
-  let lastId = "";
-  while (true) {
-    let query = client
-      .from("payments_cloud")
-      .select("id,data,updated_at")
-      .eq("user_id", userId)
-      .order("id", { ascending: true })
-      .limit(PAGE_SIZE);
-    if (lastId) query = query.gt("id", lastId);
-    const batch = await runCloudPaymentQuery(() => query) as PaymentDataRow[];
-    allRows.push(...batch);
-    if (batch.length < PAGE_SIZE) break;
-    lastId = batch[batch.length - 1]?.id ?? lastId;
-    if (!lastId) break;
-  }
-  return allRows;
 }
 
 export async function loadCloudProcessedPaymentFolios(userId: string, candidateFolios?: Iterable<string>): Promise<Set<string>> {
