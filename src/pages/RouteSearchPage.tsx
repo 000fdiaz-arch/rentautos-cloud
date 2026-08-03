@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { compareActiveRouteItems } from "../activeRouteOrdering";
 import { loadCloudActiveRouteItems, type ActiveRouteItem } from "../cloudData";
 import { formatCurrency, formatDate } from "../format";
 import { supabase } from "../lib/supabase";
@@ -106,11 +107,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
           item.comment ?? ""
         ].some((value) => value.toLowerCase().includes(normalizedQuery));
       })
-      .sort((left, right) => {
-        const routeCompare = (left.routeAssignment ?? "").localeCompare(right.routeAssignment ?? "", "es", { sensitivity: "base" });
-        if (routeCompare !== 0) return routeCompare;
-        return left.unitId.localeCompare(right.unitId, "es", { numeric: true, sensitivity: "base" });
-      });
+      .sort(compareActiveRouteItems);
   }, [items, payments, query]);
 
   const publishedAt = useMemo(() => {

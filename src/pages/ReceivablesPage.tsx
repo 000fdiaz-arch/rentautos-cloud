@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { compareActiveRouteItems } from "../activeRouteOrdering";
 import { exportReceivablesToExcel, exportReceivablesToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
 import {
@@ -861,11 +862,7 @@ export default function ReceivablesPage({
     activeRouteItems
       .filter((item) => !item.removedAt)
       .filter((item) => !activeRouteItemReleasedByPayment(item, payments))
-      .sort((left, right) => {
-        const routeCompare = (left.routeAssignment ?? "").localeCompare(right.routeAssignment ?? "", "es", { sensitivity: "base" });
-        if (routeCompare !== 0) return routeCompare;
-        return left.unitId.localeCompare(right.unitId, "es", { numeric: true, sensitivity: "base" });
-      })
+      .sort(compareActiveRouteItems)
   ), [activeRouteItems, payments]);
   const activeVisibleRouteClientIds = useMemo(
     () => new Set(activeVisibleRouteItems.map((item) => item.clientId)),
@@ -1562,6 +1559,10 @@ export default function ReceivablesPage({
         [clientId]: updatedRecord
       };
     });
+    updatePublishedRouteItem(clientId, (item) => ({
+      ...item,
+      routeAssignment
+    }));
   }
 
   function handleRouteUrgencyChange(clientId: string, value: RouteUrgency): void {
@@ -1600,6 +1601,10 @@ export default function ReceivablesPage({
         [clientId]: updatedRecord
       };
     });
+    updatePublishedRouteItem(clientId, (item) => ({
+      ...item,
+      urgency: routeUrgency
+    }));
   }
 
   function handleRemoveFromRoute(clientId: string): void {
