@@ -173,7 +173,9 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
               </div>
               <div className="route-search-meta">
                 <span>{item.daysLate > 0 ? `${item.daysLate} dias atraso` : "Sin atraso"}</span>
-                <span>{item.managementType === "cobrar_o_quitar" ? "Cobrar o quitar" : "Solo cobrar"}</span>
+                <span className={`route-search-management route-search-management--${item.managementType === "cobrar_o_quitar" ? "remove" : "collect"}`}>
+                  {item.managementType === "cobrar_o_quitar" ? "Cobrar o quitar" : "Solo cobrar"}
+                </span>
                 {item.whatsAppPhone ? <a href={`tel:${item.whatsAppPhone}`}>{item.whatsAppPhone}</a> : null}
               </div>
               {item.comment ? <p className="route-search-comment">{item.comment}</p> : null}

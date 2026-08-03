@@ -11510,6 +11510,18 @@ select.control-op-badge {
   text-decoration: none;
 }
 
+.route-search-meta .route-search-management--collect {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.route-search-meta .route-search-management--remove {
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  color: #c2410c;
+}
+
 .route-search-comment {
   margin: 10px 0 0;
   border-left: 3px solid var(--color-border);
