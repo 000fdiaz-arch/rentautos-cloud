@@ -315,6 +315,7 @@ export default function ReceivablesPage({
   const [workflowTab, setWorkflowTab] = useState<ReceivablesWorkflowTab>("management");
   const [routeSubTab, setRouteSubTab] = useState<RouteSubTab>("current");
   const [activeRouteFilter, setActiveRouteFilter] = useState<string>(ALL_ACTIVE_ROUTE_FILTER);
+  const [activeRouteSearchQuery, setActiveRouteSearchQuery] = useState<string>("");
   const viewMode: ReceivablesViewMode = "cartera";
   const [collectionClosuresByDate, setCollectionClosuresByDate] = useState<CollectionClosuresByDate>({});
   const [collectionClosuresLoaded, setCollectionClosuresLoaded] = useState<boolean>(false);
@@ -881,12 +882,25 @@ export default function ReceivablesPage({
       setActiveRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
     }
   }, [activeRouteFilter, activeRouteFilterOptions]);
-  const activeFilteredRouteItems = useMemo(() => (
-    activeVisibleRouteItems.filter((item) => (
-      activeRouteFilter === ALL_ACTIVE_ROUTE_FILTER ||
-      activeRouteFilterValue(item.routeAssignment) === activeRouteFilter
-    ))
-  ), [activeRouteFilter, activeVisibleRouteItems]);
+  const activeFilteredRouteItems = useMemo(() => {
+    const normalizedQuery = activeRouteSearchQuery.trim().toLowerCase();
+    return activeVisibleRouteItems
+      .filter((item) => (
+        activeRouteFilter === ALL_ACTIVE_ROUTE_FILTER ||
+        activeRouteFilterValue(item.routeAssignment) === activeRouteFilter
+      ))
+      .filter((item) => {
+        if (!normalizedQuery) return true;
+        return [
+          item.unitId,
+          item.clientName,
+          item.clientCedula ?? "",
+          item.whatsAppPhone ?? "",
+          item.routeAssignment ?? "",
+          item.comment ?? ""
+        ].some((value) => value.toLowerCase().includes(normalizedQuery));
+      });
+  }, [activeRouteFilter, activeRouteSearchQuery, activeVisibleRouteItems]);
   const activeVisibleRouteClientIds = useMemo(
     () => new Set(activeVisibleRouteItems.map((item) => item.clientId)),
     [activeVisibleRouteItems]
@@ -2580,6 +2594,18 @@ export default function ReceivablesPage({
               </div>
             </div>
             {activeRouteError ? <p className="error-text">{activeRouteError}</p> : null}
+            {activeVisibleRouteItems.length > 0 ? (
+              <label className="ar-active-route-search">
+                <span>Buscar en Ruta en calle</span>
+                <input
+                  type="search"
+                  value={activeRouteSearchQuery}
+                  onChange={(event) => setActiveRouteSearchQuery(event.target.value)}
+                  placeholder="Unidad, cliente, cedula, telefono, comentario..."
+                  autoComplete="off"
+                />
+              </label>
+            ) : null}
             {activeRouteFilterOptions.length > 0 ? (
               <div className="ar-active-route-filters" aria-label="Filtrar Ruta en calle">
                 <button
