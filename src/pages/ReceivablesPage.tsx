@@ -344,6 +344,7 @@ export default function ReceivablesPage({
   const [activeRouteItems, setActiveRouteItems] = useState<ActiveRouteItem[]>([]);
   const [activeRouteLoading, setActiveRouteLoading] = useState<boolean>(false);
   const [activeRouteError, setActiveRouteError] = useState<string>("");
+  const [activeRouteMessage, setActiveRouteMessage] = useState<string>("");
   const [publishedCustomRouteEditorByClient, setPublishedCustomRouteEditorByClient] = useState<Record<string, boolean>>({});
   const [publishedRouteCommentDraftByClient, setPublishedRouteCommentDraftByClient] = useState<Record<string, string>>({});
   const [isPublishedRouteDraftCustomRouteOpen, setIsPublishedRouteDraftCustomRouteOpen] = useState<boolean>(false);
@@ -1661,6 +1662,69 @@ export default function ReceivablesPage({
     }));
   }
 
+  function buildManagementRecordFromActiveRouteItem(
+    item: ActiveRouteItem,
+    previous: CollectionStatusRecord | undefined,
+    nowIso: string
+  ): CollectionStatusRecord {
+    const routeStatus = previous?.status && ROUTE_COLLECTION_STATUS_OPTIONS.some((option) => option.value === previous.status)
+      ? previous.status
+      : "route_collection";
+    const routeAssignment = normalizeRouteAssignment(item.routeAssignment ?? "");
+    const routeUrgency = normalizeRouteUrgency(item.urgency);
+
+    return {
+      ...previous,
+      status: routeStatus,
+      comment: previous?.comment ?? "",
+      updatedAt: nowIso,
+      managementType: item.managementType ?? previous?.managementType ?? "solo_cobrar",
+      managementAmount: item.releaseAmount,
+      managementComment: normalizeFieldManagementComment(item.comment ?? previous?.managementComment ?? ""),
+      managementUpdatedAt: nowIso,
+      routeReleaseAmount: item.releaseAmount,
+      routeReleaseUpdatedAt: nowIso,
+      routeAssignment,
+      routeAssignmentUpdatedAt: routeAssignment ? nowIso : undefined,
+      routeUrgency,
+      routeUrgencyUpdatedAt: routeUrgency === "normal" ? undefined : nowIso,
+      whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+      whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+      whatsAppMessageText: previous?.whatsAppMessageText,
+      supportNote: previous?.supportNote,
+      supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+      contactTime: previous?.contactTime,
+      contactTimeUpdatedAt: previous?.contactTimeUpdatedAt,
+      paymentPromiseDate: previous?.paymentPromiseDate,
+      paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
+    };
+  }
+
+  function syncActiveRouteItemsToManagement(items: ActiveRouteItem[], successMessage?: string): void {
+    if (isCollectionLocked) {
+      setActiveRouteMessage("");
+      setActiveRouteError(`La gestion de ${receivablesDateLabel} ya esta cerrada.`);
+      return;
+    }
+    const visibleItems = items.filter((item) => !item.removedAt);
+    if (visibleItems.length === 0) return;
+    const nowIso = new Date().toISOString();
+    for (const item of visibleItems) markClientStatusAsSaving(item.clientId);
+    setCollectionStatusByClient((current) => {
+      const next = { ...current };
+      for (const item of visibleItems) {
+        const updatedRecord = buildManagementRecordFromActiveRouteItem(item, current[item.clientId], nowIso);
+        next[item.clientId] = updatedRecord;
+        optimisticStatusByClientRef.current[item.clientId] = updatedRecord;
+      }
+      return next;
+    });
+    if (successMessage) {
+      setActiveRouteError("");
+      setActiveRouteMessage(successMessage);
+    }
+  }
+
   function handleRemoveFromRoute(clientId: string): void {
     if (isCollectionLocked) return;
     const nowIso = new Date().toISOString();
@@ -1727,6 +1791,7 @@ export default function ReceivablesPage({
 
   function updatePublishedRouteItem(clientId: string, updater: (item: ActiveRouteItem) => ActiveRouteItem): void {
     if (readOnly || !dataOwnerUserId) return;
+    setActiveRouteMessage("");
     const currentItem = activeRouteItems.find((item) => item.clientId === clientId);
     const updatedItem = currentItem ? updater(currentItem) : null;
     if (!updatedItem) return;
@@ -1738,6 +1803,7 @@ export default function ReceivablesPage({
       setActiveRouteError("No se pudo guardar la Ruta en calle.");
       void loadActiveRouteFromCloud();
     });
+    syncActiveRouteItemsToManagement([updatedItem]);
   }
 
   function handlePublishedRouteTypeChange(clientId: string, managementType: FieldManagementType): void {
@@ -1841,17 +1907,24 @@ export default function ReceivablesPage({
       routeStartedAt: nowIso
     };
     setPublishedRouteDraftError("");
+    setActiveRouteMessage("");
     try {
       await saveCloudActiveRouteItem(dataOwnerUserId, item);
       setActiveRouteItems((current) => {
         const remaining = current.filter((currentItem) => currentItem.clientId !== item.clientId);
         return [item, ...remaining];
       });
+      syncActiveRouteItemsToManagement([item]);
       setIsAddPublishedRouteOpen(false);
     } catch (error) {
       console.error("No se pudo agregar unidad a Ruta en calle.", error);
       setPublishedRouteDraftError("No se pudo agregar la unidad.");
     }
+  }
+
+  function handleSyncActiveRouteToManagement(): void {
+    if (readOnly) return;
+    syncActiveRouteItemsToManagement(activeVisibleRouteItems, "Ruta en calle sincronizada con Gestion.");
   }
 
   function handleRouteReleaseAmountChange(clientId: string, value: string): void {
@@ -2605,6 +2678,15 @@ export default function ReceivablesPage({
                 <button
                   type="button"
                   className="button ghost small"
+                  onClick={handleSyncActiveRouteToManagement}
+                  disabled={readOnly || activeVisibleRouteItems.length === 0 || isCollectionLocked}
+                  title={isCollectionLocked ? "La gestion esta cerrada para sincronizar." : undefined}
+                >
+                  Sincronizar gestion
+                </button>
+                <button
+                  type="button"
+                  className="button ghost small"
                   onClick={openAddPublishedRoute}
                   disabled={readOnly || publishedRouteAddRows.length === 0}
                   title={readOnly ? "No tienes permiso para editar cuentas por cobrar." : publishedRouteAddRows.length === 0 ? "No hay unidades disponibles para agregar." : undefined}
@@ -2622,6 +2704,7 @@ export default function ReceivablesPage({
               </div>
             </div>
             {activeRouteError ? <p className="error-text">{activeRouteError}</p> : null}
+            {activeRouteMessage ? <p className="hint">{activeRouteMessage}</p> : null}
             {activeVisibleRouteItems.length > 0 ? (
               <label className="ar-active-route-search">
                 <span>Buscar en Ruta en calle</span>
