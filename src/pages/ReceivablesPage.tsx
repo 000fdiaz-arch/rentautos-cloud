@@ -345,6 +345,7 @@ export default function ReceivablesPage({
   const [activeRouteLoading, setActiveRouteLoading] = useState<boolean>(false);
   const [activeRouteError, setActiveRouteError] = useState<string>("");
   const [publishedCustomRouteEditorByClient, setPublishedCustomRouteEditorByClient] = useState<Record<string, boolean>>({});
+  const [publishedRouteCommentDraftByClient, setPublishedRouteCommentDraftByClient] = useState<Record<string, string>>({});
   const [isPublishedRouteDraftCustomRouteOpen, setIsPublishedRouteDraftCustomRouteOpen] = useState<boolean>(false);
   const [isAddPublishedRouteOpen, setIsAddPublishedRouteOpen] = useState<boolean>(false);
   const [publishedRouteDraft, setPublishedRouteDraft] = useState<{
@@ -486,6 +487,14 @@ export default function ReceivablesPage({
     try {
       const rows = await loadCloudActiveRouteItems(dataOwnerUserId);
       setActiveRouteItems(rows);
+      setPublishedRouteCommentDraftByClient((current) => {
+        const visibleClientIds = new Set(rows.map((item) => item.clientId));
+        const next: Record<string, string> = {};
+        for (const [clientId, draft] of Object.entries(current)) {
+          if (visibleClientIds.has(clientId)) next[clientId] = draft;
+        }
+        return next;
+      });
     } catch (error) {
       console.error("No se pudo cargar la ruta en calle.", error);
       setActiveRouteError("No se pudo cargar la Ruta en calle.");
@@ -1700,6 +1709,11 @@ export default function ReceivablesPage({
     setActiveRouteError("");
     try {
       await removeCloudActiveRouteItem(dataOwnerUserId, clientId, "removed");
+      setPublishedRouteCommentDraftByClient((current) => {
+        const next = { ...current };
+        delete next[clientId];
+        return next;
+      });
       setActiveRouteItems((current) => current.map((item) => (
         item.clientId === clientId
           ? { ...item, removedAt: new Date().toISOString(), removedReason: "removed" }
@@ -1737,9 +1751,23 @@ export default function ReceivablesPage({
   }
 
   function handlePublishedRouteCommentChange(clientId: string, value: string): void {
+    setPublishedRouteCommentDraftByClient((current) => ({
+      ...current,
+      [clientId]: normalizeFieldManagementComment(value)
+    }));
+  }
+
+  function commitPublishedRouteComment(clientId: string): void {
+    const draft = publishedRouteCommentDraftByClient[clientId];
+    if (draft === undefined) return;
+    setPublishedRouteCommentDraftByClient((current) => {
+      const next = { ...current };
+      delete next[clientId];
+      return next;
+    });
     updatePublishedRouteItem(clientId, (item) => ({
       ...item,
-      comment: normalizeFieldManagementComment(value).trim() || undefined
+      comment: normalizeFieldManagementComment(draft).trim() || undefined
     }));
   }
 
@@ -2684,8 +2712,12 @@ export default function ReceivablesPage({
                               <input
                                 className="ar-route-list-comment"
                                 type="text"
-                                value={item.comment ?? ""}
+                                value={publishedRouteCommentDraftByClient[item.clientId] ?? item.comment ?? ""}
                                 onChange={(event) => handlePublishedRouteCommentChange(item.clientId, event.target.value)}
+                                onBlur={() => commitPublishedRouteComment(item.clientId)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") event.currentTarget.blur();
+                                }}
                                 placeholder="Comentario..."
                                 maxLength={25}
                                 disabled={readOnly}
@@ -2859,8 +2891,12 @@ export default function ReceivablesPage({
                             <input
                               className="ar-route-list-comment"
                               type="text"
-                              value={item.comment ?? ""}
+                              value={publishedRouteCommentDraftByClient[item.clientId] ?? item.comment ?? ""}
                               onChange={(event) => handlePublishedRouteCommentChange(item.clientId, event.target.value)}
+                              onBlur={() => commitPublishedRouteComment(item.clientId)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") event.currentTarget.blur();
+                              }}
                               placeholder="Comentario..."
                               maxLength={25}
                               disabled={readOnly}
