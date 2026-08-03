@@ -320,6 +320,16 @@ function getStatusOptionsForCut(_cutKey: CollectionCutKey): Array<{ value: Colle
   return DAILY_COLLECTION_STATUS_OPTIONS;
 }
 
+function liveRouteStatusOption(status: CollectionStatus): { value: CollectionStatus; label: string; description: string } {
+  if (status === "route_collection") {
+    return { value: status, label: "Cobro en ruta", description: COLLECTION_STATUS_HELP.route_collection };
+  }
+  if (status === "route_not_sent") {
+    return { value: status, label: "No enviado a ruta", description: COLLECTION_STATUS_HELP.route_not_sent };
+  }
+  return { value: status, label: "Cobro en ruta", description: COLLECTION_STATUS_HELP.route };
+}
+
 function getRouteStatusLabel(status: CollectionStatus): string {
   return ROUTE_COLLECTION_STATUS_OPTIONS.find((option) => option.value === status)?.label
     ?? DAILY_COLLECTION_STATUS_OPTIONS.find((option) => option.value === status)?.label
@@ -476,7 +486,10 @@ function ReceivableTableRowComponent({
       ? statusRecord.status
       : undefined;
     const rawValue = liveRouteStatus ?? item?.collectionStatus ?? (cutKey === "night" ? statusRecord?.status : undefined) ?? defaultCollectionStatus(row, operationalStatus, cutKey);
-    const statusOptions = workflowTab === "route" ? ROUTE_COLLECTION_STATUS_OPTIONS : getStatusOptionsForCut(cutKey);
+    const baseStatusOptions = workflowTab === "route" ? ROUTE_COLLECTION_STATUS_OPTIONS : getStatusOptionsForCut(cutKey);
+    const statusOptions = liveRouteStatus && !baseStatusOptions.some((option) => option.value === liveRouteStatus)
+      ? [...baseStatusOptions, liveRouteStatusOption(liveRouteStatus)]
+      : baseStatusOptions;
     const value = statusOptions.some((option) => option.value === rawValue) ? rawValue : "";
     const routeReleaseAmount = item?.managementAmount ?? statusRecord?.routeReleaseAmount;
     const selectedStatusHelp = value ? COLLECTION_STATUS_HELP[value as CollectionStatus] : undefined;
