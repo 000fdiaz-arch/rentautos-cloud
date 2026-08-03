@@ -8372,6 +8372,36 @@ select.control-op-badge {
   box-shadow: 0 7px 16px rgba(30, 64, 175, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
+.ar-whatsapp-image-button--copying,
+.ar-whatsapp-image-button--copying:disabled {
+  width: 112px;
+  min-width: 112px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-color: rgba(37, 99, 235, 0.58);
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.ar-copy-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(29, 78, 216, 0.22);
+  border-top-color: #1d4ed8;
+  border-radius: 999px;
+  animation: ar-copy-spin 0.8s linear infinite;
+}
+
+@keyframes ar-copy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .ar-phone-edit-icon {
   position: relative;
   z-index: 1;

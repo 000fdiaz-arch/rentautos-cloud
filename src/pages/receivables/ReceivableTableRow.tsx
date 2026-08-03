@@ -420,7 +420,7 @@ function ReceivableTableRowComponent({
   const deliveryStatusTitle = whatsAppIsResolved
     ? sentTime ? `Enviado a las ${sentTime}` : "Marcado como enviado"
     : "Sugerido: marcar como enviado si lo mandaste manualmente";
-  const balanceImageTitle = "Copiar imagen de saldo";
+  const balanceImageTitle = isCopyingBalanceImage ? "Copiando estado de cuenta..." : "Copiar imagen de saldo";
   const visibleCutOptions = visibleCutKey === "all"
     ? COLLECTION_CUT_OPTIONS
     : COLLECTION_CUT_OPTIONS.filter((option) => option.key === visibleCutKey);
@@ -557,16 +557,23 @@ function ReceivableTableRowComponent({
                   </div>
                   {!isRouteWorkflow ? (
                     <>
-                      {showStatementSuggestion && requiresStatementSuggestion ? (
+                      {showStatementSuggestion ? (
                         <button
                           type="button"
-                          className="button ghost small ar-whatsapp-phone-edit ar-whatsapp-image-button"
+                          className={`button ghost small ar-whatsapp-phone-edit ar-whatsapp-image-button ${isCopyingBalanceImage ? "ar-whatsapp-image-button--copying" : ""}`}
                           onClick={() => void handleCopyBalanceImage()}
                           disabled={isTodayCollectionClosed || isCopyingBalanceImage}
                           title={balanceImageTitle}
                           aria-label={balanceImageTitle}
                         >
-                          <BalanceImageIcon />
+                          {isCopyingBalanceImage ? (
+                            <>
+                              <span className="ar-copy-spinner" aria-hidden="true" />
+                              <span>Copiando...</span>
+                            </>
+                          ) : (
+                            <BalanceImageIcon />
+                          )}
                         </button>
                       ) : null}
                       {showStatementSuggestion ? (
