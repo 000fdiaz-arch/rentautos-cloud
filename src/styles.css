@@ -11439,12 +11439,32 @@ select.control-op-badge {
 }
 
 .route-search-amounts {
+  align-items: stretch;
   margin-top: 10px;
 }
 
 .route-search-amounts > div {
   display: grid;
   gap: 2px;
+}
+
+.route-search-release-amount,
+.route-search-overdue-amount {
+  border-radius: 8px;
+  padding: 9px 11px;
+}
+
+.route-search-release-amount {
+  min-width: 154px;
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+}
+
+.route-search-overdue-amount {
+  min-width: 120px;
+  border: 1px solid #fee2e2;
+  background: #fff7f7;
+  text-align: right;
 }
 
 .route-search-amounts small {
@@ -11454,7 +11474,21 @@ select.control-op-badge {
   text-transform: uppercase;
 }
 
-.route-search-amounts strong {
+.route-search-release-amount small {
+  color: #166534;
+}
+
+.route-search-release-amount strong {
+  color: #087a38;
+  font-size: 1.7rem;
+  line-height: 1;
+}
+
+.route-search-overdue-amount small {
+  color: #991b1b;
+}
+
+.route-search-overdue-amount strong {
   color: var(--color-debt);
   font-size: 1.1rem;
 }

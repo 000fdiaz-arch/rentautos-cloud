@@ -162,11 +162,11 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
                 </div>
               ) : null}
               <div className="route-search-amounts">
-                <div>
+                <div className="route-search-release-amount">
                   <small>Min. liberar</small>
                   <strong>{formatCurrency(item.releaseAmount)}</strong>
                 </div>
-                <div>
+                <div className="route-search-overdue-amount">
                   <small>Vencido</small>
                   <strong>{formatCurrency(item.overdueBalance)}</strong>
                 </div>
