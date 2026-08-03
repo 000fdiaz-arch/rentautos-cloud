@@ -1,4 +1,4 @@
-export type AppRole = "admin" | "operador" | "lectura";
+export type AppRole = "admin" | "operador" | "lectura" | "buscador";
 
 export type Permission =
   | "operational.read"
@@ -9,7 +9,7 @@ export type Permission =
   | "users.manage"
   | "cash.manage";
 
-export type AppScreen = "leads" | "clients" | "payments" | "receivables" | "control_units" | "settings" | "users";
+export type AppScreen = "leads" | "clients" | "payments" | "receivables" | "route_search" | "control_units" | "settings" | "users";
 
 export type ScreenAccess = {
   view: boolean;
@@ -23,6 +23,7 @@ export const APP_SCREENS: Array<{ id: AppScreen; label: string }> = [
   { id: "clients", label: "Clientes" },
   { id: "payments", label: "Pagos" },
   { id: "receivables", label: "Cuentas por cobrar" },
+  { id: "route_search", label: "Vista Buscador" },
   { id: "control_units", label: "Autos" },
   { id: "settings", label: "Configuraciones" },
   { id: "users", label: "Usuarios" }
@@ -46,6 +47,9 @@ const ROLE_PERMISSIONS: Record<AppRole, ReadonlySet<Permission>> = {
   ]),
   lectura: new Set([
     "operational.read"
+  ]),
+  buscador: new Set([
+    "operational.read"
   ])
 };
 
@@ -55,6 +59,7 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     clients: { view: true, edit: true },
     payments: { view: true, edit: true },
     receivables: { view: true, edit: true },
+    route_search: { view: true, edit: true },
     control_units: { view: true, edit: true },
     settings: { view: true, edit: true },
     users: { view: true, edit: true }
@@ -64,6 +69,7 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     clients: { view: true, edit: true },
     payments: { view: true, edit: true },
     receivables: { view: true, edit: true },
+    route_search: { view: false, edit: false },
     control_units: { view: true, edit: true },
     settings: { view: false, edit: false },
     users: { view: false, edit: false }
@@ -73,14 +79,25 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     clients: { view: false, edit: false },
     payments: { view: false, edit: false },
     receivables: { view: false, edit: false },
+    route_search: { view: false, edit: false },
     control_units: { view: true, edit: false },
+    settings: { view: false, edit: false },
+    users: { view: false, edit: false }
+  },
+  buscador: {
+    leads: { view: false, edit: false },
+    clients: { view: false, edit: false },
+    payments: { view: false, edit: false },
+    receivables: { view: false, edit: false },
+    route_search: { view: true, edit: false },
+    control_units: { view: false, edit: false },
     settings: { view: false, edit: false },
     users: { view: false, edit: false }
   }
 };
 
 export function isAppRole(value: unknown): value is AppRole {
-  return value === "admin" || value === "operador" || value === "lectura";
+  return value === "admin" || value === "operador" || value === "lectura" || value === "buscador";
 }
 
 export function normalizeAppRole(value: unknown): AppRole {
@@ -135,6 +152,7 @@ export function canWriteOperationalData(role: AppRole, permissions = getRoleScre
     canEditScreen(permissions, "payments") ||
     canEditScreen(permissions, "receivables") ||
     canEditScreen(permissions, "leads") ||
+    canEditScreen(permissions, "route_search") ||
     canEditScreen(permissions, "control_units")
   );
 }
@@ -148,11 +166,12 @@ export function canManageUsers(role: AppRole, permissions = getRoleScreenPermiss
 }
 
 export function canUseReadOnlyExperience(role: AppRole, permissions = getRoleScreenPermissions(role)): boolean {
-  return role === "lectura" || (
+  return role === "lectura" || role === "buscador" || (
     !canEditScreen(permissions, "clients") &&
     !canEditScreen(permissions, "payments") &&
     !canEditScreen(permissions, "receivables") &&
     !canEditScreen(permissions, "leads") &&
+    !canEditScreen(permissions, "route_search") &&
     !canEditScreen(permissions, "control_units")
   );
 }

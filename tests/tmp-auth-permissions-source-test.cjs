@@ -9,7 +9,7 @@ const policyResetSource = fs.readFileSync(path.join(root, "supabase", "19-reset-
 const screenPermissionsSource = fs.readFileSync(path.join(root, "supabase", "20-screen-permissions.sql"), "utf8");
 const userAdminPasswordsSource = fs.readFileSync(path.join(root, "supabase", "21-user-admin-passwords.sql"), "utf8");
 
-for (const role of ["admin", "operador", "lectura"]) {
+for (const role of ["admin", "operador", "lectura", "buscador"]) {
   assert.match(permissionsSource, new RegExp(`${role}: new Set`), `Falta el rol ${role} en permissions.ts`);
 }
 
@@ -22,7 +22,7 @@ for (const permission of [
   assert.match(permissionsSource, new RegExp(`"${permission}"`), `Falta el permiso ${permission}`);
 }
 
-for (const screen of ["leads", "clients", "payments", "control_units", "settings", "users"]) {
+for (const screen of ["leads", "clients", "payments", "receivables", "route_search", "control_units", "settings", "users"]) {
   assert.match(permissionsSource, new RegExp(`"${screen}"`), `Falta pantalla ${screen} en permissions.ts`);
 }
 

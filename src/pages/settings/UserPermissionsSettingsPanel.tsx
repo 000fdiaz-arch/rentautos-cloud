@@ -23,6 +23,7 @@ type Props = {
 const ROLE_OPTIONS: Array<{ value: AppRole; label: string }> = [
   { value: "admin", label: "Admin" },
   { value: "operador", label: "Operador" },
+  { value: "buscador", label: "Buscador" },
   { value: "lectura", label: "Lectura" }
 ];
 

@@ -6,9 +6,12 @@ import {
   loadCloudLatestPaymentsForReceivableTargets,
   loadCloudStreetManagement,
   loadControlUnits,
+  publishCloudActiveRouteItems,
+  removeCloudActiveRouteItem,
   saveCloudCollectionClosures,
   saveCloudStreetManagement,
   syncCloudStreetManagementDelta,
+  type ActiveRouteItem,
   type ControlUnitRow
 } from "../cloudData";
 import { supabase } from "../lib/supabase";
@@ -223,6 +226,30 @@ function paymentReleasesRoute(payment: Payment, clientId: string, releaseAmount:
 function hasRouteReleaseAmount(record: CollectionStatusRecord | undefined): boolean {
   const amount = record?.routeReleaseAmount ?? record?.managementAmount;
   return typeof amount === "number" && amount > 0;
+}
+
+function buildActiveRouteItem(row: ReceivableRow, record: CollectionStatusRecord, publishedAt: string): ActiveRouteItem | null {
+  const releaseAmount = record.routeReleaseAmount ?? record.managementAmount;
+  if (!releaseAmount || releaseAmount <= 0) return null;
+  const routeStartedAt = record.routeReleaseUpdatedAt ?? record.managementUpdatedAt ?? record.updatedAt ?? publishedAt;
+  return {
+    clientId: row.id,
+    unitId: row.unitId,
+    clientName: row.name,
+    clientCedula: row.cedula && row.cedula !== "-" ? row.cedula : undefined,
+    whatsAppPhone: row.whatsAppPhone,
+    routeAssignment: record.routeAssignment,
+    managementType: record.managementType ?? "solo_cobrar",
+    releaseAmount,
+    pendingAmount: row.totalPending,
+    overdueBalance: row.overdueBalance,
+    rentAmount: row.rentAmount,
+    daysLate: row.daysLate,
+    lastPaymentDate: row.lastPaymentDate,
+    comment: record.managementComment?.trim() || undefined,
+    publishedAt,
+    routeStartedAt
+  };
 }
 
 function routeMissingAmountMessage(rows: ReceivableRow[]): string {
@@ -721,8 +748,15 @@ export default function ReceivablesPage({
     if (changedStatus) {
       setCollectionStatusByClient(nextStatusByClient);
       latestCollectionStatusByClientRef.current = nextStatusByClient;
+      if (dataOwnerUserId) {
+        for (const clientId of releasedClientIds) {
+          void removeCloudActiveRouteItem(dataOwnerUserId, clientId, "paid").catch((error) => {
+            console.error("No se pudo limpiar la ruta publicada por pago.", error);
+          });
+        }
+      }
     }
-  }, [collectionStatusByClient, payments]);
+  }, [collectionStatusByClient, dataOwnerUserId, payments]);
 
   const filteredRows = useMemo(() => filterReceivableRows(baseRows, filters), [baseRows, filters]);
   const whatsAppGroupRowsByClient = useMemo(() => {
@@ -1436,6 +1470,11 @@ export default function ReceivablesPage({
     if (isCollectionLocked) return;
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
+    if (dataOwnerUserId) {
+      void removeCloudActiveRouteItem(dataOwnerUserId, clientId, "removed").catch((error) => {
+        console.error("No se pudo sacar de la ruta publicada.", error);
+      });
+    }
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       if (!previous) return current;
@@ -1867,7 +1906,20 @@ export default function ReceivablesPage({
         format: formatOverride ?? routeExportFormat,
         now
       });
-      if (!exported) setExportError("No hay registros con Cobro en Ruta para exportar.");
+      if (!exported) {
+        setExportError("No hay registros con Cobro en Ruta para exportar.");
+        return;
+      }
+      if (dataOwnerUserId) {
+        const activeRouteItems = baseRows
+          .map((row) => {
+            const record = statusByClientForRoute[row.id];
+            if (!record || !isRouteRowFromMap(row)) return null;
+            return buildActiveRouteItem(row, record, exportedAt);
+          })
+          .filter((item): item is ActiveRouteItem => item !== null);
+        await publishCloudActiveRouteItems(dataOwnerUserId, activeRouteItems);
+      }
     } catch {
       setExportError("No se pudo exportar Cobro en Ruta.");
     } finally {

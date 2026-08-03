@@ -60,6 +60,7 @@ const ClientsPage = lazy(() => import("./pages/ClientsPage"));
 const LeadsPage = lazy(() => import("./pages/LeadsPage"));
 const PaymentsPage = lazy(() => import("./pages/PaymentsPage"));
 const ReceivablesPage = lazy(() => import("./pages/ReceivablesPage"));
+const RouteSearchPage = lazy(() => import("./pages/RouteSearchPage"));
 const InsuranceWorkflowPage = lazy(() => import("./pages/InsuranceWorkflowPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const ControlUnitsPage = lazy(() => import("./pages/ControlUnitsPage"));
@@ -127,12 +128,14 @@ function getFirstVisiblePage(visibility: {
   canViewClients: boolean;
   canViewPayments: boolean;
   canViewReceivables: boolean;
+  canViewRouteSearch: boolean;
   canViewControlUnits: boolean;
   canViewSettingsPage: boolean;
 }): AppPage {
   if (visibility.canViewClients) return "clients";
   if (visibility.canViewPayments) return "payments";
   if (visibility.canViewReceivables) return "receivables";
+  if (visibility.canViewRouteSearch) return "route_search";
   if (visibility.canViewLeads) return "leads";
   if (visibility.canViewControlUnits) return "control_units";
   if (visibility.canViewSettingsPage) return "settings";
@@ -159,13 +162,14 @@ export default function AppShell({
   const canEditPayments = canEditScreen(permissions, "payments");
   const canViewReceivables = canViewScreen(permissions, "receivables");
   const canEditReceivables = canEditScreen(permissions, "receivables");
+  const canViewRouteSearch = canViewScreen(permissions, "route_search");
   const canViewControlUnits = canViewScreen(permissions, "control_units");
   const canEditControlUnits = canEditScreen(permissions, "control_units");
   const canViewSettings = canViewScreen(permissions, "settings");
   const canEditSettings = canEditScreen(permissions, "settings") && canManageSettings;
   const canViewSettingsPage = canViewSettings || canManageUsers;
   const isReadOnlyReceivables = isReadOnlyExperience || !canEditReceivables;
-  const shouldSyncCoreData = canViewClients || canViewPayments || canViewReceivables || canViewSettingsPage;
+  const shouldSyncCoreData = canViewClients || canViewPayments || canViewReceivables || canViewRouteSearch || canViewSettingsPage;
   const shouldLoadCloudSettings = canViewPayments || canViewSettingsPage;
   const cloudMirrorHydrationKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -184,6 +188,7 @@ export default function AppShell({
     canViewClients,
     canViewPayments,
     canViewReceivables,
+    canViewRouteSearch,
     canViewControlUnits,
     canViewSettingsPage
   }));
@@ -253,6 +258,7 @@ export default function AppShell({
       clients: canViewClients,
       payments: canViewPayments,
       receivables: canViewReceivables,
+      route_search: canViewRouteSearch,
       insurance_workflow: canViewReceivables,
       control_units: canViewControlUnits,
       settings: canViewSettingsPage
@@ -263,12 +269,13 @@ export default function AppShell({
         canViewClients,
         canViewPayments,
         canViewReceivables,
+        canViewRouteSearch,
         canViewControlUnits,
         canViewSettingsPage
       }));
       return;
     }
-  }, [canViewClients, canViewControlUnits, canViewLeads, canViewPayments, canViewReceivables, canViewSettingsPage, page]);
+  }, [canViewClients, canViewControlUnits, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage, page]);
 
   useEffect(() => {
     let cancelled = false;
@@ -806,6 +813,7 @@ export default function AppShell({
         canViewClients={canViewClients}
         canViewPayments={canViewPayments}
         canViewReceivables={canViewReceivables}
+        canViewRouteSearch={canViewRouteSearch}
         canViewControlUnits={canViewControlUnits}
         canViewSettings={canViewSettingsPage}
         showCoreSyncStatus={shouldSyncCoreData}
@@ -891,6 +899,12 @@ export default function AppShell({
               setHasPendingChanges(true);
               return true;
             }}
+          />
+        )}
+        {page === "route_search" && canViewRouteSearch && (
+          <RouteSearchPage
+            dataOwnerUserId={cloudDataUserId}
+            payments={payments}
           />
         )}
         {page === "insurance_workflow" && canViewReceivables && (

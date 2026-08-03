@@ -1039,6 +1039,126 @@ export type ControlUnitUpsertInput = {
   [key: string]: unknown;
 };
 
+export type ActiveRouteItem = {
+  clientId: string;
+  unitId: string;
+  clientName: string;
+  clientCedula?: string;
+  whatsAppPhone?: string;
+  routeAssignment?: string;
+  managementType?: "solo_cobrar" | "cobrar_o_quitar";
+  releaseAmount: number;
+  pendingAmount: number;
+  overdueBalance: number;
+  rentAmount: number;
+  daysLate: number;
+  lastPaymentDate: string | null;
+  comment?: string;
+  publishedAt: string;
+  routeStartedAt: string;
+  removedAt?: string;
+  removedReason?: "paid" | "removed";
+};
+
+function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const clientId = typeof row.clientId === "string" ? row.clientId : "";
+  const unitId = typeof row.unitId === "string" ? row.unitId : "";
+  const clientName = typeof row.clientName === "string" ? row.clientName : "";
+  const releaseAmount = typeof row.releaseAmount === "number" ? row.releaseAmount : Number(row.releaseAmount);
+  const pendingAmount = typeof row.pendingAmount === "number" ? row.pendingAmount : Number(row.pendingAmount);
+  const overdueBalance = typeof row.overdueBalance === "number" ? row.overdueBalance : Number(row.overdueBalance);
+  const rentAmount = typeof row.rentAmount === "number" ? row.rentAmount : Number(row.rentAmount);
+  const daysLate = typeof row.daysLate === "number" ? row.daysLate : Number(row.daysLate);
+  const publishedAt = typeof row.publishedAt === "string" ? row.publishedAt : "";
+  const routeStartedAt = typeof row.routeStartedAt === "string" ? row.routeStartedAt : publishedAt;
+  if (!clientId || !unitId || !clientName || !Number.isFinite(releaseAmount) || releaseAmount <= 0 || !publishedAt) return null;
+  return {
+    clientId,
+    unitId,
+    clientName,
+    clientCedula: typeof row.clientCedula === "string" ? row.clientCedula : undefined,
+    whatsAppPhone: typeof row.whatsAppPhone === "string" ? row.whatsAppPhone : undefined,
+    routeAssignment: typeof row.routeAssignment === "string" ? row.routeAssignment : undefined,
+    managementType: row.managementType === "cobrar_o_quitar" ? "cobrar_o_quitar" : "solo_cobrar",
+    releaseAmount,
+    pendingAmount: Number.isFinite(pendingAmount) ? pendingAmount : 0,
+    overdueBalance: Number.isFinite(overdueBalance) ? overdueBalance : 0,
+    rentAmount: Number.isFinite(rentAmount) ? rentAmount : 0,
+    daysLate: Number.isFinite(daysLate) ? daysLate : 0,
+    lastPaymentDate: typeof row.lastPaymentDate === "string" ? row.lastPaymentDate : null,
+    comment: typeof row.comment === "string" ? row.comment : undefined,
+    publishedAt,
+    routeStartedAt,
+    removedAt: typeof row.removedAt === "string" ? row.removedAt : undefined,
+    removedReason: row.removedReason === "paid" || row.removedReason === "removed" ? row.removedReason : undefined
+  };
+}
+
+export async function loadCloudActiveRouteItems(userId: string): Promise<ActiveRouteItem[]> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("active_route_items_cloud")
+    .select("client_id,data")
+    .eq("user_id", userId);
+  if (error) throw error;
+  return ((data ?? []) as Array<{ client_id?: unknown; data?: unknown }>)
+    .map((row) => normalizeActiveRouteItem(row.data))
+    .filter((item): item is ActiveRouteItem => item !== null);
+}
+
+export async function publishCloudActiveRouteItems(userId: string, items: ActiveRouteItem[]): Promise<void> {
+  const client = getCloudClient();
+  const rows = items.map((item) => ({
+    user_id: userId,
+    client_id: item.clientId,
+    data: item,
+    updated_at: new Date().toISOString()
+  }));
+  const { error: clearError } = await client
+    .from("active_route_items_cloud")
+    .delete()
+    .eq("user_id", userId);
+  if (clearError) throw clearError;
+  if (rows.length === 0) return;
+  const { error } = await client
+    .from("active_route_items_cloud")
+    .upsert(rows, { onConflict: "user_id,client_id" });
+  if (error) throw error;
+}
+
+export async function removeCloudActiveRouteItem(
+  userId: string,
+  clientId: string,
+  reason: "paid" | "removed"
+): Promise<void> {
+  const client = getCloudClient();
+  const { data, error: loadError } = await client
+    .from("active_route_items_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .eq("client_id", clientId)
+    .maybeSingle<{ data?: unknown }>();
+  if (loadError) throw loadError;
+  const current = normalizeActiveRouteItem(data?.data);
+  if (!current) return;
+  const updated: ActiveRouteItem = {
+    ...current,
+    removedAt: new Date().toISOString(),
+    removedReason: reason
+  };
+  const { error } = await client
+    .from("active_route_items_cloud")
+    .upsert({
+      user_id: userId,
+      client_id: clientId,
+      data: updated,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "user_id,client_id" });
+  if (error) throw error;
+}
+
 function toControlUnitCloudPayload(input: ControlUnitUpsertInput): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     user_id: input.user_id,
