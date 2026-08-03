@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { inlineComputedStylesForCanvas } from "../canvasExportStyles";
 import { formatCurrency, formatDate } from "../format";
 import { findNextChargeDay, startOfDay } from "../billing";
 import type { Payment } from "../types";
@@ -72,13 +73,18 @@ async function renderReceiptCanvasFromPayment(payment: Payment, options: Receipt
     }
 
     const html2canvas = (await import("html2canvas")).default;
-    return html2canvas(target, {
-      scale: options.format === "history" ? HISTORY_RECEIPT_IMAGE_SCALE : RECEIPT_IMAGE_SCALE,
-      backgroundColor: "#ffffff",
-      useCORS: true,
-      width: target.scrollWidth,
-      height: target.scrollHeight
-    });
+    const restoreStyles = inlineComputedStylesForCanvas(target);
+    try {
+      return await html2canvas(target, {
+        scale: options.format === "history" ? HISTORY_RECEIPT_IMAGE_SCALE : RECEIPT_IMAGE_SCALE,
+        backgroundColor: "#ffffff",
+        useCORS: true,
+        width: target.scrollWidth,
+        height: target.scrollHeight
+      });
+    } finally {
+      restoreStyles();
+    }
   } finally {
     root.unmount();
     document.body.removeChild(host);
@@ -87,13 +93,18 @@ async function renderReceiptCanvasFromPayment(payment: Payment, options: Receipt
 
 async function renderReceiptCanvasFromElement(target: HTMLElement): Promise<HTMLCanvasElement> {
   const html2canvas = (await import("html2canvas")).default;
-  return html2canvas(target, {
-    scale: RECEIPT_IMAGE_SCALE,
-    backgroundColor: "#ffffff",
-    useCORS: true,
-    width: target.scrollWidth,
-    height: target.scrollHeight
-  });
+  const restoreStyles = inlineComputedStylesForCanvas(target);
+  try {
+    return await html2canvas(target, {
+      scale: RECEIPT_IMAGE_SCALE,
+      backgroundColor: "#ffffff",
+      useCORS: true,
+      width: target.scrollWidth,
+      height: target.scrollHeight
+    });
+  } finally {
+    restoreStyles();
+  }
 }
 
 export async function downloadPaymentReceiptImage(payment: Payment, renderedCard?: HTMLElement | null): Promise<void> {

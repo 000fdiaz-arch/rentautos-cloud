@@ -10,6 +10,7 @@ import {
   COLLECTION_STATUS_OPTIONS,
   ROUTE_ASSIGNMENT_OPTIONS,
   ROUTE_COLLECTION_STATUS_OPTIONS,
+  ROUTE_URGENCY_OPTIONS,
   normalizeRouteAssignment,
   stateToneClass,
   type CollectionClosureItem,
@@ -51,6 +52,7 @@ type Props = {
   onRouteManagementTypeChange: (clientId: string, value: "solo_cobrar" | "cobrar_o_quitar") => void;
   onRouteManagementCommentChange: (clientId: string, value: string) => void;
   onRouteAssignmentChange: (clientId: string, value: string) => void;
+  onRouteUrgencyChange: (clientId: string, value: "normal" | "urgent" | "very_urgent") => void;
   onRouteReleaseAmountChange: (clientId: string, value: string) => void;
   onRemoveFromRoute: (clientId: string) => void;
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
@@ -136,6 +138,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   onRouteManagementTypeChange,
   onRouteManagementCommentChange,
   onRouteAssignmentChange,
+  onRouteUrgencyChange,
   onRouteReleaseAmountChange,
   onRemoveFromRoute,
   onWhatsAppMessageSent,
@@ -174,6 +177,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               <th>Min. liberar</th>
               <th>Comentario</th>
               <th>Ruta</th>
+              <th>Alarma</th>
               <th>Accion</th>
             </tr>
           </thead>
@@ -182,10 +186,11 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               const statusRecord = collectionStatusByClient[row.id];
               const routeReleaseAmount = statusRecord?.routeReleaseAmount ?? statusRecord?.managementAmount;
               const routeAssignment = statusRecord?.routeAssignment ?? "";
+              const routeUrgency = statusRecord?.routeUrgency ?? "normal";
               const isCustomRouteAssignment = !!routeAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(routeAssignment);
               const isCustomRouteEditorOpen = isCustomRouteAssignment || !!customRouteEditorByClient[row.id];
               return (
-                <tr key={row.id}>
+                <tr key={row.id} className={routeUrgency !== "normal" ? `ar-route-urgency-row ar-route-urgency-row--${routeUrgency}` : undefined}>
                   <td><strong className="ar-unit-id">{row.unitId}</strong></td>
                   <td>
                     <span className="client-name ar-route-client-name" title={row.name}>{firstName(row.name)}</span>
@@ -280,6 +285,18 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                     </div>
                   </td>
                   <td>
+                    <select
+                      className={`ar-route-urgency-select ar-route-urgency-select--${routeUrgency}`}
+                      value={routeUrgency}
+                      onChange={(event) => onRouteUrgencyChange(row.id, event.target.value as "normal" | "urgent" | "very_urgent")}
+                      disabled={isTodayCollectionClosed}
+                    >
+                      {ROUTE_URGENCY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
                     <button
                       type="button"
                       className="button ghost small ar-route-list-remove"
@@ -299,13 +316,14 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
             const statusRecord = collectionStatusByClient[row.id];
             const routeReleaseAmount = statusRecord?.routeReleaseAmount ?? statusRecord?.managementAmount;
             const routeAssignment = statusRecord?.routeAssignment ?? "";
+            const routeUrgency = statusRecord?.routeUrgency ?? "normal";
             const isCustomRouteAssignment = !!routeAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(routeAssignment);
             const isCustomRouteEditorOpen = isCustomRouteAssignment || !!customRouteEditorByClient[row.id];
             const routeStatus = ROUTE_COLLECTION_STATUS_OPTIONS.some((option) => option.value === statusRecord?.status)
               ? statusRecord?.status ?? "route"
               : "route";
             return (
-              <article className="ar-route-mobile-card" key={`mobile-route-${row.id}`}>
+              <article className={`ar-route-mobile-card ${routeUrgency !== "normal" ? `ar-route-mobile-card--${routeUrgency}` : ""}`} key={`mobile-route-${row.id}`}>
                 <div className="ar-route-mobile-head">
                   <div className="ar-route-mobile-unit">
                     <strong className="ar-unit-id">{row.unitId}</strong>
@@ -316,6 +334,11 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                     <strong>{formatCurrency(row.overdueBalance)}</strong>
                   </div>
                 </div>
+                {routeUrgency !== "normal" ? (
+                  <div className={`ar-route-alarm ar-route-alarm--${routeUrgency}`}>
+                    {routeUrgency === "very_urgent" ? "Muy urgente" : "Urgente"}
+                  </div>
+                ) : null}
 
                 <div className="ar-route-mobile-meta">
                   <span>{row.daysLate > 0 ? `${row.daysLate} dias de atraso` : "Sin atraso"}</span>
@@ -404,6 +427,19 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                         <option value="__custom">Otra</option>
                       </select>
                     )}
+                  </label>
+                  <label>
+                    <span>Alarma</span>
+                    <select
+                      className={`ar-route-urgency-select ar-route-urgency-select--${routeUrgency}`}
+                      value={routeUrgency}
+                      onChange={(event) => onRouteUrgencyChange(row.id, event.target.value as "normal" | "urgent" | "very_urgent")}
+                      disabled={isTodayCollectionClosed}
+                    >
+                      {ROUTE_URGENCY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
                   </label>
                   <label className="ar-route-mobile-comment">
                     <span>Comentario</span>

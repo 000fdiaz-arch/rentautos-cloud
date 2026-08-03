@@ -151,7 +151,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
       ) : (
         <div className="route-search-list">
           {visibleItems.map((item) => (
-            <article className="route-search-card" key={item.clientId}>
+            <article className={`route-search-card ${item.urgency && item.urgency !== "normal" ? `route-search-card--${item.urgency}` : ""}`} key={item.clientId}>
               <div className="route-search-card-head">
                 <div>
                   <strong>{item.unitId}</strong>
@@ -159,6 +159,11 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
                 </div>
                 <span className="route-search-route">{item.routeAssignment || "Sin ruta"}</span>
               </div>
+              {item.urgency && item.urgency !== "normal" ? (
+                <div className={`route-search-alarm route-search-alarm--${item.urgency}`}>
+                  {item.urgency === "very_urgent" ? "Muy urgente" : "Urgente"}
+                </div>
+              ) : null}
               <div className="route-search-amounts">
                 <div>
                   <small>Min. liberar</small>

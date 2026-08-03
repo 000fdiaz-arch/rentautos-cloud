@@ -14,6 +14,7 @@ export type FieldManagementType = "solo_cobrar" | "cobrar_o_quitar";
 export type RouteExportFormat = "jpg" | "pdf" | "excel";
 export type WhatsAppContactFilter = "all" | "pending" | "ready" | "sent" | "idle";
 export type RouteAssignment = "PTY" | "WC" | "CL" | (string & {});
+export type RouteUrgency = "normal" | "urgent" | "very_urgent";
 
 export type CollectionStatusRecord = {
   status: CollectionStatus;
@@ -27,6 +28,8 @@ export type CollectionStatusRecord = {
   routeReleaseUpdatedAt?: string;
   routeAssignment?: RouteAssignment;
   routeAssignmentUpdatedAt?: string;
+  routeUrgency?: RouteUrgency;
+  routeUrgencyUpdatedAt?: string;
   whatsAppMessageCopiedAt?: string;
   whatsAppMessageSentAt?: string;
   whatsAppMessageText?: string;

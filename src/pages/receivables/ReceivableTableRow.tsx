@@ -1,5 +1,6 @@
 import { memo, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { inlineComputedStylesForCanvas } from "../../canvasExportStyles";
 import { formatCurrency, formatDate } from "../../format";
 import { PLAN_LABEL, STATE_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivables";
 import type { CollectionStatus, CollectionStatusRecord } from "./receivablesTypes";
@@ -251,13 +252,18 @@ async function buildReceivableBalanceCanvas(row: ReceivableRow, now: Date): Prom
     const target = host.querySelector(".statement-export-frame") as HTMLDivElement | null;
     if (!target) throw new Error("No se pudo renderizar el estado de cuenta.");
     const html2canvas = (await import("html2canvas")).default;
-    return html2canvas(target, {
-      scale: 1,
-      backgroundColor: "#ffffff",
-      useCORS: true,
-      width: target.scrollWidth,
-      height: target.scrollHeight
-    });
+    const restoreStyles = inlineComputedStylesForCanvas(target);
+    try {
+      return await html2canvas(target, {
+        scale: 1,
+        backgroundColor: "#ffffff",
+        useCORS: true,
+        width: target.scrollWidth,
+        height: target.scrollHeight
+      });
+    } finally {
+      restoreStyles();
+    }
   } finally {
     root.unmount();
     document.body.removeChild(host);

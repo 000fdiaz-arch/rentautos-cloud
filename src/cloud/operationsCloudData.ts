@@ -793,6 +793,7 @@ function rowTimestamp(value: unknown): number {
     toIsoTimestamp(row.routeReleaseUpdatedAt),
     toIsoTimestamp(row.supportNoteUpdatedAt),
     toIsoTimestamp(row.contactTimeUpdatedAt),
+    toIsoTimestamp(row.routeUrgencyUpdatedAt),
     toIsoTimestamp(row.whatsAppMessageCopiedAt),
     toIsoTimestamp(row.whatsAppMessageSentAt),
     toIsoTimestamp(row.paymentPromiseUpdatedAt)
@@ -1047,6 +1048,7 @@ export type ActiveRouteItem = {
   whatsAppPhone?: string;
   routeAssignment?: string;
   managementType?: "solo_cobrar" | "cobrar_o_quitar";
+  urgency?: "normal" | "urgent" | "very_urgent";
   releaseAmount: number;
   pendingAmount: number;
   overdueBalance: number;
@@ -1082,6 +1084,7 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
     whatsAppPhone: typeof row.whatsAppPhone === "string" ? row.whatsAppPhone : undefined,
     routeAssignment: typeof row.routeAssignment === "string" ? row.routeAssignment : undefined,
     managementType: row.managementType === "cobrar_o_quitar" ? "cobrar_o_quitar" : "solo_cobrar",
+    urgency: row.urgency === "urgent" || row.urgency === "very_urgent" ? row.urgency : "normal",
     releaseAmount,
     pendingAmount: Number.isFinite(pendingAmount) ? pendingAmount : 0,
     overdueBalance: Number.isFinite(overdueBalance) ? overdueBalance : 0,
@@ -1116,11 +1119,6 @@ export async function publishCloudActiveRouteItems(userId: string, items: Active
     data: item,
     updated_at: new Date().toISOString()
   }));
-  const { error: clearError } = await client
-    .from("active_route_items_cloud")
-    .delete()
-    .eq("user_id", userId);
-  if (clearError) throw clearError;
   if (rows.length === 0) return;
   const { error } = await client
     .from("active_route_items_cloud")
@@ -1154,6 +1152,19 @@ export async function removeCloudActiveRouteItem(
       user_id: userId,
       client_id: clientId,
       data: updated,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "user_id,client_id" });
+  if (error) throw error;
+}
+
+export async function saveCloudActiveRouteItem(userId: string, item: ActiveRouteItem): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("active_route_items_cloud")
+    .upsert({
+      user_id: userId,
+      client_id: item.clientId,
+      data: item,
       updated_at: new Date().toISOString()
     }, { onConflict: "user_id,client_id" });
   if (error) throw error;
