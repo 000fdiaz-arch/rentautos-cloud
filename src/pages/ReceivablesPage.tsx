@@ -337,6 +337,7 @@ export default function ReceivablesPage({
   const [activeRouteLoading, setActiveRouteLoading] = useState<boolean>(false);
   const [activeRouteError, setActiveRouteError] = useState<string>("");
   const [publishedCustomRouteEditorByClient, setPublishedCustomRouteEditorByClient] = useState<Record<string, boolean>>({});
+  const [isPublishedRouteDraftCustomRouteOpen, setIsPublishedRouteDraftCustomRouteOpen] = useState<boolean>(false);
   const [isAddPublishedRouteOpen, setIsAddPublishedRouteOpen] = useState<boolean>(false);
   const [publishedRouteDraft, setPublishedRouteDraft] = useState<{
     clientId: string;
@@ -872,6 +873,14 @@ export default function ReceivablesPage({
     () => baseRows.filter((row) => row.hasActiveClient && !activeVisibleRouteClientIds.has(row.id)),
     [activeVisibleRouteClientIds, baseRows]
   );
+  const publishedRouteDraftSelectedRow = useMemo(
+    () => baseRows.find((row) => row.id === publishedRouteDraft.clientId),
+    [baseRows, publishedRouteDraft.clientId]
+  );
+  const publishedRouteSuggestedReleaseAmount = publishedRouteDraftSelectedRow?.overdueBalance && publishedRouteDraftSelectedRow.overdueBalance > 0
+    ? publishedRouteDraftSelectedRow.overdueBalance
+    : 0;
+  const canSavePublishedRouteDraft = !!publishedRouteDraftSelectedRow && !!parsePositiveMoneyInput(publishedRouteDraft.amount);
   const managementWorkflowRowsCount = baseRows.length;
   const clearableManagementRecordsCount = Object.keys(collectionStatusByClient).length;
   const canConfirmClearManagement = clearManagementConfirmation.trim().toUpperCase() === CLEAR_COLLECTION_MANAGEMENT_CONFIRMATION;
@@ -1717,21 +1726,21 @@ export default function ReceivablesPage({
     setPublishedRouteDraft({
       clientId: firstRow?.id ?? "",
       type: "solo_cobrar",
-      amount: firstRow?.overdueBalance && firstRow.overdueBalance > 0 ? String(firstRow.overdueBalance) : "",
+      amount: "",
       comment: "",
       routeAssignment: "",
       urgency: "normal"
     });
     setPublishedRouteDraftError("");
+    setIsPublishedRouteDraftCustomRouteOpen(false);
     setIsAddPublishedRouteOpen(true);
   }
 
   function updatePublishedRouteDraftClient(clientId: string): void {
-    const row = baseRows.find((item) => item.id === clientId);
     setPublishedRouteDraft((current) => ({
       ...current,
       clientId,
-      amount: row?.overdueBalance && row.overdueBalance > 0 ? String(row.overdueBalance) : current.amount
+      amount: ""
     }));
   }
 
@@ -2901,16 +2910,50 @@ export default function ReceivablesPage({
                     inputMode="decimal"
                     value={publishedRouteDraft.amount}
                     onChange={(event) => setPublishedRouteDraft((current) => ({ ...current, amount: event.target.value }))}
-                    placeholder="0.00"
+                    placeholder={publishedRouteSuggestedReleaseAmount > 0 ? publishedRouteSuggestedReleaseAmount.toFixed(2) : "0.00"}
                   />
+                  {publishedRouteSuggestedReleaseAmount > 0 ? (
+                    <span className="hint ar-add-route-suggestion">Sugerido: {formatCurrency(publishedRouteSuggestedReleaseAmount)}</span>
+                  ) : null}
                 </label>
                 <label>Ruta
-                  <input
-                    value={publishedRouteDraft.routeAssignment}
-                    onChange={(event) => setPublishedRouteDraft((current) => ({ ...current, routeAssignment: event.target.value.toUpperCase().slice(0, 12) }))}
-                    placeholder="PTY, WC, CL..."
-                    maxLength={12}
-                  />
+                  {isPublishedRouteDraftCustomRouteOpen ? (
+                    <input
+                      className="ar-route-list-route-custom"
+                      value={publishedRouteDraft.routeAssignment}
+                      onChange={(event) => setPublishedRouteDraft((current) => ({ ...current, routeAssignment: event.target.value.toUpperCase().slice(0, 12) }))}
+                      onBlur={(event) => {
+                        const normalized = normalizeRouteAssignment(event.target.value);
+                        if (event.target.value !== (normalized ?? "")) {
+                          setPublishedRouteDraft((current) => ({ ...current, routeAssignment: normalized ?? "" }));
+                        }
+                        if (!normalized) setIsPublishedRouteDraftCustomRouteOpen(false);
+                      }}
+                      placeholder="Escribe ruta"
+                      maxLength={12}
+                      autoFocus
+                    />
+                  ) : (
+                    <select
+                      className="ar-route-list-route"
+                      value={publishedRouteDraft.routeAssignment}
+                      onChange={(event) => {
+                        const selected = event.target.value;
+                        if (selected === "__custom") {
+                          setPublishedRouteDraft((current) => ({ ...current, routeAssignment: "" }));
+                          setIsPublishedRouteDraftCustomRouteOpen(true);
+                          return;
+                        }
+                        setPublishedRouteDraft((current) => ({ ...current, routeAssignment: selected }));
+                      }}
+                    >
+                      <option value="">Sin ruta</option>
+                      {ROUTE_ASSIGNMENT_OPTIONS.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                      <option value="__custom">Otra</option>
+                    </select>
+                  )}
                 </label>
                 <label>Alarma
                   <select
@@ -2932,7 +2975,7 @@ export default function ReceivablesPage({
                 </label>
               </div>
               <div className="modal-actions">
-                <button type="button" className="button primary" onClick={() => void handleAddPublishedRoute()}>
+                <button type="button" className="button primary" onClick={() => void handleAddPublishedRoute()} disabled={!canSavePublishedRouteDraft}>
                   Agregar
                 </button>
                 <button type="button" className="button ghost" onClick={() => setIsAddPublishedRouteOpen(false)}>
