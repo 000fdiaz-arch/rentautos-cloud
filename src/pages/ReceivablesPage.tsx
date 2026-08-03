@@ -1383,26 +1383,36 @@ export default function ReceivablesPage({
 
   async function clearLiveCollectionStatusAfterClosure(): Promise<void> {
     if (readOnly) throw new Error("El usuario no tiene permiso para editar cuentas por cobrar.");
-    const emptyStatus: Record<string, CollectionStatusRecord> = {};
-    const clearMarker: Record<string, unknown> = { __clearedAt: { updatedAt: new Date().toISOString() } };
+    const nowIso = new Date().toISOString();
+    const activeRouteStatus: Record<string, CollectionStatusRecord> = {};
+    for (const item of activeVisibleRouteItems) {
+      activeRouteStatus[item.clientId] = buildManagementRecordFromActiveRouteItem(
+        item,
+        collectionStatusByClient[item.clientId],
+        nowIso
+      );
+    }
+    const nextStatusByClient = activeRouteStatus;
     if (persistStreetTimerRef.current) {
       window.clearTimeout(persistStreetTimerRef.current);
       persistStreetTimerRef.current = null;
     }
-    optimisticStatusByClientRef.current = {};
+    optimisticStatusByClientRef.current = { ...nextStatusByClient };
     saveTokenByClientRef.current = {};
-    latestCollectionStatusByClientRef.current = emptyStatus;
-    lastStreetSnapshotRef.current = JSON.stringify(emptyStatus);
+    latestCollectionStatusByClientRef.current = nextStatusByClient;
+    lastStreetSnapshotRef.current = JSON.stringify(nextStatusByClient);
     streetPersistPendingRef.current = false;
     setStatusSavingByClient({});
-    setCollectionStatusByClient(emptyStatus);
+    setCollectionStatusByClient(nextStatusByClient);
     if (dataOwnerUserId) {
-      await saveCloudStreetManagement(dataOwnerUserId, clearMarker);
+      await saveCloudStreetManagement(dataOwnerUserId, nextStatusByClient as Record<string, unknown>);
       const cloudData = await loadCloudStreetManagement(dataOwnerUserId);
       const remaining = Object.keys(parseCollectionStatusMapFromStorage(JSON.stringify(cloudData)));
-      if (remaining.length > 0) throw new Error(`La gestion quedo parcialmente limpia (${remaining.length} registro(s)).`);
+      if (remaining.length !== Object.keys(nextStatusByClient).length) {
+        throw new Error(`La gestion no quedo alineada con Ruta en calle (${remaining.length} registro(s)).`);
+      }
     } else if (onStreetManagementPersist) {
-      const ok = await onStreetManagementPersist(clearMarker);
+      const ok = await onStreetManagementPersist(nextStatusByClient as Record<string, unknown>);
       if (ok === false) throw new Error("No se pudieron limpiar los estados vivos de cobranza.");
     }
   }
@@ -1420,7 +1430,7 @@ export default function ReceivablesPage({
       setIsRouteExportMenuOpen(false);
       setIsClearManagementConfirmOpen(false);
       setClearManagementConfirmation("");
-      setCollectionCutMessage("Gestion limpiada. La cartera volvio al formato de inicio.");
+      setCollectionCutMessage("Gestion limpiada. La Ruta en calle se mantuvo activa en gestion.");
     } catch (error) {
       console.error("No se pudo limpiar la gestion de cobranza.", error);
       setCollectionCutMessage("No se pudo limpiar la gestion de cobranza.");
