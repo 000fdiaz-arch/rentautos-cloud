@@ -6344,7 +6344,7 @@ select.control-op-badge {
 }
 
 .ar-route-list-table {
-  min-width: 1360px;
+  min-width: 1520px;
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
@@ -6378,12 +6378,17 @@ select.control-op-badge {
 
 .ar-route-list-table th:nth-child(6),
 .ar-route-list-table td:nth-child(6) {
-  width: 178px;
+  width: 168px;
 }
 
 .ar-route-list-table th:nth-child(7),
 .ar-route-list-table td:nth-child(7) {
-  width: 136px;
+  width: 126px;
+}
+
+.ar-route-list-table th:nth-child(8),
+.ar-route-list-table td:nth-child(8) {
+  width: 210px;
 }
 
 .ar-route-list-table th:nth-child(9),
@@ -6393,6 +6398,11 @@ select.control-op-badge {
 
 .ar-route-list-table th:nth-child(10),
 .ar-route-list-table td:nth-child(10) {
+  width: 150px;
+}
+
+.ar-route-list-table th:nth-child(11),
+.ar-route-list-table td:nth-child(11) {
   width: 92px;
 }
 
@@ -6449,7 +6459,7 @@ select.control-op-badge {
 }
 
 .ar-route-list-comment {
-  width: 180px;
+  width: 100%;
   min-height: 32px;
   border: 1px solid #d8e2ef;
   border-radius: 7px;
@@ -6487,7 +6497,8 @@ select.control-op-badge {
 }
 
 .ar-route-list-remove {
-  min-width: 70px;
+  width: 100%;
+  min-width: 64px;
   color: #9a3412;
   border-color: #fed7aa;
   background: #fff7ed;
