@@ -873,10 +873,6 @@ export default function ReceivablesPage({
     }
     return rowsByClient;
   }, [baseRows]);
-  const routeWorkflowRowsCount = useMemo(
-    () => baseRows.filter((row) => isRouteWorkflowRow(row)).length,
-    [baseRows, collectionStatusByClient, todayCollectionCuts]
-  );
   const activeVisibleRouteItems = useMemo(() => (
     activeRouteItems
       .filter((item) => !item.removedAt)
@@ -915,6 +911,10 @@ export default function ReceivablesPage({
     () => new Set(activeVisibleRouteItems.map((item) => item.clientId)),
     [activeVisibleRouteItems]
   );
+  const routeWorkflowRowsCount = useMemo(
+    () => baseRows.filter((row) => isRouteReadyToSendRow(row)).length,
+    [activeVisibleRouteClientIds, baseRows, collectionStatusByClient, todayCollectionCuts]
+  );
   const publishedRouteAddRows = useMemo(
     () => baseRows.filter((row) => row.hasActiveClient && !activeVisibleRouteClientIds.has(row.id)),
     [activeVisibleRouteClientIds, baseRows]
@@ -932,9 +932,9 @@ export default function ReceivablesPage({
   const canConfirmClearManagement = clearManagementConfirmation.trim().toUpperCase() === CLEAR_COLLECTION_MANAGEMENT_CONFIRMATION;
   const workflowRows = useMemo(() => (
     workflowTab === "route"
-      ? filteredRows.filter((row) => isRouteWorkflowRow(row))
+      ? filteredRows.filter((row) => isRouteReadyToSendRow(row))
       : filteredRows
-  ), [filteredRows, workflowTab, collectionStatusByClient, todayCollectionCuts]);
+  ), [activeVisibleRouteClientIds, filteredRows, workflowTab, collectionStatusByClient, todayCollectionCuts]);
   const collectionStatusCounts = useMemo(() => {
     const counts = createEmptyCollectionStatusCounts();
     for (const row of workflowRows) {
@@ -1152,6 +1152,10 @@ export default function ReceivablesPage({
       hasRouteCollection(row) ||
       isNightRouteCollection(row)
     );
+  }
+
+  function isRouteReadyToSendRow(row: ReceivableRow): boolean {
+    return isRouteWorkflowRow(row) && !activeVisibleRouteClientIds.has(row.id);
   }
 
   function buildWhatsAppReceivableMessage(row: ReceivableRow): string {
@@ -2270,7 +2274,7 @@ export default function ReceivablesPage({
       }
       const isRouteRowFromMap = (row: ReceivableRow): boolean => {
         const storedStatus = statusByClientForRoute[row.id]?.status;
-        return storedStatus === "route" || storedStatus === "route_collection";
+        return (storedStatus === "route" || storedStatus === "route_collection") && !activeVisibleRouteClientIds.has(row.id);
       };
       const hasRouteCollectionFromMap = (row: ReceivableRow): boolean => {
         const management = statusByClientForRoute[row.id];
