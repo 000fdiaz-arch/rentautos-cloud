@@ -65,6 +65,7 @@ import {
   getCollectionClosureCuts,
   getCollectionClosureDateKeys,
   formatDateForTitle,
+  hasActiveOperationalClient,
   isToday,
   normalizeComment,
   normalizeContactTime,
@@ -133,7 +134,7 @@ function normalizeWhatsAppPhoneForFilter(value: string | undefined): string {
 }
 
 function isWhatsAppEligibleUnit(row: ReceivableRow): boolean {
-  return row.hasActiveClient && (row.operationalStatus ?? "activo").trim().toLowerCase() === "activo";
+  return hasActiveOperationalClient(row);
 }
 
 function adjustedMonthlyChargeDate(year: number, monthIndex: number, monthlyChargeDay: number): Date {
@@ -313,6 +314,34 @@ function buildCoveredRouteRecord(previous: CollectionStatusRecord | undefined, u
   return {
     ...previous,
     status: "covered",
+    comment: previous?.comment ?? "",
+    updatedAt,
+    managementType: undefined,
+    managementAmount: undefined,
+    managementComment: "",
+    managementUpdatedAt: undefined,
+    routeReleaseAmount: undefined,
+    routeReleaseUpdatedAt: undefined,
+    routeAssignment: undefined,
+    routeAssignmentUpdatedAt: undefined,
+    routeUrgency: undefined,
+    routeUrgencyUpdatedAt: undefined,
+    whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+    whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+    whatsAppMessageText: previous?.whatsAppMessageText,
+    supportNote: previous?.supportNote,
+    supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+    contactTime: previous?.contactTime,
+    contactTimeUpdatedAt: previous?.contactTimeUpdatedAt,
+    paymentPromiseDate: previous?.paymentPromiseDate,
+    paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
+  };
+}
+
+function buildPendingRouteRecord(previous: CollectionStatusRecord | undefined, updatedAt: string): CollectionStatusRecord {
+  return {
+    ...previous,
+    status: "pending",
     comment: previous?.comment ?? "",
     updatedAt,
     managementType: undefined,
@@ -904,16 +933,24 @@ export default function ReceivablesPage({
     }
     return rowsByClient;
   }, [baseRows]);
+  const activeRouteEligibleClientIds = useMemo(
+    () => new Set(baseRows.filter((row) => hasActiveOperationalClient(row)).map((row) => row.id)),
+    [baseRows]
+  );
   const activeVisibleRouteItems = useMemo(() => (
     activeRouteItems
       .filter((item) => !item.removedAt)
+      .filter((item) => activeRouteEligibleClientIds.has(item.clientId))
       .filter((item) => !activeRouteItemReleasedByPayment(item, payments))
       .sort(compareActiveRouteItems)
-  ), [activeRouteItems, payments]);
+  ), [activeRouteEligibleClientIds, activeRouteItems, payments]);
   const removedRouteClientIds = useMemo(
     () => new Set(activeRouteItems.filter((item) => !!item.removedAt).map((item) => item.clientId)),
     [activeRouteItems]
   );
+  const inactiveVisibleRouteItems = useMemo(() => (
+    activeRouteItems.filter((item) => !item.removedAt && !activeRouteEligibleClientIds.has(item.clientId))
+  ), [activeRouteEligibleClientIds, activeRouteItems]);
   const activeRouteFilterOptions = useMemo(() => (
     Array.from(new Set(activeVisibleRouteItems.map((item) => activeRouteFilterValue(item.routeAssignment))))
       .sort(compareActiveRouteFilterValues)
@@ -947,6 +984,38 @@ export default function ReceivablesPage({
     [activeVisibleRouteItems]
   );
   useEffect(() => {
+    if (inactiveVisibleRouteItems.length === 0) return;
+    const removedAt = new Date().toISOString();
+    const inactiveClientIds = new Set(inactiveVisibleRouteItems.map((item) => item.clientId));
+    setActiveRouteItems((current) => current.map((item) => (
+      inactiveClientIds.has(item.clientId)
+        ? { ...item, removedAt, removedReason: "removed" }
+        : item
+    )));
+    if (!isCollectionLocked) {
+      setCollectionStatusByClient((current) => {
+        const next = { ...current };
+        let changedStatus = false;
+        for (const clientId of inactiveClientIds) {
+          const previous = next[clientId];
+          if (!isRouteManagementRecord(previous)) continue;
+          const updatedRecord = buildPendingRouteRecord(previous, removedAt);
+          next[clientId] = updatedRecord;
+          optimisticStatusByClientRef.current[clientId] = updatedRecord;
+          markClientStatusAsSaving(clientId);
+          changedStatus = true;
+        }
+        return changedStatus ? next : current;
+      });
+    }
+    if (!dataOwnerUserId) return;
+    for (const clientId of inactiveClientIds) {
+      void removeCloudActiveRouteItem(dataOwnerUserId, clientId, "removed").catch((error) => {
+        console.error("No se pudo sacar de la Ruta en calle por estado inactivo.", error);
+      });
+    }
+  }, [dataOwnerUserId, inactiveVisibleRouteItems, isCollectionLocked]);
+  useEffect(() => {
     if (removedRouteClientIds.size === 0 || isCollectionLocked) return;
     const nowIso = new Date().toISOString();
     let changedStatus = false;
@@ -969,7 +1038,7 @@ export default function ReceivablesPage({
     [activeVisibleRouteClientIds, baseRows, collectionStatusByClient, removedRouteClientIds, todayCollectionCuts]
   );
   const publishedRouteAddRows = useMemo(
-    () => baseRows.filter((row) => row.hasActiveClient && !activeVisibleRouteClientIds.has(row.id)),
+    () => baseRows.filter((row) => hasActiveOperationalClient(row) && !activeVisibleRouteClientIds.has(row.id)),
     [activeVisibleRouteClientIds, baseRows]
   );
   const publishedRouteDraftSelectedRow = useMemo(
@@ -1208,7 +1277,7 @@ export default function ReceivablesPage({
   }
 
   function isRouteReadyToSendRow(row: ReceivableRow): boolean {
-    return isRouteWorkflowRow(row) && !activeVisibleRouteClientIds.has(row.id) && !removedRouteClientIds.has(row.id);
+    return hasActiveOperationalClient(row) && isRouteWorkflowRow(row) && !activeVisibleRouteClientIds.has(row.id) && !removedRouteClientIds.has(row.id);
   }
 
   function buildWhatsAppReceivableMessage(row: ReceivableRow): string {
