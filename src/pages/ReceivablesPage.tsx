@@ -420,6 +420,7 @@ export default function ReceivablesPage({
   const [activeRouteError, setActiveRouteError] = useState<string>("");
   const [activeRouteMessage, setActiveRouteMessage] = useState<string>("");
   const [publishedCustomRouteEditorByClient, setPublishedCustomRouteEditorByClient] = useState<Record<string, boolean>>({});
+  const [publishedRouteAmountDraftByClient, setPublishedRouteAmountDraftByClient] = useState<Record<string, string>>({});
   const [publishedRouteCommentDraftByClient, setPublishedRouteCommentDraftByClient] = useState<Record<string, string>>({});
   const [isPublishedRouteDraftCustomRouteOpen, setIsPublishedRouteDraftCustomRouteOpen] = useState<boolean>(false);
   const [isAddPublishedRouteOpen, setIsAddPublishedRouteOpen] = useState<boolean>(false);
@@ -446,6 +447,7 @@ export default function ReceivablesPage({
   const streetPersistPendingRef = useRef<boolean>(false);
   const streetManagementLoadedRef = useRef<boolean>(false);
   const optimisticStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
+  const activeRouteItemsRef = useRef<ActiveRouteItem[]>([]);
   const saveTokenByClientRef = useRef<Record<string, number>>({});
   const latestCollectionStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
   const streetManagementDataRef = useRef<Record<string, unknown>>(streetManagementData ?? {});
@@ -470,6 +472,10 @@ export default function ReceivablesPage({
     const timerId = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timerId);
   }, []);
+
+  useEffect(() => {
+    activeRouteItemsRef.current = activeRouteItems;
+  }, [activeRouteItems]);
 
   const applyStreetManagementData = useCallback((rawData: Record<string, unknown>): void => {
     const parsed = parseCollectionStatusMapFromStorage(JSON.stringify(rawData ?? {}));
@@ -552,6 +558,7 @@ export default function ReceivablesPage({
   const loadActiveRouteFromCloud = useCallback(async (): Promise<void> => {
     if (!dataOwnerUserId) {
       setActiveRouteItems([]);
+      activeRouteItemsRef.current = [];
       setActiveRouteLoading(false);
       setActiveRouteError("");
       return;
@@ -561,6 +568,15 @@ export default function ReceivablesPage({
     try {
       const rows = await loadCloudActiveRouteItems(dataOwnerUserId);
       setActiveRouteItems(rows);
+      activeRouteItemsRef.current = rows;
+      setPublishedRouteAmountDraftByClient((current) => {
+        const visibleClientIds = new Set(rows.map((item) => item.clientId));
+        const next: Record<string, string> = {};
+        for (const [clientId, draft] of Object.entries(current)) {
+          if (visibleClientIds.has(clientId)) next[clientId] = draft;
+        }
+        return next;
+      });
       setPublishedRouteCommentDraftByClient((current) => {
         const visibleClientIds = new Set(rows.map((item) => item.clientId));
         const next: Record<string, string> = {};
@@ -987,12 +1003,14 @@ export default function ReceivablesPage({
     if (inactiveVisibleRouteItems.length === 0) return;
     const removedAt = new Date().toISOString();
     const inactiveClientIds = new Set(inactiveVisibleRouteItems.map((item) => item.clientId));
-    setActiveRouteItems((current) => current.map((item) => (
+    const nextActiveRouteItems: ActiveRouteItem[] = activeRouteItemsRef.current.map((item) => (
       inactiveClientIds.has(item.clientId)
         ? { ...item, removedAt, removedReason: "removed" }
         : item
-    )));
-    if (!isCollectionLocked) {
+    ));
+    activeRouteItemsRef.current = nextActiveRouteItems;
+    setActiveRouteItems(nextActiveRouteItems);
+    if (!readOnly) {
       setCollectionStatusByClient((current) => {
         const next = { ...current };
         let changedStatus = false;
@@ -1014,7 +1032,7 @@ export default function ReceivablesPage({
         console.error("No se pudo sacar de la Ruta en calle por estado inactivo.", error);
       });
     }
-  }, [dataOwnerUserId, inactiveVisibleRouteItems, isCollectionLocked]);
+  }, [dataOwnerUserId, inactiveVisibleRouteItems, readOnly]);
   useEffect(() => {
     if (removedRouteClientIds.size === 0 || isCollectionLocked) return;
     const nowIso = new Date().toISOString();
@@ -1910,16 +1928,23 @@ export default function ReceivablesPage({
     const removedAt = new Date().toISOString();
     try {
       await removeCloudActiveRouteItem(dataOwnerUserId, clientId, "removed");
+      setPublishedRouteAmountDraftByClient((current) => {
+        const next = { ...current };
+        delete next[clientId];
+        return next;
+      });
       setPublishedRouteCommentDraftByClient((current) => {
         const next = { ...current };
         delete next[clientId];
         return next;
       });
-      setActiveRouteItems((current) => current.map((item) => (
+      const nextActiveRouteItems: ActiveRouteItem[] = activeRouteItemsRef.current.map((item) => (
         item.clientId === clientId
           ? { ...item, removedAt, removedReason: "removed" }
           : item
-      )));
+      ));
+      activeRouteItemsRef.current = nextActiveRouteItems;
+      setActiveRouteItems(nextActiveRouteItems);
       markClientStatusAsSaving(clientId);
       setCollectionStatusByClient((current) => {
         const previous = current[clientId];
@@ -1939,12 +1964,13 @@ export default function ReceivablesPage({
   function updatePublishedRouteItem(clientId: string, updater: (item: ActiveRouteItem) => ActiveRouteItem): void {
     if (readOnly || !dataOwnerUserId) return;
     setActiveRouteMessage("");
-    const currentItem = activeRouteItems.find((item) => item.clientId === clientId);
+    const currentItem = activeRouteItemsRef.current.find((item) => item.clientId === clientId);
     const updatedItem = currentItem ? updater(currentItem) : null;
     if (!updatedItem) return;
-    setActiveRouteItems((current) => current.map((item) => (
+    activeRouteItemsRef.current = activeRouteItemsRef.current.map((item) => (
       item.clientId === clientId ? updatedItem : item
-    )));
+    ));
+    setActiveRouteItems(activeRouteItemsRef.current);
     void saveCloudActiveRouteItem(dataOwnerUserId, updatedItem).catch((error) => {
       console.error("No se pudo guardar la Ruta en calle.", error);
       setActiveRouteError("No se pudo guardar la Ruta en calle.");
@@ -1958,8 +1984,29 @@ export default function ReceivablesPage({
   }
 
   function handlePublishedRouteReleaseAmountChange(clientId: string, value: string): void {
-    const parsedAmount = parsePositiveMoneyInput(value);
-    if (!parsedAmount) return;
+    setPublishedRouteAmountDraftByClient((current) => ({
+      ...current,
+      [clientId]: value
+    }));
+  }
+
+  function commitPublishedRouteReleaseAmount(clientId: string): void {
+    const draft = publishedRouteAmountDraftByClient[clientId];
+    if (draft === undefined) return;
+    const parsedAmount = parsePositiveMoneyInput(draft);
+    if (!parsedAmount) {
+      setPublishedRouteAmountDraftByClient((current) => {
+        const next = { ...current };
+        delete next[clientId];
+        return next;
+      });
+      return;
+    }
+    setPublishedRouteAmountDraftByClient((current) => {
+      const next = { ...current };
+      delete next[clientId];
+      return next;
+    });
     updatePublishedRouteItem(clientId, (item) => ({ ...item, releaseAmount: parsedAmount }));
   }
 
@@ -2057,10 +2104,9 @@ export default function ReceivablesPage({
     setActiveRouteMessage("");
     try {
       await saveCloudActiveRouteItem(dataOwnerUserId, item);
-      setActiveRouteItems((current) => {
-        const remaining = current.filter((currentItem) => currentItem.clientId !== item.clientId);
-        return [item, ...remaining];
-      });
+      const remaining = activeRouteItemsRef.current.filter((currentItem) => currentItem.clientId !== item.clientId);
+      activeRouteItemsRef.current = [item, ...remaining];
+      setActiveRouteItems(activeRouteItemsRef.current);
       syncActiveRouteItemsToManagement([item]);
       setIsAddPublishedRouteOpen(false);
     } catch (error) {
@@ -2940,8 +2986,12 @@ export default function ReceivablesPage({
                                 min="0"
                                 step="0.01"
                                 inputMode="decimal"
-                                value={item.releaseAmount}
+                                value={publishedRouteAmountDraftByClient[item.clientId] ?? String(item.releaseAmount)}
                                 onChange={(event) => handlePublishedRouteReleaseAmountChange(item.clientId, event.target.value)}
+                                onBlur={() => commitPublishedRouteReleaseAmount(item.clientId)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") event.currentTarget.blur();
+                                }}
                                 disabled={readOnly}
                               />
                             </td>
@@ -3078,8 +3128,12 @@ export default function ReceivablesPage({
                               min="0"
                               step="0.01"
                               inputMode="decimal"
-                              value={item.releaseAmount}
+                              value={publishedRouteAmountDraftByClient[item.clientId] ?? String(item.releaseAmount)}
                               onChange={(event) => handlePublishedRouteReleaseAmountChange(item.clientId, event.target.value)}
+                              onBlur={() => commitPublishedRouteReleaseAmount(item.clientId)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") event.currentTarget.blur();
+                              }}
                               disabled={readOnly}
                             />
                           </label>

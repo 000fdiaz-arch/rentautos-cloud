@@ -147,6 +147,25 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   onClearFilters
 }: Props) {
   const [customRouteEditorByClient, setCustomRouteEditorByClient] = useState<Record<string, boolean>>({});
+  const [routeAmountDraftByClient, setRouteAmountDraftByClient] = useState<Record<string, string>>({});
+
+  function updateRouteAmountDraft(clientId: string, value: string): void {
+    setRouteAmountDraftByClient((current) => ({
+      ...current,
+      [clientId]: value
+    }));
+  }
+
+  function commitRouteAmountDraft(clientId: string): void {
+    const draft = routeAmountDraftByClient[clientId];
+    if (draft === undefined) return;
+    setRouteAmountDraftByClient((current) => {
+      const next = { ...current };
+      delete next[clientId];
+      return next;
+    });
+    onRouteReleaseAmountChange(clientId, draft);
+  }
 
   if (viewMode === "cartera" && rows.length === 0) {
     return (
@@ -222,8 +241,12 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                       min="0"
                       step="0.01"
                       inputMode="decimal"
-                      value={routeReleaseAmount ?? ""}
-                      onChange={(event) => onRouteReleaseAmountChange(row.id, event.target.value)}
+                      value={routeAmountDraftByClient[row.id] ?? (routeReleaseAmount ?? "")}
+                      onChange={(event) => updateRouteAmountDraft(row.id, event.target.value)}
+                      onBlur={() => commitRouteAmountDraft(row.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
                       placeholder={row.overdueBalance > 0 ? row.overdueBalance.toFixed(2) : "0.00"}
                       disabled={isTodayCollectionClosed}
                     />
@@ -379,8 +402,12 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                       min="0"
                       step="0.01"
                       inputMode="decimal"
-                      value={routeReleaseAmount ?? ""}
-                      onChange={(event) => onRouteReleaseAmountChange(row.id, event.target.value)}
+                      value={routeAmountDraftByClient[row.id] ?? (routeReleaseAmount ?? "")}
+                      onChange={(event) => updateRouteAmountDraft(row.id, event.target.value)}
+                      onBlur={() => commitRouteAmountDraft(row.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
                       placeholder={row.overdueBalance > 0 ? row.overdueBalance.toFixed(2) : "0.00"}
                       disabled={isTodayCollectionClosed}
                     />
