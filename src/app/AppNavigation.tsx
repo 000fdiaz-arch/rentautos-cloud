@@ -43,7 +43,7 @@ export default function AppNavigation({
     { page: "payments", label: "Pagos", mobileLabel: "Pagos", visible: canViewPayments },
     { page: "receivables", label: "Cuentas por cobrar", mobileLabel: "Cuentas", visible: canViewReceivables },
     { page: "route_search", label: "Ruta en calle", mobileLabel: "Ruta", visible: canViewRouteSearch },
-    { page: "insurance_workflow", label: "Flujo seguros", mobileLabel: "Seguros", visible: canViewReceivables },
+    { page: "insurance_workflow", label: "Reclamos a seguros", mobileLabel: "Reclamos a seguros", visible: canViewReceivables },
     { page: "control_units", label: "Autos", mobileLabel: "Autos", visible: canViewControlUnits },
     { page: "settings", label: "Configuraciones", mobileLabel: "Config.", visible: canViewSettings }
   ];

@@ -908,7 +908,7 @@ export default function AppShell({
           />
         )}
         {page === "insurance_workflow" && canViewReceivables && (
-          <InsuranceWorkflowPage clients={clients} />
+          <InsuranceWorkflowPage clients={clients} dataOwnerUserId={cloudDataUserId} />
         )}
         {page === "control_units" && canViewControlUnits && (
           <ControlUnitsPage

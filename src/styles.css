@@ -10983,10 +10983,38 @@ select.control-op-badge {
 }
 
 .workflow-form-panel,
+.workflow-tabs-panel,
+.workflow-claims-panel,
 .workflow-responsibility-panel,
 .workflow-cases-panel,
 .workflow-calendar-panel {
   margin-bottom: 0;
+}
+
+.workflow-tabs-panel {
+  display: inline-flex;
+  width: fit-content;
+  gap: 4px;
+  border: 1px solid var(--color-border);
+  background: #f8fafc;
+  padding: 4px;
+}
+
+.workflow-tabs-panel button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 800;
+  padding: 9px 12px;
+}
+
+.workflow-tabs-panel button.active {
+  background: #ffffff;
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
 }
 
 .workflow-form-actions {
@@ -11024,6 +11052,66 @@ select.control-op-badge {
 
 .workflow-form-notes {
   grid-column: 1 / -1;
+}
+
+.workflow-claims-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.workflow-claim-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) auto;
+  gap: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.workflow-claim-card strong,
+.workflow-claim-card span,
+.workflow-claim-card small {
+  display: block;
+}
+
+.workflow-claim-card span,
+.workflow-claim-card small {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+
+.workflow-claim-card dl {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.workflow-claim-card dt {
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.workflow-claim-card dd {
+  margin: 2px 0 0;
+  font-weight: 800;
+}
+
+.workflow-status-pill {
+  width: fit-content;
+  margin-left: auto;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  background: #f0fdf4;
+  color: #15803d !important;
+  font-weight: 900;
+  padding: 5px 9px;
+  text-align: right;
 }
 
 .workflow-responsibility-panel {
