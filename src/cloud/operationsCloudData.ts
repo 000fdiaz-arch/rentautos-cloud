@@ -38,6 +38,24 @@ export type ControlUnitRow = {
   [key: string]: unknown;
 };
 
+export type InsuranceClaimStatus = "En seguimiento";
+
+export type InsuranceClaimRecord = {
+  id: string;
+  incidentDate: string;
+  unit: string;
+  driver: string;
+  plate: string;
+  insurer: string;
+  claimNumber: string;
+  amount: string;
+  vehicleDamage: string;
+  status: InsuranceClaimStatus;
+  damagePhotoNames: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export async function loadCloudPaymentPromises(userId: string): Promise<PaymentPromise[]> {
   const client = getCloudClient();
   const allRows: DataRow<PaymentPromise>[] = [];
@@ -76,6 +94,48 @@ export async function saveCloudPaymentPromises(userId: string, promises: Payment
 
     if (error) throw error;
   }
+}
+
+export async function loadInsuranceInsurers(userId: string): Promise<string[]> {
+  const rows = await loadCloudArrayRows<{ name?: unknown }>(userId, "insurance_insurers_cloud");
+  return rows
+    .map((row) => typeof row.name === "string" ? row.name.trim() : "")
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
+}
+
+export async function saveInsuranceInsurer(userId: string, name: string): Promise<void> {
+  const normalized = name.trim().toUpperCase();
+  if (!normalized) return;
+  const client = getCloudClient();
+  const now = new Date().toISOString();
+  const { error } = await client
+    .from("insurance_insurers_cloud")
+    .upsert({
+      user_id: userId,
+      id: normalized,
+      data: { name: normalized },
+      updated_at: now
+    }, { onConflict: "user_id,id" });
+  if (error) throw error;
+}
+
+export async function loadInsuranceClaims(userId: string): Promise<InsuranceClaimRecord[]> {
+  const rows = await loadCloudArrayRows<InsuranceClaimRecord>(userId, "insurance_claims_cloud");
+  return rows.sort((left, right) => (right.createdAt || "").localeCompare(left.createdAt || ""));
+}
+
+export async function saveInsuranceClaim(userId: string, claim: InsuranceClaimRecord): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("insurance_claims_cloud")
+    .upsert({
+      user_id: userId,
+      id: claim.id,
+      data: claim,
+      updated_at: claim.updatedAt
+    }, { onConflict: "user_id,id" });
+  if (error) throw error;
 }
 
 export async function loadCloudBankRules(userId: string): Promise<BankRule[]> {

@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  loadInsuranceClaims,
+  loadInsuranceInsurers,
+  saveInsuranceClaim,
+  saveInsuranceInsurer,
+  type InsuranceClaimRecord
+} from "../cloudData";
 import type { Client } from "../types";
 import { useControlUnitsRows } from "./controlUnits/useControlUnitsRows";
 
 type Props = {
   clients: Client[];
   dataOwnerUserId?: string | null;
+  readOnly?: boolean;
 };
 
 type ClaimForm = {
@@ -16,13 +24,6 @@ type ClaimForm = {
   claimNumber: string;
   amount: string;
   vehicleDamage: string;
-};
-
-type ClaimRecord = ClaimForm & {
-  id: string;
-  status: "En seguimiento";
-  damagePhotoNames: string[];
-  createdAt: string;
 };
 
 type ActiveTab = "form" | "list";
@@ -38,40 +39,7 @@ const EMPTY_FORM: ClaimForm = {
   vehicleDamage: ""
 };
 
-const INSURERS_STORAGE_KEY = "cobrapp.insurance.insurers.v1";
-const CLAIMS_STORAGE_KEY = "cobrapp.insurance.claims.v1";
 const MAX_DAMAGE_PHOTOS = 5;
-
-function readInsurers(): string[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(INSURERS_STORAGE_KEY) ?? "[]");
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((value): value is string => typeof value === "string")
-      .map((value) => value.trim())
-      .filter(Boolean)
-      .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
-  } catch {
-    return [];
-  }
-}
-
-function writeInsurers(values: string[]): void {
-  localStorage.setItem(INSURERS_STORAGE_KEY, JSON.stringify(values));
-}
-
-function readClaims(): ClaimRecord[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(CLAIMS_STORAGE_KEY) ?? "[]");
-    return Array.isArray(parsed) ? parsed as ClaimRecord[] : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeClaims(values: ClaimRecord[]): void {
-  localStorage.setItem(CLAIMS_STORAGE_KEY, JSON.stringify(values));
-}
 
 function normalizeUnit(value: string): string {
   return value.trim().toUpperCase();
@@ -81,14 +49,17 @@ function normalizeInsurer(value: string): string {
   return value.trim().toUpperCase();
 }
 
-export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Props) {
+export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOnly = false }: Props) {
   const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(dataOwnerUserId);
   const [form, setForm] = useState<ClaimForm>(EMPTY_FORM);
-  const [insurers, setInsurers] = useState<string[]>(() => readInsurers());
-  const [claims, setClaims] = useState<ClaimRecord[]>(() => readClaims());
+  const [insurers, setInsurers] = useState<string[]>([]);
+  const [claims, setClaims] = useState<InsuranceClaimRecord[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>("form");
   const [damagePhotoNames, setDamagePhotoNames] = useState<string[]>([]);
   const [message, setMessage] = useState<string>("");
+  const [loadError, setLoadError] = useState<string>("");
+  const [loadingCloud, setLoadingCloud] = useState<boolean>(true);
+  const [saving, setSaving] = useState<boolean>(false);
 
   const activeClientsByUnit = useMemo(() => {
     return new Map(
@@ -129,6 +100,41 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Prop
   }, [activeClientsByUnit, clientsByUnit, fleetUnitsByUnit, unitOptions]);
 
   useEffect(() => {
+    if (!dataOwnerUserId) {
+      setInsurers([]);
+      setClaims([]);
+      setLoadingCloud(false);
+      setLoadError("No se encontro owner de datos para cargar reclamos.");
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingCloud(true);
+    setLoadError("");
+    Promise.all([
+      loadInsuranceInsurers(dataOwnerUserId),
+      loadInsuranceClaims(dataOwnerUserId)
+    ])
+      .then(([nextInsurers, nextClaims]) => {
+        if (cancelled) return;
+        setInsurers(nextInsurers);
+        setClaims(nextClaims);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("No se pudieron cargar reclamos a seguros.", error);
+        setLoadError("No se pudieron cargar los reclamos desde la nube.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCloud(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dataOwnerUserId]);
+
+  useEffect(() => {
     const unitId = normalizeUnit(form.unit);
     if (!unitId) return;
     const fleetUnit = fleetUnitsByUnit.get(unitId);
@@ -164,14 +170,23 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Prop
     setDamagePhotoNames([]);
   }
 
-  function addInsurer(value: string): void {
+  async function addInsurer(value: string): Promise<void> {
+    if (!dataOwnerUserId || readOnly) return;
     const insurer = normalizeInsurer(value);
     if (!insurer) return;
-    const nextInsurers = Array.from(new Set([...insurers, insurer]))
-      .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
-    setInsurers(nextInsurers);
-    writeInsurers(nextInsurers);
-    patchForm({ insurer });
+    setSaving(true);
+    setMessage("");
+    try {
+      await saveInsuranceInsurer(dataOwnerUserId, insurer);
+      setInsurers((current) => Array.from(new Set([...current, insurer]))
+        .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" })));
+      patchForm({ insurer });
+    } catch (error) {
+      console.error("No se pudo guardar aseguradora.", error);
+      setMessage("No se pudo guardar la aseguradora en la nube.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleInsurerChange(value: string): void {
@@ -179,30 +194,49 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Prop
       patchForm({ insurer: value });
       return;
     }
+    if (readOnly) return;
     const insurer = window.prompt("Nombre de la nueva aseguradora");
-    if (insurer) addInsurer(insurer);
+    if (insurer) void addInsurer(insurer);
   }
 
-  function saveClaim(): void {
+  async function saveClaim(): Promise<void> {
+    if (!dataOwnerUserId) {
+      setMessage("No hay owner de datos para guardar reclamos en la nube.");
+      return;
+    }
+    if (readOnly) {
+      setMessage("Tu usuario solo puede ver esta pantalla.");
+      return;
+    }
     if (!form.incidentDate || !form.unit || !form.driver || !form.plate || !form.insurer) {
       setMessage("Completa fecha, unidad, nombre completo, placa y aseguradora antes de guardar.");
       return;
     }
 
     const now = new Date().toISOString();
-    const nextClaim: ClaimRecord = {
+    const nextClaim: InsuranceClaimRecord = {
       ...form,
       id: `insurance-claim-${Date.now()}`,
       status: "En seguimiento",
       damagePhotoNames,
-      createdAt: now
+      createdAt: now,
+      updatedAt: now
     };
-    const nextClaims = [nextClaim, ...claims];
-    setClaims(nextClaims);
-    writeClaims(nextClaims);
-    resetForm();
-    setMessage("Reclamo guardado en seguimiento.");
-    setActiveTab("list");
+
+    setSaving(true);
+    setMessage("");
+    try {
+      await saveInsuranceClaim(dataOwnerUserId, nextClaim);
+      setClaims((current) => [nextClaim, ...current]);
+      resetForm();
+      setMessage("Reclamo guardado en seguimiento.");
+      setActiveTab("list");
+    } catch (error) {
+      console.error("No se pudo guardar reclamo.", error);
+      setMessage("No se pudo guardar el reclamo en la nube.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleDamagePhotosChange(files: FileList | null): void {
@@ -228,11 +262,14 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Prop
       </div>
 
       {activeTab === "form" && (
-        <form className="panel workflow-form-panel" onSubmit={(event) => { event.preventDefault(); saveClaim(); }}>
+        <form className="panel workflow-form-panel" onSubmit={(event) => { event.preventDefault(); void saveClaim(); }}>
           <div className="panel-head">
             <h2>Formulario de reclamo</h2>
-            <button type="submit" className="button primary">Guardar</button>
+            <button type="submit" className="button primary" disabled={readOnly || saving || loadingCloud}>Guardar</button>
           </div>
+          {readOnly && <p className="hint workflow-message">Modo lectura: tu usuario no puede crear ni editar reclamos.</p>}
+          {loadingCloud && <p className="hint workflow-message">Cargando reclamos...</p>}
+          {loadError && <p className="hint workflow-message">{loadError}</p>}
           {fleetLoading && <p className="hint workflow-message">Cargando autos...</p>}
           {fleetLoadError && <p className="hint workflow-message">{fleetLoadError}</p>}
           {message && <p className="hint workflow-message">{message}</p>}
@@ -245,6 +282,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Prop
                 name="incidentDate"
                 value={form.incidentDate}
                 onChange={(event) => patchForm({ incidentDate: event.target.value })}
+                disabled={readOnly}
               />
             </label>
 
@@ -256,6 +294,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Prop
                 placeholder="Ej. B52"
                 value={form.unit}
                 onChange={(event) => handleUnitChange(event.target.value)}
+                disabled={readOnly}
               />
               <datalist id="insurance-unit-options">
                 {unitOptions.map((unitId) => <option key={unitId} value={unitId} label={unitOptionLabels.get(unitId) ?? ""} />)}
@@ -269,6 +308,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Prop
                 placeholder="Nombre completo"
                 value={form.driver}
                 onChange={(event) => patchForm({ driver: event.target.value })}
+                disabled={readOnly}
               />
             </label>
 
@@ -279,6 +319,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Prop
                 placeholder="Placa del auto"
                 value={form.plate}
                 onChange={(event) => patchForm({ plate: event.target.value })}
+                disabled={readOnly}
               />
             </label>
 
@@ -288,6 +329,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Prop
                 name="insurer"
                 value={form.insurer}
                 onChange={(event) => handleInsurerChange(event.target.value)}
+                disabled={readOnly}
               >
                 <option value="">Seleccionar aseguradora</option>
                 {insurers.map((insurer) => <option key={insurer} value={insurer}>{insurer}</option>)}
@@ -302,6 +344,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Prop
                 placeholder="Numero de reclamo"
                 value={form.claimNumber}
                 onChange={(event) => patchForm({ claimNumber: event.target.value })}
+                disabled={readOnly}
               />
             </label>
 
@@ -315,6 +358,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Prop
                 placeholder="0.00"
                 value={form.amount}
                 onChange={(event) => patchForm({ amount: event.target.value })}
+                disabled={readOnly}
               />
             </label>
 
@@ -325,6 +369,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Prop
                 placeholder="Describe los daños del auto"
                 value={form.vehicleDamage}
                 onChange={(event) => patchForm({ vehicleDamage: event.target.value })}
+                disabled={readOnly}
               />
             </label>
 
@@ -336,6 +381,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Prop
                 accept="image/*"
                 multiple
                 onChange={(event) => handleDamagePhotosChange(event.target.files)}
+                disabled={readOnly}
               />
               <span className="hint">{damagePhotoNames.length} de {MAX_DAMAGE_PHOTOS} fotos seleccionadas</span>
             </label>
@@ -349,14 +395,16 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId }: Prop
             <h2>Lista de reclamos</h2>
             <span className="hint">{claims.length} reclamos</span>
           </div>
+          {loadingCloud && <p className="hint workflow-message">Cargando reclamos...</p>}
+          {loadError && <p className="hint workflow-message">{loadError}</p>}
           {message && <p className="hint workflow-message">{message}</p>}
           <div className="workflow-claims-list">
-            {claims.length === 0 && <p className="hint">Todavia no hay reclamos guardados.</p>}
+            {claims.length === 0 && !loadingCloud && <p className="hint">Todavia no hay reclamos guardados.</p>}
             {claims.map((claim) => (
               <article key={claim.id} className="workflow-claim-card">
                 <div>
                   <strong>{claim.unit || "Sin unidad"} - {claim.driver || "Sin nombre"}</strong>
-                  <span>{claim.insurer || "Sin aseguradora"} · {claim.claimNumber || "Sin numero"}</span>
+                  <span>{claim.insurer || "Sin aseguradora"} - {claim.claimNumber || "Sin numero"}</span>
                 </div>
                 <div>
                   <span className="workflow-status-pill">{claim.status}</span>

@@ -129,6 +129,7 @@ function getFirstVisiblePage(visibility: {
   canViewPayments: boolean;
   canViewReceivables: boolean;
   canViewRouteSearch: boolean;
+  canViewInsuranceWorkflow: boolean;
   canViewControlUnits: boolean;
   canViewSettingsPage: boolean;
 }): AppPage {
@@ -136,6 +137,7 @@ function getFirstVisiblePage(visibility: {
   if (visibility.canViewPayments) return "payments";
   if (visibility.canViewReceivables) return "receivables";
   if (visibility.canViewRouteSearch) return "route_search";
+  if (visibility.canViewInsuranceWorkflow) return "insurance_workflow";
   if (visibility.canViewLeads) return "leads";
   if (visibility.canViewControlUnits) return "control_units";
   if (visibility.canViewSettingsPage) return "settings";
@@ -163,13 +165,15 @@ export default function AppShell({
   const canViewReceivables = canViewScreen(permissions, "receivables");
   const canEditReceivables = canEditScreen(permissions, "receivables");
   const canViewRouteSearch = canViewScreen(permissions, "route_search");
+  const canViewInsuranceWorkflow = canViewScreen(permissions, "insurance_workflow");
+  const canEditInsuranceWorkflow = canEditScreen(permissions, "insurance_workflow");
   const canViewControlUnits = canViewScreen(permissions, "control_units");
   const canEditControlUnits = canEditScreen(permissions, "control_units");
   const canViewSettings = canViewScreen(permissions, "settings");
   const canEditSettings = canEditScreen(permissions, "settings") && canManageSettings;
   const canViewSettingsPage = canViewSettings || canManageUsers;
   const isReadOnlyReceivables = isReadOnlyExperience || !canEditReceivables;
-  const shouldSyncCoreData = canViewClients || canViewPayments || canViewReceivables || canViewRouteSearch || canViewSettingsPage;
+  const shouldSyncCoreData = canViewClients || canViewPayments || canViewReceivables || canViewRouteSearch || canViewInsuranceWorkflow || canViewSettingsPage;
   const shouldLoadCloudSettings = canViewPayments || canViewSettingsPage;
   const cloudMirrorHydrationKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -180,7 +184,7 @@ export default function AppShell({
     if (canViewReceivables) RECEIVABLES_MIRROR_KEYS.forEach((key) => keys.add(key));
     if (canViewSettingsPage) SETTINGS_MIRROR_KEYS.forEach((key) => keys.add(key));
     return [...keys];
-  }, [canViewPayments, canViewReceivables, canViewSettingsPage]);
+  }, [canViewInsuranceWorkflow, canViewPayments, canViewReceivables, canViewSettingsPage]);
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = effectiveOwnerUserId ?? dataOwnerUserId ?? userId;
   const [page, setPage] = useState<AppPage>(() => getFirstVisiblePage({
@@ -189,6 +193,7 @@ export default function AppShell({
     canViewPayments,
     canViewReceivables,
     canViewRouteSearch,
+    canViewInsuranceWorkflow,
     canViewControlUnits,
     canViewSettingsPage
   }));
@@ -259,7 +264,7 @@ export default function AppShell({
       payments: canViewPayments,
       receivables: canViewReceivables,
       route_search: canViewRouteSearch,
-      insurance_workflow: canViewReceivables,
+      insurance_workflow: canViewInsuranceWorkflow,
       control_units: canViewControlUnits,
       settings: canViewSettingsPage
     } satisfies Record<AppPage, boolean>;
@@ -270,12 +275,13 @@ export default function AppShell({
         canViewPayments,
         canViewReceivables,
         canViewRouteSearch,
+        canViewInsuranceWorkflow,
         canViewControlUnits,
         canViewSettingsPage
       }));
       return;
     }
-  }, [canViewClients, canViewControlUnits, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage, page]);
+  }, [canViewClients, canViewControlUnits, canViewInsuranceWorkflow, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage, page]);
 
   useEffect(() => {
     let cancelled = false;
@@ -814,6 +820,7 @@ export default function AppShell({
         canViewPayments={canViewPayments}
         canViewReceivables={canViewReceivables}
         canViewRouteSearch={canViewRouteSearch}
+        canViewInsuranceWorkflow={canViewInsuranceWorkflow}
         canViewControlUnits={canViewControlUnits}
         canViewSettings={canViewSettingsPage}
         showCoreSyncStatus={shouldSyncCoreData}
@@ -907,8 +914,8 @@ export default function AppShell({
             payments={payments}
           />
         )}
-        {page === "insurance_workflow" && canViewReceivables && (
-          <InsuranceWorkflowPage clients={clients} dataOwnerUserId={cloudDataUserId} />
+        {page === "insurance_workflow" && canViewInsuranceWorkflow && (
+          <InsuranceWorkflowPage clients={clients} dataOwnerUserId={cloudDataUserId} readOnly={!canEditInsuranceWorkflow} />
         )}
         {page === "control_units" && canViewControlUnits && (
           <ControlUnitsPage
