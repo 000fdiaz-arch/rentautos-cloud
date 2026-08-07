@@ -97,6 +97,11 @@ export function isChargeDay(client: Client, date: Date): boolean {
   return adjusted.getDate() === date.getDate();
 }
 
+export function isBeforeFirstChargeDate(client: Client, date: Date): boolean {
+  const firstChargeDate = client.firstChargeDate ? parseDateKey(client.firstChargeDate) : null;
+  return firstChargeDate !== null && startOfDay(date) < startOfDay(firstChargeDate);
+}
+
 export function applyAutomaticCharges(currentClients: Client[], now: Date): { clients: Client[]; changed: boolean } {
   const today = startOfDay(now);
   const todayKey = toDateKey(today);

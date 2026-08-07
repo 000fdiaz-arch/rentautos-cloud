@@ -1,4 +1,4 @@
-import { isChargeDay, parseDateKey } from "./billing";
+import { isBeforeFirstChargeDate, isChargeDay, parseDateKey } from "./billing";
 import type { Client, LateFeeLedgerEntry, LateFeeSettings, OtherCharge, Payment } from "./types";
 
 function roundMoney(value: number): number {
@@ -127,6 +127,7 @@ export function applyLateFeesForClosingDate({
       return client;
     }
     if (!selectedUnits.has(normalizeUnitId(client.unitId))) return client;
+    if (isBeforeFirstChargeDate(client, closingDate)) return client;
 
     let reason: LateFeeLedgerEntry["reason"] | null = null;
     if (client.frequency === "daily") {

@@ -71,6 +71,7 @@ export function getOperationalReferenceDate(now: Date): Date {
 }
 
 function hasBillingRuleChanged(existing: Client, form: ClientForm): boolean {
+  if ((existing.firstChargeDate ?? "") !== form.firstChargeDate.trim()) return true;
   if (existing.frequency !== form.frequency) return true;
   if (form.frequency === "weekly") return (existing.weeklyChargeDay ?? "monday") !== form.weeklyChargeDay;
   if (form.frequency === "monthly") return (existing.monthlyChargeDay ?? 1) !== Number(form.monthlyChargeDay);

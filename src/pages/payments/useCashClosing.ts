@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getBusinessDateKey, isChargeDay, parseDateKey, toDateKey } from "../../billing";
+import { getBusinessDateKey, isBeforeFirstChargeDate, isChargeDay, parseDateKey, toDateKey } from "../../billing";
 import {
   loadCloudCashClosingAudit,
   loadCloudCashClosings,
@@ -379,8 +379,9 @@ function applyNextDayChargesFromClosing(
       clientLastCharge !== null &&
       toDateKey(clientLastCharge) === targetDateKey
     );
+    const isBeforeFirstCharge = isBeforeFirstChargeDate(client, targetDate);
     const canCharge = Number.isFinite(client.rentAmount) && client.rentAmount > 0;
-    const shouldChargeByRule = canCharge && isChargeDay(client, targetDate);
+    const shouldChargeByRule = canCharge && !isBeforeFirstCharge && isChargeDay(client, targetDate);
     if (shouldChargeByRule) expectedClients += 1;
     const balanceBefore = roundMoney(client.balance);
     const lastBefore = client.lastChargeDate ?? "-";
@@ -407,6 +408,8 @@ function applyNextDayChargesFromClosing(
     if (!shouldCharge) {
       const reason = alreadyChargedThruTarget
         ? "Sin cobro: fecha ya cubierta"
+        : isBeforeFirstCharge
+          ? "Sin cobro: antes de fecha primer cobro"
         : shouldChargeByRule
           ? "Sin cobro por estado de fecha"
           : "No corresponde por regla";
