@@ -4,6 +4,7 @@ import {
   loadInsuranceInsurers,
   saveInsuranceClaim,
   saveInsuranceInsurer,
+  type InsuranceClaimStatus,
   type InsuranceClaimRecord
 } from "../cloudData";
 import type { Client } from "../types";
@@ -60,6 +61,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   const [loadError, setLoadError] = useState<string>("");
   const [loadingCloud, setLoadingCloud] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
+  const [statusSavingId, setStatusSavingId] = useState<string>("");
 
   const activeClientsByUnit = useMemo(() => {
     return new Map(
@@ -247,6 +249,27 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
     setDamagePhotoNames(names.slice(0, MAX_DAMAGE_PHOTOS));
   }
 
+  async function updateClaimStatus(claim: InsuranceClaimRecord, status: InsuranceClaimStatus): Promise<void> {
+    if (!dataOwnerUserId || readOnly || claim.status === status) return;
+    const updatedClaim: InsuranceClaimRecord = {
+      ...claim,
+      status,
+      updatedAt: new Date().toISOString()
+    };
+    setStatusSavingId(claim.id);
+    setMessage("");
+    try {
+      await saveInsuranceClaim(dataOwnerUserId, updatedClaim);
+      setClaims((current) => current.map((item) => item.id === claim.id ? updatedClaim : item));
+      setMessage(`Reclamo marcado como ${status}.`);
+    } catch (error) {
+      console.error("No se pudo actualizar estado de reclamo.", error);
+      setMessage("No se pudo actualizar el estado en la nube.");
+    } finally {
+      setStatusSavingId("");
+    }
+  }
+
   return (
     <section className="insurance-workflow-page">
       <div className="panel insurance-workflow-header">
@@ -407,7 +430,15 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                   <span>{claim.insurer || "Sin aseguradora"} - {claim.claimNumber || "Sin numero"}</span>
                 </div>
                 <div>
-                  <span className="workflow-status-pill">{claim.status}</span>
+                  <select
+                    className="workflow-status-select"
+                    value={claim.status}
+                    onChange={(event) => void updateClaimStatus(claim, event.target.value as InsuranceClaimStatus)}
+                    disabled={readOnly || statusSavingId === claim.id}
+                  >
+                    <option value="En seguimiento">En seguimiento</option>
+                    <option value="Pagado">Pagado</option>
+                  </select>
                   <small>{claim.incidentDate || "Sin fecha"}</small>
                 </div>
                 <dl>

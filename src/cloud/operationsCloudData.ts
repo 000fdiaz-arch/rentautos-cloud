@@ -38,7 +38,7 @@ export type ControlUnitRow = {
   [key: string]: unknown;
 };
 
-export type InsuranceClaimStatus = "En seguimiento";
+export type InsuranceClaimStatus = "En seguimiento" | "Pagado";
 
 export type InsuranceClaimRecord = {
   id: string;
