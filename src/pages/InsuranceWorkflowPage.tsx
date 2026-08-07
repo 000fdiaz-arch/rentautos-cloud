@@ -62,6 +62,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   const [loadingCloud, setLoadingCloud] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [statusSavingId, setStatusSavingId] = useState<string>("");
+  const [driverEditedManually, setDriverEditedManually] = useState<boolean>(false);
 
   const activeClientsByUnit = useMemo(() => {
     return new Map(
@@ -143,13 +144,13 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
     const client = activeClientsByUnit.get(unitId) ?? clientsByUnit.get(unitId);
     const nextDriver = fleetUnit?.client_name ?? client?.name ?? "";
     const nextPlate = fleetUnit?.plate ?? "";
-    if (form.driver === nextDriver && form.plate === nextPlate) return;
+    if ((driverEditedManually || form.driver === nextDriver) && form.plate === nextPlate) return;
     setForm((current) => ({
       ...current,
-      driver: nextDriver,
+      driver: driverEditedManually ? current.driver : nextDriver,
       plate: nextPlate
     }));
-  }, [activeClientsByUnit, clientsByUnit, fleetUnitsByUnit, form.driver, form.plate, form.unit]);
+  }, [activeClientsByUnit, clientsByUnit, driverEditedManually, fleetUnitsByUnit, form.driver, form.plate, form.unit]);
 
   function patchForm(patch: Partial<ClaimForm>): void {
     setForm((current) => ({ ...current, ...patch }));
@@ -159,6 +160,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
     const unitId = normalizeUnit(value);
     const fleetUnit = fleetUnitsByUnit.get(unitId);
     const client = activeClientsByUnit.get(unitId) ?? clientsByUnit.get(unitId);
+    setDriverEditedManually(false);
     setForm((current) => ({
       ...current,
       unit: unitId,
@@ -170,6 +172,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   function resetForm(): void {
     setForm(EMPTY_FORM);
     setDamagePhotoNames([]);
+    setDriverEditedManually(false);
   }
 
   async function addInsurer(value: string): Promise<void> {
@@ -330,7 +333,10 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                 name="driver"
                 placeholder="Nombre completo"
                 value={form.driver}
-                onChange={(event) => patchForm({ driver: event.target.value })}
+                onChange={(event) => {
+                  setDriverEditedManually(true);
+                  patchForm({ driver: event.target.value });
+                }}
                 disabled={readOnly}
               />
             </label>
