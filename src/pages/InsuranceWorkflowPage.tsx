@@ -744,14 +744,21 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
         <form className="panel workflow-form-panel" onSubmit={(event) => { event.preventDefault(); void saveClaim(); }}>
           <div className="panel-head">
             <h2>Formulario de reclamo</h2>
-            <button type="submit" className="button primary" disabled={readOnly || saving || loadingCloud}>Guardar</button>
+            <button
+              type="button"
+              className="button primary"
+              onClick={() => void saveClaim()}
+              disabled={readOnly || saving || loadingCloud}
+            >
+              {saving ? "Guardando..." : "Guardar"}
+            </button>
           </div>
           {readOnly && <p className="hint workflow-message">Modo lectura: tu usuario no puede crear ni editar reclamos.</p>}
           {loadingCloud && <p className="hint workflow-message">Cargando reclamos...</p>}
           {loadError && <p className="hint workflow-message">{loadError}</p>}
           {fleetLoading && <p className="hint workflow-message">Cargando autos...</p>}
           {fleetLoadError && <p className="hint workflow-message">{fleetLoadError}</p>}
-          {message && <p className="hint workflow-message">{message}</p>}
+          {message && <p className="hint workflow-message" role="alert" aria-live="assertive">{message}</p>}
 
           <div className="workflow-form-grid">
             <div className={`workflow-claim-number-question${!form.hasClaimNumber ? " is-pending" : ""}`}>
