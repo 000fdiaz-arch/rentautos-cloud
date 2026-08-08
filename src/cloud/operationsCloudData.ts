@@ -38,7 +38,29 @@ export type ControlUnitRow = {
   [key: string]: unknown;
 };
 
-export type InsuranceClaimStatus = "En seguimiento" | "Pagado";
+export type InsuranceClaimStatus = "Inactivo" | "Activo" | "Finalizado";
+export type InsuranceClaimClosureOutcome = "Pagado" | "Declinado";
+
+export type InsuranceClaimEditEvent = {
+  editedAt: string;
+  justification: string;
+};
+
+export type InsuranceSettlementAttachment = {
+  name: string;
+  path: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+};
+
+export type InsuranceDamagePhotoAttachment = {
+  name: string;
+  path: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+};
 
 export type InsuranceClaimRecord = {
   id: string;
@@ -52,9 +74,62 @@ export type InsuranceClaimRecord = {
   vehicleDamage: string;
   status: InsuranceClaimStatus;
   damagePhotoNames: string[];
+  damagePhotos: InsuranceDamagePhotoAttachment[];
+  settlementDelivered: boolean;
+  settlementDeliveredDate: string;
+  settlementMarkedAt: string | null;
+  settlementAttachment: InsuranceSettlementAttachment | null;
+  followUpComment: string;
+  followUpCommentUpdatedAt: string | null;
+  closureOutcome: InsuranceClaimClosureOutcome | null;
+  closureJustification: string;
+  finalizedAt: string | null;
+  editHistory: InsuranceClaimEditEvent[];
   createdAt: string;
   updatedAt: string;
 };
+
+const INSURANCE_SETTLEMENTS_BUCKET = "insurance-settlements";
+const INSURANCE_DAMAGE_PHOTOS_BUCKET = INSURANCE_SETTLEMENTS_BUCKET;
+
+function normalizeInsuranceClaim(claim: InsuranceClaimRecord): InsuranceClaimRecord {
+  const claimNumber = typeof claim.claimNumber === "string" ? claim.claimNumber : "";
+  const rawStatus = (claim as unknown as { status?: string }).status;
+  const status: InsuranceClaimStatus = !claimNumber.trim()
+    ? "Inactivo"
+    : rawStatus === "Finalizado" || rawStatus === "Pagado"
+      ? "Finalizado"
+      : "Activo";
+  const rawClosureOutcome = (claim as InsuranceClaimRecord & { closureOutcome?: unknown }).closureOutcome;
+  const closureOutcome: InsuranceClaimClosureOutcome | null = status !== "Finalizado"
+    ? null
+    : rawStatus === "Pagado"
+      ? "Pagado"
+      : rawClosureOutcome === "Pagado" || rawClosureOutcome === "Declinado"
+        ? rawClosureOutcome
+        : null;
+  return {
+    ...claim,
+    claimNumber,
+    status,
+    damagePhotoNames: Array.isArray(claim.damagePhotoNames) ? claim.damagePhotoNames : [],
+    damagePhotos: Array.isArray(claim.damagePhotos)
+      ? claim.damagePhotos.filter((photo) => photo && typeof photo.path === "string")
+      : [],
+    settlementDelivered: claim.settlementDelivered === true,
+    settlementDeliveredDate: typeof claim.settlementDeliveredDate === "string" ? claim.settlementDeliveredDate : "",
+    settlementMarkedAt: typeof claim.settlementMarkedAt === "string" ? claim.settlementMarkedAt : null,
+    settlementAttachment: claim.settlementAttachment && typeof claim.settlementAttachment.path === "string"
+      ? claim.settlementAttachment
+      : null,
+    followUpComment: typeof claim.followUpComment === "string" ? claim.followUpComment : "",
+    followUpCommentUpdatedAt: typeof claim.followUpCommentUpdatedAt === "string" ? claim.followUpCommentUpdatedAt : null,
+    closureOutcome,
+    closureJustification: typeof claim.closureJustification === "string" ? claim.closureJustification : "",
+    finalizedAt: status === "Finalizado" && typeof claim.finalizedAt === "string" ? claim.finalizedAt : null,
+    editHistory: Array.isArray(claim.editHistory) ? claim.editHistory : []
+  };
+}
 
 export async function loadCloudPaymentPromises(userId: string): Promise<PaymentPromise[]> {
   const client = getCloudClient();
@@ -122,7 +197,9 @@ export async function saveInsuranceInsurer(userId: string, name: string): Promis
 
 export async function loadInsuranceClaims(userId: string): Promise<InsuranceClaimRecord[]> {
   const rows = await loadCloudArrayRows<InsuranceClaimRecord>(userId, "insurance_claims_cloud");
-  return rows.sort((left, right) => (right.createdAt || "").localeCompare(left.createdAt || ""));
+  return rows
+    .map(normalizeInsuranceClaim)
+    .sort((left, right) => (right.createdAt || "").localeCompare(left.createdAt || ""));
 }
 
 export async function saveInsuranceClaim(userId: string, claim: InsuranceClaimRecord): Promise<void> {
@@ -136,6 +213,79 @@ export async function saveInsuranceClaim(userId: string, claim: InsuranceClaimRe
       updated_at: claim.updatedAt
     }, { onConflict: "user_id,id" });
   if (error) throw error;
+}
+
+function safeStorageFileName(fileName: string): string {
+  const extension = fileName.includes(".") ? `.${fileName.split(".").pop()?.toLowerCase() ?? ""}` : "";
+  const baseName = fileName.slice(0, extension ? -extension.length : undefined)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "finiquito";
+  return `${baseName}${extension.replace(/[^a-z0-9.]/g, "")}`;
+}
+
+export async function uploadInsuranceSettlement(
+  userId: string,
+  claimId: string,
+  file: File
+): Promise<InsuranceSettlementAttachment> {
+  const client = getCloudClient();
+  const uploadedAt = new Date().toISOString();
+  const path = `${userId}/${claimId}/${Date.now()}-${safeStorageFileName(file.name)}`;
+  const { error } = await client.storage
+    .from(INSURANCE_SETTLEMENTS_BUCKET)
+    .upload(path, file, { contentType: file.type || undefined, upsert: false });
+  if (error) throw error;
+  return { name: file.name, path, mimeType: file.type, size: file.size, uploadedAt };
+}
+
+export async function removeInsuranceSettlement(path: string): Promise<void> {
+  if (!path) return;
+  const client = getCloudClient();
+  const { error } = await client.storage.from(INSURANCE_SETTLEMENTS_BUCKET).remove([path]);
+  if (error) throw error;
+}
+
+export async function createInsuranceSettlementViewUrl(path: string): Promise<string> {
+  const client = getCloudClient();
+  const { data, error } = await client.storage
+    .from(INSURANCE_SETTLEMENTS_BUCKET)
+    .createSignedUrl(path, 60 * 10);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+export async function uploadInsuranceDamagePhoto(
+  userId: string,
+  claimId: string,
+  file: File
+): Promise<InsuranceDamagePhotoAttachment> {
+  const client = getCloudClient();
+  const uploadedAt = new Date().toISOString();
+  const path = `${userId}/damage-photos/${claimId}/${Date.now()}-${crypto.randomUUID()}-${safeStorageFileName(file.name)}`;
+  const { error } = await client.storage
+    .from(INSURANCE_DAMAGE_PHOTOS_BUCKET)
+    .upload(path, file, { contentType: file.type || undefined, upsert: false });
+  if (error) throw error;
+  return { name: file.name, path, mimeType: file.type, size: file.size, uploadedAt };
+}
+
+export async function removeInsuranceDamagePhotos(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  const client = getCloudClient();
+  const { error } = await client.storage.from(INSURANCE_DAMAGE_PHOTOS_BUCKET).remove(paths);
+  if (error) throw error;
+}
+
+export async function createInsuranceDamagePhotoViewUrl(path: string): Promise<string> {
+  const client = getCloudClient();
+  const { data, error } = await client.storage
+    .from(INSURANCE_DAMAGE_PHOTOS_BUCKET)
+    .createSignedUrl(path, 60 * 10);
+  if (error) throw error;
+  return data.signedUrl;
 }
 
 export async function loadCloudBankRules(userId: string): Promise<BankRule[]> {
