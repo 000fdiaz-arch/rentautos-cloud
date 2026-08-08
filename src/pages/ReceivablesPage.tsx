@@ -310,34 +310,6 @@ function isRouteManagementRecord(record: CollectionStatusRecord | undefined): bo
   );
 }
 
-function buildCoveredRouteRecord(previous: CollectionStatusRecord | undefined, updatedAt: string): CollectionStatusRecord {
-  return {
-    ...previous,
-    status: "covered",
-    comment: previous?.comment ?? "",
-    updatedAt,
-    managementType: undefined,
-    managementAmount: undefined,
-    managementComment: "",
-    managementUpdatedAt: undefined,
-    routeReleaseAmount: undefined,
-    routeReleaseUpdatedAt: undefined,
-    routeAssignment: undefined,
-    routeAssignmentUpdatedAt: undefined,
-    routeUrgency: undefined,
-    routeUrgencyUpdatedAt: undefined,
-    whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
-    whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
-    whatsAppMessageText: previous?.whatsAppMessageText,
-    supportNote: previous?.supportNote,
-    supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
-    contactTime: previous?.contactTime,
-    contactTimeUpdatedAt: previous?.contactTimeUpdatedAt,
-    paymentPromiseDate: previous?.paymentPromiseDate,
-    paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
-  };
-}
-
 function buildPendingRouteRecord(previous: CollectionStatusRecord | undefined, updatedAt: string): CollectionStatusRecord {
   return {
     ...previous,
@@ -900,21 +872,7 @@ export default function ReceivablesPage({
     for (const clientId of releasedClientIds) {
       const previous = nextStatusByClient[clientId];
       if (!previous || previous.status !== "route") continue;
-      const updatedRecord: CollectionStatusRecord = {
-        ...previous,
-        status: "contacted",
-        updatedAt: new Date().toISOString(),
-        managementType: undefined,
-        managementAmount: undefined,
-        managementComment: "",
-        managementUpdatedAt: undefined,
-        routeReleaseAmount: undefined,
-        routeReleaseUpdatedAt: undefined,
-        routeAssignment: undefined,
-        routeAssignmentUpdatedAt: undefined,
-        routeUrgency: undefined,
-        routeUrgencyUpdatedAt: undefined
-      };
+      const updatedRecord = buildPendingRouteRecord(previous, new Date().toISOString());
       optimisticStatusByClientRef.current[clientId] = updatedRecord;
       nextStatusByClient[clientId] = updatedRecord;
       changedStatus = true;
@@ -1042,7 +1000,7 @@ export default function ReceivablesPage({
       for (const clientId of removedRouteClientIds) {
         const previous = next[clientId];
         if (!isRouteManagementRecord(previous)) continue;
-        const updatedRecord = buildCoveredRouteRecord(previous, nowIso);
+        const updatedRecord = buildPendingRouteRecord(previous, nowIso);
         next[clientId] = updatedRecord;
         optimisticStatusByClientRef.current[clientId] = updatedRecord;
         markClientStatusAsSaving(clientId);
@@ -1891,29 +1849,7 @@ export default function ReceivablesPage({
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       if (!previous) return current;
-      const updatedRecord: CollectionStatusRecord = {
-        ...previous,
-        status: "unassigned",
-        comment: previous.comment ?? "",
-        updatedAt: nowIso,
-        managementType: undefined,
-        managementAmount: undefined,
-        managementComment: "",
-        managementUpdatedAt: undefined,
-        routeReleaseAmount: undefined,
-        routeReleaseUpdatedAt: undefined,
-        routeAssignment: undefined,
-        routeAssignmentUpdatedAt: undefined,
-        routeUrgency: undefined,
-        routeUrgencyUpdatedAt: undefined,
-        whatsAppMessageCopiedAt: previous.whatsAppMessageCopiedAt,
-        whatsAppMessageSentAt: previous.whatsAppMessageSentAt,
-        whatsAppMessageText: previous.whatsAppMessageText,
-        supportNote: previous.supportNote,
-        supportNoteUpdatedAt: previous.supportNoteUpdatedAt,
-        paymentPromiseDate: previous.paymentPromiseDate,
-        paymentPromiseUpdatedAt: previous.paymentPromiseUpdatedAt
-      };
+      const updatedRecord = buildPendingRouteRecord(previous, nowIso);
       optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return {
         ...current,
@@ -1948,7 +1884,7 @@ export default function ReceivablesPage({
       markClientStatusAsSaving(clientId);
       setCollectionStatusByClient((current) => {
         const previous = current[clientId];
-        const updatedRecord = buildCoveredRouteRecord(previous, removedAt);
+        const updatedRecord = buildPendingRouteRecord(previous, removedAt);
         optimisticStatusByClientRef.current[clientId] = updatedRecord;
         return {
           ...current,
