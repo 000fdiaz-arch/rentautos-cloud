@@ -30,6 +30,7 @@ type ClaimForm = {
   driver: string;
   plate: string;
   insurer: string;
+  hasClaimNumber: "" | "yes" | "no";
   claimNumber: string;
   amount: string;
   vehicleDamage: string;
@@ -45,6 +46,7 @@ const EMPTY_FORM: ClaimForm = {
   driver: "",
   plate: "",
   insurer: "",
+  hasClaimNumber: "",
   claimNumber: "",
   amount: "",
   vehicleDamage: ""
@@ -326,12 +328,24 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       setMessage("Completa fecha, unidad, nombre completo, placa y aseguradora antes de guardar.");
       return;
     }
+    if (!form.hasClaimNumber) {
+      setMessage("Indica si tienes el número de reclamo antes de guardar.");
+      return;
+    }
+    const hasClaimNumber = form.hasClaimNumber === "yes";
+    const claimNumber = hasClaimNumber ? form.claimNumber.trim() : "";
+    if (hasClaimNumber && !claimNumber) {
+      setMessage("Escribe el número de reclamo antes de guardar.");
+      return;
+    }
 
     const now = new Date().toISOString();
     const nextClaim: InsuranceClaimRecord = {
       ...form,
+      hasClaimNumber,
+      claimNumber,
       id: `insurance-claim-${Date.now()}`,
-      status: form.claimNumber.trim() ? "Activo" : "Inactivo",
+      status: claimNumber ? "Activo" : "Inactivo",
       damagePhotoNames: [],
       damagePhotos: [],
       settlementDelivered: false,
@@ -638,6 +652,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       driver: claim.driver,
       plate: claim.plate,
       insurer: claim.insurer,
+      hasClaimNumber: claim.hasClaimNumber ? "yes" : "no",
       claimNumber: claim.claimNumber,
       amount: claim.amount,
       vehicleDamage: claim.vehicleDamage
@@ -663,8 +678,17 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       setMessage("Debes justificar la edición antes de guardarla.");
       return;
     }
+    if (!editForm.hasClaimNumber) {
+      setMessage("Indica si tienes el número de reclamo antes de guardar la edición.");
+      return;
+    }
     const now = new Date().toISOString();
-    const claimNumber = editForm.claimNumber.trim();
+    const hasClaimNumber = editForm.hasClaimNumber === "yes";
+    const claimNumber = hasClaimNumber ? editForm.claimNumber.trim() : "";
+    if (hasClaimNumber && !claimNumber) {
+      setMessage("Escribe el número de reclamo antes de guardar la edición.");
+      return;
+    }
     const nextStatus: InsuranceClaimStatus = !claimNumber
       ? "Inactivo"
       : claim.status === "Inactivo"
@@ -676,6 +700,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       unit: normalizeUnit(editForm.unit),
       driver: editForm.driver.trim(),
       plate: editForm.plate.trim().toUpperCase(),
+      hasClaimNumber,
       claimNumber,
       status: nextStatus,
       closureOutcome: nextStatus === "Finalizado" ? claim.closureOutcome : null,
@@ -729,6 +754,42 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
           {message && <p className="hint workflow-message">{message}</p>}
 
           <div className="workflow-form-grid">
+            <div className={`workflow-claim-number-question${!form.hasClaimNumber ? " is-pending" : ""}`}>
+              <div>
+                <span className="workflow-question-step">Primer paso</span>
+                <strong>¿Tienes el número de reclamo?</strong>
+                <small>Selecciona una opción para continuar con el registro.</small>
+              </div>
+              <select
+                name="hasClaimNumber"
+                aria-label="¿Tienes el número de reclamo?"
+                value={form.hasClaimNumber}
+                onChange={(event) => {
+                  const hasClaimNumber = event.target.value as ClaimForm["hasClaimNumber"];
+                  patchForm({ hasClaimNumber, ...(hasClaimNumber !== "yes" ? { claimNumber: "" } : {}) });
+                }}
+                disabled={readOnly}
+              >
+                <option value="">Seleccionar Sí o No</option>
+                <option value="yes">Sí, tengo el número</option>
+                <option value="no">No, todavía no lo tengo</option>
+              </select>
+            </div>
+
+            {form.hasClaimNumber === "yes" && (
+              <label className={`workflow-claim-number-input${!form.claimNumber.trim() ? " workflow-required-field" : ""}`}>
+                Número de reclamo
+                <input
+                  name="claimNumber"
+                  placeholder="Escribe el número de reclamo"
+                  value={form.claimNumber}
+                  onChange={(event) => patchForm({ claimNumber: event.target.value })}
+                  disabled={readOnly}
+                  autoFocus
+                />
+              </label>
+            )}
+
             <label>
               Fecha del incidente
               <input
@@ -946,7 +1007,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                     <span className="workflow-claim-reference">
                       <strong>{claim.insurer || "Sin aseguradora"}</strong>
                       <small className={!claim.claimNumber ? "missing" : ""}>
-                        {claim.claimNumber ? `Reclamo N.º ${claim.claimNumber}` : "⚠ Falta número de reclamo"}
+                        {claim.claimNumber ? `Reclamo N.º ${claim.claimNumber}` : "Número de reclamo: No"}
                       </small>
                     </span>
                     <span className="workflow-claim-summary-value">
@@ -962,7 +1023,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                         {claim.settlementDelivered ? "Finiquito entregado" : "Finiquito pendiente"}
                       </span>
                       {claim.followUpComment && <span className="complete">Con seguimiento</span>}
-                      {!claim.claimNumber && <span className="missing">Falta número</span>}
+                      {!claim.claimNumber && <span className="missing">Sin número</span>}
                       {claim.status === "Finalizado" && claim.closureOutcome && (
                         <span className={claim.closureOutcome === "Pagado" ? "complete" : "declined"}>{claim.closureOutcome}</span>
                       )}
@@ -996,7 +1057,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                 <div className="workflow-claim-detail-head">
                   <div>
                     {!claim.claimNumber ? (
-                      <strong className="workflow-claim-number-warning">Falta colocar el número de reclamo. El caso permanecerá Inactivo.</strong>
+                      <strong className="workflow-claim-number-warning">Indicó que no tiene número de reclamo. El caso permanecerá Inactivo.</strong>
                     ) : (
                       <strong>Número de reclamo: {claim.claimNumber}</strong>
                     )}
@@ -1059,10 +1120,30 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                           {insurers.map((insurer) => <option key={insurer} value={insurer}>{insurer}</option>)}
                         </select>
                       </label>
-                      <label className={!editForm.claimNumber.trim() ? "workflow-required-field" : ""}>
-                        Número de reclamo
-                        <input value={editForm.claimNumber} placeholder="Obligatorio para activar o finalizar" onChange={(event) => setEditForm((current) => ({ ...current, claimNumber: event.target.value }))} />
+                      <label className={!editForm.hasClaimNumber ? "workflow-required-field" : ""}>
+                        ¿Tienes el número de reclamo?
+                        <select
+                          value={editForm.hasClaimNumber}
+                          onChange={(event) => {
+                            const hasClaimNumber = event.target.value as ClaimForm["hasClaimNumber"];
+                            setEditForm((current) => ({
+                              ...current,
+                              hasClaimNumber,
+                              ...(hasClaimNumber !== "yes" ? { claimNumber: "" } : {})
+                            }));
+                          }}
+                        >
+                          <option value="">Seleccionar</option>
+                          <option value="yes">Sí</option>
+                          <option value="no">No</option>
+                        </select>
                       </label>
+                      {editForm.hasClaimNumber === "yes" && (
+                        <label className={!editForm.claimNumber.trim() ? "workflow-required-field" : ""}>
+                          Número de reclamo
+                          <input value={editForm.claimNumber} placeholder="Obligatorio para activar o finalizar" onChange={(event) => setEditForm((current) => ({ ...current, claimNumber: event.target.value }))} />
+                        </label>
+                      )}
                       <label>Monto<input type="number" min="0" step="0.01" value={editForm.amount} onChange={(event) => setEditForm((current) => ({ ...current, amount: event.target.value }))} /></label>
                       <label className="workflow-claim-edit-wide">Daños del auto<textarea value={editForm.vehicleDamage} onChange={(event) => setEditForm((current) => ({ ...current, vehicleDamage: event.target.value }))} /></label>
                       <label className="workflow-claim-edit-wide workflow-required-field">
@@ -1079,7 +1160,8 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                   </div>
                 ) : (
                 <dl className="workflow-claim-detail-grid">
-                  <div><dt>Número de reclamo</dt><dd>{claim.claimNumber || "Falta colocar"}</dd></div>
+                  <div><dt>¿Tiene número de reclamo?</dt><dd>{claim.hasClaimNumber ? "Sí" : "No"}</dd></div>
+                  <div><dt>Número de reclamo</dt><dd>{claim.claimNumber || "No aplica"}</dd></div>
                   <div><dt>Placa</dt><dd>{claim.plate || "-"}</dd></div>
                   <div><dt>Fotos de daños</dt><dd>{claim.damagePhotos.length || claim.damagePhotoNames.length || "-"}</dd></div>
                   <div><dt>Fecha de creación</dt><dd>{claim.createdAt ? new Date(claim.createdAt).toLocaleDateString("es-PA") : "-"}</dd></div>

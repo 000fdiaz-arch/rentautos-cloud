@@ -69,6 +69,7 @@ export type InsuranceClaimRecord = {
   driver: string;
   plate: string;
   insurer: string;
+  hasClaimNumber: boolean;
   claimNumber: string;
   amount: string;
   vehicleDamage: string;
@@ -94,6 +95,10 @@ const INSURANCE_DAMAGE_PHOTOS_BUCKET = INSURANCE_SETTLEMENTS_BUCKET;
 
 function normalizeInsuranceClaim(claim: InsuranceClaimRecord): InsuranceClaimRecord {
   const claimNumber = typeof claim.claimNumber === "string" ? claim.claimNumber : "";
+  const rawHasClaimNumber = (claim as InsuranceClaimRecord & { hasClaimNumber?: unknown }).hasClaimNumber;
+  const hasClaimNumber = typeof rawHasClaimNumber === "boolean"
+    ? rawHasClaimNumber
+    : Boolean(claimNumber.trim());
   const rawStatus = (claim as unknown as { status?: string }).status;
   const status: InsuranceClaimStatus = !claimNumber.trim()
     ? "Inactivo"
@@ -110,6 +115,7 @@ function normalizeInsuranceClaim(claim: InsuranceClaimRecord): InsuranceClaimRec
         : null;
   return {
     ...claim,
+    hasClaimNumber,
     claimNumber,
     status,
     damagePhotoNames: Array.isArray(claim.damagePhotoNames) ? claim.damagePhotoNames : [],
