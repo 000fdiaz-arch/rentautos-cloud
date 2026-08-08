@@ -46,6 +46,7 @@ type Props = {
   visibleCollectionCut: CollectionCutKey | "all";
   buildWhatsAppReceivableMessage: (row: ReceivableRow) => string;
   getWhatsAppGroupRows: (row: ReceivableRow) => ReceivableRow[];
+  getStatementGroupRows: (row: ReceivableRow) => ReceivableRow[];
   onSelectDetail: (row: ReceivableRow) => void;
   onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
   onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
@@ -132,6 +133,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   visibleCollectionCut,
   buildWhatsAppReceivableMessage,
   getWhatsAppGroupRows,
+  getStatementGroupRows,
   onSelectDetail,
   onCollectionCutStatusChange,
   onCollectionCutCommentChange,
@@ -554,6 +556,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               visibleCutKey={visibleCollectionCut}
               whatsAppMessage={buildWhatsAppReceivableMessage(row)}
               whatsAppGroupRows={getWhatsAppGroupRows(row)}
+              statementGroupRows={getStatementGroupRows(row)}
               onSelectDetail={onSelectDetail}
               onCollectionCutStatusChange={onCollectionCutStatusChange}
               onCollectionCutCommentChange={onCollectionCutCommentChange}

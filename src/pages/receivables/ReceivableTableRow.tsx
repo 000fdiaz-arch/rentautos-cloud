@@ -32,6 +32,7 @@ type Props = {
   visibleCutKey: CollectionCutKey | "all";
   whatsAppMessage: string;
   whatsAppGroupRows?: ReceivableRow[];
+  statementGroupRows?: ReceivableRow[];
   onSelectDetail: (row: ReceivableRow) => void;
   onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
   onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
@@ -226,7 +227,71 @@ function StatementBalanceCard({ row, now }: { row: ReceivableRow; now: Date }) {
   );
 }
 
-async function buildReceivableBalanceCanvas(row: ReceivableRow, now: Date): Promise<HTMLCanvasElement> {
+function statementShortDate(value: string | null | undefined): string {
+  if (!value) return "Sin pagos";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Sin pagos";
+  return date.toLocaleDateString("es-PA", { day: "2-digit", month: "2-digit" });
+}
+
+function statementInstallmentsSummary(row: ReceivableRow): string {
+  const totalPending = Math.max(0, row.totalPending);
+  if (totalPending <= 0) return "Al día";
+  if (row.rentAmount <= 0) return "Saldo pendiente";
+  const installments = Math.ceil(totalPending / row.rentAmount);
+  return `${installments} cuota${installments === 1 ? "" : "s"}`;
+}
+
+function ConsolidatedStatementBalanceCard({ rows, now }: { rows: ReceivableRow[]; now: Date }) {
+  const primaryRow = rows[0];
+  const totalPending = roundStatementMoney(rows.reduce((sum, item) => sum + Math.max(0, item.totalPending), 0));
+  return (
+    <div className="statement-card">
+      <div className="statement-topbar">
+        <div className="statement-title">Estado de cuenta</div>
+        <div className="statement-date">Al {formatDate(now)}</div>
+      </div>
+
+      <div className="statement-consolidated-client">
+        <span>Cliente</span>
+        <strong>{primaryRow?.name || "Cliente"}</strong>
+      </div>
+
+      <div className="statement-total-panel">
+        <span>Total pendiente</span>
+        <strong>{formatCurrency(totalPending)}</strong>
+      </div>
+
+      <div className="statement-consolidated-list">
+        {rows.map((item) => {
+          const itemPending = roundStatementMoney(Math.max(0, item.totalPending));
+          const lastPaymentValue = item.lastPaymentAt ?? (item.lastPaymentDate ? `${item.lastPaymentDate}T12:00:00` : null);
+          return (
+            <div className="statement-consolidated-unit" key={item.id}>
+              <div className="statement-consolidated-unit-main">
+                <strong>{item.unitId}</strong>
+                <b className={itemPending > 0 ? "" : "is-paid"}>{itemPending > 0 ? formatCurrency(itemPending) : "AL DÍA"}</b>
+              </div>
+              <div className="statement-consolidated-unit-meta">
+                <span>{statementInstallmentsSummary(item)}</span>
+                <span>Último pago: {statementShortDate(lastPaymentValue)}</span>
+              </div>
+            </div>
+          );
+        })}
+        <div className="statement-consolidated-count">
+          {rows.length} unidad{rows.length === 1 ? "" : "es"}
+        </div>
+      </div>
+
+      <div className="statement-note">
+        Si ya realizo el pago recientemente, por favor ignore este aviso. Gracias.
+      </div>
+    </div>
+  );
+}
+
+async function buildReceivableBalanceCanvas(rows: ReceivableRow[], now: Date): Promise<HTMLCanvasElement> {
   const host = document.createElement("div");
   host.style.position = "fixed";
   host.style.left = "-10000px";
@@ -242,7 +307,7 @@ async function buildReceivableBalanceCanvas(row: ReceivableRow, now: Date): Prom
     root.render(
       <div className="receipt-page">
         <div className="statement-export-frame">
-          <StatementBalanceCard row={row} now={now} />
+          <ConsolidatedStatementBalanceCard rows={rows} now={now} />
         </div>
       </div>
     );
@@ -279,15 +344,16 @@ function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
-function downloadReceivableBalanceImage(row: ReceivableRow, canvas: HTMLCanvasElement): void {
+function downloadReceivableBalanceImage(rows: ReceivableRow[], canvas: HTMLCanvasElement): void {
+  const primaryRow = rows[0];
   const link = document.createElement("a");
-  link.download = `saldo-${safeFilenamePart(row.unitId)}-${safeFilenamePart(row.name)}.png`;
+  link.download = `saldo-consolidado-${safeFilenamePart(primaryRow?.name || "cliente")}.png`;
   link.href = canvas.toDataURL("image/png");
   link.click();
 }
 
-async function copyReceivableBalanceImage(row: ReceivableRow, now: Date): Promise<"copied" | "downloaded"> {
-  const canvas = await buildReceivableBalanceCanvas(row, now);
+async function copyReceivableBalanceImage(rows: ReceivableRow[], now: Date): Promise<"copied" | "downloaded"> {
+  const canvas = await buildReceivableBalanceCanvas(rows, now);
   const blob = await canvasToPngBlob(canvas);
   const clipboard = navigator.clipboard as Clipboard & {
     write?: (items: ClipboardItem[]) => Promise<void>;
@@ -296,7 +362,7 @@ async function copyReceivableBalanceImage(row: ReceivableRow, now: Date): Promis
     await clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
     return "copied";
   }
-  downloadReceivableBalanceImage(row, canvas);
+  downloadReceivableBalanceImage(rows, canvas);
   return "downloaded";
 }
 
@@ -403,6 +469,7 @@ function ReceivableTableRowComponent({
   visibleCutKey,
   whatsAppMessage,
   whatsAppGroupRows,
+  statementGroupRows,
   onSelectDetail,
   onCollectionCutStatusChange,
   onCollectionCutCommentChange,
@@ -430,7 +497,12 @@ function ReceivableTableRowComponent({
   const deliveryStatusTitle = whatsAppIsResolved
     ? sentTime ? `Enviado a las ${sentTime}` : "Marcado como enviado"
     : "Sugerido: marcar como enviado si lo mandaste manualmente";
-  const balanceImageTitle = isCopyingBalanceImage ? "Copiando estado de cuenta..." : "Copiar imagen de saldo";
+  const consolidatedStatementRows = statementGroupRows?.length ? statementGroupRows : [row];
+  const balanceImageTitle = isCopyingBalanceImage
+    ? "Copiando estado de cuenta..."
+    : consolidatedStatementRows.length > 1
+      ? `Copiar estado de cuenta consolidado (${consolidatedStatementRows.length} unidades)`
+      : "Copiar estado de cuenta";
   const visibleCutOptions = visibleCutKey === "all"
     ? COLLECTION_CUT_OPTIONS
     : COLLECTION_CUT_OPTIONS.filter((option) => option.key === visibleCutKey);
@@ -453,7 +525,7 @@ function ReceivableTableRowComponent({
     if (isCopyingBalanceImage) return;
     setIsCopyingBalanceImage(true);
     try {
-      const result = await copyReceivableBalanceImage(row, now);
+      const result = await copyReceivableBalanceImage(consolidatedStatementRows, now);
       if (result === "downloaded") {
         window.alert("Tu navegador no permitio copiar la imagen. Se descargo el estado de cuenta como respaldo.");
       }
@@ -710,6 +782,8 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.collectionCutItems === next.collectionCutItems &&
   previous.visibleCutKey === next.visibleCutKey &&
   previous.whatsAppMessage === next.whatsAppMessage &&
+  previous.whatsAppGroupRows === next.whatsAppGroupRows &&
+  previous.statementGroupRows === next.statementGroupRows &&
   previous.onCollectionCutStatusChange === next.onCollectionCutStatusChange &&
   previous.onCollectionCutCommentChange === next.onCollectionCutCommentChange &&
   previous.onRouteReleaseAmountChange === next.onRouteReleaseAmountChange &&

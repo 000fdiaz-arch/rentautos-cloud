@@ -5537,6 +5537,28 @@ select.control-op-badge {
   font-weight: 800;
 }
 
+.statement-consolidated-client {
+  margin: 16px 18px 12px;
+  padding: 0 2px;
+}
+
+.statement-consolidated-client span {
+  display: block;
+  color: #7c2d12;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.statement-consolidated-client strong {
+  display: block;
+  margin-top: 4px;
+  color: #111827;
+  font-size: 1.2rem;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
 .statement-total-panel {
   margin: 0 18px 12px;
   padding: 15px 16px;
@@ -5551,6 +5573,59 @@ select.control-op-badge {
   font-size: 3.1rem;
   font-weight: 900;
   line-height: 0.98;
+}
+
+.statement-consolidated-list {
+  margin: 0 18px 12px;
+  overflow: hidden;
+  border: 1px solid #ead7bd;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.statement-consolidated-unit {
+  padding: 11px 14px 10px;
+  border-bottom: 1px solid #f1e2ce;
+}
+
+.statement-consolidated-unit-main,
+.statement-consolidated-unit-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.statement-consolidated-unit-main strong {
+  color: #111827;
+  font-size: 1.18rem;
+  font-weight: 900;
+}
+
+.statement-consolidated-unit-main b {
+  color: #b42318;
+  font-size: 1.08rem;
+  font-weight: 900;
+}
+
+.statement-consolidated-unit-main b.is-paid {
+  color: #047a2d;
+  font-size: 0.84rem;
+}
+
+.statement-consolidated-unit-meta {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.statement-consolidated-count {
+  padding: 8px 14px;
+  color: #7c2d12;
+  text-align: right;
+  font-size: 0.76rem;
+  font-weight: 900;
 }
 
 .statement-detail-panel {

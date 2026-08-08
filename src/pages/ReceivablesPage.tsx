@@ -133,6 +133,11 @@ function normalizeWhatsAppPhoneForFilter(value: string | undefined): string {
   return "";
 }
 
+function statementCedulaKey(row: ReceivableRow): string {
+  const cedula = row.cedula?.replace(/[^a-z0-9]/gi, "").toUpperCase() ?? "";
+  return cedula.length >= 5 ? cedula : "";
+}
+
 function isWhatsAppEligibleUnit(row: ReceivableRow): boolean {
   return hasActiveOperationalClient(row);
 }
@@ -907,6 +912,28 @@ export default function ReceivablesPage({
     }
     return rowsByClient;
   }, [baseRows]);
+  const statementGroupRowsByClient = useMemo(() => {
+    const eligibleRows = baseRows.filter((row) => row.hasActiveClient);
+    const rowsByIdentity = new Map<string, ReceivableRow[]>();
+    const rowsByClient = new Map<string, ReceivableRow[]>();
+    for (const row of eligibleRows) {
+      const cedula = statementCedulaKey(row);
+      const phone = normalizeWhatsAppPhoneForFilter(row.whatsAppPhone);
+      const identity = phone
+        ? `phone:${phone}`
+        : cedula
+          ? `cedula:${cedula}`
+          : `client:${row.id}`;
+      const identityRows = rowsByIdentity.get(identity) ?? [];
+      identityRows.push(row);
+      rowsByIdentity.set(identity, identityRows);
+    }
+    for (const groupRows of rowsByIdentity.values()) {
+      const sortedGroupRows = sortReceivableRows(groupRows, "unitId", "asc");
+      for (const row of sortedGroupRows) rowsByClient.set(row.id, sortedGroupRows);
+    }
+    return rowsByClient;
+  }, [baseRows]);
   const activeRouteEligibleClientIds = useMemo(
     () => new Set(baseRows.filter((row) => hasActiveOperationalClient(row)).map((row) => row.id)),
     [baseRows]
@@ -1376,6 +1403,10 @@ export default function ReceivablesPage({
 
   function getWhatsAppGroupRows(row: ReceivableRow): ReceivableRow[] {
     return whatsAppGroupRowsByClient.get(row.id) ?? [row];
+  }
+
+  function getStatementGroupRows(row: ReceivableRow): ReceivableRow[] {
+    return statementGroupRowsByClient.get(row.id) ?? [row];
   }
 
   function getEffectiveStatus(row: ReceivableRow): CollectionStatus | "" {
@@ -3185,6 +3216,7 @@ export default function ReceivablesPage({
             visibleCollectionCut={visibleCollectionCut}
             buildWhatsAppReceivableMessage={buildWhatsAppReceivableMessage}
             getWhatsAppGroupRows={getWhatsAppGroupRows}
+            getStatementGroupRows={getStatementGroupRows}
             onSelectDetail={setSelectedDetailRow}
             onCollectionCutStatusChange={workflowTab === "route"
               ? (_cutKey, clientId, nextStatus) => handleRouteWorkflowStatusChange(clientId, nextStatus)
