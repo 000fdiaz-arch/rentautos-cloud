@@ -40,6 +40,10 @@ assert(
   realtimeRemoval.includes("buildPendingRouteRecord(previous"),
   "La reconciliacion en tiempo real de una salida de ruta debe conservar Pendiente."
 );
+assert(
+  realtimeRemoval.includes("toTimestamp(removedAt) <= toTimestamp(previous.updatedAt)"),
+  "Una salida antigua de ruta no debe revertir una reasignacion nueva a Cobro en ruta."
+);
 
 const routeDraftRemoval = sourceSection(
   "function handleRemoveFromRoute(clientId: string)",

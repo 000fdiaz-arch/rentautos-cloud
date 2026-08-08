@@ -948,6 +948,11 @@ export default function ReceivablesPage({
     () => new Set(activeRouteItems.filter((item) => !!item.removedAt).map((item) => item.clientId)),
     [activeRouteItems]
   );
+  const removedRouteItemByClient = useMemo(() => (
+    new Map(activeRouteItems
+      .filter((item) => !!item.removedAt)
+      .map((item) => [item.clientId, item] as const))
+  ), [activeRouteItems]);
   const inactiveVisibleRouteItems = useMemo(() => (
     activeRouteItems.filter((item) => !item.removedAt && !activeRouteEligibleClientIds.has(item.clientId))
   ), [activeRouteEligibleClientIds, activeRouteItems]);
@@ -1026,6 +1031,8 @@ export default function ReceivablesPage({
       for (const clientId of removedRouteClientIds) {
         const previous = next[clientId];
         if (!isRouteManagementRecord(previous)) continue;
+        const removedAt = removedRouteItemByClient.get(clientId)?.removedAt;
+        if (toTimestamp(removedAt) <= toTimestamp(previous.updatedAt)) continue;
         const updatedRecord = buildPendingRouteRecord(previous, nowIso);
         next[clientId] = updatedRecord;
         optimisticStatusByClientRef.current[clientId] = updatedRecord;
@@ -1034,7 +1041,7 @@ export default function ReceivablesPage({
       }
       return changedStatus ? next : current;
     });
-  }, [collectionStatusByClient, isCollectionLocked, removedRouteClientIds]);
+  }, [collectionStatusByClient, isCollectionLocked, removedRouteClientIds, removedRouteItemByClient]);
   const routeWorkflowRowsCount = useMemo(
     () => baseRows.filter((row) => isRouteReadyToSendRow(row)).length,
     [activeVisibleRouteClientIds, baseRows, collectionStatusByClient, removedRouteClientIds, todayCollectionCuts]
