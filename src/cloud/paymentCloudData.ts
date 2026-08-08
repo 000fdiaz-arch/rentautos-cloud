@@ -285,6 +285,27 @@ export async function loadCloudLatestPaymentsForReceivableTargets(userId: string
     }
   }
 
+  async function loadFromLatestPaymentsRpc(targets: CloudLatestPaymentTarget[]): Promise<boolean> {
+    try {
+      const rows = await runCloudPaymentQuery(() => client.rpc("latest_payments_for_active_receivables", {
+        p_owner_user_id: userId
+      })) as LatestPaymentByClientRow[];
+      const targetByClientId = new Map(targets.map((target) => [target.clientId, target]));
+      for (const row of rows) {
+        const clientId = row.client_id ?? row.data?.clientId ?? "";
+        const target = targetByClientId.get(clientId);
+        const payment = row.data ?? null;
+        if (!target || !payment || !paymentMatchesTargetIdentity(payment, target)) continue;
+        const current = latestByClientId.get(target.clientId);
+        if (!current || comparePaymentDateDesc(payment, current) < 0) latestByClientId.set(target.clientId, payment);
+      }
+      return true;
+    } catch (error) {
+      if (isMissingRpcFunctionError(error) || isCloudStatementTimeout(error)) return false;
+      throw error;
+    }
+  }
+
   async function loadFromLatestPaymentsTable(targets: CloudLatestPaymentTarget[]): Promise<boolean> {
     try {
       for (const chunk of chunkValues(targets, 100)) {
@@ -311,8 +332,11 @@ export async function loadCloudLatestPaymentsForReceivableTargets(userId: string
     }
   }
 
-  await loadFromLatestPaymentsTable(uniqueTargets);
-  if (latestByClientId.size === uniqueTargets.length) return [...latestByClientId.values()];
+  const loadedFromRpc = await loadFromLatestPaymentsRpc(uniqueTargets);
+  if (loadedFromRpc) return [...latestByClientId.values()];
+
+  const loadedFromLatestPaymentsTable = await loadFromLatestPaymentsTable(uniqueTargets);
+  if (loadedFromLatestPaymentsTable) return [...latestByClientId.values()];
 
   for (const chunk of chunkValues(uniqueTargets, 50)) {
     const missingChunk = chunk.filter((target) => !latestByClientId.has(target.clientId));
@@ -331,6 +355,30 @@ export async function loadCloudLatestPaymentsForReceivableTargets(userId: string
 
       const rows = await runCloudPaymentQuery(() => query) as DataRow<Payment>[];
       mergeRows(rows, missingChunk);
+      if (rows.length < PAGE_SIZE) break;
+      lastId = rows[rows.length - 1]?.id ?? lastId;
+      if (!lastId) break;
+    }
+
+    const missingByUnit = missingChunk.filter((target) => (
+      !latestByClientId.has(target.clientId) && target.unitId.trim().length > 0
+    ));
+    const unitIds = [...new Set(missingByUnit.map((target) => target.unitId.trim()))];
+    if (unitIds.length === 0) continue;
+
+    lastId = "";
+    while (true) {
+      let query = client
+        .from("payments_cloud")
+        .select("id,data")
+        .eq("user_id", userId)
+        .in("data->>clientUnit", unitIds)
+        .order("id", { ascending: true })
+        .limit(PAGE_SIZE);
+      if (lastId) query = query.gt("id", lastId);
+
+      const rows = await runCloudPaymentQuery(() => query) as DataRow<Payment>[];
+      mergeRows(rows, missingByUnit);
       if (rows.length < PAGE_SIZE) break;
       lastId = rows[rows.length - 1]?.id ?? lastId;
       if (!lastId) break;

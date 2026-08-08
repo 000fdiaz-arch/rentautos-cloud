@@ -428,7 +428,6 @@ export default function ReceivablesPage({
   const saveTokenByClientRef = useRef<Record<string, number>>({});
   const latestCollectionStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
   const streetManagementDataRef = useRef<Record<string, unknown>>(streetManagementData ?? {});
-  const lastPaymentLookupKeysRef = useRef<Set<string>>(new Set());
 
   function collectionRecordTimestamp(record: CollectionStatusRecord | undefined): number {
     if (!record) return 0;
@@ -784,16 +783,15 @@ export default function ReceivablesPage({
 
   useEffect(() => {
     setSupplementalLastPayments([]);
-    lastPaymentLookupKeysRef.current = new Set();
   }, [dataOwnerUserId]);
 
   useEffect(() => {
-    if (!dataOwnerUserId || clients.length === 0) return;
-    const clientById = new Map(clients.map((client) => [client.id, client]));
-    const lookupTargets = baseRows
-      .filter((row) => row.hasActiveClient && !row.lastPaymentDate)
-      .map((row) => clientById.get(row.id))
-      .filter((client): client is Client => !!client)
+    if (!dataOwnerUserId || clients.length === 0) {
+      setSupplementalLastPayments([]);
+      return;
+    }
+    const lookupTargets = clients
+      .filter((client) => client.status !== "archivado" && !client.archivedAt)
       .map((client) => ({
         clientId: client.id,
         unitId: client.unitId,
@@ -802,29 +800,30 @@ export default function ReceivablesPage({
       }));
     if (lookupTargets.length === 0) return;
 
-    const lookupKey = `${dataOwnerUserId}:${lookupTargets.map((target) => target.clientId).sort().join("|")}`;
-    if (lastPaymentLookupKeysRef.current.has(lookupKey)) return;
-    lastPaymentLookupKeysRef.current.add(lookupKey);
-
     let cancelled = false;
-    void loadCloudLatestPaymentsForReceivableTargets(dataOwnerUserId, lookupTargets)
-      .then((latestPayments) => {
-        if (cancelled || latestPayments.length === 0) return;
-        setSupplementalLastPayments((current) => {
-          const byId = new Map<string, Payment>();
-          for (const payment of current) byId.set(payment.id, payment);
-          for (const payment of latestPayments) byId.set(payment.id, payment);
-          return [...byId.values()];
+    let retryTimer: number | null = null;
+    let retryCount = 0;
+    const loadLatestPayments = (): void => {
+      void loadCloudLatestPaymentsForReceivableTargets(dataOwnerUserId, lookupTargets)
+        .then((latestPayments) => {
+          if (cancelled) return;
+          setSupplementalLastPayments(latestPayments);
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          console.error("No se pudieron completar los ultimos pagos para cuentas por cobrar.", error);
+          if (retryCount >= 2) return;
+          retryCount += 1;
+          retryTimer = window.setTimeout(loadLatestPayments, 1_500 * retryCount);
         });
-      })
-      .catch((error) => {
-        console.error("No se pudieron completar los ultimos pagos para cuentas por cobrar.", error);
-      });
+    };
+    loadLatestPayments();
 
     return () => {
       cancelled = true;
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
-  }, [baseRows, clients, dataOwnerUserId]);
+  }, [clients, dataOwnerUserId, payments]);
 
   useEffect(() => {
     tableScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
