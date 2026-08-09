@@ -45,3 +45,19 @@ export async function readIndexedDb(key: string): Promise<unknown> {
     db.close();
   }
 }
+
+export async function deleteIndexedDb(key: string): Promise<void> {
+  const db = await openStorageDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(INDEXED_DB_STORE, "readwrite");
+      const store = tx.objectStore(INDEXED_DB_STORE);
+      store.delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("No se pudo borrar desde IndexedDB."));
+      tx.onabort = () => reject(tx.error ?? new Error("Se aborto el borrado en IndexedDB."));
+    });
+  } finally {
+    db.close();
+  }
+}

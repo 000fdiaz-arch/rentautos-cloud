@@ -32,6 +32,9 @@ export function buildCloudErrorMessage(
   if (parts.normalized.includes("row-level security") || parts.normalized.includes("permission denied") || parts.normalized.includes("42501")) {
     return `${baseMessage} Permisos insuficientes (RLS/owner).`;
   }
+  if (parts.normalized.includes("57014") || parts.normalized.includes("statement timeout")) {
+    return `${baseMessage} Supabase cancelo una operacion que excedio el tiempo permitido.`;
+  }
   if (parts.normalized.includes("network") || parts.normalized.includes("fetch") || parts.normalized.includes("timeout")) {
     return `${baseMessage} Problema de conexion/red.`;
   }
@@ -53,6 +56,9 @@ export function getCloudSaveErrorMessage(error: unknown): string {
   if (normalized.includes("duplicate")) return "No se pudo sincronizar: hay un valor duplicado en Supabase.";
   if (normalized.includes("row-level security") || normalized.includes("permission denied") || normalized.includes("42501")) {
     return "No se pudo sincronizar por permisos (RLS).";
+  }
+  if (normalized.includes("57014") || normalized.includes("statement timeout")) {
+    return "Supabase cancelo una operacion que excedio el tiempo permitido. Se reintentara automaticamente.";
   }
   if (normalized.includes("network") || normalized.includes("fetch") || normalized.includes("timeout")) {
     return "Sincronizacion pendiente por conexion lenta o inestable. Se reintentara automaticamente.";

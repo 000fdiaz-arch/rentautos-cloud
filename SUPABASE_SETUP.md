@@ -27,6 +27,12 @@ VITE_SUPABASE_ANON_KEY=TU_SUPABASE_ANON_KEY
    - `supabase/13-multiuser-hardening.sql`
    - `supabase/14-receipt-sequence-rpc.sql`
    - `supabase/15-receipt-sequence-resync.sql`
+
+Para instalaciones existentes que ya ejecutaron las migraciones de cuentas por cobrar, ejecuta tambien:
+
+- `supabase/54-cash-closing-client-sync-timeout.sql` (evita recalcular el ultimo pago durante actualizaciones financieras masivas del cierre de caja)
+
+En Vercel, produccion debe usar `VITE_PERSISTENCE_MODE=SUPABASE_ONLY`. `LOCAL_ONLY` queda limitado a desarrollo, salvo que se habilite deliberadamente `VITE_ALLOW_PRODUCTION_LOCAL_ONLY=1`.
 5. Crea una cuenta desde la pantalla de registro de la app.
 6. En SQL Editor, promueve tu usuario principal a admin:
 

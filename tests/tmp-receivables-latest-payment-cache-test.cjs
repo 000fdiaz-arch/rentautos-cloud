@@ -55,8 +55,10 @@ assert(
   "La tabla auxiliar debe reaccionar a cambios de pagos."
 );
 assert(
-  migrationSource.includes("after insert or update or delete on public.clients_cloud"),
-  "La tabla auxiliar debe reaccionar a cambios del cliente activo."
+  migrationSource.includes("after insert or update or delete on public.clients_cloud") &&
+    migrationSource.includes("if tg_op = 'UPDATE'") &&
+    migrationSource.includes("return new;"),
+  "La tabla auxiliar debe reaccionar a cambios de identidad del cliente sin recalcular por cambios financieros."
 );
 assert(
   migrationSource.includes("receivable_payment_matches_client"),

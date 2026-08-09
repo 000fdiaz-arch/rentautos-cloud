@@ -108,13 +108,20 @@ begin
 
   select p.id, p.data
     into v_latest
-  from public.payments_cloud p
-  where p.user_id = p_owner_user_id
-    and (
-      p.data->>'clientId' = p_client_id
-      or public.receivable_identity_unit(p.data->>'clientUnit') = public.receivable_identity_unit(v_client->>'unitId')
-    )
-    and public.receivable_payment_matches_client(p.data, p_client_id, v_client)
+  from (
+    select direct_payment.id, direct_payment.data
+    from public.payments_cloud direct_payment
+    where direct_payment.user_id = p_owner_user_id
+      and direct_payment.data->>'clientId' = p_client_id
+
+    union all
+
+    select unit_payment.id, unit_payment.data
+    from public.payments_cloud unit_payment
+    where unit_payment.user_id = p_owner_user_id
+      and public.receivable_identity_unit(unit_payment.data->>'clientUnit') = public.receivable_identity_unit(v_client->>'unitId')
+      and public.receivable_payment_matches_client(unit_payment.data, p_client_id, v_client)
+  ) p
   order by
     p.data->>'dateApplied' desc nulls last,
     p.data->>'createdAt' desc nulls last,
@@ -217,6 +224,21 @@ security definer
 set search_path = public
 as $$
 begin
+  -- Cash closing changes balances for many clients. Those financial-only updates
+  -- cannot change which historical payment belongs to the client, so avoid one
+  -- payments lookup per updated row.
+  if tg_op = 'UPDATE'
+    and old.user_id is not distinct from new.user_id
+    and old.id is not distinct from new.id
+    and public.receivable_identity_unit(old.data->>'unitId') is not distinct from public.receivable_identity_unit(new.data->>'unitId')
+    and public.receivable_identity_cedula(old.data->>'cedula') is not distinct from public.receivable_identity_cedula(new.data->>'cedula')
+    and public.receivable_identity_name(old.data->>'name') is not distinct from public.receivable_identity_name(new.data->>'name')
+    and coalesce(lower(old.data->>'status'), 'activo') is not distinct from coalesce(lower(new.data->>'status'), 'activo')
+    and coalesce(old.data->>'archivedAt', '') is not distinct from coalesce(new.data->>'archivedAt', '')
+  then
+    return new;
+  end if;
+
   if tg_op in ('UPDATE', 'DELETE') and (
     tg_op = 'DELETE'
     or old.user_id is distinct from new.user_id

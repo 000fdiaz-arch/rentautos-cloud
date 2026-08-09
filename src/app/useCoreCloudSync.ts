@@ -25,13 +25,15 @@ import {
   buildCloudErrorMessage,
   getCloudSaveErrorMessage,
   mergeById,
-  parsePendingCoreSync,
   repairDuplicateActiveUnits,
-  serializePendingCoreSync,
   type PendingCoreSyncSnapshot
 } from "./appShellRules";
+import {
+  clearPendingCoreSync,
+  loadPendingCoreSync,
+  persistPendingCoreSync
+} from "./pendingCoreSyncStorage";
 
-const PENDING_CORE_SYNC_KEY = "cobrapp.cloud.pending_core_sync.v1";
 const CORE_DATA_FALLBACK_POLL_MS = 30 * 60_000;
 const INITIAL_PAYMENTS_LIMIT = 300;
 const CLOUD_BOOT_BLOCK_MS = 10_000;
@@ -101,20 +103,25 @@ export function useCoreCloudSync({
 
   useEffect(() => {
     if (enabled) return;
-    savePendingSnapshot(null);
+    void savePendingSnapshot(null);
     setCloudReady(true);
     setCloudBootTimedOut(false);
     setSyncStatus("ok");
     setSyncErrorMessage("");
   }, [enabled]);
 
-  function savePendingSnapshot(snapshot: PendingCoreSyncSnapshot | null): void {
+  async function savePendingSnapshot(snapshot: PendingCoreSyncSnapshot | null): Promise<boolean> {
     pendingCoreSyncRef.current = snapshot;
-    if (!snapshot) {
-      localStorage.removeItem(PENDING_CORE_SYNC_KEY);
-      return;
+    try {
+      if (snapshot) await persistPendingCoreSync(snapshot);
+      else await clearPendingCoreSync();
+      return true;
+    } catch (error) {
+      console.error("No se pudo persistir la sincronizacion pendiente en IndexedDB.", error);
+      setSyncStatus("error");
+      setSyncErrorMessage("Hay cambios pendientes en memoria. Se reintentara la sincronizacion automaticamente.");
+      return false;
     }
-    localStorage.setItem(PENDING_CORE_SYNC_KEY, serializePendingCoreSync(snapshot));
   }
 
   function scheduleRetry(delayMs = 4000): void {
@@ -138,7 +145,7 @@ export function useCoreCloudSync({
       if (snapshot.paymentsComplete) await saveCloudPayments(ownerUserId, snapshot.payments);
       else await syncCloudPaymentsDelta(ownerUserId, [], snapshot.payments);
       await saveCloudClients(ownerUserId, snapshot.clients);
-      if (pendingCoreSyncRef.current?.token === snapshot.token) savePendingSnapshot(null);
+      if (pendingCoreSyncRef.current?.token === snapshot.token) await savePendingSnapshot(null);
       setSyncStatus("ok");
       setSyncErrorMessage("");
       setLastSyncAt(new Date().toLocaleTimeString());
@@ -154,17 +161,17 @@ export function useCoreCloudSync({
     }
   }
 
-  function queueCoreSync(nextClients: Client[], nextPayments: Payment[]): void {
+  async function queueCoreSync(nextClients: Client[], nextPayments: Payment[]): Promise<void> {
     if (!enabled) return;
     if (!ownerUserId) return;
-    savePendingSnapshot({
+    await savePendingSnapshot({
       userId: ownerUserId,
       token: Date.now() + Math.random(),
       clients: nextClients,
       payments: nextPayments,
       paymentsComplete: fullPaymentHistoryLoaded
     });
-    void flushPendingCoreSync();
+    scheduleRetry(5000);
   }
 
   async function syncCoreDeltaOrQueue(
@@ -193,7 +200,7 @@ export function useCoreCloudSync({
         throw error;
       }
       console.error("No se pudo sincronizar delta en cloud. Se encola snapshot completo.", error);
-      queueCoreSync(nextClients, nextPayments);
+      await queueCoreSync(nextClients, nextPayments);
     }
   }
 
@@ -275,20 +282,25 @@ export function useCoreCloudSync({
 
   useEffect(() => {
     if (!enabled) {
-      savePendingSnapshot(null);
+      void savePendingSnapshot(null);
       return;
     }
     if (isSupabaseOnlyMode) {
-      savePendingSnapshot(null);
+      void savePendingSnapshot(null);
       return;
     }
-    const snapshot = parsePendingCoreSync(localStorage.getItem(PENDING_CORE_SYNC_KEY), ownerUserId);
-    if (!snapshot) return;
-    pendingCoreSyncRef.current = snapshot;
-    setClients(snapshot.clients);
-    setPayments(snapshot.payments);
-    setSyncStatus("error");
-    setSyncErrorMessage("Hay cambios pendientes por sincronizar. Se reintentara automaticamente.");
+    let cancelled = false;
+    void loadPendingCoreSync(ownerUserId).then((snapshot) => {
+      if (cancelled || !snapshot) return;
+      pendingCoreSyncRef.current = snapshot;
+      setClients(snapshot.clients);
+      setPayments(snapshot.payments);
+      setSyncStatus("error");
+      setSyncErrorMessage("Hay cambios pendientes por sincronizar. Se reintentara automaticamente.");
+    }).catch((error) => {
+      console.error("No se pudo cargar la sincronizacion pendiente desde IndexedDB.", error);
+    });
+    return () => { cancelled = true; };
   }, [enabled, ownerUserId]);
 
   useEffect(() => {
