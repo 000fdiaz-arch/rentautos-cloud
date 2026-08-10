@@ -343,6 +343,21 @@ function buildPendingRouteRecord(previous: CollectionStatusRecord | undefined, u
   };
 }
 
+function routeRemovalBlocksRecord(
+  record: CollectionStatusRecord | undefined,
+  removedItem: ActiveRouteItem | undefined
+): boolean {
+  const removedAt = toTimestamp(removedItem?.removedAt);
+  if (removedAt <= 0) return false;
+  const reassignedAt = Math.max(
+    toTimestamp(record?.updatedAt),
+    toTimestamp(record?.managementUpdatedAt),
+    toTimestamp(record?.routeReleaseUpdatedAt),
+    toTimestamp(record?.routeAssignmentUpdatedAt)
+  );
+  return removedAt > reassignedAt;
+}
+
 export default function ReceivablesPage({
   clients,
   payments,
@@ -375,6 +390,7 @@ export default function ReceivablesPage({
   const [selectedHistoryDate, setSelectedHistoryDate] = useState<string>("");
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [routeExportMessage, setRouteExportMessage] = useState<string>("");
   const [collectionCutMessage, setCollectionCutMessage] = useState<string | null>(null);
   const [isSavingCollectionCut, setIsSavingCollectionCut] = useState<CollectionCutKey | null>(null);
   const [isClearingCollectionManagement, setIsClearingCollectionManagement] = useState<boolean>(false);
@@ -953,6 +969,11 @@ export default function ReceivablesPage({
       .filter((item) => !!item.removedAt)
       .map((item) => [item.clientId, item] as const))
   ), [activeRouteItems]);
+  const blockingRemovedRouteClientIds = useMemo(() => (
+    new Set(Array.from(removedRouteItemByClient.entries())
+      .filter(([clientId, item]) => routeRemovalBlocksRecord(collectionStatusByClient[clientId], item))
+      .map(([clientId]) => clientId))
+  ), [collectionStatusByClient, removedRouteItemByClient]);
   const inactiveVisibleRouteItems = useMemo(() => (
     activeRouteItems.filter((item) => !item.removedAt && !activeRouteEligibleClientIds.has(item.clientId))
   ), [activeRouteEligibleClientIds, activeRouteItems]);
@@ -1031,8 +1052,8 @@ export default function ReceivablesPage({
       for (const clientId of removedRouteClientIds) {
         const previous = next[clientId];
         if (!isRouteManagementRecord(previous)) continue;
-        const removedAt = removedRouteItemByClient.get(clientId)?.removedAt;
-        if (toTimestamp(removedAt) <= toTimestamp(previous.updatedAt)) continue;
+        const removedItem = removedRouteItemByClient.get(clientId);
+        if (!routeRemovalBlocksRecord(previous, removedItem)) continue;
         const updatedRecord = buildPendingRouteRecord(previous, nowIso);
         next[clientId] = updatedRecord;
         optimisticStatusByClientRef.current[clientId] = updatedRecord;
@@ -1044,7 +1065,7 @@ export default function ReceivablesPage({
   }, [collectionStatusByClient, isCollectionLocked, removedRouteClientIds, removedRouteItemByClient]);
   const routeWorkflowRowsCount = useMemo(
     () => baseRows.filter((row) => isRouteReadyToSendRow(row)).length,
-    [activeVisibleRouteClientIds, baseRows, collectionStatusByClient, removedRouteClientIds, todayCollectionCuts]
+    [activeVisibleRouteClientIds, baseRows, blockingRemovedRouteClientIds, collectionStatusByClient, todayCollectionCuts]
   );
   const publishedRouteAddRows = useMemo(
     () => baseRows.filter((row) => hasActiveOperationalClient(row) && !activeVisibleRouteClientIds.has(row.id)),
@@ -1065,7 +1086,7 @@ export default function ReceivablesPage({
     workflowTab === "route"
       ? filteredRows.filter((row) => isRouteReadyToSendRow(row))
       : filteredRows
-  ), [activeVisibleRouteClientIds, filteredRows, workflowTab, collectionStatusByClient, removedRouteClientIds, todayCollectionCuts]);
+  ), [activeVisibleRouteClientIds, blockingRemovedRouteClientIds, filteredRows, workflowTab, collectionStatusByClient, todayCollectionCuts]);
   const collectionStatusCounts = useMemo(() => {
     const counts = createEmptyCollectionStatusCounts();
     for (const row of workflowRows) {
@@ -1286,7 +1307,7 @@ export default function ReceivablesPage({
   }
 
   function isRouteReadyToSendRow(row: ReceivableRow): boolean {
-    return hasActiveOperationalClient(row) && isRouteWorkflowRow(row) && !activeVisibleRouteClientIds.has(row.id) && !removedRouteClientIds.has(row.id);
+    return hasActiveOperationalClient(row) && isRouteWorkflowRow(row) && !activeVisibleRouteClientIds.has(row.id) && !blockingRemovedRouteClientIds.has(row.id);
   }
 
   function buildWhatsAppReceivableMessage(row: ReceivableRow): string {
@@ -2417,19 +2438,36 @@ export default function ReceivablesPage({
 
   async function handleExportCobroEnRuta(formatOverride?: RouteExportFormat): Promise<void> {
     setExportError(null);
+    setRouteExportMessage("");
     setIsExporting(true);
+    let publishedCount = 0;
+    let publicationAttempted = false;
+    let publicationConfirmed = false;
     try {
       let statusByClientForRoute = { ...collectionStatusByClient };
+      let activeRouteItemsForSend = activeRouteItemsRef.current;
       if (dataOwnerUserId) {
-        const cloudStreetManagement = await loadCloudStreetManagement(dataOwnerUserId);
+        const [cloudStreetManagement, cloudActiveRouteItems] = await Promise.all([
+          loadCloudStreetManagement(dataOwnerUserId),
+          loadCloudActiveRouteItems(dataOwnerUserId)
+        ]);
         statusByClientForRoute = parseCollectionStatusMapFromStorage(JSON.stringify(cloudStreetManagement));
+        activeRouteItemsForSend = cloudActiveRouteItems;
       }
+      const activeClientIdsForSend = new Set(activeRouteItemsForSend
+        .filter((item) => !item.removedAt)
+        .filter((item) => !activeRouteItemReleasedByPayment(item, payments))
+        .map((item) => item.clientId));
+      const removedItemByClientForSend = new Map(activeRouteItemsForSend
+        .filter((item) => !!item.removedAt)
+        .map((item) => [item.clientId, item] as const));
       const isRouteRowFromMap = (row: ReceivableRow): boolean => {
-        const storedStatus = statusByClientForRoute[row.id]?.status;
+        const record = statusByClientForRoute[row.id];
+        const storedStatus = record?.status;
         return (
           (storedStatus === "route" || storedStatus === "route_collection") &&
-          !activeVisibleRouteClientIds.has(row.id) &&
-          !removedRouteClientIds.has(row.id)
+          !activeClientIdsForSend.has(row.id) &&
+          !routeRemovalBlocksRecord(record, removedItemByClientForSend.get(row.id))
         );
       };
       const hasRouteCollectionFromMap = (row: ReceivableRow): boolean => {
@@ -2437,13 +2475,17 @@ export default function ReceivablesPage({
         const hasType = management?.managementType === "solo_cobrar" || management?.managementType === "cobrar_o_quitar";
         return hasType && !!management?.managementAmount && management.managementAmount > 0;
       };
-      const routeRowsMissingAmount = baseRows.filter((row) => isRouteRowFromMap(row) && !hasRouteReleaseAmount(statusByClientForRoute[row.id]));
+      const routeRowsForSend = baseRows.filter((row) => isRouteRowFromMap(row));
+      if (routeRowsForSend.length === 0) {
+        setExportError("No hay unidades nuevas listas para publicar en Ruta en calle.");
+        return;
+      }
+      const routeRowsMissingAmount = routeRowsForSend.filter((row) => !hasRouteReleaseAmount(statusByClientForRoute[row.id]));
       if (routeRowsMissingAmount.length > 0) {
         setExportError(routeMissingAmountMessage(routeRowsMissingAmount));
         return;
       }
-      const routeRowsMissingAssignment = baseRows.filter((row) => {
-        if (!isRouteRowFromMap(row)) return false;
+      const routeRowsMissingAssignment = routeRowsForSend.filter((row) => {
         const routeAssignment = statusByClientForRoute[row.id]?.routeAssignment;
         return !routeAssignment || routeAssignment.trim().length === 0;
       });
@@ -2453,8 +2495,8 @@ export default function ReceivablesPage({
       }
       const previousStatusByClientForRoute = { ...statusByClientForRoute };
       const exportedAt = new Date().toISOString();
-      for (const row of baseRows) {
-        if (!isRouteRowFromMap(row) || hasRouteCollectionFromMap(row)) continue;
+      for (const row of routeRowsForSend) {
+        if (hasRouteCollectionFromMap(row)) continue;
         const previous = statusByClientForRoute[row.id];
         const routeReleaseAmount = previous?.routeReleaseAmount ?? previous?.managementAmount;
         statusByClientForRoute[row.id] = {
@@ -2492,28 +2534,54 @@ export default function ReceivablesPage({
         if (ok === false) throw new Error("No se pudo guardar Cobro en Ruta.");
         applyStreetManagementData(statusByClientForRoute as Record<string, unknown>);
       }
+      if (dataOwnerUserId) {
+        const activeRouteItemsToPublish = routeRowsForSend
+          .map((row) => {
+            const record = statusByClientForRoute[row.id];
+            if (!record) return null;
+            return buildActiveRouteItem(row, record, exportedAt);
+          })
+          .filter((item): item is ActiveRouteItem => item !== null);
+        publicationAttempted = true;
+        await publishCloudActiveRouteItems(dataOwnerUserId, activeRouteItemsToPublish);
+        const verifiedActiveRouteItems = await loadCloudActiveRouteItems(dataOwnerUserId);
+        const verifiedByClient = new Map(verifiedActiveRouteItems.map((item) => [item.clientId, item] as const));
+        const unverifiedUnits = activeRouteItemsToPublish
+          .filter((item) => {
+            const verified = verifiedByClient.get(item.clientId);
+            return !verified || !!verified.removedAt || verified.publishedAt !== exportedAt;
+          })
+          .map((item) => item.unitId);
+        if (unverifiedUnits.length > 0) {
+          throw new Error(`No se confirmo la publicacion de: ${unverifiedUnits.join(", ")}`);
+        }
+        activeRouteItemsRef.current = verifiedActiveRouteItems;
+        setActiveRouteItems(verifiedActiveRouteItems);
+        publishedCount = activeRouteItemsToPublish.length;
+        publicationConfirmed = true;
+      }
       const exported = await exportRouteCollection({
-        rows: baseRows,
+        rows: routeRowsForSend,
         statusByClient: statusByClientForRoute,
         format: formatOverride ?? routeExportFormat,
         now
       });
-      if (!exported) {
-        setExportError("No hay registros con Cobro en Ruta para exportar.");
-        return;
-      }
-      if (dataOwnerUserId) {
-        const activeRouteItems = baseRows
-          .map((row) => {
-            const record = statusByClientForRoute[row.id];
-            if (!record || !isRouteRowFromMap(row)) return null;
-            return buildActiveRouteItem(row, record, exportedAt);
-          })
-          .filter((item): item is ActiveRouteItem => item !== null);
-        await publishCloudActiveRouteItems(dataOwnerUserId, activeRouteItems);
-      }
-    } catch {
-      setExportError("No se pudo exportar Cobro en Ruta.");
+      if (!exported) throw new Error("No hay registros con Cobro en Ruta para exportar.");
+      const unitLabel = routeRowsForSend.length === 1 ? "unidad" : "unidades";
+      setRouteExportMessage(
+        dataOwnerUserId
+          ? `Ruta enviada: ${publishedCount} ${unitLabel} publicadas y archivo descargado.`
+          : `Ruta preparada: ${routeRowsForSend.length} ${unitLabel} y archivo descargado.`
+      );
+    } catch (error) {
+      console.error("No se pudo enviar Cobro en Ruta.", error);
+      setExportError(
+        publicationConfirmed
+          ? `La ruta se publico con ${publishedCount} unidad(es), pero no se pudo descargar el archivo.`
+          : publicationAttempted
+            ? "No se pudo confirmar la publicacion de la ruta. No se descargo ningun archivo; puedes volver a intentar."
+            : "No se pudo preparar la publicacion de la ruta. No se descargo ningun archivo; puedes volver a intentar."
+      );
     } finally {
       setIsExporting(false);
     }
@@ -2834,6 +2902,7 @@ export default function ReceivablesPage({
         ) : null}
 
         {collectionCutMessage ? <p className="hint">{collectionCutMessage}</p> : null}
+        {routeExportMessage ? <p className="hint">{routeExportMessage}</p> : null}
         {exportError ? <p className="hint error-text">{exportError}</p> : null}
         {workflowTab === "route" && routeSubTab === "published" ? (
           <div className="ar-active-route-panel ar-active-route-panel--tab">
