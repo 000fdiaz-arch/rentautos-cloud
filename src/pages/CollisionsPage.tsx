@@ -1,14 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   createCollisionPhotoViewUrl,
+  createInsuranceDamagePhotoViewUrl,
   loadCollisionCases,
+  loadInsuranceClaims,
   removeCollisionPhotos,
+  removeInsuranceDamagePhotos,
   saveCollisionCase,
+  saveInsuranceClaim,
+  saveInsuranceInsurer,
   uploadCollisionPhoto,
+  uploadInsuranceDamagePhoto,
   type CollisionCaseRecord,
   type CollisionInsuranceClaim,
   type CollisionPhotoAttachment,
-  type CollisionTrialStatus
+  type CollisionTrialStatus,
+  type InsuranceClaimRecord
 } from "../cloudData";
 import type { Client } from "../types";
 import { useControlUnitsRows } from "./controlUnits/useControlUnitsRows";
@@ -18,6 +25,8 @@ type Props = {
   dataOwnerUserId?: string | null;
   readOnly?: boolean;
   onClientsChange: (next: Client[]) => void | Promise<void>;
+  embedded?: boolean;
+  syncInsuranceClaims?: boolean;
 };
 type DateFilter = "all" | "upcoming" | "today" | "last_week" | "overdue";
 type TrialForm = {
@@ -72,7 +81,7 @@ function parseAmount(value: string): number {
 }
 function isFinalStatus(status: CollisionTrialStatus): boolean { return status === "Ganó" || status === "Perdió"; }
 
-export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = false, onClientsChange }: Props) {
+export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = false, onClientsChange, embedded = false, syncInsuranceClaims = true }: Props) {
   const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(dataOwnerUserId);
   const [activeTab, setActiveTab] = useState<"form" | "agenda">("form");
   const [form, setForm] = useState<TrialForm>(EMPTY_FORM);
@@ -286,33 +295,103 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     const uploaded: CollisionPhotoAttachment[] = [];
     setBusyId(item.id); setMessage("");
     try {
-      for (const file of claimPhotoFiles[item.id] ?? []) uploaded.push(await uploadCollisionPhoto(dataOwnerUserId, item.id, file));
+      for (const file of claimPhotoFiles[item.id] ?? []) {
+        uploaded.push(syncInsuranceClaims
+          ? await uploadInsuranceDamagePhoto(dataOwnerUserId, item.id, file)
+          : await uploadCollisionPhoto(dataOwnerUserId, item.id, file));
+      }
       const now = new Date().toISOString();
+      const insurer = draft.insurer.trim().toUpperCase();
+      const claimNumber = draft.claimNumber.trim();
+      let insuranceClaimId = item.insuranceClaim?.insuranceClaimId;
       const insuranceClaim: CollisionInsuranceClaim = {
-        insurer: draft.insurer.trim().toUpperCase(),
-        claimNumber: draft.claimNumber.trim(),
+        insuranceClaimId,
+        insurer,
+        claimNumber,
         amount: draft.amount,
         photos: [...existingPhotos, ...uploaded],
         updatedAt: now
       };
-      await persistCase({ ...item, insuranceClaim, updatedAt: now }, "Formulario de reclamo guardado.");
+      if (syncInsuranceClaims) {
+        const allClaims = await loadInsuranceClaims(dataOwnerUserId);
+        const linkedClaim = allClaims.find((claim) => claim.id === item.insuranceClaim?.insuranceClaimId)
+          ?? allClaims.find((claim) => (
+            claim.claimNumber.trim().toLocaleLowerCase("es") === claimNumber.toLocaleLowerCase("es")
+            && normalizeUnit(claim.unit) === normalizeUnit(item.unit)
+            && claim.incidentDate === item.incidentDate
+          ));
+        insuranceClaimId = linkedClaim?.id ?? `collision-insurance-${item.id}`;
+        insuranceClaim.insuranceClaimId = insuranceClaimId;
+        const linkedPhotos = existingPhotos.filter((photo) => photo.storageBucket === "insurance-settlements");
+        const damagePhotos = Array.from(
+          new Map([...(linkedClaim?.damagePhotos ?? []), ...linkedPhotos, ...uploaded].map((photo) => [photo.path, photo])).values()
+        );
+        const canonicalClaim: InsuranceClaimRecord = {
+          ...(linkedClaim ?? {
+            id: insuranceClaimId,
+            settlementDelivered: false,
+            settlementDeliveredDate: "",
+            settlementMarkedAt: null,
+            settlementAttachment: null,
+            followUpComment: "",
+            followUpCommentUpdatedAt: null,
+            closureOutcome: null,
+            closureJustification: "",
+            finalizedAt: null,
+            editHistory: [],
+            createdAt: now
+          }),
+          id: insuranceClaimId,
+          incidentDate: item.incidentDate,
+          unit: normalizeUnit(item.unit),
+          driver: item.driver,
+          plate: item.plate,
+          insurer,
+          hasClaimNumber: true,
+          claimNumber,
+          amount: draft.amount,
+          vehicleDamage: item.vehicleDamage,
+          status: linkedClaim?.status === "Finalizado" ? "Finalizado" : "Activo",
+          damagePhotos,
+          damagePhotoNames: damagePhotos.map((photo) => photo.name),
+          updatedAt: now
+        };
+        await saveInsuranceInsurer(dataOwnerUserId, insurer);
+        await saveInsuranceClaim(dataOwnerUserId, canonicalClaim);
+      }
+      await persistCase(
+        { ...item, insuranceClaim, updatedAt: now },
+        syncInsuranceClaims ? "Reclamo guardado y vinculado con Reclamos a seguros." : "Formulario de reclamo guardado."
+      );
       setClaimDrafts((current) => ({ ...current, [item.id]: { insurer: insuranceClaim.insurer, claimNumber: insuranceClaim.claimNumber, amount: insuranceClaim.amount } }));
       setClaimPhotoFiles((current) => ({ ...current, [item.id]: [] }));
     } catch (error) {
       console.error("No se pudo guardar el reclamo.", error);
-      if (uploaded.length) { try { await removeCollisionPhotos(uploaded.map((photo) => photo.path)); } catch { /* mejor esfuerzo */ } }
+      if (uploaded.length) {
+        try {
+          const insurancePaths = uploaded.filter((photo) => photo.storageBucket === "insurance-settlements").map((photo) => photo.path);
+          const collisionPaths = uploaded.filter((photo) => photo.storageBucket !== "insurance-settlements").map((photo) => photo.path);
+          if (insurancePaths.length) await removeInsuranceDamagePhotos(insurancePaths);
+          if (collisionPaths.length) await removeCollisionPhotos(collisionPaths);
+        } catch { /* mejor esfuerzo */ }
+      }
       setMessage("No se pudo guardar el formulario de reclamo.");
     } finally { setBusyId(""); }
   }
 
-  async function viewPhoto(path: string): Promise<void> {
-    try { window.open(await createCollisionPhotoViewUrl(path), "_blank", "noopener,noreferrer"); }
+  async function viewPhoto(photo: CollisionPhotoAttachment): Promise<void> {
+    try {
+      const url = photo.storageBucket === "insurance-settlements"
+        ? await createInsuranceDamagePhotoViewUrl(photo.path, photo.storageBucket)
+        : await createCollisionPhotoViewUrl(photo.path);
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
     catch (error) { console.error("No se pudo abrir la foto.", error); setMessage("No se pudo abrir la foto."); }
   }
 
   return (
     <section className="insurance-workflow-page">
-      <div className="panel insurance-workflow-header"><div><span className="workflow-eyebrow">Gestión judicial vehicular</span><h2>Juicio por Colisiones y Choques</h2></div></div>
+      {!embedded && <div className="panel insurance-workflow-header"><div><span className="workflow-eyebrow">Gestión judicial vehicular</span><h2>Juicio por Colisiones y Choques</h2></div></div>}
       <div className="panel workflow-tabs-panel">
         <button type="button" className={activeTab === "form" ? "active" : ""} onClick={() => setActiveTab("form")}>Formulario de juicio</button>
         <button type="button" className={activeTab === "agenda" ? "active" : ""} onClick={() => setActiveTab("agenda")}>Agenda de juicios</button>
@@ -392,7 +471,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                     <label>Monto<input type="number" min="0" step="0.01" value={(claimDrafts[item.id] ?? EMPTY_CLAIM).amount} onChange={(event) => setClaimDrafts((current) => ({ ...current, [item.id]: { ...(current[item.id] ?? EMPTY_CLAIM), amount: event.target.value } }))} disabled={readOnly || busyId === item.id} /></label>
                     <label className="workflow-form-notes workflow-form-damage-photos">Fotos de los daños<input type="file" accept="image/*" multiple onChange={(event) => selectClaimPhotos(item.id, event.target.files, item.insuranceClaim?.photos.length ?? 0)} disabled={readOnly || busyId === item.id || (item.insuranceClaim?.photos.length ?? 0) >= MAX_PHOTOS} /><span className="hint">{(item.insuranceClaim?.photos.length ?? 0) + (claimPhotoFiles[item.id]?.length ?? 0)} de {MAX_PHOTOS} fotos</span></label>
                   </div>
-                  {item.insuranceClaim?.photos.length ? <div className="workflow-damage-photo-list">{item.insuranceClaim.photos.map((photo, index) => <div key={photo.path} className="workflow-damage-photo-row"><div><strong>Foto {index + 1}</strong><small>{photo.name}</small></div><button type="button" className="button" onClick={() => void viewPhoto(photo.path)}>Ver foto</button></div>)}</div> : null}
+                  {item.insuranceClaim?.photos.length ? <div className="workflow-damage-photo-list">{item.insuranceClaim.photos.map((photo, index) => <div key={photo.path} className="workflow-damage-photo-row"><div><strong>Foto {index + 1}</strong><small>{photo.name}</small></div><button type="button" className="button" onClick={() => void viewPhoto(photo)}>Ver foto</button></div>)}</div> : null}
                   <div className="workflow-form-actions"><button type="button" className="button primary" onClick={() => void saveClaim(item)} disabled={readOnly || busyId === item.id}>{busyId === item.id ? "Guardando..." : "Guardar reclamo"}</button></div>
                 </div>}
                 {item.status === "Perdió" && item.expenseInvoice && <div className="collision-expense-invoice"><strong>Factura de gastos generada</strong><span>{item.expenseInvoice.label}</span><b>{USD_FORMATTER.format(item.expenseInvoice.amount)}</b><small>Agregada a otros cargos del cliente.</small></div>}

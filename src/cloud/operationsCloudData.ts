@@ -60,6 +60,7 @@ export type InsuranceDamagePhotoAttachment = {
   mimeType: string;
   size: number;
   uploadedAt: string;
+  storageBucket?: "insurance-settlements" | "collision-photos";
 };
 
 export type InsuranceClaimRecord = {
@@ -97,6 +98,7 @@ export type CollisionPhotoAttachment = {
   mimeType: string;
   size: number;
   uploadedAt: string;
+  storageBucket?: "insurance-settlements" | "collision-photos";
 };
 
 export type CollisionTrialDateEvent = {
@@ -107,6 +109,7 @@ export type CollisionTrialDateEvent = {
 };
 
 export type CollisionInsuranceClaim = {
+  insuranceClaimId?: string;
   insurer: string;
   claimNumber: string;
   amount: string;
@@ -327,7 +330,7 @@ export async function uploadInsuranceDamagePhoto(
     .from(INSURANCE_DAMAGE_PHOTOS_BUCKET)
     .upload(path, file, { contentType: file.type || undefined, upsert: false });
   if (error) throw error;
-  return { name: file.name, path, mimeType: file.type, size: file.size, uploadedAt };
+  return { name: file.name, path, mimeType: file.type, size: file.size, uploadedAt, storageBucket: INSURANCE_DAMAGE_PHOTOS_BUCKET };
 }
 
 export async function removeInsuranceDamagePhotos(paths: string[]): Promise<void> {
@@ -337,10 +340,13 @@ export async function removeInsuranceDamagePhotos(paths: string[]): Promise<void
   if (error) throw error;
 }
 
-export async function createInsuranceDamagePhotoViewUrl(path: string): Promise<string> {
+export async function createInsuranceDamagePhotoViewUrl(
+  path: string,
+  storageBucket: "insurance-settlements" | "collision-photos" = INSURANCE_DAMAGE_PHOTOS_BUCKET
+): Promise<string> {
   const client = getCloudClient();
   const { data, error } = await client.storage
-    .from(INSURANCE_DAMAGE_PHOTOS_BUCKET)
+    .from(storageBucket)
     .createSignedUrl(path, 60 * 10);
   if (error) throw error;
   return data.signedUrl;
@@ -415,7 +421,7 @@ export async function uploadCollisionPhoto(
     .from(COLLISION_PHOTOS_BUCKET)
     .upload(path, file, { contentType: file.type || undefined, upsert: false });
   if (error) throw error;
-  return { name: file.name, path, mimeType: file.type, size: file.size, uploadedAt };
+  return { name: file.name, path, mimeType: file.type, size: file.size, uploadedAt, storageBucket: COLLISION_PHOTOS_BUCKET };
 }
 
 export async function removeCollisionPhotos(paths: string[]): Promise<void> {

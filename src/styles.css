@@ -10968,6 +10968,20 @@ select.control-op-badge {
   gap: 16px;
 }
 
+.incidents-workflow-page {
+  display: grid;
+  gap: 16px;
+}
+
+.incidents-workflow-header .hint {
+  margin: 6px 0 0;
+}
+
+.incidents-area-tabs {
+  border-color: #bfdbfe;
+  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
+}
+
 .insurance-workflow-header {
   display: flex;
   align-items: flex-start;

@@ -51,8 +51,7 @@ export default function AppNavigation({
     { page: "payments", label: "Pagos", mobileLabel: "Pagos", visible: canViewPayments },
     { page: "receivables", label: "Cuentas por cobrar", mobileLabel: "Cuentas", visible: canViewReceivables },
     { page: "route_search", label: "Ruta en calle", mobileLabel: "Ruta", visible: canViewRouteSearch },
-    { page: "collisions", label: "Juicio por Colisiones y Choques", mobileLabel: "Juicios", visible: canViewCollisions },
-    { page: "insurance_workflow", label: "Reclamos a seguros", mobileLabel: "Reclamos a seguros", visible: canViewInsuranceWorkflow },
+    { page: "incidents", label: "Gestión de siniestros", mobileLabel: "Siniestros", visible: canViewCollisions || canViewInsuranceWorkflow },
     { page: "settings", label: "Configuraciones", mobileLabel: "Config.", visible: canViewSettings }
   ];
   const effectiveSyncStatus = showCoreSyncStatus ? syncStatus : "ok";

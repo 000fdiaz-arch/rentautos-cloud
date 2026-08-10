@@ -22,6 +22,7 @@ type Props = {
   clients: Client[];
   dataOwnerUserId?: string | null;
   readOnly?: boolean;
+  embedded?: boolean;
 };
 
 type ClaimForm = {
@@ -69,7 +70,7 @@ function parseClaimAmount(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOnly = false }: Props) {
+export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOnly = false, embedded = false }: Props) {
   const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(dataOwnerUserId);
   const [form, setForm] = useState<ClaimForm>(EMPTY_FORM);
   const [insurers, setInsurers] = useState<string[]>([]);
@@ -606,10 +607,10 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
     }
   }
 
-  async function viewDamagePhoto(path: string): Promise<void> {
+  async function viewDamagePhoto(photo: InsuranceDamagePhotoAttachment): Promise<void> {
     const previewWindow = window.open("", "_blank");
     try {
-      const url = await createInsuranceDamagePhotoViewUrl(path);
+      const url = await createInsuranceDamagePhotoViewUrl(photo.path, photo.storageBucket);
       if (previewWindow) previewWindow.location.href = url;
       else window.location.href = url;
     } catch (error) {
@@ -728,12 +729,12 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
 
   return (
     <section className="insurance-workflow-page">
-      <div className="panel insurance-workflow-header">
+      {!embedded && <div className="panel insurance-workflow-header">
         <div>
           <span className="workflow-eyebrow">Seguros</span>
           <h2>Reclamos a seguros</h2>
         </div>
-      </div>
+      </div>}
 
       <div className="panel workflow-tabs-panel">
         <button type="button" className={activeTab === "form" ? "active" : ""} onClick={() => setActiveTab("form")}>Formulario</button>
@@ -1222,7 +1223,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                             <strong>Foto {index + 1}</strong>
                             <small title={photo.name}>{photo.name}</small>
                           </div>
-                          <button type="button" className="button" onClick={() => void viewDamagePhoto(photo.path)}>
+                          <button type="button" className="button" onClick={() => void viewDamagePhoto(photo)}>
                             Ver foto
                           </button>
                         </div>

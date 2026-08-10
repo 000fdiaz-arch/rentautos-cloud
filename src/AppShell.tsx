@@ -62,8 +62,7 @@ const LeadsPage = lazy(() => import("./pages/LeadsPage"));
 const PaymentsPage = lazy(() => import("./pages/PaymentsPage"));
 const ReceivablesPage = lazy(() => import("./pages/ReceivablesPage"));
 const RouteSearchPage = lazy(() => import("./pages/RouteSearchPage"));
-const InsuranceWorkflowPage = lazy(() => import("./pages/InsuranceWorkflowPage"));
-const CollisionsPage = lazy(() => import("./pages/CollisionsPage"));
+const IncidentsWorkflowPage = lazy(() => import("./pages/IncidentsWorkflowPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const ControlUnitsPage = lazy(() => import("./pages/ControlUnitsPage"));
 
@@ -140,8 +139,7 @@ function getFirstVisiblePage(visibility: {
   if (visibility.canViewPayments) return "payments";
   if (visibility.canViewReceivables) return "receivables";
   if (visibility.canViewRouteSearch) return "route_search";
-  if (visibility.canViewInsuranceWorkflow) return "insurance_workflow";
-  if (visibility.canViewCollisions) return "collisions";
+  if (visibility.canViewInsuranceWorkflow || visibility.canViewCollisions) return "incidents";
   if (visibility.canViewLeads) return "leads";
   if (visibility.canViewControlUnits) return "control_units";
   if (visibility.canViewSettingsPage) return "settings";
@@ -187,8 +185,7 @@ export default function AppShell({
     payments: canViewPayments,
     receivables: canViewReceivables,
     route_search: canViewRouteSearch,
-    insurance_workflow: canViewInsuranceWorkflow,
-    collisions: canViewCollisions,
+    incidents: canViewInsuranceWorkflow || canViewCollisions,
     control_units: canViewControlUnits,
     settings: canViewSettingsPage
   } satisfies Record<AppPage, boolean>;
@@ -969,11 +966,16 @@ export default function AppShell({
             payments={payments}
           />
         )}
-        {page === "insurance_workflow" && canViewInsuranceWorkflow && (
-          <InsuranceWorkflowPage clients={clients} dataOwnerUserId={cloudDataUserId} readOnly={!canEditInsuranceWorkflow} />
-        )}
-        {page === "collisions" && canViewCollisions && (
-          <CollisionsPage clients={clients} dataOwnerUserId={cloudDataUserId} readOnly={!canEditCollisions} onClientsChange={persistClients} />
+        {page === "incidents" && (canViewInsuranceWorkflow || canViewCollisions) && (
+          <IncidentsWorkflowPage
+            clients={clients}
+            dataOwnerUserId={cloudDataUserId}
+            canViewCollisions={canViewCollisions}
+            canEditCollisions={canEditCollisions}
+            canViewInsuranceWorkflow={canViewInsuranceWorkflow}
+            canEditInsuranceWorkflow={canEditInsuranceWorkflow}
+            onClientsChange={persistClients}
+          />
         )}
         {page === "control_units" && canViewControlUnits && (
           <ControlUnitsPage
