@@ -62,21 +62,32 @@ function makeClient() {
     retentionByClient: {},
     operationalDateKey: "2026-07-09",
     overrideForcedOtherCharges: false,
-    receiptNumber: "REC-1001"
+    receiptNumber: "REC-1001",
+    currentActor: "operador@rentautos.app"
   };
 
   const cash = buildManualPaymentTransaction({
     ...base,
-    form: { clientId: "client-1", dateApplied: "2026-07-09", paymentMethod: "Efectivo", reference: "", amountReceived: "30" }
+    form: { clientId: "client-1", dateApplied: "2026-07-09", paymentMethod: "Efectivo", cashDeliveryStatus: "pending", reference: "", amountReceived: "30" }
   });
   assert(cash.payment.amountReceived === 30, "El pago efectivo debe conservar el monto recibido.");
   assert(cash.updatedClients[0].balance === 70, `El saldo efectivo debe quedar en 70, recibido ${cash.updatedClients[0].balance}.`);
   assert(!cash.pendingCard, "El efectivo no debe crear pendiente de tarjeta.");
+  assert(cash.payment.moneyDelivered === false, "El efectivo pendiente debe conservarse como no entregado.");
+  assert(!cash.payment.moneyDeliveryDate, "El efectivo pendiente no debe tener fecha de entrega.");
+
+  const deliveredCash = buildManualPaymentTransaction({
+    ...base,
+    receiptNumber: "REC-1003",
+    form: { clientId: "client-1", dateApplied: "2026-07-09", paymentMethod: "Efectivo", cashDeliveryStatus: "delivered", reference: "", amountReceived: "30" }
+  });
+  assert(deliveredCash.payment.moneyDelivered === true, "El efectivo entregado debe quedar marcado como entregado.");
+  assert(deliveredCash.payment.moneyDeliveryDate === "2026-07-09", "El efectivo entregado debe sumar en su fecha de entrega.");
 
   const card = buildManualPaymentTransaction({
     ...base,
     receiptNumber: "REC-1002",
-    form: { clientId: "client-1", dateApplied: "2026-07-09", paymentMethod: "Tarjeta", reference: "FOLIO:ABC-123", amountReceived: "30" }
+    form: { clientId: "client-1", dateApplied: "2026-07-09", paymentMethod: "Tarjeta", cashDeliveryStatus: "", reference: "FOLIO:ABC-123", amountReceived: "30" }
   });
   assert(card.payment.paymentMethod === "Tarjeta", "La transaccion debe conservar el metodo Tarjeta.");
   assert(card.pendingCard?.folio === "ABC-123", `El folio esperado es ABC-123, recibido ${card.pendingCard?.folio}.`);

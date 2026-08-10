@@ -211,7 +211,7 @@ export default function RegisterPaymentPanel({
                         type="button"
                         className={`payment-method-option${isSelected ? " payment-method-option--active" : ""}`}
                         aria-pressed={isSelected}
-                        onClick={() => setForm((f) => ({ ...f, paymentMethod: m }))}
+                        onClick={() => setForm((f) => ({ ...f, paymentMethod: m, cashDeliveryStatus: m === "Efectivo" ? f.cashDeliveryStatus : "" }))}
                       >
                         {m}
                       </button>
@@ -219,6 +219,21 @@ export default function RegisterPaymentPanel({
                   })}
                 </div>
               </div>
+
+              {form.paymentMethod === "Efectivo" && (
+                <div className="payment-field-group payment-cash-delivery-field">
+                  <label className="payment-label">¿El dinero en efectivo ya fue entregado?</label>
+                  <div className="payment-cash-delivery-options" role="radiogroup" aria-label="Estado de entrega del efectivo">
+                    <button type="button" className={`payment-cash-delivery-option payment-cash-delivery-option--yes${form.cashDeliveryStatus === "delivered" ? " is-selected" : ""}`} aria-pressed={form.cashDeliveryStatus === "delivered"} onClick={() => setForm((current) => ({ ...current, cashDeliveryStatus: "delivered" }))}>
+                      Sí, ya fue entregado
+                    </button>
+                    <button type="button" className={`payment-cash-delivery-option payment-cash-delivery-option--pending${form.cashDeliveryStatus === "pending" ? " is-selected" : ""}`} aria-pressed={form.cashDeliveryStatus === "pending"} onClick={() => setForm((current) => ({ ...current, cashDeliveryStatus: "pending" }))}>
+                      No, está pendiente
+                    </button>
+                  </div>
+                  <span className="payment-inline-hint">Esta selección define si suma hoy en Efectivo o permanece en Efectivo pendiente de entrega.</span>
+                </div>
+              )}
 
               <div className="payment-field-group">
                 <label className="payment-label">{(isBankPayment || isCardPayment) ? "Referencia (Folio)" : "Referencia (Opcional)"}</label>
@@ -470,7 +485,7 @@ export default function RegisterPaymentPanel({
                 type="button"
                 className="button primary"
                 onClick={() => void handleConfirmPaymentClick()}
-                disabled={!form.clientId || !preview || isDateClosed(operationalDateKey) || isConfirmingPayment}
+                disabled={!form.clientId || !preview || (form.paymentMethod === "Efectivo" && !form.cashDeliveryStatus) || isDateClosed(operationalDateKey) || isConfirmingPayment}
               >
                 {isConfirmingPayment ? "Guardando pago..." : "Confirmar pago y generar recibo"}
               </button>

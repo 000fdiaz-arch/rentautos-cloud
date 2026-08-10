@@ -25,6 +25,7 @@ type BuildManualPaymentParams = {
   operationalDateKey: string;
   overrideForcedOtherCharges: boolean;
   receiptNumber: string;
+  currentActor: string;
 };
 
 export type ManualPaymentTransaction = {
@@ -45,7 +46,8 @@ export function buildManualPaymentTransaction({
   lateFeeSettings,
   operationalDateKey,
   overrideForcedOtherCharges,
-  receiptNumber
+  receiptNumber,
+  currentActor
 }: BuildManualPaymentParams): ManualPaymentTransaction {
   const amountReceived = roundMoney(Number(form.amountReceived));
   const allocation = computeManualPaymentAllocation(
@@ -65,6 +67,9 @@ export function buildManualPaymentTransaction({
   const reference = isCard
     ? `FOLIO:${cardFolio} | TARJETA-PENDIENTE-CONCILIACION | ${form.reference.trim() || "PENDIENTE-FOLIO"}`
     : form.reference.trim() || undefined;
+  const createdAt = new Date().toISOString();
+  const isCash = form.paymentMethod === "Efectivo";
+  const cashWasDelivered = isCash ? form.cashDeliveryStatus === "delivered" : undefined;
 
   const payment: Payment = {
     id: crypto.randomUUID(),
@@ -77,6 +82,17 @@ export function buildManualPaymentTransaction({
     dateApplied: operationalDateKey,
     paymentMethod: form.paymentMethod,
     reference,
+    moneyDelivered: cashWasDelivered,
+    moneyDeliveryDate: cashWasDelivered ? operationalDateKey : undefined,
+    moneyDeliveryUpdatedAt: isCash ? createdAt : undefined,
+    moneyDeliveryUpdatedBy: isCash ? currentActor : undefined,
+    incomeEdits: isCash ? [{
+      id: crypto.randomUUID(),
+      createdAt,
+      actor: currentActor,
+      reason: cashWasDelivered ? "Efectivo entregado al registrar el pago" : "Efectivo pendiente de entrega al registrar el pago",
+      nextMoneyDelivered: cashWasDelivered
+    }] : undefined,
     amountReceived,
     appliedToRent: allocation.appliedToRent,
     centavosAhorro: allocation.centavosAhorro,
@@ -105,7 +121,7 @@ export function buildManualPaymentTransaction({
     chargeFirstSunday: allocation.projectedClient.chargeFirstSunday,
     firstSundayChargedAt,
     travelFundAvailableSnapshot: roundMoney(Math.max(0, allocation.projectedClient.travelFundBalance ?? 0)),
-    createdAt: new Date().toISOString()
+    createdAt
   };
 
   const updatedClients = clients.map((client) => {

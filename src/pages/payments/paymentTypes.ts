@@ -4,6 +4,7 @@ export type PaymentForm = {
   clientId: string;
   dateApplied: string;
   paymentMethod: PaymentMethod;
+  cashDeliveryStatus: "" | "delivered" | "pending";
   reference: string;
   amountReceived: string;
 };

@@ -123,6 +123,7 @@ export default function PaymentsPage({
     clientId: "",
     dateApplied: getBusinessDateKey(),
     paymentMethod: "Efectivo",
+    cashDeliveryStatus: "",
     reference: "",
     amountReceived: ""
   });
@@ -268,6 +269,7 @@ export default function PaymentsPage({
       ...prev,
       dateApplied: quickCashPrefill.dateApplied || getBusinessDateKey(),
       paymentMethod: "Efectivo",
+      cashDeliveryStatus: "",
       clientId: quickCashPrefill.clientId || "",
       reference: quickCashPrefill.reference || "",
       amountReceived: quickCashPrefill.amountReceived || ""
@@ -359,9 +361,10 @@ export default function PaymentsPage({
     if (!selectedClient) return;
     const amount = parseFloat(form.amountReceived);
     if (!Number.isFinite(amount) || amount <= 0) return;
+    if (form.paymentMethod === "Efectivo" && !form.cashDeliveryStatus) return;
     void handleConfirmPaymentClick();
     setPendingQuickCashSubmitToken(null);
-  }, [pendingQuickCashSubmitToken, selectedClient, form.amountReceived]);
+  }, [pendingQuickCashSubmitToken, selectedClient, form.amountReceived, form.paymentMethod, form.cashDeliveryStatus]);
 
 
   async function handleConfirmPaymentClick(): Promise<void> {
@@ -602,6 +605,9 @@ export default function PaymentsPage({
     if (!form.clientId) errs.push("Debes seleccionar un cliente.");
     const amount = parseFloat(form.amountReceived);
     if (!Number.isFinite(amount) || amount <= 0) errs.push("El monto recibido debe ser mayor a 0.");
+    if (form.paymentMethod === "Efectivo" && !form.cashDeliveryStatus) {
+      errs.push("Debes indicar si el dinero en efectivo ya fue entregado o está pendiente de entrega.");
+    }
     if (form.paymentMethod === "Tarjeta") {
       const enteredFolios = extractFoliosFromReference(form.reference);
       if (enteredFolios.length > 0) {
@@ -645,7 +651,8 @@ export default function PaymentsPage({
       operationalDateKey,
       overrideForcedOtherCharges: manualOverrideForcedOtherCharges,
       lateFeeSettings,
-      receiptNumber
+      receiptNumber,
+      currentActor
     });
     const saved = await persistClientPaymentState(transaction.updatedClients, [...payments, transaction.payment]);
     if (!saved) {
@@ -662,7 +669,7 @@ export default function PaymentsPage({
       );
     }
     finalizeSuccessfulPayment(transaction.payment, { openReceipt: true, skipAutoDownload: true });
-    setForm({ clientId: "", dateApplied: operationalDateKey, paymentMethod: "Efectivo", reference: "", amountReceived: "" });
+    setForm({ clientId: "", dateApplied: operationalDateKey, paymentMethod: "Efectivo", cashDeliveryStatus: "", reference: "", amountReceived: "" });
     setManualOtherChargesInput({});
     setManualOverrideForcedOtherCharges(false);
     return true;
