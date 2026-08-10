@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Client } from "../types";
 import CollisionsPage from "./CollisionsPage";
 import IncidentIntakeForm, { type IncidentDestination } from "./IncidentIntakeForm";
 import InsuranceWorkflowPage from "./InsuranceWorkflowPage";
+import UnifiedIncidentsFollowUp from "./UnifiedIncidentsFollowUp";
 
 type Props = {
   clients: Client[];
@@ -14,7 +15,7 @@ type Props = {
   onClientsChange: (next: Client[]) => void | Promise<void>;
 };
 
-type Area = "collisions" | "claims";
+type ManagementTarget = { destination: IncidentDestination; id: string; search: string };
 
 export default function IncidentsWorkflowPage({
   clients,
@@ -25,19 +26,20 @@ export default function IncidentsWorkflowPage({
   canEditInsuranceWorkflow,
   onClientsChange
 }: Props) {
-  const [activeArea, setActiveArea] = useState<Area>(canViewCollisions ? "collisions" : "claims");
-  const [judicialRefreshKey, setJudicialRefreshKey] = useState(0);
-  const [insuranceRefreshKey, setInsuranceRefreshKey] = useState(0);
+  const [managementTarget, setManagementTarget] = useState<ManagementTarget | null>(null);
+  const [followUpRefreshKey, setFollowUpRefreshKey] = useState(0);
 
-  function handleIncidentSaved(destination: IncidentDestination): void {
-    if (destination === "judicial") {
-      setJudicialRefreshKey((current) => current + 1);
-      setActiveArea("collisions");
-    } else {
-      setInsuranceRefreshKey((current) => current + 1);
-      setActiveArea("claims");
-    }
+  function handleIncidentSaved(): void {
+    setFollowUpRefreshKey((current) => current + 1);
+    setManagementTarget(null);
   }
+
+  useEffect(() => {
+    if (managementTarget?.destination !== "insurance") return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setManagementTarget(null); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [managementTarget?.destination]);
 
   return (
     <section className="incidents-workflow-page">
@@ -59,22 +61,19 @@ export default function IncidentsWorkflowPage({
         onSaved={handleIncidentSaved}
       />
 
-      <div className="panel workflow-tabs-panel incidents-area-tabs" aria-label="Áreas de gestión de siniestros">
-        {canViewCollisions && (
-          <button type="button" className={activeArea === "collisions" ? "active" : ""} onClick={() => setActiveArea("collisions")}>
-            Juicios por colisiones
-          </button>
-        )}
-        {canViewInsuranceWorkflow && (
-          <button type="button" className={activeArea === "claims" ? "active" : ""} onClick={() => setActiveArea("claims")}>
-            Reclamos a seguros
-          </button>
-        )}
-      </div>
+      {!managementTarget && <UnifiedIncidentsFollowUp
+        dataOwnerUserId={dataOwnerUserId}
+        canViewJudicial={canViewCollisions}
+        canViewInsurance={canViewInsuranceWorkflow}
+        refreshKey={followUpRefreshKey}
+        onOpen={(destination, target) => setManagementTarget({ destination, ...target })}
+      />}
 
-      {activeArea === "collisions" && canViewCollisions && (
+      {managementTarget?.destination === "judicial" && <div className="incident-management-back"><button type="button" className="button" onClick={() => { setManagementTarget(null); setFollowUpRefreshKey((current) => current + 1); }}>← Volver a expedientes</button><span>Gestionando juicio</span></div>}
+
+      {managementTarget?.destination === "judicial" && canViewCollisions && (
         <CollisionsPage
-          key={judicialRefreshKey}
+          key={`judicial-${managementTarget.id}`}
           clients={clients}
           dataOwnerUserId={dataOwnerUserId}
           readOnly={!canEditCollisions}
@@ -82,17 +81,26 @@ export default function IncidentsWorkflowPage({
           embedded
           syncInsuranceClaims={canEditInsuranceWorkflow}
           hideCreateForm
+          initialExpandedId={managementTarget.id}
+          initialSearch={managementTarget.search}
         />
       )}
-      {activeArea === "claims" && canViewInsuranceWorkflow && (
-        <InsuranceWorkflowPage
-          key={insuranceRefreshKey}
-          clients={clients}
-          dataOwnerUserId={dataOwnerUserId}
-          readOnly={!canEditInsuranceWorkflow}
-          embedded
-          hideCreateForm
-        />
+      {managementTarget?.destination === "insurance" && canViewInsuranceWorkflow && (
+        <div className="incident-claim-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setManagementTarget(null); setFollowUpRefreshKey((current) => current + 1); } }}>
+          <section className="incident-claim-modal" role="dialog" aria-modal="true" aria-labelledby="incident-claim-modal-title">
+            <div className="incident-claim-modal-head"><div><span className="workflow-eyebrow">Gestión del expediente</span><h2 id="incident-claim-modal-title">Reclamo al seguro</h2></div><button type="button" className="button" aria-label="Cerrar gestión del reclamo" onClick={() => { setManagementTarget(null); setFollowUpRefreshKey((current) => current + 1); }}>Cerrar</button></div>
+            <InsuranceWorkflowPage
+              key={`insurance-${managementTarget.id}`}
+              clients={clients}
+              dataOwnerUserId={dataOwnerUserId}
+              readOnly={!canEditInsuranceWorkflow}
+              embedded
+              hideCreateForm
+              initialExpandedId={managementTarget.id}
+              focusedClaimId={managementTarget.id}
+            />
+          </section>
+        </div>
       )}
     </section>
   );

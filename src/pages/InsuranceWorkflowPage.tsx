@@ -24,6 +24,9 @@ type Props = {
   readOnly?: boolean;
   embedded?: boolean;
   hideCreateForm?: boolean;
+  initialExpandedId?: string;
+  initialSearch?: string;
+  focusedClaimId?: string;
 };
 
 type ClaimForm = {
@@ -71,7 +74,7 @@ function parseClaimAmount(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOnly = false, embedded = false, hideCreateForm = false }: Props) {
+export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOnly = false, embedded = false, hideCreateForm = false, initialExpandedId = "", initialSearch = "", focusedClaimId = "" }: Props) {
   const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(hideCreateForm ? null : dataOwnerUserId);
   const [form, setForm] = useState<ClaimForm>(EMPTY_FORM);
   const [insurers, setInsurers] = useState<string[]>([]);
@@ -89,8 +92,8 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   const [settlementDates, setSettlementDates] = useState<Record<string, string>>({});
   const [followUpSavingId, setFollowUpSavingId] = useState<string>("");
   const [followUpComments, setFollowUpComments] = useState<Record<string, string>>({});
-  const [expandedClaimId, setExpandedClaimId] = useState<string | null>(null);
-  const [claimSearch, setClaimSearch] = useState<string>("");
+  const [expandedClaimId, setExpandedClaimId] = useState<string | null>(initialExpandedId || null);
+  const [claimSearch, setClaimSearch] = useState<string>(initialSearch);
   const [statusFilter, setStatusFilter] = useState<InsuranceClaimStatus | "all">("all");
   const [insurerFilter, setInsurerFilter] = useState<string>("all");
   const [settlementFilter, setSettlementFilter] = useState<SettlementFilter>("all");
@@ -145,6 +148,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   const filteredClaims = useMemo(() => {
     const search = claimSearch.trim().toLocaleLowerCase("es");
     return claims.filter((claim) => {
+      if (focusedClaimId && claim.id !== focusedClaimId) return false;
       if (statusFilter !== "all" && claim.status !== statusFilter) return false;
       if (insurerFilter !== "all" && claim.insurer !== insurerFilter) return false;
       if (settlementFilter === "delivered" && !claim.settlementDelivered) return false;
@@ -162,7 +166,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
         claim.followUpComment
       ].some((value) => value.toLocaleLowerCase("es").includes(search));
     });
-  }, [claimNumberFilter, claimSearch, claims, insurerFilter, settlementFilter, statusFilter]);
+  }, [claimNumberFilter, claimSearch, claims, focusedClaimId, insurerFilter, settlementFilter, statusFilter]);
 
   const claimKpis = useMemo(() => {
     return filteredClaims.reduce((summary, claim) => {
@@ -910,17 +914,17 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       )}
 
       {activeTab === "list" && (
-        <section className="panel workflow-claims-panel">
-          <div className="panel-head">
+        <section className={`panel workflow-claims-panel${focusedClaimId ? " workflow-claims-panel--focused" : ""}`}>
+          {!focusedClaimId && <div className="panel-head">
             <h2>Lista de reclamos</h2>
             <span className="hint">
               {hasActiveClaimFilters ? `${filteredClaims.length} de ${claims.length}` : claims.length} reclamos
             </span>
-          </div>
+          </div>}
           {loadingCloud && <p className="hint workflow-message">Cargando reclamos...</p>}
           {loadError && <p className="hint workflow-message">{loadError}</p>}
           {message && <p className="hint workflow-message">{message}</p>}
-          <div className="workflow-claim-kpis" aria-label="Indicadores de reclamos a seguros">
+          {!focusedClaimId && <div className="workflow-claim-kpis" aria-label="Indicadores de reclamos a seguros">
             <div>
               <span>Monto total reclamado</span>
               <strong>{USD_FORMATTER.format(claimKpis.totalAmount)}</strong>
@@ -946,8 +950,8 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
               <strong>{claimKpis.withoutClaimNumber}</strong>
               <small>Requieren completar</small>
             </div>
-          </div>
-          <div className="workflow-claim-filters">
+          </div>}
+          {!focusedClaimId && <div className="workflow-claim-filters">
             <label className="workflow-claim-search">
               Buscar
               <input
@@ -992,7 +996,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
             <button type="button" className="button workflow-clear-filters" onClick={clearClaimFilters} disabled={!hasActiveClaimFilters}>
               Limpiar filtros
             </button>
-          </div>
+          </div>}
           <div className="workflow-claims-list">
             {claims.length === 0 && !loadingCloud && <p className="hint">Todavia no hay reclamos guardados.</p>}
             {claims.length > 0 && filteredClaims.length === 0 && (

@@ -104,7 +104,10 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     setDriverEditedManually(false);
     patchForm({ unit, driver: fleetUnit?.client_name ?? client?.name ?? "", plate: fleetUnit?.plate ?? "" });
   }
-  function selectDestination(next: IncidentDestination): void { setDestination(next); setMessage(""); }
+  function selectDestination(next: IncidentDestination): void {
+    setDestination((current) => current === next ? "" : next);
+    setMessage("");
+  }
 
   function handleDamagePhotosChange(files: FileList | null): void {
     const selected = Array.from(files ?? []);
@@ -176,29 +179,24 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
 
   return (
     <form className="panel workflow-form-panel incident-intake-form" onSubmit={(event) => { event.preventDefault(); void saveIncident(); }}>
-      <div className="panel-head"><div><span className="workflow-eyebrow">Registro único</span><h2>Nuevo siniestro</h2></div><button type="submit" className="button primary" disabled={!destination || readOnly || saving}>{saving ? "Guardando..." : "Guardar siniestro"}</button></div>
+      <div className="panel-head"><div><span className="workflow-eyebrow">Registro único</span><h2>Nuevo siniestro</h2></div></div>
       <fieldset className="incident-destination-fieldset">
-        <legend>¿A dónde va este siniestro?</legend>
+        <legend>¿Qué gestión deseas iniciar?</legend>
         <div className="incident-destination-options">
-          {canViewJudicial && <button type="button" className={destination === "judicial" ? "active" : ""} aria-pressed={destination === "judicial"} onClick={() => selectDestination("judicial")}><span>Juicio</span><small>Colilla, juzgado y agenda judicial</small></button>}
-          {canViewInsurance && <button type="button" className={destination === "insurance" ? "active" : ""} aria-pressed={destination === "insurance"} onClick={() => selectDestination("insurance")}><span>Reclamo al seguro</span><small>Aseguradora, reclamo, monto y fotografías</small></button>}
+          {canViewJudicial && <button type="button" className={destination === "judicial" ? "active" : ""} aria-pressed={destination === "judicial"} onClick={() => selectDestination("judicial")}><span>Juicio</span></button>}
+          {canViewInsurance && <button type="button" className={destination === "insurance" ? "active" : ""} aria-pressed={destination === "insurance"} onClick={() => selectDestination("insurance")}><span>Reclamo al seguro</span></button>}
         </div>
       </fieldset>
       {readOnly && destination && <p className="hint workflow-message">Modo lectura: no tienes permiso para registrar datos en este flujo.</p>}
       {fleetLoading && <p className="hint workflow-message">Cargando autos...</p>}{fleetLoadError && <p className="hint workflow-message">{fleetLoadError}</p>}{message && <p className="hint workflow-message" role="alert">{message}</p>}
-      <section className="incident-form-section">
-        <div className="incident-form-section-head"><span>1</span><div><strong>Datos del incidente</strong><small>Esta información se registra una sola vez.</small></div></div>
+      {destination && <section className={`incident-form-section incident-form-section--${destination}`}>
+        <div className="incident-form-section-title"><strong>{destination === "judicial" ? "Formulario de juicio" : "Formulario de reclamo al seguro"}</strong><small>Completa los datos del incidente y de la gestión seleccionada.</small></div>
         <div className="workflow-form-grid">
           <label>Fecha del incidente<input type="date" value={form.incidentDate} onChange={(event) => patchForm({ incidentDate: event.target.value })} disabled={readOnly} /></label>
           <label>Unidad<input list="incident-unit-options" placeholder="Ej. B52" value={form.unit} onChange={(event) => handleUnitChange(event.target.value)} disabled={readOnly} /><datalist id="incident-unit-options">{unitOptions.map((unitId) => <option key={unitId} value={unitId} label={unitOptionLabels.get(unitId) ?? ""} />)}</datalist></label>
           <label>Chofer<input value={form.driver} placeholder="Nombre completo" onChange={(event) => { setDriverEditedManually(true); patchForm({ driver: event.target.value }); }} disabled={readOnly} /></label>
           <label>Placa<input value={form.plate} placeholder="Placa del auto" onChange={(event) => patchForm({ plate: event.target.value })} disabled={readOnly} /></label>
           <label className="workflow-form-notes">Daños del auto<textarea value={form.vehicleDamage} placeholder="Describe los daños del auto" onChange={(event) => patchForm({ vehicleDamage: event.target.value })} disabled={readOnly} /></label>
-        </div>
-      </section>
-      {destination && <section className={`incident-form-section incident-form-section--${destination}`}>
-        <div className="incident-form-section-head"><span>2</span><div><strong>{destination === "judicial" ? "Juicio" : "Reclamo al seguro"}</strong><small>{destination === "judicial" ? "Información necesaria para abrir y agendar el juicio." : "Información necesaria para gestionar el reclamo."}</small></div></div>
-        <div className="workflow-form-grid">
           {destination === "judicial" ? <>
             <label>Fecha de juicio<input type="date" value={form.trialDate} onChange={(event) => patchForm({ trialDate: event.target.value })} disabled={readOnly} /></label>
             <label>Colilla<input value={form.ticketStub} placeholder="Número o referencia" onChange={(event) => patchForm({ ticketStub: event.target.value })} disabled={readOnly} /></label>
@@ -206,7 +204,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
             <label>Juzgado<input value={form.court} placeholder="Nombre o número del juzgado" onChange={(event) => patchForm({ court: event.target.value })} disabled={readOnly} /></label>
             <label className="collision-runaway-option"><input type="checkbox" checked={form.collisionAndRun} onChange={(event) => patchForm({ collisionAndRun: event.target.checked })} disabled={readOnly} /><span><strong>Colisión y fuga</strong><small>La otra persona abandonó el lugar.</small></span></label>
           </> : <>
-            <div className={`workflow-claim-number-question${!form.hasClaimNumber ? " is-pending" : ""}`}><div><span className="workflow-question-step">Primer paso</span><strong>¿Tienes el número de reclamo?</strong><small>Define si el reclamo inicia activo o pendiente.</small></div><select value={form.hasClaimNumber} onChange={(event) => { const hasClaimNumber = event.target.value as IntakeForm["hasClaimNumber"]; patchForm({ hasClaimNumber, ...(hasClaimNumber !== "yes" ? { claimNumber: "" } : {}) }); }} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">Sí, tengo el número</option><option value="no">No, todavía no lo tengo</option></select></div>
+            <div className={`workflow-claim-number-question${!form.hasClaimNumber ? " is-pending" : ""}`}><div><strong>¿Tienes el número de reclamo?</strong><small>Define si el reclamo inicia activo o pendiente.</small></div><select value={form.hasClaimNumber} onChange={(event) => { const hasClaimNumber = event.target.value as IntakeForm["hasClaimNumber"]; patchForm({ hasClaimNumber, ...(hasClaimNumber !== "yes" ? { claimNumber: "" } : {}) }); }} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">Sí, tengo el número</option><option value="no">No, todavía no lo tengo</option></select></div>
             {form.hasClaimNumber === "yes" && <label className="workflow-claim-number-input">Número de reclamo<input value={form.claimNumber} placeholder="Escribe el número" onChange={(event) => patchForm({ claimNumber: event.target.value })} disabled={readOnly} /></label>}
             <label>Aseguradora<select value={form.insurer} onChange={(event) => event.target.value === "__new__" ? void addInsurer() : patchForm({ insurer: event.target.value })} disabled={readOnly}><option value="">Seleccionar aseguradora</option>{insurers.map((insurer) => <option key={insurer}>{insurer}</option>)}<option value="__new__">+ Nueva aseguradora</option></select></label>
             <label>Monto<input type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={(event) => patchForm({ amount: event.target.value })} disabled={readOnly} /></label>
@@ -214,6 +212,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           </>}
         </div>
       </section>}
+      {destination && <div className="workflow-form-actions incident-form-submit"><button type="submit" className="button primary" disabled={readOnly || saving}>{saving ? "Guardando..." : "Guardar siniestro"}</button></div>}
     </form>
   );
 }

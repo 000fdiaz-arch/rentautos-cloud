@@ -28,6 +28,8 @@ type Props = {
   embedded?: boolean;
   syncInsuranceClaims?: boolean;
   hideCreateForm?: boolean;
+  initialExpandedId?: string;
+  initialSearch?: string;
 };
 type DateFilter = "all" | "upcoming" | "today" | "last_week" | "overdue";
 type TrialForm = {
@@ -82,7 +84,7 @@ function parseAmount(value: string): number {
 }
 function isFinalStatus(status: CollisionTrialStatus): boolean { return status === "Ganó" || status === "Perdió"; }
 
-export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = false, onClientsChange, embedded = false, syncInsuranceClaims = true, hideCreateForm = false }: Props) {
+export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = false, onClientsChange, embedded = false, syncInsuranceClaims = true, hideCreateForm = false, initialExpandedId = "", initialSearch = "" }: Props) {
   const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(hideCreateForm ? null : dataOwnerUserId);
   const [activeTab, setActiveTab] = useState<"form" | "agenda">(hideCreateForm ? "agenda" : "form");
   const [form, setForm] = useState<TrialForm>(EMPTY_FORM);
@@ -92,10 +94,10 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   const [busyId, setBusyId] = useState("");
   const [message, setMessage] = useState("");
   const [loadError, setLoadError] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch);
   const [statusFilter, setStatusFilter] = useState<CollisionTrialStatus | "all">("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(initialExpandedId || null);
   const [driverEditedManually, setDriverEditedManually] = useState(false);
   const [outcomeDrafts, setOutcomeDrafts] = useState<Record<string, "" | "Ganó" | "Perdió" | "Nueva fecha">>({});
   const [newTrialDates, setNewTrialDates] = useState<Record<string, string>>({});
