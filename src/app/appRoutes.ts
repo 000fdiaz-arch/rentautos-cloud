@@ -1,4 +1,4 @@
-export type AppPage = "clients" | "leads" | "payments" | "receivables" | "route_search" | "insurance_workflow" | "control_units" | "settings";
+export type AppPage = "clients" | "leads" | "payments" | "receivables" | "route_search" | "insurance_workflow" | "collisions" | "control_units" | "settings";
 
 const APP_PAGE_PATHS: Record<AppPage, string> = {
   leads: "/leads",
@@ -7,6 +7,7 @@ const APP_PAGE_PATHS: Record<AppPage, string> = {
   receivables: "/cuentas-por-cobrar",
   route_search: "/ruta-en-calle",
   insurance_workflow: "/reclamos-seguros",
+  collisions: "/colisiones-y-choques",
   control_units: "/autos",
   settings: "/configuraciones"
 };

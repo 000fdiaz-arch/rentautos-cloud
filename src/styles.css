@@ -3295,7 +3295,7 @@ select.control-op-badge {
   color: var(--color-text-muted);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
-  white-space: nowrap;
+  white-space: normal;
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
@@ -3303,6 +3303,12 @@ select.control-op-badge {
   width: 100%;
   text-align: left;
   text-decoration: none;
+}
+
+.nav-tab-label-full {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 
 .nav-tab-label-mobile {
@@ -3440,6 +3446,7 @@ select.control-op-badge {
     justify-content: center;
     padding: 8px 10px;
     font-size: 0.82rem;
+    white-space: nowrap;
   }
 
   .nav-tab-label-full {
@@ -11212,6 +11219,10 @@ select.control-op-badge {
   margin-top: 14px;
 }
 
+.workflow-claim-kpis--single {
+  grid-template-columns: minmax(240px, 360px);
+}
+
 .workflow-claim-kpis > div {
   display: grid;
   gap: 4px;
@@ -11750,6 +11761,85 @@ select.control-op-badge {
   border-radius: 9px;
   background: #ffffff;
   padding: 10px;
+}
+
+.collision-runaway-option {
+  grid-column: 1 / -1;
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #fbbf24;
+  border-radius: 9px;
+  background: #fffbeb;
+  padding: 11px 13px;
+}
+
+.collision-runaway-option input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.collision-runaway-option span {
+  display: grid;
+  gap: 2px;
+}
+
+.collision-runaway-option small {
+  color: var(--color-text-muted);
+}
+
+.collision-required-outcome {
+  margin: 0;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-weight: 800;
+  padding: 10px 12px;
+}
+
+.collision-outcome-panel {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.collision-claim-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #86efac;
+  border-radius: 9px;
+  background: #f0fdf4;
+  padding: 13px;
+}
+
+.collision-claim-panel > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.collision-claim-panel > div:first-child span {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+
+.collision-expense-invoice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 9px;
+  background: #fff7ed;
+  padding: 13px;
+}
+
+.collision-expense-invoice strong,
+.collision-expense-invoice small {
+  grid-column: 1 / -1;
+}
+
+.collision-expense-invoice b {
+  color: #b91c1c;
+  font-size: 1.05rem;
 }
 
 .workflow-follow-up textarea {

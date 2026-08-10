@@ -9,7 +9,7 @@ export type Permission =
   | "users.manage"
   | "cash.manage";
 
-export type AppScreen = "leads" | "clients" | "payments" | "receivables" | "route_search" | "insurance_workflow" | "control_units" | "settings" | "users";
+export type AppScreen = "leads" | "clients" | "payments" | "receivables" | "route_search" | "insurance_workflow" | "collisions" | "control_units" | "settings" | "users";
 
 export type ScreenAccess = {
   view: boolean;
@@ -25,6 +25,7 @@ export const APP_SCREENS: Array<{ id: AppScreen; label: string }> = [
   { id: "receivables", label: "Cuentas por cobrar" },
   { id: "route_search", label: "Ruta en calle" },
   { id: "insurance_workflow", label: "Reclamos a seguros" },
+  { id: "collisions", label: "Juicio por Colisiones y Choques" },
   { id: "control_units", label: "Autos" },
   { id: "settings", label: "Configuraciones" },
   { id: "users", label: "Usuarios" }
@@ -62,6 +63,7 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     receivables: { view: true, edit: true },
     route_search: { view: true, edit: true },
     insurance_workflow: { view: true, edit: true },
+    collisions: { view: true, edit: true },
     control_units: { view: true, edit: true },
     settings: { view: true, edit: true },
     users: { view: true, edit: true }
@@ -73,6 +75,7 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     receivables: { view: true, edit: true },
     route_search: { view: false, edit: false },
     insurance_workflow: { view: true, edit: true },
+    collisions: { view: true, edit: true },
     control_units: { view: true, edit: true },
     settings: { view: false, edit: false },
     users: { view: false, edit: false }
@@ -84,6 +87,7 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     receivables: { view: false, edit: false },
     route_search: { view: false, edit: false },
     insurance_workflow: { view: false, edit: false },
+    collisions: { view: false, edit: false },
     control_units: { view: true, edit: false },
     settings: { view: false, edit: false },
     users: { view: false, edit: false }
@@ -95,6 +99,7 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     receivables: { view: false, edit: false },
     route_search: { view: true, edit: false },
     insurance_workflow: { view: false, edit: false },
+    collisions: { view: false, edit: false },
     control_units: { view: false, edit: false },
     settings: { view: false, edit: false },
     users: { view: false, edit: false }
@@ -159,6 +164,7 @@ export function canWriteOperationalData(role: AppRole, permissions = getRoleScre
     canEditScreen(permissions, "leads") ||
     canEditScreen(permissions, "route_search") ||
     canEditScreen(permissions, "insurance_workflow") ||
+    canEditScreen(permissions, "collisions") ||
     canEditScreen(permissions, "control_units")
   );
 }
@@ -179,6 +185,7 @@ export function canUseReadOnlyExperience(role: AppRole, permissions = getRoleScr
     !canEditScreen(permissions, "leads") &&
     !canEditScreen(permissions, "route_search") &&
     !canEditScreen(permissions, "insurance_workflow") &&
+    !canEditScreen(permissions, "collisions") &&
     !canEditScreen(permissions, "control_units")
   );
 }

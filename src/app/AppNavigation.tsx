@@ -11,6 +11,7 @@ type Props = {
   canViewReceivables: boolean;
   canViewRouteSearch: boolean;
   canViewInsuranceWorkflow: boolean;
+  canViewCollisions: boolean;
   canViewControlUnits: boolean;
   canViewSettings: boolean;
   showCoreSyncStatus?: boolean;
@@ -31,6 +32,7 @@ export default function AppNavigation({
   canViewReceivables,
   canViewRouteSearch,
   canViewInsuranceWorkflow,
+  canViewCollisions,
   canViewControlUnits,
   canViewSettings,
   showCoreSyncStatus = true,
@@ -49,6 +51,7 @@ export default function AppNavigation({
     { page: "receivables", label: "Cuentas por cobrar", mobileLabel: "Cuentas", visible: canViewReceivables },
     { page: "route_search", label: "Ruta en calle", mobileLabel: "Ruta", visible: canViewRouteSearch },
     { page: "insurance_workflow", label: "Reclamos a seguros", mobileLabel: "Reclamos a seguros", visible: canViewInsuranceWorkflow },
+    { page: "collisions", label: "Juicio por Colisiones y Choques", mobileLabel: "Juicios", visible: canViewCollisions },
     { page: "control_units", label: "Autos", mobileLabel: "Autos", visible: canViewControlUnits },
     { page: "settings", label: "Configuraciones", mobileLabel: "Config.", visible: canViewSettings }
   ];

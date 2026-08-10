@@ -90,8 +90,60 @@ export type InsuranceClaimRecord = {
   updatedAt: string;
 };
 
+export type CollisionTrialStatus = "Pendiente" | "Ganó" | "Perdió" | "Nueva fecha";
+export type CollisionPhotoAttachment = {
+  name: string;
+  path: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+};
+
+export type CollisionTrialDateEvent = {
+  previousDate: string;
+  newDate: string;
+  reason: string;
+  changedAt: string;
+};
+
+export type CollisionInsuranceClaim = {
+  insurer: string;
+  claimNumber: string;
+  amount: string;
+  photos: CollisionPhotoAttachment[];
+  updatedAt: string;
+};
+
+export type CollisionExpenseInvoice = {
+  chargeId: string;
+  label: string;
+  amount: number;
+  createdAt: string;
+};
+
+export type CollisionCaseRecord = {
+  id: string;
+  incidentDate: string;
+  unit: string;
+  driver: string;
+  plate: string;
+  trialDate: string;
+  vehicleDamage: string;
+  ticketStub: string;
+  placeTime: string;
+  court: string;
+  collisionAndRun: boolean;
+  status: CollisionTrialStatus;
+  trialDateHistory: CollisionTrialDateEvent[];
+  insuranceClaim: CollisionInsuranceClaim | null;
+  expenseInvoice: CollisionExpenseInvoice | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 const INSURANCE_SETTLEMENTS_BUCKET = "insurance-settlements";
 const INSURANCE_DAMAGE_PHOTOS_BUCKET = INSURANCE_SETTLEMENTS_BUCKET;
+const COLLISION_PHOTOS_BUCKET = "collision-photos";
 
 function normalizeInsuranceClaim(claim: InsuranceClaimRecord): InsuranceClaimRecord {
   const claimNumber = typeof claim.claimNumber === "string" ? claim.claimNumber : "";
@@ -290,6 +342,92 @@ export async function createInsuranceDamagePhotoViewUrl(path: string): Promise<s
   const { data, error } = await client.storage
     .from(INSURANCE_DAMAGE_PHOTOS_BUCKET)
     .createSignedUrl(path, 60 * 10);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord {
+  const legacy = item as CollisionCaseRecord & {
+    status?: unknown;
+    insurer?: unknown;
+    claimNumber?: unknown;
+    amount?: unknown;
+    photos?: unknown;
+    nextFollowUpDate?: unknown;
+  };
+  const rawStatus = legacy.status;
+  const status: CollisionTrialStatus = rawStatus === "Ganó" || rawStatus === "Perdió" || rawStatus === "Nueva fecha"
+    ? rawStatus
+    : "Pendiente";
+  const legacyPhotos = Array.isArray(legacy.photos)
+    ? legacy.photos.filter((photo): photo is CollisionPhotoAttachment => Boolean(photo && typeof photo === "object" && "path" in photo))
+    : [];
+  const existingClaim = item.insuranceClaim && typeof item.insuranceClaim === "object" ? item.insuranceClaim : null;
+  const legacyClaim = typeof legacy.insurer === "string" || typeof legacy.claimNumber === "string" || typeof legacy.amount === "string" || legacyPhotos.length > 0
+    ? {
+        insurer: typeof legacy.insurer === "string" ? legacy.insurer : "",
+        claimNumber: typeof legacy.claimNumber === "string" ? legacy.claimNumber : "",
+        amount: typeof legacy.amount === "string" ? legacy.amount : "",
+        photos: legacyPhotos,
+        updatedAt: item.updatedAt || item.createdAt || new Date().toISOString()
+      }
+    : null;
+  return {
+    ...item,
+    status,
+    trialDate: typeof item.trialDate === "string"
+      ? item.trialDate
+      : typeof legacy.nextFollowUpDate === "string" ? legacy.nextFollowUpDate : "",
+    ticketStub: typeof item.ticketStub === "string" ? item.ticketStub : "",
+    placeTime: typeof item.placeTime === "string" ? item.placeTime : "",
+    court: typeof item.court === "string" ? item.court : "",
+    collisionAndRun: item.collisionAndRun === true,
+    trialDateHistory: Array.isArray(item.trialDateHistory) ? item.trialDateHistory : [],
+    insuranceClaim: existingClaim ?? legacyClaim,
+    expenseInvoice: item.expenseInvoice && typeof item.expenseInvoice === "object" ? item.expenseInvoice : null
+  };
+}
+
+export async function loadCollisionCases(userId: string): Promise<CollisionCaseRecord[]> {
+  const rows = await loadCloudArrayRows<CollisionCaseRecord>(userId, "collision_cases_cloud");
+  return rows
+    .map(normalizeCollisionCase)
+    .sort((left, right) => (right.createdAt || "").localeCompare(left.createdAt || ""));
+}
+
+export async function saveCollisionCase(userId: string, item: CollisionCaseRecord): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("collision_cases_cloud")
+    .upsert({ user_id: userId, id: item.id, data: item, updated_at: item.updatedAt }, { onConflict: "user_id,id" });
+  if (error) throw error;
+}
+
+export async function uploadCollisionPhoto(
+  userId: string,
+  caseId: string,
+  file: File
+): Promise<CollisionPhotoAttachment> {
+  const client = getCloudClient();
+  const uploadedAt = new Date().toISOString();
+  const path = `${userId}/${caseId}/${Date.now()}-${crypto.randomUUID()}-${safeStorageFileName(file.name)}`;
+  const { error } = await client.storage
+    .from(COLLISION_PHOTOS_BUCKET)
+    .upload(path, file, { contentType: file.type || undefined, upsert: false });
+  if (error) throw error;
+  return { name: file.name, path, mimeType: file.type, size: file.size, uploadedAt };
+}
+
+export async function removeCollisionPhotos(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  const client = getCloudClient();
+  const { error } = await client.storage.from(COLLISION_PHOTOS_BUCKET).remove(paths);
+  if (error) throw error;
+}
+
+export async function createCollisionPhotoViewUrl(path: string): Promise<string> {
+  const client = getCloudClient();
+  const { data, error } = await client.storage.from(COLLISION_PHOTOS_BUCKET).createSignedUrl(path, 60 * 10);
   if (error) throw error;
   return data.signedUrl;
 }
