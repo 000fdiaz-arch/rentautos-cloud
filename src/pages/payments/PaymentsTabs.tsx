@@ -3,6 +3,7 @@ export type PaymentTabId =
   | "notified"
   | "pending"
   | "cards"
+  | "income"
   | "history"
   | "cash";
 
@@ -18,12 +19,13 @@ const TABS: Array<{ id: PaymentTabId; label: string }> = [
   { id: "notified", label: "Pago notificado" },
   { id: "pending", label: "Ver pendientes" },
   { id: "cards", label: "Pendientes tarjeta" },
+  { id: "income", label: "Ingresos del día" },
   { id: "history", label: "Historial pagos" },
   { id: "cash", label: "Cierre de caja" }
 ];
 
 export default function PaymentsTabs({ activeTab, onSelect, onImportCsv, readOnly = false }: Props) {
-  const visibleTabs = readOnly ? TABS.filter((tab) => tab.id === "history") : TABS;
+  const visibleTabs = readOnly ? TABS.filter((tab) => tab.id === "income" || tab.id === "history") : TABS;
   return (
     <section className="panel payment-tabs-panel" aria-label="Navegación de pagos">
       <div className="payment-tabs-row">

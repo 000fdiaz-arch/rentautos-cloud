@@ -1,0 +1,109 @@
+const { chromium } = require("playwright");
+
+(async () => {
+  const baseUrl = process.env.RENTAUTOS_WORKFLOWS_BASE_URL ?? "http://127.0.0.1:5174/";
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+
+  const dateApplied = "2026-08-08";
+  const basePayment = {
+    clientId: "income-client",
+    clientName: "CLIENTE INGRESOS",
+    clientUnit: "I10",
+    dateApplied,
+    appliedToRent: 0,
+    centavosAhorro: 0,
+    installmentsDeducted: 0,
+    balanceBefore: 0,
+    balanceAfter: 0,
+    savingsBefore: 0,
+    savingsAfter: 0,
+    installmentsPaidAfter: 0,
+    installmentsRemainingAfter: 0,
+    rentAmount: 25,
+    frequency: "daily",
+    createdAt: "2026-08-10T14:30:00.000Z"
+  };
+  const payments = [
+    { ...basePayment, id: "income-cash", receiptNumber: "REC-1001", paymentMethod: "Efectivo", amountReceived: 100 },
+    { ...basePayment, id: "income-bank", receiptNumber: "REC-1002", paymentMethod: "ACH Express", amountReceived: 200, bankAccountNumber: "3380008048", bankGroupCode: "OPERACION", fundsReceivedDate: dateApplied, reference: "REF:BANCO-1" },
+    { ...basePayment, id: "income-card", receiptNumber: "REC-1003", paymentMethod: "Tarjeta", amountReceived: 80, reference: "TARJETA-PENDIENTE-CONCILIACION" },
+    { ...basePayment, id: "income-discount", receiptNumber: "REC-1004", paymentMethod: "Descuento", amountReceived: 50 }
+  ];
+  const bankRules = [
+    { id: "rule-a", accountNumber: "3380008048", groupCode: "OPERACION", active: true, createdAt: basePayment.createdAt, updatedAt: basePayment.createdAt },
+    { id: "rule-b", accountNumber: "9988776655", groupCode: "AHORRO", active: true, createdAt: basePayment.createdAt, updatedAt: basePayment.createdAt }
+  ];
+
+  await page.evaluate(({ payments, bankRules }) => {
+    localStorage.setItem("cobrapp.module1.clients.v1", JSON.stringify([]));
+    localStorage.setItem("cobrapp.module2.payments.v1", JSON.stringify(payments));
+    localStorage.setItem("cobrapp.module2.pending_bank.v1", JSON.stringify([]));
+    localStorage.setItem("cobrapp.module2.pending_card.v1", JSON.stringify([]));
+    localStorage.setItem("cobrapp.settings.bank_rules.v1", JSON.stringify(bankRules));
+  }, { payments, bankRules });
+
+  await page.goto(new URL("/pagos", baseUrl).href, { waitUntil: "domcontentloaded" });
+  await page.getByRole("tab", { name: /Ingresos del día/i }).click();
+  const panel = page.locator("#payment-panel-income");
+  await panel.waitFor({ state: "visible" });
+  await panel.getByLabel("Fecha").fill("2026-08-08");
+
+  const kpis = panel.locator(".income-day-kpis");
+  if (!/\$300\.00/.test(await kpis.locator("button").nth(0).innerText())) throw new Error("Total recibido incorrecto");
+  if (!/\$80\.00/.test(await kpis.locator("button").nth(1).innerText())) throw new Error("Pendiente de tarjeta incorrecto");
+  if (!/\$50\.00/.test(await kpis.locator("button").nth(2).innerText())) throw new Error("Total sin entrada incorrecto");
+
+  const pendingKpi = kpis.getByRole("button", { name: /Pendiente de acreditación/ });
+  await pendingKpi.click();
+  if ((await panel.getByLabel("Estado").inputValue()) !== "pending") throw new Error("El dashboard no activó el filtro pendiente");
+  if (!(await panel.innerText()).includes("REC-1003")) throw new Error("El dashboard no mostró el detalle pendiente");
+  await pendingKpi.click();
+
+  await panel.getByLabel("Forma de pago").selectOption("Efectivo");
+  if (!/\$100\.00/.test(await kpis.locator("button").nth(0).innerText())) throw new Error("El filtro por forma de pago no recalculó el total");
+  await panel.getByRole("button", { name: "Limpiar filtros" }).click();
+  if (!/\$300\.00/.test(await kpis.locator("button").nth(0).innerText())) throw new Error("Limpiar filtros no restauró el total");
+
+  const bankGroup = panel.locator(".income-day-group", { hasText: "OPERACION" });
+  if (!(await bankGroup.innerText()).includes("····8048")) throw new Error("No se mostró la cuenta bancaria enmascarada");
+  await bankGroup.locator(".income-day-group-summary").click();
+  await bankGroup.getByRole("button", { name: "Editar" }).click();
+  await page.locator(".income-edit-form textarea").fill("Pago verificado por administración");
+  await page.getByRole("button", { name: "Guardar cambios" }).click();
+  if (!(await bankGroup.innerText()).includes("Colocado el")) throw new Error("No se mostró la fecha del comentario");
+
+  const cashGroup = panel.locator(".income-day-group", { hasText: /^Efectivo/ });
+  await cashGroup.locator(".income-day-group-summary").click();
+  await cashGroup.getByLabel("Dinero entregado REC-1001").selectOption("no");
+  await panel.getByLabel("Fecha").fill("2026-08-10");
+  const pendingDelivery = panel.getByLabel("Pendientes por entregar");
+  await pendingDelivery.waitFor({ state: "visible" });
+  if (!(await pendingDelivery.innerText()).includes("REC-1001")) throw new Error("El efectivo marcado No no apareció pendiente al día siguiente");
+  await pendingDelivery.getByRole("button", { name: "Marcar Sí" }).click();
+  await pendingDelivery.waitFor({ state: "detached" });
+  const completedDelivery = panel.getByLabel("Entregados hoy de días anteriores");
+  await completedDelivery.waitFor({ state: "visible" });
+  const completedText = await completedDelivery.innerText();
+  if (!completedText.toLowerCase().includes("sábado") || !completedText.includes("08/08/2026")) throw new Error("No se conservó que el dinero pertenecía al sábado");
+  const mondayCashGroup = panel.locator(".income-day-group", { hasText: /^Efectivo/ });
+  await mondayCashGroup.waitFor({ state: "visible" });
+  if (!(await mondayCashGroup.innerText()).includes("$100.00")) throw new Error("El efectivo del sábado no se sumó en el efectivo entregado del lunes");
+
+  await page.waitForTimeout(100);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("cobrapp.module2.payments.v1") || "[]"));
+  const savedBank = saved.find((payment) => payment.id === "income-bank");
+  if (savedBank?.incomeComment !== "Pago verificado por administración") throw new Error("No se guardó el comentario");
+  if (!Array.isArray(savedBank?.incomeEdits)) throw new Error("No se guardó la auditoría");
+  if (savedBank.incomeEdits.length !== 1) throw new Error("La auditoría del comentario es incorrecta");
+  const savedCash = saved.find((payment) => payment.id === "income-cash");
+  if (savedCash?.moneyDelivered !== true || savedCash?.moneyDeliveryDate !== "2026-08-10") throw new Error("No se guardó la entrega del efectivo el lunes");
+  if (!Array.isArray(savedCash.incomeEdits) || savedCash.incomeEdits.length !== 2) throw new Error("No se auditaron los cambios de entrega del efectivo");
+
+  console.log("OK ingresos del día: resumen, cuenta, pendientes, comentario y auditoría validados.");
+  await browser.close();
+})().catch((error) => {
+  console.error("FALLO INGRESOS DEL DIA:", error && error.message ? error.message : error);
+  process.exit(1);
+});

@@ -24,6 +24,7 @@ import PaymentHistoryPanel, { type HistoryFocusRequest } from "./payments/Paymen
 import CashClosingPanel from "./payments/CashClosingPanel";
 import PendingBankPanel from "./payments/PendingBankPanel";
 import RegisterPaymentPanel from "./payments/RegisterPaymentPanel";
+import DailyIncomePanel from "./payments/DailyIncomePanel";
 import usePaymentPersistence from "./payments/usePaymentPersistence";
 import useCashClosing from "./payments/useCashClosing";
 import useNotifiedPayments from "./payments/useNotifiedPayments";
@@ -94,6 +95,7 @@ type Props = {
   } | null;
   onQuickCashPrefillConsumed?: () => void;
   readOnly?: boolean;
+  currentActor?: string;
 };
 
 export default function PaymentsPage({
@@ -114,6 +116,7 @@ export default function PaymentsPage({
   onCashClosingDateChange,
   quickCashPrefill,
   onQuickCashPrefillConsumed,
+  currentActor = "Usuario",
   readOnly = false
 }: Props) {
   const [form, setForm] = useState<PaymentForm>({
@@ -188,6 +191,8 @@ export default function PaymentsPage({
     setIsPendingOpen,
     isCardPendingOpen,
     setIsCardPendingOpen,
+    isIncomeOpen,
+    incomeSectionRef,
     cashSectionRef,
     registerSectionRef,
     notifiedSectionRef,
@@ -902,6 +907,16 @@ export default function PaymentsPage({
         />
       </>
       )}
+      <DailyIncomePanel
+        sectionRef={incomeSectionRef}
+        isOpen={isIncomeOpen}
+        payments={payments}
+        bankRules={bankRules}
+        onPaymentsChange={onPaymentsChange}
+        currentActor={currentActor}
+        readOnly={readOnly}
+        isPaymentHistoryLoaded={isPaymentHistoryLoaded}
+      />
       <PaymentHistoryPanel
         historySectionRef={historySectionRef}
         isHistoryOpen={isHistoryOpen}

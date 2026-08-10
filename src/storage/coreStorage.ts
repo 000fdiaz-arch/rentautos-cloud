@@ -12,6 +12,7 @@ import type {
   PaymentPromise,
   PaymentPromiseStatus,
   Payment,
+  PaymentIncomeEdit,
   PaymentMethod,
   PendingCardItem,
   PendingBankItem
@@ -293,6 +294,29 @@ export function nextReceiptNumber(): string {
   return `REC-${String(next).padStart(4, "0")}`;
 }
 
+function normalizePaymentIncomeEdits(value: unknown): PaymentIncomeEdit[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const edits = value.flatMap((item): PaymentIncomeEdit[] => {
+    if (!item || typeof item !== "object") return [];
+    const raw = item as Record<string, unknown>;
+    if (typeof raw.id !== "string" || typeof raw.createdAt !== "string" || typeof raw.actor !== "string") return [];
+    const optionalText = (field: unknown): string | undefined => typeof field === "string" && field.trim() ? field.trim() : undefined;
+    return [{
+      id: raw.id,
+      createdAt: raw.createdAt,
+      actor: raw.actor,
+      reason: optionalText(raw.reason),
+      previousAccountNumber: optionalText(raw.previousAccountNumber),
+      nextAccountNumber: optionalText(raw.nextAccountNumber),
+      previousComment: optionalText(raw.previousComment),
+      nextComment: optionalText(raw.nextComment),
+      previousMoneyDelivered: typeof raw.previousMoneyDelivered === "boolean" ? raw.previousMoneyDelivered : undefined,
+      nextMoneyDelivered: typeof raw.nextMoneyDelivered === "boolean" ? raw.nextMoneyDelivered : undefined
+    }];
+  });
+  return edits.length > 0 ? edits : undefined;
+}
+
 function normalizePayment(item: unknown): Payment | null {
   if (!item || typeof item !== "object") return null;
   const raw = item as Record<string, unknown>;
@@ -374,6 +398,36 @@ function normalizePayment(item: unknown): Payment | null {
     reference:
       typeof raw.reference === "string" && raw.reference.trim()
         ? raw.reference.trim()
+        : undefined,
+    bankAccountNumber:
+      typeof raw.bankAccountNumber === "string" && raw.bankAccountNumber.trim()
+        ? raw.bankAccountNumber.trim()
+        : undefined,
+    bankGroupCode:
+      typeof raw.bankGroupCode === "string" && raw.bankGroupCode.trim()
+        ? raw.bankGroupCode.trim()
+        : undefined,
+    fundsReceivedDate:
+      typeof raw.fundsReceivedDate === "string" && raw.fundsReceivedDate.trim()
+        ? raw.fundsReceivedDate.trim()
+        : undefined,
+    incomeComment:
+      typeof raw.incomeComment === "string" && raw.incomeComment.trim()
+        ? raw.incomeComment.trim()
+        : undefined,
+    incomeEdits: normalizePaymentIncomeEdits(raw.incomeEdits),
+    moneyDelivered: typeof raw.moneyDelivered === "boolean" ? raw.moneyDelivered : undefined,
+    moneyDeliveryDate:
+      typeof raw.moneyDeliveryDate === "string" && raw.moneyDeliveryDate.trim()
+        ? raw.moneyDeliveryDate.trim()
+        : undefined,
+    moneyDeliveryUpdatedAt:
+      typeof raw.moneyDeliveryUpdatedAt === "string" && raw.moneyDeliveryUpdatedAt.trim()
+        ? raw.moneyDeliveryUpdatedAt.trim()
+        : undefined,
+    moneyDeliveryUpdatedBy:
+      typeof raw.moneyDeliveryUpdatedBy === "string" && raw.moneyDeliveryUpdatedBy.trim()
+        ? raw.moneyDeliveryUpdatedBy.trim()
         : undefined,
     amountReceived,
     appliedToRent,

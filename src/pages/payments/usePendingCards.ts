@@ -99,7 +99,10 @@ export default function usePendingCards({
         const tag = `TARJETA-CONCILIADA | FOLIO:${bankFolio} | FECHA-BANCO:${bankItem.dateApplied || operationalDateKey}`;
         nextPayments[paymentIndex] = {
           ...currentPayment,
-          reference: currentReference ? `${currentReference} | ${tag}` : tag
+          reference: currentReference ? `${currentReference} | ${tag}` : tag,
+          bankAccountNumber: bankItem.accountNumber || currentPayment.bankAccountNumber,
+          bankGroupCode: bankItem.mappedGroup || currentPayment.bankGroupCode,
+          fundsReceivedDate: bankItem.dateApplied || operationalDateKey
         };
         paymentsUpdated = true;
       }

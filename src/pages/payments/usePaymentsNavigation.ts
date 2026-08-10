@@ -8,12 +8,14 @@ export default function usePaymentsNavigation() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isPendingOpen, setIsPendingOpen] = useState(false);
   const [isCardPendingOpen, setIsCardPendingOpen] = useState(false);
+  const [isIncomeOpen, setIsIncomeOpen] = useState(false);
   const cashSectionRef = useRef<HTMLElement>(null);
   const registerSectionRef = useRef<HTMLElement>(null);
   const notifiedSectionRef = useRef<HTMLElement>(null);
   const pendingSectionRef = useRef<HTMLElement>(null);
   const pendingCardSectionRef = useRef<HTMLElement>(null);
   const historySectionRef = useRef<HTMLElement>(null);
+  const incomeSectionRef = useRef<HTMLElement>(null);
 
   const activePaymentTab: PaymentTabId = isCashClosingOpen
     ? "cash"
@@ -23,6 +25,8 @@ export default function usePaymentsNavigation() {
         ? "pending"
         : isCardPendingOpen
           ? "cards"
+          : isIncomeOpen
+            ? "income"
           : isHistoryOpen
             ? "history"
             : "register";
@@ -32,6 +36,7 @@ export default function usePaymentsNavigation() {
     setIsNotifiedOpen(tab === "notified");
     setIsPendingOpen(tab === "pending");
     setIsCardPendingOpen(tab === "cards");
+    setIsIncomeOpen(tab === "income");
     setIsHistoryOpen(tab === "history");
     setIsCashClosingOpen(tab === "cash");
     const targets = {
@@ -39,6 +44,7 @@ export default function usePaymentsNavigation() {
       notified: notifiedSectionRef,
       pending: pendingSectionRef,
       cards: pendingCardSectionRef,
+      income: incomeSectionRef,
       history: historySectionRef,
       cash: cashSectionRef
     };
@@ -60,12 +66,15 @@ export default function usePaymentsNavigation() {
     setIsPendingOpen,
     isCardPendingOpen,
     setIsCardPendingOpen,
+    isIncomeOpen,
+    setIsIncomeOpen,
     cashSectionRef,
     registerSectionRef,
     notifiedSectionRef,
     pendingSectionRef,
     pendingCardSectionRef,
     historySectionRef,
+    incomeSectionRef,
     activePaymentTab,
     selectPaymentTab
   };

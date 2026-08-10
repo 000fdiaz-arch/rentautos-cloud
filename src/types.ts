@@ -205,6 +205,19 @@ export type ManualBankAssignmentAudit = {
   reason?: string;
 };
 
+export type PaymentIncomeEdit = {
+  id: string;
+  createdAt: string;
+  actor: string;
+  reason?: string;
+  previousAccountNumber?: string;
+  nextAccountNumber?: string;
+  previousComment?: string;
+  nextComment?: string;
+  previousMoneyDelivered?: boolean;
+  nextMoneyDelivered?: boolean;
+};
+
 export type Payment = {
   id: string;
   receiptNumber: string;
@@ -224,6 +237,15 @@ export type Payment = {
   dateApplied: string;
   paymentMethod: PaymentMethod;
   reference?: string;
+  bankAccountNumber?: string;
+  bankGroupCode?: string;
+  fundsReceivedDate?: string;
+  incomeComment?: string;
+  incomeEdits?: PaymentIncomeEdit[];
+  moneyDelivered?: boolean;
+  moneyDeliveryDate?: string;
+  moneyDeliveryUpdatedAt?: string;
+  moneyDeliveryUpdatedBy?: string;
   amountReceived: number;
   appliedToRent: number;
   centavosAhorro: number;

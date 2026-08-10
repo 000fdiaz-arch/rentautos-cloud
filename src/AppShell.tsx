@@ -941,6 +941,7 @@ export default function AppShell({
             onCashClosingDateChange={setReceivablesDateKey}
             quickCashPrefill={cashPaymentPrefill}
             onQuickCashPrefillConsumed={() => setCashPaymentPrefill(null)}
+            currentActor={userEmail || userId || "Usuario"}
             readOnly={!canEditPayments}
           />
         )}
