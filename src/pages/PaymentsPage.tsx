@@ -253,7 +253,7 @@ export default function PaymentsPage({
 
 
   useEffect(() => {
-    if (readOnly && activePaymentTab !== "history") {
+    if (readOnly && activePaymentTab !== "history" && activePaymentTab !== "income") {
       selectPaymentTab("history");
     }
   }, [activePaymentTab, readOnly, selectPaymentTab]);
