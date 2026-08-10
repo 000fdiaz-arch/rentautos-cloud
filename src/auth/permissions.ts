@@ -20,13 +20,13 @@ export type AppPermissions = Record<AppScreen, ScreenAccess>;
 
 export const APP_SCREENS: Array<{ id: AppScreen; label: string }> = [
   { id: "leads", label: "Leads" },
+  { id: "control_units", label: "Autos" },
   { id: "clients", label: "Clientes" },
   { id: "payments", label: "Pagos" },
   { id: "receivables", label: "Cuentas por cobrar" },
   { id: "route_search", label: "Ruta en calle" },
-  { id: "insurance_workflow", label: "Reclamos a seguros" },
   { id: "collisions", label: "Juicio por Colisiones y Choques" },
-  { id: "control_units", label: "Autos" },
+  { id: "insurance_workflow", label: "Reclamos a seguros" },
   { id: "settings", label: "Configuraciones" },
   { id: "users", label: "Usuarios" }
 ];

@@ -46,13 +46,13 @@ export default function AppNavigation({
 }: Props) {
   const tabs: Array<{ page: AppPage; label: string; mobileLabel: string; visible: boolean }> = [
     { page: "leads", label: "Leads", mobileLabel: "Leads", visible: canViewLeads },
+    { page: "control_units", label: "Autos", mobileLabel: "Autos", visible: canViewControlUnits },
     { page: "clients", label: "Clientes", mobileLabel: "Clientes", visible: canViewClients },
     { page: "payments", label: "Pagos", mobileLabel: "Pagos", visible: canViewPayments },
     { page: "receivables", label: "Cuentas por cobrar", mobileLabel: "Cuentas", visible: canViewReceivables },
     { page: "route_search", label: "Ruta en calle", mobileLabel: "Ruta", visible: canViewRouteSearch },
-    { page: "insurance_workflow", label: "Reclamos a seguros", mobileLabel: "Reclamos a seguros", visible: canViewInsuranceWorkflow },
     { page: "collisions", label: "Juicio por Colisiones y Choques", mobileLabel: "Juicios", visible: canViewCollisions },
-    { page: "control_units", label: "Autos", mobileLabel: "Autos", visible: canViewControlUnits },
+    { page: "insurance_workflow", label: "Reclamos a seguros", mobileLabel: "Reclamos a seguros", visible: canViewInsuranceWorkflow },
     { page: "settings", label: "Configuraciones", mobileLabel: "Config.", visible: canViewSettings }
   ];
   const effectiveSyncStatus = showCoreSyncStatus ? syncStatus : "ok";
