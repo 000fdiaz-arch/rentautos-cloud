@@ -1,7 +1,6 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { formatCurrency, formatDate } from "../../format";
-import type { Client, LateFeeSettings, OtherChargesRetentionCycle } from "../../types";
-import { PAYMENT_METHODS } from "./paymentConstants";
+import type { Client, LateFeeSettings, OtherChargesRetentionCycle, PaymentMethod } from "../../types";
 import {
   getOtherChargeKey,
   isLateFeeListClient,
@@ -18,6 +17,13 @@ type MonthEndSuggestion = {
   targetDate: Date;
   resultingNextDate: Date | null;
 };
+
+const PAYMENT_METHOD_GROUPS: Array<{ label: string; methods: PaymentMethod[] }> = [
+  { label: "En caja", methods: ["Efectivo"] },
+  { label: "Bancarios", methods: ["ACH Express", "Deposito Bancario", "Transferencia Bancaria"] },
+  { label: "Digitales", methods: ["Tarjeta", "YAPPY LM"] },
+  { label: "Sin entrada de dinero", methods: ["Referido", "Descuento"] }
+];
 
 type Props = {
   registerSectionRef: RefObject<HTMLElement>;
@@ -203,35 +209,58 @@ export default function RegisterPaymentPanel({
               <div className="payment-field-group">
                 <label className="payment-label">Forma de pago</label>
                 <div className="payment-method-grid" role="radiogroup" aria-label="Forma de pago">
-                  {PAYMENT_METHODS.map((m) => {
-                    const isSelected = form.paymentMethod === m;
-                    return (
-                      <button
-                        key={m}
-                        type="button"
-                        className={`payment-method-option${isSelected ? " payment-method-option--active" : ""}`}
-                        aria-pressed={isSelected}
-                        onClick={() => setForm((f) => ({ ...f, paymentMethod: m, cashDeliveryStatus: m === "Efectivo" ? f.cashDeliveryStatus : "" }))}
-                      >
-                        {m}
-                      </button>
-                    );
-                  })}
+                  {[PAYMENT_METHOD_GROUPS.slice(0, 2), PAYMENT_METHOD_GROUPS.slice(2)].map((column, columnIndex) => (
+                    <div className="payment-method-column" key={columnIndex}>
+                      {column.map((group) => (
+                        <div className="payment-method-group" key={group.label}>
+                          <span className="payment-method-group-label">{group.label}</span>
+                          <div className="payment-method-options">
+                            {group.methods.map((method) => {
+                              const isSelected = form.paymentMethod === method;
+                              return (
+                                <button
+                                  key={method}
+                                  type="button"
+                                  className={`payment-method-option${isSelected ? " payment-method-option--active" : ""}`}
+                                  aria-pressed={isSelected}
+                                  onClick={() => setForm((current) => ({
+                                    ...current,
+                                    paymentMethod: method,
+                                    cashDeliveryStatus: method === "Efectivo" ? current.cashDeliveryStatus : ""
+                                  }))}
+                                >
+                                  {method}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
                 </div>
               </div>
 
               {form.paymentMethod === "Efectivo" && (
                 <div className="payment-field-group payment-cash-delivery-field">
-                  <label className="payment-label">¿El dinero en efectivo ya fue entregado?</label>
-                  <div className="payment-cash-delivery-options" role="radiogroup" aria-label="Estado de entrega del efectivo">
+                  <div className="payment-cash-delivery-copy">
+                    <label className="payment-label">Estado del efectivo</label>
+                    <span className={`payment-inline-hint${form.cashDeliveryStatus ? "" : " payment-required-hint"}`}>
+                      {form.cashDeliveryStatus === "delivered"
+                        ? "Se registrará como entregado a caja."
+                        : form.cashDeliveryStatus === "pending"
+                          ? "Quedará pendiente de entrega."
+                          : "Selecciona una opción para continuar."}
+                    </span>
+                  </div>
+                  <div className="payment-cash-delivery-options" role="radiogroup" aria-label="Estado de entrega del efectivo" aria-required="true" aria-invalid={!form.cashDeliveryStatus}>
                     <button type="button" className={`payment-cash-delivery-option payment-cash-delivery-option--yes${form.cashDeliveryStatus === "delivered" ? " is-selected" : ""}`} aria-pressed={form.cashDeliveryStatus === "delivered"} onClick={() => setForm((current) => ({ ...current, cashDeliveryStatus: "delivered" }))}>
-                      Sí, ya fue entregado
+                      Entregado
                     </button>
                     <button type="button" className={`payment-cash-delivery-option payment-cash-delivery-option--pending${form.cashDeliveryStatus === "pending" ? " is-selected" : ""}`} aria-pressed={form.cashDeliveryStatus === "pending"} onClick={() => setForm((current) => ({ ...current, cashDeliveryStatus: "pending" }))}>
-                      No, está pendiente
+                      Pendiente
                     </button>
                   </div>
-                  <span className="payment-inline-hint">Esta selección define si suma hoy en Efectivo o permanece en Efectivo pendiente de entrega.</span>
                 </div>
               )}
 

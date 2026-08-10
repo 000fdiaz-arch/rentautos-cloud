@@ -47,7 +47,7 @@ const { chromium } = require("playwright");
   const confirm = page.getByRole("button", { name: "Confirmar pago y generar recibo" });
   if (!(await confirm.isDisabled())) throw new Error("El pago en efectivo no debe confirmarse sin responder la entrega");
 
-  await cashQuestion.getByRole("button", { name: "No, está pendiente" }).click();
+  await cashQuestion.getByRole("button", { name: "Pendiente", exact: true }).click();
   if (await confirm.isDisabled()) throw new Error("El pago debe habilitarse después de clasificar el efectivo");
   await confirm.click();
 
