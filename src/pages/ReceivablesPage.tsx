@@ -65,6 +65,7 @@ import {
   getCollectionClosureCuts,
   getCollectionClosureDateKeys,
   formatDateForTitle,
+  getFutureContactTimeOptions,
   hasActiveOperationalClient,
   isToday,
   normalizeComment,
@@ -102,6 +103,12 @@ type Props = {
 };
 
 type RouteSubTab = "current" | "published";
+
+type PendingContactPrompt = {
+  clientId: string;
+  step: "question" | "time";
+  selectedTime: string;
+};
 
 const STATEMENT_SUGGESTION_WINDOW_MS = 24 * 60 * 60 * 1000;
 const CLEAR_COLLECTION_MANAGEMENT_CONFIRMATION = "LIMPIAR GESTION";
@@ -377,6 +384,7 @@ export default function ReceivablesPage({
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<CollectionStatusFilter>("all");
   const [whatsAppContactFilter, setWhatsAppContactFilter] = useState<WhatsAppContactFilter>("all");
   const [prioritizeContactTime, setPrioritizeContactTime] = useState<boolean>(false);
+  const [pendingContactPrompt, setPendingContactPrompt] = useState<PendingContactPrompt | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
   const [workflowTab, setWorkflowTab] = useState<ReceivablesWorkflowTab>("management");
   const [routeSubTab, setRouteSubTab] = useState<RouteSubTab>("current");
@@ -1605,16 +1613,15 @@ export default function ReceivablesPage({
     setClearManagementConfirmation("");
   }
 
-  function handleCollectionCutStatusChange(cutKey: CollectionCutKey, clientId: string, nextStatus: string): void {
+  function applyCollectionCutStatus(clientId: string, nextStatus: CollectionStatus, contactTime?: string): void {
     if (isCollectionLocked) return;
     const nowIso = new Date().toISOString();
-    if (cutKey !== "night") return;
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
         ...previous,
-        status: nextStatus as CollectionStatus,
+        status: nextStatus,
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
         managementType: undefined,
@@ -1632,6 +1639,8 @@ export default function ReceivablesPage({
         whatsAppMessageText: previous?.whatsAppMessageText,
         supportNote: previous?.supportNote,
         supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+        contactTime: nextStatus === "pending" ? contactTime : previous?.contactTime,
+        contactTimeUpdatedAt: nextStatus === "pending" ? nowIso : previous?.contactTimeUpdatedAt,
         paymentPromiseDate: previous?.paymentPromiseDate,
         paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
       };
@@ -1641,6 +1650,33 @@ export default function ReceivablesPage({
         [clientId]: updatedRecord
       };
     });
+  }
+
+  function handleCollectionCutStatusChange(cutKey: CollectionCutKey, clientId: string, nextStatus: string): void {
+    if (isCollectionLocked || cutKey !== "night") return;
+    if (nextStatus === "pending") {
+      setPendingContactPrompt({ clientId, step: "question", selectedTime: "" });
+      return;
+    }
+    applyCollectionCutStatus(clientId, nextStatus as CollectionStatus);
+  }
+
+  function leavePendingWithoutContactTime(): void {
+    if (!pendingContactPrompt) return;
+    applyCollectionCutStatus(pendingContactPrompt.clientId, "pending");
+    setPendingContactPrompt(null);
+  }
+
+  function openPendingContactTimeSelection(): void {
+    if (!pendingContactPrompt) return;
+    const firstAvailableTime = getFutureContactTimeOptions(new Date())[0] ?? "";
+    setPendingContactPrompt({ ...pendingContactPrompt, step: "time", selectedTime: firstAvailableTime });
+  }
+
+  function confirmPendingContactTime(): void {
+    if (!pendingContactPrompt?.selectedTime) return;
+    applyCollectionCutStatus(pendingContactPrompt.clientId, "pending", pendingContactPrompt.selectedTime);
+    setPendingContactPrompt(null);
   }
 
   function handleRouteWorkflowStatusChange(clientId: string, nextStatus: string): void {
@@ -2713,6 +2749,10 @@ export default function ReceivablesPage({
     filters.group !== DEFAULT_RECEIVABLE_FILTERS.group ? filters.group : "",
     filters.state.length > 0 ? "state" : ""
   ].filter(Boolean).length;
+  const pendingContactTimeOptions = getFutureContactTimeOptions(now);
+  const pendingContactRow = pendingContactPrompt
+    ? baseRows.find((row) => row.id === pendingContactPrompt.clientId)
+    : undefined;
 
   return (
     <>
@@ -3317,6 +3357,85 @@ export default function ReceivablesPage({
           onClose={() => setSelectedDetailRow(null)}
         />
       )}
+
+      {pendingContactPrompt ? (
+        <div className="modal-overlay" onClick={() => setPendingContactPrompt(null)}>
+          <div
+            className="modal confirm-modal ar-pending-contact-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pending-contact-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 id="pending-contact-title">
+                {pendingContactPrompt.step === "question" ? "Gestión pendiente" : "Hora de contacto"}
+              </h2>
+              <button type="button" className="modal-close" onClick={() => setPendingContactPrompt(null)} aria-label="Cerrar">X</button>
+            </div>
+            <div className="confirm-modal-body ar-pending-contact-body">
+              {pendingContactRow ? (
+                <span className="ar-pending-contact-client">
+                  {pendingContactRow.unitId} · {pendingContactRow.name}
+                </span>
+              ) : null}
+              {pendingContactPrompt.step === "question" ? (
+                <>
+                  <p>¿Gustas ponerle una hora de contacto?</p>
+                  <div className="confirm-modal-actions">
+                    <button type="button" className="button primary" onClick={openPendingContactTimeSelection}>Sí</button>
+                    <button type="button" className="button ghost" onClick={leavePendingWithoutContactTime}>No, dejar pendiente</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {pendingContactTimeOptions.length > 0 ? (
+                    <label className="form-field ar-pending-contact-field">
+                      Selecciona la hora
+                      <select
+                        value={pendingContactPrompt.selectedTime}
+                        onChange={(event) => setPendingContactPrompt((current) => current
+                          ? { ...current, selectedTime: event.target.value }
+                          : current)}
+                        autoFocus
+                      >
+                        {pendingContactTimeOptions.map((time) => (
+                          <option key={time} value={time}>{time}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <p>Ya no quedan horarios de hoy disponibles en intervalos de 30 minutos.</p>
+                  )}
+                  <div className="confirm-modal-actions">
+                    {pendingContactTimeOptions.length > 0 ? (
+                      <button
+                        type="button"
+                        className="button primary"
+                        onClick={confirmPendingContactTime}
+                        disabled={!pendingContactPrompt.selectedTime}
+                      >
+                        Guardar hora
+                      </button>
+                    ) : (
+                      <button type="button" className="button primary" onClick={leavePendingWithoutContactTime}>Dejar pendiente sin hora</button>
+                    )}
+                    <button
+                      type="button"
+                      className="button ghost"
+                      onClick={() => setPendingContactPrompt((current) => current
+                        ? { ...current, step: "question", selectedTime: "" }
+                        : current)}
+                    >
+                      Volver
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {isAddPublishedRouteOpen ? (
         <div className="modal-overlay" onClick={() => setIsAddPublishedRouteOpen(false)}>

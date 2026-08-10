@@ -576,6 +576,51 @@ select.input-error:focus {
   gap: 10px;
 }
 
+.ar-pending-contact-modal {
+  max-width: 440px;
+}
+
+.ar-pending-contact-body {
+  display: grid;
+  gap: 18px;
+}
+
+.ar-pending-contact-body p {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.ar-pending-contact-client {
+  width: fit-content;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.ar-pending-contact-field {
+  display: grid;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.ar-pending-contact-field select {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
 /* -- Export panel -- */
 
 .export-bar {

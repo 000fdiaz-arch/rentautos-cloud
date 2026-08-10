@@ -246,6 +246,18 @@ export const CONTACT_TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
   return `${hour12}:${minute} ${period}`;
 });
 
+export function getFutureContactTimeOptions(now: Date): string[] {
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  return CONTACT_TIME_OPTIONS.filter((time) => {
+    const match = time.match(/^(\d{1,2}):(\d{2})\s(AM|PM)$/);
+    if (!match) return false;
+    const hour12 = Number(match[1]);
+    const minute = Number(match[2]);
+    const hour24 = (hour12 % 12) + (match[3] === "PM" ? 12 : 0);
+    return hour24 * 60 + minute > currentMinutes;
+  });
+}
+
 export function normalizeRouteAssignment(value: string): RouteAssignment | undefined {
   const normalized = value.replace(/\s+/g, " ").trim().toUpperCase().slice(0, 12);
   return normalized ? normalized as RouteAssignment : undefined;
