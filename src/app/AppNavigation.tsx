@@ -1,4 +1,7 @@
-export type AppPage = "clients" | "leads" | "payments" | "receivables" | "route_search" | "insurance_workflow" | "control_units" | "settings";
+import type { AppPage } from "./appRoutes";
+import { appPagePath } from "./appRoutes";
+
+export type { AppPage } from "./appRoutes";
 
 type Props = {
   page: AppPage;
@@ -65,15 +68,20 @@ export default function AppNavigation({
         <span className="app-nav-brand">Rentautos</span>
         <div className="app-nav-tabs">
           {tabs.filter((tab) => tab.visible).map((tab) => (
-            <button
+            <a
               key={tab.page}
-              type="button"
+              href={appPagePath(tab.page)}
               className={`nav-tab ${page === tab.page ? "nav-tab--active" : ""}`}
-              onClick={() => onPageChange(tab.page)}
+              aria-current={page === tab.page ? "page" : undefined}
+              onClick={(event) => {
+                if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                onPageChange(tab.page);
+              }}
             >
               <span className="nav-tab-label-full">{tab.label}</span>
               <span className="nav-tab-label-mobile">{tab.mobileLabel}</span>
-            </button>
+            </a>
           ))}
         </div>
         <div className="backup-nav-zone">

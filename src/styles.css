@@ -3302,6 +3302,7 @@ select.control-op-badge {
   gap: 8px;
   width: 100%;
   text-align: left;
+  text-decoration: none;
 }
 
 .nav-tab-label-mobile {

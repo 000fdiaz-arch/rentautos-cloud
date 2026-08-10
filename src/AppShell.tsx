@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import {
   loadClients,
   loadPayments,
@@ -50,6 +50,7 @@ import { canEditScreen, canViewScreen, type AppPermissions } from "./auth/permis
 import type { BankRule, Client, LateFeeSettings, LeadEvaluation, OtherChargesRetentionByClient, Payment } from "./types";
 import { parseLocalJson } from "./app/appShellRules";
 import AppNavigation, { type AppPage } from "./app/AppNavigation";
+import { appPageFromPathname, appPagePath, isCanonicalAppPagePath } from "./app/appRoutes";
 import { useBackupManager } from "./app/useBackupManager";
 import { useCoreCloudSync } from "./app/useCoreCloudSync";
 import { getBusinessDateKey } from "./billing";
@@ -175,6 +176,16 @@ export default function AppShell({
   const isReadOnlyReceivables = isReadOnlyExperience || !canEditReceivables;
   const shouldSyncCoreData = canViewClients || canViewPayments || canViewReceivables || canViewRouteSearch || canViewInsuranceWorkflow || canViewSettingsPage;
   const shouldLoadCloudSettings = canViewPayments || canViewSettingsPage;
+  const pageVisibility = {
+    leads: canViewLeads,
+    clients: canViewClients,
+    payments: canViewPayments,
+    receivables: canViewReceivables,
+    route_search: canViewRouteSearch,
+    insurance_workflow: canViewInsuranceWorkflow,
+    control_units: canViewControlUnits,
+    settings: canViewSettingsPage
+  } satisfies Record<AppPage, boolean>;
   const cloudMirrorHydrationKeys = useMemo(() => {
     const keys = new Set<string>();
     if (canViewPayments) {
@@ -187,16 +198,20 @@ export default function AppShell({
   }, [canViewInsuranceWorkflow, canViewPayments, canViewReceivables, canViewSettingsPage]);
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = effectiveOwnerUserId ?? dataOwnerUserId ?? userId;
-  const [page, setPage] = useState<AppPage>(() => getFirstVisiblePage({
-    canViewLeads,
-    canViewClients,
-    canViewPayments,
-    canViewReceivables,
-    canViewRouteSearch,
-    canViewInsuranceWorkflow,
-    canViewControlUnits,
-    canViewSettingsPage
-  }));
+  const [page, setPage] = useState<AppPage>(() => {
+    const requestedPage = appPageFromPathname(window.location.pathname);
+    if (requestedPage && pageVisibility[requestedPage]) return requestedPage;
+    return getFirstVisiblePage({
+      canViewLeads,
+      canViewClients,
+      canViewPayments,
+      canViewReceivables,
+      canViewRouteSearch,
+      canViewInsuranceWorkflow,
+      canViewControlUnits,
+      canViewSettingsPage
+    });
+  });
   const [receivablesDateKey, setReceivablesDateKey] = useState<string>(() => getBusinessDateKey());
   const [clients, setClients] = useState<Client[]>(() => (isSupabaseOnlyMode ? [] : loadClients()));
   const [payments, setPayments] = useState<Payment[]>(() => (isSupabaseOnlyMode ? [] : loadPayments()));
@@ -257,19 +272,17 @@ export default function AppShell({
     disconnectFolder: handleDisconnectBackupFolder
   } = useBackupManager({ clients, payments, buildExtraData: buildBackupExtraData, buildBackupData });
 
+  const navigateToPage = useCallback((nextPage: AppPage, replace = false): void => {
+    if (!pageVisibility[nextPage]) return;
+    setPage(nextPage);
+    const nextPath = appPagePath(nextPage);
+    if (window.location.pathname === nextPath) return;
+    window.history[replace ? "replaceState" : "pushState"]({ page: nextPage }, "", nextPath);
+  }, [canViewClients, canViewControlUnits, canViewInsuranceWorkflow, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
+
   useEffect(() => {
-    const visible = {
-      leads: canViewLeads,
-      clients: canViewClients,
-      payments: canViewPayments,
-      receivables: canViewReceivables,
-      route_search: canViewRouteSearch,
-      insurance_workflow: canViewInsuranceWorkflow,
-      control_units: canViewControlUnits,
-      settings: canViewSettingsPage
-    } satisfies Record<AppPage, boolean>;
-    if (!visible[page]) {
-      setPage(getFirstVisiblePage({
+    if (!pageVisibility[page]) {
+      navigateToPage(getFirstVisiblePage({
         canViewLeads,
         canViewClients,
         canViewPayments,
@@ -278,10 +291,41 @@ export default function AppShell({
         canViewInsuranceWorkflow,
         canViewControlUnits,
         canViewSettingsPage
-      }));
+      }), true);
       return;
     }
-  }, [canViewClients, canViewControlUnits, canViewInsuranceWorkflow, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage, page]);
+    if (!isCanonicalAppPagePath(window.location.pathname, page)) {
+      window.history.replaceState({ page }, "", appPagePath(page));
+    }
+  }, [canViewClients, canViewControlUnits, canViewInsuranceWorkflow, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage, navigateToPage, page]);
+
+  useEffect(() => {
+    function handleHistoryNavigation(): void {
+      const requestedPage = appPageFromPathname(window.location.pathname);
+      if (requestedPage && pageVisibility[requestedPage]) {
+        setPage(requestedPage);
+        if (!isCanonicalAppPagePath(window.location.pathname, requestedPage)) {
+          window.history.replaceState({ page: requestedPage }, "", appPagePath(requestedPage));
+        }
+        return;
+      }
+      const fallbackPage = getFirstVisiblePage({
+        canViewLeads,
+        canViewClients,
+        canViewPayments,
+        canViewReceivables,
+        canViewRouteSearch,
+        canViewInsuranceWorkflow,
+        canViewControlUnits,
+        canViewSettingsPage
+      });
+      setPage(fallbackPage);
+      window.history.replaceState({ page: fallbackPage }, "", appPagePath(fallbackPage));
+    }
+
+    window.addEventListener("popstate", handleHistoryNavigation);
+    return () => window.removeEventListener("popstate", handleHistoryNavigation);
+  }, [canViewClients, canViewControlUnits, canViewInsuranceWorkflow, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -338,7 +382,7 @@ export default function AppShell({
     amountReceived: string;
   }): void {
     setCashPaymentPrefill({ ...payload, token: Date.now() });
-    setPage("payments");
+    navigateToPage("payments");
   }
 
   async function buildBackupExtraData(): Promise<BackupExtraData> {
@@ -829,7 +873,7 @@ export default function AppShell({
         lastSyncAt={lastSyncAt}
         userEmail={userEmail}
         canSignOut={Boolean(onSignOut)}
-        onPageChange={setPage}
+        onPageChange={navigateToPage}
         onSignOut={() => void handleSignOutWithBackup()}
       />
       <main className="page">
