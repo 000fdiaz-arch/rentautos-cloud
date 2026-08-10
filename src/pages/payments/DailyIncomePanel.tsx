@@ -1,4 +1,4 @@
-import { useMemo, useState, type RefObject } from "react";
+import { useMemo, useRef, useState, type RefObject } from "react";
 import { formatCurrency } from "../../format";
 import type { BankRule, Payment, PaymentIncomeEdit } from "../../types";
 import { getBusinessDateKey } from "../../billing";
@@ -26,6 +26,14 @@ type Props = {
   readOnly?: boolean;
   isPaymentHistoryLoaded?: boolean;
 };
+
+type ShareScope = "full" | "filtered" | "cash" | "pending";
+
+function chunkItems<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
+}
 
 function formatTime(value: string): string {
   const date = new Date(value);
@@ -81,6 +89,10 @@ export default function DailyIncomePanel({
   const [editComment, setEditComment] = useState("");
   const [editReason, setEditReason] = useState("");
   const [editError, setEditError] = useState("");
+  const [showSharePreview, setShowSharePreview] = useState(false);
+  const [shareScope, setShareScope] = useState<ShareScope>("full");
+  const [shareStatus, setShareStatus] = useState("");
+  const shareReportRef = useRef<HTMLDivElement>(null);
 
   const rawGroups = useMemo(() => buildDailyIncomeGroups(payments, dateKey), [payments, dateKey]);
   const destinationOptions = useMemo(() => rawGroups.map((group) => ({ key: group.key, label: group.label })), [rawGroups]);
@@ -119,6 +131,50 @@ export default function DailyIncomePanel({
   const receivedCount = groups.filter((group) => group.status === "received").reduce((sum, group) => sum + group.payments.length, 0);
   const accountOptions = bankRules.filter((rule) => rule.active);
   const filtersActive = search.trim() !== "" || methodFilter !== "all" || destinationFilter !== "all" || statusFilter !== "all" || deliveryFilter !== "all";
+  const shareSourcePayments = useMemo(() => {
+    if (shareScope === "filtered") return filteredPayments;
+    if (shareScope === "cash") return payments.filter((payment) => payment.paymentMethod === "Efectivo");
+    if (shareScope === "pending") return payments.filter((payment) => payment.moneyDelivered === false || getDailyIncomeStatus(payment) === "pending");
+    return payments;
+  }, [filteredPayments, payments, shareScope]);
+  const shareGroups = useMemo(() => buildDailyIncomeGroups(shareSourcePayments, dateKey), [shareSourcePayments, dateKey]);
+  const sharePendingDeliveries = useMemo(() => buildPendingDeliveryRows(shareSourcePayments, dateKey), [shareSourcePayments, dateKey]);
+  const shareDeliveredFromPrevious = useMemo(() => buildDeliveredFromPreviousRows(shareSourcePayments, dateKey), [shareSourcePayments, dateKey]);
+  const shareReceivedGroups = shareGroups.filter((group) => group.status === "received");
+  const shareReceivedTotal = shareReceivedGroups.reduce((sum, group) => sum + group.total, 0);
+  const shareCashPendingToday = shareGroups.filter((group) => group.key === "cash-pending").reduce((sum, group) => sum + group.total, 0);
+  const shareCashPendingPrevious = sharePendingDeliveries.filter((payment) => payment.paymentMethod === "Efectivo").reduce((sum, payment) => sum + payment.amountReceived, 0);
+  const shareCashPendingTotal = shareCashPendingToday + shareCashPendingPrevious;
+  const shareCardPendingTotal = shareGroups.filter((group) => group.status === "pending" && group.key !== "cash-pending").reduce((sum, group) => sum + group.total, 0);
+  const shareNonCashTotal = shareGroups.filter((group) => group.status === "non_cash").reduce((sum, group) => sum + group.total, 0);
+  const sharePreviousDeliveryTotal = shareDeliveredFromPrevious.reduce((sum, payment) => sum + payment.amountReceived, 0);
+  const shareCashDeliveredRows = useMemo(() => (
+    shareGroups.filter((group) => group.key === "cash").flatMap((group) => group.payments)
+  ), [shareGroups]);
+  const shareCashPendingRows = useMemo(() => {
+    const rows = [
+      ...shareGroups.filter((group) => group.key === "cash-pending").flatMap((group) => group.payments),
+      ...sharePendingDeliveries.filter((payment) => payment.paymentMethod === "Efectivo")
+    ];
+    return [...new Map(rows.map((payment) => [payment.id, payment])).values()];
+  }, [shareGroups, sharePendingDeliveries]);
+  const shareRelevantPayments = useMemo(() => {
+    const rows = [...shareGroups.flatMap((group) => group.payments), ...sharePendingDeliveries, ...shareDeliveredFromPrevious];
+    return [...new Map(rows.map((payment) => [payment.id, payment])).values()];
+  }, [shareGroups, sharePendingDeliveries, shareDeliveredFromPrevious]);
+  const shareComments = shareRelevantPayments.filter((payment) => payment.incomeComment);
+  const shareSummaryDestinations = shareReceivedGroups.slice(0, 7);
+  const shareAdditionalDestinationPages = chunkItems(shareReceivedGroups.slice(7), 10);
+  const shareCashDeliveredPages = chunkItems(shareCashDeliveredRows, 8);
+  const shareCashPendingPages = chunkItems(shareCashPendingRows, 8);
+  const shareCommentPages = chunkItems(shareComments, 6);
+  const sharePageCount = 1 + shareAdditionalDestinationPages.length + shareCashDeliveredPages.length + shareCashPendingPages.length + shareCommentPages.length;
+  const shareScopeLabel: Record<ShareScope, string> = {
+    full: "Reporte completo",
+    filtered: "Filtros actuales",
+    cash: "Solo efectivo",
+    pending: "Solo pendientes"
+  };
 
   function clearFilters(): void {
     setSearch("");
@@ -130,6 +186,122 @@ export default function DailyIncomePanel({
 
   function toggleStatusFilter(status: "received" | "pending" | "non_cash"): void {
     setStatusFilter((current) => current === status ? "all" : status);
+  }
+
+  function buildWhatsAppText(): string {
+    const lines = [
+      `*REPORTE DE INGRESOS — ${formatMoneyDay(dateKey).toUpperCase()}*`,
+      shareScopeLabel[shareScope],
+      "",
+      `*Total recibido:* ${formatCurrency(shareReceivedTotal)}`
+    ];
+    for (const group of shareReceivedGroups) lines.push(`• ${group.label}: ${formatCurrency(group.total)} (${group.payments.length})`);
+    if (sharePreviousDeliveryTotal > 0) lines.push(`• Entregado hoy de días anteriores: ${formatCurrency(sharePreviousDeliveryTotal)}`);
+    if (shareCashDeliveredRows.length > 0) {
+      lines.push("", "*Detalle de efectivo entregado:*");
+      for (const payment of shareCashDeliveredRows) lines.push(`• ${payment.clientUnit} — ${formatCurrency(payment.amountReceived)} — ${getDeliveryContext(payment)}`);
+    }
+    lines.push("", `*Efectivo pendiente de entrega:* ${formatCurrency(shareCashPendingTotal)}`);
+    if (shareCashPendingRows.length > 0) {
+      for (const payment of shareCashPendingRows) lines.push(`• ${payment.clientUnit} — ${formatCurrency(payment.amountReceived)} — dinero del ${formatMoneyDay(getIncomeDate(payment))}`);
+    }
+    if (shareCardPendingTotal > 0) lines.push(`*Tarjetas pendientes:* ${formatCurrency(shareCardPendingTotal)}`);
+    if (shareNonCashTotal > 0) lines.push(`*Sin entrada de dinero:* ${formatCurrency(shareNonCashTotal)}`);
+    if (shareComments.length > 0) {
+      lines.push("", "*Comentarios:*", ...shareComments.map((payment) => `• ${payment.clientUnit}: ${payment.incomeComment}`));
+    }
+    lines.push("", `Generado: ${new Date().toLocaleString("es-PA")}`);
+    return lines.join("\n");
+  }
+
+  async function buildSharePageCanvases(): Promise<HTMLCanvasElement[]> {
+    if (!shareReportRef.current) throw new Error("No se encontró la vista previa del reporte.");
+    const { default: html2canvas } = await import("html2canvas");
+    const pages = Array.from(shareReportRef.current.querySelectorAll<HTMLElement>(".income-whatsapp-page"));
+    if (pages.length === 0) throw new Error("No se encontraron páginas para generar el reporte.");
+    return Promise.all(pages.map((page) => html2canvas(page, {
+      scale: 1.5,
+      width: 720,
+      height: 900,
+      windowWidth: 720,
+      windowHeight: 900,
+      backgroundColor: "#ffffff",
+      useCORS: true
+    })));
+  }
+
+  function canvasToPng(canvas: HTMLCanvasElement): Promise<Blob> {
+    return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("No se pudo generar la imagen.")), "image/png"));
+  }
+
+  function downloadShareBlob(blob: Blob, pageNumber: number, totalPages: number): void {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `reporte-ingresos-${dateKey}-${String(pageNumber).padStart(2, "0")}-de-${String(totalPages).padStart(2, "0")}.png`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function copyWhatsAppText(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(buildWhatsAppText());
+      setShareStatus("Resumen copiado. Ya puedes pegarlo en WhatsApp.");
+    } catch {
+      setShareStatus("No se pudo copiar automáticamente. Selecciona el texto de la vista previa.");
+    }
+  }
+
+  async function downloadHighResolutionImages(): Promise<void> {
+    try {
+      setShareStatus("Generando imágenes HD...");
+      const blobs = await Promise.all((await buildSharePageCanvases()).map(canvasToPng));
+      blobs.forEach((blob, index) => downloadShareBlob(blob, index + 1, blobs.length));
+      setShareStatus(`${blobs.length} imagen(es) PNG en alta resolución descargada(s).`);
+    } catch (error) {
+      setShareStatus(error instanceof Error ? error.message : "No se pudieron generar las imágenes.");
+    }
+  }
+
+  async function downloadSharePdf(): Promise<void> {
+    try {
+      setShareStatus("Generando PDF...");
+      const canvases = await buildSharePageCanvases();
+      const { default: JsPDF } = await import("jspdf");
+      const pdf = new JsPDF("p", "mm", "a4");
+      canvases.forEach((canvas, index) => {
+        if (index > 0) pdf.addPage();
+        pdf.addImage(canvas.toDataURL("image/png"), "PNG", 5, 23.5, 200, 250, undefined, "FAST");
+      });
+      pdf.save(`reporte-ingresos-${dateKey}.pdf`);
+      setShareStatus(`PDF generado con ${canvases.length} página(s). Envíalo por WhatsApp como documento para evitar compresión.`);
+    } catch (error) {
+      setShareStatus(error instanceof Error ? error.message : "No se pudo generar el PDF.");
+    }
+  }
+
+  async function shareHighResolutionImages(): Promise<void> {
+    try {
+      setShareStatus("Preparando imágenes HD...");
+      const text = buildWhatsAppText();
+      const blobs = await Promise.all((await buildSharePageCanvases()).map(canvasToPng));
+      const files = blobs.map((blob, index) => new File([blob], `reporte-ingresos-${dateKey}-${String(index + 1).padStart(2, "0")}.png`, { type: "image/png" }));
+      if (navigator.share && (!navigator.canShare || navigator.canShare({ files }))) {
+        await navigator.share({ title: `Reporte de ingresos ${dateKey}`, text, files });
+        setShareStatus("Reporte compartido.");
+        return;
+      }
+      blobs.forEach((blob, index) => downloadShareBlob(blob, index + 1, blobs.length));
+      try { await navigator.clipboard.writeText(text); } catch { /* El texto también viaja en el enlace. */ }
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+      setShareStatus(`Se descargaron ${blobs.length} PNG HD y se abrió WhatsApp. Adjunta las imágenes en el orden numerado.`);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setShareStatus("Compartir cancelado.");
+        return;
+      }
+      setShareStatus(error instanceof Error ? error.message : "No se pudo compartir el reporte.");
+    }
   }
 
   function toggleGroup(key: string): void {
@@ -254,6 +426,7 @@ export default function DailyIncomePanel({
         <div className="income-day-actions">
           <label>Fecha<input type="date" value={dateKey} onChange={(event) => setDateKey(event.target.value)} /></label>
           <button type="button" className="button ghost" onClick={() => void exportExcel()}>Exportar Excel</button>
+          <button type="button" className="button primary" onClick={() => { setShareStatus(""); setShowSharePreview(true); }}>Compartir reporte</button>
         </div>
       </div>
 
@@ -364,6 +537,68 @@ export default function DailyIncomePanel({
             {editError && <p className="hint error-text">{editError}</p>}
             {(editingPayment.incomeEdits?.length ?? 0) > 0 && <details><summary>Historial de ediciones ({editingPayment.incomeEdits?.length})</summary><ul className="income-edit-audit">{[...(editingPayment.incomeEdits ?? [])].reverse().map((edit) => <li key={edit.id}><strong>{edit.actor}</strong> · {new Date(edit.createdAt).toLocaleString("es-PA")}{edit.reason ? ` · ${edit.reason}` : ""}</li>)}</ul></details>}
             <div className="modal-actions"><button type="button" className="button ghost" onClick={() => setEditingPayment(null)}>Cancelar</button><button type="button" className="button primary" onClick={saveEdit}>Guardar cambios</button></div>
+          </div>
+        </div>
+      </div>}
+
+      {showSharePreview && <div className="modal-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowSharePreview(false); }}>
+        <div className="modal income-share-modal" role="dialog" aria-modal="true" aria-labelledby="income-share-title">
+          <div className="modal-header"><h2 id="income-share-title">Compartir reporte por WhatsApp</h2><button type="button" className="modal-close" onClick={() => setShowSharePreview(false)}>×</button></div>
+          <div className="modal-body income-share-body">
+            <label className="income-share-scope">Contenido del reporte<select value={shareScope} onChange={(event) => { setShareScope(event.target.value as ShareScope); setShareStatus(""); }}><option value="full">Reporte completo</option><option value="filtered">Resultado de los filtros actuales</option><option value="cash">Solo efectivo</option><option value="pending">Solo pendientes</option></select></label>
+            <div className="income-whatsapp-pages-preview" ref={shareReportRef}>
+              <article className="income-whatsapp-card income-whatsapp-page">
+                <header><span>RENTAUTOS</span><strong>REPORTE DE INGRESOS</strong><small>{formatMoneyDay(dateKey)} · {shareScopeLabel[shareScope]}</small></header>
+                <section className="income-whatsapp-total"><span>Total recibido</span><strong>{formatCurrency(shareReceivedTotal)}</strong><small>{shareReceivedGroups.reduce((sum, group) => sum + group.payments.length, 0)} movimiento(s)</small></section>
+                <section className="income-whatsapp-breakdown">
+                  <h3>Detalle por destino</h3>
+                  {shareReceivedGroups.length === 0 ? <p>Sin ingresos recibidos.</p> : shareSummaryDestinations.map((group) => <div key={`share-${group.key}`}><span>{group.label}<small>{group.payments.length} pago(s)</small></span><strong>{formatCurrency(group.total)}</strong></div>)}
+                  {shareReceivedGroups.length > 7 && <p className="income-whatsapp-continued">Continúa en la siguiente página…</p>}
+                </section>
+                <section className="income-whatsapp-alerts">
+                  <div><span>Efectivo pendiente</span><strong>{formatCurrency(shareCashPendingTotal)}</strong></div>
+                  <div><span>Tarjetas pendientes</span><strong>{formatCurrency(shareCardPendingTotal)}</strong></div>
+                  {sharePreviousDeliveryTotal > 0 && <div><span>Entregado hoy de días anteriores</span><strong>{formatCurrency(sharePreviousDeliveryTotal)}</strong></div>}
+                </section>
+                <footer><span>Cuentas enmascaradas · Sin datos de cédula</span><small>Página 1 de {sharePageCount}</small></footer>
+              </article>
+
+              {shareAdditionalDestinationPages.map((destinationPage, pageIndex) => <article className="income-whatsapp-card income-whatsapp-page" key={`share-destinations-page-${pageIndex}`}>
+                <header><span>RENTAUTOS</span><strong>DETALLE POR DESTINO</strong><small>{formatMoneyDay(dateKey)} · continuación</small></header>
+                <section className="income-whatsapp-breakdown income-whatsapp-page-content">{destinationPage.map((group) => <div key={`share-extra-${group.key}`}><span>{group.label}<small>{group.payments.length} pago(s)</small></span><strong>{formatCurrency(group.total)}</strong></div>)}</section>
+                <footer><span>Reporte de ingresos · {shareScopeLabel[shareScope]}</span><small>Página {pageIndex + 2} de {sharePageCount}</small></footer>
+              </article>)}
+
+              {shareCashDeliveredPages.map((cashPage, pageIndex) => {
+                const pageNumber = 2 + shareAdditionalDestinationPages.length + pageIndex;
+                return <article className="income-whatsapp-card income-whatsapp-page" key={`share-delivered-page-${pageIndex}`}>
+                  <header><span>RENTAUTOS</span><strong>EFECTIVO ENTREGADO</strong><small>{formatMoneyDay(dateKey)} · detalle</small></header>
+                  <section className="income-whatsapp-cash-detail income-whatsapp-page-content"><div className="income-whatsapp-cash-block income-whatsapp-cash-block--delivered"><h4>Total entregado · {formatCurrency(shareCashDeliveredRows.reduce((sum, payment) => sum + payment.amountReceived, 0))}</h4>{cashPage.map((payment) => <p key={`share-cash-delivered-${payment.id}`}><span><strong>{payment.clientUnit}</strong><small>{getDeliveryContext(payment)}</small></span><strong>{formatCurrency(payment.amountReceived)}</strong></p>)}</div></section>
+                  <footer><span>Detalle de efectivo entregado</span><small>Página {pageNumber} de {sharePageCount}</small></footer>
+                </article>;
+              })}
+
+              {shareCashPendingPages.map((cashPage, pageIndex) => {
+                const pageNumber = 2 + shareAdditionalDestinationPages.length + shareCashDeliveredPages.length + pageIndex;
+                return <article className="income-whatsapp-card income-whatsapp-page" key={`share-pending-page-${pageIndex}`}>
+                  <header><span>RENTAUTOS</span><strong>EFECTIVO PENDIENTE</strong><small>{formatMoneyDay(dateKey)} · detalle</small></header>
+                  <section className="income-whatsapp-cash-detail income-whatsapp-page-content"><div className="income-whatsapp-cash-block income-whatsapp-cash-block--pending"><h4>Total pendiente · {formatCurrency(shareCashPendingRows.reduce((sum, payment) => sum + payment.amountReceived, 0))}</h4>{cashPage.map((payment) => <p key={`share-cash-pending-${payment.id}`}><span><strong>{payment.clientUnit}</strong><small>Dinero del {formatMoneyDay(getIncomeDate(payment))}</small></span><strong>{formatCurrency(payment.amountReceived)}</strong></p>)}</div></section>
+                  <footer><span>Detalle de efectivo pendiente</span><small>Página {pageNumber} de {sharePageCount}</small></footer>
+                </article>;
+              })}
+
+              {shareCommentPages.map((commentPage, pageIndex) => {
+                const pageNumber = 2 + shareAdditionalDestinationPages.length + shareCashDeliveredPages.length + shareCashPendingPages.length + pageIndex;
+                return <article className="income-whatsapp-card income-whatsapp-page" key={`share-comments-page-${pageIndex}`}>
+                  <header><span>RENTAUTOS</span><strong>COMENTARIOS IMPORTANTES</strong><small>{formatMoneyDay(dateKey)} · observaciones</small></header>
+                  <section className="income-whatsapp-comments income-whatsapp-page-content">{commentPage.map((payment) => <p key={`share-comment-${payment.id}`}><strong>{payment.clientUnit}:</strong> {payment.incomeComment}</p>)}</section>
+                  <footer><span>Observaciones del reporte</span><small>Página {pageNumber} de {sharePageCount}</small></footer>
+                </article>;
+              })}
+            </div>
+            <details className="income-share-text"><summary>Ver texto para WhatsApp</summary><pre>{buildWhatsAppText()}</pre></details>
+            {shareStatus && <p className="hint recon-info">{shareStatus}</p>}
+            <div className="income-share-actions"><button type="button" className="button ghost" onClick={() => void copyWhatsAppText()}>Copiar texto</button><button type="button" className="button ghost" onClick={() => void downloadHighResolutionImages()}>Descargar imágenes HD</button><button type="button" className="button ghost" onClick={() => void downloadSharePdf()}>Descargar PDF</button><button type="button" className="button primary" onClick={() => void shareHighResolutionImages()}>Compartir imágenes HD</button></div>
           </div>
         </div>
       </div>}

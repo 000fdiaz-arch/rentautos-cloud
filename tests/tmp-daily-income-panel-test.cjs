@@ -1,4 +1,5 @@
 const { chromium } = require("playwright");
+const fs = require("node:fs");
 
 (async () => {
   const baseUrl = process.env.RENTAUTOS_WORKFLOWS_BASE_URL ?? "http://127.0.0.1:5174/";
@@ -60,6 +61,29 @@ const { chromium } = require("playwright");
   if ((await panel.getByLabel("Estado").inputValue()) !== "pending") throw new Error("El dashboard no activó el filtro pendiente");
   if (!(await panel.innerText()).includes("REC-1003")) throw new Error("El dashboard no mostró el detalle pendiente");
   await pendingKpi.click();
+
+  await panel.getByRole("button", { name: "Compartir reporte" }).click();
+  const shareDialog = page.getByRole("dialog", { name: "Compartir reporte por WhatsApp" });
+  await shareDialog.waitFor({ state: "visible" });
+  const shareText = await shareDialog.innerText();
+  if (!shareText.includes("REPORTE DE INGRESOS") || !shareText.includes("$300.00")) throw new Error("La vista previa de WhatsApp no contiene el resumen esperado");
+  if (!shareText.includes("Detalle de efectivo") || !shareText.includes("I10")) throw new Error("La vista previa no muestra el detalle del efectivo");
+  if (shareText.includes("8-777-0047")) throw new Error("La vista previa no debe mostrar cédulas");
+  await shareDialog.getByLabel("Contenido del reporte").selectOption("cash");
+  if (!(await shareDialog.innerText()).includes("Solo efectivo")) throw new Error("No cambió el alcance del reporte para WhatsApp");
+  const [reportDownload] = await Promise.all([
+    page.waitForEvent("download", { predicate: (download) => download.suggestedFilename().endsWith(".png") }),
+    shareDialog.getByRole("button", { name: "Descargar imágenes HD" }).click()
+  ]);
+  if (!reportDownload.suggestedFilename().endsWith(".png")) throw new Error("La descarga del reporte no generó un PNG HD");
+  const reportBuffer = fs.readFileSync(await reportDownload.path());
+  if (reportBuffer.readUInt32BE(16) !== 1080 || reportBuffer.readUInt32BE(20) !== 1350) throw new Error("El PNG no tiene resolución 1080x1350");
+  const [pdfDownload] = await Promise.all([
+    page.waitForEvent("download", { predicate: (download) => download.suggestedFilename().endsWith(".pdf") }),
+    shareDialog.getByRole("button", { name: "Descargar PDF" }).click()
+  ]);
+  if (!pdfDownload.suggestedFilename().endsWith(".pdf")) throw new Error("La descarga del reporte no generó un PDF");
+  await shareDialog.getByRole("button", { name: "×" }).click();
 
   await panel.getByLabel("Forma de pago").selectOption("Efectivo");
   if (!/\$100\.00/.test(await kpis.locator("button").nth(0).innerText())) throw new Error("El filtro por forma de pago no recalculó el total");
