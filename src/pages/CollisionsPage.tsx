@@ -27,6 +27,7 @@ type Props = {
   onClientsChange: (next: Client[]) => void | Promise<void>;
   embedded?: boolean;
   syncInsuranceClaims?: boolean;
+  hideCreateForm?: boolean;
 };
 type DateFilter = "all" | "upcoming" | "today" | "last_week" | "overdue";
 type TrialForm = {
@@ -81,9 +82,9 @@ function parseAmount(value: string): number {
 }
 function isFinalStatus(status: CollisionTrialStatus): boolean { return status === "Ganó" || status === "Perdió"; }
 
-export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = false, onClientsChange, embedded = false, syncInsuranceClaims = true }: Props) {
-  const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(dataOwnerUserId);
-  const [activeTab, setActiveTab] = useState<"form" | "agenda">("form");
+export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = false, onClientsChange, embedded = false, syncInsuranceClaims = true, hideCreateForm = false }: Props) {
+  const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(hideCreateForm ? null : dataOwnerUserId);
+  const [activeTab, setActiveTab] = useState<"form" | "agenda">(hideCreateForm ? "agenda" : "form");
   const [form, setForm] = useState<TrialForm>(EMPTY_FORM);
   const [cases, setCases] = useState<CollisionCaseRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -392,12 +393,12 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   return (
     <section className="insurance-workflow-page">
       {!embedded && <div className="panel insurance-workflow-header"><div><span className="workflow-eyebrow">Gestión judicial vehicular</span><h2>Juicio por Colisiones y Choques</h2></div></div>}
-      <div className="panel workflow-tabs-panel">
+      {!hideCreateForm && <div className="panel workflow-tabs-panel">
         <button type="button" className={activeTab === "form" ? "active" : ""} onClick={() => setActiveTab("form")}>Formulario de juicio</button>
         <button type="button" className={activeTab === "agenda" ? "active" : ""} onClick={() => setActiveTab("agenda")}>Agenda de juicios</button>
-      </div>
+      </div>}
 
-      {activeTab === "form" && <form className="panel workflow-form-panel" onSubmit={(event) => { event.preventDefault(); void saveTrial(); }}>
+      {!hideCreateForm && activeTab === "form" && <form className="panel workflow-form-panel" onSubmit={(event) => { event.preventDefault(); void saveTrial(); }}>
         <div className="panel-head"><h2>Formulario de juicio</h2><button type="submit" className="button primary" disabled={readOnly || saving || loading}>{saving ? "Guardando..." : "Guardar"}</button></div>
         {readOnly && <p className="hint workflow-message">Modo lectura: tu usuario no puede crear ni editar juicios.</p>}
         {loading && <p className="hint workflow-message">Cargando juicios...</p>}{loadError && <p className="hint workflow-message">{loadError}</p>}

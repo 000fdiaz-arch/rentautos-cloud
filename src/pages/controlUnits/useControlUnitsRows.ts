@@ -59,8 +59,10 @@ export function useControlUnitsRows(dataOwnerUserId?: string | null) {
       }, 150);
     };
 
+    // Cada consumidor necesita su propio canal. Supabase no permite agregar
+    // callbacks a un canal que otra instancia del hook ya suscribió.
     const channel = client
-      .channel(`fleet-units-live-${dataOwnerUserId}`)
+      .channel(`fleet-units-live-${dataOwnerUserId}-${crypto.randomUUID()}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "fleet_units_cloud", filter: `user_id=eq.${dataOwnerUserId}` },

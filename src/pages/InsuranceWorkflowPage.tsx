@@ -23,6 +23,7 @@ type Props = {
   dataOwnerUserId?: string | null;
   readOnly?: boolean;
   embedded?: boolean;
+  hideCreateForm?: boolean;
 };
 
 type ClaimForm = {
@@ -70,12 +71,12 @@ function parseClaimAmount(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOnly = false, embedded = false }: Props) {
-  const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(dataOwnerUserId);
+export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOnly = false, embedded = false, hideCreateForm = false }: Props) {
+  const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(hideCreateForm ? null : dataOwnerUserId);
   const [form, setForm] = useState<ClaimForm>(EMPTY_FORM);
   const [insurers, setInsurers] = useState<string[]>([]);
   const [claims, setClaims] = useState<InsuranceClaimRecord[]>([]);
-  const [activeTab, setActiveTab] = useState<ActiveTab>("form");
+  const [activeTab, setActiveTab] = useState<ActiveTab>(hideCreateForm ? "list" : "form");
   const [damagePhotoFiles, setDamagePhotoFiles] = useState<File[]>([]);
   const [message, setMessage] = useState<string>("");
   const [loadError, setLoadError] = useState<string>("");
@@ -736,12 +737,12 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
         </div>
       </div>}
 
-      <div className="panel workflow-tabs-panel">
+      {!hideCreateForm && <div className="panel workflow-tabs-panel">
         <button type="button" className={activeTab === "form" ? "active" : ""} onClick={() => setActiveTab("form")}>Formulario</button>
         <button type="button" className={activeTab === "list" ? "active" : ""} onClick={() => setActiveTab("list")}>Lista de reclamos</button>
-      </div>
+      </div>}
 
-      {activeTab === "form" && (
+      {!hideCreateForm && activeTab === "form" && (
         <form className="panel workflow-form-panel" onSubmit={(event) => { event.preventDefault(); void saveClaim(); }}>
           <div className="panel-head">
             <h2>Formulario de reclamo</h2>
