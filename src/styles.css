@@ -4118,6 +4118,10 @@ select.control-op-badge {
 .income-share-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
 
 @media (max-width: 760px) {
+  .judicial-focused-context {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .income-day-header, .income-day-actions { align-items: stretch; flex-direction: column; }
   .income-day-kpis { grid-template-columns: 1fr; }
   .income-day-group-summary { gap: 8px; }
@@ -11812,6 +11816,67 @@ select.control-op-badge {
   padding: 0;
 }
 
+.judicial-focused-case .workflow-claims-list {
+  margin-top: 12px;
+}
+
+.judicial-focused-case .workflow-claim-card {
+  border-color: #cbd5e1;
+  box-shadow: none;
+}
+
+.judicial-focused-case .workflow-claim-details {
+  border-top: 0;
+}
+
+.judicial-focused-context {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: #f8fafc;
+  padding: 11px;
+}
+
+.judicial-focused-context > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.judicial-focused-context small {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.judicial-focused-context strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.judicial-focused-status strong {
+  width: fit-content;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.75rem;
+  padding: 5px 9px;
+}
+
+.judicial-focused-status.status-won strong {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.judicial-focused-status.status-lost strong {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .insurance-workflow-header {
   display: flex;
   align-items: flex-start;
@@ -12774,6 +12839,18 @@ select.control-op-badge {
   padding: 11px 13px;
 }
 
+.collision-runaway-option--yes {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.collision-runaway-option--no {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+
 .collision-runaway-option input {
   width: 18px;
   height: 18px;
@@ -12786,7 +12863,39 @@ select.control-op-badge {
 }
 
 .collision-runaway-option small {
-  color: var(--color-text-muted);
+  color: inherit;
+  opacity: 0.78;
+}
+
+.workflow-claim-indicators .collision-runaway-yes {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.workflow-claim-indicators .collision-runaway-no {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.collision-runaway-status {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
+  padding: 5px 10px;
+}
+
+.collision-runaway-status--yes {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.collision-runaway-status--no {
+  background: #dcfce7;
+  color: #15803d;
 }
 
 .collision-required-outcome {
@@ -13280,6 +13389,10 @@ select.control-op-badge {
 }
 
 @media (max-width: 480px) {
+  .judicial-focused-context {
+    grid-template-columns: 1fr;
+  }
+
   .unified-incidents-filter-head {
     grid-template-columns: 1fr;
   }

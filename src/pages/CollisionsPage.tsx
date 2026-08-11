@@ -33,6 +33,7 @@ type Props = {
   hideCreateForm?: boolean;
   initialExpandedId?: string;
   initialSearch?: string;
+  focusedCaseId?: string;
 };
 type DateFilter = "all" | "upcoming" | "today" | "last_week" | "overdue";
 type TrialForm = {
@@ -92,7 +93,7 @@ function parseAmount(value: string): number {
 }
 function isFinalStatus(status: CollisionTrialStatus): boolean { return status === "Ganó" || status === "Perdió"; }
 
-export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = false, onClientsChange, embedded = false, syncInsuranceClaims = true, hideCreateForm = false, initialExpandedId = "", initialSearch = "" }: Props) {
+export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = false, onClientsChange, embedded = false, syncInsuranceClaims = true, hideCreateForm = false, initialExpandedId = "", initialSearch = "", focusedCaseId = "" }: Props) {
   const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(hideCreateForm ? null : dataOwnerUserId);
   const [activeTab, setActiveTab] = useState<"form" | "agenda">(hideCreateForm ? "agenda" : "form");
   const [form, setForm] = useState<TrialForm>(EMPTY_FORM);
@@ -140,6 +141,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     const today = localDateKey(new Date());
     const lastWeek = previousWeekRange();
     return cases.filter((item) => {
+      if (focusedCaseId) return item.id === focusedCaseId;
       if (statusFilter !== "all" && item.status !== statusFilter) return false;
       if (dateFilter === "upcoming" && (!item.trialDate || item.trialDate <= today || isFinalStatus(item.status))) return false;
       if (dateFilter === "today" && (item.trialDate !== today || isFinalStatus(item.status))) return false;
@@ -149,7 +151,8 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       return [item.unit, item.driver, item.plate, item.ticketStub, item.placeTime, item.court, item.vehicleDamage]
         .some((value) => value.toLocaleLowerCase("es").includes(needle));
     });
-  }, [cases, dateFilter, search, statusFilter]);
+  }, [cases, dateFilter, focusedCaseId, search, statusFilter]);
+  const focusedCase = useMemo(() => focusedCaseId ? cases.find((item) => item.id === focusedCaseId) ?? null : null, [cases, focusedCaseId]);
   const requiredOutcomeCount = useMemo(() => {
     const today = localDateKey(new Date());
     return cases.filter((item) => item.trialDate && item.trialDate <= today && !isFinalStatus(item.status)).length;
@@ -470,46 +473,52 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
           <label>Hora<input type="time" value={form.placeTime} onChange={(event) => patchForm({ placeTime: event.target.value })} disabled={readOnly} /></label>
           <label>Juzgado<select value={form.court} onChange={(event) => event.target.value === "__new__" ? addCourt() : patchForm({ court: event.target.value })} disabled={readOnly}><option value="">Seleccionar juzgado</option>{courts.map((court) => <option key={court}>{court}</option>)}<option value="__new__">+ Nuevo juzgado</option></select></label>
           <label className="workflow-form-notes">Daños del auto<textarea value={form.vehicleDamage} placeholder="Describe los daños del auto" onChange={(event) => patchForm({ vehicleDamage: event.target.value })} disabled={readOnly} /></label>
-          <label className="collision-runaway-option"><input type="checkbox" checked={form.collisionAndRun} onChange={(event) => patchForm({ collisionAndRun: event.target.checked })} disabled={readOnly} /><span><strong>Colisión y fuga</strong><small>El conductor abandonó el lugar.</small></span></label>
+          <label className={`collision-runaway-option ${form.collisionAndRun ? "collision-runaway-option--yes" : "collision-runaway-option--no"}`}><input type="checkbox" checked={form.collisionAndRun} onChange={(event) => patchForm({ collisionAndRun: event.target.checked })} disabled={readOnly} /><span><strong>Colisión y fuga: {form.collisionAndRun ? "Sí" : "No"}</strong><small>{form.collisionAndRun ? "El conductor abandonó el lugar." : "El conductor permaneció en el lugar."}</small></span></label>
         </div>
       </form>}
 
-      {activeTab === "agenda" && <section className="panel workflow-claims-panel">
-        <div className="panel-head"><h2>Agenda de juicios</h2><span className="hint">{filteredCases.length} de {cases.length} juicios</span></div>
+      {activeTab === "agenda" && <section className={`panel workflow-claims-panel${focusedCaseId ? " workflow-claims-panel--focused judicial-focused-case" : ""}`}>
+        {!focusedCaseId && <div className="panel-head"><h2>Agenda de juicios</h2><span className="hint">{filteredCases.length} de {cases.length} juicios</span></div>}
         {loading && <p className="hint workflow-message">Cargando juicios...</p>}{loadError && <p className="hint workflow-message">{loadError}</p>}{message && <p className="hint workflow-message">{message}</p>}
-        {requiredOutcomeCount > 0 && <p className="collision-required-outcome" role="alert">Hay {requiredOutcomeCount} {requiredOutcomeCount === 1 ? "juicio que requiere" : "juicios que requieren"} registrar el resultado: Ganó, Perdió o Nueva fecha.</p>}
-        <div className="workflow-claim-kpis workflow-claim-kpis--single" aria-label="Fecha de la agenda"><div><span>Fecha</span><strong>{CURRENT_DATE_FORMATTER.format(new Date())}</strong><small>Agenda del día</small></div></div>
-        <div className="workflow-claim-filters">
+        {!focusedCaseId && requiredOutcomeCount > 0 && <p className="collision-required-outcome" role="alert">Hay {requiredOutcomeCount} {requiredOutcomeCount === 1 ? "juicio que requiere" : "juicios que requieren"} registrar el resultado: Ganó, Perdió o Nueva fecha.</p>}
+        {!focusedCaseId && <div className="workflow-claim-kpis workflow-claim-kpis--single" aria-label="Fecha de la agenda"><div><span>Fecha</span><strong>{CURRENT_DATE_FORMATTER.format(new Date())}</strong><small>Agenda del día</small></div></div>}
+        {!focusedCaseId && <div className="workflow-claim-filters">
           <label className="workflow-claim-search">Buscar<input type="search" value={search} placeholder="Unidad, chofer, placa, colilla o juzgado" onChange={(event) => setSearch(event.target.value)} /></label>
           <label>Fecha de juicio<select value={dateFilter} onChange={(event) => setDateFilter(event.target.value as DateFilter)}><option value="all">Todas las fechas</option><option value="upcoming">Próximos casos</option><option value="today">Hoy</option><option value="last_week">Semana pasada</option><option value="overdue">Vencidos</option></select></label>
           <label>Estado<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as CollisionTrialStatus | "all")}><option value="all">Todos</option><option>Pendiente</option><option>Nueva fecha</option><option>Ganó</option><option>Perdió</option></select></label>
           <button type="button" className="button workflow-clear-filters" onClick={() => { setSearch(""); setDateFilter("all"); setStatusFilter("all"); }}>Limpiar filtros</button>
-        </div>
+        </div>}
+        {focusedCase && <div className="judicial-focused-context">
+          <span><small>Unidad / placa</small><strong>{focusedCase.unit || "Sin unidad"} · {focusedCase.plate || "Sin placa"}</strong></span>
+          <span><small>Cliente</small><strong>{focusedCase.clientName || focusedCase.driver || "Sin cliente"}</strong></span>
+          <span><small>Fecha de juicio</small><strong>{focusedCase.trialDate || "Sin fecha"}</strong></span>
+          <span className={`judicial-focused-status status-${focusedCase.status === "Ganó" ? "won" : focusedCase.status === "Perdió" ? "lost" : "pending"}`}><small>Estado</small><strong>{focusedCase.status}</strong></span>
+        </div>}
         <div className="workflow-claims-list">
           {!loading && !cases.length && <p className="hint">Todavía no hay juicios guardados.</p>}
-          {cases.length > 0 && !filteredCases.length && <p className="hint workflow-empty-filter">No hay juicios que coincidan con los filtros.</p>}
+          {cases.length > 0 && !filteredCases.length && <p className="hint workflow-empty-filter">{focusedCaseId ? "No se encontró el juicio seleccionado." : "No hay juicios que coincidan con los filtros."}</p>}
           {filteredCases.map((item) => {
-            const expanded = expandedId === item.id;
+            const expanded = Boolean(focusedCaseId) || expandedId === item.id;
             const today = localDateKey(new Date());
             const requiresOutcome = Boolean(item.trialDate && item.trialDate <= today && !isFinalStatus(item.status));
             const outcome = outcomeDrafts[item.id] ?? "";
             return <article key={item.id} className={`workflow-claim-card${expanded ? " expanded" : ""}`}>
-              <div className="workflow-claim-summary">
+              {!focusedCaseId && <div className="workflow-claim-summary">
                 <button type="button" className="workflow-claim-toggle" aria-expanded={expanded} onClick={() => { setExpandedId(expanded ? null : item.id); initializeCaseDrafts(item); }}>
                   <span className="workflow-claim-identity"><strong>{item.unit || "Sin unidad"} · {item.driver || "Sin chofer"}</strong><small>{item.plate || "Sin placa"}</small></span>
                   <span className="workflow-claim-reference"><strong>{item.court || "Sin juzgado"}</strong><small>Colilla: {item.ticketStub || "-"}</small></span>
                   <span className="workflow-claim-summary-value"><small>Fecha de juicio</small><strong>{item.trialDate || "Sin fecha"}</strong></span>
                   <span className="workflow-claim-summary-value"><small>Hora</small><strong>{item.placeTime || "-"}</strong></span>
-                  <span className="workflow-claim-indicators"><span className={item.status === "Ganó" ? "complete" : item.status === "Perdió" || requiresOutcome ? "missing" : "pending"}>{item.status}</span>{requiresOutcome && <span className="missing">Resultado requerido</span>}{item.collisionAndRun && <span className="declined">Colisión y fuga</span>}</span>
+                  <span className="workflow-claim-indicators"><span className={item.status === "Ganó" ? "complete" : item.status === "Perdió" || requiresOutcome ? "missing" : "pending"}>{item.status}</span>{requiresOutcome && <span className="missing">Resultado requerido</span>}<span className={item.collisionAndRun ? "collision-runaway-yes" : "collision-runaway-no"}>Fuga: {item.collisionAndRun ? "Sí" : "No"}</span></span>
                   <span className="workflow-claim-chevron" aria-hidden="true">{expanded ? "−" : "+"}</span>
                 </button>
-              </div>
+              </div>}
               {expanded && <div className="workflow-claim-details">
                 {requiresOutcome && <p className="collision-required-outcome" role="alert">La fecha del juicio llegó o está vencida. Debes registrar el resultado.</p>}
                 <dl className="workflow-claim-detail-grid">
                   <div><dt>Fecha del incidente</dt><dd>{item.incidentDate}</dd></div><div><dt>Fecha de juicio</dt><dd>{item.trialDate}</dd></div>
                   <div><dt>Colilla</dt><dd>{item.ticketStub}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
-                  <div><dt>Colisión y fuga</dt><dd>{item.collisionAndRun ? "Sí" : "No"}</dd></div>
+                  <div><dt>Colisión y fuga</dt><dd><span className={`collision-runaway-status ${item.collisionAndRun ? "collision-runaway-status--yes" : "collision-runaway-status--no"}`}>{item.collisionAndRun ? "Sí" : "No"}</span></dd></div>
                   <div><dt>Cliente del expediente</dt><dd>{item.clientName || item.driver || "-"}</dd></div>
                   <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>
                 </dl>

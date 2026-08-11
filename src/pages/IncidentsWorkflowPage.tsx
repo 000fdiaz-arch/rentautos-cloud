@@ -36,12 +36,22 @@ export default function IncidentsWorkflowPage({
     setManagementTarget(null);
   }
 
+  function closeManagement(): void {
+    setManagementTarget(null);
+    setFollowUpRefreshKey((current) => current + 1);
+  }
+
   useEffect(() => {
-    if (managementTarget?.destination !== "insurance") return;
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setManagementTarget(null); };
+    if (!managementTarget) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") closeManagement(); };
+    document.body.style.overflow = "hidden";
     window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [managementTarget?.destination]);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [managementTarget]);
 
   return (
     <section className="incidents-workflow-page">
@@ -63,36 +73,31 @@ export default function IncidentsWorkflowPage({
         onSaved={handleIncidentSaved}
       />
 
-      {!managementTarget && <UnifiedIncidentsFollowUp
+      <UnifiedIncidentsFollowUp
         dataOwnerUserId={dataOwnerUserId}
         canViewJudicial={canViewCollisions}
         canViewInsurance={canViewInsuranceWorkflow}
         refreshKey={followUpRefreshKey}
         onAlertCountChange={onAlertCountChange}
         onOpen={(destination, target) => setManagementTarget({ destination, ...target })}
-      />}
+      />
 
-      {managementTarget?.destination === "judicial" && <div className="incident-management-back"><button type="button" className="button" onClick={() => { setManagementTarget(null); setFollowUpRefreshKey((current) => current + 1); }}>← Volver a expedientes</button><span>Gestionando juicio</span></div>}
-
-      {managementTarget?.destination === "judicial" && canViewCollisions && (
-        <CollisionsPage
-          key={`judicial-${managementTarget.id}`}
-          clients={clients}
-          dataOwnerUserId={dataOwnerUserId}
-          readOnly={!canEditCollisions}
-          onClientsChange={onClientsChange}
-          embedded
-          syncInsuranceClaims={canEditInsuranceWorkflow}
-          hideCreateForm
-          initialExpandedId={managementTarget.id}
-          initialSearch={managementTarget.search}
-        />
-      )}
-      {managementTarget?.destination === "insurance" && canViewInsuranceWorkflow && (
-        <div className="incident-claim-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setManagementTarget(null); setFollowUpRefreshKey((current) => current + 1); } }}>
-          <section className="incident-claim-modal" role="dialog" aria-modal="true" aria-labelledby="incident-claim-modal-title">
-            <div className="incident-claim-modal-head"><div><span className="workflow-eyebrow">Gestión del expediente</span><h2 id="incident-claim-modal-title">Reclamo al seguro</h2></div><button type="button" className="button" aria-label="Cerrar gestión del reclamo" onClick={() => { setManagementTarget(null); setFollowUpRefreshKey((current) => current + 1); }}>Cerrar</button></div>
-            <InsuranceWorkflowPage
+      {managementTarget && ((managementTarget.destination === "judicial" && canViewCollisions) || (managementTarget.destination === "insurance" && canViewInsuranceWorkflow)) && (
+        <div className="incident-claim-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeManagement(); }}>
+          <section className={`incident-claim-modal incident-management-modal--${managementTarget.destination}`} role="dialog" aria-modal="true" aria-labelledby="incident-management-modal-title">
+            <div className="incident-claim-modal-head"><div><span className="workflow-eyebrow">Gestión del expediente</span><h2 id="incident-management-modal-title">{managementTarget.destination === "judicial" ? "Juicio" : "Reclamo al seguro"}</h2></div><button type="button" className="button" aria-label={`Cerrar gestión ${managementTarget.destination === "judicial" ? "del juicio" : "del reclamo"}`} autoFocus onClick={closeManagement}>Cerrar</button></div>
+            {managementTarget.destination === "judicial" ? <CollisionsPage
+              key={`judicial-${managementTarget.id}`}
+              clients={clients}
+              dataOwnerUserId={dataOwnerUserId}
+              readOnly={!canEditCollisions}
+              onClientsChange={onClientsChange}
+              embedded
+              syncInsuranceClaims={canEditInsuranceWorkflow}
+              hideCreateForm
+              initialExpandedId={managementTarget.id}
+              focusedCaseId={managementTarget.id}
+            /> : <InsuranceWorkflowPage
               key={`insurance-${managementTarget.id}`}
               clients={clients}
               dataOwnerUserId={dataOwnerUserId}
@@ -101,7 +106,7 @@ export default function IncidentsWorkflowPage({
               hideCreateForm
               initialExpandedId={managementTarget.id}
               focusedClaimId={managementTarget.id}
-            />
+            />}
           </section>
         </div>
       )}
