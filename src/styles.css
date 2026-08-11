@@ -13154,6 +13154,51 @@ select.control-op-badge {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.collision-outcome-evidence {
+  grid-column: 1 / -1;
+  border: 1px solid #93c5fd;
+  border-radius: 8px;
+  background: #eff6ff;
+  padding: 10px;
+}
+
+.collision-outcome-evidence small {
+  color: #1e40af;
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.collision-outcome-document {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #86efac;
+  border-radius: 9px;
+  background: #f0fdf4;
+  padding: 12px 13px;
+}
+
+.collision-outcome-document > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.collision-outcome-document span,
+.collision-outcome-document small {
+  overflow: hidden;
+  color: #166534;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collision-outcome-document .button {
+  flex: 0 0 auto;
+}
+
 .collision-claim-panel {
   display: grid;
   gap: 12px;
@@ -13679,6 +13724,15 @@ select.control-op-badge {
   .workflow-record-tabs button {
     flex: 1 0 auto;
     justify-content: center;
+  }
+
+  .collision-outcome-document {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .collision-outcome-document .button {
+    width: 100%;
   }
 }
 

@@ -177,6 +177,7 @@ export type CollisionCaseRecord = {
   status: CollisionTrialStatus;
   trialDateHistory: CollisionTrialDateEvent[];
   judicialFollowUps: CollisionJudicialFollowUp[];
+  judicialOutcomeEvidence: CollisionPhotoAttachment | null;
   insuranceClaim: CollisionInsuranceClaim | null;
   expenseInvoice: CollisionExpenseInvoice | null;
   clientReturnedBeforeClosure?: boolean;
@@ -509,6 +510,9 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
           && typeof entry.createdAt === "string"
         ))
       : [],
+    judicialOutcomeEvidence: item.judicialOutcomeEvidence && typeof item.judicialOutcomeEvidence === "object" && typeof item.judicialOutcomeEvidence.path === "string"
+      ? item.judicialOutcomeEvidence
+      : null,
     insuranceClaim: existingClaim ?? legacyClaim,
     expenseInvoice: item.expenseInvoice && typeof item.expenseInvoice === "object" ? item.expenseInvoice : null,
     clientReturnedBeforeClosure: item.clientReturnedBeforeClosure === true,
