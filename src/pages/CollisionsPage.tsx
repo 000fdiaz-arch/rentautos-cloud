@@ -6,6 +6,7 @@ import {
   createInsuranceDamagePhotoViewUrl,
   loadCollisionCases,
   loadInsuranceClaims,
+  loadInsuranceInsurers,
   removeCollisionPhotos,
   removeInsuranceDamagePhotos,
   saveCollisionCase,
@@ -102,6 +103,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   const [form, setForm] = useState<TrialForm>(EMPTY_FORM);
   const [cases, setCases] = useState<CollisionCaseRecord[]>([]);
   const [courts, setCourts] = useState<string[]>([]);
+  const [insurers, setInsurers] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState("");
@@ -165,6 +167,11 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     const today = localDateKey(new Date());
     return cases.filter((item) => item.trialDate && item.trialDate <= today && !isFinalStatus(item.status)).length;
   }, [cases]);
+  const insurerOptions = useMemo(() => [...new Set([
+    ...insurers,
+    ...cases.map((item) => item.insuranceClaim?.insurer ?? "")
+  ].map((insurer) => insurer.trim().toUpperCase()).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" })), [cases, insurers]);
 
   useEffect(() => {
     if (!dataOwnerUserId) { setLoading(false); setLoadError("No se encontró owner de datos para cargar los juicios."); return; }
@@ -182,6 +189,19 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       })
       .catch((error) => { if (!cancelled) { console.error("No se pudieron cargar los juicios.", error); setLoadError("No se pudieron cargar los juicios desde la nube."); } })
       .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [dataOwnerUserId]);
+
+  useEffect(() => {
+    if (!dataOwnerUserId) { setInsurers([]); return; }
+    let cancelled = false;
+    loadInsuranceInsurers(dataOwnerUserId)
+      .then((nextInsurers) => { if (!cancelled) setInsurers(nextInsurers); })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("No se pudieron cargar las aseguradoras.", error);
+        setMessage("No se pudo cargar el listado de aseguradoras desde la nube.");
+      });
     return () => { cancelled = true; };
   }, [dataOwnerUserId]);
 
@@ -216,6 +236,27 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     setClaimDrafts((current) => ({ ...current, [item.id]: current[item.id] ?? (item.insuranceClaim
       ? { insurer: item.insuranceClaim.insurer, claimNumber: item.insuranceClaim.claimNumber, amount: item.insuranceClaim.amount }
       : EMPTY_CLAIM) }));
+  }
+
+  async function addClaimInsurer(caseId: string): Promise<void> {
+    if (readOnly || busyId || !dataOwnerUserId) return;
+    const insurer = (window.prompt("Nombre de la nueva aseguradora") ?? "").trim().toUpperCase();
+    if (!insurer) return;
+    setBusyId(caseId); setMessage("");
+    try {
+      await saveInsuranceInsurer(dataOwnerUserId, insurer);
+      setInsurers((current) => [...new Set([...current, insurer])]
+        .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" })));
+      setClaimDrafts((current) => ({
+        ...current,
+        [caseId]: { ...(current[caseId] ?? EMPTY_CLAIM), insurer }
+      }));
+    } catch (error) {
+      console.error("No se pudo guardar la aseguradora.", error);
+      setMessage("No se pudo guardar la aseguradora en la nube.");
+    } finally {
+      setBusyId("");
+    }
   }
 
   async function saveTrial(): Promise<void> {
@@ -619,7 +660,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                 {item.status === "ABSUELTO" && <div className="collision-claim-panel">
                   <div><strong>Formulario de reclamo</strong><span>{item.insuranceClaim ? (item.insuranceClaim.claimNumber ? "Reclamo activo: ya cuenta con número de reclamo." : "Reclamo inactivo: todavía no cuenta con número de reclamo.") : "Puedes guardarlo como inactivo aunque todavía no tengas información del reclamo."}</span></div>
                   <div className="workflow-form-grid">
-                    <label>Aseguradora<input value={(claimDrafts[item.id] ?? EMPTY_CLAIM).insurer} onChange={(event) => setClaimDrafts((current) => ({ ...current, [item.id]: { ...(current[item.id] ?? EMPTY_CLAIM), insurer: event.target.value } }))} disabled={readOnly || busyId === item.id} /></label>
+                    <label>Aseguradora<select value={(claimDrafts[item.id] ?? EMPTY_CLAIM).insurer} onChange={(event) => event.target.value === "__new__" ? void addClaimInsurer(item.id) : setClaimDrafts((current) => ({ ...current, [item.id]: { ...(current[item.id] ?? EMPTY_CLAIM), insurer: event.target.value } }))} disabled={readOnly || busyId === item.id}><option value="">Seleccionar aseguradora</option>{insurerOptions.map((insurer) => <option key={insurer} value={insurer}>{insurer}</option>)}<option value="__new__">+ Nueva aseguradora</option></select></label>
                     <label>Número de reclamo<input value={(claimDrafts[item.id] ?? EMPTY_CLAIM).claimNumber} onChange={(event) => setClaimDrafts((current) => ({ ...current, [item.id]: { ...(current[item.id] ?? EMPTY_CLAIM), claimNumber: event.target.value } }))} disabled={readOnly || busyId === item.id} /></label>
                     <label>Monto<input type="number" min="0" step="0.01" value={(claimDrafts[item.id] ?? EMPTY_CLAIM).amount} onChange={(event) => setClaimDrafts((current) => ({ ...current, [item.id]: { ...(current[item.id] ?? EMPTY_CLAIM), amount: event.target.value } }))} disabled={readOnly || busyId === item.id} /></label>
                     <label className="workflow-form-notes workflow-form-damage-photos">Fotos de los daños<input type="file" accept="image/*" multiple onChange={(event) => selectClaimPhotos(item.id, event.target.files, item.insuranceClaim?.photos.length ?? 0)} disabled={readOnly || busyId === item.id || (item.insuranceClaim?.photos.length ?? 0) >= MAX_PHOTOS} /><span className="hint">{(item.insuranceClaim?.photos.length ?? 0) + (claimPhotoFiles[item.id]?.length ?? 0)} de {MAX_PHOTOS} fotos</span></label>
