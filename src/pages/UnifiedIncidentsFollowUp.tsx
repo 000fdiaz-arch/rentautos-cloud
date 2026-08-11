@@ -558,6 +558,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
             ? trialDaysRemaining === 1 ? "Juicio mañana" : `Juicio en ${trialDaysRemaining} días`
             : "";
           const topAlertIsTrialCountdown = topAlert?.id === `${incident.id}:trial-upcoming`;
+          const judicialFinalized = incident.collision?.status === "ABSUELTO" || incident.collision?.status === "CULPABLE";
           return <article key={incident.id} className={`unified-incident-card status-${claimState}${expanded ? " expanded" : ""}`}>
             <div className="unified-incident-row">
               <div className="unified-incident-summary" onClick={() => setExpandedId(expanded ? null : incident.id)}>
@@ -585,7 +586,8 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
                 <button type="button" className="workflow-claim-chevron" aria-label={expanded ? "Contraer expediente" : "Expandir expediente"} aria-expanded={expanded} onClick={(event) => { event.stopPropagation(); setExpandedId(expanded ? null : incident.id); }}>{expanded ? "−" : "+"}</button>
               </div>
               <div className="unified-incident-quick-actions">
-                {incident.collision && <button type="button" className="button" onClick={() => onOpen("judicial", { id: incident.collision!.id, search: incident.unit })}>Gestionar juicio</button>}
+                {judicialFinalized && <span className={`unified-incident-judicial-status status-${incident.collision!.status === "ABSUELTO" ? "absolved" : "guilty"}`}>Juicio: {incident.collision!.status}</span>}
+                {incident.collision && <button type="button" className="button" onClick={() => onOpen("judicial", { id: incident.collision!.id, search: incident.unit })}>{judicialFinalized ? "Ver juicio" : "Gestionar juicio"}</button>}
                 {incident.claim && <button type="button" className="button primary" onClick={() => onOpen("insurance", { id: incident.claim!.id, search: incident.unit })}>Gestionar reclamo</button>}
                 {incident.collision?.status === "ABSUELTO" && !incident.claim && canViewInsurance && <button type="button" className="button primary" onClick={() => onOpen("judicial", { id: incident.collision!.id, search: incident.unit })}>Iniciar reclamo</button>}
               </div>
