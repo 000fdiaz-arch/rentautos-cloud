@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   DuplicateInsuranceClaimNumberError,
+  loadCollisionCases,
   loadInsuranceInsurers,
   removeInsuranceDamagePhotos,
   saveCollisionCase,
@@ -53,12 +54,19 @@ const MAX_PHOTO_SIZE = 10 * 1024 * 1024;
 
 function normalizeUnit(value: string): string { return value.trim().toUpperCase(); }
 function normalizeInsurer(value: string): string { return value.trim().toUpperCase(); }
+function normalizeCourt(value: string): string { return value.trim().toUpperCase(); }
+
+function courtsFromCases(cases: CollisionCaseRecord[]): string[] {
+  return [...new Set(cases.map((item) => normalizeCourt(item.court)).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, "es", { numeric: true }));
+}
 
 export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJudicial, canEditJudicial, canViewInsurance, canEditInsurance, onSaved }: Props) {
   const [destination, setDestination] = useState<IncidentDestination | "">("");
   const [form, setForm] = useState<IntakeForm>(EMPTY_FORM);
   const [driverEditedManually, setDriverEditedManually] = useState(false);
   const [insurers, setInsurers] = useState<string[]>([]);
+  const [courts, setCourts] = useState<string[]>([]);
   const [damagePhotoFiles, setDamagePhotoFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -84,6 +92,15 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
       .catch((error) => { console.error("No se pudieron cargar las aseguradoras.", error); });
     return () => { cancelled = true; };
   }, [canViewInsurance, dataOwnerUserId]);
+
+  useEffect(() => {
+    if (!dataOwnerUserId || !canViewJudicial) return;
+    let cancelled = false;
+    loadCollisionCases(dataOwnerUserId)
+      .then((items) => { if (!cancelled) setCourts(courtsFromCases(items)); })
+      .catch((error) => { console.error("No se pudieron cargar los juzgados.", error); });
+    return () => { cancelled = true; };
+  }, [canViewJudicial, dataOwnerUserId]);
 
   useEffect(() => {
     const unitId = normalizeUnit(form.unit);
@@ -129,6 +146,14 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     } catch (error) { console.error("No se pudo guardar la aseguradora.", error); setMessage("No se pudo guardar la aseguradora."); }
   }
 
+  function addCourt(): void {
+    if (readOnly) return;
+    const court = normalizeCourt(window.prompt("Nombre del nuevo juzgado") ?? "");
+    if (!court) return;
+    setCourts((current) => [...new Set([...current, court])].sort((a, b) => a.localeCompare(b, "es", { numeric: true })));
+    patchForm({ court });
+  }
+
   function validateCommonFields(): boolean {
     if (!form.incidentDate || !form.unit.trim() || !form.driver.trim() || !form.plate.trim() || !form.vehicleDamage.trim()) {
       setMessage("Completa fecha del incidente, unidad, chofer, placa y daños del auto.");
@@ -151,7 +176,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
       if (destination === "judicial") {
         const collisionCase: CollisionCaseRecord = {
           id: `collision-trial-${Date.now()}-${crypto.randomUUID()}`, ...common,
-          trialDate: form.trialDate, ticketStub: form.ticketStub.trim(), placeTime: form.placeTime.trim(), court: form.court.trim(), collisionAndRun: form.collisionAndRun,
+          trialDate: form.trialDate, ticketStub: form.ticketStub.trim(), placeTime: form.placeTime.trim(), court: normalizeCourt(form.court), collisionAndRun: form.collisionAndRun,
           status: "Pendiente", trialDateHistory: [], insuranceClaim: null, expenseInvoice: null, createdAt: now, updatedAt: now
         };
         await saveCollisionCase(dataOwnerUserId, collisionCase);
@@ -202,9 +227,9 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           {destination === "judicial" ? <>
             <label>Fecha de juicio<input type="date" value={form.trialDate} onChange={(event) => patchForm({ trialDate: event.target.value })} disabled={readOnly} /></label>
             <label>Colilla<input value={form.ticketStub} placeholder="Número o referencia" onChange={(event) => patchForm({ ticketStub: event.target.value })} disabled={readOnly} /></label>
-            <label>Lugar / Hora<input value={form.placeTime} placeholder="Lugar y hora del juicio" onChange={(event) => patchForm({ placeTime: event.target.value })} disabled={readOnly} /></label>
-            <label>Juzgado<input value={form.court} placeholder="Nombre o número del juzgado" onChange={(event) => patchForm({ court: event.target.value })} disabled={readOnly} /></label>
-            <label className="collision-runaway-option"><input type="checkbox" checked={form.collisionAndRun} onChange={(event) => patchForm({ collisionAndRun: event.target.checked })} disabled={readOnly} /><span><strong>Colisión y fuga</strong><small>La otra persona abandonó el lugar.</small></span></label>
+            <label>Hora<input type="time" value={form.placeTime} onChange={(event) => patchForm({ placeTime: event.target.value })} disabled={readOnly} /></label>
+            <label>Juzgado<select value={form.court} onChange={(event) => event.target.value === "__new__" ? addCourt() : patchForm({ court: event.target.value })} disabled={readOnly}><option value="">Seleccionar juzgado</option>{courts.map((court) => <option key={court}>{court}</option>)}<option value="__new__">+ Nuevo juzgado</option></select></label>
+            <label className="collision-runaway-option"><input type="checkbox" checked={form.collisionAndRun} onChange={(event) => patchForm({ collisionAndRun: event.target.checked })} disabled={readOnly} /><span><strong>Colisión y fuga</strong><small>El conductor abandonó el lugar.</small></span></label>
           </> : <>
             <div className={`workflow-claim-number-question${!form.hasClaimNumber ? " is-pending" : ""}`}><div><strong>¿Tienes el número de reclamo?</strong><small>Define si el reclamo inicia activo o pendiente.</small></div><select value={form.hasClaimNumber} onChange={(event) => { const hasClaimNumber = event.target.value as IntakeForm["hasClaimNumber"]; patchForm({ hasClaimNumber, ...(hasClaimNumber !== "yes" ? { claimNumber: "" } : {}) }); }} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">Sí, tengo el número</option><option value="no">No, todavía no lo tengo</option></select></div>
             {form.hasClaimNumber === "yes" && <label className="workflow-claim-number-input">Número de reclamo<input value={form.claimNumber} placeholder="Escribe el número" onChange={(event) => patchForm({ claimNumber: event.target.value })} disabled={readOnly} /></label>}

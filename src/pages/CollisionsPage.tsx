@@ -66,6 +66,11 @@ const USD_FORMATTER = new Intl.NumberFormat("es-PA", { style: "currency", curren
 const CURRENT_DATE_FORMATTER = new Intl.DateTimeFormat("es-PA", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
 
 function normalizeUnit(value: string): string { return value.trim().toUpperCase(); }
+function normalizeCourt(value: string): string { return value.trim().toUpperCase(); }
+function courtsFromCases(cases: CollisionCaseRecord[]): string[] {
+  return [...new Set(cases.map((item) => normalizeCourt(item.court)).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, "es", { numeric: true }));
+}
 function localDateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -90,6 +95,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   const [activeTab, setActiveTab] = useState<"form" | "agenda">(hideCreateForm ? "agenda" : "form");
   const [form, setForm] = useState<TrialForm>(EMPTY_FORM);
   const [cases, setCases] = useState<CollisionCaseRecord[]>([]);
+  const [courts, setCourts] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState("");
@@ -147,6 +153,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       .then((nextCases) => {
         if (cancelled) return;
         setCases(nextCases);
+        setCourts(courtsFromCases(nextCases));
         setClaimDrafts(Object.fromEntries(nextCases.map((item) => [item.id, item.insuranceClaim
           ? { insurer: item.insuranceClaim.insurer, claimNumber: item.insuranceClaim.claimNumber, amount: item.insuranceClaim.amount }
           : EMPTY_CLAIM])));
@@ -176,6 +183,13 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     setDriverEditedManually(false);
     patchForm({ unit, driver: fleetUnit?.client_name ?? client?.name ?? "", plate: fleetUnit?.plate ?? "" });
   }
+  function addCourt(): void {
+    if (readOnly) return;
+    const court = normalizeCourt(window.prompt("Nombre del nuevo juzgado") ?? "");
+    if (!court) return;
+    setCourts((current) => [...new Set([...current, court])].sort((a, b) => a.localeCompare(b, "es", { numeric: true })));
+    patchForm({ court });
+  }
   function initializeCaseDrafts(item: CollisionCaseRecord): void {
     setExpenseLabels((current) => ({ ...current, [item.id]: current[item.id] ?? `GASTOS DE JUICIO - ${item.unit}` }));
     setClaimDrafts((current) => ({ ...current, [item.id]: current[item.id] ?? (item.insuranceClaim
@@ -199,7 +213,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       vehicleDamage: form.vehicleDamage.trim(),
       ticketStub: form.ticketStub.trim(),
       placeTime: form.placeTime.trim(),
-      court: form.court.trim(),
+      court: normalizeCourt(form.court),
       collisionAndRun: form.collisionAndRun,
       status: "Pendiente",
       trialDateHistory: [],
@@ -414,10 +428,10 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
           <label>Placa<input value={form.plate} placeholder="Placa del auto" onChange={(event) => patchForm({ plate: event.target.value })} disabled={readOnly} /></label>
           <label>Fecha de juicio<input type="date" value={form.trialDate} onChange={(event) => patchForm({ trialDate: event.target.value })} disabled={readOnly} /></label>
           <label>Colilla<input value={form.ticketStub} placeholder="Número o referencia de colilla" onChange={(event) => patchForm({ ticketStub: event.target.value })} disabled={readOnly} /></label>
-          <label>Lugar / Hora<input value={form.placeTime} placeholder="Lugar y hora del juicio" onChange={(event) => patchForm({ placeTime: event.target.value })} disabled={readOnly} /></label>
-          <label>Juzgado<input value={form.court} placeholder="Nombre o número del juzgado" onChange={(event) => patchForm({ court: event.target.value })} disabled={readOnly} /></label>
+          <label>Hora<input type="time" value={form.placeTime} onChange={(event) => patchForm({ placeTime: event.target.value })} disabled={readOnly} /></label>
+          <label>Juzgado<select value={form.court} onChange={(event) => event.target.value === "__new__" ? addCourt() : patchForm({ court: event.target.value })} disabled={readOnly}><option value="">Seleccionar juzgado</option>{courts.map((court) => <option key={court}>{court}</option>)}<option value="__new__">+ Nuevo juzgado</option></select></label>
           <label className="workflow-form-notes">Daños del auto<textarea value={form.vehicleDamage} placeholder="Describe los daños del auto" onChange={(event) => patchForm({ vehicleDamage: event.target.value })} disabled={readOnly} /></label>
-          <label className="collision-runaway-option"><input type="checkbox" checked={form.collisionAndRun} onChange={(event) => patchForm({ collisionAndRun: event.target.checked })} disabled={readOnly} /><span><strong>Colisión y fuga</strong><small>Marca esta opción cuando la otra persona abandonó el lugar.</small></span></label>
+          <label className="collision-runaway-option"><input type="checkbox" checked={form.collisionAndRun} onChange={(event) => patchForm({ collisionAndRun: event.target.checked })} disabled={readOnly} /><span><strong>Colisión y fuga</strong><small>El conductor abandonó el lugar.</small></span></label>
         </div>
       </form>}
 
@@ -446,7 +460,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                   <span className="workflow-claim-identity"><strong>{item.unit || "Sin unidad"} · {item.driver || "Sin chofer"}</strong><small>{item.plate || "Sin placa"}</small></span>
                   <span className="workflow-claim-reference"><strong>{item.court || "Sin juzgado"}</strong><small>Colilla: {item.ticketStub || "-"}</small></span>
                   <span className="workflow-claim-summary-value"><small>Fecha de juicio</small><strong>{item.trialDate || "Sin fecha"}</strong></span>
-                  <span className="workflow-claim-summary-value"><small>Lugar / Hora</small><strong>{item.placeTime || "-"}</strong></span>
+                  <span className="workflow-claim-summary-value"><small>Hora</small><strong>{item.placeTime || "-"}</strong></span>
                   <span className="workflow-claim-indicators"><span className={item.status === "Ganó" ? "complete" : item.status === "Perdió" || requiresOutcome ? "missing" : "pending"}>{item.status}</span>{requiresOutcome && <span className="missing">Resultado requerido</span>}{item.collisionAndRun && <span className="declined">Colisión y fuga</span>}</span>
                   <span className="workflow-claim-chevron" aria-hidden="true">{expanded ? "−" : "+"}</span>
                 </button>
