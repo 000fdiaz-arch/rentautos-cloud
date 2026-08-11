@@ -94,14 +94,24 @@ export default function DailyIncomePanel({
   const [shareStatus, setShareStatus] = useState("");
   const shareReportRef = useRef<HTMLDivElement>(null);
 
-  const rawGroups = useMemo(() => buildDailyIncomeGroups(payments, dateKey), [payments, dateKey]);
-  const destinationOptions = useMemo(() => rawGroups.map((group) => ({ key: group.key, label: group.label })), [rawGroups]);
+  const rawGroups = useMemo(() => buildDailyIncomeGroups(payments, dateKey, bankRules), [payments, dateKey, bankRules]);
+  const destinationOptions = useMemo(() => {
+    const bankGroups = rawGroups.filter((group) => group.key.startsWith("bank:"));
+    return [
+      ...(bankGroups.length > 0 ? [{ key: "bank:all", label: "Cuenta bancaria (todas)" }] : []),
+      ...bankGroups.map((group) => ({ key: group.key, label: `↳ ${group.label}` })),
+      ...rawGroups.filter((group) => !group.key.startsWith("bank:")).map((group) => ({ key: group.key, label: group.label }))
+    ];
+  }, [rawGroups]);
   const filteredPayments = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
     return payments.filter((payment) => {
       const status = getDailyIncomeStatus(payment);
       if (methodFilter !== "all" && payment.paymentMethod !== methodFilter) return false;
-      if (destinationFilter !== "all" && getDailyIncomeDestination(payment).key !== destinationFilter) return false;
+      const destination = getDailyIncomeDestination(payment, bankRules);
+      const destinationKey = destination.key;
+      if (destinationFilter === "bank:all" && !destinationKey.startsWith("bank:")) return false;
+      if (destinationFilter !== "all" && destinationFilter !== "bank:all" && destinationKey !== destinationFilter) return false;
       if (statusFilter !== "all" && status !== statusFilter) return false;
       if (deliveryFilter !== "all") {
         if (status === "non_cash") return false;
@@ -115,12 +125,18 @@ export default function DailyIncomePanel({
         payment.reference ?? "",
         payment.incomeComment ?? "",
         payment.bankAccountNumber ?? "",
+        payment.bankGroupCode ?? "",
+        destination.label,
         payment.paymentMethod
       ].some((value) => value.toLowerCase().includes(normalizedSearch))) return false;
       return true;
     });
-  }, [payments, search, methodFilter, destinationFilter, statusFilter, deliveryFilter]);
-  const groups = useMemo(() => buildDailyIncomeGroups(filteredPayments, dateKey), [filteredPayments, dateKey]);
+  }, [payments, bankRules, search, methodFilter, destinationFilter, statusFilter, deliveryFilter]);
+  const groups = useMemo(() => buildDailyIncomeGroups(filteredPayments, dateKey, bankRules), [filteredPayments, dateKey, bankRules]);
+  const bankGroups = groups.filter((group) => group.key.startsWith("bank:"));
+  const nonBankGroups = groups.filter((group) => !group.key.startsWith("bank:"));
+  const bankTotal = bankGroups.reduce((sum, group) => sum + group.total, 0);
+  const bankPaymentCount = bankGroups.reduce((sum, group) => sum + group.payments.length, 0);
   const pendingDeliveries = useMemo(() => buildPendingDeliveryRows(filteredPayments, dateKey), [filteredPayments, dateKey]);
   const pendingDeliveriesTotal = pendingDeliveries.reduce((sum, payment) => sum + payment.amountReceived, 0);
   const deliveredFromPrevious = useMemo(() => buildDeliveredFromPreviousRows(filteredPayments, dateKey), [filteredPayments, dateKey]);
@@ -137,10 +153,24 @@ export default function DailyIncomePanel({
     if (shareScope === "pending") return payments.filter((payment) => payment.moneyDelivered === false || getDailyIncomeStatus(payment) === "pending");
     return payments;
   }, [filteredPayments, payments, shareScope]);
-  const shareGroups = useMemo(() => buildDailyIncomeGroups(shareSourcePayments, dateKey), [shareSourcePayments, dateKey]);
+  const shareGroups = useMemo(() => buildDailyIncomeGroups(shareSourcePayments, dateKey, bankRules), [shareSourcePayments, dateKey, bankRules]);
   const sharePendingDeliveries = useMemo(() => buildPendingDeliveryRows(shareSourcePayments, dateKey), [shareSourcePayments, dateKey]);
   const shareDeliveredFromPrevious = useMemo(() => buildDeliveredFromPreviousRows(shareSourcePayments, dateKey), [shareSourcePayments, dateKey]);
   const shareReceivedGroups = shareGroups.filter((group) => group.status === "received");
+  const shareReceivedBankGroups = shareReceivedGroups.filter((group) => group.key.startsWith("bank:"));
+  const shareReceivedNonBankGroups = shareReceivedGroups.filter((group) => !group.key.startsWith("bank:"));
+  const shareBankPayments = shareReceivedBankGroups.flatMap((group) => group.payments);
+  const shareBankTotal = shareReceivedBankGroups.reduce((sum, group) => sum + group.total, 0);
+  const shareConsolidatedGroups = [
+    ...(shareReceivedBankGroups.length > 0 ? [{
+      key: "bank:consolidated",
+      label: "Cuenta bancaria",
+      status: "received" as const,
+      payments: shareBankPayments,
+      total: shareBankTotal
+    }] : []),
+    ...shareReceivedNonBankGroups
+  ];
   const shareReceivedTotal = shareReceivedGroups.reduce((sum, group) => sum + group.total, 0);
   const shareCashPendingToday = shareGroups.filter((group) => group.key === "cash-pending").reduce((sum, group) => sum + group.total, 0);
   const shareCashPendingPrevious = sharePendingDeliveries.filter((payment) => payment.paymentMethod === "Efectivo").reduce((sum, payment) => sum + payment.amountReceived, 0);
@@ -163,12 +193,13 @@ export default function DailyIncomePanel({
     return [...new Map(rows.map((payment) => [payment.id, payment])).values()];
   }, [shareGroups, sharePendingDeliveries, shareDeliveredFromPrevious]);
   const shareComments = shareRelevantPayments.filter((payment) => payment.incomeComment);
-  const shareSummaryDestinations = shareReceivedGroups.slice(0, 7);
-  const shareAdditionalDestinationPages = chunkItems(shareReceivedGroups.slice(7), 10);
+  const shareSummaryDestinations = shareConsolidatedGroups.slice(0, 7);
+  const shareAdditionalDestinationPages = chunkItems(shareConsolidatedGroups.slice(7), 10);
+  const shareBankDetailPages = chunkItems(shareReceivedBankGroups, 10);
   const shareCashDeliveredPages = chunkItems(shareCashDeliveredRows, 8);
   const shareCashPendingPages = chunkItems(shareCashPendingRows, 8);
   const shareCommentPages = chunkItems(shareComments, 6);
-  const sharePageCount = 1 + shareAdditionalDestinationPages.length + shareCashDeliveredPages.length + shareCashPendingPages.length + shareCommentPages.length;
+  const sharePageCount = 1 + shareAdditionalDestinationPages.length + shareBankDetailPages.length + shareCashDeliveredPages.length + shareCashPendingPages.length + shareCommentPages.length;
   const shareScopeLabel: Record<ShareScope, string> = {
     full: "Reporte completo",
     filtered: "Filtros actuales",
@@ -195,7 +226,11 @@ export default function DailyIncomePanel({
       "",
       `*Total recibido:* ${formatCurrency(shareReceivedTotal)}`
     ];
-    for (const group of shareReceivedGroups) lines.push(`• ${group.label}: ${formatCurrency(group.total)} (${group.payments.length})`);
+    for (const group of shareConsolidatedGroups) lines.push(`• ${group.label}: ${formatCurrency(group.total)} (${group.payments.length})`);
+    if (shareReceivedBankGroups.length > 0) {
+      lines.push("", "*Detalle bancario:*");
+      for (const group of shareReceivedBankGroups) lines.push(`• ${group.label}: ${formatCurrency(group.total)} (${group.payments.length})`);
+    }
     if (sharePreviousDeliveryTotal > 0) lines.push(`• Entregado hoy de días anteriores: ${formatCurrency(sharePreviousDeliveryTotal)}`);
     if (shareCashDeliveredRows.length > 0) {
       lines.push("", "*Detalle de efectivo entregado:*");
@@ -379,13 +414,33 @@ export default function DailyIncomePanel({
     setEditingPayment(null);
   }
 
+  function renderPaymentTable(rows: Payment[]) {
+    return <div className="income-day-table-wrap">
+      <table className="income-day-table">
+        <thead><tr><th>Hora</th><th>Unidad / cliente</th><th>Recibo</th><th>Forma</th><th>Referencia</th><th>Comentario</th><th>Dinero entregado</th><th>Monto</th><th /></tr></thead>
+        <tbody>{rows.map((payment) => <tr key={payment.id}>
+          <td>{formatTime(payment.createdAt)}</td>
+          <td><strong>{payment.clientUnit}</strong><small>{payment.clientName}</small></td>
+          <td>{payment.receiptNumber}</td>
+          <td>{payment.paymentMethod}{payment.bankAccountNumber && <small>{maskAccountNumber(payment.bankAccountNumber)}</small>}</td>
+          <td className="income-day-reference">{payment.reference || "—"}</td>
+          <td>{payment.incomeComment || "—"}{payment.incomeComment && <small>{formatCommentDate(payment)}</small>}{getDailyIncomeStatus(payment) !== "non_cash" && <small className="income-delivery-context">{getDeliveryContext(payment)}</small>}{(payment.incomeEdits?.length ?? 0) > 0 && <small>Última edición: {payment.incomeEdits?.[payment.incomeEdits.length - 1]?.actor}</small>}</td>
+          <td>{getDailyIncomeStatus(payment) === "non_cash" ? <span className="income-delivery-badge">No aplica</span> : readOnly ? <span className={`income-delivery-badge ${isMoneyDelivered(payment) ? "income-delivery-badge--yes" : "income-delivery-badge--no"}`}>{isMoneyDelivered(payment) ? "Sí" : "No"}</span> : <select className={`income-delivery-select ${isMoneyDelivered(payment) ? "income-delivery-select--yes" : "income-delivery-select--no"}`} aria-label={`Dinero entregado ${payment.receiptNumber}`} value={isMoneyDelivered(payment) ? "yes" : "no"} onChange={(event) => changeMoneyDelivered(payment, event.target.value === "yes")}><option value="yes">Sí</option><option value="no">No</option></select>}</td>
+          <td><strong>{formatCurrency(payment.amountReceived)}</strong></td>
+          <td>{!readOnly && <button type="button" className="button ghost small" onClick={() => openEdit(payment)}>Editar</button>}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>;
+  }
+
   async function exportExcel(): Promise<void> {
-    const rows = groups.flatMap((group) => group.payments.map((payment) => ({
+    const rows = [...bankGroups, ...nonBankGroups].flatMap((group) => group.payments.map((payment) => ({
       Fecha: getIncomeDate(payment),
       "Fecha en que suma": getDailyIncomeReportDate(payment),
       Hora: formatTime(payment.createdAt),
       Estado: getDailyIncomeStatus(payment) === "received" ? "Recibido" : getDailyIncomeStatus(payment) === "pending" ? "Pendiente" : "Sin entrada de dinero",
-      Destino: group.label,
+      Destino: group.key.startsWith("bank:") ? "Cuenta bancaria" : group.label,
+      "Detalle del destino": group.label,
       Cuenta: payment.bankAccountNumber ?? "",
       Forma: payment.paymentMethod,
       Recibo: payment.receiptNumber,
@@ -404,7 +459,11 @@ export default function DailyIncomePanel({
     const summary = xlsx.utils.aoa_to_sheet([
       ["Ingresos del día", dateKey],
       ["Destino", "Estado", "Pagos", "Total"],
-      ...groups.map((group) => [group.label, group.status, group.payments.length, group.total]),
+      ...(bankGroups.length > 0 ? [
+        ["Cuenta bancaria", "received", bankPaymentCount, bankTotal],
+        ...bankGroups.map((group) => [`  ${group.label}`, group.status, group.payments.length, group.total])
+      ] : []),
+      ...nonBankGroups.map((group) => [group.label, group.status, group.payments.length, group.total]),
       [],
       ["Total recibido", receivedTotal],
       ["Pendiente de acreditación", pendingTotal],
@@ -488,8 +547,31 @@ export default function DailyIncomePanel({
 
       {groups.length === 0 && <div className="empty-state"><p>No hay movimientos para esta fecha.</p></div>}
       <div className="income-day-groups">
-        {groups.map((group) => {
-          const rows = group.payments;
+        {bankGroups.length > 0 && (() => {
+          const expanded = filtersActive || expandedKeys.has("bank:consolidated");
+          return <article className="income-day-group income-day-group--received income-day-bank-consolidated">
+            <button type="button" className="income-day-group-summary" onClick={() => toggleGroup("bank:consolidated")} aria-expanded={expanded}>
+              <span><strong>Cuenta bancaria</strong><small>{bankPaymentCount} pago(s) en {bankGroups.length} cuenta(s)</small></span>
+              <strong>{formatCurrency(bankTotal)}</strong>
+              <span aria-hidden="true">{expanded ? "▴" : "▾"}</span>
+            </button>
+            {expanded && <div className="income-day-bank-accounts">
+              {bankGroups.map((group) => {
+                const accountExpanded = filtersActive || expandedKeys.has(group.key);
+                const rule = group.accountNumber ? accountOptions.find((item) => item.accountNumber === group.accountNumber) : undefined;
+                return <section key={group.key} className="income-day-bank-account">
+                  <button type="button" className="income-day-bank-account-summary" onClick={() => toggleGroup(group.key)} aria-expanded={accountExpanded}>
+                    <span><strong>{group.label}</strong><small>{rule?.groupCode ? `Grupo ${rule.groupCode} · ` : ""}{group.payments.length} pago(s)</small></span>
+                    <strong>{formatCurrency(group.total)}</strong>
+                    <span aria-hidden="true">{accountExpanded ? "▴" : "▾"}</span>
+                  </button>
+                  {accountExpanded && renderPaymentTable(group.payments)}
+                </section>;
+              })}
+            </div>}
+          </article>;
+        })()}
+        {nonBankGroups.map((group) => {
           const expanded = filtersActive || expandedKeys.has(group.key);
           return (
             <article key={group.key} className={`income-day-group income-day-group--${group.status}`}>
@@ -498,24 +580,7 @@ export default function DailyIncomePanel({
                 <strong>{formatCurrency(group.total)}</strong>
                 <span aria-hidden="true">{expanded ? "▴" : "▾"}</span>
               </button>
-              {expanded && (
-                <div className="income-day-table-wrap">
-                  <table className="income-day-table">
-                    <thead><tr><th>Hora</th><th>Unidad / cliente</th><th>Recibo</th><th>Forma</th><th>Referencia</th><th>Comentario</th><th>Dinero entregado</th><th>Monto</th><th /></tr></thead>
-                    <tbody>{rows.map((payment) => <tr key={payment.id}>
-                      <td>{formatTime(payment.createdAt)}</td>
-                      <td><strong>{payment.clientUnit}</strong><small>{payment.clientName}</small></td>
-                      <td>{payment.receiptNumber}</td>
-                      <td>{payment.paymentMethod}{payment.bankAccountNumber && <small>{maskAccountNumber(payment.bankAccountNumber)}</small>}</td>
-                      <td className="income-day-reference">{payment.reference || "—"}</td>
-                      <td>{payment.incomeComment || "—"}{payment.incomeComment && <small>{formatCommentDate(payment)}</small>}{getDailyIncomeStatus(payment) !== "non_cash" && <small className="income-delivery-context">{getDeliveryContext(payment)}</small>}{(payment.incomeEdits?.length ?? 0) > 0 && <small>Última edición: {payment.incomeEdits?.[payment.incomeEdits.length - 1]?.actor}</small>}</td>
-                      <td>{getDailyIncomeStatus(payment) === "non_cash" ? <span className="income-delivery-badge">No aplica</span> : readOnly ? <span className={`income-delivery-badge ${isMoneyDelivered(payment) ? "income-delivery-badge--yes" : "income-delivery-badge--no"}`}>{isMoneyDelivered(payment) ? "Sí" : "No"}</span> : <select className={`income-delivery-select ${isMoneyDelivered(payment) ? "income-delivery-select--yes" : "income-delivery-select--no"}`} aria-label={`Dinero entregado ${payment.receiptNumber}`} value={isMoneyDelivered(payment) ? "yes" : "no"} onChange={(event) => changeMoneyDelivered(payment, event.target.value === "yes")}><option value="yes">Sí</option><option value="no">No</option></select>}</td>
-                      <td><strong>{formatCurrency(payment.amountReceived)}</strong></td>
-                      <td>{!readOnly && <button type="button" className="button ghost small" onClick={() => openEdit(payment)}>Editar</button>}</td>
-                    </tr>)}</tbody>
-                  </table>
-                </div>
-              )}
+              {expanded && renderPaymentTable(group.payments)}
             </article>
           );
         })}
@@ -529,7 +594,7 @@ export default function DailyIncomePanel({
               <select value={editAccount} onChange={(event) => setEditAccount(event.target.value)}>
                 <option value="">Cuenta no identificada</option>
                 {editAccount && !accountOptions.some((rule) => rule.accountNumber === editAccount) && <option value={editAccount}>Actual · {maskAccountNumber(editAccount)}</option>}
-                {accountOptions.map((rule) => <option key={rule.id} value={rule.accountNumber}>{rule.groupCode} · {maskAccountNumber(rule.accountNumber)}</option>)}
+                {accountOptions.map((rule) => <option key={rule.id} value={rule.accountNumber}>{rule.accountName || "Cuenta bancaria"} · {maskAccountNumber(rule.accountNumber)} · Grupo {rule.groupCode}</option>)}
               </select>
             </label> : null}
             <label>Comentario<textarea rows={3} value={editComment} onChange={(event) => setEditComment(event.target.value)} placeholder="Comentario opcional" /></label>
@@ -553,7 +618,7 @@ export default function DailyIncomePanel({
                 <section className="income-whatsapp-breakdown">
                   <h3>Detalle por destino</h3>
                   {shareReceivedGroups.length === 0 ? <p>Sin ingresos recibidos.</p> : shareSummaryDestinations.map((group) => <div key={`share-${group.key}`}><span>{group.label}<small>{group.payments.length} pago(s)</small></span><strong>{formatCurrency(group.total)}</strong></div>)}
-                  {shareReceivedGroups.length > 7 && <p className="income-whatsapp-continued">Continúa en la siguiente página…</p>}
+                  {shareConsolidatedGroups.length > 7 && <p className="income-whatsapp-continued">Continúa en la siguiente página…</p>}
                 </section>
                 <section className="income-whatsapp-alerts">
                   <div><span>Efectivo pendiente</span><strong>{formatCurrency(shareCashPendingTotal)}</strong></div>
@@ -569,8 +634,18 @@ export default function DailyIncomePanel({
                 <footer><span>Reporte de ingresos · {shareScopeLabel[shareScope]}</span><small>Página {pageIndex + 2} de {sharePageCount}</small></footer>
               </article>)}
 
-              {shareCashDeliveredPages.map((cashPage, pageIndex) => {
+              {shareBankDetailPages.map((bankPage, pageIndex) => {
                 const pageNumber = 2 + shareAdditionalDestinationPages.length + pageIndex;
+                return <article className="income-whatsapp-card income-whatsapp-page" key={`share-bank-page-${pageIndex}`}>
+                  <header><span>RENTAUTOS</span><strong>DETALLE BANCARIO</strong><small>{formatMoneyDay(dateKey)} · por cuenta</small></header>
+                  <section className="income-whatsapp-total"><span>Total cuenta bancaria</span><strong>{formatCurrency(shareBankTotal)}</strong><small>{shareBankPayments.length} movimiento(s)</small></section>
+                  <section className="income-whatsapp-breakdown income-whatsapp-page-content">{bankPage.map((group) => <div key={`share-bank-${group.key}`}><span>{group.label}<small>{group.payments.length} pago(s)</small></span><strong>{formatCurrency(group.total)}</strong></div>)}</section>
+                  <footer><span>Cuentas bancarias enmascaradas</span><small>Página {pageNumber} de {sharePageCount}</small></footer>
+                </article>;
+              })}
+
+              {shareCashDeliveredPages.map((cashPage, pageIndex) => {
+                const pageNumber = 2 + shareAdditionalDestinationPages.length + shareBankDetailPages.length + pageIndex;
                 return <article className="income-whatsapp-card income-whatsapp-page" key={`share-delivered-page-${pageIndex}`}>
                   <header><span>RENTAUTOS</span><strong>EFECTIVO ENTREGADO</strong><small>{formatMoneyDay(dateKey)} · detalle</small></header>
                   <section className="income-whatsapp-cash-detail income-whatsapp-page-content"><div className="income-whatsapp-cash-block income-whatsapp-cash-block--delivered"><h4>Total entregado · {formatCurrency(shareCashDeliveredRows.reduce((sum, payment) => sum + payment.amountReceived, 0))}</h4>{cashPage.map((payment) => <p key={`share-cash-delivered-${payment.id}`}><span><strong>{payment.clientUnit}</strong><small>{getDeliveryContext(payment)}</small></span><strong>{formatCurrency(payment.amountReceived)}</strong></p>)}</div></section>
@@ -579,7 +654,7 @@ export default function DailyIncomePanel({
               })}
 
               {shareCashPendingPages.map((cashPage, pageIndex) => {
-                const pageNumber = 2 + shareAdditionalDestinationPages.length + shareCashDeliveredPages.length + pageIndex;
+                const pageNumber = 2 + shareAdditionalDestinationPages.length + shareBankDetailPages.length + shareCashDeliveredPages.length + pageIndex;
                 return <article className="income-whatsapp-card income-whatsapp-page" key={`share-pending-page-${pageIndex}`}>
                   <header><span>RENTAUTOS</span><strong>EFECTIVO PENDIENTE</strong><small>{formatMoneyDay(dateKey)} · detalle</small></header>
                   <section className="income-whatsapp-cash-detail income-whatsapp-page-content"><div className="income-whatsapp-cash-block income-whatsapp-cash-block--pending"><h4>Total pendiente · {formatCurrency(shareCashPendingRows.reduce((sum, payment) => sum + payment.amountReceived, 0))}</h4>{cashPage.map((payment) => <p key={`share-cash-pending-${payment.id}`}><span><strong>{payment.clientUnit}</strong><small>Dinero del {formatMoneyDay(getIncomeDate(payment))}</small></span><strong>{formatCurrency(payment.amountReceived)}</strong></p>)}</div></section>
@@ -588,7 +663,7 @@ export default function DailyIncomePanel({
               })}
 
               {shareCommentPages.map((commentPage, pageIndex) => {
-                const pageNumber = 2 + shareAdditionalDestinationPages.length + shareCashDeliveredPages.length + shareCashPendingPages.length + pageIndex;
+                const pageNumber = 2 + shareAdditionalDestinationPages.length + shareBankDetailPages.length + shareCashDeliveredPages.length + shareCashPendingPages.length + pageIndex;
                 return <article className="income-whatsapp-card income-whatsapp-page" key={`share-comments-page-${pageIndex}`}>
                   <header><span>RENTAUTOS</span><strong>COMENTARIOS IMPORTANTES</strong><small>{formatMoneyDay(dateKey)} · observaciones</small></header>
                   <section className="income-whatsapp-comments income-whatsapp-page-content">{commentPage.map((payment) => <p key={`share-comment-${payment.id}`}><strong>{payment.clientUnit}:</strong> {payment.incomeComment}</p>)}</section>

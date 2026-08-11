@@ -30,11 +30,13 @@ const fs = require("node:fs");
     { ...basePayment, id: "income-cash", receiptNumber: "REC-1001", paymentMethod: "Efectivo", amountReceived: 100 },
     { ...basePayment, id: "income-bank", receiptNumber: "REC-1002", paymentMethod: "ACH Express", amountReceived: 200, bankAccountNumber: "3380008048", bankGroupCode: "OPERACION", fundsReceivedDate: dateApplied, reference: "REF:BANCO-1" },
     { ...basePayment, id: "income-card", receiptNumber: "REC-1003", paymentMethod: "Tarjeta", amountReceived: 80, reference: "TARJETA-PENDIENTE-CONCILIACION" },
-    { ...basePayment, id: "income-discount", receiptNumber: "REC-1004", paymentMethod: "Descuento", amountReceived: 50 }
+    { ...basePayment, id: "income-discount", receiptNumber: "REC-1004", paymentMethod: "Descuento", amountReceived: 50 },
+    { ...basePayment, id: "income-card-received", receiptNumber: "REC-1005", paymentMethod: "Tarjeta", amountReceived: 40, fundsReceivedDate: dateApplied, bankAccountNumber: "3380008048" },
+    { ...basePayment, id: "income-yappy", receiptNumber: "REC-1006", paymentMethod: "YAPPY LM", amountReceived: 30, bankAccountNumber: "3380008048" }
   ];
   const bankRules = [
-    { id: "rule-a", accountNumber: "3380008048", groupCode: "OPERACION", active: true, createdAt: basePayment.createdAt, updatedAt: basePayment.createdAt },
-    { id: "rule-b", accountNumber: "9988776655", groupCode: "AHORRO", active: true, createdAt: basePayment.createdAt, updatedAt: basePayment.createdAt }
+    { id: "rule-a", accountNumber: "3380008048", accountName: "Cuenta principal", groupCode: "OPERACION", active: true, createdAt: basePayment.createdAt, updatedAt: basePayment.createdAt },
+    { id: "rule-b", accountNumber: "9988776655", accountName: "Cuenta de ahorros", groupCode: "AHORRO", active: true, createdAt: basePayment.createdAt, updatedAt: basePayment.createdAt }
   ];
 
   await page.evaluate(({ payments, bankRules }) => {
@@ -52,7 +54,7 @@ const fs = require("node:fs");
   await panel.getByLabel("Fecha").fill("2026-08-08");
 
   const kpis = panel.locator(".income-day-kpis");
-  if (!/\$300\.00/.test(await kpis.locator("button").nth(0).innerText())) throw new Error("Total recibido incorrecto");
+  if (!/\$370\.00/.test(await kpis.locator("button").nth(0).innerText())) throw new Error("Total recibido incorrecto");
   if (!/\$80\.00/.test(await kpis.locator("button").nth(1).innerText())) throw new Error("Pendiente de tarjeta incorrecto");
   if (!/\$50\.00/.test(await kpis.locator("button").nth(2).innerText())) throw new Error("Total sin entrada incorrecto");
 
@@ -66,7 +68,8 @@ const fs = require("node:fs");
   const shareDialog = page.getByRole("dialog", { name: "Compartir reporte por WhatsApp" });
   await shareDialog.waitFor({ state: "visible" });
   const shareText = await shareDialog.innerText();
-  if (!shareText.includes("REPORTE DE INGRESOS") || !shareText.includes("$300.00")) throw new Error("La vista previa de WhatsApp no contiene el resumen esperado");
+  if (!shareText.includes("REPORTE DE INGRESOS") || !shareText.includes("$370.00")) throw new Error("La vista previa de WhatsApp no contiene el resumen esperado");
+  if (!shareText.includes("Cuenta bancaria") || !shareText.includes("DETALLE BANCARIO") || !shareText.includes("Cuenta principal")) throw new Error("El reporte no consolidó banco con detalle por cuenta");
   if (!shareText.includes("Detalle de efectivo") || !shareText.includes("I10")) throw new Error("La vista previa no muestra el detalle del efectivo");
   if (shareText.includes("8-777-0047")) throw new Error("La vista previa no debe mostrar cédulas");
   await shareDialog.getByLabel("Contenido del reporte").selectOption("cash");
@@ -88,12 +91,19 @@ const fs = require("node:fs");
   await panel.getByLabel("Forma de pago").selectOption("Efectivo");
   if (!/\$100\.00/.test(await kpis.locator("button").nth(0).innerText())) throw new Error("El filtro por forma de pago no recalculó el total");
   await panel.getByRole("button", { name: "Limpiar filtros" }).click();
-  if (!/\$300\.00/.test(await kpis.locator("button").nth(0).innerText())) throw new Error("Limpiar filtros no restauró el total");
+  if (!/\$370\.00/.test(await kpis.locator("button").nth(0).innerText())) throw new Error("Limpiar filtros no restauró el total");
 
-  const bankGroup = panel.locator(".income-day-group", { hasText: "OPERACION" });
-  if (!(await bankGroup.innerText()).includes("····8048")) throw new Error("No se mostró la cuenta bancaria enmascarada");
+  const bankGroup = panel.locator(".income-day-bank-consolidated");
+  const bankGroupText = await bankGroup.innerText();
+  if (!bankGroupText.includes("Cuenta bancaria") || !bankGroupText.includes("$200.00")) throw new Error("No se mostró el consolidado bancario");
+  if (bankGroupText.includes("REC-1005") || bankGroupText.includes("REC-1006")) throw new Error("Tarjeta o Yappy se incluyeron dentro del consolidado bancario");
+  if (!(await panel.locator(".income-day-group--received", { hasText: /^Tarjeta/ }).innerText()).includes("$40.00")) throw new Error("Tarjeta acreditada no quedó separada");
+  if (!(await panel.locator(".income-day-group--received", { hasText: /^Yappy LM/ }).innerText()).includes("$30.00")) throw new Error("Yappy no quedó separado");
   await bankGroup.locator(".income-day-group-summary").click();
-  await bankGroup.getByRole("button", { name: "Editar" }).click();
+  const bankAccount = bankGroup.locator(".income-day-bank-account", { hasText: "Cuenta principal" });
+  if (!(await bankAccount.innerText()).includes("····8048")) throw new Error("No se mostró el nombre y la cuenta bancaria enmascarada");
+  await bankAccount.locator(".income-day-bank-account-summary").click();
+  await bankAccount.getByRole("button", { name: "Editar" }).click();
   await page.locator(".income-edit-form textarea").fill("Pago verificado por administración");
   await page.getByRole("button", { name: "Guardar cambios" }).click();
   if (!(await bankGroup.innerText()).includes("Colocado el")) throw new Error("No se mostró la fecha del comentario");

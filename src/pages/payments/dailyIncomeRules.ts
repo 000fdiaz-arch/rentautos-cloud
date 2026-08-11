@@ -1,4 +1,4 @@
-import type { Payment } from "../../types";
+import type { BankRule, Payment } from "../../types";
 import { BANK_PAYMENT_METHODS } from "./paymentConstants";
 
 export type DailyIncomeStatus = "received" | "pending" | "non_cash";
@@ -61,7 +61,7 @@ export function buildDeliveredFromPreviousRows(payments: Payment[], dateKey: str
     .sort((left, right) => getIncomeDate(left).localeCompare(getIncomeDate(right)) || left.createdAt.localeCompare(right.createdAt));
 }
 
-export function getDailyIncomeDestination(payment: Payment): { key: string; label: string; accountNumber?: string } {
+export function getDailyIncomeDestination(payment: Payment, bankRules: BankRule[] = []): { key: string; label: string; accountNumber?: string } {
   if (payment.paymentMethod === "Efectivo") return payment.moneyDelivered === false
     ? { key: "cash-pending", label: "Efectivo pendiente de entrega" }
     : { key: "cash", label: "Efectivo" };
@@ -71,13 +71,17 @@ export function getDailyIncomeDestination(payment: Payment): { key: string; labe
   if (payment.paymentMethod === "Descuento" || payment.paymentMethod === "Referido") {
     return { key: `non-cash:${payment.paymentMethod}`, label: `${payment.paymentMethod} (sin entrada de dinero)` };
   }
-  if (BANK_PAYMENT_METHODS.has(payment.paymentMethod) || payment.paymentMethod === "Tarjeta") {
-    const account = payment.bankAccountNumber?.trim();
+  if (BANK_PAYMENT_METHODS.has(payment.paymentMethod)) {
+    const account = payment.bankAccountNumber?.replace(/\D+/g, "");
     const masked = maskAccountNumber(account);
+    const matchedRule = bankRules.find((rule) => rule.active && rule.accountNumber === account)
+      ?? bankRules.find((rule) => rule.accountNumber === account);
+    const accountLabel = matchedRule?.accountName || "Cuenta bancaria";
     return account
-      ? { key: `bank:${account}`, label: `${payment.bankGroupCode || "Cuenta bancaria"} ${masked}`.trim(), accountNumber: account }
-      : { key: "bank:unknown", label: "Cuenta no identificada" };
+      ? { key: `bank:${account}`, label: `${accountLabel} ${masked}`.trim(), accountNumber: account }
+      : { key: "bank:unknown", label: "Cuenta bancaria sin identificar" };
   }
+  if (payment.paymentMethod === "Tarjeta") return { key: "card", label: "Tarjeta" };
   if (payment.paymentMethod === "YAPPY LM") {
     const account = payment.bankAccountNumber?.trim();
     return account
@@ -87,11 +91,11 @@ export function getDailyIncomeDestination(payment: Payment): { key: string; labe
   return { key: `method:${payment.paymentMethod}`, label: payment.paymentMethod };
 }
 
-export function buildDailyIncomeGroups(payments: Payment[], dateKey: string): DailyIncomeGroup[] {
+export function buildDailyIncomeGroups(payments: Payment[], dateKey: string, bankRules: BankRule[] = []): DailyIncomeGroup[] {
   const groups = new Map<string, DailyIncomeGroup>();
   for (const payment of payments) {
     if (getDailyIncomeReportDate(payment) !== dateKey) continue;
-    const destination = getDailyIncomeDestination(payment);
+    const destination = getDailyIncomeDestination(payment, bankRules);
     const status = getDailyIncomeStatus(payment);
     const existing = groups.get(destination.key);
     if (existing) {

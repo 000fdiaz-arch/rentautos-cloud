@@ -170,12 +170,13 @@ function normalizeBankRule(item: unknown): BankRule | null {
   const raw = item as Record<string, unknown>;
   const id = typeof raw.id === "string" && raw.id.trim() ? raw.id : crypto.randomUUID();
   const accountNumber = typeof raw.accountNumber === "string" ? raw.accountNumber.replace(/\D+/g, "") : "";
+  const accountName = typeof raw.accountName === "string" && raw.accountName.trim() ? raw.accountName.trim() : undefined;
   const groupCode = typeof raw.groupCode === "string" ? raw.groupCode.trim().toUpperCase() : "";
   const createdAt = typeof raw.createdAt === "string" && raw.createdAt.trim() ? raw.createdAt : new Date().toISOString();
   const updatedAt = typeof raw.updatedAt === "string" && raw.updatedAt.trim() ? raw.updatedAt : createdAt;
   const active = raw.active !== false;
   if (!accountNumber || !groupCode) return null;
-  return { id, accountNumber, groupCode, active, createdAt, updatedAt };
+  return { id, accountNumber, accountName, groupCode, active, createdAt, updatedAt };
 }
 
 export function loadBankRules(): BankRule[] {

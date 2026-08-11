@@ -4042,6 +4042,16 @@ select.control-op-badge {
 .income-day-group-summary:hover { background: #f8fafc; }
 .income-day-group-summary > span:first-child { display: grid; gap: 2px; flex: 1; }
 .income-day-group-summary small, .income-day-table small { display: block; color: var(--color-text-muted); font-weight: 500; }
+.income-day-bank-consolidated { border-left-color: #2563eb; background: #f8fbff; }
+.income-day-bank-consolidated > .income-day-group-summary { background: #eff6ff; }
+.income-day-bank-consolidated > .income-day-group-summary:hover { background: #dbeafe; }
+.income-day-bank-accounts { display: grid; border-top: 1px solid #bfdbfe; background: #fff; }
+.income-day-bank-account + .income-day-bank-account { border-top: 1px solid var(--color-border); }
+.income-day-bank-account-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; border: 0; padding: 12px 16px 12px 30px; background: #fff; color: var(--color-text); text-align: left; cursor: pointer; }
+.income-day-bank-account-summary:hover { background: #f8fafc; }
+.income-day-bank-account-summary > span:first-child { display: grid; gap: 2px; flex: 1; }
+.income-day-bank-account-summary small { display: block; color: var(--color-text-muted); font-weight: 500; }
+.income-day-bank-account .income-day-table-wrap { margin-left: 18px; border-left: 3px solid #dbeafe; }
 .income-day-table-wrap { overflow-x: auto; border-top: 1px solid var(--color-border); }
 .income-day-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
 .income-day-table th, .income-day-table td { padding: 10px 12px; border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: top; }

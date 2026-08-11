@@ -184,6 +184,7 @@ export type PendingCardItem = {
 export type BankRule = {
   id: string;
   accountNumber: string;
+  accountName?: string;
   groupCode: string;
   active: boolean;
   createdAt: string;
