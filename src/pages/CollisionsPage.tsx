@@ -422,7 +422,6 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   async function saveClaim(item: CollisionCaseRecord): Promise<void> {
     if (readOnly || busyId || !dataOwnerUserId || item.status !== "ABSUELTO") return;
     const draft = claimDrafts[item.id] ?? EMPTY_CLAIM;
-    if (!draft.insurer.trim() || !draft.claimNumber.trim() || !draft.amount.trim()) { setMessage("Completa aseguradora, número de reclamo y monto."); return; }
     const existingPhotos = item.insuranceClaim?.photos ?? [];
     const uploaded: CollisionPhotoAttachment[] = [];
     setBusyId(item.id); setMessage("");
@@ -435,6 +434,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       const now = new Date().toISOString();
       const insurer = draft.insurer.trim().toUpperCase();
       const claimNumber = draft.claimNumber.trim();
+      const hasClaimNumber = Boolean(claimNumber);
       let insuranceClaimId = item.insuranceClaim?.insuranceClaimId;
       const insuranceClaim: CollisionInsuranceClaim = {
         insuranceClaimId,
@@ -480,11 +480,11 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
           driver: item.driver,
           plate: item.plate,
           insurer,
-          hasClaimNumber: true,
+          hasClaimNumber,
           claimNumber,
           amount: draft.amount,
           vehicleDamage: item.vehicleDamage,
-          status: linkedClaim?.status === "Finalizado" ? "Finalizado" : "Activo",
+          status: linkedClaim?.status === "Finalizado" ? "Finalizado" : hasClaimNumber ? "Activo" : "Inactivo",
           damagePhotos,
           damagePhotoNames: damagePhotos.map((photo) => photo.name),
           updatedAt: now
@@ -494,7 +494,9 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       }
       await persistCase(
         { ...item, insuranceClaim, updatedAt: now },
-        syncInsuranceClaims ? "Reclamo guardado y vinculado con Reclamos a seguros." : "Formulario de reclamo guardado."
+        hasClaimNumber
+          ? "Reclamo guardado como activo y vinculado con Reclamos a seguros."
+          : "Reclamo guardado como inactivo. Podrás completar sus datos cuando estén disponibles."
       );
       setClaimDrafts((current) => ({ ...current, [item.id]: { insurer: insuranceClaim.insurer, claimNumber: insuranceClaim.claimNumber, amount: insuranceClaim.amount } }));
       setClaimPhotoFiles((current) => ({ ...current, [item.id]: [] }));
@@ -615,7 +617,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                 {item.judicialOutcomeEvidence && <div className="collision-outcome-document"><div><strong>Documento del resultado: {item.status}</strong><span>{item.judicialOutcomeEvidence.name}</span><small>Guardado el {new Date(item.judicialOutcomeEvidence.uploadedAt).toLocaleString("es-PA")}</small></div><button type="button" className="button" onClick={() => void viewPhoto(item.judicialOutcomeEvidence!)}>Ver documento</button></div>}
                 {item.trialDateHistory.length > 0 && <details className="workflow-edit-history" open><summary>Historial de fechas de juicio ({item.trialDateHistory.length})</summary><ul>{[...item.trialDateHistory].reverse().map((event) => <li key={`${event.changedAt}-${event.newDate}`}><time>{new Date(event.changedAt).toLocaleString("es-PA")}</time><span>{event.previousDate} → {event.newDate}: {event.reason}</span></li>)}</ul></details>}
                 {item.status === "ABSUELTO" && <div className="collision-claim-panel">
-                  <div><strong>Formulario de reclamo</strong><span>Habilitado porque el resultado del juicio fue ABSUELTO.</span></div>
+                  <div><strong>Formulario de reclamo</strong><span>{item.insuranceClaim ? (item.insuranceClaim.claimNumber ? "Reclamo activo: ya cuenta con número de reclamo." : "Reclamo inactivo: todavía no cuenta con número de reclamo.") : "Puedes guardarlo como inactivo aunque todavía no tengas información del reclamo."}</span></div>
                   <div className="workflow-form-grid">
                     <label>Aseguradora<input value={(claimDrafts[item.id] ?? EMPTY_CLAIM).insurer} onChange={(event) => setClaimDrafts((current) => ({ ...current, [item.id]: { ...(current[item.id] ?? EMPTY_CLAIM), insurer: event.target.value } }))} disabled={readOnly || busyId === item.id} /></label>
                     <label>Número de reclamo<input value={(claimDrafts[item.id] ?? EMPTY_CLAIM).claimNumber} onChange={(event) => setClaimDrafts((current) => ({ ...current, [item.id]: { ...(current[item.id] ?? EMPTY_CLAIM), claimNumber: event.target.value } }))} disabled={readOnly || busyId === item.id} /></label>
@@ -623,6 +625,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                     <label className="workflow-form-notes workflow-form-damage-photos">Fotos de los daños<input type="file" accept="image/*" multiple onChange={(event) => selectClaimPhotos(item.id, event.target.files, item.insuranceClaim?.photos.length ?? 0)} disabled={readOnly || busyId === item.id || (item.insuranceClaim?.photos.length ?? 0) >= MAX_PHOTOS} /><span className="hint">{(item.insuranceClaim?.photos.length ?? 0) + (claimPhotoFiles[item.id]?.length ?? 0)} de {MAX_PHOTOS} fotos</span></label>
                   </div>
                   {item.insuranceClaim?.photos.length ? <div className="workflow-damage-photo-list">{item.insuranceClaim.photos.map((photo, index) => <div key={photo.path} className="workflow-damage-photo-row"><div><strong>Foto {index + 1}</strong><small>{photo.name}</small></div><button type="button" className="button" onClick={() => void viewPhoto(photo)}>Ver foto</button></div>)}</div> : null}
+                  {message && <p className="hint workflow-message" role="status">{message}</p>}
                   <div className="workflow-form-actions"><button type="button" className="button primary" onClick={() => void saveClaim(item)} disabled={readOnly || busyId === item.id}>{busyId === item.id ? "Guardando..." : "Guardar reclamo"}</button></div>
                 </div>}
                 {item.status === "CULPABLE" && item.expenseInvoice && <div className="collision-expense-invoice"><strong>Factura de gastos generada</strong><span>{item.expenseInvoice.label}</span><b>{USD_FORMATTER.format(item.expenseInvoice.amount)}</b><small>Agregada a otros cargos del cliente.</small></div>}
