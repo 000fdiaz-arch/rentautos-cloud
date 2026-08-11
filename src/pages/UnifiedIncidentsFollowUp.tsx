@@ -116,7 +116,7 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
     const collision = incident.collision;
     const claim = incident.claim;
 
-    if (collision && collision.status !== "Ganó" && collision.status !== "Perdió") {
+    if (collision && collision.status !== "ABSUELTO" && collision.status !== "CULPABLE") {
       const trialOffset = collision.trialDate ? calendarDayOffset(collision.trialDate) : null;
       if (!collision.trialDate) {
         addAlert(incident, {
@@ -168,7 +168,7 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
       }
     }
 
-    if (canViewInsurance && collision?.status === "Ganó" && !claim) {
+    if (canViewInsurance && collision?.status === "ABSUELTO" && !claim) {
       const wonDays = calendarDaysSince(dateKeyFromTimestamp(collision.updatedAt));
       if (wonDays !== null && wonDays >= 2) {
         addAlert(incident, {
@@ -266,12 +266,12 @@ function claimNextAction(claim: InsuranceClaimRecord): { label: string; finalize
 }
 
 function collisionNextAction(collision: CollisionCaseRecord, claim: InsuranceClaimRecord | null): { label: string; finalized: boolean; requiresAction: boolean } {
-  if (collision.status === "Perdió") return {
+  if (collision.status === "CULPABLE") return {
     label: collision.clientReturnedBeforeClosure ? "Cliente dejó el carro antes del cierre" : "Expediente judicial finalizado",
     finalized: true,
     requiresAction: false
   };
-  if (collision.status === "Ganó") {
+  if (collision.status === "ABSUELTO") {
     if (claim) return claimNextAction(claim);
     return { label: "Iniciar reclamo al seguro", finalized: false, requiresAction: true };
   }
@@ -551,7 +551,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           const incidentAlerts = alertsByIncident.get(incident.id) ?? [];
           const topAlert = incidentAlerts[0];
           const ageLabel = incidentAgeLabel(incident.incidentDate);
-          const trialDaysRemaining = incident.collision && incident.collision.status !== "Ganó" && incident.collision.status !== "Perdió" && incident.collision.trialDate
+          const trialDaysRemaining = incident.collision && incident.collision.status !== "ABSUELTO" && incident.collision.status !== "CULPABLE" && incident.collision.trialDate
             ? calendarDayOffset(incident.collision.trialDate)
             : null;
           const trialCountdownLabel = trialDaysRemaining !== null && trialDaysRemaining > 0
@@ -587,7 +587,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
               <div className="unified-incident-quick-actions">
                 {incident.collision && <button type="button" className="button" onClick={() => onOpen("judicial", { id: incident.collision!.id, search: incident.unit })}>Gestionar juicio</button>}
                 {incident.claim && <button type="button" className="button primary" onClick={() => onOpen("insurance", { id: incident.claim!.id, search: incident.unit })}>Gestionar reclamo</button>}
-                {incident.collision?.status === "Ganó" && !incident.claim && canViewInsurance && <button type="button" className="button primary" onClick={() => onOpen("judicial", { id: incident.collision!.id, search: incident.unit })}>Iniciar reclamo</button>}
+                {incident.collision?.status === "ABSUELTO" && !incident.claim && canViewInsurance && <button type="button" className="button primary" onClick={() => onOpen("judicial", { id: incident.collision!.id, search: incident.unit })}>Iniciar reclamo</button>}
               </div>
             </div>
             {expanded && <div className="unified-incident-details">

@@ -119,7 +119,7 @@ export type InsuranceClaimRecord = {
   updatedAt: string;
 };
 
-export type CollisionTrialStatus = "Pendiente" | "Ganó" | "Perdió" | "Nueva fecha";
+export type CollisionTrialStatus = "PENDIENTE" | "NUEVA FECHA" | "ABSUELTO" | "CULPABLE";
 export type CollisionPhotoAttachment = {
   name: string;
   path: string;
@@ -350,7 +350,7 @@ export async function saveInsuranceClaim(userId: string, claim: InsuranceClaimRe
       && normalizeIncidentIdentity(item.unit) === normalizeIncidentIdentity(claim.unit)
       && normalizeIncidentIdentity(item.plate) === normalizeIncidentIdentity(claim.plate)
     ));
-    if (relatedJudicialCase && relatedJudicialCase.status !== "Ganó") throw new JudicialOutcomeRequiredForClaimError();
+    if (relatedJudicialCase && relatedJudicialCase.status !== "ABSUELTO") throw new JudicialOutcomeRequiredForClaimError();
   }
   const normalizedClaimNumber = normalizeInsuranceClaimNumber(claim.claimNumber);
   if (normalizedClaimNumber) {
@@ -465,10 +465,14 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
     photos?: unknown;
     nextFollowUpDate?: unknown;
   };
-  const rawStatus = legacy.status;
-  const status: CollisionTrialStatus = rawStatus === "Ganó" || rawStatus === "Perdió" || rawStatus === "Nueva fecha"
-    ? rawStatus
-    : "Pendiente";
+  const rawStatus = typeof legacy.status === "string" ? legacy.status.trim().toLocaleUpperCase("es") : "";
+  const status: CollisionTrialStatus = rawStatus === "GANÓ" || rawStatus === "ABSUELTO"
+    ? "ABSUELTO"
+    : rawStatus === "PERDIÓ" || rawStatus === "CULPABLE"
+      ? "CULPABLE"
+      : rawStatus === "NUEVA FECHA"
+        ? "NUEVA FECHA"
+        : "PENDIENTE";
   const legacyPhotos = Array.isArray(legacy.photos)
     ? legacy.photos.filter((photo): photo is CollisionPhotoAttachment => Boolean(photo && typeof photo === "object" && "path" in photo))
     : [];

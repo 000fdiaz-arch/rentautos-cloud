@@ -11927,12 +11927,12 @@ select.control-op-badge {
   padding: 5px 9px;
 }
 
-.judicial-focused-status.status-won strong {
+.judicial-focused-status.status-absolved strong {
   background: #dcfce7;
   color: #166534;
 }
 
-.judicial-focused-status.status-lost strong {
+.judicial-focused-status.status-guilty strong {
   background: #fee2e2;
   color: #991b1b;
 }

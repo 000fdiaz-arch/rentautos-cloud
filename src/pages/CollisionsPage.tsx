@@ -94,7 +94,7 @@ function parseAmount(value: string): number {
   const parsed = Number.parseFloat(value.replace(/,/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
 }
-function isFinalStatus(status: CollisionTrialStatus): boolean { return status === "Ganó" || status === "Perdió"; }
+function isFinalStatus(status: CollisionTrialStatus): boolean { return status === "ABSUELTO" || status === "CULPABLE"; }
 
 export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = false, onClientsChange, embedded = false, syncInsuranceClaims = true, hideCreateForm = false, initialExpandedId = "", initialSearch = "", focusedCaseId = "" }: Props) {
   const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(hideCreateForm ? null : dataOwnerUserId);
@@ -112,7 +112,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [expandedId, setExpandedId] = useState<string | null>(initialExpandedId || null);
   const [driverEditedManually, setDriverEditedManually] = useState(false);
-  const [outcomeDrafts, setOutcomeDrafts] = useState<Record<string, "" | "Ganó" | "Perdió" | "Nueva fecha">>({});
+  const [outcomeDrafts, setOutcomeDrafts] = useState<Record<string, "" | "ABSUELTO" | "CULPABLE" | "NUEVA FECHA">>({});
   const [newTrialDates, setNewTrialDates] = useState<Record<string, string>>({});
   const [rescheduleReasons, setRescheduleReasons] = useState<Record<string, string>>({});
   const [expenseAmounts, setExpenseAmounts] = useState<Record<string, string>>({});
@@ -238,7 +238,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       placeTime: form.placeTime.trim(),
       court: normalizeCourtName(form.court),
       collisionAndRun: form.collisionAndRun,
-      status: "Pendiente",
+      status: "PENDIENTE",
       trialDateHistory: [],
       judicialFollowUps: [],
       insuranceClaim: null,
@@ -307,25 +307,25 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     const now = new Date().toISOString();
     setBusyId(item.id); setMessage("");
     try {
-      if (outcome === "Nueva fecha") {
+      if (outcome === "NUEVA FECHA") {
         const nextDate = newTrialDates[item.id] ?? "";
         const reason = rescheduleReasons[item.id]?.trim() ?? "";
         if (!nextDate || nextDate === item.trialDate || !reason) throw new Error("RESCHEDULE_REQUIRED");
         await persistCase({
           ...item,
           trialDate: nextDate,
-          status: "Nueva fecha",
+          status: "NUEVA FECHA",
           trialDateHistory: [...item.trialDateHistory, { previousDate: item.trialDate, newDate: nextDate, reason, changedAt: now }],
           updatedAt: now
         }, "Nueva fecha de juicio guardada con su razón.");
-      } else if (outcome === "Ganó") {
-        await persistCase({ ...item, status: "Ganó", updatedAt: now }, "Resultado guardado. Se habilitó el formulario de reclamo.");
+      } else if (outcome === "ABSUELTO") {
+        await persistCase({ ...item, status: "ABSUELTO", updatedAt: now }, "Resultado ABSUELTO guardado. Se habilitó el formulario de reclamo.");
       } else {
         const clientReturned = returnedBeforeClosure[item.id] === true;
         if (clientReturned) {
           await persistCase({
             ...item,
-            status: "Perdió",
+            status: "CULPABLE",
             expenseInvoice: null,
             clientReturnedBeforeClosure: true,
             clientReturnedBeforeClosureAt: now,
@@ -356,7 +356,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
         });
         const updatedCase: CollisionCaseRecord = {
           ...item,
-          status: "Perdió",
+          status: "CULPABLE",
           expenseInvoice: { chargeId, label, amount, createdAt: now },
           clientReturnedBeforeClosure: false,
           clientReturnedBeforeClosureAt: null,
@@ -390,7 +390,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   }
 
   async function saveClaim(item: CollisionCaseRecord): Promise<void> {
-    if (readOnly || busyId || !dataOwnerUserId || item.status !== "Ganó") return;
+    if (readOnly || busyId || !dataOwnerUserId || item.status !== "ABSUELTO") return;
     const draft = claimDrafts[item.id] ?? EMPTY_CLAIM;
     if (!draft.insurer.trim() || !draft.claimNumber.trim() || !draft.amount.trim()) { setMessage("Completa aseguradora, número de reclamo y monto."); return; }
     const existingPhotos = item.insuranceClaim?.photos ?? [];
@@ -523,19 +523,19 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       {activeTab === "agenda" && <section className={`panel workflow-claims-panel${focusedCaseId ? " workflow-claims-panel--focused judicial-focused-case" : ""}`}>
         {!focusedCaseId && <div className="panel-head"><h2>Agenda de juicios</h2><span className="hint">{filteredCases.length} de {cases.length} juicios</span></div>}
         {loading && <p className="hint workflow-message">Cargando juicios...</p>}{loadError && <p className="hint workflow-message">{loadError}</p>}{message && <p className="hint workflow-message">{message}</p>}
-        {!focusedCaseId && requiredOutcomeCount > 0 && <p className="collision-required-outcome" role="alert">Hay {requiredOutcomeCount} {requiredOutcomeCount === 1 ? "juicio que requiere" : "juicios que requieren"} registrar el resultado: Ganó, Perdió o Nueva fecha.</p>}
+        {!focusedCaseId && requiredOutcomeCount > 0 && <p className="collision-required-outcome" role="alert">Hay {requiredOutcomeCount} {requiredOutcomeCount === 1 ? "juicio que requiere" : "juicios que requieren"} registrar el resultado: ABSUELTO, CULPABLE o NUEVA FECHA.</p>}
         {!focusedCaseId && <div className="workflow-claim-kpis workflow-claim-kpis--single" aria-label="Fecha de la agenda"><div><span>Fecha</span><strong>{CURRENT_DATE_FORMATTER.format(new Date())}</strong><small>Agenda del día</small></div></div>}
         {!focusedCaseId && <div className="workflow-claim-filters">
           <label className="workflow-claim-search">Buscar<input type="search" value={search} placeholder="Unidad, chofer, placa, colilla o juzgado" onChange={(event) => setSearch(event.target.value)} /></label>
           <label>Fecha de juicio<select value={dateFilter} onChange={(event) => setDateFilter(event.target.value as DateFilter)}><option value="all">Todas las fechas</option><option value="upcoming">Próximos casos</option><option value="today">Hoy</option><option value="last_week">Semana pasada</option><option value="overdue">Vencidos</option></select></label>
-          <label>Estado<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as CollisionTrialStatus | "all")}><option value="all">Todos</option><option>Pendiente</option><option>Nueva fecha</option><option>Ganó</option><option>Perdió</option></select></label>
+          <label>Estado<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as CollisionTrialStatus | "all")}><option value="all">Todos</option><option>PENDIENTE</option><option>NUEVA FECHA</option><option>ABSUELTO</option><option>CULPABLE</option></select></label>
           <button type="button" className="button workflow-clear-filters" onClick={() => { setSearch(""); setDateFilter("all"); setStatusFilter("all"); }}>Limpiar filtros</button>
         </div>}
         {focusedCase && <div className="judicial-focused-context">
           <span><small>Unidad / placa</small><strong>{focusedCase.unit || "Sin unidad"} · {focusedCase.plate || "Sin placa"}</strong></span>
           <span><small>Cliente</small><strong>{focusedCase.clientName || focusedCase.driver || "Sin cliente"}</strong></span>
           <span><small>Fecha de juicio</small><strong>{focusedCase.trialDate || "Sin fecha"}</strong></span>
-          <span className={`judicial-focused-status status-${focusedCase.status === "Ganó" ? "won" : focusedCase.status === "Perdió" ? "lost" : "pending"}`}><small>Estado</small><strong>{focusedCase.status}</strong></span>
+          <span className={`judicial-focused-status status-${focusedCase.status === "ABSUELTO" ? "absolved" : focusedCase.status === "CULPABLE" ? "guilty" : "pending"}`}><small>Estado</small><strong>{focusedCase.status}</strong></span>
         </div>}
         <div className="workflow-claims-list">
           {!loading && !cases.length && <p className="hint">Todavía no hay juicios guardados.</p>}
@@ -554,7 +554,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                   <span className="workflow-claim-reference"><strong>{item.court || "Sin juzgado"}</strong><small>Colilla: {item.ticketStub || "-"}</small></span>
                   <span className="workflow-claim-summary-value"><small>Fecha de juicio</small><strong>{item.trialDate || "Sin fecha"}</strong></span>
                   <span className="workflow-claim-summary-value"><small>Hora</small><strong>{item.placeTime || "-"}</strong></span>
-                  <span className="workflow-claim-indicators"><span className={item.status === "Ganó" ? "complete" : item.status === "Perdió" || requiresOutcome ? "missing" : "pending"}>{item.status}</span>{requiresOutcome && <span className="missing">Resultado requerido</span>}<span className={item.collisionAndRun ? "collision-runaway-yes" : "collision-runaway-no"}>Fuga: {item.collisionAndRun ? "Sí" : "No"}</span></span>
+                  <span className="workflow-claim-indicators"><span className={item.status === "ABSUELTO" ? "complete" : item.status === "CULPABLE" || requiresOutcome ? "missing" : "pending"}>{item.status}</span>{requiresOutcome && <span className="missing">Resultado requerido</span>}<span className={item.collisionAndRun ? "collision-runaway-yes" : "collision-runaway-no"}>Fuga: {item.collisionAndRun ? "Sí" : "No"}</span></span>
                   <span className="workflow-claim-chevron" aria-hidden="true">{expanded ? "−" : "+"}</span>
                 </button>
               </div>}
@@ -574,15 +574,15 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                   </dl>
                 {!isFinalStatus(item.status) && <div className="workflow-finalization-panel collision-outcome-panel">
                   <div><strong>Resultado del juicio</strong><span>Selecciona el resultado para continuar el flujo.</span></div>
-                  <label>Estado<select value={outcome} onChange={(event) => setOutcomeDrafts((current) => ({ ...current, [item.id]: event.target.value as typeof outcome }))} disabled={readOnly || busyId === item.id}><option value="">Seleccionar</option><option>Ganó</option><option>Perdió</option><option>Nueva fecha</option></select></label>
-                  {outcome === "Nueva fecha" && <><label>Nueva fecha de juicio<input type="date" value={newTrialDates[item.id] ?? ""} onChange={(event) => setNewTrialDates((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label className="workflow-finalization-reason">Razón de la nueva fecha<textarea value={rescheduleReasons[item.id] ?? ""} placeholder="La razón es obligatoria" onChange={(event) => setRescheduleReasons((current) => ({ ...current, [item.id]: event.target.value }))} /></label></>}
-                  {outcome === "Perdió" && <label className="collision-client-returned-option"><input type="checkbox" checked={returnedBeforeClosure[item.id] === true} onChange={(event) => setReturnedBeforeClosure((current) => ({ ...current, [item.id]: event.target.checked }))} disabled={readOnly || busyId === item.id} /><span><strong>El cliente dejó el carro antes del cierre del caso</strong><small>Se cerrará el juicio sin generar una factura automática.</small></span></label>}
-                  {outcome === "Perdió" && returnedBeforeClosure[item.id] !== true && <><label>Concepto de gastos<input value={expenseLabels[item.id] ?? `GASTOS DE JUICIO - ${item.unit}`} onChange={(event) => setExpenseLabels((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label>Monto de gastos<input type="number" min="0.01" step="0.01" placeholder="0.00" value={expenseAmounts[item.id] ?? ""} onChange={(event) => setExpenseAmounts((current) => ({ ...current, [item.id]: event.target.value }))} /></label></>}
+                  <label>Resultado<select value={outcome} onChange={(event) => setOutcomeDrafts((current) => ({ ...current, [item.id]: event.target.value as typeof outcome }))} disabled={readOnly || busyId === item.id}><option value="">Seleccionar</option><option>ABSUELTO</option><option>CULPABLE</option><option>NUEVA FECHA</option></select></label>
+                  {outcome === "NUEVA FECHA" && <><label>Nueva fecha de juicio<input type="date" value={newTrialDates[item.id] ?? ""} onChange={(event) => setNewTrialDates((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label className="workflow-finalization-reason">Razón de la nueva fecha<textarea value={rescheduleReasons[item.id] ?? ""} placeholder="La razón es obligatoria" onChange={(event) => setRescheduleReasons((current) => ({ ...current, [item.id]: event.target.value }))} /></label></>}
+                  {outcome === "CULPABLE" && <label className="collision-client-returned-option"><input type="checkbox" checked={returnedBeforeClosure[item.id] === true} onChange={(event) => setReturnedBeforeClosure((current) => ({ ...current, [item.id]: event.target.checked }))} disabled={readOnly || busyId === item.id} /><span><strong>El cliente dejó el carro antes del cierre del caso</strong><small>Se cerrará el juicio sin generar una factura automática.</small></span></label>}
+                  {outcome === "CULPABLE" && returnedBeforeClosure[item.id] !== true && <><label>Concepto de gastos<input value={expenseLabels[item.id] ?? `GASTOS DE JUICIO - ${item.unit}`} onChange={(event) => setExpenseLabels((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label>Monto de gastos<input type="number" min="0.01" step="0.01" placeholder="0.00" value={expenseAmounts[item.id] ?? ""} onChange={(event) => setExpenseAmounts((current) => ({ ...current, [item.id]: event.target.value }))} /></label></>}
                   <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => void applyOutcome(item)} disabled={readOnly || busyId === item.id || !outcome}>{busyId === item.id ? "Guardando..." : "Confirmar resultado"}</button></div>
                 </div>}
                 {item.trialDateHistory.length > 0 && <details className="workflow-edit-history" open><summary>Historial de fechas de juicio ({item.trialDateHistory.length})</summary><ul>{[...item.trialDateHistory].reverse().map((event) => <li key={`${event.changedAt}-${event.newDate}`}><time>{new Date(event.changedAt).toLocaleString("es-PA")}</time><span>{event.previousDate} → {event.newDate}: {event.reason}</span></li>)}</ul></details>}
-                {item.status === "Ganó" && <div className="collision-claim-panel">
-                  <div><strong>Formulario de reclamo</strong><span>Habilitado porque el cliente ganó el juicio.</span></div>
+                {item.status === "ABSUELTO" && <div className="collision-claim-panel">
+                  <div><strong>Formulario de reclamo</strong><span>Habilitado porque el resultado del juicio fue ABSUELTO.</span></div>
                   <div className="workflow-form-grid">
                     <label>Aseguradora<input value={(claimDrafts[item.id] ?? EMPTY_CLAIM).insurer} onChange={(event) => setClaimDrafts((current) => ({ ...current, [item.id]: { ...(current[item.id] ?? EMPTY_CLAIM), insurer: event.target.value } }))} disabled={readOnly || busyId === item.id} /></label>
                     <label>Número de reclamo<input value={(claimDrafts[item.id] ?? EMPTY_CLAIM).claimNumber} onChange={(event) => setClaimDrafts((current) => ({ ...current, [item.id]: { ...(current[item.id] ?? EMPTY_CLAIM), claimNumber: event.target.value } }))} disabled={readOnly || busyId === item.id} /></label>
@@ -592,8 +592,8 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                   {item.insuranceClaim?.photos.length ? <div className="workflow-damage-photo-list">{item.insuranceClaim.photos.map((photo, index) => <div key={photo.path} className="workflow-damage-photo-row"><div><strong>Foto {index + 1}</strong><small>{photo.name}</small></div><button type="button" className="button" onClick={() => void viewPhoto(photo)}>Ver foto</button></div>)}</div> : null}
                   <div className="workflow-form-actions"><button type="button" className="button primary" onClick={() => void saveClaim(item)} disabled={readOnly || busyId === item.id}>{busyId === item.id ? "Guardando..." : "Guardar reclamo"}</button></div>
                 </div>}
-                {item.status === "Perdió" && item.expenseInvoice && <div className="collision-expense-invoice"><strong>Factura de gastos generada</strong><span>{item.expenseInvoice.label}</span><b>{USD_FORMATTER.format(item.expenseInvoice.amount)}</b><small>Agregada a otros cargos del cliente.</small></div>}
-                {item.status === "Perdió" && item.clientReturnedBeforeClosure && <div className="collision-client-returned"><strong>Cliente retirado antes del cierre</strong><span>{item.clientName || item.driver || "El cliente"} dejó el carro antes de finalizar el juicio.</span><small>No se generó una factura automática.</small></div>}
+                {item.status === "CULPABLE" && item.expenseInvoice && <div className="collision-expense-invoice"><strong>Factura de gastos generada</strong><span>{item.expenseInvoice.label}</span><b>{USD_FORMATTER.format(item.expenseInvoice.amount)}</b><small>Agregada a otros cargos del cliente.</small></div>}
+                {item.status === "CULPABLE" && item.clientReturnedBeforeClosure && <div className="collision-client-returned"><strong>Cliente retirado antes del cierre</strong><span>{item.clientName || item.driver || "El cliente"} dejó el carro antes de finalizar el juicio.</span><small>No se generó una factura automática.</small></div>}
                 </div>}
                 {activeCaseTab === "follow_up" && <section className="judicial-follow-up-panel judicial-case-tab-panel" role="tabpanel" id={`judicial-follow-up-panel-${item.id}`} aria-labelledby={`judicial-follow-up-tab-${item.id}`}>
                   <div className="judicial-follow-up-head"><div><strong>Timeline de seguimiento</strong><span>Registra cada gestión sin reemplazar las anteriores.</span></div><b>{item.judicialFollowUps.length} {item.judicialFollowUps.length === 1 ? "registro" : "registros"}</b></div>
