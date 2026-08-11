@@ -13,6 +13,7 @@ import {
   type InsuranceDamagePhotoAttachment
 } from "../cloudData";
 import type { Client } from "../types";
+import { normalizeCourtName } from "../courtNames";
 import { useControlUnitsRows } from "./controlUnits/useControlUnitsRows";
 
 export type IncidentDestination = "judicial" | "insurance";
@@ -54,10 +55,9 @@ const MAX_PHOTO_SIZE = 10 * 1024 * 1024;
 
 function normalizeUnit(value: string): string { return value.trim().toUpperCase(); }
 function normalizeInsurer(value: string): string { return value.trim().toUpperCase(); }
-function normalizeCourt(value: string): string { return value.trim().toUpperCase(); }
 
 function courtsFromCases(cases: CollisionCaseRecord[]): string[] {
-  return [...new Set(cases.map((item) => normalizeCourt(item.court)).filter(Boolean))]
+  return [...new Set(cases.map((item) => normalizeCourtName(item.court)).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right, "es", { numeric: true }));
 }
 
@@ -148,7 +148,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
 
   function addCourt(): void {
     if (readOnly) return;
-    const court = normalizeCourt(window.prompt("Nombre del nuevo juzgado") ?? "");
+    const court = normalizeCourtName(window.prompt("Nombre del nuevo juzgado") ?? "");
     if (!court) return;
     setCourts((current) => [...new Set([...current, court])].sort((a, b) => a.localeCompare(b, "es", { numeric: true })));
     patchForm({ court });
@@ -176,7 +176,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
       if (destination === "judicial") {
         const collisionCase: CollisionCaseRecord = {
           id: `collision-trial-${Date.now()}-${crypto.randomUUID()}`, ...common,
-          trialDate: form.trialDate, ticketStub: form.ticketStub.trim(), placeTime: form.placeTime.trim(), court: normalizeCourt(form.court), collisionAndRun: form.collisionAndRun,
+          trialDate: form.trialDate, ticketStub: form.ticketStub.trim(), placeTime: form.placeTime.trim(), court: normalizeCourtName(form.court), collisionAndRun: form.collisionAndRun,
           status: "Pendiente", trialDateHistory: [], insuranceClaim: null, expenseInvoice: null, createdAt: now, updatedAt: now
         };
         await saveCollisionCase(dataOwnerUserId, collisionCase);

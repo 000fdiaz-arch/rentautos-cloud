@@ -7,6 +7,7 @@ import type {
   ChargeRun
 } from "../pages/payments/paymentTypes";
 import { stableEqual } from "../stableSerialize";
+import { normalizeCourtName } from "../courtNames";
 
 export type ControlUnitRow = {
   user_id: string;
@@ -420,7 +421,7 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
       : typeof legacy.nextFollowUpDate === "string" ? legacy.nextFollowUpDate : "",
     ticketStub: typeof item.ticketStub === "string" ? item.ticketStub : "",
     placeTime: typeof item.placeTime === "string" ? item.placeTime : "",
-    court: typeof item.court === "string" ? item.court : "",
+    court: typeof item.court === "string" ? normalizeCourtName(item.court) : "",
     collisionAndRun: item.collisionAndRun === true,
     trialDateHistory: Array.isArray(item.trialDateHistory) ? item.trialDateHistory : [],
     insuranceClaim: existingClaim ?? legacyClaim,
@@ -437,9 +438,10 @@ export async function loadCollisionCases(userId: string): Promise<CollisionCaseR
 
 export async function saveCollisionCase(userId: string, item: CollisionCaseRecord): Promise<void> {
   const client = getCloudClient();
+  const normalizedItem = { ...item, court: normalizeCourtName(item.court) };
   const { error } = await client
     .from("collision_cases_cloud")
-    .upsert({ user_id: userId, id: item.id, data: item, updated_at: item.updatedAt }, { onConflict: "user_id,id" });
+    .upsert({ user_id: userId, id: item.id, data: normalizedItem, updated_at: item.updatedAt }, { onConflict: "user_id,id" });
   if (error) throw error;
 }
 

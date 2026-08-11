@@ -19,6 +19,7 @@ import {
   type InsuranceClaimRecord
 } from "../cloudData";
 import type { Client } from "../types";
+import { normalizeCourtName } from "../courtNames";
 import { useControlUnitsRows } from "./controlUnits/useControlUnitsRows";
 
 type Props = {
@@ -66,9 +67,8 @@ const USD_FORMATTER = new Intl.NumberFormat("es-PA", { style: "currency", curren
 const CURRENT_DATE_FORMATTER = new Intl.DateTimeFormat("es-PA", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
 
 function normalizeUnit(value: string): string { return value.trim().toUpperCase(); }
-function normalizeCourt(value: string): string { return value.trim().toUpperCase(); }
 function courtsFromCases(cases: CollisionCaseRecord[]): string[] {
-  return [...new Set(cases.map((item) => normalizeCourt(item.court)).filter(Boolean))]
+  return [...new Set(cases.map((item) => normalizeCourtName(item.court)).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right, "es", { numeric: true }));
 }
 function localDateKey(date: Date): string {
@@ -185,7 +185,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   }
   function addCourt(): void {
     if (readOnly) return;
-    const court = normalizeCourt(window.prompt("Nombre del nuevo juzgado") ?? "");
+    const court = normalizeCourtName(window.prompt("Nombre del nuevo juzgado") ?? "");
     if (!court) return;
     setCourts((current) => [...new Set([...current, court])].sort((a, b) => a.localeCompare(b, "es", { numeric: true })));
     patchForm({ court });
@@ -213,7 +213,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       vehicleDamage: form.vehicleDamage.trim(),
       ticketStub: form.ticketStub.trim(),
       placeTime: form.placeTime.trim(),
-      court: normalizeCourt(form.court),
+      court: normalizeCourtName(form.court),
       collisionAndRun: form.collisionAndRun,
       status: "Pendiente",
       trialDateHistory: [],
