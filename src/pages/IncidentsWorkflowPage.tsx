@@ -13,6 +13,7 @@ type Props = {
   canViewInsuranceWorkflow: boolean;
   canEditInsuranceWorkflow: boolean;
   onClientsChange: (next: Client[]) => void | Promise<void>;
+  onAlertCountChange?: (count: number) => void;
 };
 
 type ManagementTarget = { destination: IncidentDestination; id: string; search: string };
@@ -24,7 +25,8 @@ export default function IncidentsWorkflowPage({
   canEditCollisions,
   canViewInsuranceWorkflow,
   canEditInsuranceWorkflow,
-  onClientsChange
+  onClientsChange,
+  onAlertCountChange
 }: Props) {
   const [managementTarget, setManagementTarget] = useState<ManagementTarget | null>(null);
   const [followUpRefreshKey, setFollowUpRefreshKey] = useState(0);
@@ -66,6 +68,7 @@ export default function IncidentsWorkflowPage({
         canViewJudicial={canViewCollisions}
         canViewInsurance={canViewInsuranceWorkflow}
         refreshKey={followUpRefreshKey}
+        onAlertCountChange={onAlertCountChange}
         onOpen={(destination, target) => setManagementTarget({ destination, ...target })}
       />}
 

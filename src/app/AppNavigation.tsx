@@ -14,6 +14,7 @@ type Props = {
   canViewCollisions: boolean;
   canViewControlUnits: boolean;
   canViewSettings: boolean;
+  incidentAlertCount?: number;
   showCoreSyncStatus?: boolean;
   syncStatus: "idle" | "syncing" | "ok" | "error";
   syncErrorMessage: string;
@@ -35,6 +36,7 @@ export default function AppNavigation({
   canViewCollisions,
   canViewControlUnits,
   canViewSettings,
+  incidentAlertCount = 0,
   showCoreSyncStatus = true,
   syncStatus,
   syncErrorMessage,
@@ -44,14 +46,14 @@ export default function AppNavigation({
   onPageChange,
   onSignOut
 }: Props) {
-  const tabs: Array<{ page: AppPage; label: string; mobileLabel: string; visible: boolean }> = [
+  const tabs: Array<{ page: AppPage; label: string; mobileLabel: string; visible: boolean; badge?: number }> = [
     { page: "leads", label: "Leads", mobileLabel: "Leads", visible: canViewLeads },
     { page: "control_units", label: "Autos", mobileLabel: "Autos", visible: canViewControlUnits },
     { page: "clients", label: "Clientes", mobileLabel: "Clientes", visible: canViewClients },
     { page: "payments", label: "Pagos", mobileLabel: "Pagos", visible: canViewPayments },
     { page: "receivables", label: "Cuentas por cobrar", mobileLabel: "Cuentas", visible: canViewReceivables },
     { page: "route_search", label: "Ruta en calle", mobileLabel: "Ruta", visible: canViewRouteSearch },
-    { page: "incidents", label: "Gestión de siniestros", mobileLabel: "Siniestros", visible: canViewCollisions || canViewInsuranceWorkflow },
+    { page: "incidents", label: "Gestión de siniestros", mobileLabel: "Siniestros", visible: canViewCollisions || canViewInsuranceWorkflow, badge: incidentAlertCount },
     { page: "settings", label: "Configuraciones", mobileLabel: "Config.", visible: canViewSettings }
   ];
   const effectiveSyncStatus = showCoreSyncStatus ? syncStatus : "ok";
@@ -83,6 +85,7 @@ export default function AppNavigation({
             >
               <span className="nav-tab-label-full">{tab.label}</span>
               <span className="nav-tab-label-mobile">{tab.mobileLabel}</span>
+              {Boolean(tab.badge) && <span className="nav-tab-badge nav-tab-badge--alert" aria-label={`${tab.badge} alertas que requieren atención`}>{tab.badge! > 99 ? "99+" : tab.badge}</span>}
             </a>
           ))}
         </div>

@@ -234,6 +234,7 @@ export default function AppShell({
     token: number;
   } | null>(null);
   const [signOutSyncError, setSignOutSyncError] = useState("");
+  const [incidentAlertCount, setIncidentAlertCount] = useState(0);
 
   const {
     cloudReady,
@@ -874,6 +875,7 @@ export default function AppShell({
         canViewCollisions={canViewCollisions}
         canViewControlUnits={canViewControlUnits}
         canViewSettings={canViewSettingsPage}
+        incidentAlertCount={incidentAlertCount}
         showCoreSyncStatus={shouldSyncCoreData}
         syncStatus={syncStatus}
         syncErrorMessage={syncErrorMessage}
@@ -975,6 +977,7 @@ export default function AppShell({
             canViewInsuranceWorkflow={canViewInsuranceWorkflow}
             canEditInsuranceWorkflow={canEditInsuranceWorkflow}
             onClientsChange={persistClients}
+            onAlertCountChange={setIncidentAlertCount}
           />
         )}
         {page === "control_units" && canViewControlUnits && (

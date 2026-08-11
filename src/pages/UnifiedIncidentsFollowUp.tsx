@@ -15,10 +15,27 @@ type Props = {
   canViewInsurance: boolean;
   refreshKey: number;
   onOpen: (destination: IncidentDestination, target: { id: string; search: string }) => void;
+  onAlertCountChange?: (count: number) => void;
 };
 
 type FollowUpFilter = "all" | "judicial" | "insurance" | "action" | "finalized";
-const STALE_CLAIM_DAYS = 15;
+type AlertFilter = "all" | "urgent" | "attention" | "upcoming" | "judicial" | "insurance";
+type IncidentAlertSeverity = "urgent" | "attention" | "upcoming";
+
+type IncidentAlert = {
+  id: string;
+  incidentId: string;
+  kind: "judicial" | "insurance";
+  severity: IncidentAlertSeverity;
+  title: string;
+  message: string;
+  actionLabel: string;
+  destination: IncidentDestination;
+  targetId: string;
+  unit: string;
+  plate: string;
+  priority: number;
+};
 
 type UnifiedIncident = {
   id: string;
@@ -45,14 +62,13 @@ function vehicleYear(unit?: ControlUnitRow): string {
   return year === null || year === undefined ? "" : String(year).trim();
 }
 
-function daysSince(value: string): number | null {
+function dateKeyFromTimestamp(value: string): string {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  const elapsed = Date.now() - date.getTime();
-  return elapsed < 0 ? 0 : Math.floor(elapsed / 86_400_000);
+  if (Number.isNaN(date.getTime())) return "";
+  return localDateKey(date);
 }
 
-function calendarDaysSince(value: string, today = new Date()): number | null {
+function calendarDayOffset(value: string, today = new Date()): number | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return null;
   const [, year, month, day] = match.map(Number);
@@ -60,7 +76,12 @@ function calendarDaysSince(value: string, today = new Date()): number | null {
   const parsedIncident = new Date(incidentDay);
   if (parsedIncident.getUTCFullYear() !== year || parsedIncident.getUTCMonth() !== month - 1 || parsedIncident.getUTCDate() !== day) return null;
   const currentDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
-  return Math.max(0, Math.floor((currentDay - incidentDay) / 86_400_000));
+  return Math.floor((incidentDay - currentDay) / 86_400_000);
+}
+
+function calendarDaysSince(value: string, today = new Date()): number | null {
+  const offset = calendarDayOffset(value, today);
+  return offset === null ? null : Math.max(0, -offset);
 }
 
 function incidentAgeLabel(value: string): string {
@@ -71,15 +92,107 @@ function incidentAgeLabel(value: string): string {
   return `Hace ${days} días`;
 }
 
-function staleClaimDays(claim: InsuranceClaimRecord | null): number | null {
-  if (!claim || claim.status !== "Activo") return null;
-  const lastUpdate = claim.followUpCommentUpdatedAt || claim.updatedAt || claim.createdAt;
-  const days = daysSince(lastUpdate);
-  return days !== null && days >= STALE_CLAIM_DAYS ? days : null;
-}
-
 function localDateKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boolean): IncidentAlert[] {
+  const alerts: IncidentAlert[] = [];
+  const severityOrder: Record<IncidentAlertSeverity, number> = { urgent: 0, attention: 1, upcoming: 2 };
+  const addAlert = (incident: UnifiedIncident, alert: Omit<IncidentAlert, "incidentId" | "unit" | "plate">) => {
+    alerts.push({ ...alert, incidentId: incident.id, unit: incident.unit, plate: incident.plate });
+  };
+
+  incidents.forEach((incident) => {
+    const collision = incident.collision;
+    const claim = incident.claim;
+
+    if (collision && collision.status !== "Ganó" && collision.status !== "Perdió") {
+      const trialOffset = collision.trialDate ? calendarDayOffset(collision.trialDate) : null;
+      if (!collision.trialDate) {
+        addAlert(incident, {
+          id: `${incident.id}:trial-missing`, kind: "judicial", severity: "urgent", priority: 10,
+          title: "Juicio sin fecha", message: "El expediente todavía no tiene una fecha de juicio asignada.",
+          actionLabel: "Asignar fecha", destination: "judicial", targetId: collision.id
+        });
+      } else if (trialOffset !== null && trialOffset < 0) {
+        const overdueDays = Math.abs(trialOffset);
+        addAlert(incident, {
+          id: `${incident.id}:trial-overdue`, kind: "judicial", severity: "urgent", priority: 1,
+          title: "Juicio vencido sin resultado", message: `La fecha fue ${collision.trialDate}; han pasado ${overdueDays} ${overdueDays === 1 ? "día" : "días"}.`,
+          actionLabel: "Registrar resultado", destination: "judicial", targetId: collision.id
+        });
+      } else if (trialOffset === 0) {
+        addAlert(incident, {
+          id: `${incident.id}:trial-today`, kind: "judicial", severity: "urgent", priority: 2,
+          title: "Juicio programado para hoy", message: "El juicio requiere seguimiento durante el día de hoy.",
+          actionLabel: "Gestionar juicio", destination: "judicial", targetId: collision.id
+        });
+      } else if (trialOffset !== null && trialOffset >= 1 && trialOffset <= 3) {
+        addAlert(incident, {
+          id: `${incident.id}:trial-upcoming`, kind: "judicial", severity: "upcoming", priority: 30 + trialOffset,
+          title: trialOffset === 1 ? "Juicio programado para mañana" : `Juicio dentro de ${trialOffset} días`,
+          message: `Fecha de juicio: ${collision.trialDate}.`, actionLabel: "Ver juicio", destination: "judicial", targetId: collision.id
+        });
+      }
+    }
+
+    if (canViewInsurance && collision?.status === "Ganó" && !claim) {
+      const wonDays = calendarDaysSince(dateKeyFromTimestamp(collision.updatedAt));
+      if (wonDays !== null && wonDays >= 2) {
+        addAlert(incident, {
+          id: `${incident.id}:won-without-claim`, kind: "insurance", severity: "attention", priority: 20,
+          title: "Juicio ganado sin reclamo", message: `Han pasado ${wonDays} días desde la última actualización y aún no se inició el reclamo.`,
+          actionLabel: "Iniciar reclamo", destination: "judicial", targetId: collision.id
+        });
+      }
+    }
+
+    if (!claim || claim.status === "Finalizado") return;
+    const createdDays = calendarDaysSince(dateKeyFromTimestamp(claim.createdAt));
+    if (claim.status === "Inactivo" && !claim.claimNumber.trim() && createdDays !== null && createdDays >= 3) {
+      addAlert(incident, {
+        id: `${incident.id}:claim-number-missing`, kind: "insurance", severity: "attention", priority: 21,
+        title: "Reclamo sin número", message: `El reclamo lleva ${createdDays} días inactivo y todavía no tiene número asignado.`,
+        actionLabel: "Agregar número", destination: "insurance", targetId: claim.id
+      });
+    }
+    if (claim.status !== "Activo") return;
+
+    if (claim.settlementDelivered) {
+      addAlert(incident, {
+        id: `${incident.id}:settlement-active`, kind: "insurance", severity: "urgent", priority: 3,
+        title: "Finiquito entregado con reclamo activo", message: "El finiquito ya fue entregado, pero el reclamo todavía no se ha finalizado.",
+        actionLabel: "Finalizar reclamo", destination: "insurance", targetId: claim.id
+      });
+    }
+
+    if (!claim.followUpComment.trim() && createdDays !== null && createdDays >= 3) {
+      addAlert(incident, {
+        id: `${incident.id}:first-follow-up-missing`, kind: "insurance", severity: "urgent", priority: 4,
+        title: "Reclamo sin primer seguimiento", message: `El reclamo está activo desde hace ${createdDays} días y no tiene seguimiento registrado.`,
+        actionLabel: "Registrar seguimiento", destination: "insurance", targetId: claim.id
+      });
+    } else if (claim.followUpComment.trim()) {
+      const lastUpdate = claim.followUpCommentUpdatedAt || claim.updatedAt || claim.createdAt;
+      const staleDays = calendarDaysSince(dateKeyFromTimestamp(lastUpdate));
+      if (staleDays !== null && staleDays >= 30) {
+        addAlert(incident, {
+          id: `${incident.id}:claim-stale-30`, kind: "insurance", severity: "urgent", priority: 5,
+          title: "Reclamo estancado", message: `Han pasado ${staleDays} días sin una actualización de seguimiento.`,
+          actionLabel: "Actualizar reclamo", destination: "insurance", targetId: claim.id
+        });
+      } else if (staleDays !== null && staleDays >= 15) {
+        addAlert(incident, {
+          id: `${incident.id}:claim-stale-15`, kind: "insurance", severity: "attention", priority: 22,
+          title: "Reclamo sin actualización", message: `Han pasado ${staleDays} días sin una actualización de seguimiento.`,
+          actionLabel: "Actualizar reclamo", destination: "insurance", targetId: claim.id
+        });
+      }
+    }
+  });
+
+  return alerts.sort((left, right) => severityOrder[left.severity] - severityOrder[right.severity] || left.priority - right.priority || left.title.localeCompare(right.title, "es"));
 }
 
 function claimNextAction(claim: InsuranceClaimRecord): { label: string; finalized: boolean; requiresAction: boolean } {
@@ -160,11 +273,13 @@ function mergeIncidents(collisions: CollisionCaseRecord[], claims: InsuranceClai
   return incidents.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudicial, canViewInsurance, refreshKey, onOpen }: Props) {
+export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudicial, canViewInsurance, refreshKey, onOpen, onAlertCountChange }: Props) {
   const [collisions, setCollisions] = useState<CollisionCaseRecord[]>([]);
   const [claims, setClaims] = useState<InsuranceClaimRecord[]>([]);
   const [fleetUnits, setFleetUnits] = useState<ControlUnitRow[]>([]);
   const [filter, setFilter] = useState<FollowUpFilter>("all");
+  const [alertFilter, setAlertFilter] = useState<AlertFilter>("all");
+  const [alertCenterOpen, setAlertCenterOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -196,6 +311,30 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   }, [canViewInsurance, canViewJudicial, dataOwnerUserId, refreshKey]);
 
   const incidents = useMemo(() => mergeIncidents(collisions, claims, fleetUnits), [claims, collisions, fleetUnits]);
+  const alerts = useMemo(() => buildIncidentAlerts(incidents, canViewInsurance), [canViewInsurance, incidents]);
+  const alertCounts = useMemo(() => ({
+    urgent: alerts.filter((alert) => alert.severity === "urgent").length,
+    attention: alerts.filter((alert) => alert.severity === "attention").length,
+    upcoming: alerts.filter((alert) => alert.severity === "upcoming").length
+  }), [alerts]);
+  const activeAlertCount = alerts.length;
+  const filteredAlerts = useMemo(() => alerts.filter((alert) => {
+    if (alertFilter === "urgent") return alert.severity === "urgent";
+    if (alertFilter === "attention") return alert.severity === "attention";
+    if (alertFilter === "upcoming") return alert.severity === "upcoming";
+    if (alertFilter === "judicial") return alert.kind === "judicial";
+    if (alertFilter === "insurance") return alert.kind === "insurance";
+    return true;
+  }), [alertFilter, alerts]);
+  const alertsByIncident = useMemo(() => {
+    const grouped = new Map<string, IncidentAlert[]>();
+    alerts.forEach((alert) => grouped.set(alert.incidentId, [...(grouped.get(alert.incidentId) ?? []), alert]));
+    return grouped;
+  }, [alerts]);
+
+  useEffect(() => {
+    onAlertCountChange?.(activeAlertCount);
+  }, [activeAlertCount, onAlertCountChange]);
   const filteredIncidents = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("es");
     return incidents.filter((incident) => {
@@ -211,6 +350,19 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   }, [filter, incidents, search]);
 
   const actionCount = incidents.filter((incident) => incident.requiresAction).length;
+
+  function openAlert(alert: IncidentAlert): void {
+    onOpen(alert.destination, { id: alert.targetId, search: alert.unit });
+  }
+
+  function openAlertCenter(nextFilter: Extract<AlertFilter, "urgent" | "attention" | "upcoming">): void {
+    if (alertCenterOpen && alertFilter === nextFilter) {
+      setAlertCenterOpen(false);
+      return;
+    }
+    setAlertFilter(nextFilter);
+    setAlertCenterOpen(true);
+  }
 
   async function copyClaimNumber(claim: InsuranceClaimRecord): Promise<void> {
     if (!claim.claimNumber) return;
@@ -228,6 +380,35 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
       <div className="panel-head"><div><span className="workflow-eyebrow">Seguimiento unificado</span><h2>Expedientes de siniestros</h2></div><span className="hint">{filteredIncidents.length} de {incidents.length}</span></div>
       {loading && <p className="hint workflow-message">Cargando expedientes...</p>}
       {loadError && <p className="hint workflow-message">{loadError}</p>}
+      {!loading && !loadError && <section className="incident-alert-center" aria-label="Alertas de juicios y reclamos">
+        <div className="incident-alert-summary" aria-label="Resumen de alertas activas">
+          <button type="button" className={`incident-alert-metric severity-urgent${alertCenterOpen && alertFilter === "urgent" ? " active" : ""}`} aria-expanded={alertCenterOpen && alertFilter === "urgent"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("urgent")}><small>Urgentes</small><strong>{alertCounts.urgent}</strong><span>Requieren acción inmediata</span></button>
+          <button type="button" className={`incident-alert-metric severity-attention${alertCenterOpen && alertFilter === "attention" ? " active" : ""}`} aria-expanded={alertCenterOpen && alertFilter === "attention"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("attention")}><small>Atención</small><strong>{alertCounts.attention}</strong><span>Necesitan seguimiento</span></button>
+          <button type="button" className={`incident-alert-metric severity-upcoming${alertCenterOpen && alertFilter === "upcoming" ? " active" : ""}`} aria-expanded={alertCenterOpen && alertFilter === "upcoming"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("upcoming")}><small>Próximos</small><strong>{alertCounts.upcoming}</strong><span>Juicios en los siguientes 3 días</span></button>
+        </div>
+        {alertCenterOpen && <div className="incident-alert-panel" id="incident-alert-panel">
+          <div className="incident-alert-panel-head">
+            <div><span className="workflow-eyebrow">Prioridades operativas</span><h3 id="incident-alert-center-title">Centro de alertas</h3></div>
+            <div className="incident-alert-panel-actions"><span className="hint">{filteredAlerts.length} {filteredAlerts.length === 1 ? "alerta" : "alertas"}</span><button type="button" className="incident-alert-close" aria-label="Cerrar centro de alertas" onClick={() => setAlertCenterOpen(false)}>Cerrar</button></div>
+          </div>
+          <div className="incident-alert-filters" aria-label="Filtrar alertas">
+            <button type="button" className={alertFilter === "all" ? "active" : ""} onClick={() => setAlertFilter("all")}>Todas</button>
+            <button type="button" className={alertFilter === "urgent" ? "active" : ""} onClick={() => setAlertFilter("urgent")}>Urgentes</button>
+            <button type="button" className={alertFilter === "attention" ? "active" : ""} onClick={() => setAlertFilter("attention")}>Atención</button>
+            <button type="button" className={alertFilter === "upcoming" ? "active" : ""} onClick={() => setAlertFilter("upcoming")}>Próximas</button>
+            {canViewJudicial && <button type="button" className={alertFilter === "judicial" ? "active" : ""} onClick={() => setAlertFilter("judicial")}>Juicios</button>}
+            {canViewInsurance && <button type="button" className={alertFilter === "insurance" ? "active" : ""} onClick={() => setAlertFilter("insurance")}>Reclamos</button>}
+          </div>
+          <div className="incident-alert-list" aria-live="polite">
+            {!filteredAlerts.length && <p className="incident-alert-empty">No hay alertas activas para este filtro.</p>}
+            {filteredAlerts.map((alert) => <article key={alert.id} className={`incident-alert-item severity-${alert.severity}`}>
+              <span className="incident-alert-icon" aria-hidden="true">{alert.severity === "urgent" ? "!" : alert.severity === "attention" ? "⚠" : "◷"}</span>
+              <span className="incident-alert-copy"><small>{alert.kind === "judicial" ? "Juicio" : "Reclamo"} · {alert.unit || "Sin unidad"}{alert.plate ? ` · ${alert.plate}` : ""}</small><strong>{alert.title}</strong><span>{alert.message}</span></span>
+              <button type="button" className="button small" onClick={() => openAlert(alert)}>{alert.actionLabel}</button>
+            </article>)}
+          </div>
+        </div>}
+      </section>}
       <div className="unified-incidents-toolbar">
         <label className="workflow-claim-search">Buscar<input type="search" value={search} placeholder="Unidad, placa, año, aseguradora o número de reclamo" onChange={(event) => setSearch(event.target.value)} /></label>
         <div className="unified-incidents-filters" aria-label="Filtrar expedientes">
@@ -245,7 +426,8 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           const expanded = expandedId === incident.id;
           const claimState = !incident.claim ? "none" : incident.claim.status === "Activo" ? "active" : incident.claim.status === "Inactivo" ? "inactive" : "finished";
           const claimStateLabel = claimState === "active" ? "Reclamo activo" : claimState === "inactive" ? "Reclamo inactivo" : claimState === "finished" ? "Reclamo finalizado" : "Sin reclamo";
-          const staleDays = staleClaimDays(incident.claim);
+          const incidentAlerts = alertsByIncident.get(incident.id) ?? [];
+          const topAlert = incidentAlerts[0];
           const ageLabel = incidentAgeLabel(incident.incidentDate);
           return <article key={incident.id} className={`unified-incident-card status-${claimState}${expanded ? " expanded" : ""}`}>
             <div className="unified-incident-row">
@@ -267,7 +449,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
                   {incident.claim?.closureOutcome && <small className="unified-incident-outcome">{incident.claim.closureOutcome}</small>}
                 </span>
                 <span className={`unified-incident-action${incident.requiresAction ? " attention" : incident.finalized ? " complete" : ""}`}><small>Próxima acción</small><strong>{incident.nextAction}</strong></span>
-                {staleDays !== null && <span className="unified-incident-stale" role="status">⚠ {staleDays} días sin actualización</span>}
+                {topAlert && <span className={`unified-incident-alert severity-${topAlert.severity}`} role="status"><b>{topAlert.severity === "urgent" ? "!" : topAlert.severity === "attention" ? "⚠" : "◷"}</b> {topAlert.title}</span>}
                 <button type="button" className="workflow-claim-chevron" aria-label={expanded ? "Contraer expediente" : "Expandir expediente"} aria-expanded={expanded} onClick={(event) => { event.stopPropagation(); setExpandedId(expanded ? null : incident.id); }}>{expanded ? "−" : "+"}</button>
               </div>
               <div className="unified-incident-quick-actions">
@@ -284,6 +466,10 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
                 <div><dt>Chofer</dt><dd>{incident.driver || "-"}</dd></div>
                 <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{incident.vehicleDamage || "Sin descripción"}</dd></div>
               </dl>
+              {incidentAlerts.length > 1 && <div className="unified-incident-secondary-alerts">
+                <strong>Otras alertas del expediente</strong>
+                {incidentAlerts.slice(1).map((alert) => <button type="button" key={alert.id} className={`severity-${alert.severity}`} onClick={() => openAlert(alert)}><span>{alert.title}</span><small>{alert.message}</small></button>)}
+              </div>}
             </div>}
           </article>;
         })}
