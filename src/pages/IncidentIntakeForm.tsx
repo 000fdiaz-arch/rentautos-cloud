@@ -187,7 +187,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           id: `collision-trial-${Date.now()}-${crypto.randomUUID()}`, ...common,
           clientId: caseClient?.id ?? "", clientName: caseClient?.name ?? form.driver.trim(),
           trialDate: form.trialDate, ticketStub: form.ticketStub.trim(), placeTime: form.placeTime.trim(), court: normalizeCourtName(form.court), collisionAndRun: form.collisionAndRun,
-          status: "Pendiente", trialDateHistory: [], insuranceClaim: null, expenseInvoice: null,
+          status: "Pendiente", trialDateHistory: [], judicialFollowUps: [], insuranceClaim: null, expenseInvoice: null,
           clientReturnedBeforeClosure: false, clientReturnedBeforeClosureAt: null, createdAt: now, updatedAt: now
         };
         await saveCollisionCase(dataOwnerUserId, collisionCase);
@@ -199,7 +199,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           id, ...common, insurer: normalizeInsurer(form.insurer), hasClaimNumber: Boolean(claimNumber), claimNumber, amount: form.amount,
           status: claimNumber ? "Activo" : "Inactivo", damagePhotoNames: uploadedPhotos.map((photo) => photo.name), damagePhotos: uploadedPhotos,
           settlementDelivered: false, settlementDeliveredDate: "", settlementMarkedAt: null, settlementAttachment: null,
-          followUpComment: "", followUpCommentUpdatedAt: null, closureOutcome: null, closureJustification: "", finalizedAt: null, editHistory: [], createdAt: now, updatedAt: now
+          followUpComment: "", followUpCommentUpdatedAt: null, followUps: [], closureOutcome: null, closureJustification: "", finalizedAt: null, editHistory: [], createdAt: now, updatedAt: now
         };
         await saveInsuranceInsurer(dataOwnerUserId, claim.insurer);
         await saveInsuranceClaim(dataOwnerUserId, claim);

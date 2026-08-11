@@ -49,6 +49,8 @@ type TrialForm = {
   collisionAndRun: boolean;
 };
 type ClaimDraft = { insurer: string; claimNumber: string; amount: string };
+type JudicialFollowUpDraft = { comment: string; nextStep: string; nextActionDate: string };
+type JudicialCaseTab = "management" | "follow_up";
 
 const EMPTY_FORM: TrialForm = {
   incidentDate: "",
@@ -63,6 +65,7 @@ const EMPTY_FORM: TrialForm = {
   collisionAndRun: false
 };
 const EMPTY_CLAIM: ClaimDraft = { insurer: "", claimNumber: "", amount: "" };
+const EMPTY_JUDICIAL_FOLLOW_UP: JudicialFollowUpDraft = { comment: "", nextStep: "", nextActionDate: "" };
 const MAX_PHOTOS = 5;
 const MAX_PHOTO_SIZE = 10 * 1024 * 1024;
 const USD_FORMATTER = new Intl.NumberFormat("es-PA", { style: "currency", currency: "USD" });
@@ -117,6 +120,9 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   const [returnedBeforeClosure, setReturnedBeforeClosure] = useState<Record<string, boolean>>({});
   const [claimDrafts, setClaimDrafts] = useState<Record<string, ClaimDraft>>({});
   const [claimPhotoFiles, setClaimPhotoFiles] = useState<Record<string, File[]>>({});
+  const [judicialFollowUpDrafts, setJudicialFollowUpDrafts] = useState<Record<string, JudicialFollowUpDraft>>({});
+  const [judicialFollowUpSavingId, setJudicialFollowUpSavingId] = useState("");
+  const [judicialCaseTabs, setJudicialCaseTabs] = useState<Record<string, JudicialCaseTab>>({});
 
   const fleetUnitsByUnit = useMemo(() => new Map(fleetUnits.map((row) => [normalizeUnit(row.unit_id), row])), [fleetUnits]);
   const clientsByUnit = useMemo(() => {
@@ -148,7 +154,8 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       if (dateFilter === "last_week" && (!item.trialDate || item.trialDate < lastWeek.start || item.trialDate > lastWeek.end || isFinalStatus(item.status))) return false;
       if (dateFilter === "overdue" && (!item.trialDate || item.trialDate >= today || isFinalStatus(item.status))) return false;
       if (!needle) return true;
-      return [item.unit, item.driver, item.plate, item.ticketStub, item.placeTime, item.court, item.vehicleDamage]
+      return [item.unit, item.driver, item.plate, item.ticketStub, item.placeTime, item.court, item.vehicleDamage,
+        ...item.judicialFollowUps.flatMap((entry) => [entry.comment, entry.nextStep])]
         .some((value) => value.toLocaleLowerCase("es").includes(needle));
     });
   }, [cases, dateFilter, focusedCaseId, search, statusFilter]);
@@ -233,6 +240,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       collisionAndRun: form.collisionAndRun,
       status: "Pendiente",
       trialDateHistory: [],
+      judicialFollowUps: [],
       insuranceClaim: null,
       expenseInvoice: null,
       clientReturnedBeforeClosure: false,
@@ -256,6 +264,40 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     await saveCollisionCase(dataOwnerUserId, updated);
     setCases((current) => current.map((item) => item.id === updated.id ? updated : item));
     setMessage(success);
+  }
+
+  async function saveJudicialFollowUp(item: CollisionCaseRecord): Promise<void> {
+    if (readOnly || judicialFollowUpSavingId || !dataOwnerUserId || isFinalStatus(item.status)) return;
+    const draft = judicialFollowUpDrafts[item.id] ?? EMPTY_JUDICIAL_FOLLOW_UP;
+    const comment = draft.comment.trim();
+    const nextStep = draft.nextStep.trim();
+    if (!comment || !nextStep || !draft.nextActionDate) {
+      setMessage("Completa la novedad, el próximo paso y la fecha de la próxima gestión.");
+      return;
+    }
+    const now = new Date().toISOString();
+    const updatedCase: CollisionCaseRecord = {
+      ...item,
+      judicialFollowUps: [...item.judicialFollowUps, {
+        id: `judicial-follow-up-${Date.now()}-${crypto.randomUUID()}`,
+        comment,
+        nextStep,
+        nextActionDate: draft.nextActionDate,
+        createdAt: now
+      }],
+      updatedAt: now
+    };
+    setJudicialFollowUpSavingId(item.id);
+    setMessage("");
+    try {
+      await persistCase(updatedCase, "Seguimiento judicial guardado correctamente.");
+      setJudicialFollowUpDrafts((current) => ({ ...current, [item.id]: EMPTY_JUDICIAL_FOLLOW_UP }));
+    } catch (error) {
+      console.error("No se pudo guardar el seguimiento judicial.", error);
+      setMessage("No se pudo guardar el seguimiento judicial.");
+    } finally {
+      setJudicialFollowUpSavingId("");
+    }
   }
 
   async function applyOutcome(item: CollisionCaseRecord): Promise<void> {
@@ -395,6 +437,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
             settlementAttachment: null,
             followUpComment: "",
             followUpCommentUpdatedAt: null,
+            followUps: [],
             closureOutcome: null,
             closureJustification: "",
             finalizedAt: null,
@@ -502,6 +545,8 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
             const today = localDateKey(new Date());
             const requiresOutcome = Boolean(item.trialDate && item.trialDate <= today && !isFinalStatus(item.status));
             const outcome = outcomeDrafts[item.id] ?? "";
+            const followUpDraft = judicialFollowUpDrafts[item.id] ?? EMPTY_JUDICIAL_FOLLOW_UP;
+            const activeCaseTab = judicialCaseTabs[item.id] ?? "management";
             return <article key={item.id} className={`workflow-claim-card${expanded ? " expanded" : ""}`}>
               {!focusedCaseId && <div className="workflow-claim-summary">
                 <button type="button" className="workflow-claim-toggle" aria-expanded={expanded} onClick={() => { setExpandedId(expanded ? null : item.id); initializeCaseDrafts(item); }}>
@@ -515,13 +560,18 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
               </div>}
               {expanded && <div className="workflow-claim-details">
                 {requiresOutcome && <p className="collision-required-outcome" role="alert">La fecha del juicio llegó o está vencida. Debes registrar el resultado.</p>}
-                <dl className="workflow-claim-detail-grid">
+                <div className="judicial-case-tabs" role="tablist" aria-label="Secciones del expediente judicial">
+                  <button type="button" role="tab" id={`judicial-management-tab-${item.id}`} aria-selected={activeCaseTab === "management"} aria-controls={`judicial-management-panel-${item.id}`} className={activeCaseTab === "management" ? "active" : ""} onClick={() => setJudicialCaseTabs((current) => ({ ...current, [item.id]: "management" }))}>Gestión del juicio</button>
+                  <button type="button" role="tab" id={`judicial-follow-up-tab-${item.id}`} aria-selected={activeCaseTab === "follow_up"} aria-controls={`judicial-follow-up-panel-${item.id}`} className={activeCaseTab === "follow_up" ? "active" : ""} onClick={() => setJudicialCaseTabs((current) => ({ ...current, [item.id]: "follow_up" }))}>Seguimiento <span>{item.judicialFollowUps.length}</span></button>
+                </div>
+                {activeCaseTab === "management" && <div className="judicial-case-tab-panel judicial-case-tab-panel--management" role="tabpanel" id={`judicial-management-panel-${item.id}`} aria-labelledby={`judicial-management-tab-${item.id}`}>
+                  <dl className="workflow-claim-detail-grid">
                   <div><dt>Fecha del incidente</dt><dd>{item.incidentDate}</dd></div><div><dt>Fecha de juicio</dt><dd>{item.trialDate}</dd></div>
                   <div><dt>Colilla</dt><dd>{item.ticketStub}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
                   <div><dt>Colisión y fuga</dt><dd><span className={`collision-runaway-status ${item.collisionAndRun ? "collision-runaway-status--yes" : "collision-runaway-status--no"}`}>{item.collisionAndRun ? "Sí" : "No"}</span></dd></div>
                   <div><dt>Cliente del expediente</dt><dd>{item.clientName || item.driver || "-"}</dd></div>
                   <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>
-                </dl>
+                  </dl>
                 {!isFinalStatus(item.status) && <div className="workflow-finalization-panel collision-outcome-panel">
                   <div><strong>Resultado del juicio</strong><span>Selecciona el resultado para continuar el flujo.</span></div>
                   <label>Estado<select value={outcome} onChange={(event) => setOutcomeDrafts((current) => ({ ...current, [item.id]: event.target.value as typeof outcome }))} disabled={readOnly || busyId === item.id}><option value="">Seleccionar</option><option>Ganó</option><option>Perdió</option><option>Nueva fecha</option></select></label>
@@ -544,6 +594,17 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                 </div>}
                 {item.status === "Perdió" && item.expenseInvoice && <div className="collision-expense-invoice"><strong>Factura de gastos generada</strong><span>{item.expenseInvoice.label}</span><b>{USD_FORMATTER.format(item.expenseInvoice.amount)}</b><small>Agregada a otros cargos del cliente.</small></div>}
                 {item.status === "Perdió" && item.clientReturnedBeforeClosure && <div className="collision-client-returned"><strong>Cliente retirado antes del cierre</strong><span>{item.clientName || item.driver || "El cliente"} dejó el carro antes de finalizar el juicio.</span><small>No se generó una factura automática.</small></div>}
+                </div>}
+                {activeCaseTab === "follow_up" && <section className="judicial-follow-up-panel judicial-case-tab-panel" role="tabpanel" id={`judicial-follow-up-panel-${item.id}`} aria-labelledby={`judicial-follow-up-tab-${item.id}`}>
+                  <div className="judicial-follow-up-head"><div><strong>Timeline de seguimiento</strong><span>Registra cada gestión sin reemplazar las anteriores.</span></div><b>{item.judicialFollowUps.length} {item.judicialFollowUps.length === 1 ? "registro" : "registros"}</b></div>
+                  {!isFinalStatus(item.status) && <div className="judicial-follow-up-form">
+                    <label className="judicial-follow-up-comment">Novedad o gestión<textarea value={followUpDraft.comment} placeholder="Ej. Se llamó al juzgado y se confirmó la recepción de documentos" onChange={(event) => setJudicialFollowUpDrafts((current) => ({ ...current, [item.id]: { ...followUpDraft, comment: event.target.value } }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /></label>
+                    <label>Próximo paso<input value={followUpDraft.nextStep} placeholder="Ej. Entregar copia autenticada" onChange={(event) => setJudicialFollowUpDrafts((current) => ({ ...current, [item.id]: { ...followUpDraft, nextStep: event.target.value } }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /></label>
+                    <label>Próxima gestión<input type="date" min={today} value={followUpDraft.nextActionDate} onChange={(event) => setJudicialFollowUpDrafts((current) => ({ ...current, [item.id]: { ...followUpDraft, nextActionDate: event.target.value } }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /></label>
+                    <button type="button" className="button primary" onClick={() => void saveJudicialFollowUp(item)} disabled={readOnly || judicialFollowUpSavingId === item.id || !followUpDraft.comment.trim() || !followUpDraft.nextStep.trim() || !followUpDraft.nextActionDate}>{judicialFollowUpSavingId === item.id ? "Guardando..." : "Guardar seguimiento"}</button>
+                  </div>}
+                  {item.judicialFollowUps.length > 0 ? <ol className="judicial-follow-up-history">{[...item.judicialFollowUps].reverse().map((entry) => <li key={entry.id}><div><time>{new Date(entry.createdAt).toLocaleString("es-PA")}</time><span>Próxima gestión: <strong>{entry.nextActionDate}</strong></span></div><p>{entry.comment}</p><small>Próximo paso: <strong>{entry.nextStep}</strong></small></li>)}</ol> : <p className="judicial-follow-up-empty">Todavía no hay seguimientos registrados en este juicio.</p>}
+                </section>}
               </div>}
             </article>;
           })}

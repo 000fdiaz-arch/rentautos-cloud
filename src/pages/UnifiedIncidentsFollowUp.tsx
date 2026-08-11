@@ -144,6 +144,28 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
           message: `Fecha de juicio: ${collision.trialDate}.`, actionLabel: "Ver juicio", destination: "judicial", targetId: collision.id
         });
       }
+      const latestFollowUp = collision.judicialFollowUps[collision.judicialFollowUps.length - 1];
+      const followUpOffset = latestFollowUp?.nextActionDate ? calendarDayOffset(latestFollowUp.nextActionDate) : null;
+      if (latestFollowUp && followUpOffset !== null && followUpOffset < 0) {
+        const overdueDays = Math.abs(followUpOffset);
+        addAlert(incident, {
+          id: `${incident.id}:judicial-follow-up-overdue`, kind: "judicial", severity: "urgent", priority: 6,
+          title: "Seguimiento judicial vencido", message: `${latestFollowUp.nextStep}. Venció hace ${overdueDays} ${overdueDays === 1 ? "día" : "días"}.`,
+          actionLabel: "Registrar seguimiento", destination: "judicial", targetId: collision.id
+        });
+      } else if (latestFollowUp && followUpOffset === 0) {
+        addAlert(incident, {
+          id: `${incident.id}:judicial-follow-up-today`, kind: "judicial", severity: "urgent", priority: 7,
+          title: "Seguimiento judicial para hoy", message: latestFollowUp.nextStep,
+          actionLabel: "Registrar seguimiento", destination: "judicial", targetId: collision.id
+        });
+      } else if (latestFollowUp && followUpOffset !== null && followUpOffset >= 1 && followUpOffset <= 3) {
+        addAlert(incident, {
+          id: `${incident.id}:judicial-follow-up-upcoming`, kind: "judicial", severity: "upcoming", priority: 34 + followUpOffset,
+          title: followUpOffset === 1 ? "Seguimiento judicial para mañana" : `Seguimiento judicial dentro de ${followUpOffset} días`,
+          message: latestFollowUp.nextStep, actionLabel: "Ver seguimiento", destination: "judicial", targetId: collision.id
+        });
+      }
     }
 
     if (canViewInsurance && collision?.status === "Ganó" && !claim) {
@@ -176,14 +198,36 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
       });
     }
 
-    if (!claim.followUpComment.trim() && createdDays !== null && createdDays >= 3) {
+    const latestClaimFollowUp = claim.followUps[claim.followUps.length - 1];
+    if (!latestClaimFollowUp && createdDays !== null && createdDays >= 3) {
       addAlert(incident, {
         id: `${incident.id}:first-follow-up-missing`, kind: "insurance", severity: "urgent", priority: 4,
         title: "Reclamo sin primer seguimiento", message: `El reclamo está activo desde hace ${createdDays} días y no tiene seguimiento registrado.`,
         actionLabel: "Registrar seguimiento", destination: "insurance", targetId: claim.id
       });
-    } else if (claim.followUpComment.trim()) {
-      const lastUpdate = claim.followUpCommentUpdatedAt || claim.updatedAt || claim.createdAt;
+    } else if (latestClaimFollowUp) {
+      const followUpOffset = latestClaimFollowUp.nextActionDate ? calendarDayOffset(latestClaimFollowUp.nextActionDate) : null;
+      if (followUpOffset !== null && followUpOffset < 0) {
+        const overdueDays = Math.abs(followUpOffset);
+        addAlert(incident, {
+          id: `${incident.id}:claim-follow-up-overdue`, kind: "insurance", severity: "urgent", priority: 8,
+          title: "Seguimiento del reclamo vencido", message: `${latestClaimFollowUp.nextStep}. Venció hace ${overdueDays} ${overdueDays === 1 ? "día" : "días"}.`,
+          actionLabel: "Registrar seguimiento", destination: "insurance", targetId: claim.id
+        });
+      } else if (followUpOffset === 0) {
+        addAlert(incident, {
+          id: `${incident.id}:claim-follow-up-today`, kind: "insurance", severity: "urgent", priority: 9,
+          title: "Seguimiento del reclamo para hoy", message: latestClaimFollowUp.nextStep,
+          actionLabel: "Registrar seguimiento", destination: "insurance", targetId: claim.id
+        });
+      } else if (followUpOffset !== null && followUpOffset >= 1 && followUpOffset <= 3) {
+        addAlert(incident, {
+          id: `${incident.id}:claim-follow-up-upcoming`, kind: "insurance", severity: "upcoming", priority: 38 + followUpOffset,
+          title: followUpOffset === 1 ? "Seguimiento del reclamo para mañana" : `Seguimiento del reclamo dentro de ${followUpOffset} días`,
+          message: latestClaimFollowUp.nextStep, actionLabel: "Ver seguimiento", destination: "insurance", targetId: claim.id
+        });
+      }
+      const lastUpdate = latestClaimFollowUp.createdAt || claim.followUpCommentUpdatedAt || claim.updatedAt || claim.createdAt;
       const staleDays = calendarDaysSince(dateKeyFromTimestamp(lastUpdate));
       if (staleDays !== null && staleDays >= 30) {
         addAlert(incident, {
@@ -207,9 +251,18 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
 function claimNextAction(claim: InsuranceClaimRecord): { label: string; finalized: boolean; requiresAction: boolean } {
   if (claim.status === "Finalizado") return { label: `Reclamo ${claim.closureOutcome?.toLocaleLowerCase("es") ?? "finalizado"}`, finalized: true, requiresAction: false };
   if (!claim.claimNumber.trim()) return { label: "Agregar número de reclamo", finalized: false, requiresAction: true };
-  if (!claim.followUpComment.trim()) return { label: "Registrar seguimiento del seguro", finalized: false, requiresAction: true };
-  if (!claim.settlementDelivered) return { label: "Dar seguimiento y gestionar finiquito", finalized: false, requiresAction: false };
-  return { label: "Finalizar reclamo", finalized: false, requiresAction: true };
+  const latestFollowUp = claim.followUps[claim.followUps.length - 1];
+  if (!latestFollowUp) return { label: "Registrar seguimiento del seguro", finalized: false, requiresAction: true };
+  if (claim.settlementDelivered) return { label: "Finalizar reclamo", finalized: false, requiresAction: true };
+  if (latestFollowUp.nextActionDate) {
+    const followUpDue = latestFollowUp.nextActionDate <= localDateKey();
+    return {
+      label: `${followUpDue ? "Realizar seguimiento del seguro" : `Próxima gestión ${latestFollowUp.nextActionDate}`}: ${latestFollowUp.nextStep}`,
+      finalized: false,
+      requiresAction: followUpDue
+    };
+  }
+  return { label: "Dar seguimiento y gestionar finiquito", finalized: false, requiresAction: false };
 }
 
 function collisionNextAction(collision: CollisionCaseRecord, claim: InsuranceClaimRecord | null): { label: string; finalized: boolean; requiresAction: boolean } {
@@ -223,9 +276,17 @@ function collisionNextAction(collision: CollisionCaseRecord, claim: InsuranceCla
     return { label: "Iniciar reclamo al seguro", finalized: false, requiresAction: true };
   }
   const requiresResult = Boolean(collision.trialDate && collision.trialDate <= localDateKey());
-  return requiresResult
-    ? { label: "Registrar resultado del juicio", finalized: false, requiresAction: true }
-    : { label: collision.trialDate ? `Esperar juicio del ${collision.trialDate}` : "Asignar fecha de juicio", finalized: false, requiresAction: !collision.trialDate };
+  if (requiresResult) return { label: "Registrar resultado del juicio", finalized: false, requiresAction: true };
+  const latestFollowUp = collision.judicialFollowUps[collision.judicialFollowUps.length - 1];
+  if (latestFollowUp?.nextActionDate) {
+    const followUpDue = latestFollowUp.nextActionDate <= localDateKey();
+    return {
+      label: `${followUpDue ? "Realizar seguimiento judicial" : `Próxima gestión ${latestFollowUp.nextActionDate}`}: ${latestFollowUp.nextStep}`,
+      finalized: false,
+      requiresAction: followUpDue
+    };
+  }
+  return { label: collision.trialDate ? `Esperar juicio del ${collision.trialDate}` : "Asignar fecha de juicio", finalized: false, requiresAction: !collision.trialDate };
 }
 
 function mergeIncidents(collisions: CollisionCaseRecord[], claims: InsuranceClaimRecord[], fleetUnits: ControlUnitRow[]): UnifiedIncident[] {
@@ -448,19 +509,30 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           <label className="workflow-claim-search">Buscar<input type="search" value={search} placeholder="Unidad, placa, año, aseguradora o número de reclamo" onChange={(event) => setSearch(event.target.value)} /></label>
           <button type="button" className="button ghost small unified-incidents-clear" onClick={clearFilters} disabled={!hasActiveFilters}>Limpiar filtros</button>
         </div>
-        <div className="unified-incidents-filters" aria-label="Filtrar expedientes">
-          <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Todos <span>{filterCounts.all}</span></button>
-          <button type="button" className={filter === "action" ? "active" : ""} onClick={() => setFilter("action")}>Seguimiento <span>{filterCounts.action}</span></button>
-          {canViewJudicial && <button type="button" className={filter === "judicial" ? "active" : ""} onClick={() => setFilter("judicial")}>Juicios <span>{filterCounts.judicial}</span></button>}
-          {canViewInsurance && <button type="button" className={filter === "insurance_active" ? "active" : ""} onClick={() => setFilter("insurance_active")}>Reclamos activos <span>{filterCounts.insurance_active}</span></button>}
-          {canViewInsurance && <button type="button" className={filter === "insurance_inactive" ? "active" : ""} onClick={() => setFilter("insurance_inactive")}>Reclamos inactivos <span>{filterCounts.insurance_inactive}</span></button>}
-          <button type="button" className={filter === "finalized" ? "active" : ""} onClick={() => setFilter("finalized")}>Finalizados <span>{filterCounts.finalized}</span></button>
-          <button type="button" className={`priority-urgent${filter === "urgent" ? " active" : ""}`} onClick={() => setFilter("urgent")}>Urgentes <span>{filterCounts.urgent}</span></button>
-          <button type="button" className={`priority-attention${filter === "attention" ? " active" : ""}`} onClick={() => setFilter("attention")}>Atención <span>{filterCounts.attention}</span></button>
-          <button type="button" className={`priority-upcoming${filter === "upcoming" ? " active" : ""}`} onClick={() => setFilter("upcoming")}>Próximos <span>{filterCounts.upcoming}</span></button>
+        <div className="unified-incidents-filter-groups">
+          <section className="unified-incidents-filter-section" aria-labelledby="incident-type-filter-title">
+            <span className="unified-incidents-filter-title" id="incident-type-filter-title">Tipo de expediente</span>
+            <div className="unified-incidents-filters unified-incidents-filters--types" aria-label="Filtrar por tipo de expediente">
+              <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Todos <span>{filterCounts.all}</span></button>
+              {canViewJudicial && <button type="button" className={filter === "judicial" ? "active" : ""} onClick={() => setFilter("judicial")}>Juicios <span>{filterCounts.judicial}</span></button>}
+              {canViewInsurance && <button type="button" className={filter === "insurance_active" ? "active" : ""} onClick={() => setFilter("insurance_active")}>Con reclamo activo <span>{filterCounts.insurance_active}</span></button>}
+              {canViewInsurance && <button type="button" className={filter === "insurance_inactive" ? "active" : ""} onClick={() => setFilter("insurance_inactive")}>Sin número de reclamo <span>{filterCounts.insurance_inactive}</span></button>}
+              <button type="button" className={filter === "finalized" ? "active" : ""} onClick={() => setFilter("finalized")} disabled={filterCounts.finalized === 0}>Finalizados <span>{filterCounts.finalized}</span></button>
+            </div>
+          </section>
+          <section className="unified-incidents-filter-section unified-incidents-filter-section--priority" aria-labelledby="incident-priority-filter-title">
+            <span className="unified-incidents-filter-title" id="incident-priority-filter-title">Prioridad operativa</span>
+            <div className="unified-incidents-filters unified-incidents-filters--priority" aria-label="Filtrar por prioridad operativa">
+              <button type="button" className={`priority-follow-up${filter === "action" ? " active" : ""}`} onClick={() => setFilter("action")}>Requieren seguimiento <span>{filterCounts.action}</span></button>
+              <button type="button" className={`priority-urgent${filter === "urgent" ? " active" : ""}`} onClick={() => openAlertCenter("urgent")} disabled={filterCounts.urgent === 0}>Urgentes <span>{filterCounts.urgent}</span></button>
+              <button type="button" className={`priority-attention${filter === "attention" ? " active" : ""}`} onClick={() => openAlertCenter("attention")} disabled={filterCounts.attention === 0}>Atención <span>{filterCounts.attention}</span></button>
+              <button type="button" className={`priority-upcoming${filter === "upcoming" ? " active" : ""}`} onClick={() => openAlertCenter("upcoming")} disabled={filterCounts.upcoming === 0}>Próximos <span>{filterCounts.upcoming}</span></button>
+            </div>
+            <p className="unified-incidents-priority-note">Urgentes, Atención y Próximos forman parte de los <strong>{filterCounts.action} expedientes que requieren seguimiento</strong>; un expediente puede tener más de una alerta.</p>
+          </section>
         </div>
         <details className="unified-incidents-advanced" open={advancedFiltersOpen} onToggle={(event) => setAdvancedFiltersOpen(event.currentTarget.open)}>
-          <summary>Más filtros{insurerFilter || dateFrom || dateTo ? " · activos" : ""}</summary>
+          <summary>Filtros avanzados{insurerFilter || dateFrom || dateTo ? " · activos" : ""}</summary>
           <div>
             <label>Aseguradora<select value={insurerFilter} onChange={(event) => setInsurerFilter(event.target.value)}><option value="">Todas</option>{insurerOptions.map((insurer) => <option key={insurer} value={insurer}>{insurer}</option>)}</select></label>
             <label>Incidente desde<input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} /></label>

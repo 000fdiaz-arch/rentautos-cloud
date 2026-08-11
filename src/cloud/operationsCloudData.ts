@@ -65,6 +65,14 @@ export type InsuranceClaimEditEvent = {
   justification: string;
 };
 
+export type InsuranceClaimFollowUp = {
+  id: string;
+  comment: string;
+  nextStep: string;
+  nextActionDate: string;
+  createdAt: string;
+};
+
 export type InsuranceSettlementAttachment = {
   name: string;
   path: string;
@@ -102,6 +110,7 @@ export type InsuranceClaimRecord = {
   settlementAttachment: InsuranceSettlementAttachment | null;
   followUpComment: string;
   followUpCommentUpdatedAt: string | null;
+  followUps: InsuranceClaimFollowUp[];
   closureOutcome: InsuranceClaimClosureOutcome | null;
   closureJustification: string;
   finalizedAt: string | null;
@@ -143,6 +152,14 @@ export type CollisionExpenseInvoice = {
   createdAt: string;
 };
 
+export type CollisionJudicialFollowUp = {
+  id: string;
+  comment: string;
+  nextStep: string;
+  nextActionDate: string;
+  createdAt: string;
+};
+
 export type CollisionCaseRecord = {
   id: string;
   incidentDate: string;
@@ -159,6 +176,7 @@ export type CollisionCaseRecord = {
   collisionAndRun: boolean;
   status: CollisionTrialStatus;
   trialDateHistory: CollisionTrialDateEvent[];
+  judicialFollowUps: CollisionJudicialFollowUp[];
   insuranceClaim: CollisionInsuranceClaim | null;
   expenseInvoice: CollisionExpenseInvoice | null;
   clientReturnedBeforeClosure?: boolean;
@@ -184,6 +202,27 @@ function normalizeInsuranceClaim(claim: InsuranceClaimRecord): InsuranceClaimRec
       ? "Finalizado"
       : "Activo";
   const rawClosureOutcome = (claim as InsuranceClaimRecord & { closureOutcome?: unknown }).closureOutcome;
+  const legacyFollowUpComment = typeof claim.followUpComment === "string" ? claim.followUpComment : "";
+  const legacyFollowUpUpdatedAt = typeof claim.followUpCommentUpdatedAt === "string" ? claim.followUpCommentUpdatedAt : null;
+  const normalizedFollowUps = Array.isArray(claim.followUps)
+    ? claim.followUps.filter((entry): entry is InsuranceClaimFollowUp => Boolean(
+        entry && typeof entry === "object"
+        && typeof entry.id === "string"
+        && typeof entry.comment === "string"
+        && typeof entry.nextStep === "string"
+        && typeof entry.nextActionDate === "string"
+        && typeof entry.createdAt === "string"
+      ))
+    : [];
+  const followUps = normalizedFollowUps.length > 0 || !legacyFollowUpComment.trim()
+    ? normalizedFollowUps
+    : [{
+        id: `legacy-insurance-follow-up-${claim.id}`,
+        comment: legacyFollowUpComment,
+        nextStep: "",
+        nextActionDate: "",
+        createdAt: legacyFollowUpUpdatedAt || claim.updatedAt || claim.createdAt
+      }];
   const closureOutcome: InsuranceClaimClosureOutcome | null = status !== "Finalizado"
     ? null
     : rawStatus === "Pagado"
@@ -206,8 +245,9 @@ function normalizeInsuranceClaim(claim: InsuranceClaimRecord): InsuranceClaimRec
     settlementAttachment: claim.settlementAttachment && typeof claim.settlementAttachment.path === "string"
       ? claim.settlementAttachment
       : null,
-    followUpComment: typeof claim.followUpComment === "string" ? claim.followUpComment : "",
-    followUpCommentUpdatedAt: typeof claim.followUpCommentUpdatedAt === "string" ? claim.followUpCommentUpdatedAt : null,
+    followUpComment: legacyFollowUpComment,
+    followUpCommentUpdatedAt: legacyFollowUpUpdatedAt,
+    followUps,
     closureOutcome,
     closureJustification: typeof claim.closureJustification === "string" ? claim.closureJustification : "",
     finalizedAt: status === "Finalizado" && typeof claim.finalizedAt === "string" ? claim.finalizedAt : null,
@@ -455,6 +495,16 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
     clientId: typeof item.clientId === "string" ? item.clientId : "",
     clientName: typeof item.clientName === "string" ? item.clientName : "",
     trialDateHistory: Array.isArray(item.trialDateHistory) ? item.trialDateHistory : [],
+    judicialFollowUps: Array.isArray(item.judicialFollowUps)
+      ? item.judicialFollowUps.filter((entry): entry is CollisionJudicialFollowUp => Boolean(
+          entry && typeof entry === "object"
+          && typeof entry.id === "string"
+          && typeof entry.comment === "string"
+          && typeof entry.nextStep === "string"
+          && typeof entry.nextActionDate === "string"
+          && typeof entry.createdAt === "string"
+        ))
+      : [],
     insuranceClaim: existingClaim ?? legacyClaim,
     expenseInvoice: item.expenseInvoice && typeof item.expenseInvoice === "object" ? item.expenseInvoice : null,
     clientReturnedBeforeClosure: item.clientReturnedBeforeClosure === true,

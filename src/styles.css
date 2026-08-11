@@ -11387,6 +11387,25 @@ select.control-op-badge {
   white-space: nowrap;
 }
 
+.unified-incidents-filter-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.unified-incidents-filter-section {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.unified-incidents-filter-title {
+  color: #475569;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .unified-incidents-filters {
   display: flex;
   flex-wrap: nowrap;
@@ -11438,12 +11457,37 @@ select.control-op-badge {
   color: #0f172a;
 }
 
+.unified-incidents-filters button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.unified-incidents-filters button.priority-follow-up {
+  color: #334155;
+}
+
+.unified-incidents-filters button.priority-follow-up.active {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
 .unified-incidents-filters button.priority-urgent { color: #b91c1c; }
 .unified-incidents-filters button.priority-attention { color: #a16207; }
 .unified-incidents-filters button.priority-upcoming { color: #1d4ed8; }
 .unified-incidents-filters button.priority-urgent.active { background: #fee2e2; }
 .unified-incidents-filters button.priority-attention.active { background: #fef3c7; }
 .unified-incidents-filters button.priority-upcoming.active { background: #dbeafe; }
+
+.unified-incidents-priority-note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.unified-incidents-priority-note strong {
+  color: #334155;
+}
 
 .unified-incidents-advanced {
   border-top: 1px solid #e2e8f0;
@@ -11452,10 +11496,14 @@ select.control-op-badge {
 
 .unified-incidents-advanced summary {
   width: fit-content;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #f8fafc;
   color: var(--color-text-muted);
   cursor: pointer;
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 800;
+  padding: 6px 9px;
 }
 
 .unified-incidents-advanced[open] summary {
@@ -12908,6 +12956,188 @@ select.control-op-badge {
   padding: 10px 12px;
 }
 
+.judicial-case-tabs,
+.workflow-record-tabs {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 5px;
+  border-bottom: 1px solid #cbd5e1;
+  padding: 0 2px;
+}
+
+.judicial-case-tabs button,
+.workflow-record-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-weight: 850;
+  padding: 10px 13px 9px;
+}
+
+.judicial-case-tabs button:hover,
+.workflow-record-tabs button:hover {
+  color: var(--color-text);
+}
+
+.judicial-case-tabs button.active,
+.workflow-record-tabs button.active {
+  border-bottom-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.judicial-case-tabs button > span,
+.workflow-record-tabs button > span {
+  min-width: 20px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 0.68rem;
+  line-height: 1;
+  padding: 4px 6px;
+  text-align: center;
+}
+
+.judicial-case-tabs button.active > span,
+.workflow-record-tabs button.active > span {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.judicial-case-tab-panel,
+.workflow-record-tab-panel {
+  grid-column: 1 / -1;
+}
+
+.judicial-case-tab-panel--management {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
+  gap: 10px;
+  align-content: start;
+  align-items: start;
+}
+
+.workflow-record-tab-panel--management {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
+  gap: 10px;
+  align-content: start;
+  align-items: start;
+}
+
+.judicial-follow-up-panel,
+.insurance-follow-up-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #f8fbff;
+  padding: 13px;
+}
+
+.judicial-follow-up-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.judicial-follow-up-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.judicial-follow-up-head span {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.judicial-follow-up-head b {
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.7rem;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+
+.judicial-follow-up-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 0.6fr) auto;
+  align-items: end;
+  gap: 9px;
+  border: 1px solid #dbeafe;
+  border-radius: 9px;
+  background: #ffffff;
+  padding: 11px;
+}
+
+.judicial-follow-up-comment {
+  grid-column: 1 / -1;
+}
+
+.judicial-follow-up-form textarea {
+  min-height: 74px;
+  resize: vertical;
+}
+
+.judicial-follow-up-form .button {
+  white-space: nowrap;
+}
+
+.judicial-follow-up-history {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.judicial-follow-up-history li {
+  display: grid;
+  gap: 7px;
+  border-left: 4px solid #60a5fa;
+  border-radius: 7px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  padding: 10px 12px;
+}
+
+.judicial-follow-up-history li > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+}
+
+.judicial-follow-up-history p {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.judicial-follow-up-history small {
+  color: #1e40af;
+}
+
+.judicial-follow-up-empty {
+  margin: 0;
+  border: 1px dashed #bfdbfe;
+  border-radius: 8px;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  padding: 12px;
+  text-align: center;
+}
+
 .collision-outcome-panel {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -13386,6 +13616,26 @@ select.control-op-badge {
     grid-column: 2;
     justify-self: start;
   }
+
+  .judicial-follow-up-form {
+    grid-template-columns: 1fr;
+  }
+
+  .judicial-case-tab-panel--management {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-record-tab-panel--management {
+    grid-template-columns: 1fr;
+  }
+
+  .judicial-follow-up-comment {
+    grid-column: auto;
+  }
+
+  .judicial-follow-up-form .button {
+    width: 100%;
+  }
 }
 
 @media (max-width: 480px) {
@@ -13399,6 +13649,23 @@ select.control-op-badge {
 
   .unified-incidents-clear {
     justify-self: start;
+  }
+
+  .judicial-follow-up-head,
+  .judicial-follow-up-history li > div {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .judicial-case-tabs,
+  .workflow-record-tabs {
+    overflow-x: auto;
+  }
+
+  .judicial-case-tabs button,
+  .workflow-record-tabs button {
+    flex: 1 0 auto;
+    justify-content: center;
   }
 }
 
