@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   DuplicateInsuranceClaimNumberError,
+  JudicialOutcomeRequiredForClaimError,
   createInsuranceDamagePhotoViewUrl,
   createInsuranceSettlementViewUrl,
   loadInsuranceClaims,
@@ -391,7 +392,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
         try { await removeInsuranceDamagePhotos(uploadedPhotos.map((photo) => photo.path)); } catch { /* Limpieza de mejor esfuerzo. */ }
       }
       console.error("No se pudo guardar reclamo.", error);
-      setMessage(error instanceof DuplicateInsuranceClaimNumberError ? error.message : "No se pudo guardar el reclamo ni sus fotos en la nube.");
+      setMessage(error instanceof DuplicateInsuranceClaimNumberError || error instanceof JudicialOutcomeRequiredForClaimError ? error.message : "No se pudo guardar el reclamo ni sus fotos en la nube.");
     } finally {
       setSaving(false);
     }

@@ -11141,6 +11141,21 @@ select.control-op-badge {
   margin-top: 18px;
 }
 
+.incident-alert-explainer {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px 9px;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.incident-alert-explainer strong {
+  color: var(--color-text);
+  font-size: 0.86rem;
+}
+
 .incident-alert-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -12738,6 +12753,46 @@ select.control-op-badge {
 .collision-expense-invoice b {
   color: #b91c1c;
   font-size: 1.05rem;
+}
+
+.collision-client-returned-option {
+  grid-column: 1 / -1;
+  display: flex !important;
+  align-items: flex-start;
+  gap: 9px;
+  border: 1px solid #fdba74;
+  border-radius: 8px;
+  background: #fff7ed;
+  padding: 11px 12px;
+}
+
+.collision-client-returned-option input {
+  width: auto;
+  margin-top: 3px;
+}
+
+.collision-client-returned-option span {
+  display: grid;
+  gap: 2px;
+}
+
+.collision-client-returned-option small {
+  color: var(--color-text-muted);
+}
+
+.collision-client-returned {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #fdba74;
+  border-radius: 9px;
+  background: #fff7ed;
+  color: #9a3412;
+  padding: 13px;
+}
+
+.collision-client-returned small {
+  color: #c2410c;
+  font-weight: 800;
 }
 
 .workflow-follow-up textarea {

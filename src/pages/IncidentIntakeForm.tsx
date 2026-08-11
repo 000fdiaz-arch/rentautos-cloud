@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   DuplicateInsuranceClaimNumberError,
+  JudicialOutcomeRequiredForClaimError,
   loadCollisionCases,
   loadInsuranceInsurers,
   removeInsuranceDamagePhotos,
@@ -72,7 +73,14 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
   const [message, setMessage] = useState("");
   const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(dataOwnerUserId);
 
-  const clientsByUnit = useMemo(() => new Map(clients.map((client) => [normalizeUnit(client.unitId), client])), [clients]);
+  const clientsByUnit = useMemo(() => {
+    const result = new Map<string, Client>();
+    clients.forEach((client) => {
+      const unit = normalizeUnit(client.unitId);
+      if (unit && (!result.has(unit) || client.status !== "archivado")) result.set(unit, client);
+    });
+    return result;
+  }, [clients]);
   const fleetUnitsByUnit = useMemo(() => new Map(fleetUnits.map((unit) => [normalizeUnit(unit.unit_id), unit])), [fleetUnits]);
   const unitOptions = useMemo(() => [...new Set([
     ...fleetUnits.map((unit) => normalizeUnit(unit.unit_id)),
@@ -174,10 +182,13 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     const uploadedPhotos: InsuranceDamagePhotoAttachment[] = [];
     try {
       if (destination === "judicial") {
+        const caseClient = clientsByUnit.get(normalizeUnit(form.unit));
         const collisionCase: CollisionCaseRecord = {
           id: `collision-trial-${Date.now()}-${crypto.randomUUID()}`, ...common,
+          clientId: caseClient?.id ?? "", clientName: caseClient?.name ?? form.driver.trim(),
           trialDate: form.trialDate, ticketStub: form.ticketStub.trim(), placeTime: form.placeTime.trim(), court: normalizeCourtName(form.court), collisionAndRun: form.collisionAndRun,
-          status: "Pendiente", trialDateHistory: [], insuranceClaim: null, expenseInvoice: null, createdAt: now, updatedAt: now
+          status: "Pendiente", trialDateHistory: [], insuranceClaim: null, expenseInvoice: null,
+          clientReturnedBeforeClosure: false, clientReturnedBeforeClosureAt: null, createdAt: now, updatedAt: now
         };
         await saveCollisionCase(dataOwnerUserId, collisionCase);
       } else {
@@ -200,7 +211,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     } catch (error) {
       if (uploadedPhotos.length) { try { await removeInsuranceDamagePhotos(uploadedPhotos.map((photo) => photo.path)); } catch { /* Limpieza de mejor esfuerzo. */ } }
       console.error("No se pudo guardar el siniestro.", error);
-      setMessage(error instanceof DuplicateInsuranceClaimNumberError ? error.message : "No se pudo guardar el siniestro en la nube.");
+      setMessage(error instanceof DuplicateInsuranceClaimNumberError || error instanceof JudicialOutcomeRequiredForClaimError ? error.message : "No se pudo guardar el siniestro en la nube.");
     } finally { setSaving(false); }
   }
 

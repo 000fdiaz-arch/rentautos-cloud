@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   DuplicateInsuranceClaimNumberError,
+  JudicialOutcomeRequiredForClaimError,
   createCollisionPhotoViewUrl,
   createInsuranceDamagePhotoViewUrl,
   loadCollisionCases,
@@ -67,6 +68,7 @@ const USD_FORMATTER = new Intl.NumberFormat("es-PA", { style: "currency", curren
 const CURRENT_DATE_FORMATTER = new Intl.DateTimeFormat("es-PA", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
 
 function normalizeUnit(value: string): string { return value.trim().toUpperCase(); }
+function normalizePersonName(value: string): string { return value.trim().toLocaleUpperCase("es").replace(/\s+/g, " "); }
 function courtsFromCases(cases: CollisionCaseRecord[]): string[] {
   return [...new Set(cases.map((item) => normalizeCourtName(item.court)).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right, "es", { numeric: true }));
@@ -111,11 +113,19 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   const [rescheduleReasons, setRescheduleReasons] = useState<Record<string, string>>({});
   const [expenseAmounts, setExpenseAmounts] = useState<Record<string, string>>({});
   const [expenseLabels, setExpenseLabels] = useState<Record<string, string>>({});
+  const [returnedBeforeClosure, setReturnedBeforeClosure] = useState<Record<string, boolean>>({});
   const [claimDrafts, setClaimDrafts] = useState<Record<string, ClaimDraft>>({});
   const [claimPhotoFiles, setClaimPhotoFiles] = useState<Record<string, File[]>>({});
 
   const fleetUnitsByUnit = useMemo(() => new Map(fleetUnits.map((row) => [normalizeUnit(row.unit_id), row])), [fleetUnits]);
-  const clientsByUnit = useMemo(() => new Map(clients.map((client) => [normalizeUnit(client.unitId), client])), [clients]);
+  const clientsByUnit = useMemo(() => {
+    const result = new Map<string, Client>();
+    clients.forEach((client) => {
+      const unit = normalizeUnit(client.unitId);
+      if (unit && (!result.has(unit) || client.status !== "archivado")) result.set(unit, client);
+    });
+    return result;
+  }, [clients]);
   const unitOptions = useMemo(() => [...new Set([
     ...fleetUnits.map((row) => normalizeUnit(row.unit_id)),
     ...clients.map((client) => normalizeUnit(client.unitId))
@@ -203,11 +213,14 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       setMessage("Completa todos los campos del formulario de juicio."); return;
     }
     const now = new Date().toISOString();
+    const caseClient = clientsByUnit.get(normalizeUnit(form.unit));
     const item: CollisionCaseRecord = {
       id: `collision-trial-${Date.now()}-${crypto.randomUUID()}`,
       incidentDate: form.incidentDate,
       unit: normalizeUnit(form.unit),
       driver: form.driver.trim(),
+      clientId: caseClient?.id ?? "",
+      clientName: caseClient?.name ?? form.driver.trim(),
       plate: form.plate.trim().toUpperCase(),
       trialDate: form.trialDate,
       vehicleDamage: form.vehicleDamage.trim(),
@@ -219,6 +232,8 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       trialDateHistory: [],
       insuranceClaim: null,
       expenseInvoice: null,
+      clientReturnedBeforeClosure: false,
+      clientReturnedBeforeClosureAt: null,
       createdAt: now,
       updatedAt: now
     };
@@ -261,9 +276,31 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       } else if (outcome === "Ganó") {
         await persistCase({ ...item, status: "Ganó", updatedAt: now }, "Resultado guardado. Se habilitó el formulario de reclamo.");
       } else {
+        const clientReturned = returnedBeforeClosure[item.id] === true;
+        if (clientReturned) {
+          await persistCase({
+            ...item,
+            status: "Perdió",
+            expenseInvoice: null,
+            clientReturnedBeforeClosure: true,
+            clientReturnedBeforeClosureAt: now,
+            updatedAt: now
+          }, "Resultado guardado. El cliente dejó el carro antes del cierre; no se generó una factura automática.");
+          setOutcomeDrafts((current) => ({ ...current, [item.id]: "" }));
+          return;
+        }
         const amount = parseAmount(expenseAmounts[item.id] ?? "");
         const label = expenseLabels[item.id]?.trim() || `GASTOS DE JUICIO - ${item.unit}`;
-        const clientIndex = clients.findIndex((client) => normalizeUnit(client.unitId) === normalizeUnit(item.unit));
+        const historicalClientIndex = item.clientId ? clients.findIndex((client) => client.id === item.clientId) : -1;
+        const historicalClientName = normalizePersonName(item.clientName || item.driver);
+        const namedClientIndex = historicalClientName
+          ? clients.findIndex((client) => normalizePersonName(client.name) === historicalClientName)
+          : -1;
+        const clientIndex = historicalClientIndex >= 0
+          ? historicalClientIndex
+          : namedClientIndex >= 0
+            ? namedClientIndex
+            : clients.findIndex((client) => normalizeUnit(client.unitId) === normalizeUnit(item.unit));
         if (amount <= 0) throw new Error("EXPENSE_AMOUNT_REQUIRED");
         if (clientIndex < 0) throw new Error("CLIENT_NOT_FOUND");
         const chargeId = `collision-expense-${item.id}`;
@@ -276,6 +313,8 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
           ...item,
           status: "Perdió",
           expenseInvoice: { chargeId, label, amount, createdAt: now },
+          clientReturnedBeforeClosure: false,
+          clientReturnedBeforeClosureAt: null,
           updatedAt: now
         };
         await saveCollisionCase(dataOwnerUserId, updatedCase);
@@ -393,7 +432,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
           if (collisionPaths.length) await removeCollisionPhotos(collisionPaths);
         } catch { /* mejor esfuerzo */ }
       }
-      setMessage(error instanceof DuplicateInsuranceClaimNumberError ? error.message : "No se pudo guardar el formulario de reclamo.");
+      setMessage(error instanceof DuplicateInsuranceClaimNumberError || error instanceof JudicialOutcomeRequiredForClaimError ? error.message : "No se pudo guardar el formulario de reclamo.");
     } finally { setBusyId(""); }
   }
 
@@ -471,13 +510,15 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                   <div><dt>Fecha del incidente</dt><dd>{item.incidentDate}</dd></div><div><dt>Fecha de juicio</dt><dd>{item.trialDate}</dd></div>
                   <div><dt>Colilla</dt><dd>{item.ticketStub}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
                   <div><dt>Colisión y fuga</dt><dd>{item.collisionAndRun ? "Sí" : "No"}</dd></div>
+                  <div><dt>Cliente del expediente</dt><dd>{item.clientName || item.driver || "-"}</dd></div>
                   <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>
                 </dl>
                 {!isFinalStatus(item.status) && <div className="workflow-finalization-panel collision-outcome-panel">
                   <div><strong>Resultado del juicio</strong><span>Selecciona el resultado para continuar el flujo.</span></div>
                   <label>Estado<select value={outcome} onChange={(event) => setOutcomeDrafts((current) => ({ ...current, [item.id]: event.target.value as typeof outcome }))} disabled={readOnly || busyId === item.id}><option value="">Seleccionar</option><option>Ganó</option><option>Perdió</option><option>Nueva fecha</option></select></label>
                   {outcome === "Nueva fecha" && <><label>Nueva fecha de juicio<input type="date" value={newTrialDates[item.id] ?? ""} onChange={(event) => setNewTrialDates((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label className="workflow-finalization-reason">Razón de la nueva fecha<textarea value={rescheduleReasons[item.id] ?? ""} placeholder="La razón es obligatoria" onChange={(event) => setRescheduleReasons((current) => ({ ...current, [item.id]: event.target.value }))} /></label></>}
-                  {outcome === "Perdió" && <><label>Concepto de gastos<input value={expenseLabels[item.id] ?? `GASTOS DE JUICIO - ${item.unit}`} onChange={(event) => setExpenseLabels((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label>Monto de gastos<input type="number" min="0.01" step="0.01" placeholder="0.00" value={expenseAmounts[item.id] ?? ""} onChange={(event) => setExpenseAmounts((current) => ({ ...current, [item.id]: event.target.value }))} /></label></>}
+                  {outcome === "Perdió" && <label className="collision-client-returned-option"><input type="checkbox" checked={returnedBeforeClosure[item.id] === true} onChange={(event) => setReturnedBeforeClosure((current) => ({ ...current, [item.id]: event.target.checked }))} disabled={readOnly || busyId === item.id} /><span><strong>El cliente dejó el carro antes del cierre del caso</strong><small>Se cerrará el juicio sin generar una factura automática.</small></span></label>}
+                  {outcome === "Perdió" && returnedBeforeClosure[item.id] !== true && <><label>Concepto de gastos<input value={expenseLabels[item.id] ?? `GASTOS DE JUICIO - ${item.unit}`} onChange={(event) => setExpenseLabels((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label>Monto de gastos<input type="number" min="0.01" step="0.01" placeholder="0.00" value={expenseAmounts[item.id] ?? ""} onChange={(event) => setExpenseAmounts((current) => ({ ...current, [item.id]: event.target.value }))} /></label></>}
                   <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => void applyOutcome(item)} disabled={readOnly || busyId === item.id || !outcome}>{busyId === item.id ? "Guardando..." : "Confirmar resultado"}</button></div>
                 </div>}
                 {item.trialDateHistory.length > 0 && <details className="workflow-edit-history" open><summary>Historial de fechas de juicio ({item.trialDateHistory.length})</summary><ul>{[...item.trialDateHistory].reverse().map((event) => <li key={`${event.changedAt}-${event.newDate}`}><time>{new Date(event.changedAt).toLocaleString("es-PA")}</time><span>{event.previousDate} → {event.newDate}: {event.reason}</span></li>)}</ul></details>}
@@ -493,6 +534,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                   <div className="workflow-form-actions"><button type="button" className="button primary" onClick={() => void saveClaim(item)} disabled={readOnly || busyId === item.id}>{busyId === item.id ? "Guardando..." : "Guardar reclamo"}</button></div>
                 </div>}
                 {item.status === "Perdió" && item.expenseInvoice && <div className="collision-expense-invoice"><strong>Factura de gastos generada</strong><span>{item.expenseInvoice.label}</span><b>{USD_FORMATTER.format(item.expenseInvoice.amount)}</b><small>Agregada a otros cargos del cliente.</small></div>}
+                {item.status === "Perdió" && item.clientReturnedBeforeClosure && <div className="collision-client-returned"><strong>Cliente retirado antes del cierre</strong><span>{item.clientName || item.driver || "El cliente"} dejó el carro antes de finalizar el juicio.</span><small>No se generó una factura automática.</small></div>}
               </div>}
             </article>;
           })}

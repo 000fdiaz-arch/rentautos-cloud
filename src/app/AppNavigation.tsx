@@ -85,7 +85,7 @@ export default function AppNavigation({
             >
               <span className="nav-tab-label-full">{tab.label}</span>
               <span className="nav-tab-label-mobile">{tab.mobileLabel}</span>
-              {Boolean(tab.badge) && <span className="nav-tab-badge nav-tab-badge--alert" aria-label={`${tab.badge} alertas que requieren atención`}>{tab.badge! > 99 ? "99+" : tab.badge}</span>}
+              {Boolean(tab.badge) && <span className="nav-tab-badge nav-tab-badge--alert" aria-label={`${tab.badge} expedientes con alertas activas`} title={`${tab.badge} expedientes requieren seguimiento`}>{tab.badge! > 99 ? "99+" : tab.badge}</span>}
             </a>
           ))}
         </div>

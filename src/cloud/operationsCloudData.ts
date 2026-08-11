@@ -51,6 +51,15 @@ export class DuplicateInsuranceClaimNumberError extends Error {
   }
 }
 
+export class JudicialOutcomeRequiredForClaimError extends Error {
+  readonly code = "JUDICIAL_OUTCOME_REQUIRED_FOR_CLAIM";
+
+  constructor() {
+    super("Este siniestro tiene un juicio asociado. El reclamo al seguro solo puede iniciarse después de ganar el caso.");
+    this.name = "JudicialOutcomeRequiredForClaimError";
+  }
+}
+
 export type InsuranceClaimEditEvent = {
   editedAt: string;
   justification: string;
@@ -139,6 +148,8 @@ export type CollisionCaseRecord = {
   incidentDate: string;
   unit: string;
   driver: string;
+  clientId?: string;
+  clientName?: string;
   plate: string;
   trialDate: string;
   vehicleDamage: string;
@@ -150,6 +161,8 @@ export type CollisionCaseRecord = {
   trialDateHistory: CollisionTrialDateEvent[];
   insuranceClaim: CollisionInsuranceClaim | null;
   expenseInvoice: CollisionExpenseInvoice | null;
+  clientReturnedBeforeClosure?: boolean;
+  clientReturnedBeforeClosureAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -283,6 +296,22 @@ function isUniqueViolation(error: unknown): boolean {
 
 export async function saveInsuranceClaim(userId: string, claim: InsuranceClaimRecord): Promise<void> {
   const client = getCloudClient();
+  const { data: existingClaim, error: existingClaimError } = await client
+    .from("insurance_claims_cloud")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("id", claim.id)
+    .maybeSingle();
+  if (existingClaimError) throw existingClaimError;
+  if (!existingClaim) {
+    const normalizeIncidentIdentity = (value: string): string => value.trim().toLocaleUpperCase("es").replace(/[\s-]+/g, "");
+    const relatedJudicialCase = (await loadCollisionCases(userId)).find((item) => (
+      item.incidentDate === claim.incidentDate
+      && normalizeIncidentIdentity(item.unit) === normalizeIncidentIdentity(claim.unit)
+      && normalizeIncidentIdentity(item.plate) === normalizeIncidentIdentity(claim.plate)
+    ));
+    if (relatedJudicialCase && relatedJudicialCase.status !== "Ganó") throw new JudicialOutcomeRequiredForClaimError();
+  }
   const normalizedClaimNumber = normalizeInsuranceClaimNumber(claim.claimNumber);
   if (normalizedClaimNumber) {
     const { data: existingRows, error: duplicateCheckError } = await client
@@ -423,9 +452,13 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
     placeTime: typeof item.placeTime === "string" ? item.placeTime : "",
     court: typeof item.court === "string" ? normalizeCourtName(item.court) : "",
     collisionAndRun: item.collisionAndRun === true,
+    clientId: typeof item.clientId === "string" ? item.clientId : "",
+    clientName: typeof item.clientName === "string" ? item.clientName : "",
     trialDateHistory: Array.isArray(item.trialDateHistory) ? item.trialDateHistory : [],
     insuranceClaim: existingClaim ?? legacyClaim,
-    expenseInvoice: item.expenseInvoice && typeof item.expenseInvoice === "object" ? item.expenseInvoice : null
+    expenseInvoice: item.expenseInvoice && typeof item.expenseInvoice === "object" ? item.expenseInvoice : null,
+    clientReturnedBeforeClosure: item.clientReturnedBeforeClosure === true,
+    clientReturnedBeforeClosureAt: typeof item.clientReturnedBeforeClosureAt === "string" ? item.clientReturnedBeforeClosureAt : null
   };
 }
 

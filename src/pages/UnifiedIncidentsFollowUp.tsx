@@ -204,7 +204,11 @@ function claimNextAction(claim: InsuranceClaimRecord): { label: string; finalize
 }
 
 function collisionNextAction(collision: CollisionCaseRecord, claim: InsuranceClaimRecord | null): { label: string; finalized: boolean; requiresAction: boolean } {
-  if (collision.status === "Perdió") return { label: "Expediente judicial finalizado", finalized: true, requiresAction: false };
+  if (collision.status === "Perdió") return {
+    label: collision.clientReturnedBeforeClosure ? "Cliente dejó el carro antes del cierre" : "Expediente judicial finalizado",
+    finalized: true,
+    requiresAction: false
+  };
   if (collision.status === "Ganó") {
     if (claim) return claimNextAction(claim);
     return { label: "Iniciar reclamo al seguro", finalized: false, requiresAction: true };
@@ -317,7 +321,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     attention: alerts.filter((alert) => alert.severity === "attention").length,
     upcoming: alerts.filter((alert) => alert.severity === "upcoming").length
   }), [alerts]);
-  const activeAlertCount = alerts.length;
+  const alertIncidentCount = useMemo(() => new Set(alerts.map((alert) => alert.incidentId)).size, [alerts]);
   const filteredAlerts = useMemo(() => alerts.filter((alert) => {
     if (alertFilter === "urgent") return alert.severity === "urgent";
     if (alertFilter === "attention") return alert.severity === "attention";
@@ -326,6 +330,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     if (alertFilter === "insurance") return alert.kind === "insurance";
     return true;
   }), [alertFilter, alerts]);
+  const filteredAlertIncidentCount = useMemo(() => new Set(filteredAlerts.map((alert) => alert.incidentId)).size, [filteredAlerts]);
   const alertsByIncident = useMemo(() => {
     const grouped = new Map<string, IncidentAlert[]>();
     alerts.forEach((alert) => grouped.set(alert.incidentId, [...(grouped.get(alert.incidentId) ?? []), alert]));
@@ -333,8 +338,8 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   }, [alerts]);
 
   useEffect(() => {
-    onAlertCountChange?.(activeAlertCount);
-  }, [activeAlertCount, onAlertCountChange]);
+    onAlertCountChange?.(alertIncidentCount);
+  }, [alertIncidentCount, onAlertCountChange]);
   const filteredIncidents = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("es");
     return incidents.filter((incident) => {
@@ -381,15 +386,16 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
       {loading && <p className="hint workflow-message">Cargando expedientes...</p>}
       {loadError && <p className="hint workflow-message">{loadError}</p>}
       {!loading && !loadError && <section className="incident-alert-center" aria-label="Alertas de juicios y reclamos">
+        <p className="incident-alert-explainer"><strong>{alertIncidentCount} de {incidents.length} expedientes requieren seguimiento.</strong><span>Hay {alerts.length} {alerts.length === 1 ? "alerta activa" : "alertas activas"}; un expediente puede tener más de una.</span></p>
         <div className="incident-alert-summary" aria-label="Resumen de alertas activas">
-          <button type="button" className={`incident-alert-metric severity-urgent${alertCenterOpen && alertFilter === "urgent" ? " active" : ""}`} aria-expanded={alertCenterOpen && alertFilter === "urgent"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("urgent")}><small>Urgentes</small><strong>{alertCounts.urgent}</strong><span>Requieren acción inmediata</span></button>
-          <button type="button" className={`incident-alert-metric severity-attention${alertCenterOpen && alertFilter === "attention" ? " active" : ""}`} aria-expanded={alertCenterOpen && alertFilter === "attention"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("attention")}><small>Atención</small><strong>{alertCounts.attention}</strong><span>Necesitan seguimiento</span></button>
-          <button type="button" className={`incident-alert-metric severity-upcoming${alertCenterOpen && alertFilter === "upcoming" ? " active" : ""}`} aria-expanded={alertCenterOpen && alertFilter === "upcoming"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("upcoming")}><small>Próximos</small><strong>{alertCounts.upcoming}</strong><span>Juicios en los siguientes 3 días</span></button>
+          <button type="button" className={`incident-alert-metric severity-urgent${alertCenterOpen && alertFilter === "urgent" ? " active" : ""}`} aria-expanded={alertCenterOpen && alertFilter === "urgent"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("urgent")}><small>Alertas urgentes</small><strong>{alertCounts.urgent}</strong><span>Requieren acción inmediata</span></button>
+          <button type="button" className={`incident-alert-metric severity-attention${alertCenterOpen && alertFilter === "attention" ? " active" : ""}`} aria-expanded={alertCenterOpen && alertFilter === "attention"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("attention")}><small>Alertas de atención</small><strong>{alertCounts.attention}</strong><span>Necesitan seguimiento</span></button>
+          <button type="button" className={`incident-alert-metric severity-upcoming${alertCenterOpen && alertFilter === "upcoming" ? " active" : ""}`} aria-expanded={alertCenterOpen && alertFilter === "upcoming"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("upcoming")}><small>Alertas próximas</small><strong>{alertCounts.upcoming}</strong><span>Juicios en los siguientes 3 días</span></button>
         </div>
         {alertCenterOpen && <div className="incident-alert-panel" id="incident-alert-panel">
           <div className="incident-alert-panel-head">
             <div><span className="workflow-eyebrow">Prioridades operativas</span><h3 id="incident-alert-center-title">Centro de alertas</h3></div>
-            <div className="incident-alert-panel-actions"><span className="hint">{filteredAlerts.length} {filteredAlerts.length === 1 ? "alerta" : "alertas"}</span><button type="button" className="incident-alert-close" aria-label="Cerrar centro de alertas" onClick={() => setAlertCenterOpen(false)}>Cerrar</button></div>
+            <div className="incident-alert-panel-actions"><span className="hint">{filteredAlertIncidentCount} {filteredAlertIncidentCount === 1 ? "expediente" : "expedientes"} · {filteredAlerts.length} {filteredAlerts.length === 1 ? "alerta" : "alertas"}</span><button type="button" className="incident-alert-close" aria-label="Cerrar centro de alertas" onClick={() => setAlertCenterOpen(false)}>Cerrar</button></div>
           </div>
           <div className="incident-alert-filters" aria-label="Filtrar alertas">
             <button type="button" className={alertFilter === "all" ? "active" : ""} onClick={() => setAlertFilter("all")}>Todas</button>
