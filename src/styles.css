@@ -11725,6 +11725,18 @@ select.control-op-badge {
   padding: 4px 8px;
 }
 
+.unified-incident-card-alerts {
+  grid-column: 3 / 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.unified-incident-card-alerts .unified-incident-alert {
+  grid-column: auto;
+}
+
 .unified-incident-alert b {
   display: grid;
   width: 16px;
@@ -13577,7 +13589,8 @@ select.control-op-badge {
     grid-column: 1;
   }
 
-  .unified-incident-alert {
+  .unified-incident-alert,
+  .unified-incident-card-alerts {
     grid-column: 1;
   }
 

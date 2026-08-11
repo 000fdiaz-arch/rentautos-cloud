@@ -137,7 +137,7 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
           title: "Juicio programado para hoy", message: "El juicio requiere seguimiento durante el día de hoy.",
           actionLabel: "Gestionar juicio", destination: "judicial", targetId: collision.id
         });
-      } else if (trialOffset !== null && trialOffset >= 1 && trialOffset <= 3) {
+      } else if (trialOffset !== null && trialOffset >= 1) {
         addAlert(incident, {
           id: `${incident.id}:trial-upcoming`, kind: "judicial", severity: "upcoming", priority: 30 + trialOffset,
           title: trialOffset === 1 ? "Juicio programado para mañana" : `Juicio dentro de ${trialOffset} días`,
@@ -487,7 +487,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
         <div className="incident-alert-summary" aria-label="Resumen de alertas activas">
           <button type="button" className={`incident-alert-metric severity-urgent${filter === "urgent" ? " active" : ""}`} aria-expanded={alertCenterOpen && filter === "urgent"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("urgent")}><small>Alertas urgentes</small><strong>{alertCounts.urgent}</strong><span>Requieren acción inmediata</span></button>
           <button type="button" className={`incident-alert-metric severity-attention${filter === "attention" ? " active" : ""}`} aria-expanded={alertCenterOpen && filter === "attention"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("attention")}><small>Alertas de atención</small><strong>{alertCounts.attention}</strong><span>Necesitan seguimiento</span></button>
-          <button type="button" className={`incident-alert-metric severity-upcoming${filter === "upcoming" ? " active" : ""}`} aria-expanded={alertCenterOpen && filter === "upcoming"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("upcoming")}><small>Alertas próximas</small><strong>{alertCounts.upcoming}</strong><span>Juicios en los siguientes 3 días</span></button>
+          <button type="button" className={`incident-alert-metric severity-upcoming${filter === "upcoming" ? " active" : ""}`} aria-expanded={alertCenterOpen && filter === "upcoming"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("upcoming")}><small>Alertas próximas</small><strong>{alertCounts.upcoming}</strong><span>Juicios programados y gestiones cercanas</span></button>
         </div>
         {alertCenterOpen && <div className="incident-alert-panel" id="incident-alert-panel">
           <div className="incident-alert-panel-head">
@@ -551,6 +551,13 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           const incidentAlerts = alertsByIncident.get(incident.id) ?? [];
           const topAlert = incidentAlerts[0];
           const ageLabel = incidentAgeLabel(incident.incidentDate);
+          const trialDaysRemaining = incident.collision && incident.collision.status !== "Ganó" && incident.collision.status !== "Perdió" && incident.collision.trialDate
+            ? calendarDayOffset(incident.collision.trialDate)
+            : null;
+          const trialCountdownLabel = trialDaysRemaining !== null && trialDaysRemaining > 0
+            ? trialDaysRemaining === 1 ? "Juicio mañana" : `Juicio en ${trialDaysRemaining} días`
+            : "";
+          const topAlertIsTrialCountdown = topAlert?.id === `${incident.id}:trial-upcoming`;
           return <article key={incident.id} className={`unified-incident-card status-${claimState}${expanded ? " expanded" : ""}`}>
             <div className="unified-incident-row">
               <div className="unified-incident-summary" onClick={() => setExpandedId(expanded ? null : incident.id)}>
@@ -571,7 +578,10 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
                   {incident.claim?.closureOutcome && <small className="unified-incident-outcome">{incident.claim.closureOutcome}</small>}
                 </span>
                 <span className={`unified-incident-action${incident.requiresAction ? " attention" : incident.finalized ? " complete" : ""}`}><small>Próxima acción</small><strong>{incident.nextAction}</strong></span>
-                {topAlert && <span className={`unified-incident-alert severity-${topAlert.severity}`} role="status"><b>{topAlert.severity === "urgent" ? "!" : topAlert.severity === "attention" ? "⚠" : "◷"}</b> {topAlert.title}</span>}
+                {(trialCountdownLabel || topAlert) && <span className="unified-incident-card-alerts">
+                  {trialCountdownLabel && <span className="unified-incident-alert severity-upcoming" role="status"><b>◷</b> {trialCountdownLabel}</span>}
+                  {topAlert && !topAlertIsTrialCountdown && <span className={`unified-incident-alert severity-${topAlert.severity}`} role="status"><b>{topAlert.severity === "urgent" ? "!" : topAlert.severity === "attention" ? "⚠" : "◷"}</b> {topAlert.title}</span>}
+                </span>}
                 <button type="button" className="workflow-claim-chevron" aria-label={expanded ? "Contraer expediente" : "Expandir expediente"} aria-expanded={expanded} onClick={(event) => { event.stopPropagation(); setExpandedId(expanded ? null : incident.id); }}>{expanded ? "−" : "+"}</button>
               </div>
               <div className="unified-incident-quick-actions">
