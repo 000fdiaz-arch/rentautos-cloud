@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  DuplicateInsuranceClaimNumberError,
   loadInsuranceInsurers,
   removeInsuranceDamagePhotos,
   saveCollisionCase,
@@ -173,7 +174,8 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
       onSaved(savedDestination);
     } catch (error) {
       if (uploadedPhotos.length) { try { await removeInsuranceDamagePhotos(uploadedPhotos.map((photo) => photo.path)); } catch { /* Limpieza de mejor esfuerzo. */ } }
-      console.error("No se pudo guardar el siniestro.", error); setMessage("No se pudo guardar el siniestro en la nube.");
+      console.error("No se pudo guardar el siniestro.", error);
+      setMessage(error instanceof DuplicateInsuranceClaimNumberError ? error.message : "No se pudo guardar el siniestro en la nube.");
     } finally { setSaving(false); }
   }
 

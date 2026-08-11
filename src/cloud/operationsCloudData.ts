@@ -41,6 +41,15 @@ export type ControlUnitRow = {
 export type InsuranceClaimStatus = "Inactivo" | "Activo" | "Finalizado";
 export type InsuranceClaimClosureOutcome = "Pagado" | "Declinado";
 
+export class DuplicateInsuranceClaimNumberError extends Error {
+  readonly code = "DUPLICATE_INSURANCE_CLAIM_NUMBER";
+
+  constructor(claimNumber: string) {
+    super(`El número de reclamo ${claimNumber} ya está registrado. Utiliza un número diferente.`);
+    this.name = "DuplicateInsuranceClaimNumberError";
+  }
+}
+
 export type InsuranceClaimEditEvent = {
   editedAt: string;
   justification: string;
@@ -263,8 +272,30 @@ export async function loadInsuranceClaims(userId: string): Promise<InsuranceClai
     .sort((left, right) => (right.createdAt || "").localeCompare(left.createdAt || ""));
 }
 
+function normalizeInsuranceClaimNumber(value: string): string {
+  return value.trim().toLocaleUpperCase("es").replace(/[\s-]+/g, "");
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
+}
+
 export async function saveInsuranceClaim(userId: string, claim: InsuranceClaimRecord): Promise<void> {
   const client = getCloudClient();
+  const normalizedClaimNumber = normalizeInsuranceClaimNumber(claim.claimNumber);
+  if (normalizedClaimNumber) {
+    const { data: existingRows, error: duplicateCheckError } = await client
+      .from("insurance_claims_cloud")
+      .select("id,data")
+      .eq("user_id", userId);
+    if (duplicateCheckError) throw duplicateCheckError;
+    const duplicate = (existingRows ?? []).find((row) => {
+      if (row.id === claim.id || typeof row.data !== "object" || row.data === null) return false;
+      const existingNumber = (row.data as { claimNumber?: unknown }).claimNumber;
+      return typeof existingNumber === "string" && normalizeInsuranceClaimNumber(existingNumber) === normalizedClaimNumber;
+    });
+    if (duplicate) throw new DuplicateInsuranceClaimNumberError(claim.claimNumber.trim());
+  }
   const { error } = await client
     .from("insurance_claims_cloud")
     .upsert({
@@ -273,7 +304,10 @@ export async function saveInsuranceClaim(userId: string, claim: InsuranceClaimRe
       data: claim,
       updated_at: claim.updatedAt
     }, { onConflict: "user_id,id" });
-  if (error) throw error;
+  if (error) {
+    if (isUniqueViolation(error)) throw new DuplicateInsuranceClaimNumberError(claim.claimNumber.trim());
+    throw error;
+  }
 }
 
 function safeStorageFileName(fileName: string): string {

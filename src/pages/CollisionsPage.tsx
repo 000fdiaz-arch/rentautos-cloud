@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  DuplicateInsuranceClaimNumberError,
   createCollisionPhotoViewUrl,
   createInsuranceDamagePhotoViewUrl,
   loadCollisionCases,
@@ -378,7 +379,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
           if (collisionPaths.length) await removeCollisionPhotos(collisionPaths);
         } catch { /* mejor esfuerzo */ }
       }
-      setMessage("No se pudo guardar el formulario de reclamo.");
+      setMessage(error instanceof DuplicateInsuranceClaimNumberError ? error.message : "No se pudo guardar el formulario de reclamo.");
     } finally { setBusyId(""); }
   }
 

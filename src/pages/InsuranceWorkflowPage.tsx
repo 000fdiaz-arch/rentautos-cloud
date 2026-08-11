@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  DuplicateInsuranceClaimNumberError,
   createInsuranceDamagePhotoViewUrl,
   createInsuranceSettlementViewUrl,
   loadInsuranceClaims,
@@ -390,7 +391,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
         try { await removeInsuranceDamagePhotos(uploadedPhotos.map((photo) => photo.path)); } catch { /* Limpieza de mejor esfuerzo. */ }
       }
       console.error("No se pudo guardar reclamo.", error);
-      setMessage("No se pudo guardar el reclamo ni sus fotos en la nube.");
+      setMessage(error instanceof DuplicateInsuranceClaimNumberError ? error.message : "No se pudo guardar el reclamo ni sus fotos en la nube.");
     } finally {
       setSaving(false);
     }
@@ -726,7 +727,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
         : "Edición del reclamo guardada con su justificación.");
     } catch (error) {
       console.error("No se pudo guardar la edición del reclamo.", error);
-      setMessage("No se pudo guardar la edición del reclamo en la nube.");
+      setMessage(error instanceof DuplicateInsuranceClaimNumberError ? error.message : "No se pudo guardar la edición del reclamo en la nube.");
     } finally {
       setEditSavingId("");
     }
