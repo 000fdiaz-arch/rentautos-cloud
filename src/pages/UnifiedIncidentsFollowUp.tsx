@@ -18,8 +18,7 @@ type Props = {
   onAlertCountChange?: (count: number) => void;
 };
 
-type FollowUpFilter = "all" | "judicial" | "insurance" | "action" | "finalized";
-type AlertFilter = "all" | "urgent" | "attention" | "upcoming" | "judicial" | "insurance";
+type FollowUpFilter = "all" | "action" | "judicial" | "insurance_active" | "insurance_inactive" | "finalized" | "urgent" | "attention" | "upcoming";
 type IncidentAlertSeverity = "urgent" | "attention" | "upcoming";
 
 type IncidentAlert = {
@@ -52,6 +51,16 @@ type UnifiedIncident = {
   requiresAction: boolean;
   updatedAt: string;
 };
+
+function incidentMatchesFilter(incident: UnifiedIncident, filter: FollowUpFilter, incidentAlerts: IncidentAlert[]): boolean {
+  if (filter === "judicial") return Boolean(incident.collision);
+  if (filter === "insurance_active") return incident.claim?.status === "Activo";
+  if (filter === "insurance_inactive") return incident.claim?.status === "Inactivo";
+  if (filter === "action") return incidentAlerts.length > 0;
+  if (filter === "finalized") return incident.finalized;
+  if (filter === "urgent" || filter === "attention" || filter === "upcoming") return incidentAlerts.some((alert) => alert.severity === filter);
+  return true;
+}
 
 function normalizeLookupValue(value: string): string {
   return value.trim().toLocaleUpperCase("es").replace(/[\s-]+/g, "");
@@ -282,9 +291,12 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   const [claims, setClaims] = useState<InsuranceClaimRecord[]>([]);
   const [fleetUnits, setFleetUnits] = useState<ControlUnitRow[]>([]);
   const [filter, setFilter] = useState<FollowUpFilter>("all");
-  const [alertFilter, setAlertFilter] = useState<AlertFilter>("all");
   const [alertCenterOpen, setAlertCenterOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [insurerFilter, setInsurerFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -322,15 +334,6 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     upcoming: alerts.filter((alert) => alert.severity === "upcoming").length
   }), [alerts]);
   const alertIncidentCount = useMemo(() => new Set(alerts.map((alert) => alert.incidentId)).size, [alerts]);
-  const filteredAlerts = useMemo(() => alerts.filter((alert) => {
-    if (alertFilter === "urgent") return alert.severity === "urgent";
-    if (alertFilter === "attention") return alert.severity === "attention";
-    if (alertFilter === "upcoming") return alert.severity === "upcoming";
-    if (alertFilter === "judicial") return alert.kind === "judicial";
-    if (alertFilter === "insurance") return alert.kind === "insurance";
-    return true;
-  }), [alertFilter, alerts]);
-  const filteredAlertIncidentCount = useMemo(() => new Set(filteredAlerts.map((alert) => alert.incidentId)).size, [filteredAlerts]);
   const alertsByIncident = useMemo(() => {
     const grouped = new Map<string, IncidentAlert[]>();
     alerts.forEach((alert) => grouped.set(alert.incidentId, [...(grouped.get(alert.incidentId) ?? []), alert]));
@@ -340,33 +343,66 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   useEffect(() => {
     onAlertCountChange?.(alertIncidentCount);
   }, [alertIncidentCount, onAlertCountChange]);
+  const insurerOptions = useMemo(() => [...new Set(incidents.map((incident) => incident.claim?.insurer.trim() ?? "").filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, "es")), [incidents]);
+  const filterCounts = useMemo(() => {
+    const count = (nextFilter: FollowUpFilter) => incidents.filter((incident) => incidentMatchesFilter(incident, nextFilter, alertsByIncident.get(incident.id) ?? [])).length;
+    return {
+      all: incidents.length,
+      action: count("action"),
+      judicial: count("judicial"),
+      insurance_active: count("insurance_active"),
+      insurance_inactive: count("insurance_inactive"),
+      finalized: count("finalized"),
+      urgent: count("urgent"),
+      attention: count("attention"),
+      upcoming: count("upcoming")
+    };
+  }, [alertsByIncident, incidents]);
   const filteredIncidents = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("es");
     return incidents.filter((incident) => {
-      if (filter === "judicial" && !incident.collision) return false;
-      if (filter === "insurance" && !incident.claim) return false;
-      if (filter === "action" && !incident.requiresAction) return false;
-      if (filter === "finalized" && !incident.finalized) return false;
+      if (!incidentMatchesFilter(incident, filter, alertsByIncident.get(incident.id) ?? [])) return false;
+      if (insurerFilter && incident.claim?.insurer !== insurerFilter) return false;
+      if (dateFrom && incident.incidentDate < dateFrom) return false;
+      if (dateTo && incident.incidentDate > dateTo) return false;
       if (!needle) return true;
       return [incident.unit, incident.driver, incident.plate, incident.vehicleYear, incident.vehicleDamage, incident.nextAction,
         incident.claim?.claimNumber ?? "", incident.claim?.insurer ?? "", incident.claim?.status ?? ""]
         .some((value) => value.toLocaleLowerCase("es").includes(needle));
     });
-  }, [filter, incidents, search]);
-
-  const actionCount = incidents.filter((incident) => incident.requiresAction).length;
+  }, [alertsByIncident, dateFrom, dateTo, filter, incidents, insurerFilter, search]);
+  const filteredIncidentIds = useMemo(() => new Set(filteredIncidents.map((incident) => incident.id)), [filteredIncidents]);
+  const filteredAlerts = useMemo(() => alerts.filter((alert) => {
+    if (!filteredIncidentIds.has(alert.incidentId)) return false;
+    if (filter === "urgent" || filter === "attention" || filter === "upcoming") return alert.severity === filter;
+    if (filter === "judicial") return alert.kind === "judicial";
+    if (filter === "insurance_active" || filter === "insurance_inactive") return alert.kind === "insurance";
+    return true;
+  }), [alerts, filter, filteredIncidentIds]);
+  const filteredAlertIncidentCount = useMemo(() => new Set(filteredAlerts.map((alert) => alert.incidentId)).size, [filteredAlerts]);
+  const hasActiveFilters = Boolean(search.trim() || filter !== "all" || insurerFilter || dateFrom || dateTo);
 
   function openAlert(alert: IncidentAlert): void {
     onOpen(alert.destination, { id: alert.targetId, search: alert.unit });
   }
 
-  function openAlertCenter(nextFilter: Extract<AlertFilter, "urgent" | "attention" | "upcoming">): void {
-    if (alertCenterOpen && alertFilter === nextFilter) {
+  function openAlertCenter(nextFilter: Extract<FollowUpFilter, "urgent" | "attention" | "upcoming">): void {
+    if (alertCenterOpen && filter === nextFilter) {
       setAlertCenterOpen(false);
       return;
     }
-    setAlertFilter(nextFilter);
+    setFilter(nextFilter);
     setAlertCenterOpen(true);
+  }
+
+  function clearFilters(): void {
+    setFilter("all");
+    setSearch("");
+    setInsurerFilter("");
+    setDateFrom("");
+    setDateTo("");
+    setAdvancedFiltersOpen(false);
   }
 
   async function copyClaimNumber(claim: InsuranceClaimRecord): Promise<void> {
@@ -388,22 +424,14 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
       {!loading && !loadError && <section className="incident-alert-center" aria-label="Alertas de juicios y reclamos">
         <p className="incident-alert-explainer"><strong>{alertIncidentCount} de {incidents.length} expedientes requieren seguimiento.</strong><span>Hay {alerts.length} {alerts.length === 1 ? "alerta activa" : "alertas activas"}; un expediente puede tener más de una.</span></p>
         <div className="incident-alert-summary" aria-label="Resumen de alertas activas">
-          <button type="button" className={`incident-alert-metric severity-urgent${alertCenterOpen && alertFilter === "urgent" ? " active" : ""}`} aria-expanded={alertCenterOpen && alertFilter === "urgent"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("urgent")}><small>Alertas urgentes</small><strong>{alertCounts.urgent}</strong><span>Requieren acción inmediata</span></button>
-          <button type="button" className={`incident-alert-metric severity-attention${alertCenterOpen && alertFilter === "attention" ? " active" : ""}`} aria-expanded={alertCenterOpen && alertFilter === "attention"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("attention")}><small>Alertas de atención</small><strong>{alertCounts.attention}</strong><span>Necesitan seguimiento</span></button>
-          <button type="button" className={`incident-alert-metric severity-upcoming${alertCenterOpen && alertFilter === "upcoming" ? " active" : ""}`} aria-expanded={alertCenterOpen && alertFilter === "upcoming"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("upcoming")}><small>Alertas próximas</small><strong>{alertCounts.upcoming}</strong><span>Juicios en los siguientes 3 días</span></button>
+          <button type="button" className={`incident-alert-metric severity-urgent${filter === "urgent" ? " active" : ""}`} aria-expanded={alertCenterOpen && filter === "urgent"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("urgent")}><small>Alertas urgentes</small><strong>{alertCounts.urgent}</strong><span>Requieren acción inmediata</span></button>
+          <button type="button" className={`incident-alert-metric severity-attention${filter === "attention" ? " active" : ""}`} aria-expanded={alertCenterOpen && filter === "attention"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("attention")}><small>Alertas de atención</small><strong>{alertCounts.attention}</strong><span>Necesitan seguimiento</span></button>
+          <button type="button" className={`incident-alert-metric severity-upcoming${filter === "upcoming" ? " active" : ""}`} aria-expanded={alertCenterOpen && filter === "upcoming"} aria-controls="incident-alert-panel" onClick={() => openAlertCenter("upcoming")}><small>Alertas próximas</small><strong>{alertCounts.upcoming}</strong><span>Juicios en los siguientes 3 días</span></button>
         </div>
         {alertCenterOpen && <div className="incident-alert-panel" id="incident-alert-panel">
           <div className="incident-alert-panel-head">
             <div><span className="workflow-eyebrow">Prioridades operativas</span><h3 id="incident-alert-center-title">Centro de alertas</h3></div>
             <div className="incident-alert-panel-actions"><span className="hint">{filteredAlertIncidentCount} {filteredAlertIncidentCount === 1 ? "expediente" : "expedientes"} · {filteredAlerts.length} {filteredAlerts.length === 1 ? "alerta" : "alertas"}</span><button type="button" className="incident-alert-close" aria-label="Cerrar centro de alertas" onClick={() => setAlertCenterOpen(false)}>Cerrar</button></div>
-          </div>
-          <div className="incident-alert-filters" aria-label="Filtrar alertas">
-            <button type="button" className={alertFilter === "all" ? "active" : ""} onClick={() => setAlertFilter("all")}>Todas</button>
-            <button type="button" className={alertFilter === "urgent" ? "active" : ""} onClick={() => setAlertFilter("urgent")}>Urgentes</button>
-            <button type="button" className={alertFilter === "attention" ? "active" : ""} onClick={() => setAlertFilter("attention")}>Atención</button>
-            <button type="button" className={alertFilter === "upcoming" ? "active" : ""} onClick={() => setAlertFilter("upcoming")}>Próximas</button>
-            {canViewJudicial && <button type="button" className={alertFilter === "judicial" ? "active" : ""} onClick={() => setAlertFilter("judicial")}>Juicios</button>}
-            {canViewInsurance && <button type="button" className={alertFilter === "insurance" ? "active" : ""} onClick={() => setAlertFilter("insurance")}>Reclamos</button>}
           </div>
           <div className="incident-alert-list" aria-live="polite">
             {!filteredAlerts.length && <p className="incident-alert-empty">No hay alertas activas para este filtro.</p>}
@@ -415,15 +443,31 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           </div>
         </div>}
       </section>}
-      <div className="unified-incidents-toolbar">
-        <label className="workflow-claim-search">Buscar<input type="search" value={search} placeholder="Unidad, placa, año, aseguradora o número de reclamo" onChange={(event) => setSearch(event.target.value)} /></label>
-        <div className="unified-incidents-filters" aria-label="Filtrar expedientes">
-          <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Todos</button>
-          {canViewJudicial && <button type="button" className={filter === "judicial" ? "active" : ""} onClick={() => setFilter("judicial")}>Juicios</button>}
-          {canViewInsurance && <button type="button" className={filter === "insurance" ? "active" : ""} onClick={() => setFilter("insurance")}>Reclamos</button>}
-          <button type="button" className={filter === "action" ? "active" : ""} onClick={() => setFilter("action")}>Requieren acción{actionCount ? ` (${actionCount})` : ""}</button>
-          <button type="button" className={filter === "finalized" ? "active" : ""} onClick={() => setFilter("finalized")}>Finalizados</button>
+      <div className="unified-incidents-toolbar" role="region" aria-label="Filtros fijos de expedientes y alertas">
+        <div className="unified-incidents-filter-head">
+          <label className="workflow-claim-search">Buscar<input type="search" value={search} placeholder="Unidad, placa, año, aseguradora o número de reclamo" onChange={(event) => setSearch(event.target.value)} /></label>
+          <button type="button" className="button ghost small unified-incidents-clear" onClick={clearFilters} disabled={!hasActiveFilters}>Limpiar filtros</button>
         </div>
+        <div className="unified-incidents-filters" aria-label="Filtrar expedientes">
+          <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Todos <span>{filterCounts.all}</span></button>
+          <button type="button" className={filter === "action" ? "active" : ""} onClick={() => setFilter("action")}>Seguimiento <span>{filterCounts.action}</span></button>
+          {canViewJudicial && <button type="button" className={filter === "judicial" ? "active" : ""} onClick={() => setFilter("judicial")}>Juicios <span>{filterCounts.judicial}</span></button>}
+          {canViewInsurance && <button type="button" className={filter === "insurance_active" ? "active" : ""} onClick={() => setFilter("insurance_active")}>Reclamos activos <span>{filterCounts.insurance_active}</span></button>}
+          {canViewInsurance && <button type="button" className={filter === "insurance_inactive" ? "active" : ""} onClick={() => setFilter("insurance_inactive")}>Reclamos inactivos <span>{filterCounts.insurance_inactive}</span></button>}
+          <button type="button" className={filter === "finalized" ? "active" : ""} onClick={() => setFilter("finalized")}>Finalizados <span>{filterCounts.finalized}</span></button>
+          <button type="button" className={`priority-urgent${filter === "urgent" ? " active" : ""}`} onClick={() => setFilter("urgent")}>Urgentes <span>{filterCounts.urgent}</span></button>
+          <button type="button" className={`priority-attention${filter === "attention" ? " active" : ""}`} onClick={() => setFilter("attention")}>Atención <span>{filterCounts.attention}</span></button>
+          <button type="button" className={`priority-upcoming${filter === "upcoming" ? " active" : ""}`} onClick={() => setFilter("upcoming")}>Próximos <span>{filterCounts.upcoming}</span></button>
+        </div>
+        <details className="unified-incidents-advanced" open={advancedFiltersOpen} onToggle={(event) => setAdvancedFiltersOpen(event.currentTarget.open)}>
+          <summary>Más filtros{insurerFilter || dateFrom || dateTo ? " · activos" : ""}</summary>
+          <div>
+            <label>Aseguradora<select value={insurerFilter} onChange={(event) => setInsurerFilter(event.target.value)}><option value="">Todas</option>{insurerOptions.map((insurer) => <option key={insurer} value={insurer}>{insurer}</option>)}</select></label>
+            <label>Incidente desde<input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} /></label>
+            <label>Incidente hasta<input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} /></label>
+            <button type="button" className="button ghost small" onClick={() => { setInsurerFilter(""); setDateFrom(""); setDateTo(""); }} disabled={!insurerFilter && !dateFrom && !dateTo}>Limpiar adicionales</button>
+          </div>
+        </details>
       </div>
       <div className="workflow-claims-list unified-incidents-list">
         {!loading && !incidents.length && <p className="hint">Todavía no hay expedientes de siniestros.</p>}
