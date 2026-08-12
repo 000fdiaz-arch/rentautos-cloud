@@ -15,6 +15,8 @@ import {
   getPartialMissingLabel,
   diffDays,
   findDebtStartDateForReceipt,
+  findNextPaymentDateForReceipt,
+  getPaymentInstallmentsAgreedSnapshot,
   roundMoney,
   type CoveredPaymentRow
 } from "./paymentReceiptRules";
@@ -255,7 +257,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
     firstSundayChargedAt: payment.firstSundayChargedAt,
     advanceBalance: advanceBalanceAfter,
     // campos requeridos por la firma
-    id: "", unitId: "", name: "", installmentsAgreed: 0,
+    id: "", unitId: "", name: "", installmentsAgreed: getPaymentInstallmentsAgreedSnapshot(payment),
     installmentsRemaining: 0, installmentsPaid: payment.installmentsPaidAfter,
     otherCharges: [], savings: 0, status: "activo" as const, createdAt: ""
   };
@@ -276,7 +278,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
   const hasMoroseBalance = moroseBalanceToday > 0;
   const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
   const nextChargeDate = normalizedRent > 0 ? findNextChargeDay(minimalClientWithoutAdvance, paymentDate) : null;
-  const nextPaymentDate = normalizedRent > 0 ? findNextChargeDay(minimalClient, paymentDate) : null;
+  const nextPaymentDate = normalizedRent > 0 ? findNextPaymentDateForReceipt(payment) : null;
   const debtStartDate = normalizedRent > 0 && hasMoroseBalance ? findDebtStartDateForReceipt(payment, paymentDate) : null;
   const badgeDate = hasMoroseBalance ? debtStartDate : nextPaymentDate;
   const badgeDaysDelta = badgeDate ? diffDays(paymentDate, badgeDate) : null;

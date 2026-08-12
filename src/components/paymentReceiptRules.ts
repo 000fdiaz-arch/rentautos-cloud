@@ -50,6 +50,12 @@ function sameDate(left: Date, right: Date): boolean {
   return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
 }
 
+export function getPaymentInstallmentsAgreedSnapshot(payment: Payment): number {
+  const paid = Math.max(0, Math.floor(payment.installmentsPaidAfter ?? 0));
+  const remaining = Math.max(0, Math.floor(payment.installmentsRemainingAfter ?? 0));
+  return paid + remaining;
+}
+
 function asClient(payment: Payment, balance = payment.balanceAfter, advanceBalance = 0): Client {
   return {
     id: payment.clientId,
@@ -64,7 +70,7 @@ function asClient(payment: Payment, balance = payment.balanceAfter, advanceBalan
     firstSundayChargedAt: payment.firstSundayChargedAt,
     balance,
     advanceBalance,
-    installmentsAgreed: 0,
+    installmentsAgreed: getPaymentInstallmentsAgreedSnapshot(payment),
     installmentsRemaining: payment.installmentsRemainingAfter,
     installmentsPaid: payment.installmentsPaidAfter,
     otherCharges: [],
@@ -72,6 +78,13 @@ function asClient(payment: Payment, balance = payment.balanceAfter, advanceBalan
     status: "activo",
     createdAt: payment.createdAt
   };
+}
+
+export function findNextPaymentDateForReceipt(payment: Payment): Date | null {
+  if (!Number.isFinite(payment.rentAmount) || payment.rentAmount <= 0) return null;
+  const paymentDate = startOfDay(new Date(`${payment.dateApplied}T12:00:00`));
+  const advanceBalanceAfter = roundMoney(Math.max(0, payment.advanceBalanceAfter ?? payment.advanceApplied ?? 0));
+  return findNextChargeDay(asClient(payment, payment.balanceAfter, advanceBalanceAfter), paymentDate);
 }
 
 export function isDebtChargeDayForReceipt(payment: Payment, date: Date): boolean {

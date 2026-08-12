@@ -75,6 +75,38 @@ function makePayment(overrides) {
 
   const rules = require(path.join(TMP_DIR, "src", "components", "paymentReceiptRules.js"));
 
+  const weeklyPartialPayment = makePayment({
+    clientUnit: "B15",
+    dateApplied: "2026-08-12",
+    amountReceived: 50.15,
+    appliedToRent: 41,
+    advanceApplied: 9,
+    advanceBalanceAfter: 9,
+    balanceBefore: 224,
+    balanceAfter: 183,
+    installmentsPaidAfter: 7,
+    installmentsRemainingAfter: 138,
+    rentAmount: 192,
+    frequency: "weekly",
+    weeklyChargeDay: "thursday",
+    chargeFirstSunday: false
+  });
+  const weeklyNextDate = rules.findNextPaymentDateForReceipt(weeklyPartialPayment);
+  assert(weeklyNextDate instanceof Date, "B15 debe tener una próxima fecha de pago definida.");
+  assert(
+    weeklyNextDate.getFullYear() === 2026 && weeklyNextDate.getMonth() === 7 && weeklyNextDate.getDate() === 13,
+    `B15 debe mostrar jueves 13 de agosto. Recibido: ${weeklyNextDate?.toISOString()}`
+  );
+  const completedContractNextDate = rules.findNextPaymentDateForReceipt({
+    ...weeklyPartialPayment,
+    balanceAfter: 0,
+    advanceApplied: 0,
+    advanceBalanceAfter: 0,
+    installmentsPaidAfter: 145,
+    installmentsRemainingAfter: 0
+  });
+  assert(completedContractNextDate === null, "Un contrato terminado no debe anunciar otra fecha de pago.");
+
   const earlySundayPayment = makePayment();
   const earlyRows = rules.buildCoveredPaymentRows(earlySundayPayment);
   const earlyBreakdownRows = rules.buildRentPaymentBreakdownRows(earlySundayPayment);
