@@ -7616,7 +7616,7 @@ select.control-op-badge {
 
 .ar-client-summary-main {
   display: grid;
-  grid-template-columns: minmax(230px, 0.34fr) minmax(0, 0.66fr);
+  grid-template-columns: minmax(0, 1fr);
   column-gap: 12px;
   gap: 5px;
   min-width: 0;
@@ -7682,8 +7682,8 @@ select.control-op-badge {
   align-items: center;
   grid-template-columns: repeat(3, minmax(118px, 1fr));
   gap: 8px;
-  grid-column: 2;
-  grid-row: 1 / span 3;
+  grid-column: 1;
+  grid-row: auto;
   align-self: center;
   margin-top: 0;
 }
@@ -7716,6 +7716,7 @@ select.control-op-badge {
   border-radius: 10px;
   background: #fbfdff;
   font-size: 0.96rem;
+  min-height: 64px;
 }
 
 .ar-metric-chip--plan {
@@ -7752,6 +7753,47 @@ select.control-op-badge {
   color: #475569;
   border-color: #cbd5e1 !important;
   background: #f8fafc !important;
+}
+
+.ar-plan-chip-name {
+  min-width: 0;
+  font-size: 0.84rem;
+  font-weight: 900;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.ar-plan-chip-rent {
+  min-width: 0;
+  color: currentColor;
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.1;
+  opacity: 0.82;
+  overflow-wrap: anywhere;
+}
+
+.ar-overdue-chip-amount {
+  display: block;
+  min-width: 0;
+  font-size: 0.84rem;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.ar-overdue-chip-installments {
+  display: block;
+  min-width: 0;
+  margin-top: 2px;
+  color: currentColor;
+  font-size: 0.66rem;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.15;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .ar-metric-chip--date {
@@ -7810,7 +7852,7 @@ select.control-op-badge {
   }
 
   .ar-client-summary-main {
-    grid-template-columns: minmax(210px, 0.34fr) minmax(0, 0.66fr);
+    grid-template-columns: minmax(0, 1fr);
     column-gap: 10px;
   }
 
@@ -8452,6 +8494,263 @@ select.control-op-badge {
   line-height: 1.1;
 }
 
+.ar-route-tag-toggle {
+  width: fit-content;
+  border-color: #fdba74;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.ar-route-tag-toggle.is-active {
+  border-color: #f97316;
+  background: #ffedd5;
+  color: #9a3412;
+  font-weight: 900;
+}
+
+.ar-route-tag-toggle.is-active.ar-route-tag-toggle--urgent {
+  border-color: #f59e0b;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.ar-route-tag-toggle.is-active.ar-route-tag-toggle--very_urgent {
+  border-color: #ef4444;
+  background: #fee2e2;
+  color: #991b1b;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.1);
+}
+
+.ar-route-inline-control {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid #d7e4ee;
+  border-radius: 10px;
+  background: #f8fafc;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.ar-route-inline-control.is-active {
+  border-color: #fdba74;
+  background: linear-gradient(135deg, #fff7ed 0%, #fffbeb 100%);
+  box-shadow: 0 3px 10px rgba(234, 88, 12, 0.1);
+}
+
+.ar-route-inline-control .ar-route-tag-toggle,
+.ar-route-inline-control .ar-route-tab-handoff {
+  flex: 0 0 auto;
+  align-self: stretch;
+}
+
+.ar-route-primary-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(68px, 0.85fr);
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 100%;
+  gap: 5px;
+}
+
+.ar-route-primary-actions .ar-route-tag-toggle,
+.ar-route-primary-actions .ar-route-details-button {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding-right: 6px;
+  padding-left: 6px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.08;
+  text-align: center;
+}
+
+.ar-route-compact-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  min-width: 0;
+  flex: 1 1 280px;
+  gap: 4px;
+}
+
+.ar-route-compact-summary > span {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  gap: 2px;
+  padding: 5px 7px;
+  border: 1px solid rgba(251, 146, 60, 0.36);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.ar-route-compact-summary strong {
+  overflow: hidden;
+  color: #431407;
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1.15;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ar-route-details-button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.ar-route-details-button.needs-action {
+  border-color: #f59e0b;
+  background: #f59e0b;
+  color: #451a03;
+  box-shadow: 0 3px 10px rgba(245, 158, 11, 0.25);
+}
+
+.ar-route-details-button.is-complete {
+  border-color: #0d9488;
+  background: #ccfbf1;
+  color: #115e59;
+}
+
+.ar-route-preparation-modal {
+  max-width: 650px;
+  border: 1px solid #fdba74;
+}
+
+.ar-route-modal-header {
+  background: linear-gradient(135deg, #fff7ed 0%, #fffbeb 100%);
+}
+
+.ar-route-modal-header h2 {
+  margin-top: 3px;
+  color: #431407;
+}
+
+.ar-route-modal-kicker {
+  color: #c2410c;
+  font-size: 0.67rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ar-route-modal-body {
+  display: grid;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 18px 22px;
+}
+
+.ar-route-modal-readiness {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid;
+  border-radius: 10px;
+}
+
+.ar-route-modal-readiness strong {
+  font-size: 0.86rem;
+}
+
+.ar-route-modal-readiness span {
+  font-size: 0.74rem;
+}
+
+.ar-route-modal-readiness.needs-action {
+  border-color: #fbbf24;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.ar-route-modal-readiness.is-complete {
+  border-color: #5eead4;
+  background: #f0fdfa;
+  color: #115e59;
+}
+
+.ar-route-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ar-route-modal-grid label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.ar-route-modal-grid label > span {
+  color: #7c2d12;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ar-route-modal-grid input,
+.ar-route-modal-grid select,
+.ar-route-modal-grid textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #fdba74;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #431407;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 750;
+  padding: 8px 10px;
+}
+
+.ar-route-modal-grid input,
+.ar-route-modal-grid select {
+  min-height: 40px;
+}
+
+.ar-route-modal-grid label.is-required-missing > span {
+  color: #b91c1c;
+}
+
+.ar-route-modal-grid label.is-required-missing input,
+.ar-route-modal-grid label.is-required-missing select {
+  border-color: #ef4444;
+  background: #fff7f7;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.08);
+}
+
+.ar-route-modal-grid textarea {
+  resize: vertical;
+}
+
+.ar-route-modal-comment {
+  grid-column: 1 / -1;
+}
+
+.ar-route-modal-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 22px 18px;
+  border-top: 1px solid #fed7aa;
+  background: #fffdf8;
+}
+
+.ar-route-status-fixed {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+}
+
 .ar-card-key-grid--route {
   grid-template-columns: repeat(3, minmax(120px, 1fr));
 }
@@ -8968,10 +9267,123 @@ select.control-op-badge {
 
 .ar-unit-stack {
   display: inline-flex;
-  min-width: 92px;
+  width: min(220px, 22vw);
+  min-width: 170px;
   flex-direction: column;
   align-items: stretch;
   gap: 4px;
+}
+
+.ar-unit-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.ar-unit-heading .ar-unit-id {
+  flex: 1 1 auto;
+}
+
+.ar-unit-heading .ar-badge {
+  flex: 0 0 auto;
+  max-width: 105px;
+  font-size: 0.68rem;
+  white-space: normal;
+}
+
+.ar-unit-quick-actions {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.ar-unit-quick-actions .ar-whatsapp-image-button {
+  display: inline-flex;
+  flex: 1 1 112px;
+  width: auto;
+  min-width: 0;
+  min-height: 38px;
+  gap: 6px;
+  padding: 6px 10px;
+  border-color: #6366f1;
+  background: linear-gradient(135deg, #4f46e5 0%, #2563eb 55%, #0891b2 100%);
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 900;
+  line-height: 1.05;
+  box-shadow: 0 5px 12px rgba(37, 99, 235, 0.28);
+}
+
+.ar-unit-quick-actions .ar-whatsapp-image-button svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
+.ar-unit-quick-actions .ar-whatsapp-image-button:hover:not(:disabled) {
+  border-color: #4338ca;
+  background: linear-gradient(135deg, #4338ca 0%, #1d4ed8 55%, #0e7490 100%);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.36);
+}
+
+.ar-unit-quick-actions .ar-whatsapp-image-button--copying {
+  flex-basis: 112px;
+  width: auto;
+  min-width: 0;
+}
+
+.ar-unit-quick-actions .history-send-button {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 38px;
+  padding-inline: 10px;
+  font-weight: 900;
+  box-shadow: 0 5px 12px rgba(234, 88, 12, 0.2);
+}
+
+.ar-unit-quick-actions .history-send-button--pending {
+  border-color: #f97316;
+  background: linear-gradient(135deg, #ffedd5 0%, #fdba74 100%);
+  color: #9a3412;
+}
+
+.ar-unit-quick-actions .history-send-button--pending:hover:not(:disabled) {
+  border-color: #ea580c;
+  background: linear-gradient(135deg, #fed7aa 0%, #fb923c 100%);
+  color: #7c2d12;
+}
+
+.ar-unit-quick-actions .history-send-button--sent {
+  border-color: #10b981;
+  background: linear-gradient(135deg, #d1fae5 0%, #6ee7b7 100%);
+  color: #065f46;
+  box-shadow: 0 5px 12px rgba(5, 150, 105, 0.2);
+}
+
+.ar-unit-client-name {
+  min-width: 0;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 850;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.ar-unit-collection-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.ar-unit-collection-meta .ar-last-payment-date,
+.ar-unit-collection-meta .ar-badge {
+  font-size: 0.68rem;
 }
 
 .ar-whatsapp-group-badge {
@@ -9264,6 +9676,48 @@ select.control-op-badge {
   flex-wrap: wrap;
 }
 
+.ar-route-direct-filter {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid #fdba74;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 0.8rem;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.ar-route-direct-filter strong {
+  display: inline-flex;
+  min-width: 22px;
+  min-height: 22px;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 6px;
+  border-radius: 999px;
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.ar-route-direct-filter:hover,
+.ar-route-direct-filter.is-active {
+  border-color: #f97316;
+  background: #ffedd5;
+  box-shadow: 0 4px 12px rgba(234, 88, 12, 0.16);
+  transform: translateY(-1px);
+}
+
+.ar-route-direct-filter.is-active strong {
+  background: #f97316;
+  color: #ffffff;
+}
+
 .ar-history-panel {
   margin-bottom: 10px;
   padding: 10px 12px;
@@ -9479,6 +9933,7 @@ select.control-op-badge {
   .ar-collection-cuts-actions {
     justify-content: flex-start;
   }
+
 }
 
 @media (max-width: 768px) {
@@ -9527,6 +9982,44 @@ select.control-op-badge {
 
   .ar-filter-field--states {
     grid-column: span 1;
+  }
+
+  .ar-route-modal-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ar-route-modal-comment {
+    grid-column: auto;
+  }
+
+  .ar-route-compact-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .ar-route-primary-actions {
+    width: 100%;
+  }
+
+  .ar-route-primary-actions .ar-route-details-button {
+    min-width: 0;
+  }
+
+  .ar-route-modal-overlay {
+    align-items: flex-end;
+    padding: 8px;
+  }
+
+  .ar-route-preparation-modal {
+    max-height: 96vh;
+    border-radius: 14px 14px 8px 8px;
+  }
+
+  .ar-route-modal-body {
+    padding: 14px;
+  }
+
+  .ar-route-modal-actions {
+    padding: 12px 14px 14px;
   }
 }
 
@@ -9906,7 +10399,16 @@ select.control-op-badge {
   }
 
   .ar-unit-stack {
+    width: 100%;
     min-width: 0;
+  }
+
+  .ar-unit-heading {
+    align-items: stretch;
+  }
+
+  .ar-unit-client-name {
+    font-size: 0.74rem;
   }
 
   .ar-whatsapp-status,
@@ -9955,6 +10457,18 @@ select.control-op-badge {
     padding: 8px;
     border-radius: 9px;
     font-size: 0.84rem;
+  }
+
+  .ar-plan-chip-name {
+    font-size: 0.78rem;
+  }
+
+  .ar-plan-chip-rent {
+    font-size: 0.66rem;
+  }
+
+  .ar-overdue-chip-installments {
+    font-size: 0.62rem;
   }
 
   .ar-card-workflow {

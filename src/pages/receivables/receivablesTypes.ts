@@ -18,6 +18,8 @@ export type RouteUrgency = "normal" | "urgent" | "very_urgent";
 
 export type CollectionStatusRecord = {
   status: CollectionStatus;
+  isRouteTagged?: boolean;
+  routeTaggedAt?: string;
   comment: string;
   updatedAt: string;
   managementType?: FieldManagementType;

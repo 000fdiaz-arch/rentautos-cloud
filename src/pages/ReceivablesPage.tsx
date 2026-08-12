@@ -71,6 +71,7 @@ import {
   normalizeComment,
   normalizeContactTime,
   normalizeFieldManagementComment,
+  overdueInstallmentsText,
   normalizeRouteAssignment,
   normalizeRouteUrgency,
   normalizeSupportNote,
@@ -102,7 +103,6 @@ type Props = {
   onStreetManagementPersist?: (value: Record<string, unknown>) => Promise<boolean> | boolean;
 };
 
-type RouteSubTab = "current" | "published";
 
 type PendingContactPrompt = {
   clientId: string;
@@ -313,6 +313,7 @@ function formatActiveRouteAddedAt(value: string): string {
 function isRouteManagementRecord(record: CollectionStatusRecord | undefined): boolean {
   if (!record) return false;
   return (
+    record.isRouteTagged === true ||
     record.status === "route" ||
     record.status === "route_collection" ||
     record.status === "route_not_sent" ||
@@ -326,6 +327,8 @@ function buildPendingRouteRecord(previous: CollectionStatusRecord | undefined, u
   return {
     ...previous,
     status: "pending",
+    isRouteTagged: false,
+    routeTaggedAt: undefined,
     comment: previous?.comment ?? "",
     updatedAt,
     managementType: undefined,
@@ -382,12 +385,12 @@ export default function ReceivablesPage({
   const [selectedDetailRow, setSelectedDetailRow] = useState<ReceivableRow | null>(null);
   const [collectionStatusByClient, setCollectionStatusByClient] = useState<Record<string, CollectionStatusRecord>>({});
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<CollectionStatusFilter>("all");
+  const [routeTagFilter, setRouteTagFilter] = useState<boolean>(false);
   const [whatsAppContactFilter, setWhatsAppContactFilter] = useState<WhatsAppContactFilter>("all");
   const [prioritizeContactTime, setPrioritizeContactTime] = useState<boolean>(false);
   const [pendingContactPrompt, setPendingContactPrompt] = useState<PendingContactPrompt | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
   const [workflowTab, setWorkflowTab] = useState<ReceivablesWorkflowTab>("management");
-  const [routeSubTab, setRouteSubTab] = useState<RouteSubTab>("current");
   const [activeRouteFilter, setActiveRouteFilter] = useState<string>(ALL_ACTIVE_ROUTE_FILTER);
   const [activeRouteSearchQuery, setActiveRouteSearchQuery] = useState<string>("");
   const viewMode: ReceivablesViewMode = "cartera";
@@ -851,7 +854,7 @@ export default function ReceivablesPage({
 
   useEffect(() => {
     tableScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
-  }, [collectionStatusFilter, filters, sortDirection, sortField, viewMode, whatsAppContactFilter, workflowTab]);
+  }, [collectionStatusFilter, filters, routeTagFilter, sortDirection, sortField, viewMode, whatsAppContactFilter, workflowTab]);
 
   const clientStatusById = useMemo(() => {
     const map = new Map<string, Client["status"]>();
@@ -876,7 +879,7 @@ export default function ReceivablesPage({
 
   useEffect(() => {
     const routeEntries = Object.entries(collectionStatusByClient).filter(([, record]) => (
-      record.status === "route" &&
+      record.isRouteTagged === true &&
       typeof record.routeReleaseAmount === "number" &&
       record.routeReleaseAmount > 0
     ));
@@ -899,7 +902,7 @@ export default function ReceivablesPage({
     const nextStatusByClient = { ...collectionStatusByClient };
     for (const clientId of releasedClientIds) {
       const previous = nextStatusByClient[clientId];
-      if (!previous || previous.status !== "route") continue;
+      if (!previous || !previous.isRouteTagged) continue;
       const updatedRecord = buildPendingRouteRecord(previous, new Date().toISOString());
       optimisticStatusByClientRef.current[clientId] = updatedRecord;
       nextStatusByClient[clientId] = updatedRecord;
@@ -1103,7 +1106,10 @@ export default function ReceivablesPage({
     }
     return counts;
   }, [workflowRows, collectionStatusByClient, todayCollectionCuts]);
-  const routePendingCount = collectionStatusCounts.route + collectionStatusCounts.route_collection;
+  const routeTaggedManagementCount = workflowTab === "management"
+    ? workflowRows.filter((row) => collectionStatusByClient[row.id]?.isRouteTagged).length
+    : 0;
+  const routePendingCount = collectionStatusCounts.pending;
   const managementAlertCount = workflowTab === "route"
     ? routePendingCount
     : collectionStatusFilter === "covered"
@@ -1119,9 +1125,12 @@ export default function ReceivablesPage({
     ? "Muestra todos los estados de gestion."
     : collectionStatusFilterOptions.find((option) => option.value === collectionStatusFilter)?.description ?? COLLECTION_STATUS_HELP[collectionStatusFilter];
   const filteredByCollectionStatusRows = useMemo(() => {
-    if (collectionStatusFilter === "all") return workflowRows;
-    return workflowRows.filter((row) => getWorkflowStatus(row) === collectionStatusFilter);
-  }, [collectionStatusFilter, workflowRows, collectionStatusByClient, now, todayCollectionCuts, workflowTab]);
+    const statusRows = collectionStatusFilter === "all"
+      ? workflowRows
+      : workflowRows.filter((row) => getWorkflowStatus(row) === collectionStatusFilter);
+    if (workflowTab !== "management" || !routeTagFilter) return statusRows;
+    return statusRows.filter((row) => collectionStatusByClient[row.id]?.isRouteTagged === true);
+  }, [collectionStatusFilter, routeTagFilter, workflowRows, collectionStatusByClient, now, todayCollectionCuts, workflowTab]);
   const whatsAppContactCounts = useMemo(() => {
     const counts: Record<WhatsAppContactFilter, number> = {
       all: filteredByCollectionStatusRows.length,
@@ -1228,11 +1237,12 @@ export default function ReceivablesPage({
     statusByClient: Record<string, CollectionStatusRecord>
   ): CollectionStatus | "" {
     const dailyStatus = getCutItemForClient("night", row.id)?.collectionStatus;
+    if (statusByClient[row.id]?.isRouteTagged) return "pending";
     if (dailyStatus) return dailyStatus;
     const stored = statusByClient[row.id]?.status;
-    if (stored === "unassigned" || stored === "pending" || stored === "contacted" || stored === "covered" || stored === "route") return stored;
+    if (stored === "unassigned" || stored === "pending" || stored === "contacted" || stored === "covered") return stored;
     if (stored === "paid") return "covered";
-    if (stored === "route_collection") return "route";
+    if (stored === "route" || stored === "route_collection" || stored === "route_not_sent") return "pending";
     if (shouldDefaultToCovered(row)) return "covered";
     return "unassigned";
   }
@@ -1268,6 +1278,7 @@ export default function ReceivablesPage({
   function clearFilters() {
     setFilters(DEFAULT_RECEIVABLE_FILTERS);
     setCollectionStatusFilter("all");
+    setRouteTagFilter(false);
     setWhatsAppContactFilter("all");
     setMobileFiltersOpen(false);
   }
@@ -1295,23 +1306,12 @@ export default function ReceivablesPage({
   }
 
   function isNightRouteCollection(row: ReceivableRow): boolean {
-    const status = getCutItemForClient("night", row.id)?.collectionStatus;
-    const storedStatus = collectionStatusByClient[row.id]?.status;
-    return status === "route" || status === "route_collection" || storedStatus === "route" || storedStatus === "route_collection";
+    return collectionStatusByClient[row.id]?.isRouteTagged === true;
   }
 
   function isRouteWorkflowRow(row: ReceivableRow): boolean {
     const record = collectionStatusByClient[row.id];
-    const status = getEffectiveStatus(row);
-    return (
-      status === "route" ||
-      status === "route_collection" ||
-      status === "route_not_sent" ||
-      (status === "paid" && !!record?.managementType) ||
-      (status === "call_later" && !!record?.managementType) ||
-      hasRouteCollection(row) ||
-      isNightRouteCollection(row)
-    );
+    return record?.isRouteTagged === true;
   }
 
   function isRouteReadyToSendRow(row: ReceivableRow): boolean {
@@ -1446,20 +1446,18 @@ export default function ReceivablesPage({
 
   function getEffectiveStatus(row: ReceivableRow): CollectionStatus | "" {
     const dailyStatus = getCutItemForClient("night", row.id)?.collectionStatus;
+    if (collectionStatusByClient[row.id]?.isRouteTagged) return "pending";
     if (dailyStatus) return dailyStatus;
     const stored = collectionStatusByClient[row.id]?.status;
-    if (stored === "unassigned" || stored === "pending" || stored === "contacted" || stored === "covered" || stored === "route") return stored;
+    if (stored === "unassigned" || stored === "pending" || stored === "contacted" || stored === "covered") return stored;
     if (stored === "paid") return "covered";
-    if (stored === "route_collection") return "route";
+    if (stored === "route" || stored === "route_collection" || stored === "route_not_sent") return "pending";
     if (shouldDefaultToCovered(row)) return "covered";
     return "unassigned";
   }
 
   function getWorkflowStatus(row: ReceivableRow): CollectionStatus | "" {
-    if (workflowTab === "route") {
-      const stored = collectionStatusByClient[row.id]?.status;
-      if (stored === "route" || stored === "route_collection" || stored === "route_not_sent" || stored === "paid" || stored === "call_later") return stored;
-    }
+    if (workflowTab === "route" && collectionStatusByClient[row.id]?.isRouteTagged) return "pending";
     return getEffectiveStatus(row);
   }
 
@@ -1553,6 +1551,16 @@ export default function ReceivablesPage({
     if (readOnly) throw new Error("El usuario no tiene permiso para editar cuentas por cobrar.");
     const nowIso = new Date().toISOString();
     const activeRouteStatus: Record<string, CollectionStatusRecord> = {};
+    for (const [clientId, record] of Object.entries(collectionStatusByClient)) {
+      if (!record.isRouteTagged) continue;
+      activeRouteStatus[clientId] = {
+        ...record,
+        status: "pending",
+        isRouteTagged: true,
+        routeTaggedAt: record.routeTaggedAt ?? record.updatedAt ?? nowIso,
+        updatedAt: nowIso
+      };
+    }
     for (const item of activeVisibleRouteItems) {
       activeRouteStatus[item.clientId] = buildManagementRecordFromActiveRouteItem(
         item,
@@ -1619,28 +1627,29 @@ export default function ReceivablesPage({
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
+      const normalizedStatus: CollectionStatus = previous?.isRouteTagged ? "pending" : nextStatus;
       const updatedRecord: CollectionStatusRecord = {
         ...previous,
-        status: nextStatus,
+        status: normalizedStatus,
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
-        managementType: undefined,
-        managementAmount: undefined,
-        managementComment: "",
-        managementUpdatedAt: undefined,
-        routeReleaseAmount: undefined,
-        routeReleaseUpdatedAt: undefined,
-        routeAssignment: undefined,
-        routeAssignmentUpdatedAt: undefined,
-        routeUrgency: undefined,
-        routeUrgencyUpdatedAt: undefined,
+        managementType: previous?.isRouteTagged ? previous.managementType : undefined,
+        managementAmount: previous?.isRouteTagged ? previous.managementAmount : undefined,
+        managementComment: previous?.isRouteTagged ? previous.managementComment : "",
+        managementUpdatedAt: previous?.isRouteTagged ? previous.managementUpdatedAt : undefined,
+        routeReleaseAmount: previous?.isRouteTagged ? previous.routeReleaseAmount : undefined,
+        routeReleaseUpdatedAt: previous?.isRouteTagged ? previous.routeReleaseUpdatedAt : undefined,
+        routeAssignment: previous?.isRouteTagged ? previous.routeAssignment : undefined,
+        routeAssignmentUpdatedAt: previous?.isRouteTagged ? previous.routeAssignmentUpdatedAt : undefined,
+        routeUrgency: previous?.isRouteTagged ? previous.routeUrgency : undefined,
+        routeUrgencyUpdatedAt: previous?.isRouteTagged ? previous.routeUrgencyUpdatedAt : undefined,
         whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
         whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
         whatsAppMessageText: previous?.whatsAppMessageText,
         supportNote: previous?.supportNote,
         supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
-        contactTime: nextStatus === "pending" ? contactTime : previous?.contactTime,
-        contactTimeUpdatedAt: nextStatus === "pending" ? nowIso : previous?.contactTimeUpdatedAt,
+        contactTime: normalizedStatus === "pending" ? contactTime ?? previous?.contactTime : previous?.contactTime,
+        contactTimeUpdatedAt: normalizedStatus === "pending" && contactTime ? nowIso : previous?.contactTimeUpdatedAt,
         paymentPromiseDate: previous?.paymentPromiseDate,
         paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
       };
@@ -1654,6 +1663,7 @@ export default function ReceivablesPage({
 
   function handleCollectionCutStatusChange(cutKey: CollectionCutKey, clientId: string, nextStatus: string): void {
     if (isCollectionLocked || cutKey !== "night") return;
+    if (collectionStatusByClient[clientId]?.isRouteTagged && nextStatus !== "pending") return;
     if (nextStatus === "pending") {
       setPendingContactPrompt({ clientId, step: "question", selectedTime: "" });
       return;
@@ -1679,6 +1689,49 @@ export default function ReceivablesPage({
     setPendingContactPrompt(null);
   }
 
+  function handleRouteTagChange(clientId: string, tagged: boolean): void {
+    if (isCollectionLocked) return;
+    if (!tagged) {
+      if (activeVisibleRouteClientIds.has(clientId)) void handleRemoveFromPublishedRoute(clientId);
+      else handleRemoveFromRoute(clientId);
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    markClientStatusAsSaving(clientId);
+    setCollectionStatusByClient((current) => {
+      const previous = current[clientId];
+      const updatedRecord: CollectionStatusRecord = {
+        ...previous,
+        status: "pending",
+        isRouteTagged: true,
+        routeTaggedAt: previous?.routeTaggedAt ?? nowIso,
+        comment: previous?.comment ?? "",
+        updatedAt: nowIso,
+        managementType: previous?.managementType ?? "solo_cobrar",
+        managementAmount: previous?.managementAmount,
+        managementComment: previous?.managementComment ?? "",
+        managementUpdatedAt: previous?.managementUpdatedAt ?? nowIso,
+        routeReleaseAmount: previous?.routeReleaseAmount,
+        routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt,
+        routeAssignment: previous?.routeAssignment,
+        routeAssignmentUpdatedAt: previous?.routeAssignmentUpdatedAt,
+        routeUrgency: previous?.routeUrgency ?? "normal",
+        routeUrgencyUpdatedAt: previous?.routeUrgencyUpdatedAt,
+        whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+        whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+        whatsAppMessageText: previous?.whatsAppMessageText,
+        supportNote: previous?.supportNote,
+        supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+        contactTime: previous?.contactTime,
+        contactTimeUpdatedAt: previous?.contactTimeUpdatedAt,
+        paymentPromiseDate: previous?.paymentPromiseDate,
+        paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
+      return { ...current, [clientId]: updatedRecord };
+    });
+  }
+
   function handleRouteWorkflowStatusChange(clientId: string, nextStatus: string): void {
     if (isCollectionLocked) return;
     if (!ROUTE_COLLECTION_STATUS_OPTIONS.some((option) => option.value === nextStatus)) return;
@@ -1688,7 +1741,9 @@ export default function ReceivablesPage({
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
         ...previous,
-        status: nextStatus as CollectionStatus,
+        status: "pending",
+        isRouteTagged: true,
+        routeTaggedAt: previous?.routeTaggedAt ?? nowIso,
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
         managementType: previous?.managementType ?? "solo_cobrar",
@@ -1723,7 +1778,9 @@ export default function ReceivablesPage({
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
         ...previous,
-        status: previous?.status ?? "route",
+        status: "pending",
+        isRouteTagged: true,
+        routeTaggedAt: previous?.routeTaggedAt ?? nowIso,
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
         managementType,
@@ -1749,22 +1806,26 @@ export default function ReceivablesPage({
         [clientId]: updatedRecord
       };
     });
+    updatePublishedRouteItem(clientId, (item) => ({ ...item, managementType }));
   }
 
   function handleRouteManagementCommentChange(clientId: string, value: string): void {
     if (isCollectionLocked) return;
     const nowIso = new Date().toISOString();
+    const managementComment = normalizeFieldManagementComment(value);
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
         ...previous,
-        status: previous?.status ?? "route",
+        status: "pending",
+        isRouteTagged: true,
+        routeTaggedAt: previous?.routeTaggedAt ?? nowIso,
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
         managementType: previous?.managementType ?? "solo_cobrar",
         managementAmount: previous?.managementAmount ?? previous?.routeReleaseAmount,
-        managementComment: normalizeFieldManagementComment(value),
+        managementComment,
         managementUpdatedAt: nowIso,
         routeReleaseAmount: previous?.routeReleaseAmount ?? previous?.managementAmount,
         routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt,
@@ -1784,6 +1845,7 @@ export default function ReceivablesPage({
         [clientId]: updatedRecord
       };
     });
+    updatePublishedRouteItem(clientId, (item) => ({ ...item, comment: managementComment }));
   }
 
   function handleRouteAssignmentChange(clientId: string, value: string): void {
@@ -1795,7 +1857,9 @@ export default function ReceivablesPage({
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
         ...previous,
-        status: previous?.status ?? "route",
+        status: "pending",
+        isRouteTagged: true,
+        routeTaggedAt: previous?.routeTaggedAt ?? nowIso,
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
         managementType: previous?.managementType ?? "solo_cobrar",
@@ -1835,7 +1899,9 @@ export default function ReceivablesPage({
       const previous = current[clientId];
       const updatedRecord: CollectionStatusRecord = {
         ...previous,
-        status: previous?.status ?? "route",
+        status: "pending",
+        isRouteTagged: true,
+        routeTaggedAt: previous?.routeTaggedAt ?? nowIso,
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
         managementType: previous?.managementType ?? "solo_cobrar",
@@ -1873,15 +1939,14 @@ export default function ReceivablesPage({
     previous: CollectionStatusRecord | undefined,
     nowIso: string
   ): CollectionStatusRecord {
-    const routeStatus = previous?.status && ROUTE_COLLECTION_STATUS_OPTIONS.some((option) => option.value === previous.status)
-      ? previous.status
-      : "route_collection";
     const routeAssignment = normalizeRouteAssignment(item.routeAssignment ?? "");
     const routeUrgency = normalizeRouteUrgency(item.urgency);
 
     return {
       ...previous,
-      status: routeStatus,
+      status: "pending",
+      isRouteTagged: true,
+      routeTaggedAt: previous?.routeTaggedAt ?? item.routeStartedAt ?? item.publishedAt ?? nowIso,
       comment: previous?.comment ?? "",
       updatedAt: nowIso,
       managementType: item.managementType ?? previous?.managementType ?? "solo_cobrar",
@@ -2153,17 +2218,17 @@ export default function ReceivablesPage({
   function handleRouteReleaseAmountChange(clientId: string, value: string): void {
     if (isCollectionLocked) return;
     const parsedAmount = parsePositiveMoneyInput(value);
-    const nextAmount = parsedAmount ?? undefined;
+    const activePublishedItem = activeRouteItemsRef.current.find((item) => item.clientId === clientId && !item.removedAt);
+    const nextAmount = parsedAmount ?? activePublishedItem?.releaseAmount;
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
       const previous = current[clientId];
-      const previousRouteStatus = previous?.status && ROUTE_COLLECTION_STATUS_OPTIONS.some((option) => option.value === previous.status)
-        ? previous.status
-        : "route";
       const updatedRecord: CollectionStatusRecord = {
         ...previous,
-        status: previousRouteStatus,
+        status: "pending",
+        isRouteTagged: true,
+        routeTaggedAt: previous?.routeTaggedAt ?? nowIso,
         comment: previous?.comment ?? "",
         updatedAt: nowIso,
         managementType: previous?.managementType ?? "solo_cobrar",
@@ -2188,6 +2253,12 @@ export default function ReceivablesPage({
         [clientId]: updatedRecord
       };
     });
+    if (nextAmount && activePublishedItem) {
+      updatePublishedRouteItem(clientId, (item) => ({
+        ...item,
+        releaseAmount: nextAmount
+      }));
+    }
   }
 
   function handleCollectionCutCommentChange(cutKey: CollectionCutKey, clientId: string, value: string): void {
@@ -2499,9 +2570,8 @@ export default function ReceivablesPage({
         .map((item) => [item.clientId, item] as const));
       const isRouteRowFromMap = (row: ReceivableRow): boolean => {
         const record = statusByClientForRoute[row.id];
-        const storedStatus = record?.status;
         return (
-          (storedStatus === "route" || storedStatus === "route_collection") &&
+          record?.isRouteTagged === true &&
           !activeClientIdsForSend.has(row.id) &&
           !routeRemovalBlocksRecord(record, removedItemByClientForSend.get(row.id))
         );
@@ -2536,7 +2606,9 @@ export default function ReceivablesPage({
         const previous = statusByClientForRoute[row.id];
         const routeReleaseAmount = previous?.routeReleaseAmount ?? previous?.managementAmount;
         statusByClientForRoute[row.id] = {
-          status: "route_collection",
+          status: "pending",
+          isRouteTagged: true,
+          routeTaggedAt: previous?.routeTaggedAt ?? exportedAt,
           comment: previous?.comment ?? "",
           updatedAt: exportedAt,
           managementType: previous?.managementType ?? "solo_cobrar",
@@ -2658,7 +2730,7 @@ export default function ReceivablesPage({
         return;
       }
       const routeRowsMissingAmount = baseRows.filter((row) => (
-        getEffectiveStatusFromMap(row, statusByClientForClosure) === "route" &&
+        statusByClientForClosure[row.id]?.isRouteTagged === true &&
         !hasRouteReleaseAmount(statusByClientForClosure[row.id])
       ));
       if (routeRowsMissingAmount.length > 0) {
@@ -2794,8 +2866,8 @@ export default function ReceivablesPage({
             className={workflowTab === "management" ? "is-active" : ""}
             onClick={() => {
               setWorkflowTab("management");
-              setRouteSubTab("current");
               setCollectionStatusFilter("all");
+              setRouteTagFilter(false);
             }}
           >
             Gestion <strong>{managementWorkflowRowsCount}</strong>
@@ -2807,18 +2879,18 @@ export default function ReceivablesPage({
             className={workflowTab === "route" ? "is-active" : ""}
             onClick={() => {
               setWorkflowTab("route");
-              setRouteSubTab("current");
               setCollectionStatusFilter("all");
+              setRouteTagFilter(false);
             }}
           >
-            Cobro en Ruta <strong>{routeWorkflowRowsCount}</strong>
+            Ruta en calle <strong>{activeVisibleRouteItems.length}</strong>
           </button>
         </div>
 
-        <div className="ar-ledger-toolbar">
+        {workflowTab === "management" ? <div className="ar-ledger-toolbar">
           <div className="ar-view-tabs">
             <label className="ar-toolbar-filter ar-toolbar-filter--management">
-              <span className="ar-toolbar-filter-label">{workflowTab === "route" ? "Ruta" : "Gestion"}</span>
+              <span className="ar-toolbar-filter-label">Gestion</span>
               <select
                 className="ar-toolbar-filter-select ar-toolbar-filter-select--management"
                 value={collectionStatusFilter}
@@ -2832,6 +2904,21 @@ export default function ReceivablesPage({
                 ))}
               </select>
             </label>
+            <button
+              type="button"
+              className={`ar-route-direct-filter ${routeTagFilter ? "is-active" : ""}`}
+              aria-pressed={routeTagFilter}
+              onClick={() => {
+                const next = !routeTagFilter;
+                setRouteTagFilter(next);
+                if (next) {
+                  setCollectionStatusFilter("all");
+                  setWhatsAppContactFilter("all");
+                }
+              }}
+            >
+              En ruta <strong>{routeTaggedManagementCount}</strong>
+            </button>
             <label className="ar-toolbar-filter">
               <span className="ar-toolbar-filter-label">WhatsApp</span>
               <select
@@ -2868,57 +2955,32 @@ export default function ReceivablesPage({
             >
               {prioritizeContactTime ? "Agenda de llamadas" : "Proximo contacto"}
             </button>
-            <span className="ar-results-count">Mostrando {rows.length} de {workflowTab === "route" ? routeWorkflowRowsCount : managementWorkflowRowsCount}</span>
-            {workflowTab === "route" ? (
-              <div className="ar-route-export-actions">
-                <button
-                  type="button"
-                  className="button ghost small"
-                  onClick={() => void handleExportCobroEnRuta()}
-                  disabled={isExporting || routeWorkflowRowsCount === 0}
-                >
-                  {isExporting ? "Enviando..." : "Enviar ruta"}
-                </button>
-                <select
-                  className="ar-route-export-format"
-                  value={routeExportFormat}
-                  onChange={(event) => setRouteExportFormat(event.target.value as RouteExportFormat)}
-                  disabled={isExporting}
-                  aria-label="Formato para enviar cobro en ruta"
-                >
-                  <option value="jpg">JPG</option>
-                  <option value="pdf">PDF</option>
-                  <option value="excel">Excel</option>
-                </select>
-              </div>
-            ) : null}
+            <span className="ar-results-count">Mostrando {rows.length} de {managementWorkflowRowsCount}</span>
+            <div className="ar-route-export-actions">
+              <button
+                type="button"
+                className="button ghost small"
+                onClick={() => void handleExportCobroEnRuta()}
+                disabled={isExporting || routeWorkflowRowsCount === 0}
+              >
+                {isExporting ? "Publicando..." : `Publicar ruta (${routeWorkflowRowsCount})`}
+              </button>
+              <select
+                className="ar-route-export-format"
+                value={routeExportFormat}
+                onChange={(event) => setRouteExportFormat(event.target.value as RouteExportFormat)}
+                disabled={isExporting}
+                aria-label="Formato para publicar cobro en ruta"
+              >
+                <option value="jpg">JPG</option>
+                <option value="pdf">PDF</option>
+                <option value="excel">Excel</option>
+              </select>
+            </div>
           </div>
-        </div>
+        </div> : null}
 
-        {workflowTab === "route" ? (
-          <div className="ar-route-subtabs" role="tablist" aria-label="Vistas de cobro en ruta">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={routeSubTab === "current"}
-              className={routeSubTab === "current" ? "is-active" : ""}
-              onClick={() => setRouteSubTab("current")}
-            >
-              Ruta para enviar <strong>{routeWorkflowRowsCount}</strong>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={routeSubTab === "published"}
-              className={routeSubTab === "published" ? "is-active" : ""}
-              onClick={() => setRouteSubTab("published")}
-            >
-              Ruta en calle <strong>{activeVisibleRouteItems.length}</strong>
-            </button>
-          </div>
-        ) : null}
-
-        {workflowTab !== "route" || routeSubTab === "current" ? (
+        {workflowTab === "management" ? (
           <>
             <button
               type="button"
@@ -2944,7 +3006,7 @@ export default function ReceivablesPage({
         {collectionCutMessage ? <p className="hint">{collectionCutMessage}</p> : null}
         {routeExportMessage ? <p className="hint">{routeExportMessage}</p> : null}
         {exportError ? <p className="hint error-text">{exportError}</p> : null}
-        {workflowTab === "route" && routeSubTab === "published" ? (
+        {workflowTab === "route" ? (
           <div className="ar-active-route-panel ar-active-route-panel--tab">
             <div className="ar-active-route-head">
               <div>
@@ -3049,7 +3111,10 @@ export default function ReceivablesPage({
                               <span className="ar-route-added-at">En calle {formatActiveRouteAddedAt(item.publishedAt)}</span>
                             </td>
                             <td>{item.daysLate > 0 ? `${item.daysLate} dias` : "Sin atraso"}</td>
-                            <td className="amount-debt">{formatCurrency(item.overdueBalance)}</td>
+                            <td className="amount-debt">
+                              <strong className="ar-overdue-chip-amount">{formatCurrency(item.overdueBalance)}</strong>
+                              <small className="ar-overdue-chip-installments">{overdueInstallmentsText(item.overdueBalance, item.rentAmount)}</small>
+                            </td>
                             <td>
                               <select
                                 className="ar-route-list-type"
@@ -3186,7 +3251,10 @@ export default function ReceivablesPage({
                         ) : null}
                         <div className="ar-route-mobile-meta">
                           <span>{item.daysLate > 0 ? `${item.daysLate} dias de atraso` : "Sin atraso"}</span>
-                          <span>Vencido {formatCurrency(item.overdueBalance)}</span>
+                          <span>
+                            Vencido {formatCurrency(item.overdueBalance)}
+                            <small className="ar-overdue-chip-installments">{overdueInstallmentsText(item.overdueBalance, item.rentAmount)}</small>
+                          </span>
                           <span>En calle {formatActiveRouteAddedAt(item.publishedAt)}</span>
                         </div>
                         <div className="ar-route-mobile-controls">
@@ -3333,10 +3401,9 @@ export default function ReceivablesPage({
             getWhatsAppGroupRows={getWhatsAppGroupRows}
             getStatementGroupRows={getStatementGroupRows}
             onSelectDetail={setSelectedDetailRow}
-            onCollectionCutStatusChange={workflowTab === "route"
-              ? (_cutKey, clientId, nextStatus) => handleRouteWorkflowStatusChange(clientId, nextStatus)
-              : handleCollectionCutStatusChange}
+            onCollectionCutStatusChange={handleCollectionCutStatusChange}
             onCollectionCutCommentChange={handleCollectionCutCommentChange}
+            onRouteTagChange={handleRouteTagChange}
             onRouteManagementTypeChange={handleRouteManagementTypeChange}
             onRouteManagementCommentChange={handleRouteManagementCommentChange}
             onRouteAssignmentChange={handleRouteAssignmentChange}

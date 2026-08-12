@@ -94,16 +94,11 @@ export const DAILY_COLLECTION_STATUS_OPTIONS = COLLECTION_STATUS_OPTIONS.filter(
   option.value === "unassigned" ||
   option.value === "pending" ||
   option.value === "contacted" ||
-  option.value === "covered" ||
-  option.value === "route"
+  option.value === "covered"
 ));
 
 export const ROUTE_COLLECTION_STATUS_OPTIONS: Array<{ value: CollectionStatus; label: string; description: string }> = [
-  { value: "route", label: "Pendiente", description: "Asignado a cobro en ruta, pendiente de resultado." },
-  { value: "route_collection", label: "En ruta", description: "La cuenta esta en gestion de calle." },
-  { value: "paid", label: "Cobrado", description: "Pago confirmado durante la ruta." },
-  { value: "route_not_sent", label: "No cobrado", description: "La ruta no logro cobrar esta cuenta." },
-  { value: "call_later", label: "Reprogramado", description: "La visita o cobro queda para seguimiento posterior." }
+  { value: "pending", label: "Pendiente", description: "Mientras tenga la etiqueta En ruta, la gestion permanece Pendiente." }
 ];
 
 export const REGULAR_COLLECTION_STATUS_OPTIONS = DAILY_COLLECTION_STATUS_OPTIONS;
@@ -193,10 +188,16 @@ export function clientOperationalStatusTone(status: Client["status"] | "libre" |
   return "ar-badge ar-badge--critical";
 }
 
-export function pendingSummaryText(totalPending: number, rentAmount: number): string {
+export function overdueInstallmentsText(totalPending: number, rentAmount: number): string {
   const installments = rentAmount > 0 ? Math.ceil(totalPending / rentAmount) : 0;
-  if (installments <= 0) return formatCurrency(totalPending);
-  return `${formatCurrency(totalPending)} (${installments} ${installments === 1 ? "cuota" : "cuotas"})`;
+  if (installments <= 0) return "";
+  return `${installments} ${installments === 1 ? "cuota vencida" : "cuotas vencidas"}`;
+}
+
+export function pendingSummaryText(totalPending: number, rentAmount: number): string {
+  const installments = overdueInstallmentsText(totalPending, rentAmount);
+  if (!installments) return formatCurrency(totalPending);
+  return `${formatCurrency(totalPending)} (${installments})`;
 }
 
 export function isToday(date: Date, now: Date): boolean {
@@ -312,6 +313,17 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   const contactTimeUpdatedAt = typeof row.contactTimeUpdatedAt === "string" ? row.contactTimeUpdatedAt : undefined;
   const paymentPromiseDate = typeof row.paymentPromiseDate === "string" ? row.paymentPromiseDate : undefined;
   const paymentPromiseUpdatedAt = typeof row.paymentPromiseUpdatedAt === "string" ? row.paymentPromiseUpdatedAt : undefined;
+  const legacyRouteStatus = status === "route" || status === "route_collection" || status === "route_not_sent";
+  const hasLegacyRouteData = (
+    (managementType === "solo_cobrar" || managementType === "cobrar_o_quitar") &&
+    (!!managementAmount || !!routeReleaseAmount || !!routeAssignment)
+  );
+  const isRouteTagged = row.isRouteTagged === true || legacyRouteStatus || ((status === "paid" || status === "call_later") && hasLegacyRouteData);
+  const routeTaggedAt = typeof row.routeTaggedAt === "string"
+    ? row.routeTaggedAt
+    : isRouteTagged
+      ? routeReleaseUpdatedAt ?? managementUpdatedAt ?? updatedAt
+      : undefined;
   const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt, contactTime, contactTimeUpdatedAt, paymentPromiseDate, paymentPromiseUpdatedAt, routeReleaseAmount, routeReleaseUpdatedAt, routeAssignment, routeAssignmentUpdatedAt, routeUrgency, routeUrgencyUpdatedAt };
   if (
     status === "pending" ||
@@ -326,7 +338,8 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
     status === "route_collection" ||
     status === "route_not_sent"
   ) {
-    return { status, comment, updatedAt, managementType, managementAmount, managementComment, managementUpdatedAt, ...messageAudit };
+    const normalizedStatus: CollectionStatus = isRouteTagged ? "pending" : status;
+    return { status: normalizedStatus, isRouteTagged, routeTaggedAt, comment, updatedAt, managementType, managementAmount, managementComment, managementUpdatedAt, ...messageAudit };
   }
   if (row.actionType === "cobrar") {
     return { status: "reminder", comment, updatedAt, managementType: "solo_cobrar", managementAmount, managementComment, managementUpdatedAt, ...messageAudit };

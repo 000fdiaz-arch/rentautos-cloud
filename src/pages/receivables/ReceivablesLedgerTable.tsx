@@ -9,9 +9,9 @@ import {
   COLLECTION_STATUS_HELP,
   COLLECTION_STATUS_OPTIONS,
   ROUTE_ASSIGNMENT_OPTIONS,
-  ROUTE_COLLECTION_STATUS_OPTIONS,
   ROUTE_URGENCY_OPTIONS,
   normalizeRouteAssignment,
+  overdueInstallmentsText,
   stateToneClass,
   type CollectionClosureItem,
   type CollectionCutKey,
@@ -50,6 +50,7 @@ type Props = {
   onSelectDetail: (row: ReceivableRow) => void;
   onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
   onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
+  onRouteTagChange: (clientId: string, tagged: boolean) => void;
   onRouteManagementTypeChange: (clientId: string, value: "solo_cobrar" | "cobrar_o_quitar") => void;
   onRouteManagementCommentChange: (clientId: string, value: string) => void;
   onRouteAssignmentChange: (clientId: string, value: string) => void;
@@ -137,6 +138,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   onSelectDetail,
   onCollectionCutStatusChange,
   onCollectionCutCommentChange,
+  onRouteTagChange,
   onRouteManagementTypeChange,
   onRouteManagementCommentChange,
   onRouteAssignmentChange,
@@ -224,7 +226,10 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                       </span>
                     </div>
                   </td>
-                  <td className="amount-debt">{formatCurrency(row.overdueBalance)}</td>
+                  <td className="amount-debt">
+                    <strong className="ar-overdue-chip-amount">{formatCurrency(row.overdueBalance)}</strong>
+                    <small className="ar-overdue-chip-installments">{overdueInstallmentsText(row.overdueBalance, row.rentAmount)}</small>
+                  </td>
                   <td>
                     <select
                       className="ar-route-list-type"
@@ -344,9 +349,6 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
             const routeUrgency = statusRecord?.routeUrgency ?? "normal";
             const isCustomRouteAssignment = !!routeAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(routeAssignment);
             const isCustomRouteEditorOpen = isCustomRouteAssignment || !!customRouteEditorByClient[row.id];
-            const routeStatus = ROUTE_COLLECTION_STATUS_OPTIONS.some((option) => option.value === statusRecord?.status)
-              ? statusRecord?.status ?? "route"
-              : "route";
             return (
               <article className={`ar-route-mobile-card ${routeUrgency !== "normal" ? `ar-route-mobile-card--${routeUrgency}` : ""}`} key={`mobile-route-${row.id}`}>
                 <div className="ar-route-mobile-head">
@@ -356,7 +358,8 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                   </div>
                   <div className="ar-route-mobile-amount">
                     <small>Renta vencida</small>
-                    <strong>{formatCurrency(row.overdueBalance)}</strong>
+                    <strong className="ar-overdue-chip-amount">{formatCurrency(row.overdueBalance)}</strong>
+                    <small className="ar-overdue-chip-installments">{overdueInstallmentsText(row.overdueBalance, row.rentAmount)}</small>
                   </div>
                 </div>
                 {routeUrgency !== "normal" ? (
@@ -373,16 +376,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                 <div className="ar-route-mobile-controls">
                   <label>
                     <span>Estado</span>
-                    <select
-                      className={`ar-cut-select ar-cut-select--${routeStatus}`}
-                      value={routeStatus}
-                      onChange={(event) => onCollectionCutStatusChange("night", row.id, event.target.value)}
-                      disabled={isTodayCollectionClosed}
-                    >
-                      {ROUTE_COLLECTION_STATUS_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
+                    <span className="ar-cut-select ar-cut-select--pending ar-route-status-fixed">Pendiente · En ruta</span>
                   </label>
                   <label>
                     <span>Tipo</span>
@@ -558,8 +552,13 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               whatsAppGroupRows={getWhatsAppGroupRows(row)}
               statementGroupRows={getStatementGroupRows(row)}
               onSelectDetail={onSelectDetail}
-              onCollectionCutStatusChange={onCollectionCutStatusChange}
-              onCollectionCutCommentChange={onCollectionCutCommentChange}
+                onCollectionCutStatusChange={onCollectionCutStatusChange}
+                onCollectionCutCommentChange={onCollectionCutCommentChange}
+                onRouteTagChange={onRouteTagChange}
+              onRouteManagementTypeChange={onRouteManagementTypeChange}
+              onRouteManagementCommentChange={onRouteManagementCommentChange}
+              onRouteAssignmentChange={onRouteAssignmentChange}
+              onRouteUrgencyChange={onRouteUrgencyChange}
               onRouteReleaseAmountChange={onRouteReleaseAmountChange}
               onWhatsAppMessageSent={onWhatsAppMessageSent}
               onSupportNoteChange={onSupportNoteChange}

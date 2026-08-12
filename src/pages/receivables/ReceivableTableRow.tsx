@@ -1,18 +1,23 @@
 import { memo, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { createPortal } from "react-dom";
 import { inlineComputedStylesForCanvas } from "../../canvasExportStyles";
 import { formatCurrency, formatDate } from "../../format";
 import { PLAN_LABEL, STATE_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivables";
-import type { CollectionStatus, CollectionStatusRecord } from "./receivablesTypes";
+import type { CollectionStatus, CollectionStatusRecord, FieldManagementType, RouteUrgency } from "./receivablesTypes";
 import {
   COLLECTION_CUT_OPTIONS,
   DAILY_COLLECTION_STATUS_OPTIONS,
+  ROUTE_ASSIGNMENT_OPTIONS,
   ROUTE_COLLECTION_STATUS_OPTIONS,
+  ROUTE_URGENCY_OPTIONS,
   COLLECTION_STATUS_HELP,
   CONTACT_TIME_OPTIONS,
   clientOperationalStatusLabel,
   clientOperationalStatusTone,
   normalizeContactTime,
+  normalizeRouteAssignment,
+  overdueInstallmentsText,
   shouldDefaultToCovered,
   stateToneClass,
   type CollectionClosureItem,
@@ -36,6 +41,11 @@ type Props = {
   onSelectDetail: (row: ReceivableRow) => void;
   onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
   onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
+  onRouteTagChange: (clientId: string, tagged: boolean) => void;
+  onRouteManagementTypeChange: (clientId: string, value: FieldManagementType) => void;
+  onRouteManagementCommentChange: (clientId: string, value: string) => void;
+  onRouteAssignmentChange: (clientId: string, value: string) => void;
+  onRouteUrgencyChange: (clientId: string, value: RouteUrgency) => void;
   onRouteReleaseAmountChange: (clientId: string, value: string) => void;
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
   onSupportNoteChange: (clientId: string, value: string) => void;
@@ -386,22 +396,6 @@ function getStatusOptionsForCut(_cutKey: CollectionCutKey): Array<{ value: Colle
   return DAILY_COLLECTION_STATUS_OPTIONS;
 }
 
-function liveRouteStatusOption(status: CollectionStatus): { value: CollectionStatus; label: string; description: string } {
-  if (status === "route_collection") {
-    return { value: status, label: "Cobro en ruta", description: COLLECTION_STATUS_HELP.route_collection };
-  }
-  if (status === "route_not_sent") {
-    return { value: status, label: "No enviado a ruta", description: COLLECTION_STATUS_HELP.route_not_sent };
-  }
-  return { value: status, label: "Cobro en ruta", description: COLLECTION_STATUS_HELP.route };
-}
-
-function getRouteStatusLabel(status: CollectionStatus): string {
-  return ROUTE_COLLECTION_STATUS_OPTIONS.find((option) => option.value === status)?.label
-    ?? DAILY_COLLECTION_STATUS_OPTIONS.find((option) => option.value === status)?.label
-    ?? status;
-}
-
 function lastPaymentLabel(lastPaymentDate: string | null, now: Date): string {
   if (!lastPaymentDate) return "Sin pagos";
   const paymentDate = new Date(`${lastPaymentDate}T12:00:00`);
@@ -473,6 +467,11 @@ function ReceivableTableRowComponent({
   onSelectDetail,
   onCollectionCutStatusChange,
   onCollectionCutCommentChange,
+  onRouteTagChange,
+  onRouteManagementTypeChange,
+  onRouteManagementCommentChange,
+  onRouteAssignmentChange,
+  onRouteUrgencyChange,
   onRouteReleaseAmountChange,
   onWhatsAppMessageSent,
   onSupportNoteChange,
@@ -499,23 +498,45 @@ function ReceivableTableRowComponent({
     : "Sugerido: marcar como enviado si lo mandaste manualmente";
   const consolidatedStatementRows = statementGroupRows?.length ? statementGroupRows : [row];
   const balanceImageTitle = isCopyingBalanceImage
-    ? "Copiando estado de cuenta..."
+    ? "Preparando estado de cuenta..."
     : consolidatedStatementRows.length > 1
-      ? `Copiar estado de cuenta consolidado (${consolidatedStatementRows.length} unidades)`
-      : "Copiar estado de cuenta";
+      ? `Preparar estado consolidado para compartir (${consolidatedStatementRows.length} unidades)`
+      : "Preparar estado de cuenta para compartir";
   const visibleCutOptions = visibleCutKey === "all"
     ? COLLECTION_CUT_OPTIONS
     : COLLECTION_CUT_OPTIONS.filter((option) => option.key === visibleCutKey);
   const totalDue = row.overdueBalance + row.totalOtherCharges;
-  const isRouteHighlighted = statusRecord?.managementType || statusRecord?.status === "route" || statusRecord?.status === "route_collection";
+  const isRouteHighlighted = !!statusRecord?.isRouteTagged;
   const isRouteWorkflow = workflowTab === "route";
   const groupedWhatsAppRows = whatsAppGroupRows?.filter((item) => item.id !== row.id) ?? [];
   const groupedWhatsAppUnits = groupedWhatsAppRows.map((item) => item.unitId).filter(Boolean);
   const [contactTimeDraft, setContactTimeDraft] = useState(statusRecord?.contactTime ?? "");
+  const [customRouteEditorOpen, setCustomRouteEditorOpen] = useState(false);
+  const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
+  const routeReleaseAmount = statusRecord?.routeReleaseAmount ?? statusRecord?.managementAmount;
+  const routeAssignment = statusRecord?.routeAssignment ?? "";
+  const routeUrgency = statusRecord?.routeUrgency ?? "normal";
+  const routeUrgencyLabel = ROUTE_URGENCY_OPTIONS.find((option) => option.value === routeUrgency)?.label ?? "Normal";
+  const isRouteReleaseAmountMissing = typeof routeReleaseAmount !== "number" || routeReleaseAmount <= 0;
+  const isRouteAssignmentMissing = !routeAssignment;
+  const missingRouteRequirements = [
+    isRouteReleaseAmountMissing ? "saldo para liberar" : null,
+    isRouteAssignmentMissing ? "ruta asignada" : null
+  ].filter((item): item is string => !!item);
+  const isRoutePreparationComplete = missingRouteRequirements.length === 0;
 
   useEffect(() => {
     setContactTimeDraft(statusRecord?.contactTime ?? "");
   }, [statusRecord?.contactTime]);
+
+  useEffect(() => {
+    if (!isRouteModalOpen) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsRouteModalOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isRouteModalOpen]);
 
   function handleConfirmWhatsAppSent(): void {
     onWhatsAppMessageSent(row.id, whatsAppMessage);
@@ -550,22 +571,14 @@ function ReceivableTableRowComponent({
 
   function renderCutCell(cutKey: CollectionCutKey) {
     const item = collectionCutItems[cutKey];
-    const liveRouteStatus = cutKey === "night" && (
-      statusRecord?.status === "route" ||
-      statusRecord?.status === "route_collection" ||
-      statusRecord?.status === "route_not_sent"
-    )
-      ? statusRecord.status
-      : undefined;
-    const rawValue = liveRouteStatus ?? item?.collectionStatus ?? (cutKey === "night" ? statusRecord?.status : undefined) ?? defaultCollectionStatus(row, operationalStatus, cutKey);
+    const isRouteTagged = !!statusRecord?.isRouteTagged;
+    const rawValue = isRouteTagged
+      ? "pending"
+      : item?.collectionStatus ?? (cutKey === "night" ? statusRecord?.status : undefined) ?? defaultCollectionStatus(row, operationalStatus, cutKey);
     const baseStatusOptions = workflowTab === "route" ? ROUTE_COLLECTION_STATUS_OPTIONS : getStatusOptionsForCut(cutKey);
-    const statusOptions = liveRouteStatus && !baseStatusOptions.some((option) => option.value === liveRouteStatus)
-      ? [...baseStatusOptions, liveRouteStatusOption(liveRouteStatus)]
-      : baseStatusOptions;
+    const statusOptions = baseStatusOptions;
     const value = statusOptions.some((option) => option.value === rawValue) ? rawValue : "";
-    const routeReleaseAmount = item?.managementAmount ?? statusRecord?.routeReleaseAmount;
     const selectedStatusHelp = value ? COLLECTION_STATUS_HELP[value as CollectionStatus] : undefined;
-    const showRouteReleaseField = workflowTab === "route" && (value === "route" || value === "route_collection" || value === "route_not_sent" || value === "call_later");
     return (
       <div className={`ar-cut-stack-row ar-cut-stack-row--${cutKey}`}>
         <div className="ar-cut-stack-head">
@@ -582,42 +595,62 @@ function ReceivableTableRowComponent({
             title={selectedStatusHelp}
             aria-label={selectedStatusHelp ? `Gestion: ${selectedStatusHelp}` : "Gestion"}
             onChange={(event) => onCollectionCutStatusChange(cutKey, row.id, event.target.value)}
-            disabled={isTodayCollectionClosed}
+            disabled={isTodayCollectionClosed || isRouteTagged}
           >
             {statusOptions.map((option) => (
               <option key={option.value} value={option.value} title={option.description}>{option.label}</option>
             ))}
           </select>
-          {workflowTab === "management" && value === "route" ? (
-            <span className="ar-route-tab-handoff">Asignado a Cobro en Ruta</span>
-          ) : null}
+          <div className={`ar-route-inline-control ${isRouteTagged ? "is-active" : ""}`}>
+            {workflowTab === "management" ? (
+              isRouteTagged ? (
+                <>
+                  <div className="ar-route-primary-actions">
+                    <button
+                      type="button"
+                      className={`button ghost small ar-route-tag-toggle is-active ar-route-tag-toggle--${routeUrgency}`}
+                      onClick={() => onRouteTagChange(row.id, false)}
+                      disabled={isTodayCollectionClosed}
+                      aria-pressed="true"
+                      title="Quitar etiqueta En ruta"
+                    >
+                      En ruta{routeUrgency !== "normal" ? ` · ${routeUrgencyLabel}` : ""} ×
+                    </button>
+                    <button
+                      type="button"
+                      className={`button small ar-route-details-button ${isRoutePreparationComplete ? "is-complete" : "needs-action"}`}
+                      onClick={() => setIsRouteModalOpen(true)}
+                      disabled={isTodayCollectionClosed}
+                    >
+                      {isRoutePreparationComplete ? "Ver detalles" : "Completar ruta"}
+                    </button>
+                  </div>
+                  <div className="ar-route-compact-summary" aria-label={`Resumen de ruta de ${row.unitId}`}>
+                    <span title="Saldo para liberar"><strong>{routeReleaseAmount ? formatCurrency(routeReleaseAmount) : "Monto pendiente"}</strong></span>
+                    <span title="Ruta asignada"><strong>{routeAssignment || "Ruta pendiente"}</strong></span>
+                  </div>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="button ghost small ar-route-tag-toggle"
+                  onClick={() => {
+                    onRouteTagChange(row.id, true);
+                    setIsRouteModalOpen(true);
+                  }}
+                  disabled={isTodayCollectionClosed}
+                  aria-pressed="false"
+                >
+                  Enviar a ruta
+                </button>
+              )
+            ) : <span className="ar-route-tab-handoff">Pendiente · En ruta</span>}
+          </div>
           {item?.comment ? (
             <span className="hint ar-cut-comment">Comentario: {item.comment}</span>
           ) : null}
-          {showRouteReleaseField ? (
-            <label className="ar-route-release-field">
-              <span>Min. para liberar</span>
-              <input
-                className="ar-route-release-input"
-                type="number"
-                min="0"
-                step="0.01"
-                inputMode="decimal"
-                value={routeReleaseAmount ?? ""}
-                onChange={(event) => onRouteReleaseAmountChange(row.id, event.target.value)}
-                placeholder={row.overdueBalance > 0 ? row.overdueBalance.toFixed(2) : "0.00"}
-                disabled={isTodayCollectionClosed}
-              />
-            </label>
-          ) : null}
           <div className="ar-cut-actions">
-            {value === "route" && routeReleaseAmount ? (
-              <span>
-                Libera con {formatCurrency(routeReleaseAmount)}
-                {item?.managementType === "cobrar_o_quitar" ? " / quitar" : ""}
-              </span>
-            ) : null}
-            {workflowTab === "route" && value ? <span>{getRouteStatusLabel(value as CollectionStatus)}</span> : null}
+            {workflowTab === "route" ? <span>En ruta</span> : null}
             {item?.managementComment ? <span>{item.managementComment}</span> : null}
           </div>
         </div>
@@ -637,22 +670,10 @@ function ReceivableTableRowComponent({
               <div className="ar-client-summary-grid">
                 <div className="ar-card-actions ar-card-actions--compact">
                   <div className="ar-unit-stack">
-                    <strong className="ar-unit-id">{row.unitId}</strong>
-                    {!isRouteWorkflow && groupedWhatsAppUnits.length > 0 ? (
-                      <span
-                        className="ar-whatsapp-group-badge"
-                        title={`Mensaje conjunto: ${[row.unitId, ...groupedWhatsAppUnits].join(", ")}`}
-                      >
-                        +{groupedWhatsAppUnits.length} unidad{groupedWhatsAppUnits.length === 1 ? "" : "es"}
-                      </span>
-                    ) : null}
-                  </div>
-                  {!isRouteWorkflow ? (
-                    <>
-                      {showStatementSuggestion ? (
+                    <div className="ar-unit-quick-actions">
                         <button
                           type="button"
-                          className={`button ghost small ar-whatsapp-phone-edit ar-whatsapp-image-button ${isCopyingBalanceImage ? "ar-whatsapp-image-button--copying" : ""}`}
+                          className={`button small ar-whatsapp-phone-edit ar-whatsapp-image-button ${isCopyingBalanceImage ? "ar-whatsapp-image-button--copying" : ""}`}
                           onClick={() => void handleCopyBalanceImage()}
                           disabled={isTodayCollectionClosed || isCopyingBalanceImage}
                           title={balanceImageTitle}
@@ -664,52 +685,85 @@ function ReceivableTableRowComponent({
                               <span>Copiando...</span>
                             </>
                           ) : (
-                            <BalanceImageIcon />
+                            <>
+                              <BalanceImageIcon />
+                              <span>Compartir estado</span>
+                            </>
                           )}
                         </button>
-                      ) : null}
-                      {showStatementSuggestion ? (
-                        <button
-                          type="button"
-                          className={`history-send-button ${whatsAppIsResolved ? "history-send-button--sent" : "history-send-button--pending"}`}
-                          onClick={handleConfirmWhatsAppSent}
-                          disabled={isTodayCollectionClosed || whatsAppIsResolved}
-                          title={deliveryStatusTitle}
-                          aria-label={deliveryStatusTitle}
-                        >
-                          <span aria-hidden="true">{whatsAppIsResolved ? "OK" : "..."}</span>
-                          {whatsAppIsResolved ? "Enviado" : "Sugerido"}
-                        </button>
-                      ) : null}
-                    </>
-                  ) : null}
-                  <span className={clientOperationalStatusTone(operationalStatus)}>
-                    {clientOperationalStatusLabel(operationalStatus)}
-                  </span>
+                        {!isRouteWorkflow && showStatementSuggestion ? (
+                          <button
+                            type="button"
+                            className={`history-send-button ${whatsAppIsResolved ? "history-send-button--sent" : "history-send-button--pending"}`}
+                            onClick={handleConfirmWhatsAppSent}
+                            disabled={isTodayCollectionClosed || whatsAppIsResolved}
+                            title={deliveryStatusTitle}
+                            aria-label={deliveryStatusTitle}
+                          >
+                            <span aria-hidden="true">{whatsAppIsResolved ? "OK" : "..."}</span>
+                            {whatsAppIsResolved ? "Enviado" : "Sugerido"}
+                          </button>
+                        ) : null}
+                    </div>
+                    <div className="ar-unit-heading">
+                      <strong className="ar-unit-id">{row.unitId}</strong>
+                      <span className={clientOperationalStatusTone(operationalStatus)}>
+                        {clientOperationalStatusLabel(operationalStatus)}
+                      </span>
+                    </div>
+                    {!isRouteWorkflow && groupedWhatsAppUnits.length > 0 ? (
+                      <span
+                        className="ar-whatsapp-group-badge"
+                        title={`Mensaje conjunto: ${[row.unitId, ...groupedWhatsAppUnits].join(", ")}`}
+                      >
+                        +{groupedWhatsAppUnits.length} unidad{groupedWhatsAppUnits.length === 1 ? "" : "es"}
+                      </span>
+                    ) : null}
+                    <span className="ar-unit-client-name" title={row.name}>{row.name}</span>
+                    <div className="ar-unit-collection-meta">
+                      <span className={`ar-last-payment-date ${lastPaymentIsToday ? "ar-last-payment-date--today" : ""}`}>
+                        {lastPaymentLabel(row.lastPaymentDate, now)}
+                      </span>
+                      <span className={stateToneClass(row.state)}>{STATE_LABEL[row.state]}</span>
+                    </div>
+                  </div>
                 </div>
                 <div className="ar-client-summary-main">
-                  <span className={`debt-meta ar-rent-line ${row.rentAmount > 0 ? "amount-debt" : "amount-good"}`}>
-                    {isRouteWorkflow ? `Total a gestionar: ${formatCurrency(totalDue)}` : row.hasActiveClient ? `Letra: ${formatCurrency(row.rentAmount)}` : "Sin renta activa"}
-                  </span>
-                  <span className="debt-meta ar-truncate-line ar-client-person" title={row.name}>{row.name}</span>
-                  <div className="ar-payment-state-row">
-                    <span className={`ar-last-payment-date ${lastPaymentIsToday ? "ar-last-payment-date--today" : ""}`}>
-                      {lastPaymentLabel(row.lastPaymentDate, now)}
+                  {isRouteWorkflow ? (
+                    <span className="debt-meta ar-rent-line amount-debt">
+                      Total a gestionar: {formatCurrency(totalDue)}
                     </span>
-                    <span className={stateToneClass(row.state)}>{STATE_LABEL[row.state]}</span>
-                  </div>
+                  ) : null}
                   {isRouteWorkflow ? (
                     <div className="ar-card-key-grid ar-card-key-grid--route">
-                      <span className="ar-metric-chip ar-metric-chip--debt"><small>Renta vencida</small>{formatCurrency(row.overdueBalance)}</span>
+                      <span className="ar-metric-chip ar-metric-chip--debt">
+                        <small>Renta vencida</small>
+                        <strong className="ar-overdue-chip-amount">{formatCurrency(row.overdueBalance)}</strong>
+                        {overdueInstallmentsText(row.overdueBalance, row.rentAmount) ? (
+                          <em className="ar-overdue-chip-installments">{overdueInstallmentsText(row.overdueBalance, row.rentAmount)}</em>
+                        ) : null}
+                      </span>
                       <span className="ar-metric-chip ar-metric-chip--debt"><small>Otros cargos</small>{formatCurrency(row.totalOtherCharges)}</span>
                       <span className="ar-metric-chip ar-metric-chip--late"><small>Atraso</small>{row.daysLate > 0 ? `${row.daysLate} dias` : "Sin atraso"}</span>
                     </div>
                   ) : (
                     <div className="ar-card-key-grid">
-                      <span className={`ar-metric-chip ar-metric-chip--plan ar-metric-chip--plan-${row.hasActiveClient ? row.plan : "none"}`}><small>Plan</small>{planDetailLabel(row)}</span>
+                      <span className={`ar-metric-chip ar-metric-chip--plan ar-metric-chip--plan-${row.hasActiveClient ? row.plan : "none"}`}>
+                        <small>Plan</small>
+                        <strong className="ar-plan-chip-name">{planDetailLabel(row)}</strong>
+                        {row.hasActiveClient && row.rentAmount > 0 ? (
+                          <em className="ar-plan-chip-rent">Letra {formatCurrency(row.rentAmount)}</em>
+                        ) : null}
+                      </span>
                       <span className="ar-metric-chip ar-metric-chip--date"><small>Proximo</small>{dateKeyLabel(row.nextDueDate)}</span>
                       <span className="ar-metric-chip ar-metric-chip--late"><small>Atraso</small>{row.daysLate > 0 ? `${row.daysLate} dias` : "Sin atraso"}</span>
-                      <span className="ar-metric-chip ar-metric-chip--debt"><small>Renta vencida</small>{formatCurrency(row.overdueBalance)}</span>
+                      <span className="ar-metric-chip ar-metric-chip--debt">
+                        <small>Renta vencida</small>
+                        <strong className="ar-overdue-chip-amount">{formatCurrency(row.overdueBalance)}</strong>
+                        {overdueInstallmentsText(row.overdueBalance, row.rentAmount) ? (
+                          <em className="ar-overdue-chip-installments">{overdueInstallmentsText(row.overdueBalance, row.rentAmount)}</em>
+                        ) : null}
+                      </span>
                       <span className="ar-metric-chip ar-metric-chip--debt"><small>Otros cargos</small>{formatCurrency(row.totalOtherCharges)}</span>
                       <span className="ar-metric-chip ar-metric-chip--debt"><small>Total general</small>{formatCurrency(totalDue)}</span>
                     </div>
@@ -767,6 +821,128 @@ function ReceivableTableRowComponent({
             </div>
           </div>
         </article>
+        {isRouteModalOpen && statusRecord?.isRouteTagged && typeof document !== "undefined" ? createPortal(
+          <div className="modal-overlay ar-route-modal-overlay" onClick={() => setIsRouteModalOpen(false)}>
+            <div
+              className="modal ar-route-preparation-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={`route-modal-title-${row.id}`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-header ar-route-modal-header">
+                <div>
+                  <span className="ar-route-modal-kicker">Preparación de cobro</span>
+                  <h2 id={`route-modal-title-${row.id}`}>{row.unitId} · {row.name}</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setIsRouteModalOpen(false)} aria-label="Cerrar">×</button>
+              </div>
+              <div className="ar-route-modal-body">
+                <div className={`ar-route-modal-readiness ${isRoutePreparationComplete ? "is-complete" : "needs-action"}`}>
+                  <strong>{isRoutePreparationComplete ? "Ruta preparada" : "Falta completar la ruta"}</strong>
+                  <span>
+                    {isRoutePreparationComplete
+                      ? "Ya puede incluirse al publicar la ruta."
+                      : `Falta: ${missingRouteRequirements.join(" y ")}.`}
+                  </span>
+                </div>
+                <div className="ar-route-modal-grid">
+                  <label className={isRouteReleaseAmountMissing ? "is-required-missing" : undefined}>
+                    <span>Libera con {isRouteReleaseAmountMissing ? "· Requerido" : ""}</span>
+                    <input
+                      className="ar-route-release-input"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={routeReleaseAmount ?? ""}
+                      onChange={(event) => onRouteReleaseAmountChange(row.id, event.target.value)}
+                      placeholder={row.overdueBalance > 0 ? row.overdueBalance.toFixed(2) : "0.00"}
+                      disabled={isTodayCollectionClosed}
+                      aria-label={`Saldo para liberar de ${row.unitId}`}
+                    />
+                  </label>
+                  <label className={isRouteAssignmentMissing ? "is-required-missing" : undefined}>
+                    <span>Ruta {isRouteAssignmentMissing ? "· Requerida" : ""}</span>
+                    {customRouteEditorOpen || (!!routeAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(routeAssignment)) ? (
+                      <input
+                        type="text"
+                        value={routeAssignment}
+                        onChange={(event) => onRouteAssignmentChange(row.id, event.target.value)}
+                        onBlur={(event) => {
+                          const normalized = normalizeRouteAssignment(event.target.value);
+                          if (event.target.value !== (normalized ?? "")) onRouteAssignmentChange(row.id, normalized ?? "");
+                          if (!normalized) setCustomRouteEditorOpen(false);
+                        }}
+                        placeholder="Escribe ruta"
+                        maxLength={12}
+                        disabled={isTodayCollectionClosed}
+                      />
+                    ) : (
+                      <select
+                        value={routeAssignment}
+                        onChange={(event) => {
+                          if (event.target.value === "__custom") {
+                            setCustomRouteEditorOpen(true);
+                            onRouteAssignmentChange(row.id, "");
+                            return;
+                          }
+                          onRouteAssignmentChange(row.id, event.target.value);
+                        }}
+                        disabled={isTodayCollectionClosed}
+                      >
+                        <option value="">Sin ruta</option>
+                        {ROUTE_ASSIGNMENT_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                        <option value="__custom">Otra</option>
+                      </select>
+                    )}
+                  </label>
+                  <label>
+                    <span>Tipo de gestión</span>
+                    <select
+                      value={statusRecord?.managementType ?? "solo_cobrar"}
+                      onChange={(event) => onRouteManagementTypeChange(row.id, event.target.value as FieldManagementType)}
+                      disabled={isTodayCollectionClosed}
+                    >
+                      <option value="solo_cobrar">Solo cobrar</option>
+                      <option value="cobrar_o_quitar">Cobrar o quitar</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Urgencia</span>
+                    <select
+                      value={routeUrgency}
+                      onChange={(event) => onRouteUrgencyChange(row.id, event.target.value as RouteUrgency)}
+                      disabled={isTodayCollectionClosed}
+                    >
+                      {ROUTE_URGENCY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                  <label className="ar-route-modal-comment">
+                    <span>Comentario</span>
+                    <textarea
+                      value={statusRecord?.managementComment ?? ""}
+                      onChange={(event) => onRouteManagementCommentChange(row.id, event.target.value)}
+                      placeholder="Comentario para el cobrador..."
+                      maxLength={25}
+                      rows={3}
+                      disabled={isTodayCollectionClosed}
+                    />
+                  </label>
+                </div>
+              </div>
+              <div className="ar-route-modal-actions">
+                <button type="button" className="button ghost" onClick={() => onRouteTagChange(row.id, false)} disabled={isTodayCollectionClosed}>
+                  Quitar de ruta
+                </button>
+                <button type="button" className="button primary" onClick={() => setIsRouteModalOpen(false)}>
+                  Listo
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        ) : null}
       </td>
     </tr>
   );
@@ -786,6 +962,11 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.statementGroupRows === next.statementGroupRows &&
   previous.onCollectionCutStatusChange === next.onCollectionCutStatusChange &&
   previous.onCollectionCutCommentChange === next.onCollectionCutCommentChange &&
+  previous.onRouteTagChange === next.onRouteTagChange &&
+  previous.onRouteManagementTypeChange === next.onRouteManagementTypeChange &&
+  previous.onRouteManagementCommentChange === next.onRouteManagementCommentChange &&
+  previous.onRouteAssignmentChange === next.onRouteAssignmentChange &&
+  previous.onRouteUrgencyChange === next.onRouteUrgencyChange &&
   previous.onRouteReleaseAmountChange === next.onRouteReleaseAmountChange &&
   previous.onWhatsAppMessageSent === next.onWhatsAppMessageSent &&
   previous.onSupportNoteChange === next.onSupportNoteChange &&
