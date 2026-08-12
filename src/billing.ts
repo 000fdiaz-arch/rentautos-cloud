@@ -107,46 +107,24 @@ export type InstallmentIssuance = {
   needsReview: boolean;
 };
 
-function countScheduledChargesAfterFirst(client: Client, firstChargeDate: Date, throughDate: Date): number {
-  let count = 1;
-  for (let cursor = addDays(firstChargeDate, 1), guard = 0; cursor <= throughDate && guard < 36600; cursor = addDays(cursor, 1), guard += 1) {
-    if (isChargeDay(client, cursor)) count += 1;
-  }
-  return count;
-}
-
 /**
  * Resolves the immutable issuance counter used to cap contractual rent charges.
- * Legacy records are estimated without changing their balance or payment fields.
+ * The financial estimate uses paid installments plus installments represented by
+ * the outstanding rent balance. It never reduces a counter already persisted.
  */
 export function resolveInstallmentIssuance(client: Client): InstallmentIssuance {
   const agreed = Math.max(0, Math.floor(client.installmentsAgreed ?? 0));
-  if (Number.isFinite(client.installmentsIssued)) {
-    return {
-      issued: Math.max(0, Math.floor(client.installmentsIssued ?? 0)),
-      needsReview: client.installmentsIssuedEstimateNeedsReview === true
-    };
-  }
-
-  const firstChargeDate = client.firstChargeDate ? parseDateKey(client.firstChargeDate) : null;
-  const lastChargeDate = client.lastChargeDate ? parseDateKey(client.lastChargeDate) : null;
-  if (firstChargeDate && lastChargeDate) {
-    const issued = lastChargeDate < firstChargeDate
-      ? 0
-      : countScheduledChargesAfterFirst(client, firstChargeDate, lastChargeDate);
-    return { issued: Math.min(agreed, issued), needsReview: false };
-  }
-
   const paid = Math.max(0, Math.floor(client.installmentsPaid ?? 0));
   const debtCycles = client.rentAmount > 0
     ? Math.ceil(Math.max(0, client.balance) / client.rentAmount)
     : 0;
-  const futureCyclesCoveredByAdvance = client.rentAmount > 0
-    ? Math.floor(Math.max(0, client.advanceBalance ?? 0) / client.rentAmount)
+  const persisted = Number.isFinite(client.installmentsIssued)
+    ? Math.max(0, Math.floor(client.installmentsIssued ?? 0))
     : 0;
+  const issued = Math.max(persisted, paid + debtCycles);
   return {
-    issued: Math.min(agreed, Math.max(0, paid - futureCyclesCoveredByAdvance) + debtCycles),
-    needsReview: true
+    issued,
+    needsReview: client.installmentsIssuedEstimateNeedsReview === true || issued > agreed
   };
 }
 

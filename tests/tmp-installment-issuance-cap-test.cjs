@@ -71,14 +71,14 @@ delete legacy.installmentsIssuedEstimateNeedsReview;
 const balanceBeforeMigration = legacy.balance;
 const migrated = withResolvedInstallmentIssuance(legacy);
 assert(migrated.balance === balanceBeforeMigration, "La estimación legacy no puede modificar el balance.");
-assert(migrated.installmentsIssued === 4, `La estimación por fechas debe producir 4; recibido ${migrated.installmentsIssued}.`);
-assert(migrated.installmentsIssuedEstimateNeedsReview === false, "Fechas completas no deben marcarse como dudosas.");
+assert(migrated.installmentsIssued === 4, `Pagadas más saldo deben producir 4; recibido ${migrated.installmentsIssued}.`);
+assert(migrated.installmentsIssuedEstimateNeedsReview === false, "Una estimación igual a las pactadas no requiere revisión.");
 
 const incompleteLegacy = { ...legacy, firstChargeDate: undefined, lastChargeDate: undefined };
 const incompleteBalanceBefore = incompleteLegacy.balance;
 const incompleteIssuance = resolveInstallmentIssuance(incompleteLegacy);
 assert(incompleteLegacy.balance === incompleteBalanceBefore, "La estimación incompleta tampoco puede tocar el balance.");
-assert(incompleteIssuance.needsReview === true, "Los datos sin fechas deben quedar marcados para revisión.");
+assert(incompleteIssuance.needsReview === false, "La estimación financiera no depende de fechas.");
 assert(findNextChargeDay(incompleteLegacy, monday(2026, 8, 7)) === null, "La estimación legacy completa también debe frenar la próxima fecha.");
 
 const prepaidLegacy = {
@@ -88,8 +88,28 @@ const prepaidLegacy = {
   installmentsPaid: 4
 };
 const prepaidIssuance = resolveInstallmentIssuance(prepaidLegacy);
-assert(prepaidIssuance.issued === 0, "Un adelanto sin fechas no debe confundirse con cuotas ya emitidas.");
+assert(prepaidIssuance.issued === 4, "La fórmula acordada debe sumar las cuotas registradas como pagadas.");
 assert(findNextChargeDay(prepaidLegacy, monday(2026, 8, 7)) === null, "Un contrato totalmente prepagado no debe anunciar una cuota fuera del contrato.");
+
+const a12Legacy = {
+  ...incompleteLegacy,
+  rentAmount: 180,
+  balance: 1265,
+  installmentsAgreed: 7,
+  installmentsPaid: 1
+};
+const a12Issuance = resolveInstallmentIssuance(a12Legacy);
+assert(a12Issuance.issued === 9, `A12 debe estimar 9 cuotas emitidas; recibido ${a12Issuance.issued}.`);
+assert(a12Issuance.needsReview === true, "A12 debe marcarse para revisión por superar las 7 pactadas.");
+
+const protectedCounter = resolveInstallmentIssuance({
+  ...a12Legacy,
+  balance: 695,
+  installmentsPaid: 2,
+  installmentsIssued: 7,
+  installmentsIssuedEstimateNeedsReview: false
+});
+assert(protectedCounter.issued === 7, "Los pagos o ajustes de saldo no deben reducir cuotas ya emitidas.");
 
 const expanded = applyAutomaticCharges([{ ...afterSeptember7, installmentsAgreed: 5 }], monday(2026, 8, 14)).clients[0];
 assert(expanded.balance === 210 && expanded.installmentsIssued === 5, "Aumentar a 5 cuotas debe permitir exactamente un nuevo cobro.");
