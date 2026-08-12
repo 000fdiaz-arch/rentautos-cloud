@@ -43,6 +43,7 @@ assert(routeRemoval.includes("isRouteTagged: false"), "Salir de ruta debe quitar
 const routeActivation = section(page, "function handleRouteTagChange", "function handleRouteWorkflowStatusChange");
 assert(routeActivation.includes('status: "pending"'), "Agregar la etiqueta debe forzar Pendiente.");
 assert(routeActivation.includes("isRouteTagged: true"), "Agregar a ruta debe guardar la etiqueta.");
+assert(routeActivation.includes("hasActiveOperationalClient(routeCandidate)"), "Una cuenta no activa no debe poder recibir la etiqueta En ruta.");
 
 const activeRouteSync = section(page, "function buildManagementRecordFromActiveRouteItem", "function syncActiveRouteItemsToManagement");
 assert(activeRouteSync.includes('status: "pending"'), "Ruta en calle debe sincronizarse como Pendiente.");
@@ -55,6 +56,7 @@ assert(clearManagement.includes('status: "pending"'), "Limpiar gestion debe cons
 assert(row.includes("disabled={isTodayCollectionClosed || isRouteTagged}"), "Los otros estados deben bloquearse mientras tenga la etiqueta.");
 assert(row.includes('En ruta{routeUrgency !== "normal"') && row.includes("Enviar a ruta"), "La gestion debe ofrecer un control de etiqueta independiente.");
 assert(row.includes("ar-route-tag-toggle--${routeUrgency}"), "La urgencia debe integrarse visualmente en la etiqueta En ruta.");
+assert(row.includes("isRouteTagged || canSendToRoute"), "Enviar a ruta debe ocultarse para las cuentas no activas.");
 assert(row.includes("ar-route-compact-summary"), "La tarjeta debe mostrar un resumen compacto de la ruta.");
 assert(row.includes("Libera con") && row.includes("routeAssignment") && row.includes("routeUrgencyLabel"), "El resumen debe mostrar saldo, ruta y urgencia.");
 assert(row.includes("ar-route-preparation-modal"), "La preparacion completa debe abrirse en un modal.");
@@ -75,5 +77,6 @@ assert(releaseAmountChange.includes("releaseAmount: nextAmount ?? 0"), "Ruta en 
 assert(cloud.includes("releaseAmount < 0"), "La nube debe aceptar cero como marcador temporal de monto pendiente.");
 assert(routeSearch.includes("item.releaseAmount <= 0"), "Un monto pendiente no debe liberar automaticamente la cuenta por un pago.");
 assert(routeSearch.includes('"Monto pendiente"'), "Ruta en calle debe mostrar que el monto sigue pendiente.");
+assert(page.includes("hasActiveOperationalClient(row) &&\n          record?.isRouteTagged"), "La publicacion debe excluir cuentas no activas aunque tengan una etiqueta antigua.");
 
 console.log("OK receivables route tag: cuatro estados, Pendiente bloqueado y migracion compatible.");

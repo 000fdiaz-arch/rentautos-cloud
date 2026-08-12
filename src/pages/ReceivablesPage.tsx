@@ -1696,6 +1696,8 @@ export default function ReceivablesPage({
       else handleRemoveFromRoute(clientId);
       return;
     }
+    const routeCandidate = baseRows.find((row) => row.id === clientId);
+    if (!routeCandidate || !hasActiveOperationalClient(routeCandidate)) return;
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
@@ -2572,6 +2574,7 @@ export default function ReceivablesPage({
       const isRouteRowFromMap = (row: ReceivableRow): boolean => {
         const record = statusByClientForRoute[row.id];
         return (
+          hasActiveOperationalClient(row) &&
           record?.isRouteTagged === true &&
           !activeClientIdsForSend.has(row.id) &&
           !routeRemovalBlocksRecord(record, removedItemByClientForSend.get(row.id))

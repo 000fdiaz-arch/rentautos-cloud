@@ -480,6 +480,7 @@ function ReceivableTableRowComponent({
   const [isCopyingBalanceImage, setIsCopyingBalanceImage] = useState(false);
   const statementWasSentRecently = hasTimestampWithinWindow(statusRecord?.whatsAppMessageSentAt, now, STATEMENT_SUGGESTION_WINDOW_MS);
   const isEligibleForWhatsApp = isWhatsAppEligibleUnit(row, operationalStatus);
+  const canSendToRoute = isWhatsAppEligibleUnit(row, operationalStatus);
   const requiresWhatsAppManagement = hasPendingRent(row, operationalStatus);
   const requiresStatementSuggestion = requiresWhatsAppManagement &&
     hasLastPaymentOutsideSuggestionWindow(row, now) &&
@@ -601,7 +602,7 @@ function ReceivableTableRowComponent({
               <option key={option.value} value={option.value} title={option.description}>{option.label}</option>
             ))}
           </select>
-          <div className={`ar-route-inline-control ${isRouteTagged ? "is-active" : ""}`}>
+          {isRouteTagged || canSendToRoute ? <div className={`ar-route-inline-control ${isRouteTagged ? "is-active" : ""}`}>
             {workflowTab === "management" ? (
               isRouteTagged ? (
                 <>
@@ -645,7 +646,7 @@ function ReceivableTableRowComponent({
                 </button>
               )
             ) : <span className="ar-route-tab-handoff">Pendiente · En ruta</span>}
-          </div>
+          </div> : null}
           {item?.comment ? (
             <span className="hint ar-cut-comment">Comentario: {item.comment}</span>
           ) : null}
