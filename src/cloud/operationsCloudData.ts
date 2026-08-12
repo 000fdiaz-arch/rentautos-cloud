@@ -1534,6 +1534,7 @@ export type ActiveRouteItem = {
   clientCedula?: string;
   whatsAppPhone?: string;
   routeAssignment?: string;
+  zone?: string;
   managementType?: "solo_cobrar" | "cobrar_o_quitar";
   urgency?: "normal" | "urgent" | "very_urgent";
   releaseAmount: number;
@@ -1570,6 +1571,7 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
     clientCedula: typeof row.clientCedula === "string" ? row.clientCedula : undefined,
     whatsAppPhone: typeof row.whatsAppPhone === "string" ? row.whatsAppPhone : undefined,
     routeAssignment: typeof row.routeAssignment === "string" ? row.routeAssignment : undefined,
+    zone: typeof row.zone === "string" && row.zone.trim().length > 0 ? row.zone.trim() : undefined,
     managementType: row.managementType === "cobrar_o_quitar" ? "cobrar_o_quitar" : "solo_cobrar",
     urgency: row.urgency === "urgent" || row.urgency === "very_urgent" ? row.urgency : "normal",
     releaseAmount,
@@ -1654,6 +1656,22 @@ export async function saveCloudActiveRouteItem(userId: string, item: ActiveRoute
       data: item,
       updated_at: new Date().toISOString()
     }, { onConflict: "user_id,client_id" });
+  if (error) throw error;
+}
+
+export async function saveCloudActiveRouteZone(input: {
+  userId: string;
+  clientId: string;
+  routeAssignment?: string;
+  zone?: string;
+}): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("update_active_route_zone", {
+    p_user_id: input.userId,
+    p_client_id: input.clientId,
+    p_route_assignment: input.routeAssignment ?? "",
+    p_zone: input.zone ?? ""
+  });
   if (error) throw error;
 }
 

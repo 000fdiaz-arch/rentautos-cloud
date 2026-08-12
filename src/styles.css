@@ -14533,6 +14533,25 @@ select.control-op-badge {
   margin-top: 12px;
 }
 
+.route-search-filter-block {
+  display: grid;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.route-search-zone-filter-block {
+  margin-top: 6px;
+  padding-left: 12px;
+}
+
+.route-search-filter-label {
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .route-search-filters,
 .ar-active-route-filters {
   display: flex;
@@ -14542,7 +14561,19 @@ select.control-op-badge {
 }
 
 .route-search-filters {
-  margin-top: 8px;
+  margin-top: 0;
+}
+
+.route-search-zone-filters button {
+  border-color: #ddd6fe;
+  background: #faf5ff;
+  color: #6d28d9;
+}
+
+.route-search-zone-filters button.is-active {
+  border-color: rgba(109, 40, 217, 0.45);
+  background: #ede9fe;
+  color: #5b21b6;
 }
 
 .ar-active-route-filters {
@@ -14692,6 +14723,60 @@ select.control-op-badge {
   font-size: 0.78rem;
   font-weight: 900;
   padding: 6px 10px;
+}
+
+.route-search-zone-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.route-search-zone-field > span {
+  color: #5b21b6;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.route-search-zone-field > div {
+  position: relative;
+  min-width: 0;
+}
+
+.route-search-zone-field input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #c4b5fd;
+  border-radius: 8px;
+  background: #faf5ff;
+  color: #3b0764;
+  font-size: 0.92rem;
+  font-weight: 750;
+  padding: 8px 92px 8px 10px;
+}
+
+.route-search-zone-field input:focus {
+  border-color: #7c3aed;
+  outline: 3px solid rgba(124, 58, 237, 0.14);
+}
+
+.route-search-zone-field input:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.route-search-zone-status {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  color: #6d28d9;
+  font-size: 0.7rem;
+  font-weight: 850;
+  pointer-events: none;
+  transform: translateY(-50%);
 }
 
 .route-search-amounts {

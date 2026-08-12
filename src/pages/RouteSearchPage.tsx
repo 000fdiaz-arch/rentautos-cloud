@@ -6,7 +6,7 @@ import {
   compareActiveRouteFilterValues,
   compareActiveRouteItems
 } from "../activeRouteOrdering";
-import { loadCloudActiveRouteItems, type ActiveRouteItem } from "../cloudData";
+import { loadCloudActiveRouteItems, saveCloudActiveRouteZone, type ActiveRouteItem } from "../cloudData";
 import { formatCurrency, formatDate } from "../format";
 import { supabase } from "../lib/supabase";
 import type { Payment } from "../types";
@@ -15,6 +15,24 @@ type Props = {
   dataOwnerUserId?: string | null;
   payments: Payment[];
 };
+
+const ALL_ACTIVE_ZONE_FILTER = "__all_zones__";
+const EMPTY_ACTIVE_ZONE_FILTER = "__empty_zone__";
+
+type ZoneOption = {
+  value: string;
+  label: string;
+  count: number;
+};
+
+function normalizeZoneName(value: string | undefined): string {
+  return (value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function activeZoneFilterValue(value: string | undefined): string {
+  const normalized = normalizeZoneName(value);
+  return normalized ? normalized.toLocaleLowerCase("es") : EMPTY_ACTIVE_ZONE_FILTER;
+}
 
 function toTimestamp(value: string | undefined): number {
   if (!value) return 0;
@@ -63,9 +81,9 @@ function canvasToJpegBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
-function routeImageFileName(routeLabel: string): string {
+function routeImageFileName(routeLabel: string, zoneLabel?: string): string {
   const date = new Date().toISOString().slice(0, 10);
-  const route = routeLabel
+  const route = `${routeLabel}${zoneLabel ? `-${zoneLabel}` : ""}`
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -80,6 +98,11 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [routeFilter, setRouteFilter] = useState(ALL_ACTIVE_ROUTE_FILTER);
+  const [zoneFilter, setZoneFilter] = useState(ALL_ACTIVE_ZONE_FILTER);
+  const [zoneFilterLabel, setZoneFilterLabel] = useState("");
+  const [zoneDrafts, setZoneDrafts] = useState<Record<string, string>>({});
+  const [zoneSavingByClient, setZoneSavingByClient] = useState<Record<string, boolean>>({});
+  const [zoneError, setZoneError] = useState("");
   const [lastRefreshAt, setLastRefreshAt] = useState("");
   const [sharing, setSharing] = useState(false);
   const [shareMessage, setShareMessage] = useState("");
@@ -135,16 +158,66 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
       .sort(compareActiveRouteFilterValues)
   ), [activeItems]);
 
+  const zoneOptionsByRoute = useMemo(() => {
+    const byRoute = new Map<string, Map<string, ZoneOption>>();
+    activeItems.forEach((item) => {
+      const routeValue = activeRouteFilterValue(item.routeAssignment);
+      const zoneValue = activeZoneFilterValue(item.zone);
+      const routeZones = byRoute.get(routeValue) ?? new Map<string, ZoneOption>();
+      const current = routeZones.get(zoneValue);
+      routeZones.set(zoneValue, {
+        value: zoneValue,
+        label: zoneValue === EMPTY_ACTIVE_ZONE_FILTER ? "Sin zona" : (current?.label ?? normalizeZoneName(item.zone)),
+        count: (current?.count ?? 0) + 1
+      });
+      byRoute.set(routeValue, routeZones);
+    });
+    return new Map(Array.from(byRoute.entries()).map(([routeValue, zones]) => [
+      routeValue,
+      Array.from(zones.values()).sort((left, right) => {
+        if (left.value === EMPTY_ACTIVE_ZONE_FILTER) return -1;
+        if (right.value === EMPTY_ACTIVE_ZONE_FILTER) return 1;
+        return left.label.localeCompare(right.label, "es", { numeric: true, sensitivity: "base" });
+      })
+    ]));
+  }, [activeItems]);
+
+  const selectedRouteItems = useMemo(() => (
+    routeFilter === ALL_ACTIVE_ROUTE_FILTER
+      ? []
+      : activeItems.filter((item) => activeRouteFilterValue(item.routeAssignment) === routeFilter)
+  ), [activeItems, routeFilter]);
+
+  const zoneFilterOptions = useMemo(() => {
+    if (routeFilter === ALL_ACTIVE_ROUTE_FILTER) return [];
+    let options = zoneOptionsByRoute.get(routeFilter) ?? [];
+    options = options.some((option) => option.value === EMPTY_ACTIVE_ZONE_FILTER)
+      ? options
+      : [{ value: EMPTY_ACTIVE_ZONE_FILTER, label: "Sin zona", count: 0 }, ...options];
+    if (zoneFilter !== ALL_ACTIVE_ZONE_FILTER && !options.some((option) => option.value === zoneFilter)) {
+      options = [...options, { value: zoneFilter, label: zoneFilterLabel || zoneFilter, count: 0 }];
+    }
+    return options;
+  }, [routeFilter, zoneFilter, zoneFilterLabel, zoneOptionsByRoute]);
+
   useEffect(() => {
     if (routeFilter !== ALL_ACTIVE_ROUTE_FILTER && !routeFilterOptions.includes(routeFilter)) {
       setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
     }
   }, [routeFilter, routeFilterOptions]);
 
+  useEffect(() => {
+    if (routeFilter === ALL_ACTIVE_ROUTE_FILTER) {
+      setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
+      setZoneFilterLabel("");
+    }
+  }, [routeFilter]);
+
   const visibleItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return activeItems
       .filter((item) => routeFilter === ALL_ACTIVE_ROUTE_FILTER || activeRouteFilterValue(item.routeAssignment) === routeFilter)
+      .filter((item) => zoneFilter === ALL_ACTIVE_ZONE_FILTER || activeZoneFilterValue(item.zone) === zoneFilter)
       .filter((item) => {
         if (!normalizedQuery) return true;
         return [
@@ -153,11 +226,17 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
           item.clientCedula ?? "",
           item.whatsAppPhone ?? "",
           item.routeAssignment ?? "",
+          item.zone ?? "",
           item.comment ?? ""
         ].some((value) => value.toLowerCase().includes(normalizedQuery));
       })
       .sort(compareActiveRouteItems);
-  }, [activeItems, query, routeFilter]);
+  }, [activeItems, query, routeFilter, zoneFilter]);
+
+  const selectedZoneLabel = useMemo(() => {
+    if (zoneFilter === ALL_ACTIVE_ZONE_FILTER) return "";
+    return zoneFilterOptions.find((option) => option.value === zoneFilter)?.label ?? zoneFilterLabel;
+  }, [zoneFilter, zoneFilterLabel, zoneFilterOptions]);
 
   const publishedAt = useMemo(() => {
     const timestamps = items.map((item) => toTimestamp(item.publishedAt)).filter((value) => value > 0);
@@ -178,9 +257,51 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
       .map(([routeValue, routeItems]) => ({
         routeValue,
         routeLabel: activeRouteFilterLabel(routeValue),
+        zoneLabel: selectedZoneLabel,
         items: routeItems
       }));
-  }, [visibleItems]);
+  }, [selectedZoneLabel, visibleItems]);
+
+  async function commitZone(item: ActiveRouteItem): Promise<void> {
+    const draft = zoneDrafts[item.clientId];
+    if (draft === undefined || zoneSavingByClient[item.clientId] || !dataOwnerUserId) return;
+    const normalizedDraft = normalizeZoneName(draft);
+    const routeZones = zoneOptionsByRoute.get(activeRouteFilterValue(item.routeAssignment)) ?? [];
+    const matchingZone = routeZones.find((option) => (
+      option.value !== EMPTY_ACTIVE_ZONE_FILTER && option.value === activeZoneFilterValue(normalizedDraft)
+    ));
+    const nextZone = normalizedDraft ? (matchingZone?.label ?? normalizedDraft) : undefined;
+    const previousZone = item.zone;
+    setZoneDrafts((current) => {
+      const next = { ...current };
+      delete next[item.clientId];
+      return next;
+    });
+    if (activeZoneFilterValue(previousZone) === activeZoneFilterValue(nextZone)) return;
+
+    setZoneError("");
+    setZoneSavingByClient((current) => ({ ...current, [item.clientId]: true }));
+    setItems((current) => current.map((currentItem) => (
+      currentItem.clientId === item.clientId ? { ...currentItem, zone: nextZone } : currentItem
+    )));
+    try {
+      await saveCloudActiveRouteZone({
+        userId: dataOwnerUserId,
+        clientId: item.clientId,
+        routeAssignment: item.routeAssignment,
+        zone: nextZone
+      });
+    } catch (saveError) {
+      console.error("No se pudo guardar la zona de Ruta en calle.", saveError);
+      setItems((current) => current.map((currentItem) => (
+        currentItem.clientId === item.clientId ? { ...currentItem, zone: previousZone } : currentItem
+      )));
+      setZoneError("No se pudo guardar la zona. Se restauro el valor anterior.");
+      void reload();
+    } finally {
+      setZoneSavingByClient((current) => ({ ...current, [item.clientId]: false }));
+    }
+  }
 
   async function shareRouteImage(): Promise<void> {
     if (visibleRouteGroups.length === 0 || sharing) return;
@@ -200,12 +321,12 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
           logging: false
         });
         const blob = await canvasToJpegBlob(canvas);
-        const fileName = routeImageFileName(group.routeLabel);
+        const fileName = routeImageFileName(group.routeLabel, group.zoneLabel);
         generatedImages.push({ blob, file: new File([blob], fileName, { type: "image/jpeg" }) });
       }
       const files = generatedImages.map(({ file }) => file);
       const caption = visibleRouteGroups
-        .map((group) => `Ruta ${group.routeLabel} · ${group.items.length} cliente${group.items.length === 1 ? "" : "s"}`)
+        .map((group) => `Ruta ${group.routeLabel}${group.zoneLabel ? ` · Zona ${group.zoneLabel}` : ""} · ${group.items.length} cliente${group.items.length === 1 ? "" : "s"}`)
         .join("\n");
       const shareData: ShareData = {
         title: "Cobro en Ruta",
@@ -282,33 +403,76 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Unidad, cliente, cedula, telefono..."
+          placeholder="Unidad, cliente, cedula, telefono o zona..."
           autoComplete="off"
         />
       </label>
 
       {lastRefreshAt ? <p className="route-search-refresh">Ultima actualizacion: {lastRefreshAt}</p> : null}
       {error ? <p className="error-text">{error}</p> : null}
+      {zoneError ? <p className="error-text" role="alert">{zoneError}</p> : null}
       {shareMessage ? <p className="route-search-share-message" role="status">{shareMessage}</p> : null}
       {routeFilterOptions.length > 0 ? (
-        <div className="route-search-filters" aria-label="Filtrar por ruta">
-          <button
-            type="button"
-            className={routeFilter === ALL_ACTIVE_ROUTE_FILTER ? "is-active" : ""}
-            onClick={() => setRouteFilter(ALL_ACTIVE_ROUTE_FILTER)}
-          >
-            Todas
-          </button>
-          {routeFilterOptions.map((option) => (
+        <div className="route-search-filter-block">
+          <span className="route-search-filter-label">Ruta</span>
+          <div className="route-search-filters" aria-label="Filtrar por ruta">
             <button
-              key={option}
               type="button"
-              className={routeFilter === option ? "is-active" : ""}
-              onClick={() => setRouteFilter(option)}
+              className={routeFilter === ALL_ACTIVE_ROUTE_FILTER ? "is-active" : ""}
+              onClick={() => {
+                setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
+                setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
+                setZoneFilterLabel("");
+              }}
             >
-              {activeRouteFilterLabel(option)}
+              Todas
             </button>
-          ))}
+            {routeFilterOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={routeFilter === option ? "is-active" : ""}
+                onClick={() => {
+                  setRouteFilter(option);
+                  setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
+                  setZoneFilterLabel("");
+                }}
+              >
+                {activeRouteFilterLabel(option)}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {routeFilter !== ALL_ACTIVE_ROUTE_FILTER ? (
+        <div className="route-search-filter-block route-search-zone-filter-block">
+          <span className="route-search-filter-label">Zona</span>
+          <div className="route-search-filters route-search-zone-filters" aria-label="Filtrar por zona">
+            <button
+              type="button"
+              className={zoneFilter === ALL_ACTIVE_ZONE_FILTER ? "is-active" : ""}
+              onClick={() => {
+                setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
+                setZoneFilterLabel("");
+              }}
+            >
+              Todas ({selectedRouteItems.length})
+            </button>
+            {zoneFilterOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={zoneFilter === option.value ? "is-active" : ""}
+                onClick={() => {
+                  setZoneFilter(option.value);
+                  setZoneFilterLabel(option.label);
+                }}
+              >
+                {option.label} ({option.count})
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
 
@@ -318,8 +482,11 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
         <div className="route-search-empty">No hay clientes activos en Cobro en Ruta.</div>
       ) : (
         <div className="route-search-list">
-          {visibleItems.map((item) => {
+          {visibleItems.map((item, itemIndex) => {
             const managementTone = item.managementType === "cobrar_o_quitar" ? "remove" : "collect";
+            const itemZoneOptions = (zoneOptionsByRoute.get(activeRouteFilterValue(item.routeAssignment)) ?? [])
+              .filter((option) => option.value !== EMPTY_ACTIVE_ZONE_FILTER);
+            const zoneListId = `route-zone-options-${itemIndex}`;
             return (
               <article className={`route-search-card route-search-card--${managementTone} ${item.urgency && item.urgency !== "normal" ? `route-search-card--${item.urgency}` : ""}`} key={item.clientId}>
                 <div className="route-search-card-head">
@@ -329,6 +496,37 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
                   </div>
                   <span className="route-search-route">{item.routeAssignment || "Sin ruta"}</span>
                 </div>
+                <label className="route-search-zone-field">
+                  <span>Zona</span>
+                  <div>
+                    <input
+                      type="text"
+                      value={zoneDrafts[item.clientId] ?? item.zone ?? ""}
+                      onChange={(event) => {
+                        setZoneError("");
+                        setZoneDrafts((current) => ({ ...current, [item.clientId]: event.target.value }));
+                      }}
+                      onBlur={() => void commitZone(item)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      }}
+                      list={zoneListId}
+                      maxLength={40}
+                      placeholder="Sin zona"
+                      autoComplete="off"
+                      disabled={zoneSavingByClient[item.clientId] || !dataOwnerUserId}
+                      aria-label={`Zona de ${item.unitId}`}
+                    />
+                    <span className="route-search-zone-status" aria-live="polite">
+                      {zoneSavingByClient[item.clientId] ? "Guardando..." : ""}
+                    </span>
+                  </div>
+                  <datalist id={zoneListId}>
+                    {itemZoneOptions.map((option) => <option value={option.label} key={option.value} />)}
+                  </datalist>
+                </label>
                 {item.urgency && item.urgency !== "normal" ? (
                   <div className={`route-search-alarm route-search-alarm--${item.urgency}`}>
                     {item.urgency === "very_urgent" ? "Muy urgente" : "Urgente"}
@@ -374,7 +572,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
               <div>
                 <span className="route-share-eyebrow">RENT AUTOS</span>
                 <h2>Cobro en Ruta</h2>
-                <p>Ruta {group.routeLabel}</p>
+                <p>Ruta {group.routeLabel}{group.zoneLabel ? ` · Zona ${group.zoneLabel}` : ""}</p>
               </div>
               <div className="route-share-summary">
                 <strong>{group.items.length}</strong>
@@ -408,6 +606,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
                     </div>
                   </div>
                   <div className="route-share-tags">
+                    {item.zone ? <span>Zona {item.zone}</span> : <span>Sin zona</span>}
                     <span>{item.daysLate > 0 ? `${item.daysLate} dias de atraso` : "Sin atraso"}</span>
                     <span>{item.managementType === "cobrar_o_quitar" ? "Cobrar o quitar" : "Solo cobrar"}</span>
                     {item.urgency && item.urgency !== "normal" ? (
@@ -419,7 +618,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
                 );
               })}
             </div>
-            <footer>Ruta {group.routeLabel} · {group.items.length} cliente{group.items.length === 1 ? "" : "s"}</footer>
+            <footer>Ruta {group.routeLabel}{group.zoneLabel ? ` · Zona ${group.zoneLabel}` : ""} · {group.items.length} cliente{group.items.length === 1 ? "" : "s"}</footer>
           </div>
         ))}
       </div>

@@ -1888,7 +1888,10 @@ export default function ReceivablesPage({
     });
     updatePublishedRouteItem(clientId, (item) => ({
       ...item,
-      routeAssignment
+      routeAssignment,
+      zone: activeRouteFilterValue(item.routeAssignment) === activeRouteFilterValue(routeAssignment)
+        ? item.zone
+        : undefined
     }));
   }
 
@@ -2132,7 +2135,10 @@ export default function ReceivablesPage({
   function handlePublishedRouteAssignmentChange(clientId: string, value: string): void {
     updatePublishedRouteItem(clientId, (item) => ({
       ...item,
-      routeAssignment: normalizeRouteAssignment(value)
+      routeAssignment: normalizeRouteAssignment(value),
+      zone: activeRouteFilterValue(item.routeAssignment) === activeRouteFilterValue(normalizeRouteAssignment(value))
+        ? item.zone
+        : undefined
     }));
   }
 
