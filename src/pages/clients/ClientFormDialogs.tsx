@@ -125,6 +125,9 @@ export function EditClientDialog({
                         <label>Cuotas pactadas
                           <input type="number" step="1" min="0" value={form.installmentsAgreed} onChange={(e) => handleInstallmentChange("installmentsAgreed", e.target.value)} className={errorFields.has("installmentsAgreed") ? "input-error" : undefined} required />
                         </label>
+                        <label>Cuotas emitidas
+                          <input type="number" step="1" min="0" value={form.installmentsIssued} onChange={(e) => setForm((c) => ({ ...c, installmentsIssued: e.target.value }))} className={errorFields.has("installmentsIssued") ? "input-error" : undefined} required />
+                        </label>
                         <label>Cuotas restantes
                           <input type="number" step="1" min="0" value={form.installmentsRemaining} onChange={(e) => handleInstallmentChange("installmentsRemaining", e.target.value)} className={errorFields.has("installmentsRemaining") ? "input-error" : undefined} required />
                         </label>
@@ -288,6 +291,10 @@ export function CreateClientDialog({
                 <label>
                   Cuotas pactadas
                   <input type="number" step="1" min="0" value={form.installmentsAgreed} onChange={(e) => handleInstallmentChange("installmentsAgreed", e.target.value)} className={errorFields.has("installmentsAgreed") ? "input-error" : undefined} required />
+                </label>
+                <label>
+                  Cuotas emitidas
+                  <input type="number" step="1" min="0" value={form.installmentsIssued} onChange={(e) => setForm((c) => ({ ...c, installmentsIssued: e.target.value }))} className={errorFields.has("installmentsIssued") ? "input-error" : undefined} required />
                 </label>
                 <label>
                   Cuotas restantes

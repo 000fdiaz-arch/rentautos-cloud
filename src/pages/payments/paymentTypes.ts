@@ -75,6 +75,8 @@ export type CashCloseClientSnapshot = {
     advanceBalance?: number;
     lastChargeDate?: string;
     firstSundayChargedAt?: string;
+    installmentsIssued?: number;
+    installmentsIssuedEstimateNeedsReview?: boolean;
     otherCharges?: Client["otherCharges"];
   };
   after: {
@@ -82,6 +84,8 @@ export type CashCloseClientSnapshot = {
     advanceBalance?: number;
     lastChargeDate?: string;
     firstSundayChargedAt?: string;
+    installmentsIssued?: number;
+    installmentsIssuedEstimateNeedsReview?: boolean;
     otherCharges?: Client["otherCharges"];
   };
 };

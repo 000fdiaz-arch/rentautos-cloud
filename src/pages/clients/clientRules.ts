@@ -111,6 +111,8 @@ export function buildClient(form: ClientForm, existing?: Client): Client {
     advanceBalance: existing?.advanceBalance ?? 0,
     savings: existing?.savings ?? 0,
     installmentsAgreed: Number(form.installmentsAgreed),
+    installmentsIssued: Number(form.installmentsIssued),
+    installmentsIssuedEstimateNeedsReview: false,
     installmentsRemaining: Number(form.installmentsRemaining),
     installmentsPaid: Number(form.installmentsPaid),
     otherCharges,

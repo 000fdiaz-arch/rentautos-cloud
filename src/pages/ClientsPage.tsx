@@ -348,15 +348,16 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
     }
 
     const agreed = Number(input.installmentsAgreed);
+    const issued = Number(input.installmentsIssued);
     const remaining = Number(input.installmentsRemaining);
     const paid = Number(input.installmentsPaid);
     if (
-      !Number.isFinite(agreed) || !Number.isFinite(remaining) || !Number.isFinite(paid) ||
-      !Number.isInteger(agreed) || !Number.isInteger(remaining) || !Number.isInteger(paid) ||
-      agreed < 0 || remaining < 0 || paid < 0
+      !Number.isFinite(agreed) || !Number.isFinite(issued) || !Number.isFinite(remaining) || !Number.isFinite(paid) ||
+      !Number.isInteger(agreed) || !Number.isInteger(issued) || !Number.isInteger(remaining) || !Number.isInteger(paid) ||
+      agreed < 0 || issued < 0 || remaining < 0 || paid < 0
     ) {
       messages.push("Las cuotas deben ser enteros validos mayores o iguales a 0.");
-      fields.add("installmentsAgreed"); fields.add("installmentsRemaining");
+      fields.add("installmentsAgreed"); fields.add("installmentsIssued"); fields.add("installmentsRemaining");
     } else if (remaining > agreed) {
       messages.push("Las cuotas restantes no pueden ser mayores que las cuotas pactadas.");
       fields.add("installmentsAgreed"); fields.add("installmentsRemaining");
@@ -445,6 +446,7 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
       weeklyChargeDay: client.weeklyChargeDay ?? "monday",
       monthlyChargeDay: String(client.monthlyChargeDay ?? 1),
       installmentsAgreed: String(client.installmentsAgreed),
+      installmentsIssued: String(client.installmentsIssued ?? 0),
       installmentsRemaining: String(client.installmentsRemaining),
       installmentsPaid: String(client.installmentsPaid),
       otherCharges: client.otherCharges.map((c) =>
@@ -625,6 +627,7 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
       case "rentAmount":            return client.rentAmount;
       case "frequency":             return FREQUENCY_LABEL[client.frequency];
       case "installmentsAgreed":    return client.installmentsAgreed;
+      case "installmentsIssued":    return `${client.installmentsIssued ?? 0}${client.installmentsIssuedEstimateNeedsReview ? " (REVISAR)" : ""}`;
       case "installmentsRemaining": return client.installmentsRemaining;
       case "installmentsPaid":      return client.installmentsPaid;
       case "otherCharges":

@@ -17,6 +17,7 @@ import type {
   PendingCardItem,
   PendingBankItem
 } from "../types";
+import { withResolvedInstallmentIssuance } from "../billing";
 import { readIndexedDb, writeIndexedDb } from "./indexedDbStorage";
 
 const CLIENTS_KEY = "cobrapp.module1.clients.v1";
@@ -204,6 +205,10 @@ function normalizeClient(item: unknown): Client | null {
     savings: parseNonNegativeNumber(raw.savings),
     travelFundBalance: parseNonNegativeNumber(raw.travelFundBalance),
     installmentsAgreed: parseNonNegativeInteger(raw.installmentsAgreed),
+    installmentsIssued: Number.isFinite(Number(raw.installmentsIssued))
+      ? parseNonNegativeInteger(raw.installmentsIssued)
+      : undefined,
+    installmentsIssuedEstimateNeedsReview: raw.installmentsIssuedEstimateNeedsReview === true,
     installmentsRemaining: parseNonNegativeInteger(raw.installmentsRemaining),
     installmentsPaid: parseNonNegativeInteger(raw.installmentsPaid),
     otherCharges: normalizeOtherCharges(raw),
@@ -239,7 +244,7 @@ function normalizeClient(item: unknown): Client | null {
       Number.isInteger(parsedDay) && parsedDay >= 1 && parsedDay <= 31 ? parsedDay : 1;
   }
 
-  return normalized;
+  return withResolvedInstallmentIssuance(normalized);
 }
 
 export function loadClients(): Client[] {

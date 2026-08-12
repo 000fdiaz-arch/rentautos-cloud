@@ -9,6 +9,7 @@ export const INITIAL_EXPORT_FIELDS: ExportField[] = [
   { key: "rentAmount",            label: "Renta (USD)",       enabled: true },
   { key: "frequency",             label: "Frecuencia",        enabled: true },
   { key: "installmentsAgreed",    label: "Cuotas pactadas",   enabled: true },
+  { key: "installmentsIssued",    label: "Cuotas emitidas",   enabled: true },
   { key: "installmentsRemaining", label: "Cuotas restantes",  enabled: true },
   { key: "installmentsPaid",      label: "Cuotas pagadas",    enabled: true },
   { key: "otherCharges",          label: "Otros cargos",      enabled: true },
@@ -70,6 +71,7 @@ export const initialForm: ClientForm = {
   weeklyChargeDay: "monday",
   monthlyChargeDay: "1",
   installmentsAgreed: "",
+  installmentsIssued: "0",
   installmentsRemaining: "",
   installmentsPaid: "",
   otherCharges: []

@@ -1,4 +1,5 @@
 import type { Client, ClientStatus } from "../types";
+import { withResolvedInstallmentIssuance } from "../billing";
 import { dedupeLoad, getCloudClient, hasRowChanged, PAGE_SIZE, withCloudRetry, type DataRow } from "./cloudClient";
 
 function normalizeClientStatus(rawStatus: unknown, archivedAt: unknown): ClientStatus {
@@ -30,11 +31,11 @@ export function normalizeCloudClient(client: Client): Client {
           ? client.archivedAt
           : new Date().toISOString())
       : undefined;
-  return {
+  return withResolvedInstallmentIssuance({
     ...client,
     status: normalizedStatus,
     archivedAt: nextArchivedAt
-  };
+  });
 }
 
 export async function loadCloudClients(userId: string): Promise<Client[]> {

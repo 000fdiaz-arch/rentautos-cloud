@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getBusinessDateKey, isBeforeFirstChargeDate, isChargeDay, parseDateKey, toDateKey } from "../../billing";
+import { getBusinessDateKey, isBeforeFirstChargeDate, isChargeDay, parseDateKey, resolveInstallmentIssuance, toDateKey } from "../../billing";
 import {
   loadCloudCashClosingAudit,
   loadCloudCashClosings,
@@ -238,6 +238,8 @@ function financialPayload(client: Client) {
     advanceBalance: roundMoney(client.advanceBalance ?? 0),
     lastChargeDate: client.lastChargeDate,
     firstSundayChargedAt: client.firstSundayChargedAt,
+    installmentsIssued: resolveInstallmentIssuance(client).issued,
+    installmentsIssuedEstimateNeedsReview: resolveInstallmentIssuance(client).needsReview,
     otherCharges: cloneOtherCharges(client)
   };
 }
@@ -381,7 +383,10 @@ function applyNextDayChargesFromClosing(
     );
     const isBeforeFirstCharge = isBeforeFirstChargeDate(client, targetDate);
     const canCharge = Number.isFinite(client.rentAmount) && client.rentAmount > 0;
-    const shouldChargeByRule = canCharge && !isBeforeFirstCharge && isChargeDay(client, targetDate);
+    const issuance = resolveInstallmentIssuance(client);
+    const hasContractInstallmentsToIssue = issuance.issued < Math.max(0, Math.floor(client.installmentsAgreed));
+    const isScheduledChargeDay = canCharge && !isBeforeFirstCharge && isChargeDay(client, targetDate);
+    const shouldChargeByRule = isScheduledChargeDay && hasContractInstallmentsToIssue;
     if (shouldChargeByRule) expectedClients += 1;
     const balanceBefore = roundMoney(client.balance);
     const lastBefore = client.lastChargeDate ?? "-";
@@ -410,7 +415,9 @@ function applyNextDayChargesFromClosing(
         ? "Sin cobro: fecha ya cubierta"
         : isBeforeFirstCharge
           ? "Sin cobro: antes de fecha primer cobro"
-        : shouldChargeByRule
+          : isScheduledChargeDay && !hasContractInstallmentsToIssue
+            ? "Sin cobro: todas las cuotas pactadas fueron emitidas"
+          : shouldChargeByRule
           ? "Sin cobro por estado de fecha"
           : "No corresponde por regla";
       const lastAfter = alreadyChargedThruTarget
@@ -458,6 +465,8 @@ function applyNextDayChargesFromClosing(
       ...client,
       balance: balanceAfter,
       advanceBalance: roundMoney(Math.max(0, currentAdvance - consumedAdvance)),
+      installmentsIssued: issuance.issued + 1,
+      installmentsIssuedEstimateNeedsReview: issuance.needsReview,
       firstSundayChargedAt: isFirstSundayCharge ? targetDateKey : client.firstSundayChargedAt,
       lastChargeDate: targetDateKey
     };
@@ -734,6 +743,8 @@ async function handleConfirmReopen(): Promise<void> {
           advanceBalance: snapshot.before.advanceBalance ?? 0,
           lastChargeDate: snapshot.before.lastChargeDate,
           firstSundayChargedAt: snapshot.before.firstSundayChargedAt,
+          installmentsIssued: snapshot.before.installmentsIssued,
+          installmentsIssuedEstimateNeedsReview: snapshot.before.installmentsIssuedEstimateNeedsReview,
           otherCharges: snapshot.before.otherCharges ? snapshot.before.otherCharges.map((charge) => ({ ...charge })) : []
         };
       });

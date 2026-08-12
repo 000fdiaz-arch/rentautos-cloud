@@ -67,6 +67,10 @@ export type Client = {
   weeklyChargeDay?: WeeklyChargeDay;
   monthlyChargeDay?: number;
   installmentsAgreed: number;
+  /** Contract installments already generated as rent charges. */
+  installmentsIssued?: number;
+  /** True when installmentsIssued was inferred from incomplete legacy data. */
+  installmentsIssuedEstimateNeedsReview?: boolean;
   installmentsRemaining: number;
   installmentsPaid: number;
   otherCharges: OtherCharge[];

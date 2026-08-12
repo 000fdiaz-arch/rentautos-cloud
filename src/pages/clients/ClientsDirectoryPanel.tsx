@@ -350,7 +350,7 @@ export function ClientsDirectoryPanel({
                                   onKeyDown={blurOnEnter}
                                 />
                               </label>
-                              <small>Restan: {client.installmentsRemaining}</small>
+                              <small>Emitidas: {client.installmentsIssued ?? 0}{client.installmentsIssuedEstimateNeedsReview ? " (revisar)" : ""} · Restan: {client.installmentsRemaining}</small>
                             </div>
                           ) : "-"}
                         </td>

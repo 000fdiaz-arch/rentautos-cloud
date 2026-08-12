@@ -102,12 +102,84 @@ export function isBeforeFirstChargeDate(client: Client, date: Date): boolean {
   return firstChargeDate !== null && startOfDay(date) < startOfDay(firstChargeDate);
 }
 
+export type InstallmentIssuance = {
+  issued: number;
+  needsReview: boolean;
+};
+
+function countScheduledChargesAfterFirst(client: Client, firstChargeDate: Date, throughDate: Date): number {
+  let count = 1;
+  for (let cursor = addDays(firstChargeDate, 1), guard = 0; cursor <= throughDate && guard < 36600; cursor = addDays(cursor, 1), guard += 1) {
+    if (isChargeDay(client, cursor)) count += 1;
+  }
+  return count;
+}
+
+/**
+ * Resolves the immutable issuance counter used to cap contractual rent charges.
+ * Legacy records are estimated without changing their balance or payment fields.
+ */
+export function resolveInstallmentIssuance(client: Client): InstallmentIssuance {
+  const agreed = Math.max(0, Math.floor(client.installmentsAgreed ?? 0));
+  if (Number.isFinite(client.installmentsIssued)) {
+    return {
+      issued: Math.max(0, Math.floor(client.installmentsIssued ?? 0)),
+      needsReview: client.installmentsIssuedEstimateNeedsReview === true
+    };
+  }
+
+  const firstChargeDate = client.firstChargeDate ? parseDateKey(client.firstChargeDate) : null;
+  const lastChargeDate = client.lastChargeDate ? parseDateKey(client.lastChargeDate) : null;
+  if (firstChargeDate && lastChargeDate) {
+    const issued = lastChargeDate < firstChargeDate
+      ? 0
+      : countScheduledChargesAfterFirst(client, firstChargeDate, lastChargeDate);
+    return { issued: Math.min(agreed, issued), needsReview: false };
+  }
+
+  const paid = Math.max(0, Math.floor(client.installmentsPaid ?? 0));
+  const debtCycles = client.rentAmount > 0
+    ? Math.ceil(Math.max(0, client.balance) / client.rentAmount)
+    : 0;
+  const futureCyclesCoveredByAdvance = client.rentAmount > 0
+    ? Math.floor(Math.max(0, client.advanceBalance ?? 0) / client.rentAmount)
+    : 0;
+  return {
+    issued: Math.min(agreed, Math.max(0, paid - futureCyclesCoveredByAdvance) + debtCycles),
+    needsReview: true
+  };
+}
+
+export function withResolvedInstallmentIssuance(client: Client): Client {
+  const issuance = resolveInstallmentIssuance(client);
+  if (
+    client.installmentsIssued === issuance.issued &&
+    client.installmentsIssuedEstimateNeedsReview === issuance.needsReview
+  ) return client;
+  return {
+    ...client,
+    installmentsIssued: issuance.issued,
+    installmentsIssuedEstimateNeedsReview: issuance.needsReview
+  };
+}
+
 export function applyAutomaticCharges(currentClients: Client[], now: Date): { clients: Client[]; changed: boolean } {
   const today = startOfDay(now);
   const todayKey = toDateKey(today);
   let changed = false;
 
   const next = currentClients.map((client) => {
+    const issuance = resolveInstallmentIssuance(client);
+    const issuanceWasNormalized =
+      client.installmentsIssued !== issuance.issued ||
+      client.installmentsIssuedEstimateNeedsReview !== issuance.needsReview;
+    const clientWithIssuance: Client = {
+      ...client,
+      installmentsIssued: issuance.issued,
+      installmentsIssuedEstimateNeedsReview: issuance.needsReview
+    };
+    client = clientWithIssuance;
+    if (issuanceWasNormalized) changed = true;
     if (
       client.archivedAt ||
       client.status === "archivado" ||
@@ -163,6 +235,8 @@ export function applyAutomaticCharges(currentClients: Client[], now: Date): { cl
     }
 
     changed = true;
+    const remainingIssuable = Math.max(0, Math.floor(client.installmentsAgreed) - issuance.issued);
+    pendingCharges = Math.min(pendingCharges, remainingIssuable);
     if (pendingCharges === 0) return { ...client, lastChargeDate: todayKey };
 
     const chargeTotal = roundMoney(client.rentAmount * pendingCharges);
@@ -174,6 +248,7 @@ export function applyAutomaticCharges(currentClients: Client[], now: Date): { cl
       ...client,
       balance: roundMoney(client.balance + remainingCharge),
       advanceBalance: roundMoney(Math.max(0, currentAdvance - consumedAdvance)),
+      installmentsIssued: issuance.issued + pendingCharges,
       firstSundayChargedAt,
       lastChargeDate: todayKey
     };
@@ -183,9 +258,13 @@ export function applyAutomaticCharges(currentClients: Client[], now: Date): { cl
 }
 
 export function findNextChargeDay(client: Client, fromDate: Date): Date | null {
+  const issuance = resolveInstallmentIssuance(client);
+  const agreed = Math.max(0, Math.floor(client.installmentsAgreed));
+  if (issuance.issued >= agreed) return null;
   const coveredCharges = Number.isFinite(client.advanceBalance) && client.rentAmount > 0
     ? Math.floor((client.advanceBalance ?? 0) / client.rentAmount)
     : 0;
+  if (issuance.issued + coveredCharges >= agreed) return null;
   let remainingSkips = Math.max(0, coveredCharges);
   const firstChargeDate = client.firstChargeDate ? parseDateKey(client.firstChargeDate) : null;
   const searchStart = firstChargeDate && firstChargeDate > startOfDay(fromDate)

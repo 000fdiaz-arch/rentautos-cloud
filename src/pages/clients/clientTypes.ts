@@ -2,7 +2,7 @@ import type { BillingFrequency, Client, WeeklyChargeDay } from "../../types";
 
 export type ExportFieldKey =
   | "unitId" | "cedula" | "name" | "rentAmount" | "frequency"
-  | "installmentsAgreed" | "installmentsRemaining" | "installmentsPaid"
+  | "installmentsAgreed" | "installmentsIssued" | "installmentsRemaining" | "installmentsPaid"
   | "otherCharges" | "balance" | "siniestrosSavings" | "debtSince";
 
 export type ExportField = { key: ExportFieldKey; label: string; enabled: boolean };
@@ -24,6 +24,7 @@ export type ClientForm = {
   weeklyChargeDay: WeeklyChargeDay;
   monthlyChargeDay: string;
   installmentsAgreed: string;
+  installmentsIssued: string;
   installmentsRemaining: string;
   installmentsPaid: string;
   otherCharges: OtherChargeForm[];

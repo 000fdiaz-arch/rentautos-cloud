@@ -162,6 +162,7 @@ export function ClientInfoDialog({
               <div><span className="hint">Fecha primer cobro</span><p>{selected.firstChargeDate ?? "-"}</p></div>
               <div><span className="hint">Ultimo cobro</span><p>{selected.lastChargeDate ?? "-"}</p></div>
               <div><span className="hint">Cuotas pactadas</span><p>{selected.installmentsAgreed}</p></div>
+              <div><span className="hint">Cuotas emitidas</span><p>{selected.installmentsIssued ?? 0}{selected.installmentsIssuedEstimateNeedsReview ? " (estimación por revisar)" : ""}</p></div>
               <div><span className="hint">Cuotas restantes</span><p>{selected.installmentsRemaining}</p></div>
               <div><span className="hint">Cuotas pagadas</span><p>{selected.installmentsPaid}</p></div>
               <div><span className="hint">Monto a cobrar</span><p>{formatCurrency(selected.balance)}</p></div>
