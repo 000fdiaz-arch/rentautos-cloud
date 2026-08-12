@@ -21,6 +21,8 @@ const rules = read("src/pages/receivables/receivablesPageRules.ts");
 const page = read("src/pages/ReceivablesPage.tsx");
 const row = read("src/pages/receivables/ReceivableTableRow.tsx");
 const ledger = read("src/pages/receivables/ReceivablesLedgerTable.tsx");
+const cloud = read("src/cloud/operationsCloudData.ts");
+const routeSearch = read("src/pages/RouteSearchPage.tsx");
 
 const dailyOptions = section(rules, "export const DAILY_COLLECTION_STATUS_OPTIONS", "export const ROUTE_COLLECTION_STATUS_OPTIONS");
 assert(!dailyOptions.includes('option.value === "route"'), "Cobro en ruta no debe seguir siendo un estado diario.");
@@ -66,5 +68,12 @@ assert(page.includes('workflowTab === "route" ? ('), "La pestaña de ruta debe a
 assert(row.includes('isRoutePreparationComplete ? "Ver detalles" : "Completar ruta"'), "El acceso al modal debe indicar si falta completar la ruta.");
 assert(row.includes("onRouteAssignmentChange") && row.includes("onRouteUrgencyChange"), "Gestion debe permitir definir ruta y urgencia.");
 assert(row.includes("onRouteManagementTypeChange") && row.includes("onRouteManagementCommentChange"), "Gestion debe permitir definir tipo y comentario de ruta.");
+
+const releaseAmountChange = section(page, "function handleRouteReleaseAmountChange", "function handleCollectionCutCommentChange");
+assert(releaseAmountChange.includes("const nextAmount = parsedAmount ?? undefined;"), "Borrar Libera con no debe recuperar el monto publicado anterior.");
+assert(releaseAmountChange.includes("releaseAmount: nextAmount ?? 0"), "Ruta en calle debe conservar la cuenta con el monto marcado como pendiente.");
+assert(cloud.includes("releaseAmount < 0"), "La nube debe aceptar cero como marcador temporal de monto pendiente.");
+assert(routeSearch.includes("item.releaseAmount <= 0"), "Un monto pendiente no debe liberar automaticamente la cuenta por un pago.");
+assert(routeSearch.includes('"Monto pendiente"'), "Ruta en calle debe mostrar que el monto sigue pendiente.");
 
 console.log("OK receivables route tag: cuatro estados, Pendiente bloqueado y migracion compatible.");

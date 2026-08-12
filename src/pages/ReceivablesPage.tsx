@@ -245,7 +245,7 @@ function dateFromDateKey(dateKey: string, fallback: Date): Date {
 }
 
 function paymentReleasesRoute(payment: Payment, clientId: string, releaseAmount: number, routeStartedAt: number, routeDateKey: string): boolean {
-  if (payment.clientId !== clientId || payment.amountReceived < releaseAmount) return false;
+  if (releaseAmount <= 0 || payment.clientId !== clientId || payment.amountReceived < releaseAmount) return false;
   const createdTimestamp = toTimestamp(payment.createdAt);
   if (createdTimestamp > 0) return createdTimestamp >= routeStartedAt;
   return !!routeDateKey && payment.dateApplied >= routeDateKey;
@@ -1950,11 +1950,11 @@ export default function ReceivablesPage({
       comment: previous?.comment ?? "",
       updatedAt: nowIso,
       managementType: item.managementType ?? previous?.managementType ?? "solo_cobrar",
-      managementAmount: item.releaseAmount,
+      managementAmount: item.releaseAmount > 0 ? item.releaseAmount : undefined,
       managementComment: normalizeFieldManagementComment(item.comment ?? previous?.managementComment ?? ""),
       managementUpdatedAt: nowIso,
-      routeReleaseAmount: item.releaseAmount,
-      routeReleaseUpdatedAt: nowIso,
+      routeReleaseAmount: item.releaseAmount > 0 ? item.releaseAmount : undefined,
+      routeReleaseUpdatedAt: item.releaseAmount > 0 ? nowIso : undefined,
       routeAssignment,
       routeAssignmentUpdatedAt: routeAssignment ? nowIso : undefined,
       routeUrgency,
@@ -2095,6 +2095,7 @@ export default function ReceivablesPage({
         delete next[clientId];
         return next;
       });
+      updatePublishedRouteItem(clientId, (item) => ({ ...item, releaseAmount: 0 }));
       return;
     }
     setPublishedRouteAmountDraftByClient((current) => {
@@ -2219,7 +2220,7 @@ export default function ReceivablesPage({
     if (isCollectionLocked) return;
     const parsedAmount = parsePositiveMoneyInput(value);
     const activePublishedItem = activeRouteItemsRef.current.find((item) => item.clientId === clientId && !item.removedAt);
-    const nextAmount = parsedAmount ?? activePublishedItem?.releaseAmount;
+    const nextAmount = parsedAmount ?? undefined;
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
@@ -2253,10 +2254,10 @@ export default function ReceivablesPage({
         [clientId]: updatedRecord
       };
     });
-    if (nextAmount && activePublishedItem) {
+    if (activePublishedItem) {
       updatePublishedRouteItem(clientId, (item) => ({
         ...item,
-        releaseAmount: nextAmount
+        releaseAmount: nextAmount ?? 0
       }));
     }
   }
@@ -3133,7 +3134,7 @@ export default function ReceivablesPage({
                                 min="0"
                                 step="0.01"
                                 inputMode="decimal"
-                                value={publishedRouteAmountDraftByClient[item.clientId] ?? String(item.releaseAmount)}
+                                value={publishedRouteAmountDraftByClient[item.clientId] ?? (item.releaseAmount > 0 ? String(item.releaseAmount) : "")}
                                 onChange={(event) => handlePublishedRouteReleaseAmountChange(item.clientId, event.target.value)}
                                 onBlur={() => commitPublishedRouteReleaseAmount(item.clientId)}
                                 onKeyDown={(event) => {
@@ -3241,7 +3242,7 @@ export default function ReceivablesPage({
                           </div>
                           <div className="ar-route-mobile-amount">
                             <small>Min. liberar</small>
-                            <strong>{formatCurrency(item.releaseAmount)}</strong>
+                            <strong>{item.releaseAmount > 0 ? formatCurrency(item.releaseAmount) : "Monto pendiente"}</strong>
                           </div>
                         </div>
                         {routeUrgency !== "normal" ? (
@@ -3278,7 +3279,7 @@ export default function ReceivablesPage({
                               min="0"
                               step="0.01"
                               inputMode="decimal"
-                              value={publishedRouteAmountDraftByClient[item.clientId] ?? String(item.releaseAmount)}
+                              value={publishedRouteAmountDraftByClient[item.clientId] ?? (item.releaseAmount > 0 ? String(item.releaseAmount) : "")}
                               onChange={(event) => handlePublishedRouteReleaseAmountChange(item.clientId, event.target.value)}
                               onBlur={() => commitPublishedRouteReleaseAmount(item.clientId)}
                               onKeyDown={(event) => {

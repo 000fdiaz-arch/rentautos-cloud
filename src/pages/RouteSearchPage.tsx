@@ -33,7 +33,7 @@ function dateKeyFromTimestampValue(value: string | undefined): string {
 }
 
 function paymentReleasesRoute(payment: Payment, item: ActiveRouteItem): boolean {
-  if (payment.clientId !== item.clientId || payment.amountReceived < item.releaseAmount) return false;
+  if (item.releaseAmount <= 0 || payment.clientId !== item.clientId || payment.amountReceived < item.releaseAmount) return false;
   const routeStartedAt = toTimestamp(item.routeStartedAt);
   const createdTimestamp = toTimestamp(payment.createdAt);
   if (createdTimestamp > 0 && routeStartedAt > 0) return createdTimestamp >= routeStartedAt;
@@ -337,7 +337,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
                 <div className="route-search-amounts">
                   <div className="route-search-release-amount">
                     <small>Min. liberar</small>
-                    <strong>{formatCurrency(item.releaseAmount)}</strong>
+                    <strong>{item.releaseAmount > 0 ? formatCurrency(item.releaseAmount) : "Monto pendiente"}</strong>
                   </div>
                   <div className="route-search-overdue-amount">
                     <small>Vencido</small>
@@ -400,7 +400,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
                   <div className="route-share-card-amounts">
                     <div>
                       <small>Min. liberar</small>
-                      <strong>{formatCurrency(item.releaseAmount)}</strong>
+                      <strong>{item.releaseAmount > 0 ? formatCurrency(item.releaseAmount) : "Monto pendiente"}</strong>
                     </div>
                     <div>
                       <small>Vencido</small>

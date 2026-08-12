@@ -1562,7 +1562,7 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
   const daysLate = typeof row.daysLate === "number" ? row.daysLate : Number(row.daysLate);
   const publishedAt = typeof row.publishedAt === "string" ? row.publishedAt : "";
   const routeStartedAt = typeof row.routeStartedAt === "string" ? row.routeStartedAt : publishedAt;
-  if (!clientId || !unitId || !clientName || !Number.isFinite(releaseAmount) || releaseAmount <= 0 || !publishedAt) return null;
+  if (!clientId || !unitId || !clientName || !Number.isFinite(releaseAmount) || releaseAmount < 0 || !publishedAt) return null;
   return {
     clientId,
     unitId,
