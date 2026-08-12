@@ -352,7 +352,6 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
                     {item.managementType === "cobrar_o_quitar" ? "Cobrar o quitar" : "Solo cobrar"}
                   </span>
                   <span className="route-search-added-at">En calle {formatPublishedAt(item.publishedAt)}</span>
-                  {item.whatsAppPhone ? <a className="route-search-phone" href={`tel:${item.whatsAppPhone}`}>{item.whatsAppPhone}</a> : null}
                 </div>
                 {item.comment ? <p className="route-search-comment">{item.comment}</p> : null}
               </article>
@@ -414,7 +413,6 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
                     {item.urgency && item.urgency !== "normal" ? (
                       <span>{item.urgency === "very_urgent" ? "Muy urgente" : "Urgente"}</span>
                     ) : null}
-                    {item.whatsAppPhone ? <span>Tel. {item.whatsAppPhone}</span> : null}
                   </div>
                   {item.comment ? <p>{item.comment}</p> : null}
                   </article>
