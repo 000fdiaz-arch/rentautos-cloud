@@ -560,7 +560,17 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
         {filteredIncidents.map((incident) => {
           const expanded = expandedId === incident.id;
           const claimState = !incident.claim ? "none" : incident.claim.status === "Activo" ? "active" : incident.claim.status === "Inactivo" ? "inactive" : "finished";
-          const claimStateLabel = claimState === "active" ? "Reclamo activo" : claimState === "inactive" ? "Reclamo inactivo" : claimState === "finished" ? "Reclamo finalizado" : "Sin reclamo";
+          const claimStateLabel = claimState === "active"
+            ? "Reclamo activo"
+            : claimState === "inactive"
+              ? "Reclamo inactivo"
+              : claimState === "finished"
+                ? "Reclamo finalizado"
+                : incident.collision?.status === "ABSUELTO"
+                  ? "Reclamo pendiente"
+                  : incident.collision
+                    ? "Vía judicial"
+                    : "Reclamo pendiente";
           const incidentAlerts = alertsByIncident.get(incident.id) ?? [];
           const topAlert = incidentAlerts[0];
           const ageLabel = incidentAgeLabel(incident.incidentDate);
