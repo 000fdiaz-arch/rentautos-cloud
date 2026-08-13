@@ -540,21 +540,15 @@ export async function reserveCloudReceiptNumbers(userId: string, count: number):
   if (!Array.isArray(data)) {
     throw new Error("Supabase no devolvio numeros de recibo.");
   }
-  let receipts = data
+  const receipts = data
     .map((value) => String(value ?? "").trim().toUpperCase())
     .filter((value) => value.length > 0);
   if (receipts.length !== safeCount) {
     throw new Error("Supabase devolvio una cantidad incorrecta de recibos.");
   }
-  const maxExistingSeq = await loadCloudMaxReceiptSequence(userId);
-  let nextSafeSeq = maxExistingSeq + 1;
-  receipts = receipts.map((receipt) => {
-    const reservedSeq = parseReceiptSequence(receipt);
-    if (reservedSeq === null) return receipt;
-    const safeSeq = Math.max(reservedSeq, nextSafeSeq);
-    nextSafeSeq = safeSeq + 1;
-    return formatReceiptSequence(safeSeq);
-  });
+  // La RPC reserva bajo advisory lock y ya contrasta contra payments_cloud.
+  // Volver a recorrer todo el historial desde el navegador es redundante y,
+  // para operadores con permisos limitados, puede dejar el formulario esperando.
   return receipts;
 }
 
