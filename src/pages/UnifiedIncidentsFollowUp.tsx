@@ -215,9 +215,14 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
     }
 
     if (collision?.status === "ABSUELTO" && !collision.judicialResolutionEvidence) {
+      const resolutionIdleDays = calendarDaysSince(dateKeyFromTimestamp(collision.updatedAt));
+      const resolutionOverdue = resolutionIdleDays !== null && resolutionIdleDays >= 3;
       addAlert(incident, {
-        id: `${incident.id}:resolution-missing`, kind: "judicial", severity: "urgent", priority: 3,
-        title: "Resolución judicial pendiente", message: "El juicio quedó absuelto, pero falta buscar y adjuntar la resolución para habilitar el reclamo.",
+        id: `${incident.id}:resolution-missing`, kind: "judicial", severity: resolutionOverdue ? "urgent" : "attention", priority: resolutionOverdue ? 3 : 18,
+        title: resolutionOverdue ? "Resolución judicial urgente" : "Resolución judicial pendiente",
+        message: resolutionOverdue
+          ? `El expediente lleva ${resolutionIdleDays} días sin movimiento. Falta adjuntar la resolución para habilitar el reclamo.`
+          : "El juicio quedó absuelto, pero falta buscar y adjuntar la resolución para habilitar el reclamo.",
         actionLabel: "Adjuntar resolución", destination: "judicial", targetId: collision.id
       });
     }
@@ -479,6 +484,11 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     : "";
   const nextTrialFilterLabel = nextTrial ? `Próximo: ${nextTrialRelativeLabel}` : "";
   const nextTrialQueueLabel = nextTrial ? `Próximo: ${shortCalendarDate(nextTrial.date)} · ${nextTrialRelativeLabel}` : "";
+  const overdueResolutionDays = useMemo(() => incidents
+    .filter((incident) => incident.collision?.status === "ABSUELTO" && !incident.collision.judicialResolutionEvidence)
+    .map((incident) => calendarDaysSince(dateKeyFromTimestamp(incident.collision!.updatedAt)))
+    .filter((days): days is number => days !== null && days >= 3)
+    .sort((left, right) => right - left)[0] ?? null, [incidents]);
   const filteredIncidents = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("es");
     return incidents.filter((incident) => {
@@ -533,7 +543,18 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
       {!loading && !loadError && <section className="incident-action-queue" aria-labelledby="incident-action-queue-title">
         <div className="incident-action-queue-head"><div><span className="workflow-eyebrow">Gestión prioritaria</span><h3 id="incident-action-queue-title">Acciones pendientes</h3></div><strong>{incidents.filter((incident) => !incident.finalized).length} pendientes</strong></div>
         <div className="incident-action-queue-list">
-          {ACTION_QUEUE_FILTERS.filter((key) => nextActionCounts[key] > 0).map((key) => <button type="button" key={key} className={nextActionFilter === key ? "active" : ""} onClick={() => setNextActionFilter(nextActionFilter === key ? "all" : key)}><strong>{nextActionCounts[key]}</strong><span>{NEXT_ACTION_LABELS[key]}</span>{key === "judicial_management" && nextTrialQueueLabel && <em className="incident-action-queue-trial">{nextTrialQueueLabel}</em>}<small>Ver casos →</small></button>)}
+          {ACTION_QUEUE_FILTERS.filter((key) => nextActionCounts[key] > 0).map((key) => {
+            const closeTrialAlert = key === "judicial_management" && nextTrial !== null && nextTrial.offset <= 3;
+            const overdueResolutionAlert = key === "judicial_resolution" && overdueResolutionDays !== null;
+            return <button type="button" key={key} className={`${nextActionFilter === key ? "active" : ""}${closeTrialAlert ? " trial-alert" : ""}${overdueResolutionAlert ? " resolution-alert" : ""}`} onClick={() => setNextActionFilter(nextActionFilter === key ? "all" : key)}>
+              <strong>{nextActionCounts[key]}</strong><span>{NEXT_ACTION_LABELS[key]}</span>
+              {closeTrialAlert && <span className="incident-action-queue-alert-badge">⚠ Alerta</span>}
+              {overdueResolutionAlert && <span className="incident-action-queue-alert-badge">! Urgente</span>}
+              {key === "judicial_management" && nextTrialQueueLabel && <em className="incident-action-queue-trial">{nextTrialQueueLabel}</em>}
+              {overdueResolutionAlert && <em className="incident-action-queue-resolution-delay">{overdueResolutionDays} días sin movimiento</em>}
+              <small>Ver casos →</small>
+            </button>;
+          })}
           {!ACTION_QUEUE_FILTERS.some((key) => nextActionCounts[key] > 0) && <p>Todo al día. No hay acciones pendientes.</p>}
         </div>
       </section>}
