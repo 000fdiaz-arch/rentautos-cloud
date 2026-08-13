@@ -68,7 +68,6 @@ const LeadsPage = lazy(() => import("./pages/LeadsPage"));
 const PaymentsPage = lazy(() => import("./pages/PaymentsPage"));
 const ReceivablesPage = lazy(() => import("./pages/ReceivablesPage"));
 const RouteSearchPage = lazy(() => import("./pages/RouteSearchPage"));
-const IncidentsWorkflowPage = lazy(() => import("./pages/IncidentsWorkflowPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const ControlUnitsPage = lazy(() => import("./pages/ControlUnitsPage"));
 
@@ -136,8 +135,6 @@ function getFirstVisiblePage(visibility: {
   canViewPayments: boolean;
   canViewReceivables: boolean;
   canViewRouteSearch: boolean;
-  canViewInsuranceWorkflow: boolean;
-  canViewCollisions: boolean;
   canViewControlUnits: boolean;
   canViewSettingsPage: boolean;
 }): AppPage {
@@ -145,7 +142,6 @@ function getFirstVisiblePage(visibility: {
   if (visibility.canViewPayments) return "payments";
   if (visibility.canViewReceivables) return "receivables";
   if (visibility.canViewRouteSearch) return "route_search";
-  if (visibility.canViewInsuranceWorkflow || visibility.canViewCollisions) return "incidents";
   if (visibility.canViewLeads) return "leads";
   if (visibility.canViewControlUnits) return "control_units";
   if (visibility.canViewSettingsPage) return "settings";
@@ -175,7 +171,6 @@ export default function AppShell({
   const canViewRouteSearch = canViewScreen(permissions, "route_search");
   const canEditRouteSearch = canEditScreen(permissions, "route_search");
   const canViewInsuranceWorkflow = canViewScreen(permissions, "insurance_workflow");
-  const canEditInsuranceWorkflow = canEditScreen(permissions, "insurance_workflow");
   const canViewCollisions = canViewScreen(permissions, "collisions");
   const canEditCollisions = canEditScreen(permissions, "collisions");
   const canViewControlUnits = canViewScreen(permissions, "control_units");
@@ -192,7 +187,6 @@ export default function AppShell({
     payments: canViewPayments,
     receivables: canViewReceivables,
     route_search: canViewRouteSearch,
-    incidents: canViewInsuranceWorkflow || canViewCollisions,
     control_units: canViewControlUnits,
     settings: canViewSettingsPage
   } satisfies Record<AppPage, boolean>;
@@ -218,8 +212,6 @@ export default function AppShell({
       canViewPayments,
       canViewReceivables,
       canViewRouteSearch,
-      canViewInsuranceWorkflow,
-      canViewCollisions,
       canViewControlUnits,
       canViewSettingsPage
     });
@@ -242,7 +234,6 @@ export default function AppShell({
     token: number;
   } | null>(null);
   const [signOutSyncError, setSignOutSyncError] = useState("");
-  const [incidentAlertCount, setIncidentAlertCount] = useState(0);
 
   const {
     cloudReady,
@@ -291,7 +282,7 @@ export default function AppShell({
     const nextPath = appPagePath(nextPage);
     if (window.location.pathname === nextPath) return;
     window.history[replace ? "replaceState" : "pushState"]({ page: nextPage }, "", nextPath);
-  }, [canViewClients, canViewCollisions, canViewControlUnits, canViewInsuranceWorkflow, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
+  }, [canViewClients, canViewControlUnits, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
 
   useEffect(() => {
     if (!pageVisibility[page]) {
@@ -301,8 +292,6 @@ export default function AppShell({
         canViewPayments,
         canViewReceivables,
         canViewRouteSearch,
-        canViewInsuranceWorkflow,
-        canViewCollisions,
         canViewControlUnits,
         canViewSettingsPage
       }), true);
@@ -311,7 +300,7 @@ export default function AppShell({
     if (!isCanonicalAppPagePath(window.location.pathname, page)) {
       window.history.replaceState({ page }, "", appPagePath(page));
     }
-  }, [canViewClients, canViewCollisions, canViewControlUnits, canViewInsuranceWorkflow, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage, navigateToPage, page]);
+  }, [canViewClients, canViewControlUnits, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage, navigateToPage, page]);
 
   useEffect(() => {
     function handleHistoryNavigation(): void {
@@ -329,8 +318,6 @@ export default function AppShell({
         canViewPayments,
         canViewReceivables,
         canViewRouteSearch,
-        canViewInsuranceWorkflow,
-        canViewCollisions,
         canViewControlUnits,
         canViewSettingsPage
       });
@@ -340,7 +327,7 @@ export default function AppShell({
 
     window.addEventListener("popstate", handleHistoryNavigation);
     return () => window.removeEventListener("popstate", handleHistoryNavigation);
-  }, [canViewClients, canViewCollisions, canViewControlUnits, canViewInsuranceWorkflow, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
+  }, [canViewClients, canViewControlUnits, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -953,11 +940,8 @@ export default function AppShell({
         canViewPayments={canViewPayments}
         canViewReceivables={canViewReceivables}
         canViewRouteSearch={canViewRouteSearch}
-        canViewInsuranceWorkflow={canViewInsuranceWorkflow}
-        canViewCollisions={canViewCollisions}
         canViewControlUnits={canViewControlUnits}
         canViewSettings={canViewSettingsPage}
-        incidentAlertCount={incidentAlertCount}
         showCoreSyncStatus={shouldSyncCoreData}
         syncStatus={syncStatus}
         syncErrorMessage={syncErrorMessage}
@@ -1050,18 +1034,6 @@ export default function AppShell({
             payments={payments}
             readOnly={!canEditRouteSearch}
             onRegisterPayment={registerRoutePayment}
-          />
-        )}
-        {page === "incidents" && (canViewInsuranceWorkflow || canViewCollisions) && (
-          <IncidentsWorkflowPage
-            clients={clients}
-            dataOwnerUserId={cloudDataUserId}
-            canViewCollisions={canViewCollisions}
-            canEditCollisions={canEditCollisions}
-            canViewInsuranceWorkflow={canViewInsuranceWorkflow}
-            canEditInsuranceWorkflow={canEditInsuranceWorkflow}
-            onClientsChange={persistClients}
-            onAlertCountChange={setIncidentAlertCount}
           />
         )}
         {page === "control_units" && canViewControlUnits && (
