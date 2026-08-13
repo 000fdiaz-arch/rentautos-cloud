@@ -139,10 +139,11 @@ async function run() {
     await registerPanel.locator("input.payment-input--amount").first().fill(paymentAmount);
     await expectTextOnPage(page, "Vista previa del pago");
     await registerPanel.getByRole("button", { name: "Confirmar pago y generar recibo" }).click();
-    const backToRegister = page.getByRole("button", { name: /Registrar otro pago/i }).first();
-    await backToRegister.waitFor({ state: "visible", timeout: 15000 });
-    await backToRegister.click({ force: true });
-    await page.locator(".payment-quick-actions-panel").first().waitFor({ state: "visible", timeout: 15000 });
+    const historySection = page.locator("section.panel").filter({
+      has: page.getByRole("heading", { name: /Historial( de)? pagos/i })
+    }).first();
+    await historySection.waitFor({ state: "visible", timeout: 15000 });
+    assert.equal(await page.getByRole("button", { name: /Registrar otro pago/i }).count(), 0, "El pago individual no debe abrir el formato anterior del recibo.");
   });
   await shot(page, "04-payment-registered");
 
@@ -156,8 +157,7 @@ async function run() {
       .filter({ has: page.getByRole("heading", { name: /Historial( de)? pagos/i }) })
       .first();
 
-    await historySection.getByRole("button", { name: /Descargar seleccionados/i }).first().waitFor({ state: "visible", timeout: 15000 });
-    await historySection.getByRole("button", { name: /Descargar filtrados/i }).first().waitFor({ state: "visible", timeout: 15000 });
+    assert.equal(await historySection.getByRole("button", { name: /Descargar/i }).count(), 0, "Pagos no debe mostrar opciones de descarga.");
     await historySection.locator("table thead th", { hasText: "Recibo" }).first().waitFor({ state: "visible", timeout: 15000 });
     await historySection.locator("table thead th", { hasText: "Fecha" }).first().waitFor({ state: "visible", timeout: 15000 });
 

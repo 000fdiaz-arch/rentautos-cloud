@@ -254,14 +254,14 @@ async function run() {
   }
 
   // ---------------------------------------------------
-  // PRUEBA 6: Verificar boton "Descargar imagen" existe (fix html2canvas)
+  // PRUEBA 6: Verificar que el registro de pagos siga disponible sin descarga automática
   // ---------------------------------------------------
   try {
     // Confirmar el pago para ver el recibo si es posible
     const confirmarBtn = page.locator("button", { hasText: /confirmar|registrar|guardar/i }).first();
     if (await confirmarBtn.isVisible()) {
       // No confirmamos para no modificar datos reales
-      log("", "PRUEBA 6: Boton de confirmacion de pago presente");
+      log("", "PRUEBA 6: Boton de confirmacion presente y descarga automática deshabilitada");
       passed++;
     } else {
       log("", "PRUEBA 6: Boton de confirmacion no encontrado en este estado");
@@ -327,9 +327,9 @@ async function run() {
       const hasNewHistoryControls =
         await fromDateInput.isVisible() &&
         await toDateInput.isVisible();
-      const hasBulkButtons =
-        await page.locator("button", { hasText: /Descargar seleccionados/i }).first().isVisible() &&
-        await page.locator("button", { hasText: /Descargar filtrados/i }).first().isVisible();
+      const hasNoDownloadButtons =
+        await page.locator("button", { hasText: /Descargar seleccionados/i }).count() === 0 &&
+        await page.locator("button", { hasText: /Descargar filtrados/i }).count() === 0;
       const hasSelectAllCheckbox = await page.locator("thead input[type='checkbox']").first().isVisible();
       if (hasNewHistoryControls) {
         await fromDateInput.fill("2026-04-12");
@@ -340,11 +340,11 @@ async function run() {
         ? await page.locator("text=La fecha desde no puede ser mayor que la fecha hasta.").first().isVisible()
         : false;
       if (hasHistory) {
-        if (hasNewHistoryControls && rangeErrorVisible && hasBulkButtons && hasSelectAllCheckbox) {
-          log("", "PRUEBA 9: Historial de pagos abre con filtros, seleccion multiple y acciones masivas", `${payments.length} pagos en BD`);
+        if (hasNewHistoryControls && rangeErrorVisible && hasNoDownloadButtons && hasSelectAllCheckbox) {
+          log("", "PRUEBA 9: Historial abre con filtros y sin opciones de descarga", `${payments.length} pagos en BD`);
           passed++;
         } else {
-          log("", "PRUEBA 9: Historial abre pero faltan controles de filtros/rango/descarga masiva");
+          log("", "PRUEBA 9: Historial abre pero fallan los controles o aún aparecen descargas");
           failed++;
         }
       } else {

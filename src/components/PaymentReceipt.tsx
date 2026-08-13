@@ -8,7 +8,6 @@ import {
   buildCoveredPaymentRows,
   buildReceiptFileName,
   buildRentPaymentBreakdownRows,
-  buildZipFileName,
   extractFolio,
   formatDateSpanish,
   formatDateSpanishSingleLine,
@@ -109,31 +108,6 @@ async function renderReceiptCanvasFromElement(target: HTMLElement): Promise<HTML
   }
 }
 
-export async function downloadPaymentReceiptImage(payment: Payment, renderedCard?: HTMLElement | null): Promise<void> {
-  const { fileName, blob } = renderedCard
-    ? await (async () => {
-      const canvas = await renderReceiptCanvasFromElement(renderedCard);
-      const fileName = buildReceiptFileName(payment);
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((value) => {
-          if (value) resolve(value);
-          else reject(new Error("No se pudo convertir el recibo a imagen."));
-        }, "image/png");
-      });
-      return { fileName, blob };
-    })()
-    : await buildPaymentReceiptImageBlob(payment);
-  const link = document.createElement("a");
-  const href = URL.createObjectURL(blob);
-  link.download = fileName;
-  link.href = href;
-  link.style.display = "none";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(href), 1000);
-}
-
 async function buildReceiptImageBlobFromElement(payment: Payment, renderedCard: HTMLElement): Promise<{ fileName: string; blob: Blob }> {
   const canvas = await renderReceiptCanvasFromElement(renderedCard);
   const fileName = buildReceiptFileName(payment);
@@ -176,41 +150,6 @@ export async function copyPaymentReceiptImage(payment: Payment, options: Receipt
 
 export async function copyHistoryPaymentReceiptImage(payment: Payment): Promise<void> {
   await copyPaymentReceiptImage(payment, { format: "history" });
-}
-
-export async function downloadPaymentsReceiptsZip(payments: Payment[], options: ReceiptRenderOptions = {}): Promise<void> {
-  if (payments.length === 0) {
-    throw new Error("No hay pagos seleccionados.");
-  }
-
-  const JSZip = (await import("jszip")).default;
-  const zip = new JSZip();
-  const namesCount = new Map<string, number>();
-
-  for (const payment of payments) {
-    const { fileName, blob } = await buildPaymentReceiptImageBlob(payment, options);
-    const currentCount = namesCount.get(fileName) ?? 0;
-    namesCount.set(fileName, currentCount + 1);
-
-    const finalName =
-      currentCount === 0
-        ? fileName
-        : fileName.replace(/\.png$/i, `-${currentCount + 1}.png`);
-
-    zip.file(finalName, blob);
-  }
-
-  const zipBlob = await zip.generateAsync({ type: "blob" });
-  const downloadName = buildZipFileName(payments);
-  const link = document.createElement("a");
-  const href = URL.createObjectURL(zipBlob);
-  link.download = downloadName;
-  link.href = href;
-  link.style.display = "none";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
 
 function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment; format?: ReceiptFormat }) {
@@ -829,21 +768,9 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
 }
 
 export default function PaymentReceipt({ payment, onClose, closeLabel = "Registrar otro pago", receiptFormat = "standard" }: Props) {
-  const [isDownloading, setIsDownloading] = useState(false);
   const [isCopying, setIsCopying] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
-
-  async function handleDownload(): Promise<void> {
-    setIsDownloading(true);
-    try {
-      await downloadPaymentReceiptImage(payment, cardRef.current);
-    } catch {
-      // silently fail - user still sees the receipt on screen
-    } finally {
-      setIsDownloading(false);
-    }
-  }
 
   async function handleCopy(): Promise<void> {
     setIsCopying(true);
@@ -852,7 +779,7 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
       await copyPaymentReceiptImage(payment, { format: receiptFormat }, cardRef.current);
       setCopyFeedback("Imagen copiada.");
     } catch {
-      setCopyFeedback("No se pudo copiar la imagen. Intenta descargarla.");
+      setCopyFeedback("No se pudo copiar la imagen en este navegador.");
     } finally {
       setIsCopying(false);
     }
@@ -861,9 +788,6 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
   return (
     <div className="receipt-page">
       <div className="receipt-actions-bar">
-        <button type="button" className="button primary" onClick={handleDownload} disabled={isDownloading}>
-          {isDownloading ? "Generando imagen..." : "Descargar imagen"}
-        </button>
         <button type="button" className="button secondary" onClick={handleCopy} disabled={isCopying}>
           {isCopying ? "Copiando imagen..." : "Copiar imagen"}
         </button>

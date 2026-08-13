@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { getBusinessDateKey, parseDateKey, toDateKey } from "../../billing";
-import { copyHistoryPaymentReceiptImage, downloadPaymentsReceiptsZip } from "../../components/PaymentReceipt";
+import { copyHistoryPaymentReceiptImage } from "../../components/PaymentReceipt";
 import { formatCurrency, formatDate } from "../../format";
 import type { Client, Payment } from "../../types";
 import { EMPTY_HISTORY_COLUMN_FILTERS } from "./paymentConstants";
@@ -88,8 +88,6 @@ export default function PaymentHistoryPanel({
   const [historySortDirection, setHistorySortDirection] = useState<SortDirection>("desc");
   const [historyVisibleLimit, setHistoryVisibleLimit] = useState(PAYMENT_HISTORY_LIMIT);
   const [historySelectedPaymentIds, setHistorySelectedPaymentIds] = useState<string[]>([]);
-  const [isHistoryBulkDownloading, setIsHistoryBulkDownloading] = useState(false);
-  const [historyBulkDownloadError, setHistoryBulkDownloadError] = useState("");
   const [historyCopiedPaymentIds, setHistoryCopiedPaymentIds] = useState<Set<string>>(() => new Set());
   const [historyCopyingPaymentId, setHistoryCopyingPaymentId] = useState<string | null>(null);
   const [historyCopyFeedback, setHistoryCopyFeedback] = useState<HistoryCopyFeedback | null>(null);
@@ -453,32 +451,6 @@ async function handleRefreshHistory(): Promise<void> {
   }
 }
 
-async function handleDownloadHistorySelection(): Promise<void> {
-  if (historySelectedRows.length === 0 || isHistoryBulkDownloading) return;
-  setHistoryBulkDownloadError("");
-  setIsHistoryBulkDownloading(true);
-  try {
-    await downloadPaymentsReceiptsZip(historySelectedRows, { format: "history" });
-  } catch {
-    setHistoryBulkDownloadError("No se pudo generar el ZIP de recibos. Intenta nuevamente.");
-  } finally {
-    setIsHistoryBulkDownloading(false);
-  }
-}
-
-async function handleDownloadFilteredHistory(): Promise<void> {
-  if (filteredHistoryRows.length === 0 || isHistoryBulkDownloading) return;
-  setHistoryBulkDownloadError("");
-  setIsHistoryBulkDownloading(true);
-  try {
-    await downloadPaymentsReceiptsZip(filteredHistoryRows, { format: "history" });
-  } catch {
-    setHistoryBulkDownloadError("No se pudo generar el ZIP de recibos. Intenta nuevamente.");
-  } finally {
-    setIsHistoryBulkDownloading(false);
-  }
-}
-
 function handleRepairTodayPaymentDates(): void {
   if (readOnly) return;
   if (misdatedTodayPayments.length === 0) {
@@ -731,18 +703,8 @@ function handleRepairTodayPaymentDates(): void {
                     type="button"
                     className="button ghost small"
                     onClick={toggleSelectAllHistoryRows}
-                    disabled={isHistoryBulkDownloading}
                   >
                     {isAllHistoryRowsSelected ? "Limpiar seleccion" : "Seleccionar todo"}
-                  </button>
-                  <button
-                    type="button"
-                    className="button primary small"
-                    onClick={handleDownloadHistorySelection}
-                    disabled={isHistoryBulkDownloading || historySelectedRows.length === 0}
-                    title="Descarga los recibos seleccionados en un ZIP"
-                  >
-                    {isHistoryBulkDownloading ? "Generando ZIP..." : `Descargar seleccionados (${historySelectedRows.length})`}
                   </button>
                   {!readOnly && onDeletePayments && (
                     <button
@@ -755,18 +717,8 @@ function handleRepairTodayPaymentDates(): void {
                       Eliminar seleccionados ({historySelectedRows.length})
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="button ghost small"
-                    onClick={handleDownloadFilteredHistory}
-                    disabled={isHistoryBulkDownloading || !isPaymentHistoryLoaded}
-                    title="Descarga todos los recibos del filtro actual en un ZIP"
-                  >
-                    Descargar filtrados ({filteredHistoryRows.length})
-                  </button>
               </div>
               </div>
-              {historyBulkDownloadError && <p className="hint error-text">{historyBulkDownloadError}</p>}
               {hasHistoryColumnFilters && (
                 <div style={{ marginBottom: 8 }}>
                   <button type="button" className="button ghost small" onClick={clearHistoryColumnFilters}>

@@ -1,7 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import PaymentReceipt, {
-  downloadPaymentReceiptImage
-} from "../components/PaymentReceipt";
 import { formatCurrency, formatDate } from "../format";
 import {
   loadPendingBankItemsFromIndexedDb,
@@ -130,7 +127,6 @@ export default function PaymentsPage({
   const [clientSearch, setClientSearch] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
-  const [confirmedPayment, setConfirmedPayment] = useState<Payment | null>(null);
   const [historyFocusRequest, setHistoryFocusRequest] = useState<HistoryFocusRequest | null>(null);
   const [historyPreviewPayment, setHistoryPreviewPayment] = useState<Payment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
@@ -176,7 +172,6 @@ export default function PaymentsPage({
   const [registerTravelFundInput, setRegisterTravelFundInput] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const autoDownloadedPaymentIdsRef = useRef<Set<string>>(new Set());
   const [pendingQuickCashSubmitToken, setPendingQuickCashSubmitToken] = useState<number | null>(null);
 
   const {
@@ -247,7 +242,7 @@ export default function PaymentsPage({
     onPaymentsChange,
     replacePendingBankItems,
     setPendingImportError,
-    showReceipt: (payment) => finalizeSuccessfulPayment(payment, { openReceipt: true })
+    showReceipt: (payment) => finalizeSuccessfulPayment(payment, { openHistory: true })
   });
 
 
@@ -281,26 +276,14 @@ export default function PaymentsPage({
   }, [quickCashPrefill, onQuickCashPrefillConsumed]);
 
   function openHistoryAfterPayment(payment: Payment): void {
-    setConfirmedPayment(null);
     setHistoryFocusRequest({ clientId: payment.clientId, token: Date.now() });
     selectPaymentTab("history");
   }
 
-  function finalizeSuccessfulPayment(payment: Payment, options?: { openReceipt?: boolean; openHistory?: boolean; skipAutoDownload?: boolean }): void {
+  function finalizeSuccessfulPayment(payment: Payment, options?: { openHistory?: boolean }): void {
     if (options?.openHistory) {
       openHistoryAfterPayment(payment);
-    } else if (options?.openReceipt) {
-      setConfirmedPayment(payment);
     }
-    if (options?.skipAutoDownload) return;
-    if (autoDownloadedPaymentIdsRef.current.has(payment.id)) return;
-    autoDownloadedPaymentIdsRef.current.add(payment.id);
-    void downloadPaymentReceiptImage(payment).catch(() => {
-      setErrors((prev) => {
-        const msg = "Pago registrado, pero no se pudo descargar el recibo automaticamente. Intenta descargarlo manualmente.";
-        return prev.includes(msg) ? prev : [...prev, msg];
-      });
-    });
   }
 
   const activeClients = useMemo(
@@ -668,7 +651,7 @@ export default function PaymentsPage({
           : `Pago en tarjeta aplicado con folio temporal ${transaction.cardFolio}. Debes corregirlo manana para conciliar con el CSV.`
       );
     }
-    finalizeSuccessfulPayment(transaction.payment, { openReceipt: true, skipAutoDownload: true });
+    finalizeSuccessfulPayment(transaction.payment, { openHistory: true });
     setForm({ clientId: "", dateApplied: operationalDateKey, paymentMethod: "Efectivo", cashDeliveryStatus: "", reference: "", amountReceived: "" });
     setManualOtherChargesInput({});
     setManualOverrideForcedOtherCharges(false);
@@ -759,18 +742,6 @@ export default function PaymentsPage({
     void handleImportBankCSV();
   }
 
-
-  if (confirmedPayment) {
-    return (
-      <div className="page-inner">
-        <header className="hero">
-        <h1>Pagos</h1>
-          <p>Recibo generado correctamente.</p>
-        </header>
-        <PaymentReceipt payment={confirmedPayment} onClose={() => setConfirmedPayment(null)} />
-      </div>
-    );
-  }
 
   return (
     <div className="page-inner">
