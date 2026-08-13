@@ -123,6 +123,8 @@ export type PaymentMethod =
   | "Referido"
   | "Descuento";
 
+export type CollectionTeam = "PTY" | "WC";
+
 export type LateFeeSettings = {
   active: boolean;
   dailyAmount: number;
@@ -246,6 +248,7 @@ export type Payment = {
   bankGroupCode?: string;
   fundsReceivedDate?: string;
   incomeComment?: string;
+  collectionTeam?: CollectionTeam;
   incomeEdits?: PaymentIncomeEdit[];
   moneyDelivered?: boolean;
   moneyDeliveryDate?: string;

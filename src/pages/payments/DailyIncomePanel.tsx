@@ -126,6 +126,7 @@ export default function DailyIncomePanel({
         payment.incomeComment ?? "",
         payment.bankAccountNumber ?? "",
         payment.bankGroupCode ?? "",
+        payment.collectionTeam ?? "",
         destination.label,
         payment.paymentMethod
       ].some((value) => value.toLowerCase().includes(normalizedSearch))) return false;
@@ -417,12 +418,13 @@ export default function DailyIncomePanel({
   function renderPaymentTable(rows: Payment[]) {
     return <div className="income-day-table-wrap">
       <table className="income-day-table">
-        <thead><tr><th>Hora</th><th>Unidad / cliente</th><th>Recibo</th><th>Forma</th><th>Referencia</th><th>Comentario</th><th>Dinero entregado</th><th>Monto</th><th /></tr></thead>
+        <thead><tr><th>Hora</th><th>Unidad / cliente</th><th>Recibo</th><th>Forma</th><th>Equipo</th><th>Referencia</th><th>Comentario</th><th>Dinero entregado</th><th>Monto</th><th /></tr></thead>
         <tbody>{rows.map((payment) => <tr key={payment.id}>
           <td>{formatTime(payment.createdAt)}</td>
           <td><strong>{payment.clientUnit}</strong><small>{payment.clientName}</small></td>
           <td>{payment.receiptNumber}</td>
           <td>{payment.paymentMethod}{payment.bankAccountNumber && <small>{maskAccountNumber(payment.bankAccountNumber)}</small>}</td>
+          <td>{payment.collectionTeam || "—"}</td>
           <td className="income-day-reference">{payment.reference || "—"}</td>
           <td>{payment.incomeComment || "—"}{payment.incomeComment && <small>{formatCommentDate(payment)}</small>}{getDailyIncomeStatus(payment) !== "non_cash" && <small className="income-delivery-context">{getDeliveryContext(payment)}</small>}{(payment.incomeEdits?.length ?? 0) > 0 && <small>Última edición: {payment.incomeEdits?.[payment.incomeEdits.length - 1]?.actor}</small>}</td>
           <td>{getDailyIncomeStatus(payment) === "non_cash" ? <span className="income-delivery-badge">No aplica</span> : readOnly ? <span className={`income-delivery-badge ${isMoneyDelivered(payment) ? "income-delivery-badge--yes" : "income-delivery-badge--no"}`}>{isMoneyDelivered(payment) ? "Sí" : "No"}</span> : <select className={`income-delivery-select ${isMoneyDelivered(payment) ? "income-delivery-select--yes" : "income-delivery-select--no"}`} aria-label={`Dinero entregado ${payment.receiptNumber}`} value={isMoneyDelivered(payment) ? "yes" : "no"} onChange={(event) => changeMoneyDelivered(payment, event.target.value === "yes")}><option value="yes">Sí</option><option value="no">No</option></select>}</td>
@@ -443,6 +445,7 @@ export default function DailyIncomePanel({
       "Detalle del destino": group.label,
       Cuenta: payment.bankAccountNumber ?? "",
       Forma: payment.paymentMethod,
+      Equipo: payment.collectionTeam ?? "",
       Recibo: payment.receiptNumber,
       Unidad: payment.clientUnit,
       Cliente: payment.clientName,
@@ -503,12 +506,13 @@ export default function DailyIncomePanel({
         </div>
         <div className="income-day-table-wrap">
           <table className="income-day-table">
-            <thead><tr><th>Dinero correspondiente a</th><th>Unidad / cliente</th><th>Recibo</th><th>Forma</th><th>Monto</th><th>Dinero entregado</th></tr></thead>
+            <thead><tr><th>Dinero correspondiente a</th><th>Unidad / cliente</th><th>Recibo</th><th>Forma</th><th>Equipo</th><th>Monto</th><th>Dinero entregado</th></tr></thead>
             <tbody>{pendingDeliveries.map((payment) => <tr key={`pending-delivery-${payment.id}`}>
               <td>{getIncomeDate(payment)}</td>
               <td><strong>{payment.clientUnit}</strong><small>{payment.clientName}</small></td>
               <td>{payment.receiptNumber}</td>
               <td>{payment.paymentMethod}</td>
+              <td>{payment.collectionTeam || "—"}</td>
               <td><strong>{formatCurrency(payment.amountReceived)}</strong></td>
               <td>{readOnly ? <span className="income-delivery-badge income-delivery-badge--no">No</span> : <button type="button" className="button primary small" onClick={() => changeMoneyDelivered(payment, true)}>Marcar Sí</button>}</td>
             </tr>)}</tbody>
@@ -523,12 +527,13 @@ export default function DailyIncomePanel({
         </div>
         <div className="income-day-table-wrap">
           <table className="income-day-table">
-            <thead><tr><th>Dinero correspondiente a</th><th>Unidad / cliente</th><th>Recibo</th><th>Forma</th><th>Monto</th><th>Entrega</th></tr></thead>
+            <thead><tr><th>Dinero correspondiente a</th><th>Unidad / cliente</th><th>Recibo</th><th>Forma</th><th>Equipo</th><th>Monto</th><th>Entrega</th></tr></thead>
             <tbody>{deliveredFromPrevious.map((payment) => <tr key={`completed-delivery-${payment.id}`}>
               <td>{formatMoneyDay(getIncomeDate(payment))}</td>
               <td><strong>{payment.clientUnit}</strong><small>{payment.clientName}</small></td>
               <td>{payment.receiptNumber}</td>
               <td>{payment.paymentMethod}</td>
+              <td>{payment.collectionTeam || "—"}</td>
               <td><strong>{formatCurrency(payment.amountReceived)}</strong></td>
               <td><span className="income-delivery-badge income-delivery-badge--yes">Entregado hoy</span></td>
             </tr>)}</tbody>

@@ -25,8 +25,8 @@ assert(removalRule.includes("record?.routeReleaseUpdatedAt"), "La regla debe con
 assert(removalRule.includes("record?.routeAssignmentUpdatedAt"), "La regla debe considerar la fecha de reasignacion de ruta.");
 
 const sendFlow = sourceSection(
-  "async function handleExportCobroEnRuta",
-  "async function handleSaveCollectionCut"
+  "async function handlePublishCobroEnRuta",
+  "async function handleDownloadPublishedRoute"
 );
 assert(sendFlow.includes("loadCloudStreetManagement(dataOwnerUserId)"), "El envio debe releer la gestion vigente.");
 assert(sendFlow.includes("loadCloudActiveRouteItems(dataOwnerUserId)"), "El envio debe releer las salidas vigentes.");
@@ -34,18 +34,24 @@ assert(
   sendFlow.includes("!routeRemovalBlocksRecord(record, removedItemByClientForSend.get(row.id))"),
   "Una salida antigua no debe excluir una reasignacion nueva."
 );
-assert(sendFlow.includes("const routeRowsForSend = baseRows.filter"), "Descarga y publicacion deben compartir una sola lista.");
-assert(sendFlow.includes("rows: routeRowsForSend"), "El archivo debe contener exactamente la lista que se publica.");
+assert(sendFlow.includes("const routeRowsForSend = baseRows.filter"), "La publicacion debe construir una sola lista.");
+assert(sendFlow.includes("setPublishedRouteDownload") && sendFlow.includes("rows: routeRowsForSend"), "La descarga debe conservar exactamente la lista publicada.");
+assert(!sendFlow.includes("exportRouteCollection"), "Publicar la ruta no debe descargar archivos automaticamente.");
 
 const publishIndex = sendFlow.indexOf("await publishCloudActiveRouteItems");
 const verifyIndex = sendFlow.indexOf("const verifiedActiveRouteItems = await loadCloudActiveRouteItems", publishIndex);
-const exportIndex = sendFlow.indexOf("const exported = await exportRouteCollection", verifyIndex);
 assert(publishIndex >= 0, "El flujo debe publicar la ruta.");
 assert(verifyIndex > publishIndex, "El flujo debe verificar la nube despues de publicar.");
-assert(exportIndex > verifyIndex, "La descarga solo debe iniciar despues de verificar la publicacion.");
 assert(
-  sendFlow.includes("No se pudo confirmar la publicacion de la ruta. No se descargo ningun archivo"),
-  "Una falla de publicacion debe explicar que no hubo descarga."
+  sendFlow.includes("No se pudo confirmar la publicacion de la ruta; puedes volver a intentar."),
+  "Una falla de publicacion debe permitir reintentar."
 );
 
-console.log("OK reenvio a ruta: una salida por pago antigua no bloquea la reasignacion y la descarga ocurre tras verificar.");
+const downloadFlow = sourceSection(
+  "async function handleDownloadPublishedRoute",
+  "async function handleSaveCollectionCut"
+);
+assert(downloadFlow.includes("exportRouteCollection"), "Descargar ruta debe ser una accion separada.");
+assert(downloadFlow.includes("publishedRouteDownload.rows"), "La descarga debe usar la ruta ya publicada.");
+
+console.log("OK reenvio a ruta: publicacion y descarga son pasos separados y usan la misma lista verificada.");

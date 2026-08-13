@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react
 import {
   loadClients,
   loadPayments,
+  nextReceiptNumber,
   saveClients,
   savePayments,
   loadBankRules,
@@ -34,6 +35,7 @@ import {
   loadCloudPayments,
   loadControlUnits,
   registerCloudPaymentDeltas,
+  reserveCloudReceiptNumber,
   saveCloudBankRules,
   saveCloudChargeRuns,
   saveControlUnit,
@@ -47,7 +49,7 @@ import { isSupabaseOnlyMode } from "./persistenceMode";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
 import type { BackupExtraData } from "./autobackup";
 import { canEditScreen, canViewScreen, type AppPermissions } from "./auth/permissions";
-import type { BankRule, Client, LateFeeSettings, LeadEvaluation, OtherChargesRetentionByClient, Payment } from "./types";
+import type { BankRule, Client, CollectionTeam, LateFeeSettings, LeadEvaluation, OtherChargesRetentionByClient, Payment } from "./types";
 import { parseLocalJson } from "./app/appShellRules";
 import AppNavigation, { type AppPage } from "./app/AppNavigation";
 import { appPageFromPathname, appPagePath, isCanonicalAppPagePath } from "./app/appRoutes";
@@ -55,6 +57,8 @@ import { useBackupManager } from "./app/useBackupManager";
 import { useCoreCloudSync } from "./app/useCoreCloudSync";
 import { getBusinessDateKey } from "./billing";
 import { stableEqual } from "./stableSerialize";
+import { buildManualPaymentTransaction } from "./pages/payments/manualPaymentWorkflow";
+import { loadNotifiedPayments, saveNotifiedPayments } from "./pages/payments/paymentStorage";
 import "./styles.css";
 
 const ClientsPage = lazy(() => import("./pages/ClientsPage"));
@@ -167,6 +171,7 @@ export default function AppShell({
   const canViewReceivables = canViewScreen(permissions, "receivables");
   const canEditReceivables = canEditScreen(permissions, "receivables");
   const canViewRouteSearch = canViewScreen(permissions, "route_search");
+  const canEditRouteSearch = canEditScreen(permissions, "route_search");
   const canViewInsuranceWorkflow = canViewScreen(permissions, "insurance_workflow");
   const canEditInsuranceWorkflow = canEditScreen(permissions, "insurance_workflow");
   const canViewCollisions = canViewScreen(permissions, "collisions");
@@ -195,10 +200,11 @@ export default function AppShell({
       PAYMENT_MIRROR_KEYS.forEach((key) => keys.add(key));
       SETTINGS_MIRROR_KEYS.forEach((key) => keys.add(key));
     }
+    if (canViewRouteSearch) keys.add("cobrapp.module2.notified.v1");
     if (canViewReceivables) RECEIVABLES_MIRROR_KEYS.forEach((key) => keys.add(key));
     if (canViewSettingsPage) SETTINGS_MIRROR_KEYS.forEach((key) => keys.add(key));
     return [...keys];
-  }, [canViewInsuranceWorkflow, canViewPayments, canViewReceivables, canViewSettingsPage]);
+  }, [canViewInsuranceWorkflow, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = effectiveOwnerUserId ?? dataOwnerUserId ?? userId;
   const [page, setPage] = useState<AppPage>(() => {
@@ -535,6 +541,64 @@ export default function AppShell({
     }
     setHasPendingChanges(true);
     return true;
+  }
+
+  async function registerRoutePayment(input: {
+    clientId: string;
+    amount: number;
+    method: "cash" | "bank";
+    team: CollectionTeam;
+  }): Promise<{ kind: "cash" | "bank"; receiptNumber?: string }> {
+    if (!canEditRouteSearch || !canEditPayments) {
+      throw new Error("No tienes permiso para registrar pagos desde Ruta en calle.");
+    }
+    const client = clients.find((candidate) => candidate.id === input.clientId);
+    if (!client) throw new Error("No se encontro el cliente de esta ruta.");
+
+    if (input.method === "bank") {
+      const currentNotices = loadNotifiedPayments();
+      saveNotifiedPayments([...currentNotices, {
+        id: crypto.randomUUID(),
+        clientId: client.id,
+        amount: input.amount,
+        createdAt: new Date().toISOString(),
+        paymentMethod: "bank",
+        collectionTeam: input.team,
+        source: "route"
+      }]);
+      setHasPendingChanges(true);
+      return { kind: "bank" };
+    }
+
+    const operationalDateKey = getBusinessDateKey();
+    const receiptNumber = cloudDataUserId
+      ? await reserveCloudReceiptNumber(cloudDataUserId)
+      : nextReceiptNumber();
+    const transaction = buildManualPaymentTransaction({
+      clients,
+      payments,
+      selectedClient: client,
+      form: {
+        clientId: client.id,
+        dateApplied: operationalDateKey,
+        paymentMethod: "Efectivo",
+        cashDeliveryStatus: "pending",
+        reference: "",
+        amountReceived: String(input.amount)
+      },
+      manualOtherChargesInput: {},
+      retentionByClient: otherChargesRetentionByClient,
+      lateFeeSettings,
+      operationalDateKey,
+      overrideForcedOtherCharges: false,
+      receiptNumber,
+      currentActor: userEmail || userId || "Usuario"
+    });
+    transaction.payment.collectionTeam = input.team;
+    transaction.payment.incomeComment = `Cobro en Ruta · Equipo ${input.team}`;
+    const saved = await persistClientsAndPayments(transaction.updatedClients, [...payments, transaction.payment]);
+    if (!saved) throw new Error("No se pudo guardar el pago.");
+    return { kind: "cash", receiptNumber };
   }
 
   async function persistDeletedPayments(nextClients: Client[], nextPayments: Payment[], deletedPaymentIds: string[]): Promise<boolean> {
@@ -966,6 +1030,8 @@ export default function AppShell({
           <RouteSearchPage
             dataOwnerUserId={cloudDataUserId}
             payments={payments}
+            readOnly={!canEditRouteSearch || !canEditPayments}
+            onRegisterPayment={registerRoutePayment}
           />
         )}
         {page === "incidents" && (canViewInsuranceWorkflow || canViewCollisions) && (

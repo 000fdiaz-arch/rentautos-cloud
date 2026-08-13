@@ -386,6 +386,7 @@ export default function ReceivablesPage({
   const [collectionStatusByClient, setCollectionStatusByClient] = useState<Record<string, CollectionStatusRecord>>({});
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<CollectionStatusFilter>("all");
   const [routeTagFilter, setRouteTagFilter] = useState<boolean>(false);
+  const [routeReadyFilter, setRouteReadyFilter] = useState<boolean>(false);
   const [whatsAppContactFilter, setWhatsAppContactFilter] = useState<WhatsAppContactFilter>("all");
   const [prioritizeContactTime, setPrioritizeContactTime] = useState<boolean>(false);
   const [pendingContactPrompt, setPendingContactPrompt] = useState<PendingContactPrompt | null>(null);
@@ -409,6 +410,11 @@ export default function ReceivablesPage({
   const [clearManagementConfirmation, setClearManagementConfirmation] = useState<string>("");
   const [isExportConfigOpen, setIsExportConfigOpen] = useState<boolean>(false);
   const [routeExportFormat, setRouteExportFormat] = useState<RouteExportFormat>("jpg");
+  const [publishedRouteDownload, setPublishedRouteDownload] = useState<{
+    rows: ReceivableRow[];
+    statusByClient: Record<string, CollectionStatusRecord>;
+    publishedCount: number;
+  } | null>(null);
   const [isRouteExportMenuOpen, setIsRouteExportMenuOpen] = useState<boolean>(false);
   const [exportFields, setExportFields] = useState<ExportField[]>(INITIAL_EXPORT_FIELDS);
   const [fieldManagementModalClientId, setFieldManagementModalClientId] = useState<string | null>(null);
@@ -986,8 +992,14 @@ export default function ReceivablesPage({
       .map(([clientId]) => clientId))
   ), [collectionStatusByClient, removedRouteItemByClient]);
   const inactiveVisibleRouteItems = useMemo(() => (
-    activeRouteItems.filter((item) => !item.removedAt && !activeRouteEligibleClientIds.has(item.clientId))
-  ), [activeRouteEligibleClientIds, activeRouteItems]);
+    activeRouteItems.filter((item) => {
+      if (item.removedAt) return false;
+      const row = baseRows.find((candidate) => candidate.id === item.clientId);
+      // La ausencia temporal de la fila durante una recarga no confirma que la
+      // unidad este inactiva. Solo se desmonta con una fila cargada y no elegible.
+      return !!row && !hasActiveOperationalClient(row);
+    })
+  ), [activeRouteItems, baseRows]);
   const activeRouteFilterOptions = useMemo(() => (
     Array.from(new Set(activeVisibleRouteItems.map((item) => activeRouteFilterValue(item.routeAssignment))))
       .sort(compareActiveRouteFilterValues)
@@ -1026,7 +1038,7 @@ export default function ReceivablesPage({
     const inactiveClientIds = new Set(inactiveVisibleRouteItems.map((item) => item.clientId));
     const nextActiveRouteItems: ActiveRouteItem[] = activeRouteItemsRef.current.map((item) => (
       inactiveClientIds.has(item.clientId)
-        ? { ...item, removedAt, removedReason: "removed" }
+        ? { ...item, removedAt, removedReason: "inactive" }
         : item
     ));
     activeRouteItemsRef.current = nextActiveRouteItems;
@@ -1049,7 +1061,7 @@ export default function ReceivablesPage({
     }
     if (!dataOwnerUserId) return;
     for (const clientId of inactiveClientIds) {
-      void removeCloudActiveRouteItem(dataOwnerUserId, clientId, "removed").catch((error) => {
+      void removeCloudActiveRouteItem(dataOwnerUserId, clientId, "inactive").catch((error) => {
         console.error("No se pudo sacar de la Ruta en calle por estado inactivo.", error);
       });
     }
@@ -1078,6 +1090,7 @@ export default function ReceivablesPage({
     () => baseRows.filter((row) => isRouteReadyToSendRow(row)).length,
     [activeVisibleRouteClientIds, baseRows, blockingRemovedRouteClientIds, collectionStatusByClient, todayCollectionCuts]
   );
+  const canDownloadPublishedRoute = publishedRouteDownload !== null && routeWorkflowRowsCount === 0;
   const publishedRouteAddRows = useMemo(
     () => baseRows.filter((row) => hasActiveOperationalClient(row) && !activeVisibleRouteClientIds.has(row.id)),
     [activeVisibleRouteClientIds, baseRows]
@@ -1107,7 +1120,7 @@ export default function ReceivablesPage({
     return counts;
   }, [workflowRows, collectionStatusByClient, todayCollectionCuts]);
   const routeTaggedManagementCount = workflowTab === "management"
-    ? workflowRows.filter((row) => collectionStatusByClient[row.id]?.isRouteTagged).length
+    ? workflowRows.filter((row) => activeVisibleRouteClientIds.has(row.id)).length
     : 0;
   const routePendingCount = collectionStatusCounts.pending;
   const managementAlertCount = workflowTab === "route"
@@ -1128,9 +1141,11 @@ export default function ReceivablesPage({
     const statusRows = collectionStatusFilter === "all"
       ? workflowRows
       : workflowRows.filter((row) => getWorkflowStatus(row) === collectionStatusFilter);
-    if (workflowTab !== "management" || !routeTagFilter) return statusRows;
-    return statusRows.filter((row) => collectionStatusByClient[row.id]?.isRouteTagged === true);
-  }, [collectionStatusFilter, routeTagFilter, workflowRows, collectionStatusByClient, now, todayCollectionCuts, workflowTab]);
+    if (workflowTab !== "management") return statusRows;
+    if (routeReadyFilter) return statusRows.filter((row) => isRouteReadyToSendRow(row));
+    if (routeTagFilter) return statusRows.filter((row) => activeVisibleRouteClientIds.has(row.id));
+    return statusRows;
+  }, [activeVisibleRouteClientIds, collectionStatusFilter, routeReadyFilter, routeTagFilter, workflowRows, collectionStatusByClient, now, todayCollectionCuts, workflowTab]);
   const whatsAppContactCounts = useMemo(() => {
     const counts: Record<WhatsAppContactFilter, number> = {
       all: filteredByCollectionStatusRows.length,
@@ -2006,7 +2021,7 @@ export default function ReceivablesPage({
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
     if (dataOwnerUserId) {
-      void removeCloudActiveRouteItem(dataOwnerUserId, clientId, "removed").catch((error) => {
+      void removeCloudActiveRouteItem(dataOwnerUserId, clientId, "manual_management").catch((error) => {
         console.error("No se pudo sacar de la Ruta en calle.", error);
       });
     }
@@ -2027,7 +2042,7 @@ export default function ReceivablesPage({
     setActiveRouteError("");
     const removedAt = new Date().toISOString();
     try {
-      await removeCloudActiveRouteItem(dataOwnerUserId, clientId, "removed");
+      await removeCloudActiveRouteItem(dataOwnerUserId, clientId, "manual_published");
       setPublishedRouteAmountDraftByClient((current) => {
         const next = { ...current };
         delete next[clientId];
@@ -2040,7 +2055,7 @@ export default function ReceivablesPage({
       });
       const nextActiveRouteItems: ActiveRouteItem[] = activeRouteItemsRef.current.map((item) => (
         item.clientId === clientId
-          ? { ...item, removedAt, removedReason: "removed" }
+          ? { ...item, removedAt, removedReason: "manual_published" }
           : item
       ));
       activeRouteItemsRef.current = nextActiveRouteItems;
@@ -2552,10 +2567,11 @@ export default function ReceivablesPage({
     }
   }
 
-  async function handleExportCobroEnRuta(formatOverride?: RouteExportFormat): Promise<void> {
+  async function handlePublishCobroEnRuta(): Promise<void> {
     setExportError(null);
     setRouteExportMessage("");
     setIsExporting(true);
+    setPublishedRouteDownload(null);
     let publishedCount = 0;
     let publicationAttempted = false;
     let publicationConfirmed = false;
@@ -2593,7 +2609,9 @@ export default function ReceivablesPage({
       };
       const routeRowsForSend = baseRows.filter((row) => isRouteRowFromMap(row));
       if (routeRowsForSend.length === 0) {
-        setExportError("No hay unidades nuevas listas para publicar en Ruta en calle.");
+        activeRouteItemsRef.current = activeRouteItemsForSend;
+        setActiveRouteItems(activeRouteItemsForSend);
+        setRouteExportMessage("Las unidades seleccionadas ya estaban publicadas. Se actualizo Ruta en calle.");
         return;
       }
       const routeRowsMissingAmount = routeRowsForSend.filter((row) => !hasRouteReleaseAmount(statusByClientForRoute[row.id]));
@@ -2678,28 +2696,50 @@ export default function ReceivablesPage({
         publishedCount = activeRouteItemsToPublish.length;
         publicationConfirmed = true;
       }
-      const exported = await exportRouteCollection({
+      setPublishedRouteDownload({
         rows: routeRowsForSend,
         statusByClient: statusByClientForRoute,
-        format: formatOverride ?? routeExportFormat,
-        now
+        publishedCount: dataOwnerUserId ? publishedCount : routeRowsForSend.length
       });
-      if (!exported) throw new Error("No hay registros con Cobro en Ruta para exportar.");
+      setRouteReadyFilter(false);
       const unitLabel = routeRowsForSend.length === 1 ? "unidad" : "unidades";
       setRouteExportMessage(
         dataOwnerUserId
-          ? `Ruta enviada: ${publishedCount} ${unitLabel} publicadas y archivo descargado.`
-          : `Ruta preparada: ${routeRowsForSend.length} ${unitLabel} y archivo descargado.`
+          ? `Ruta publicada: ${publishedCount} ${unitLabel}. Ya puedes descargarla.`
+          : `Ruta preparada: ${routeRowsForSend.length} ${unitLabel}. Ya puedes descargarla.`
       );
     } catch (error) {
       console.error("No se pudo enviar Cobro en Ruta.", error);
       setExportError(
         publicationConfirmed
-          ? `La ruta se publico con ${publishedCount} unidad(es), pero no se pudo descargar el archivo.`
+          ? `La ruta se publico con ${publishedCount} unidad(es), pero no se pudo preparar la descarga.`
           : publicationAttempted
-            ? "No se pudo confirmar la publicacion de la ruta. No se descargo ningun archivo; puedes volver a intentar."
-            : "No se pudo preparar la publicacion de la ruta. No se descargo ningun archivo; puedes volver a intentar."
+            ? "No se pudo confirmar la publicacion de la ruta; puedes volver a intentar."
+            : "No se pudo preparar la publicacion de la ruta; puedes volver a intentar."
       );
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  async function handleDownloadPublishedRoute(): Promise<void> {
+    if (!publishedRouteDownload) return;
+    setExportError(null);
+    setRouteExportMessage("");
+    setIsExporting(true);
+    try {
+      const exported = await exportRouteCollection({
+        rows: publishedRouteDownload.rows,
+        statusByClient: publishedRouteDownload.statusByClient,
+        format: routeExportFormat,
+        now
+      });
+      if (!exported) throw new Error("No hay registros publicados para descargar.");
+      const unitLabel = publishedRouteDownload.publishedCount === 1 ? "unidad" : "unidades";
+      setRouteExportMessage(`Ruta descargada: ${publishedRouteDownload.publishedCount} ${unitLabel}.`);
+    } catch (error) {
+      console.error("No se pudo descargar la ruta publicada.", error);
+      setExportError("La ruta esta publicada, pero no se pudo descargar el archivo. Puedes volver a intentar.");
     } finally {
       setIsExporting(false);
     }
@@ -2868,33 +2908,81 @@ export default function ReceivablesPage({
           ) : null}
         </div>
 
-        <div className="ar-workflow-tabs" role="tablist" aria-label="Flujo de cuentas por cobrar">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={workflowTab === "management"}
-            className={workflowTab === "management" ? "is-active" : ""}
-            onClick={() => {
-              setWorkflowTab("management");
-              setCollectionStatusFilter("all");
-              setRouteTagFilter(false);
-            }}
-          >
-            Gestion <strong>{managementWorkflowRowsCount}</strong>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={workflowTab === "route"}
-            className={workflowTab === "route" ? "is-active" : ""}
-            onClick={() => {
-              setWorkflowTab("route");
-              setCollectionStatusFilter("all");
-              setRouteTagFilter(false);
-            }}
-          >
-            Ruta en calle <strong>{activeVisibleRouteItems.length}</strong>
-          </button>
+        <div className="ar-workflow-commandbar">
+          <div className="ar-workflow-tabs" role="tablist" aria-label="Flujo de cuentas por cobrar">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={workflowTab === "management"}
+              className={workflowTab === "management" ? "is-active" : ""}
+              onClick={() => {
+                setWorkflowTab("management");
+                setCollectionStatusFilter("all");
+                setRouteTagFilter(false);
+                setRouteReadyFilter(false);
+              }}
+            >
+              Gestion <strong>{managementWorkflowRowsCount}</strong>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={workflowTab === "route"}
+              className={workflowTab === "route" ? "is-active" : ""}
+              onClick={() => {
+                setWorkflowTab("route");
+                setCollectionStatusFilter("all");
+                setRouteTagFilter(false);
+                setRouteReadyFilter(false);
+              }}
+            >
+              Ruta en calle <strong>{activeVisibleRouteItems.length}</strong>
+            </button>
+          </div>
+          <div className={`ar-route-publish-cta ${routeWorkflowRowsCount > 0 ? "has-ready-items" : ""} ${canDownloadPublishedRoute ? "is-ready-to-download" : ""}`}>
+            {routeWorkflowRowsCount > 0 ? (
+              <button
+                type="button"
+                className={`ar-route-publish-copy ${routeReadyFilter ? "is-active" : ""}`}
+                aria-pressed={routeReadyFilter}
+                onClick={() => {
+                  setWorkflowTab("management");
+                  setRouteReadyFilter((current) => !current);
+                  setRouteTagFilter(false);
+                  setCollectionStatusFilter("all");
+                  setWhatsAppContactFilter("all");
+                }}
+              >
+                {routeWorkflowRowsCount} {routeWorkflowRowsCount === 1 ? "unidad lista" : "unidades listas"}
+              </button>
+            ) : (
+              <span className="ar-route-publish-copy">
+                {canDownloadPublishedRoute ? "Ruta publicada" : "Sin unidades nuevas"}
+              </span>
+            )}
+            <button
+              type="button"
+              className="button ar-route-publish-button"
+              onClick={() => void (canDownloadPublishedRoute ? handleDownloadPublishedRoute() : handlePublishCobroEnRuta())}
+              disabled={isExporting || (!canDownloadPublishedRoute && routeWorkflowRowsCount === 0)}
+            >
+              {isExporting
+                ? canDownloadPublishedRoute ? "Descargando..." : "Publicando..."
+                : canDownloadPublishedRoute ? "Descargar ruta" : "Publicar ruta"}
+              {!isExporting ? <strong>{canDownloadPublishedRoute ? publishedRouteDownload?.publishedCount : routeWorkflowRowsCount}</strong> : null}
+            </button>
+            <select
+              className="ar-route-export-format ar-route-export-format--prominent"
+              value={routeExportFormat}
+              onChange={(event) => setRouteExportFormat(event.target.value as RouteExportFormat)}
+              disabled={isExporting}
+              aria-label="Formato para publicar cobro en ruta"
+            >
+              <option value="jpg">JPG</option>
+              <option value="pdf">PDF</option>
+              <option value="excel">Excel</option>
+            </select>
+          </div>
         </div>
 
         {workflowTab === "management" ? <div className="ar-ledger-toolbar">
@@ -2921,6 +3009,7 @@ export default function ReceivablesPage({
               onClick={() => {
                 const next = !routeTagFilter;
                 setRouteTagFilter(next);
+                setRouteReadyFilter(false);
                 if (next) {
                   setCollectionStatusFilter("all");
                   setWhatsAppContactFilter("all");
@@ -2966,27 +3055,6 @@ export default function ReceivablesPage({
               {prioritizeContactTime ? "Agenda de llamadas" : "Proximo contacto"}
             </button>
             <span className="ar-results-count">Mostrando {rows.length} de {managementWorkflowRowsCount}</span>
-            <div className="ar-route-export-actions">
-              <button
-                type="button"
-                className="button ghost small"
-                onClick={() => void handleExportCobroEnRuta()}
-                disabled={isExporting || routeWorkflowRowsCount === 0}
-              >
-                {isExporting ? "Publicando..." : `Publicar ruta (${routeWorkflowRowsCount})`}
-              </button>
-              <select
-                className="ar-route-export-format"
-                value={routeExportFormat}
-                onChange={(event) => setRouteExportFormat(event.target.value as RouteExportFormat)}
-                disabled={isExporting}
-                aria-label="Formato para publicar cobro en ruta"
-              >
-                <option value="jpg">JPG</option>
-                <option value="pdf">PDF</option>
-                <option value="excel">Excel</option>
-              </select>
-            </div>
           </div>
         </div> : null}
 

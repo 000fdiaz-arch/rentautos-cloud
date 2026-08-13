@@ -73,13 +73,9 @@ export function loadCollectionClosuresFromStorage(): CollectionClosuresByDate {
 }
 
 
-export function loadNotifiedPayments(): NotifiedPayment[] {
-  const raw = localStorage.getItem(NOTIFIED_PAYMENTS_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed
+export function parseNotifiedPayments(value: unknown): NotifiedPayment[] {
+  if (!Array.isArray(value)) return [];
+  return value
       .filter((item): item is NotifiedPayment => {
         if (!item || typeof item !== "object") return false;
         const rec = item as Record<string, unknown>;
@@ -90,7 +86,20 @@ export function loadNotifiedPayments(): NotifiedPayment[] {
           Number.isFinite(rec.amount) &&
           typeof rec.createdAt === "string"
         );
-      });
+      })
+      .map((item) => ({
+        ...item,
+        paymentMethod: item.paymentMethod === "bank" ? "bank" : undefined,
+        collectionTeam: item.collectionTeam === "PTY" || item.collectionTeam === "WC" ? item.collectionTeam : undefined,
+        source: item.source === "route" ? "route" : undefined
+      }));
+}
+
+export function loadNotifiedPayments(): NotifiedPayment[] {
+  const raw = localStorage.getItem(NOTIFIED_PAYMENTS_KEY);
+  if (!raw) return [];
+  try {
+    return parseNotifiedPayments(JSON.parse(raw));
   } catch {
     return [];
   }

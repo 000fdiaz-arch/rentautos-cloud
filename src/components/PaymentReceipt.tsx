@@ -625,6 +625,12 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
               <span>Método</span>
               <span>{payment.paymentMethod}</span>
             </div>
+            {payment.collectionTeam && (
+              <div className="receipt-row">
+                <span>Equipo</span>
+                <span>{payment.collectionTeam}</span>
+              </div>
+            )}
             {folio && (
               <div className="receipt-row">
                 <span>Folio</span>

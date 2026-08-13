@@ -149,6 +149,8 @@ export default function NotifiedPaymentsPanel({
                           Hora {notifiedSortField === "createdAt" ? (notifiedSortDirection === "desc" ? "v" : "^") : ""}
                         </button>
                       </th>
+                      <th>Estado</th>
+                      <th>Equipo</th>
                       <th>Acciones</th>
                     </tr>
                   </thead>
@@ -193,6 +195,8 @@ export default function NotifiedPaymentsPanel({
                             )}
                           </td>
                           <td>{new Date(row.createdAt).toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })}</td>
+                          <td>{row.paymentMethod === "bank" ? "Por confirmar banca" : "Notificado"}</td>
+                          <td>{row.collectionTeam || "—"}</td>
                           <td className="actions-cell">
                             {isEditing ? (
                               <>

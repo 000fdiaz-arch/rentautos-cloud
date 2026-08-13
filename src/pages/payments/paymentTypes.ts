@@ -1,4 +1,4 @@
-import type { Client, OtherCharge, PaymentMethod } from "../../types";
+import type { Client, CollectionTeam, OtherCharge, PaymentMethod } from "../../types";
 
 export type PaymentForm = {
   clientId: string;
@@ -14,6 +14,9 @@ export type NotifiedPayment = {
   clientId: string;
   amount: number;
   createdAt: string;
+  paymentMethod?: "bank";
+  collectionTeam?: CollectionTeam;
+  source?: "route";
 };
 
 export type NotifiedPaymentForm = {

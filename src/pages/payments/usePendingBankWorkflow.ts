@@ -18,7 +18,7 @@ import type {
 } from "../../types";
 import type { NotifiedPayment } from "./paymentTypes";
 import { importBankCsv } from "./bankCsvImport";
-import { extractFoliosFromReference, normalizeFolioToken, removeOneMatchingNotified } from "./bankPaymentRules";
+import { extractFoliosFromReference, isNotifiedCandidateMatch, normalizeFolioToken, removeOneMatchingNotified } from "./bankPaymentRules";
 import { buildPendingPaymentApplication, buildTakenFolioSet, getPendingSimilaritySignals } from "./pendingBankRules";
 import { getPaymentSaveErrorMessage } from "./paymentPersistenceErrors";
 import { roundMoney } from "./paymentRules";
@@ -79,6 +79,15 @@ export default function usePendingBankWorkflow(options: Options) {
   const [pendingManualOverrideForcedOtherCharges, setPendingManualOverrideForcedOtherCharges] = useState(false);
   const [manualAssignmentAudit, setManualAssignmentAudit] = useState<ManualBankAssignmentAudit[]>(() => loadManualBankAssignmentAudit());
   const [pendingTravelFundInputByFolio, setPendingTravelFundInputByFolio] = useState<Record<string, string>>({});
+
+  function attachNotifiedRouteMetadata(payment: Payment, item: PendingBankItem, clientId: string): void {
+    const notice = notifiedPayments.find((candidate) => (
+      isNotifiedCandidateMatch(candidate, clientId, item.amountReceived, item.dateApplied)
+    ));
+    if (!notice?.collectionTeam) return;
+    payment.collectionTeam = notice.collectionTeam;
+    payment.incomeComment = `Cobro en Ruta · Equipo ${notice.collectionTeam}`;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -235,6 +244,7 @@ export default function usePendingBankWorkflow(options: Options) {
         manualOtherChargesInput: pendingOtherChargesInput,
         allowManualOverrideForForcedRule: pendingManualOverrideForcedOtherCharges
       });
+      attachNotifiedRouteMetadata(payment, pendingClassifyTarget, client.id);
       const updatedClients = clients.map((candidate) => candidate.id === updatedClient.id ? updatedClient : candidate);
       if (!await persistClientPaymentState(updatedClients, [...payments, payment])) {
         setPendingClassifyError("No se pudo guardar el pago. No se aplicaron cambios.");
@@ -273,6 +283,7 @@ export default function usePendingBankWorkflow(options: Options) {
         return;
       }
       const { updatedClient, payment } = await applyPendingItem(item, client);
+      attachNotifiedRouteMetadata(payment, item, client.id);
       const updatedClients = clients.map((candidate) => candidate.id === updatedClient.id ? updatedClient : candidate);
       if (!await persistClientPaymentState(updatedClients, [...payments, payment])) {
         setErrors(["No se pudo guardar el pago en nube. No se aplicaron cambios."]);
@@ -310,6 +321,7 @@ export default function usePendingBankWorkflow(options: Options) {
       const client = updatedClients.get(item.suggestedClientId ?? "");
       if (!client) continue;
       const result = await applyPendingItem(item, client, receipts[index]);
+      attachNotifiedRouteMetadata(result.payment, item, client.id);
       updatedClients.set(result.updatedClient.id, result.updatedClient);
       newPayments.push(result.payment);
       usedFolios.add(folio);

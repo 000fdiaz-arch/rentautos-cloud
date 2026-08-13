@@ -73,7 +73,7 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     clients: { view: true, edit: true },
     payments: { view: true, edit: true },
     receivables: { view: true, edit: true },
-    route_search: { view: false, edit: false },
+    route_search: { view: true, edit: true },
     insurance_workflow: { view: true, edit: true },
     collisions: { view: true, edit: true },
     control_units: { view: true, edit: true },

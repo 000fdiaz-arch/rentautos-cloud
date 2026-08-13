@@ -65,7 +65,9 @@ assert(ledger.includes("Pendiente · En ruta"), "Ruta en calle debe mostrar Pend
 assert(page.includes("routeTagFilter"), "Gestion debe incluir un filtro directo por la etiqueta En ruta.");
 assert(page.includes("routeTaggedManagementCount"), "El filtro directo debe mostrar el total de cuentas en ruta.");
 assert(!page.includes("Ruta para enviar"), "La vista redundante Ruta para enviar debe desaparecer.");
-assert(page.includes("Publicar ruta (${routeWorkflowRowsCount})"), "Gestion debe permitir publicar las cuentas preparadas para ruta.");
+assert(page.includes("ar-route-publish-cta") && page.includes('"Publicar ruta"') && page.includes("routeWorkflowRowsCount"), "Gestion debe destacar la publicacion de las cuentas preparadas para ruta.");
+assert(page.includes("routeReadyFilter") && page.includes("isRouteReadyToSendRow(row)"), "El contador de unidades listas debe funcionar como filtro.");
+assert(page.includes('"Descargar ruta"') && page.includes("handleDownloadPublishedRoute"), "La descarga debe aparecer como segundo paso despues de publicar.");
 assert(page.includes('workflowTab === "route" ? ('), "La pestaña de ruta debe abrir directamente Ruta en calle.");
 assert(row.includes('isRoutePreparationComplete ? "Ver detalles" : "Completar ruta"'), "El acceso al modal debe indicar si falta completar la ruta.");
 assert(row.includes("onRouteAssignmentChange") && row.includes("onRouteUrgencyChange"), "Gestion debe permitir definir ruta y urgencia.");
@@ -76,7 +78,10 @@ assert(releaseAmountChange.includes("const nextAmount = parsedAmount ?? undefine
 assert(releaseAmountChange.includes("releaseAmount: nextAmount ?? 0"), "Ruta en calle debe conservar la cuenta con el monto marcado como pendiente.");
 assert(cloud.includes("releaseAmount < 0"), "La nube debe aceptar cero como marcador temporal de monto pendiente.");
 assert(routeSearch.includes("item.releaseAmount <= 0"), "Un monto pendiente no debe liberar automaticamente la cuenta por un pago.");
+assert(routeSearch.includes("payment.amountReceived >= item.releaseAmount"), "Ruta en calle debe liberar solo cuando un pago individual cubre el minimo solicitado.");
+assert(!routeSearch.includes("reduce((total, payment) => total + payment.amountReceived"), "Ruta en calle no debe sumar pagos parciales para ocultar una unidad activa.");
 assert(routeSearch.includes('"Monto pendiente"'), "Ruta en calle debe mostrar que el monto sigue pendiente.");
 assert(page.includes("hasActiveOperationalClient(row) &&\n          record?.isRouteTagged"), "La publicacion debe excluir cuentas no activas aunque tengan una etiqueta antigua.");
+assert(page.includes("return !!row && !hasActiveOperationalClient(row);"), "La limpieza de ruta solo debe desmontar una unidad confirmada como inactiva, no una fila aun sin cargar.");
 
 console.log("OK receivables route tag: cuatro estados, Pendiente bloqueado y migracion compatible.");

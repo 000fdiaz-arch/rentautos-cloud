@@ -1547,7 +1547,7 @@ export type ActiveRouteItem = {
   publishedAt: string;
   routeStartedAt: string;
   removedAt?: string;
-  removedReason?: "paid" | "removed";
+  removedReason?: "paid" | "removed" | "inactive" | "manual_management" | "manual_published";
 };
 
 function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
@@ -1584,7 +1584,7 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
     publishedAt,
     routeStartedAt,
     removedAt: typeof row.removedAt === "string" ? row.removedAt : undefined,
-    removedReason: row.removedReason === "paid" || row.removedReason === "removed" ? row.removedReason : undefined
+    removedReason: row.removedReason === "paid" || row.removedReason === "removed" || row.removedReason === "inactive" || row.removedReason === "manual_management" || row.removedReason === "manual_published" ? row.removedReason : undefined
   };
 }
 
@@ -1618,7 +1618,7 @@ export async function publishCloudActiveRouteItems(userId: string, items: Active
 export async function removeCloudActiveRouteItem(
   userId: string,
   clientId: string,
-  reason: "paid" | "removed"
+  reason: "paid" | "removed" | "inactive" | "manual_management" | "manual_published"
 ): Promise<void> {
   const client = getCloudClient();
   const { data, error: loadError } = await client

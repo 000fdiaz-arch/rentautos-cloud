@@ -9,11 +9,20 @@ import {
 import { loadCloudActiveRouteItems, saveCloudActiveRouteZone, type ActiveRouteItem } from "../cloudData";
 import { formatCurrency, formatDate } from "../format";
 import { supabase } from "../lib/supabase";
-import type { Payment } from "../types";
+import type { CollectionTeam, Payment } from "../types";
+import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentStorage";
+import type { NotifiedPayment } from "./payments/paymentTypes";
 
 type Props = {
   dataOwnerUserId?: string | null;
   payments: Payment[];
+  readOnly?: boolean;
+  onRegisterPayment?: (input: {
+    clientId: string;
+    amount: number;
+    method: "cash" | "bank";
+    team: CollectionTeam;
+  }) => Promise<{ kind: "cash" | "bank"; receiptNumber?: string }>;
 };
 
 const ALL_ACTIVE_ZONE_FILTER = "__all_zones__";
@@ -50,13 +59,27 @@ function dateKeyFromTimestampValue(value: string | undefined): string {
   return `${year}-${month}-${day}`;
 }
 
-function paymentReleasesRoute(payment: Payment, item: ActiveRouteItem): boolean {
-  if (item.releaseAmount <= 0 || payment.clientId !== item.clientId || payment.amountReceived < item.releaseAmount) return false;
+function paymentBelongsToRoute(payment: Payment, item: ActiveRouteItem): boolean {
+  if (payment.clientId !== item.clientId) return false;
   const routeStartedAt = toTimestamp(item.routeStartedAt);
   const createdTimestamp = toTimestamp(payment.createdAt);
   if (createdTimestamp > 0 && routeStartedAt > 0) return createdTimestamp >= routeStartedAt;
   const routeDateKey = dateKeyFromTimestampValue(item.routeStartedAt);
   return !!routeDateKey && payment.dateApplied >= routeDateKey;
+}
+
+function paymentReleasesRoute(payment: Payment, item: ActiveRouteItem): boolean {
+  return item.releaseAmount > 0 && payment.amountReceived >= item.releaseAmount && paymentBelongsToRoute(payment, item);
+}
+
+function latestRoutePaymentAmount(payments: Payment[], item: ActiveRouteItem): number {
+  const routePayments = payments.filter((payment) => paymentBelongsToRoute(payment, item));
+  if (routePayments.length === 0) return 0;
+  return [...routePayments]
+    .sort((left, right) => {
+      const createdDiff = toTimestamp(right.createdAt) - toTimestamp(left.createdAt);
+      return createdDiff || right.dateApplied.localeCompare(left.dateApplied);
+    })[0].amountReceived;
 }
 
 function firstName(value: string): string {
@@ -92,7 +115,7 @@ function routeImageFileName(routeLabel: string, zoneLabel?: string): string {
   return `cobro-en-ruta-${route || "sin-ruta"}-${date}.jpg`;
 }
 
-export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
+export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = true, onRegisterPayment }: Props) {
   const [items, setItems] = useState<ActiveRouteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -106,6 +129,14 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
   const [lastRefreshAt, setLastRefreshAt] = useState("");
   const [sharing, setSharing] = useState(false);
   const [shareMessage, setShareMessage] = useState("");
+  const [bankNotices, setBankNotices] = useState<NotifiedPayment[]>(() => loadNotifiedPayments());
+  const [paymentTarget, setPaymentTarget] = useState<ActiveRouteItem | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank">("cash");
+  const [paymentTeam, setPaymentTeam] = useState<"" | CollectionTeam>("");
+  const [paymentSaving, setPaymentSaving] = useState(false);
+  const [paymentError, setPaymentError] = useState("");
+  const [paymentMessage, setPaymentMessage] = useState("");
   const shareSheetRefs = useRef(new Map<string, HTMLDivElement>());
 
   async function reload(): Promise<void> {
@@ -129,8 +160,26 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
     }
   }
 
+  async function reloadBankNotices(): Promise<void> {
+    if (!dataOwnerUserId || !supabase) {
+      setBankNotices(loadNotifiedPayments());
+      return;
+    }
+    const { data, error: noticesError } = await supabase
+      .from("notified_payments_cloud")
+      .select("data")
+      .eq("user_id", dataOwnerUserId);
+    if (noticesError) {
+      console.warn("No se pudieron actualizar los pagos bancarios en hold.", noticesError);
+      setBankNotices(loadNotifiedPayments());
+      return;
+    }
+    setBankNotices(parseNotifiedPayments((data ?? []).map((row) => row.data)));
+  }
+
   useEffect(() => {
     void reload();
+    void reloadBankNotices();
   }, [dataOwnerUserId]);
 
   useEffect(() => {
@@ -141,6 +190,9 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
       .on("postgres_changes", { event: "*", schema: "public", table: "active_route_items_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, () => {
         void reload();
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "notified_payments_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, () => {
+        void reloadBankNotices();
+      })
       .subscribe();
     return () => {
       void client.removeChannel(channel);
@@ -150,8 +202,16 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
   const activeItems = useMemo(() => (
     items
       .filter((item) => !item.removedAt)
-      .filter((item) => !payments.some((payment) => paymentReleasesRoute(payment, item)))
+      .filter((item) => item.releaseAmount <= 0 || !payments.some((payment) => paymentReleasesRoute(payment, item)))
   ), [items, payments]);
+
+  const bankNoticesByClient = useMemo(() => {
+    const grouped = new Map<string, NotifiedPayment[]>();
+    bankNotices.filter((notice) => notice.paymentMethod === "bank").forEach((notice) => {
+      grouped.set(notice.clientId, [...(grouped.get(notice.clientId) ?? []), notice]);
+    });
+    return grouped;
+  }, [bankNotices]);
 
   const routeFilterOptions = useMemo(() => (
     Array.from(new Set(activeItems.map((item) => activeRouteFilterValue(item.routeAssignment))))
@@ -303,6 +363,49 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
     }
   }
 
+  function openPaymentDialog(item: ActiveRouteItem): void {
+    setPaymentTarget(item);
+    setPaymentAmount(item.releaseAmount > 0 ? String(item.releaseAmount) : "");
+    setPaymentMethod("cash");
+    setPaymentTeam("");
+    setPaymentError("");
+  }
+
+  async function submitRoutePayment(): Promise<void> {
+    if (!paymentTarget || !onRegisterPayment || paymentSaving) return;
+    const amount = Number.parseFloat(paymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setPaymentError("Indica un monto mayor a cero.");
+      return;
+    }
+    if (!paymentTeam) {
+      setPaymentError("Selecciona el equipo PTY o WC.");
+      return;
+    }
+    setPaymentSaving(true);
+    setPaymentError("");
+    try {
+      const result = await onRegisterPayment({
+        clientId: paymentTarget.clientId,
+        amount,
+        method: paymentMethod,
+        team: paymentTeam
+      });
+      if (result.kind === "bank") {
+        setBankNotices(loadNotifiedPayments());
+        setPaymentMessage(`Pago bancario de ${formatCurrency(amount)} en hold · Equipo ${paymentTeam}.`);
+      } else {
+        setPaymentMessage(`Pago en efectivo registrado en ${result.receiptNumber ?? "recibo"} · pendiente de entrega.`);
+      }
+      setPaymentTarget(null);
+    } catch (saveError) {
+      console.error("No se pudo registrar el pago desde Ruta en calle.", saveError);
+      setPaymentError(saveError instanceof Error ? saveError.message : "No se pudo registrar el pago.");
+    } finally {
+      setPaymentSaving(false);
+    }
+  }
+
   async function shareRouteImage(): Promise<void> {
     if (visibleRouteGroups.length === 0 || sharing) return;
     setSharing(true);
@@ -412,6 +515,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
       {error ? <p className="error-text">{error}</p> : null}
       {zoneError ? <p className="error-text" role="alert">{zoneError}</p> : null}
       {shareMessage ? <p className="route-search-share-message" role="status">{shareMessage}</p> : null}
+      {paymentMessage ? <p className="route-search-payment-message" role="status">{paymentMessage}</p> : null}
       {routeFilterOptions.length > 0 ? (
         <div className="route-search-filter-block">
           <span className="route-search-filter-label">Ruta</span>
@@ -484,6 +588,9 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
         <div className="route-search-list">
           {visibleItems.map((item, itemIndex) => {
             const managementTone = item.managementType === "cobrar_o_quitar" ? "remove" : "collect";
+            const confirmedPaidAmount = latestRoutePaymentAmount(payments, item);
+            const remainingToRelease = Math.max(0, item.releaseAmount - confirmedPaidAmount);
+            const itemBankNotices = bankNoticesByClient.get(item.clientId) ?? [];
             const itemZoneOptions = (zoneOptionsByRoute.get(activeRouteFilterValue(item.routeAssignment)) ?? [])
               .filter((option) => option.value !== EMPTY_ACTIVE_ZONE_FILTER);
             const zoneListId = `route-zone-options-${itemIndex}`;
@@ -542,6 +649,16 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
                     <strong>{formatCurrency(item.overdueBalance)}</strong>
                   </div>
                 </div>
+                {confirmedPaidAmount > 0 && remainingToRelease > 0 ? (
+                  <div className="route-search-payment-alert route-search-payment-alert--partial">
+                    Pago parcial confirmado: {formatCurrency(confirmedPaidAmount)} · Faltan {formatCurrency(remainingToRelease)}
+                  </div>
+                ) : null}
+                {itemBankNotices.map((notice) => (
+                  <div className="route-search-payment-alert route-search-payment-alert--hold" key={notice.id}>
+                    Por confirmar banca: {formatCurrency(notice.amount)}{notice.collectionTeam ? ` · Equipo ${notice.collectionTeam}` : ""}
+                  </div>
+                ))}
                 <div className="route-search-meta">
                   <span className={`route-search-delay ${item.daysLate > 0 ? "route-search-delay--late" : "route-search-delay--ok"}`}>
                     {item.daysLate > 0 ? `${item.daysLate} dias atraso` : "Sin atraso"}
@@ -552,11 +669,63 @@ export default function RouteSearchPage({ dataOwnerUserId, payments }: Props) {
                   <span className="route-search-added-at">En calle {formatPublishedAt(item.publishedAt)}</span>
                 </div>
                 {item.comment ? <p className="route-search-comment">{item.comment}</p> : null}
+                {!readOnly && onRegisterPayment ? (
+                  <button type="button" className="button primary route-search-payment-button" onClick={() => openPaymentDialog(item)}>
+                    Registrar pago
+                  </button>
+                ) : null}
               </article>
             );
           })}
         </div>
       )}
+
+      {paymentTarget ? (
+        <div className="modal-overlay route-search-payment-overlay" onMouseDown={() => !paymentSaving && setPaymentTarget(null)}>
+          <div className="modal route-search-payment-modal" role="dialog" aria-modal="true" aria-labelledby="route-payment-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2 id="route-payment-title">Registrar pago</h2>
+                <p>{paymentTarget.unitId} · {paymentTarget.clientName}</p>
+              </div>
+              <button type="button" className="button ghost small" onClick={() => setPaymentTarget(null)} disabled={paymentSaving}>Cerrar</button>
+            </div>
+            <div className="route-search-payment-form">
+              <label>
+                <span>Monto pagado</span>
+                <input type="number" min="0.01" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} autoFocus />
+              </label>
+              <label>
+                <span>Cómo pagó</span>
+                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as "cash" | "bank")}>
+                  <option value="cash">Efectivo</option>
+                  <option value="bank">Banca</option>
+                </select>
+              </label>
+              <label>
+                <span>Equipo</span>
+                <select value={paymentTeam} onChange={(event) => setPaymentTeam(event.target.value as "" | CollectionTeam)}>
+                  <option value="">Seleccionar</option>
+                  <option value="PTY">PTY</option>
+                  <option value="WC">WC</option>
+                </select>
+              </label>
+              {paymentMethod === "cash" ? (
+                <p className="hint">Se generará el recibo y el efectivo quedará pendiente de entrega.</p>
+              ) : (
+                <p className="hint">Quedará en hold hasta que el banco confirme el movimiento.</p>
+              )}
+              {paymentError ? <p className="error-text" role="alert">{paymentError}</p> : null}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="button ghost" onClick={() => setPaymentTarget(null)} disabled={paymentSaving}>Cancelar</button>
+              <button type="button" className="button primary" onClick={() => void submitRoutePayment()} disabled={paymentSaving}>
+                {paymentSaving ? "Guardando..." : paymentMethod === "cash" ? "Generar recibo" : "Colocar en hold"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="route-share-stage" aria-hidden="true">
         {visibleRouteGroups.map((group) => (
