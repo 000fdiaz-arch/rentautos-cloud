@@ -27,7 +27,7 @@ const fs = require("node:fs");
     createdAt: "2026-08-10T14:30:00.000Z"
   };
   const payments = [
-    { ...basePayment, id: "income-cash", receiptNumber: "REC-1001", paymentMethod: "Efectivo", amountReceived: 100 },
+    { ...basePayment, id: "income-cash", receiptNumber: "REC-1001", paymentMethod: "Efectivo", amountReceived: 100, collectionTeam: "PTY", source: "route", incomeComment: "Cobro en Ruta · Equipo PTY" },
     { ...basePayment, id: "income-bank", receiptNumber: "REC-1002", paymentMethod: "ACH Express", amountReceived: 200, bankAccountNumber: "3380008048", bankGroupCode: "OPERACION", fundsReceivedDate: dateApplied, reference: "REF:BANCO-1" },
     { ...basePayment, id: "income-card", receiptNumber: "REC-1003", paymentMethod: "Tarjeta", amountReceived: 80, reference: "TARJETA-PENDIENTE-CONCILIACION" },
     { ...basePayment, id: "income-discount", receiptNumber: "REC-1004", paymentMethod: "Descuento", amountReceived: 50 },
@@ -110,6 +110,12 @@ const fs = require("node:fs");
 
   const cashGroup = panel.locator(".income-day-group", { hasText: /^Efectivo/ });
   await cashGroup.locator(".income-day-group-summary").click();
+  await cashGroup.getByRole("button", { name: "Editar" }).click();
+  const cashEditDialog = page.getByRole("dialog", { name: "Editar ingreso REC-1001" });
+  await cashEditDialog.getByLabel("Equipo").selectOption("WC");
+  await cashEditDialog.getByLabel("Motivo de la corrección").fill("El cobro correspondía al equipo WC");
+  await cashEditDialog.getByRole("button", { name: "Guardar cambios" }).click();
+  if (!(await cashGroup.innerText()).includes("WC") || !(await cashGroup.innerText()).includes("Cobro en Ruta · Equipo WC")) throw new Error("La corrección de equipo no actualizó el ingreso y su comentario de ruta");
   await cashGroup.getByLabel("Dinero entregado REC-1001").selectOption("no");
   await panel.getByLabel("Fecha").fill("2026-08-10");
   const pendingDelivery = panel.getByLabel("Pendientes por entregar");
@@ -132,8 +138,10 @@ const fs = require("node:fs");
   if (!Array.isArray(savedBank?.incomeEdits)) throw new Error("No se guardó la auditoría");
   if (savedBank.incomeEdits.length !== 1) throw new Error("La auditoría del comentario es incorrecta");
   const savedCash = saved.find((payment) => payment.id === "income-cash");
+  if (savedCash?.collectionTeam !== "WC" || savedCash?.incomeComment !== "Cobro en Ruta · Equipo WC") throw new Error("No se guardó la corrección del equipo WC");
   if (savedCash?.moneyDelivered !== true || savedCash?.moneyDeliveryDate !== "2026-08-10") throw new Error("No se guardó la entrega del efectivo el lunes");
-  if (!Array.isArray(savedCash.incomeEdits) || savedCash.incomeEdits.length !== 2) throw new Error("No se auditaron los cambios de entrega del efectivo");
+  if (!Array.isArray(savedCash.incomeEdits) || savedCash.incomeEdits.length !== 3) throw new Error("No se auditaron la corrección de equipo y los cambios de entrega del efectivo");
+  if (savedCash.incomeEdits[0]?.previousCollectionTeam !== "PTY" || savedCash.incomeEdits[0]?.nextCollectionTeam !== "WC") throw new Error("La auditoría no conservó el cambio PTY → WC");
 
   console.log("OK ingresos del día: resumen, cuenta, pendientes, comentario y auditoría validados.");
   await browser.close();

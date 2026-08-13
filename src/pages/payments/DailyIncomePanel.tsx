@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, type RefObject } from "react";
 import { formatCurrency } from "../../format";
-import type { BankRule, Payment, PaymentIncomeEdit } from "../../types";
+import type { BankRule, CollectionTeam, Payment, PaymentIncomeEdit } from "../../types";
 import { getBusinessDateKey } from "../../billing";
 import { BANK_PAYMENT_METHODS } from "./paymentConstants";
 import { PAYMENT_METHODS } from "./paymentConstants";
@@ -89,6 +89,7 @@ export default function DailyIncomePanel({
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [editAccount, setEditAccount] = useState("");
+  const [editTeam, setEditTeam] = useState<"" | CollectionTeam>("");
   const [editComment, setEditComment] = useState("");
   const [editReason, setEditReason] = useState("");
   const [editError, setEditError] = useState("");
@@ -368,6 +369,7 @@ export default function DailyIncomePanel({
   function openEdit(payment: Payment): void {
     setEditingPayment(payment);
     setEditAccount(payment.bankAccountNumber ?? "");
+    setEditTeam(payment.collectionTeam ?? "");
     setEditComment(payment.incomeComment ?? "");
     setEditReason("");
     setEditError("");
@@ -439,16 +441,23 @@ export default function DailyIncomePanel({
     if (!editingPayment) return;
     const nextAccount = editAccount.trim();
     const previousAccount = editingPayment.bankAccountNumber?.trim() ?? "";
-    const nextComment = editComment.trim();
+    const previousTeam = editingPayment.collectionTeam ?? "";
+    const nextTeam = editTeam;
+    const teamChanged = nextTeam !== previousTeam;
+    const enteredComment = editComment.trim();
     const previousComment = editingPayment.incomeComment?.trim() ?? "";
+    const routeComment = previousTeam ? `Cobro en Ruta · Equipo ${previousTeam}` : "";
+    const nextComment = teamChanged && enteredComment === routeComment && nextTeam
+      ? `Cobro en Ruta · Equipo ${nextTeam}`
+      : enteredComment;
     const accountChanged = nextAccount !== previousAccount;
     const commentChanged = nextComment !== previousComment;
-    if (!accountChanged && !commentChanged) {
+    if (!accountChanged && !teamChanged && !commentChanged) {
       setEditingPayment(null);
       return;
     }
-    if (accountChanged && !editReason.trim()) {
-      setEditError("Indica el motivo de la corrección de cuenta.");
+    if ((accountChanged || teamChanged) && !editReason.trim()) {
+      setEditError("Indica el motivo de la corrección.");
       return;
     }
     const matchedRule = accountOptions.find((rule) => rule.accountNumber === nextAccount);
@@ -460,12 +469,15 @@ export default function DailyIncomePanel({
       previousAccountNumber: previousAccount || undefined,
       nextAccountNumber: nextAccount || undefined,
       previousComment: commentChanged ? previousComment || undefined : undefined,
-      nextComment: commentChanged ? nextComment || undefined : undefined
+      nextComment: commentChanged ? nextComment || undefined : undefined,
+      previousCollectionTeam: teamChanged ? previousTeam || undefined : undefined,
+      nextCollectionTeam: teamChanged ? nextTeam || undefined : undefined
     };
     onPaymentsChange(payments.map((payment) => payment.id === editingPayment.id ? {
       ...payment,
       bankAccountNumber: nextAccount || undefined,
       bankGroupCode: matchedRule?.groupCode || (nextAccount === previousAccount ? payment.bankGroupCode : undefined),
+      collectionTeam: nextTeam || undefined,
       incomeComment: nextComment || undefined,
       incomeEdits: [...(payment.incomeEdits ?? []), audit]
     } : payment));
@@ -688,8 +700,15 @@ export default function DailyIncomePanel({
                 {accountOptions.map((rule) => <option key={rule.id} value={rule.accountNumber}>{rule.accountName || "Cuenta bancaria"} · {maskAccountNumber(rule.accountNumber)} · Grupo {rule.groupCode}</option>)}
               </select>
             </label> : null}
+            <label>Equipo
+              <select value={editTeam} onChange={(event) => setEditTeam(event.target.value as "" | CollectionTeam)}>
+                <option value="">Sin equipo</option>
+                <option value="PTY">PTY</option>
+                <option value="WC">WC</option>
+              </select>
+            </label>
             <label>Comentario<textarea rows={3} value={editComment} onChange={(event) => setEditComment(event.target.value)} placeholder="Comentario opcional" /></label>
-            {editAccount.trim() !== (editingPayment.bankAccountNumber?.trim() ?? "") && <label>Motivo de la corrección<input value={editReason} onChange={(event) => setEditReason(event.target.value)} placeholder="Obligatorio al cambiar la cuenta" /></label>}
+            {(editAccount.trim() !== (editingPayment.bankAccountNumber?.trim() ?? "") || editTeam !== (editingPayment.collectionTeam ?? "")) && <label>Motivo de la corrección<input value={editReason} onChange={(event) => setEditReason(event.target.value)} placeholder="Obligatorio al cambiar cuenta o equipo" /></label>}
             {editError && <p className="hint error-text">{editError}</p>}
             {(editingPayment.incomeEdits?.length ?? 0) > 0 && <details><summary>Historial de ediciones ({editingPayment.incomeEdits?.length})</summary><ul className="income-edit-audit">{[...(editingPayment.incomeEdits ?? [])].reverse().map((edit) => <li key={edit.id}><strong>{edit.actor}</strong> · {new Date(edit.createdAt).toLocaleString("es-PA")}{edit.reason ? ` · ${edit.reason}` : ""}</li>)}</ul></details>}
             <div className="modal-actions"><button type="button" className="button ghost" onClick={() => setEditingPayment(null)}>Cancelar</button><button type="button" className="button primary" onClick={saveEdit}>Guardar cambios</button></div>

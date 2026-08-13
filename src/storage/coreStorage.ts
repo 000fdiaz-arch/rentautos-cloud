@@ -315,6 +315,8 @@ function normalizePaymentIncomeEdits(value: unknown): PaymentIncomeEdit[] | unde
       nextAccountNumber: optionalText(raw.nextAccountNumber),
       previousComment: optionalText(raw.previousComment),
       nextComment: optionalText(raw.nextComment),
+      previousCollectionTeam: raw.previousCollectionTeam === "PTY" || raw.previousCollectionTeam === "WC" ? raw.previousCollectionTeam : undefined,
+      nextCollectionTeam: raw.nextCollectionTeam === "PTY" || raw.nextCollectionTeam === "WC" ? raw.nextCollectionTeam : undefined,
       previousMoneyDelivered: typeof raw.previousMoneyDelivered === "boolean" ? raw.previousMoneyDelivered : undefined,
       nextMoneyDelivered: typeof raw.nextMoneyDelivered === "boolean" ? raw.nextMoneyDelivered : undefined
     }];

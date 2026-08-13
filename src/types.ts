@@ -221,6 +221,8 @@ export type PaymentIncomeEdit = {
   nextAccountNumber?: string;
   previousComment?: string;
   nextComment?: string;
+  previousCollectionTeam?: CollectionTeam;
+  nextCollectionTeam?: CollectionTeam;
   previousMoneyDelivered?: boolean;
   nextMoneyDelivered?: boolean;
 };
