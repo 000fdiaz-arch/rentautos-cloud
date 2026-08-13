@@ -74,7 +74,7 @@ export class JudicialOutcomeRequiredForClaimError extends Error {
   readonly code = "JUDICIAL_OUTCOME_REQUIRED_FOR_CLAIM";
 
   constructor() {
-    super("Este siniestro tiene un juicio asociado. El reclamo al seguro solo puede iniciarse después de ganar el caso.");
+    super("Este siniestro tiene un juicio asociado. El reclamo al seguro solo puede iniciarse después de registrar la absolución y adjuntar la resolución judicial.");
     this.name = "JudicialOutcomeRequiredForClaimError";
   }
 }
@@ -190,13 +190,16 @@ export type CollisionCaseRecord = {
   trialDate: string;
   vehicleDamage: string;
   ticketStub: string;
+  ticketStubPhoto?: CollisionPhotoAttachment | null;
   placeTime: string;
   court: string;
   collisionAndRun: boolean;
   status: CollisionTrialStatus;
   trialDateHistory: CollisionTrialDateEvent[];
   judicialFollowUps: CollisionJudicialFollowUp[];
+  incidentPhotos?: CollisionPhotoAttachment[];
   judicialOutcomeEvidence: CollisionPhotoAttachment | null;
+  judicialResolutionEvidence?: CollisionPhotoAttachment | null;
   insuranceClaim: CollisionInsuranceClaim | null;
   expenseInvoice: CollisionExpenseInvoice | null;
   clientReturnedBeforeClosure?: boolean;
@@ -370,7 +373,7 @@ export async function saveInsuranceClaim(userId: string, claim: InsuranceClaimRe
       && normalizeIncidentIdentity(item.unit) === normalizeIncidentIdentity(claim.unit)
       && normalizeIncidentIdentity(item.plate) === normalizeIncidentIdentity(claim.plate)
     ));
-    if (relatedJudicialCase && relatedJudicialCase.status !== "ABSUELTO") throw new JudicialOutcomeRequiredForClaimError();
+    if (relatedJudicialCase && (relatedJudicialCase.status !== "ABSUELTO" || !relatedJudicialCase.judicialResolutionEvidence)) throw new JudicialOutcomeRequiredForClaimError();
   }
   const normalizedClaimNumber = normalizeInsuranceClaimNumber(claim.claimNumber);
   if (normalizedClaimNumber) {
@@ -513,6 +516,9 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
       ? item.trialDate
       : typeof legacy.nextFollowUpDate === "string" ? legacy.nextFollowUpDate : "",
     ticketStub: typeof item.ticketStub === "string" ? item.ticketStub : "",
+    ticketStubPhoto: item.ticketStubPhoto && typeof item.ticketStubPhoto === "object" && typeof item.ticketStubPhoto.path === "string"
+      ? item.ticketStubPhoto
+      : null,
     placeTime: typeof item.placeTime === "string" ? item.placeTime : "",
     court: typeof item.court === "string" ? normalizeCourtName(item.court) : "",
     collisionAndRun: item.collisionAndRun === true,
@@ -529,8 +535,14 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
           && typeof entry.createdAt === "string"
         ))
       : [],
+    incidentPhotos: Array.isArray(item.incidentPhotos)
+      ? item.incidentPhotos.filter((photo): photo is CollisionPhotoAttachment => Boolean(photo && typeof photo === "object" && typeof photo.path === "string"))
+      : [],
     judicialOutcomeEvidence: item.judicialOutcomeEvidence && typeof item.judicialOutcomeEvidence === "object" && typeof item.judicialOutcomeEvidence.path === "string"
       ? item.judicialOutcomeEvidence
+      : null,
+    judicialResolutionEvidence: item.judicialResolutionEvidence && typeof item.judicialResolutionEvidence === "object" && typeof item.judicialResolutionEvidence.path === "string"
+      ? item.judicialResolutionEvidence
       : null,
     insuranceClaim: existingClaim ?? legacyClaim,
     expenseInvoice: item.expenseInvoice && typeof item.expenseInvoice === "object" ? item.expenseInvoice : null,

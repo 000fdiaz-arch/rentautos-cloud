@@ -10,8 +10,10 @@ type Props = {
   canViewPayments: boolean;
   canViewReceivables: boolean;
   canViewRouteSearch: boolean;
+  canViewIncidents: boolean;
   canViewControlUnits: boolean;
   canViewSettings: boolean;
+  incidentAlertCount?: number;
   showCoreSyncStatus?: boolean;
   syncStatus: "idle" | "syncing" | "ok" | "error";
   syncErrorMessage: string;
@@ -29,8 +31,10 @@ export default function AppNavigation({
   canViewPayments,
   canViewReceivables,
   canViewRouteSearch,
+  canViewIncidents,
   canViewControlUnits,
   canViewSettings,
+  incidentAlertCount = 0,
   showCoreSyncStatus = true,
   syncStatus,
   syncErrorMessage,
@@ -47,6 +51,7 @@ export default function AppNavigation({
     { page: "payments", label: "Pagos", mobileLabel: "Pagos", visible: canViewPayments },
     { page: "receivables", label: "Cuentas por cobrar", mobileLabel: "Cuentas", visible: canViewReceivables },
     { page: "route_search", label: "Ruta en calle", mobileLabel: "Ruta", visible: canViewRouteSearch },
+    { page: "incidents", label: "Control de siniestros", mobileLabel: "Siniestros", visible: canViewIncidents, badge: incidentAlertCount },
     { page: "settings", label: "Configuraciones", mobileLabel: "Config.", visible: canViewSettings }
   ];
   const effectiveSyncStatus = showCoreSyncStatus ? syncStatus : "ok";

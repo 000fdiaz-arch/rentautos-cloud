@@ -116,6 +116,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   const [driverEditedManually, setDriverEditedManually] = useState(false);
   const [outcomeDrafts, setOutcomeDrafts] = useState<Record<string, "" | "ABSUELTO" | "CULPABLE" | "NUEVA FECHA">>({});
   const [outcomeEvidenceFiles, setOutcomeEvidenceFiles] = useState<Record<string, File | null>>({});
+  const [resolutionEvidenceFiles, setResolutionEvidenceFiles] = useState<Record<string, File | null>>({});
   const [newTrialDates, setNewTrialDates] = useState<Record<string, string>>({});
   const [rescheduleReasons, setRescheduleReasons] = useState<Record<string, string>>({});
   const [expenseAmounts, setExpenseAmounts] = useState<Record<string, string>>({});
@@ -351,7 +352,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     let uploadedEvidence: CollisionPhotoAttachment | null = null;
     setBusyId(item.id); setMessage("");
     try {
-      if (outcome !== "NUEVA FECHA") {
+      if (outcome === "CULPABLE") {
         const evidenceFile = outcomeEvidenceFiles[item.id];
         if (!evidenceFile) throw new Error("OUTCOME_EVIDENCE_REQUIRED");
         uploadedEvidence = await uploadCollisionPhoto(dataOwnerUserId, item.id, evidenceFile);
@@ -368,7 +369,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
           updatedAt: now
         }, "Nueva fecha de juicio guardada con su razón.");
       } else if (outcome === "ABSUELTO") {
-        await persistCase({ ...item, status: "ABSUELTO", judicialOutcomeEvidence: uploadedEvidence, updatedAt: now }, "Resultado ABSUELTO y documento guardados. Se habilitó el formulario de reclamo.");
+        await persistCase({ ...item, status: "ABSUELTO", judicialOutcomeEvidence: null, judicialResolutionEvidence: null, updatedAt: now }, "Resultado ABSUELTO guardado. El próximo paso es buscar y adjuntar la resolución judicial.");
       } else {
         const clientReturned = returnedBeforeClosure[item.id] === true;
         if (clientReturned) {
@@ -452,6 +453,42 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     setOutcomeEvidenceFiles((current) => ({ ...current, [caseId]: file }));
   }
 
+  function selectResolutionEvidence(caseId: string, file: File | undefined): void {
+    if (!file) {
+      setResolutionEvidenceFiles((current) => ({ ...current, [caseId]: null }));
+      return;
+    }
+    if (!file.type.startsWith("image/") || file.size > MAX_PHOTO_SIZE) {
+      setResolutionEvidenceFiles((current) => ({ ...current, [caseId]: null }));
+      setMessage("La resolución debe ser una imagen de 10 MB o menos.");
+      return;
+    }
+    setMessage("");
+    setResolutionEvidenceFiles((current) => ({ ...current, [caseId]: file }));
+  }
+
+  async function saveJudicialResolution(item: CollisionCaseRecord): Promise<void> {
+    if (readOnly || busyId || !dataOwnerUserId || item.status !== "ABSUELTO") return;
+    const file = resolutionEvidenceFiles[item.id];
+    if (!file) { setMessage("Adjunta la resolución judicial para habilitar el reclamo al seguro."); return; }
+    let uploadedResolution: CollisionPhotoAttachment | null = null;
+    setBusyId(item.id); setMessage("");
+    try {
+      uploadedResolution = await uploadCollisionPhoto(dataOwnerUserId, item.id, file);
+      await persistCase(
+        { ...item, judicialResolutionEvidence: uploadedResolution, updatedAt: new Date().toISOString() },
+        "Resolución judicial guardada. Ya puedes iniciar el reclamo al seguro."
+      );
+      setResolutionEvidenceFiles((current) => ({ ...current, [item.id]: null }));
+    } catch (error) {
+      console.error("No se pudo guardar la resolución judicial.", error);
+      setMessage("No se pudo guardar la resolución judicial.");
+      if (uploadedResolution) {
+        try { await removeCollisionPhotos([uploadedResolution.path]); } catch { /* Limpieza de mejor esfuerzo. */ }
+      }
+    } finally { setBusyId(""); }
+  }
+
   function selectClaimPhotos(caseId: string, files: FileList | null, existingCount: number): void {
     const selected = Array.from(files ?? []).slice(0, Math.max(0, MAX_PHOTOS - existingCount));
     if (selected.some((file) => !file.type.startsWith("image/") || file.size > MAX_PHOTO_SIZE)) {
@@ -461,7 +498,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   }
 
   async function saveClaim(item: CollisionCaseRecord): Promise<void> {
-    if (readOnly || busyId || !dataOwnerUserId || item.status !== "ABSUELTO") return;
+    if (readOnly || busyId || !dataOwnerUserId || item.status !== "ABSUELTO" || !item.judicialResolutionEvidence) return;
     const draft = claimDrafts[item.id] ?? EMPTY_CLAIM;
     const existingPhotos = item.insuranceClaim?.photos ?? [];
     const uploaded: CollisionPhotoAttachment[] = [];
@@ -641,23 +678,26 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                 {activeCaseTab === "management" && <div className="judicial-case-tab-panel judicial-case-tab-panel--management" role="tabpanel" id={`judicial-management-panel-${item.id}`} aria-labelledby={`judicial-management-tab-${item.id}`}>
                   <dl className="workflow-claim-detail-grid">
                   <div><dt>Fecha del incidente</dt><dd>{item.incidentDate}</dd></div><div><dt>Fecha de juicio</dt><dd>{item.trialDate}</dd></div>
-                  <div><dt>Colilla</dt><dd>{item.ticketStub}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
+                  <div><dt>Colilla</dt><dd>{item.ticketStub}{item.ticketStubPhoto && <button type="button" className="button small" onClick={() => void viewPhoto(item.ticketStubPhoto!)}>Ver foto</button>}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
                   <div><dt>Colisión y fuga</dt><dd><span className={`collision-runaway-status ${item.collisionAndRun ? "collision-runaway-status--yes" : "collision-runaway-status--no"}`}>{item.collisionAndRun ? "Sí" : "No"}</span></dd></div>
                   <div><dt>Cliente del expediente</dt><dd>{item.clientName || item.driver || "-"}</dd></div>
-                  <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>
-                  </dl>
-                {!isFinalStatus(item.status) && <div className="workflow-finalization-panel collision-outcome-panel">
+                   <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>
+                   </dl>
+                 {item.incidentPhotos?.length ? <div className="workflow-damage-photo-list"><strong>Fotos adjuntas al juicio ({item.incidentPhotos.length})</strong>{item.incidentPhotos.map((photo, index) => <div key={photo.path} className="workflow-damage-photo-row"><div><strong>Foto {index + 1}</strong><small>{photo.name}</small></div><button type="button" className="button" onClick={() => void viewPhoto(photo)}>Ver foto</button></div>)}</div> : null}
+                 {!isFinalStatus(item.status) && <div className="workflow-finalization-panel collision-outcome-panel">
                   <div><strong>Resultado del juicio</strong><span>Selecciona el resultado para continuar el flujo.</span></div>
                   <label>Resultado<select value={outcome} onChange={(event) => setOutcomeDrafts((current) => ({ ...current, [item.id]: event.target.value as typeof outcome }))} disabled={readOnly || busyId === item.id}><option value="">Seleccionar</option><option>ABSUELTO</option><option>CULPABLE</option><option>NUEVA FECHA</option></select></label>
-                  {(outcome === "ABSUELTO" || outcome === "CULPABLE") && <label className="collision-outcome-evidence">Documento que valida el resultado<input type="file" accept="image/*" onChange={(event) => selectOutcomeEvidence(item.id, event.target.files?.[0])} disabled={readOnly || busyId === item.id} /><small>{outcomeEvidenceFile ? `Seleccionado: ${outcomeEvidenceFile.name}` : "Obligatorio · imagen de hasta 10 MB"}</small></label>}
+                  {outcome === "CULPABLE" && <label className="collision-outcome-evidence">Documento que valida el resultado<input type="file" accept="image/*" onChange={(event) => selectOutcomeEvidence(item.id, event.target.files?.[0])} disabled={readOnly || busyId === item.id} /><small>{outcomeEvidenceFile ? `Seleccionado: ${outcomeEvidenceFile.name}` : "Obligatorio · imagen de hasta 10 MB"}</small></label>}
                   {outcome === "NUEVA FECHA" && <><label>Nueva fecha de juicio<input type="date" value={newTrialDates[item.id] ?? ""} onChange={(event) => setNewTrialDates((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label className="workflow-finalization-reason">Razón de la nueva fecha<textarea value={rescheduleReasons[item.id] ?? ""} placeholder="La razón es obligatoria" onChange={(event) => setRescheduleReasons((current) => ({ ...current, [item.id]: event.target.value }))} /></label></>}
                   {outcome === "CULPABLE" && <label className="collision-client-returned-option"><input type="checkbox" checked={returnedBeforeClosure[item.id] === true} onChange={(event) => setReturnedBeforeClosure((current) => ({ ...current, [item.id]: event.target.checked }))} disabled={readOnly || busyId === item.id} /><span><strong>El cliente dejó el carro antes del cierre del caso</strong><small>Se cerrará el juicio sin generar una factura automática.</small></span></label>}
                   {outcome === "CULPABLE" && returnedBeforeClosure[item.id] !== true && <><label>Concepto de gastos<input value={expenseLabels[item.id] ?? `GASTOS DE JUICIO - ${item.unit}`} onChange={(event) => setExpenseLabels((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label>Monto de gastos<input type="number" min="0.01" step="0.01" placeholder="0.00" value={expenseAmounts[item.id] ?? ""} onChange={(event) => setExpenseAmounts((current) => ({ ...current, [item.id]: event.target.value }))} /></label></>}
-                  <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => void applyOutcome(item)} disabled={readOnly || busyId === item.id || !outcome || (outcome !== "NUEVA FECHA" && !outcomeEvidenceFile)}>{busyId === item.id ? "Guardando..." : "Confirmar resultado"}</button></div>
+                  <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => void applyOutcome(item)} disabled={readOnly || busyId === item.id || !outcome || (outcome === "CULPABLE" && !outcomeEvidenceFile)}>{busyId === item.id ? "Guardando..." : "Confirmar resultado"}</button></div>
                 </div>}
                 {item.judicialOutcomeEvidence && <div className="collision-outcome-document"><div><strong>Documento del resultado: {item.status}</strong><span>{item.judicialOutcomeEvidence.name}</span><small>Guardado el {new Date(item.judicialOutcomeEvidence.uploadedAt).toLocaleString("es-PA")}</small></div><button type="button" className="button" onClick={() => void viewPhoto(item.judicialOutcomeEvidence!)}>Ver documento</button></div>}
+                {item.status === "ABSUELTO" && !item.judicialResolutionEvidence && <div className="workflow-finalization-panel collision-outcome-panel"><div><strong>Buscar resolución judicial</strong><span>Este es el paso previo obligatorio para habilitar el reclamo al seguro.</span></div><label className="collision-outcome-evidence">Resolución judicial<input type="file" accept="image/*" onChange={(event) => selectResolutionEvidence(item.id, event.target.files?.[0])} disabled={readOnly || busyId === item.id} /><small>{resolutionEvidenceFiles[item.id] ? `Seleccionada: ${resolutionEvidenceFiles[item.id]!.name}` : "Adjunta la resolución · imagen de hasta 10 MB"}</small></label><div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => void saveJudicialResolution(item)} disabled={readOnly || busyId === item.id || !resolutionEvidenceFiles[item.id]}>{busyId === item.id ? "Guardando..." : "Guardar resolución"}</button></div></div>}
+                {item.judicialResolutionEvidence && <div className="collision-outcome-document"><div><strong>Resolución judicial registrada</strong><span>{item.judicialResolutionEvidence.name}</span><small>El reclamo al seguro está habilitado.</small></div><button type="button" className="button" onClick={() => void viewPhoto(item.judicialResolutionEvidence!)}>Ver resolución</button></div>}
                 {item.trialDateHistory.length > 0 && <details className="workflow-edit-history" open><summary>Historial de fechas de juicio ({item.trialDateHistory.length})</summary><ul>{[...item.trialDateHistory].reverse().map((event) => <li key={`${event.changedAt}-${event.newDate}`}><time>{new Date(event.changedAt).toLocaleString("es-PA")}</time><span>{event.previousDate} → {event.newDate}: {event.reason}</span></li>)}</ul></details>}
-                {item.status === "ABSUELTO" && <div className="collision-claim-panel">
+                {item.status === "ABSUELTO" && item.judicialResolutionEvidence && <div className="collision-claim-panel">
                   <div><strong>Formulario de reclamo</strong><span>{item.insuranceClaim ? (item.insuranceClaim.claimNumber ? "Reclamo activo: ya cuenta con número de reclamo." : "Reclamo inactivo: todavía no cuenta con número de reclamo.") : "Puedes guardarlo como inactivo aunque todavía no tengas información del reclamo."}</span></div>
                   <div className="workflow-form-grid">
                     <label>Aseguradora<select value={(claimDrafts[item.id] ?? EMPTY_CLAIM).insurer} onChange={(event) => event.target.value === "__new__" ? void addClaimInsurer(item.id) : setClaimDrafts((current) => ({ ...current, [item.id]: { ...(current[item.id] ?? EMPTY_CLAIM), insurer: event.target.value } }))} disabled={readOnly || busyId === item.id}><option value="">Seleccionar aseguradora</option>{insurerOptions.map((insurer) => <option key={insurer} value={insurer}>{insurer}</option>)}<option value="__new__">+ Nueva aseguradora</option></select></label>
