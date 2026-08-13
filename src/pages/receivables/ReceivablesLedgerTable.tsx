@@ -2,7 +2,7 @@ import { memo, useState, type RefObject } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { STATE_LABEL, type ReceivableRow, type ReceivableState } from "../../receivables";
 import type { Client } from "../../types";
-import type { CollectionStatusRecord } from "./receivablesTypes";
+import { fieldManagementLabel, type CollectionStatusRecord, type FieldManagementType } from "./receivablesTypes";
 import { ReceivableTableRow } from "./ReceivableTableRow";
 import {
   COLLECTION_CUT_OPTIONS,
@@ -51,7 +51,7 @@ type Props = {
   onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
   onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
   onRouteTagChange: (clientId: string, tagged: boolean) => void;
-  onRouteManagementTypeChange: (clientId: string, value: "solo_cobrar" | "cobrar_o_quitar") => void;
+  onRouteManagementTypeChange: (clientId: string, value: FieldManagementType) => void;
   onRouteManagementCommentChange: (clientId: string, value: string) => void;
   onRouteAssignmentChange: (clientId: string, value: string) => void;
   onRouteUrgencyChange: (clientId: string, value: "normal" | "urgent" | "very_urgent") => void;
@@ -91,8 +91,7 @@ function renderCutStatusCell(item: CollectionClosureItem | undefined) {
         {item.whatsAppMessageSentAt ? <span>Enviado</span> : item.whatsAppMessageCopiedAt ? <span>Por enviar</span> : null}
         {item.managementAmount ? (
           <span>
-            Cobro en ruta {formatCurrency(item.managementAmount)}
-            {item.managementType === "cobrar_o_quitar" ? " / quitar" : ""}
+            {fieldManagementLabel(item.managementType)} en ruta {formatCurrency(item.managementAmount)}
           </span>
         ) : null}
         {item.contactTime ? <span>Contactar {item.contactTime}</span> : null}
@@ -234,11 +233,13 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                     <select
                       className="ar-route-list-type"
                       value={statusRecord?.managementType ?? "solo_cobrar"}
-                      onChange={(event) => onRouteManagementTypeChange(row.id, event.target.value as "solo_cobrar" | "cobrar_o_quitar")}
+                      onChange={(event) => onRouteManagementTypeChange(row.id, event.target.value as FieldManagementType)}
                       disabled={isTodayCollectionClosed}
                     >
                       <option value="solo_cobrar">Solo cobrar</option>
                       <option value="cobrar_o_quitar">Cobrar o quitar</option>
+                      <option value="desiste">Desiste</option>
+                      <option value="quitar">Quitar</option>
                     </select>
                   </td>
                   <td>
@@ -383,11 +384,13 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                     <select
                       className="ar-route-list-type"
                       value={statusRecord?.managementType ?? "solo_cobrar"}
-                      onChange={(event) => onRouteManagementTypeChange(row.id, event.target.value as "solo_cobrar" | "cobrar_o_quitar")}
+                      onChange={(event) => onRouteManagementTypeChange(row.id, event.target.value as FieldManagementType)}
                       disabled={isTodayCollectionClosed}
                     >
                       <option value="solo_cobrar">Solo cobrar</option>
                       <option value="cobrar_o_quitar">Cobrar o quitar</option>
+                      <option value="desiste">Desiste</option>
+                      <option value="quitar">Quitar</option>
                     </select>
                   </label>
                   <label>

@@ -1316,7 +1316,7 @@ export default function ReceivablesPage({
   function hasRouteCollection(row: ReceivableRow): boolean {
     const management = collectionStatusByClient[row.id];
     if (!management) return false;
-    const hasType = management.managementType === "solo_cobrar" || management.managementType === "cobrar_o_quitar";
+    const hasType = management.managementType === "solo_cobrar" || management.managementType === "cobrar_o_quitar" || management.managementType === "desiste" || management.managementType === "quitar";
     return hasType && !!management.managementAmount && management.managementAmount > 0;
   }
 
@@ -2447,7 +2447,7 @@ export default function ReceivablesPage({
     if (isCollectionLocked) return;
     markClientStatusAsSaving(clientId);
     const draft = fieldManagementDraftByClient[clientId] ?? { type: "", amount: "", comment: "" };
-    if (draft.type !== "solo_cobrar" && draft.type !== "cobrar_o_quitar") {
+    if (draft.type !== "solo_cobrar" && draft.type !== "cobrar_o_quitar" && draft.type !== "desiste" && draft.type !== "quitar") {
       setFieldManagementErrorByClient((current) => ({ ...current, [clientId]: "Selecciona tipo de gestion." }));
       return;
     }
@@ -2604,7 +2604,7 @@ export default function ReceivablesPage({
       };
       const hasRouteCollectionFromMap = (row: ReceivableRow): boolean => {
         const management = statusByClientForRoute[row.id];
-        const hasType = management?.managementType === "solo_cobrar" || management?.managementType === "cobrar_o_quitar";
+        const hasType = management?.managementType === "solo_cobrar" || management?.managementType === "cobrar_o_quitar" || management?.managementType === "desiste" || management?.managementType === "quitar";
         return hasType && !!management?.managementAmount && management.managementAmount > 0;
       };
       const routeRowsForSend = baseRows.filter((row) => isRouteRowFromMap(row));
@@ -3202,6 +3202,8 @@ export default function ReceivablesPage({
                               >
                                 <option value="solo_cobrar">Solo cobrar</option>
                                 <option value="cobrar_o_quitar">Cobrar o quitar</option>
+                                <option value="desiste">Desiste</option>
+                                <option value="quitar">Quitar</option>
                               </select>
                             </td>
                             <td>
@@ -3346,6 +3348,8 @@ export default function ReceivablesPage({
                             >
                               <option value="solo_cobrar">Solo cobrar</option>
                               <option value="cobrar_o_quitar">Cobrar o quitar</option>
+                              <option value="desiste">Desiste</option>
+                              <option value="quitar">Quitar</option>
                             </select>
                           </label>
                           <label>
@@ -3610,6 +3614,8 @@ export default function ReceivablesPage({
                   >
                     <option value="solo_cobrar">Solo cobrar</option>
                     <option value="cobrar_o_quitar">Cobrar o quitar</option>
+                    <option value="desiste">Desiste</option>
+                    <option value="quitar">Quitar</option>
                   </select>
                 </label>
                 <label>MIN. LIBERAR

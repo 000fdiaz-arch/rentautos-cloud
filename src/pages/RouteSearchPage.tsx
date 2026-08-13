@@ -6,12 +6,15 @@ import {
   compareActiveRouteFilterValues,
   compareActiveRouteItems
 } from "../activeRouteOrdering";
+import { getBusinessDateKey } from "../billing";
+import { buildCloudErrorMessage } from "../app/appShellRules";
 import { loadCloudActiveRouteItems, saveCloudActiveRouteZone, type ActiveRouteItem } from "../cloudData";
 import { formatCurrency, formatDate } from "../format";
 import { supabase } from "../lib/supabase";
 import type { CollectionTeam, Payment } from "../types";
 import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentStorage";
 import type { NotifiedPayment } from "./payments/paymentTypes";
+import { fieldManagementLabel, type FieldManagementType } from "./receivables/receivablesTypes";
 
 type Props = {
   dataOwnerUserId?: string | null;
@@ -49,41 +52,27 @@ function toTimestamp(value: string | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function dateKeyFromTimestampValue(value: string | undefined): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function routeRentAmountForDay(payments: Payment[], item: ActiveRouteItem, dateKey: string): number {
+  const total = payments
+    .filter((payment) => payment.clientId === item.clientId && payment.dateApplied === dateKey)
+    .reduce((sum, payment) => sum + Math.max(0, payment.appliedToRent), 0);
+  return Math.round(total * 100) / 100;
 }
 
-function paymentBelongsToRoute(payment: Payment, item: ActiveRouteItem): boolean {
-  if (payment.clientId !== item.clientId) return false;
-  const routeStartedAt = toTimestamp(item.routeStartedAt);
-  const createdTimestamp = toTimestamp(payment.createdAt);
-  if (createdTimestamp > 0 && routeStartedAt > 0) return createdTimestamp >= routeStartedAt;
-  const routeDateKey = dateKeyFromTimestampValue(item.routeStartedAt);
-  return !!routeDateKey && payment.dateApplied >= routeDateKey;
-}
-
-function paymentReleasesRoute(payment: Payment, item: ActiveRouteItem): boolean {
-  return item.releaseAmount > 0 && payment.amountReceived >= item.releaseAmount && paymentBelongsToRoute(payment, item);
-}
-
-function latestRoutePaymentAmount(payments: Payment[], item: ActiveRouteItem): number {
-  const routePayments = payments.filter((payment) => paymentBelongsToRoute(payment, item));
-  if (routePayments.length === 0) return 0;
-  return [...routePayments]
-    .sort((left, right) => {
-      const createdDiff = toTimestamp(right.createdAt) - toTimestamp(left.createdAt);
-      return createdDiff || right.dateApplied.localeCompare(left.dateApplied);
-    })[0].amountReceived;
+function hasPartialRoutePayment(payments: Payment[], item: ActiveRouteItem, dateKey: string): boolean {
+  const confirmedRentAmount = routeRentAmountForDay(payments, item, dateKey);
+  return confirmedRentAmount > 0 && confirmedRentAmount < item.releaseAmount;
 }
 
 function firstName(value: string): string {
   return value.trim().split(/\s+/)[0] || value;
+}
+
+function managementTone(value: FieldManagementType | undefined): "collect" | "remove" | "desist" | "seize" {
+  if (value === "cobrar_o_quitar") return "remove";
+  if (value === "desiste") return "desist";
+  if (value === "quitar") return "seize";
+  return "collect";
 }
 
 function formatPublishedAt(value: string): string {
@@ -116,6 +105,7 @@ function routeImageFileName(routeLabel: string, zoneLabel?: string): string {
 }
 
 export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = true, onRegisterPayment }: Props) {
+  const businessDateKey = getBusinessDateKey();
   const [items, setItems] = useState<ActiveRouteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -123,6 +113,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
   const [routeFilter, setRouteFilter] = useState(ALL_ACTIVE_ROUTE_FILTER);
   const [zoneFilter, setZoneFilter] = useState(ALL_ACTIVE_ZONE_FILTER);
   const [zoneFilterLabel, setZoneFilterLabel] = useState("");
+  const [paymentFilter, setPaymentFilter] = useState<"all" | "partial">("all");
   const [zoneDrafts, setZoneDrafts] = useState<Record<string, string>>({});
   const [zoneSavingByClient, setZoneSavingByClient] = useState<Record<string, boolean>>({});
   const [zoneError, setZoneError] = useState("");
@@ -202,8 +193,8 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
   const activeItems = useMemo(() => (
     items
       .filter((item) => !item.removedAt)
-      .filter((item) => item.releaseAmount <= 0 || !payments.some((payment) => paymentReleasesRoute(payment, item)))
-  ), [items, payments]);
+      .filter((item) => item.releaseAmount <= 0 || routeRentAmountForDay(payments, item, businessDateKey) < item.releaseAmount)
+  ), [businessDateKey, items, payments]);
 
   const bankNoticesByClient = useMemo(() => {
     const grouped = new Map<string, NotifiedPayment[]>();
@@ -278,6 +269,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
     return activeItems
       .filter((item) => routeFilter === ALL_ACTIVE_ROUTE_FILTER || activeRouteFilterValue(item.routeAssignment) === routeFilter)
       .filter((item) => zoneFilter === ALL_ACTIVE_ZONE_FILTER || activeZoneFilterValue(item.zone) === zoneFilter)
+      .filter((item) => paymentFilter === "all" || hasPartialRoutePayment(payments, item, businessDateKey))
       .filter((item) => {
         if (!normalizedQuery) return true;
         return [
@@ -291,7 +283,12 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
         ].some((value) => value.toLowerCase().includes(normalizedQuery));
       })
       .sort(compareActiveRouteItems);
-  }, [activeItems, query, routeFilter, zoneFilter]);
+  }, [activeItems, businessDateKey, payments, paymentFilter, query, routeFilter, zoneFilter]);
+
+  const partialPaymentCount = useMemo(
+    () => activeItems.filter((item) => hasPartialRoutePayment(payments, item, businessDateKey)).length,
+    [activeItems, businessDateKey, payments]
+  );
 
   const selectedZoneLabel = useMemo(() => {
     if (zoneFilter === ALL_ACTIVE_ZONE_FILTER) return "";
@@ -400,7 +397,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
       setPaymentTarget(null);
     } catch (saveError) {
       console.error("No se pudo registrar el pago desde Ruta en calle.", saveError);
-      setPaymentError(saveError instanceof Error ? saveError.message : "No se pudo registrar el pago.");
+      setPaymentError(buildCloudErrorMessage("No se pudo registrar el pago.", saveError, { includeRawFallback: true }));
     } finally {
       setPaymentSaving(false);
     }
@@ -512,6 +509,15 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
       </label>
 
       {lastRefreshAt ? <p className="route-search-refresh">Ultima actualizacion: {lastRefreshAt}</p> : null}
+      <div className="route-search-filter-block route-search-payment-filter-block">
+        <span className="route-search-filter-label">Estado de pago</span>
+        <div className="route-search-filters" aria-label="Filtrar por estado de pago">
+          <button type="button" className={paymentFilter === "all" ? "is-active" : ""} onClick={() => setPaymentFilter("all")}>Todos</button>
+          <button type="button" className={paymentFilter === "partial" ? "is-active" : ""} onClick={() => setPaymentFilter("partial")}>
+            Pagos parciales ({partialPaymentCount})
+          </button>
+        </div>
+      </div>
       {error ? <p className="error-text">{error}</p> : null}
       {zoneError ? <p className="error-text" role="alert">{zoneError}</p> : null}
       {shareMessage ? <p className="route-search-share-message" role="status">{shareMessage}</p> : null}
@@ -587,15 +593,15 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
       ) : (
         <div className="route-search-list">
           {visibleItems.map((item, itemIndex) => {
-            const managementTone = item.managementType === "cobrar_o_quitar" ? "remove" : "collect";
-            const confirmedPaidAmount = latestRoutePaymentAmount(payments, item);
-            const remainingToRelease = Math.max(0, item.releaseAmount - confirmedPaidAmount);
+            const itemManagementTone = managementTone(item.managementType);
+            const confirmedRentAmount = routeRentAmountForDay(payments, item, businessDateKey);
+            const remainingToRelease = Math.max(0, item.releaseAmount - confirmedRentAmount);
             const itemBankNotices = bankNoticesByClient.get(item.clientId) ?? [];
             const itemZoneOptions = (zoneOptionsByRoute.get(activeRouteFilterValue(item.routeAssignment)) ?? [])
               .filter((option) => option.value !== EMPTY_ACTIVE_ZONE_FILTER);
             const zoneListId = `route-zone-options-${itemIndex}`;
             return (
-              <article className={`route-search-card route-search-card--${managementTone} ${item.urgency && item.urgency !== "normal" ? `route-search-card--${item.urgency}` : ""}`} key={item.clientId}>
+              <article className={`route-search-card route-search-card--${itemManagementTone} ${item.urgency && item.urgency !== "normal" ? `route-search-card--${item.urgency}` : ""}`} key={item.clientId}>
                 <div className="route-search-card-head">
                   <div>
                     <strong>{item.unitId}</strong>
@@ -649,9 +655,9 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
                     <strong>{formatCurrency(item.overdueBalance)}</strong>
                   </div>
                 </div>
-                {confirmedPaidAmount > 0 && remainingToRelease > 0 ? (
+                {confirmedRentAmount > 0 && remainingToRelease > 0 ? (
                   <div className="route-search-payment-alert route-search-payment-alert--partial">
-                    Pago parcial confirmado: {formatCurrency(confirmedPaidAmount)} · Faltan {formatCurrency(remainingToRelease)}
+                    Pago parcial aplicado a renta: {formatCurrency(confirmedRentAmount)} · Faltan {formatCurrency(remainingToRelease)}
                   </div>
                 ) : null}
                 {itemBankNotices.map((notice) => (
@@ -663,8 +669,8 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
                   <span className={`route-search-delay ${item.daysLate > 0 ? "route-search-delay--late" : "route-search-delay--ok"}`}>
                     {item.daysLate > 0 ? `${item.daysLate} dias atraso` : "Sin atraso"}
                   </span>
-                  <span className={`route-search-management route-search-management--${managementTone}`}>
-                    {item.managementType === "cobrar_o_quitar" ? "Cobrar o quitar" : "Solo cobrar"}
+                  <span className={`route-search-management route-search-management--${itemManagementTone}`}>
+                    {fieldManagementLabel(item.managementType)}
                   </span>
                   <span className="route-search-added-at">En calle {formatPublishedAt(item.publishedAt)}</span>
                 </div>
@@ -754,9 +760,9 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
             </div>
             <div className="route-share-grid">
               {group.items.map((item) => {
-                const managementTone = item.managementType === "cobrar_o_quitar" ? "remove" : "collect";
+                const itemManagementTone = managementTone(item.managementType);
                 return (
-                  <article className={`route-share-card route-share-card--${managementTone} ${item.urgency && item.urgency !== "normal" ? `route-share-card--${item.urgency}` : ""}`} key={item.clientId}>
+                  <article className={`route-share-card route-share-card--${itemManagementTone} ${item.urgency && item.urgency !== "normal" ? `route-share-card--${item.urgency}` : ""}`} key={item.clientId}>
                   <div className="route-share-card-title">
                     <div>
                       <strong>{item.unitId}</strong>
@@ -777,7 +783,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
                   <div className="route-share-tags">
                     {item.zone ? <span>Zona {item.zone}</span> : <span>Sin zona</span>}
                     <span>{item.daysLate > 0 ? `${item.daysLate} dias de atraso` : "Sin atraso"}</span>
-                    <span>{item.managementType === "cobrar_o_quitar" ? "Cobrar o quitar" : "Solo cobrar"}</span>
+                    <span>{fieldManagementLabel(item.managementType)}</span>
                     {item.urgency && item.urgency !== "normal" ? (
                       <span>{item.urgency === "very_urgent" ? "Muy urgente" : "Urgente"}</span>
                     ) : null}

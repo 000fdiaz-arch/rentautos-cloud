@@ -78,8 +78,9 @@ assert(releaseAmountChange.includes("const nextAmount = parsedAmount ?? undefine
 assert(releaseAmountChange.includes("releaseAmount: nextAmount ?? 0"), "Ruta en calle debe conservar la cuenta con el monto marcado como pendiente.");
 assert(cloud.includes("releaseAmount < 0"), "La nube debe aceptar cero como marcador temporal de monto pendiente.");
 assert(routeSearch.includes("item.releaseAmount <= 0"), "Un monto pendiente no debe liberar automaticamente la cuenta por un pago.");
-assert(routeSearch.includes("payment.amountReceived >= item.releaseAmount"), "Ruta en calle debe liberar solo cuando un pago individual cubre el minimo solicitado.");
-assert(!routeSearch.includes("reduce((total, payment) => total + payment.amountReceived"), "Ruta en calle no debe sumar pagos parciales para ocultar una unidad activa.");
+assert(routeSearch.includes("payment.dateApplied === dateKey"), "Ruta en calle debe limitar la suma a los pagos aplicados del dia.");
+assert(routeSearch.includes("sum + Math.max(0, payment.appliedToRent)"), "Ruta en calle debe sumar solamente los montos aplicados a renta.");
+assert(!routeSearch.includes("sum + payment.amountReceived"), "El total recibido no debe contar como renta para liberar una unidad.");
 assert(routeSearch.includes('"Monto pendiente"'), "Ruta en calle debe mostrar que el monto sigue pendiente.");
 assert(page.includes("hasActiveOperationalClient(row) &&\n          record?.isRouteTagged"), "La publicacion debe excluir cuentas no activas aunque tengan una etiqueta antigua.");
 assert(page.includes("return !!row && !hasActiveOperationalClient(row);"), "La limpieza de ruta solo debe desmontar una unidad confirmada como inactiva, no una fila aun sin cargar.");

@@ -14727,6 +14727,10 @@ button.ar-route-publish-copy.is-active {
   padding-left: 12px;
 }
 
+.route-search-payment-filter-block {
+  margin-top: 6px;
+}
+
 .route-search-filter-label {
   color: var(--color-text-muted);
   font-size: 0.7rem;
@@ -14804,6 +14808,16 @@ button.ar-route-publish-copy.is-active {
   border-left-color: #f97316;
   background:
     linear-gradient(180deg, #ffffff 0%, #fffaf3 100%);
+}
+
+.route-search-card--desist {
+  border-left-color: #a855f7;
+  background: linear-gradient(180deg, #ffffff 0%, #faf5ff 100%);
+}
+
+.route-search-card--seize {
+  border-left-color: #dc2626;
+  background: linear-gradient(180deg, #ffffff 0%, #fef2f2 100%);
 }
 
 .route-search-card--urgent,
@@ -15061,6 +15075,18 @@ button.ar-route-publish-copy.is-active {
   color: #c2410c;
 }
 
+.route-search-meta .route-search-management--desist {
+  border: 1px solid #d8b4fe;
+  background: #faf5ff;
+  color: #7e22ce;
+}
+
+.route-search-meta .route-search-management--seize {
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
 .route-search-meta .route-search-added-at {
   border-color: #ddd6fe;
   background: #f5f3ff;
@@ -15193,6 +15219,14 @@ button.ar-route-publish-copy.is-active {
 
 .route-share-card--remove {
   border-left-color: #f97316;
+}
+
+.route-share-card--desist {
+  border-left-color: #a855f7;
+}
+
+.route-share-card--seize {
+  border-left-color: #dc2626;
 }
 
 .route-share-card--urgent {

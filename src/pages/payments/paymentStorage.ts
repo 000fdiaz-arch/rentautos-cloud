@@ -43,7 +43,7 @@ export function parseCollectionStatusesFromStorage(rawValue?: string | null): Re
         status,
         comment: typeof row.comment === "string" ? row.comment.slice(0, 5) : "",
         updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : new Date().toISOString(),
-        managementType: row.managementType === "solo_cobrar" || row.managementType === "cobrar_o_quitar" ? row.managementType : undefined,
+        managementType: row.managementType === "solo_cobrar" || row.managementType === "cobrar_o_quitar" || row.managementType === "desiste" || row.managementType === "quitar" ? row.managementType : undefined,
         managementAmount: Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : undefined,
         managementComment: typeof row.managementComment === "string" ? row.managementComment.slice(0, 25) : "",
         managementUpdatedAt: typeof row.managementUpdatedAt === "string" ? row.managementUpdatedAt : undefined,

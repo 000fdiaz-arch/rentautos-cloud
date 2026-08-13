@@ -907,6 +907,8 @@ function ReceivableTableRowComponent({
                     >
                       <option value="solo_cobrar">Solo cobrar</option>
                       <option value="cobrar_o_quitar">Cobrar o quitar</option>
+                      <option value="desiste">Desiste</option>
+                      <option value="quitar">Quitar</option>
                     </select>
                   </label>
                   <label>

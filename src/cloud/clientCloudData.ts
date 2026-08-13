@@ -42,6 +42,18 @@ export async function loadCloudClients(userId: string): Promise<Client[]> {
   return dedupeLoad(`clients:${userId}`, () => loadCloudClientsUncached(userId));
 }
 
+export async function loadCloudClient(userId: string, clientId: string): Promise<Client | null> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("clients_cloud")
+    .select("id,data")
+    .eq("user_id", userId)
+    .eq("id", clientId)
+    .maybeSingle<DataRow<Client>>();
+  if (error) throw error;
+  return data?.data ? normalizeCloudClient(data.data) : null;
+}
+
 async function loadCloudClientsUncached(userId: string): Promise<Client[]> {
   const client = getCloudClient();
   const allRows: DataRow<Client>[] = [];

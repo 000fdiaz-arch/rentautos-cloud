@@ -26,6 +26,7 @@ import {
   deleteCloudPayments,
   loadCloudBankRules,
   loadCloudChargeRunsWithDetails,
+  loadCloudClient,
   loadCloudClients,
   loadCloudLeadEvaluation,
   loadCloudLeadEvaluations,
@@ -557,8 +558,14 @@ export default function AppShell({
     if (!canEditRouteSearch) {
       throw new Error("No tienes permiso para registrar pagos desde Ruta en calle.");
     }
-    const client = clients.find((candidate) => candidate.id === input.clientId);
+    const localClient = clients.find((candidate) => candidate.id === input.clientId);
+    const client = cloudDataUserId
+      ? await loadCloudClient(cloudDataUserId, input.clientId)
+      : localClient;
     if (!client) throw new Error("No se encontro el cliente de esta ruta.");
+    const paymentClients = localClient
+      ? clients.map((candidate) => candidate.id === client.id ? client : candidate)
+      : [...clients, client];
 
     if (input.method === "bank") {
       const currentNotices = loadNotifiedPayments();
@@ -585,7 +592,7 @@ export default function AppShell({
       ? await reserveCloudReceiptNumber(cloudDataUserId)
       : nextReceiptNumber();
     const transaction = buildManualPaymentTransaction({
-      clients,
+      clients: paymentClients,
       payments,
       selectedClient: client,
       form: {

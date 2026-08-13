@@ -1554,7 +1554,7 @@ export type ActiveRouteItem = {
   whatsAppPhone?: string;
   routeAssignment?: string;
   zone?: string;
-  managementType?: "solo_cobrar" | "cobrar_o_quitar";
+  managementType?: "solo_cobrar" | "cobrar_o_quitar" | "desiste" | "quitar";
   urgency?: "normal" | "urgent" | "very_urgent";
   releaseAmount: number;
   pendingAmount: number;
@@ -1591,7 +1591,9 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
     whatsAppPhone: typeof row.whatsAppPhone === "string" ? row.whatsAppPhone : undefined,
     routeAssignment: typeof row.routeAssignment === "string" ? row.routeAssignment : undefined,
     zone: typeof row.zone === "string" && row.zone.trim().length > 0 ? row.zone.trim() : undefined,
-    managementType: row.managementType === "cobrar_o_quitar" ? "cobrar_o_quitar" : "solo_cobrar",
+    managementType: row.managementType === "cobrar_o_quitar" || row.managementType === "desiste" || row.managementType === "quitar"
+      ? row.managementType
+      : "solo_cobrar",
     urgency: row.urgency === "urgent" || row.urgency === "very_urgent" ? row.urgency : "normal",
     releaseAmount,
     pendingAmount: Number.isFinite(pendingAmount) ? pendingAmount : 0,

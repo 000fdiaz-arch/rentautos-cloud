@@ -290,7 +290,7 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   const status = row.status;
   const comment = typeof row.comment === "string" ? normalizeComment(row.comment.trim()) : "";
   const updatedAt = typeof row.updatedAt === "string" ? row.updatedAt : new Date().toISOString();
-  const managementType: FieldManagementType | undefined = row.managementType === "solo_cobrar" || row.managementType === "cobrar_o_quitar"
+  const managementType: FieldManagementType | undefined = row.managementType === "solo_cobrar" || row.managementType === "cobrar_o_quitar" || row.managementType === "desiste" || row.managementType === "quitar"
     ? row.managementType
     : undefined;
   const rawAmount = typeof row.managementAmount === "number" ? row.managementAmount : Number(row.managementAmount);
@@ -315,7 +315,7 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   const paymentPromiseUpdatedAt = typeof row.paymentPromiseUpdatedAt === "string" ? row.paymentPromiseUpdatedAt : undefined;
   const legacyRouteStatus = status === "route" || status === "route_collection" || status === "route_not_sent";
   const hasLegacyRouteData = (
-    (managementType === "solo_cobrar" || managementType === "cobrar_o_quitar") &&
+    managementType !== undefined &&
     (!!managementAmount || !!routeReleaseAmount || !!routeAssignment)
   );
   const isRouteTagged = row.isRouteTagged === true || legacyRouteStatus || ((status === "paid" || status === "call_later") && hasLegacyRouteData);

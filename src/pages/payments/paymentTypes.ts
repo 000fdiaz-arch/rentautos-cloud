@@ -199,7 +199,7 @@ export type CollectionStatusRecord = {
   status: CollectionStatus;
   comment: string;
   updatedAt: string;
-  managementType?: "solo_cobrar" | "cobrar_o_quitar";
+  managementType?: "solo_cobrar" | "cobrar_o_quitar" | "desiste" | "quitar";
   managementAmount?: number;
   managementComment?: string;
   managementUpdatedAt?: string;
@@ -220,7 +220,7 @@ export type CollectionClosureItem = {
   collectionStatus: CollectionStatus;
   comment: string;
   autoApplied: boolean;
-  managementType?: "solo_cobrar" | "cobrar_o_quitar";
+  managementType?: "solo_cobrar" | "cobrar_o_quitar" | "desiste" | "quitar";
   managementAmount?: number;
   managementComment?: string;
   whatsAppMessageCopiedAt?: string;

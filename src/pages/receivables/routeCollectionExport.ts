@@ -1,6 +1,6 @@
 import { formatCurrency } from "../../format";
 import type { ReceivableRow } from "../../receivables";
-import type { CollectionStatusRecord, RouteExportFormat } from "./receivablesTypes";
+import { fieldManagementLabel, type CollectionStatusRecord, type RouteExportFormat } from "./receivablesTypes";
 
 type Options = {
   rows: ReceivableRow[];
@@ -49,6 +49,26 @@ const ROUTE_TYPE_PALETTE: Record<NonNullable<CollectionStatusRecord["managementT
     excelTypeFill: "FFFED7AA",
     excelText: "FF9A3412",
     excelBorder: "FFFB923C"
+  },
+  desiste: {
+    rowFill: [250, 245, 255],
+    typeFill: [233, 213, 255],
+    text: [107, 33, 168],
+    border: [192, 132, 252],
+    excelRowFill: "FFFAF5FF",
+    excelTypeFill: "FFE9D5FF",
+    excelText: "FF6B21A8",
+    excelBorder: "FFC084FC"
+  },
+  quitar: {
+    rowFill: [254, 242, 242],
+    typeFill: [254, 202, 202],
+    text: [185, 28, 28],
+    border: [248, 113, 113],
+    excelRowFill: "FFFEF2F2",
+    excelTypeFill: "FFFECACA",
+    excelText: "FFB91C1C",
+    excelBorder: "FFF87171"
   }
 };
 
@@ -72,7 +92,7 @@ const ROUTE_ASSIGNMENT_PALETTE: Record<string, RouteAssignmentPalette> = {
 };
 
 function routeTypePalette(type: CollectionStatusRecord["managementType"]): RouteTypePalette {
-  return type === "cobrar_o_quitar" ? ROUTE_TYPE_PALETTE.cobrar_o_quitar : ROUTE_TYPE_PALETTE.solo_cobrar;
+  return type ? ROUTE_TYPE_PALETTE[type] : ROUTE_TYPE_PALETTE.solo_cobrar;
 }
 
 function routeAssignmentPalette(route: string): RouteAssignmentPalette | undefined {
@@ -104,7 +124,7 @@ function rowData(row: ReceivableRow, statusByClient: Record<string, CollectionSt
     client: row.name,
     installments: `${formatCurrency(row.overdueBalance)} (${lateInstallmentsLabel(row.overdueBalance, row.rentAmount)})`,
     route: management?.routeAssignment ?? "-",
-    type: management?.managementType === "solo_cobrar" ? "Solo cobrar" : "Cobrar/quitar",
+    type: fieldManagementLabel(management?.managementType),
     amount: management?.managementAmount ?? 0,
     comment: (management?.managementComment ?? "").trim().slice(0, 25) || "-",
     managementType: management?.managementType
@@ -295,7 +315,9 @@ function exportImage(options: Options, rows: ReceivableRow[]): void {
 
   const total = rows.reduce((sum, row) => sum + (options.statusByClient[row.id]?.managementAmount ?? 0), 0);
   const solo = rows.filter((row) => options.statusByClient[row.id]?.managementType === "solo_cobrar").length;
-  const quitar = rows.length - solo;
+  const cobrarOQuitar = rows.filter((row) => options.statusByClient[row.id]?.managementType === "cobrar_o_quitar").length;
+  const desiste = rows.filter((row) => options.statusByClient[row.id]?.managementType === "desiste").length;
+  const quitar = rows.filter((row) => options.statusByClient[row.id]?.managementType === "quitar").length;
 
   context.fillStyle = "#0f172a";
   context.font = "bold 32px Segoe UI, Arial, sans-serif";
@@ -414,7 +436,9 @@ function exportImage(options: Options, rows: ReceivableRow[]): void {
   const footerItems = [
     `Unidades: ${rows.length}`,
     `Solo cobrar: ${solo}`,
-    `Cobrar/quitar: ${quitar}`,
+    `Cobrar/quitar: ${cobrarOQuitar}`,
+    `Desiste: ${desiste}`,
+    `Quitar: ${quitar}`,
     `Esperado: ${formatCurrency(total)}`
   ];
   let footerX = left;
