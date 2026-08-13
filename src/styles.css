@@ -12154,9 +12154,9 @@ button.ar-route-publish-copy.is-active {
 
 .incident-action-queue-list button {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 2px 10px;
+  gap: 4px 12px;
   min-height: 78px;
   border: 1px solid #dbeafe;
   border-radius: 10px;
@@ -12220,30 +12220,26 @@ button.ar-route-publish-copy.is-active {
   text-transform: uppercase;
 }
 
-.incident-action-queue-list button > strong {
-  grid-row: 1 / span 2;
-  color: #1d4ed8;
-  font-size: 1.65rem;
-}
-
 .incident-action-queue-list button > span {
+  grid-column: 1;
+  grid-row: 1;
   font-weight: 900;
 }
 
-.incident-action-queue-list button > small {
-  color: #2563eb;
-  font-weight: 800;
-}
-
-.incident-action-queue-list button:has(.incident-action-queue-trial) > strong {
-  grid-row: 1 / span 3;
-}
-
-.incident-action-queue-list button:has(.incident-action-queue-resolution-delay) > strong {
-  grid-row: 1 / span 3;
+.incident-action-queue-count {
+  grid-column: 2;
+  grid-row: 1;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 6px 9px;
+  white-space: nowrap;
 }
 
 .incident-action-queue-trial {
+  grid-column: 1 / -1;
   color: #475569;
   font-size: 0.74rem;
   font-style: normal;
@@ -12251,6 +12247,7 @@ button.ar-route-publish-copy.is-active {
 }
 
 .incident-action-queue-resolution-delay {
+  grid-column: 1 / -1;
   color: #b91c1c;
   font-size: 0.74rem;
   font-style: normal;
