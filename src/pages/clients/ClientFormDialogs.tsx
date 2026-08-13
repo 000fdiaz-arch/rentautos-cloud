@@ -22,6 +22,20 @@ type EditProps = SharedProps & {
   setEditClientTab: Dispatch<SetStateAction<EditClientTab>>;
 };
 
+function IssuedInstallmentsSummary({ value }: { value: string }) {
+  const issued = Number.parseInt(value, 10);
+  return (
+    <aside className="client-installments-issued-summary" aria-label="Resumen automático de cuotas emitidas">
+      <div>
+        <span>Resumen automático</span>
+        <strong>Cuotas emitidas</strong>
+        <small>Sumatoria registrada por el sistema. Este valor no se puede editar.</small>
+      </div>
+      <output aria-label="Total de cuotas emitidas">{Number.isFinite(issued) ? Math.max(issued, 0) : 0}</output>
+    </aside>
+  );
+}
+
 export function EditClientDialog({
   editingClientId,
   onCancel: handleCancelEdit,
@@ -52,6 +66,7 @@ export function EditClientDialog({
                     <div><span className="hint">Frecuencia</span><p>{FREQUENCY_LABEL[form.frequency]}</p></div>
                     <div><span className="hint">Saldo</span><p>{form.initialBalance || "0.00"}</p></div>
                   </div>
+                  <IssuedInstallmentsSummary value={form.installmentsIssued} />
                   <div className="cash-view-tabs" style={{ marginBottom: 12 }}>
                     <button type="button" className={`button ghost small ${editClientTab === "identidad" ? "cash-tab-active" : ""}`} onClick={() => setEditClientTab("identidad")}>Identidad</button>
                     <button type="button" className={`button ghost small ${editClientTab === "plan" ? "cash-tab-active" : ""}`} onClick={() => setEditClientTab("plan")}>Plan y Cobranza</button>
@@ -124,9 +139,6 @@ export function EditClientDialog({
                         )}
                         <label>Cuotas pactadas
                           <input type="number" step="1" min="0" value={form.installmentsAgreed} onChange={(e) => handleInstallmentChange("installmentsAgreed", e.target.value)} className={errorFields.has("installmentsAgreed") ? "input-error" : undefined} required />
-                        </label>
-                        <label>Cuotas emitidas
-                          <input type="number" step="1" min="0" value={form.installmentsIssued} onChange={(e) => setForm((c) => ({ ...c, installmentsIssued: e.target.value }))} className={errorFields.has("installmentsIssued") ? "input-error" : undefined} required />
                         </label>
                         <label>Cuotas restantes
                           <input type="number" step="1" min="0" value={form.installmentsRemaining} onChange={(e) => handleInstallmentChange("installmentsRemaining", e.target.value)} className={errorFields.has("installmentsRemaining") ? "input-error" : undefined} required />
@@ -221,6 +233,7 @@ export function CreateClientDialog({
                   <button type="button" className="modal-close" onClick={() => setIsFormOpen(false)}>X</button>
                 </div>
                 <div className="modal-body edit-client-modal-body">
+                  <IssuedInstallmentsSummary value={form.installmentsIssued} />
                   <form className="form-grid" onSubmit={handleSubmitClient}>
                 <label>
                   UNIDAD
@@ -291,10 +304,6 @@ export function CreateClientDialog({
                 <label>
                   Cuotas pactadas
                   <input type="number" step="1" min="0" value={form.installmentsAgreed} onChange={(e) => handleInstallmentChange("installmentsAgreed", e.target.value)} className={errorFields.has("installmentsAgreed") ? "input-error" : undefined} required />
-                </label>
-                <label>
-                  Cuotas emitidas
-                  <input type="number" step="1" min="0" value={form.installmentsIssued} onChange={(e) => setForm((c) => ({ ...c, installmentsIssued: e.target.value }))} className={errorFields.has("installmentsIssued") ? "input-error" : undefined} required />
                 </label>
                 <label>
                   Cuotas restantes

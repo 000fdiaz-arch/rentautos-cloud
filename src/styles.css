@@ -3147,6 +3147,25 @@ select.control-op-badge {
   font-weight: 700;
 }
 
+.client-installments-issued-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+  padding: 13px 16px;
+  border: 1px solid #99d8d0;
+  border-left: 5px solid #0f766e;
+  border-radius: 10px;
+  background: #f0fdfa;
+}
+
+.client-installments-issued-summary > div { display: grid; gap: 3px; }
+.client-installments-issued-summary span { color: #0f766e; font-size: .7rem; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; }
+.client-installments-issued-summary strong { color: #134e4a; font-size: .95rem; }
+.client-installments-issued-summary small { color: var(--color-text-muted); }
+.client-installments-issued-summary output { min-width: 72px; color: #0f766e; font-size: 1.75rem; font-weight: 900; text-align: center; }
+
 .edit-client-form-grid {
   margin-top: 0;
 }
