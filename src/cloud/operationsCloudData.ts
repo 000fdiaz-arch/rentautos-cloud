@@ -9,6 +9,25 @@ import type {
 import { stableEqual } from "../stableSerialize";
 import { normalizeCourtName } from "../courtNames";
 
+export async function registerCloudRouteBankNotice(
+  userId: string,
+  notice: {
+    id: string;
+    clientId: string;
+    amount: number;
+    createdAt: string;
+    paymentMethod: "bank";
+    collectionTeam: "PTY" | "WC";
+    source: "route";
+  }
+): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("notified_payments_cloud")
+    .insert({ user_id: userId, id: notice.id, data: notice });
+  if (error) throw error;
+}
+
 export type ControlUnitRow = {
   user_id: string;
   unit_id: string;

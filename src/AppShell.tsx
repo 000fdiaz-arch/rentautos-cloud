@@ -35,6 +35,7 @@ import {
   loadCloudPayments,
   loadControlUnits,
   registerCloudPaymentDeltas,
+  registerCloudRouteBankNotice,
   reserveCloudReceiptNumber,
   saveCloudBankRules,
   saveCloudChargeRuns,
@@ -492,8 +493,12 @@ export default function AppShell({
   }
 
 
-  async function persistClientsAndPayments(nextClients: Client[], nextPayments: Payment[]): Promise<boolean> {
-    if (!canEditPayments) return false;
+  async function persistClientsAndPayments(
+    nextClients: Client[],
+    nextPayments: Payment[],
+    source: "payments" | "route" = "payments"
+  ): Promise<boolean> {
+    if (source === "route" ? !canEditRouteSearch : !canEditPayments) return false;
     const previousClients = clients;
     const previousPayments = payments;
     const previousPaymentIds = new Set(previousPayments.map((payment) => payment.id));
@@ -549,7 +554,7 @@ export default function AppShell({
     method: "cash" | "bank";
     team: CollectionTeam;
   }): Promise<{ kind: "cash" | "bank"; receiptNumber?: string }> {
-    if (!canEditRouteSearch || !canEditPayments) {
+    if (!canEditRouteSearch) {
       throw new Error("No tienes permiso para registrar pagos desde Ruta en calle.");
     }
     const client = clients.find((candidate) => candidate.id === input.clientId);
@@ -557,7 +562,7 @@ export default function AppShell({
 
     if (input.method === "bank") {
       const currentNotices = loadNotifiedPayments();
-      saveNotifiedPayments([...currentNotices, {
+      const notice = {
         id: crypto.randomUUID(),
         clientId: client.id,
         amount: input.amount,
@@ -565,7 +570,12 @@ export default function AppShell({
         paymentMethod: "bank",
         collectionTeam: input.team,
         source: "route"
-      }]);
+      } as const;
+      if (cloudDataUserId) {
+        await registerCloudRouteBankNotice(cloudDataUserId, notice);
+      } else {
+        saveNotifiedPayments([...currentNotices, notice]);
+      }
       setHasPendingChanges(true);
       return { kind: "bank" };
     }
@@ -595,8 +605,9 @@ export default function AppShell({
       currentActor: userEmail || userId || "Usuario"
     });
     transaction.payment.collectionTeam = input.team;
+    transaction.payment.source = "route";
     transaction.payment.incomeComment = `Cobro en Ruta · Equipo ${input.team}`;
-    const saved = await persistClientsAndPayments(transaction.updatedClients, [...payments, transaction.payment]);
+    const saved = await persistClientsAndPayments(transaction.updatedClients, [...payments, transaction.payment], "route");
     if (!saved) throw new Error("No se pudo guardar el pago.");
     return { kind: "cash", receiptNumber };
   }
@@ -1030,7 +1041,7 @@ export default function AppShell({
           <RouteSearchPage
             dataOwnerUserId={cloudDataUserId}
             payments={payments}
-            readOnly={!canEditRouteSearch || !canEditPayments}
+            readOnly={!canEditRouteSearch}
             onRegisterPayment={registerRoutePayment}
           />
         )}
