@@ -4026,6 +4026,29 @@ select.control-op-badge {
 .income-day-actions label { display: grid; gap: 4px; font-size: .8rem; font-weight: 700; color: var(--color-text-muted); }
 .income-day-actions input, .income-day-search input, .income-edit-form input, .income-edit-form select, .income-edit-form textarea { border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 9px 11px; background: var(--color-surface); color: var(--color-text); font: inherit; }
 .income-day-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.income-team-closing { overflow: hidden; border: 1px solid #99d8d0; border-radius: var(--radius); background: linear-gradient(135deg, #f0fdfa 0%, #ecfeff 100%); box-shadow: 0 8px 24px rgba(15, 118, 110, .08); }
+.income-team-closing-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 16px 18px; border-bottom: 1px solid #bde7e1; }
+.income-team-closing-head h3, .income-team-closing-head p { margin: 0; }
+.income-team-closing-head p { margin-top: 4px; color: var(--color-text-muted); font-size: .82rem; }
+.income-team-closing-head > div:last-child { display: grid; gap: 2px; flex: 0 0 auto; text-align: right; }
+.income-team-closing-head > div:last-child span { color: #0f766e; font-size: .76rem; font-weight: 800; text-transform: uppercase; }
+.income-team-closing-head > div:last-child strong { color: #0f766e; font-size: 1.55rem; }
+.income-team-closing-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 14px 18px 18px; }
+.income-team-card { display: grid; overflow: hidden; border: 1px solid #bfdbfe; border-radius: 12px; background: #fff; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+.income-team-card--pty { border-left: 5px solid #2563eb; }
+.income-team-card--wc { border-left: 5px solid #f97316; }
+.income-team-card:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(15, 23, 42, .08); }
+.income-team-card--active { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(15, 118, 110, .16); }
+.income-team-card-filter { display: grid; gap: 5px; width: 100%; padding: 15px 16px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.income-team-card-filter:focus-visible { outline: 3px solid rgba(15, 118, 110, .28); outline-offset: -3px; }
+.income-team-card-filter span { color: #475569; font-size: .82rem; font-weight: 900; text-transform: uppercase; }
+.income-team-card-filter strong { color: #0f172a; font-size: 1.55rem; }
+.income-team-card-filter small { color: var(--color-text-muted); }
+.income-team-deliver-all { margin: 0 12px 12px; padding: 9px 12px; border: 1px solid #0f766e; border-radius: 8px; background: #0f766e; color: #fff; font: inherit; font-size: .82rem; font-weight: 900; cursor: pointer; }
+.income-team-deliver-all:hover { background: #115e59; }
+.income-team-deliver-all:focus-visible { outline: 3px solid rgba(15, 118, 110, .28); outline-offset: 2px; }
+.income-team-delivery-message { margin: -7px 0 14px; padding: 9px 11px; border-radius: 8px; background: #ecfdf5; color: #166534; font-size: .8rem; font-weight: 800; }
+.income-team-unassigned { margin: -5px 18px 16px; padding: 9px 11px; border-radius: 8px; background: #fff7ed; color: #9a3412; font-size: .8rem; font-weight: 800; }
 .income-day-kpis button { display: grid; gap: 4px; padding: 16px; border: 1px solid #bbf7d0; border-radius: var(--radius); background: #f0fdf4; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
 .income-day-kpis button:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(15, 23, 42, .08); }
 .income-day-kpis button:focus-visible { outline: 3px solid rgba(15, 118, 110, .25); outline-offset: 2px; }
@@ -4037,7 +4060,7 @@ select.control-op-badge {
 .income-day-kpis .income-day-kpi--noncash strong { color: var(--color-text); }
 .income-day-kpis .income-day-kpi--active { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(15, 118, 110, .16); }
 .income-day-search { display: grid; gap: 6px; font-size: .85rem; font-weight: 700; }
-.income-day-filters { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(145px, 1fr)) auto; align-items: end; gap: 10px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius); background: #f8fafc; }
+.income-day-filters { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(5, minmax(125px, 1fr)) auto; align-items: end; gap: 10px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius); background: #f8fafc; }
 .income-day-filters label { display: grid; gap: 6px; min-width: 0; color: var(--color-text-muted); font-size: .78rem; font-weight: 700; }
 .income-day-filters input, .income-day-filters select { width: 100%; min-width: 0; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 9px 10px; background: #fff; color: var(--color-text); font: inherit; }
 .income-day-groups { display: grid; gap: 10px; }
@@ -4123,6 +4146,9 @@ select.control-op-badge {
   }
 
   .income-day-header, .income-day-actions { align-items: stretch; flex-direction: column; }
+  .income-team-closing-head { align-items: flex-start; flex-direction: column; }
+  .income-team-closing-head > div:last-child { text-align: left; }
+  .income-team-closing-grid { grid-template-columns: 1fr; }
   .income-day-kpis { grid-template-columns: 1fr; }
   .income-day-group-summary { gap: 8px; }
   .income-day-filters { grid-template-columns: 1fr; }

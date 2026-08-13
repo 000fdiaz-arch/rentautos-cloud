@@ -7,6 +7,7 @@ import { PAYMENT_METHODS } from "./paymentConstants";
 import {
   buildDailyIncomeGroups,
   buildDeliveredFromPreviousRows,
+  buildPendingCashRowsByTeam,
   buildPendingDeliveryRows,
   getDailyIncomeStatus,
   getDailyIncomeReportDate,
@@ -83,6 +84,8 @@ export default function DailyIncomePanel({
   const [destinationFilter, setDestinationFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [deliveryFilter, setDeliveryFilter] = useState("all");
+  const [teamFilter, setTeamFilter] = useState<"all" | "PTY" | "WC">("all");
+  const [teamDeliveryMessage, setTeamDeliveryMessage] = useState("");
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [editAccount, setEditAccount] = useState("");
@@ -118,6 +121,7 @@ export default function DailyIncomePanel({
         if (deliveryFilter === "yes" && !isMoneyDelivered(payment)) return false;
         if (deliveryFilter === "no" && isMoneyDelivered(payment)) return false;
       }
+      if (teamFilter !== "all" && payment.collectionTeam !== teamFilter) return false;
       if (normalizedSearch && ![
         payment.clientName,
         payment.clientUnit,
@@ -132,7 +136,7 @@ export default function DailyIncomePanel({
       ].some((value) => value.toLowerCase().includes(normalizedSearch))) return false;
       return true;
     });
-  }, [payments, bankRules, search, methodFilter, destinationFilter, statusFilter, deliveryFilter]);
+  }, [payments, bankRules, search, methodFilter, destinationFilter, statusFilter, deliveryFilter, teamFilter]);
   const groups = useMemo(() => buildDailyIncomeGroups(filteredPayments, dateKey, bankRules), [filteredPayments, dateKey, bankRules]);
   const bankGroups = groups.filter((group) => group.key.startsWith("bank:"));
   const nonBankGroups = groups.filter((group) => !group.key.startsWith("bank:"));
@@ -142,12 +146,20 @@ export default function DailyIncomePanel({
   const pendingDeliveriesTotal = pendingDeliveries.reduce((sum, payment) => sum + payment.amountReceived, 0);
   const deliveredFromPrevious = useMemo(() => buildDeliveredFromPreviousRows(filteredPayments, dateKey), [filteredPayments, dateKey]);
   const deliveredFromPreviousTotal = deliveredFromPrevious.reduce((sum, payment) => sum + payment.amountReceived, 0);
+  const pendingCashByTeam = useMemo(() => buildPendingCashRowsByTeam(payments, dateKey), [payments, dateKey]);
+  const pendingCashTeamSummary = (["PTY", "WC"] as const).map((team) => ({
+    team,
+    payments: pendingCashByTeam[team],
+    total: pendingCashByTeam[team].reduce((sum, payment) => sum + payment.amountReceived, 0)
+  }));
+  const pendingCashTeamTotal = pendingCashTeamSummary.reduce((sum, item) => sum + item.total, 0);
+  const unassignedPendingCashTotal = pendingCashByTeam.unassigned.reduce((sum, payment) => sum + payment.amountReceived, 0);
   const receivedTotal = groups.filter((group) => group.status === "received").reduce((sum, group) => sum + group.total, 0);
   const pendingTotal = groups.filter((group) => group.status === "pending").reduce((sum, group) => sum + group.total, 0);
   const nonCashTotal = groups.filter((group) => group.status === "non_cash").reduce((sum, group) => sum + group.total, 0);
   const receivedCount = groups.filter((group) => group.status === "received").reduce((sum, group) => sum + group.payments.length, 0);
   const accountOptions = bankRules.filter((rule) => rule.active);
-  const filtersActive = search.trim() !== "" || methodFilter !== "all" || destinationFilter !== "all" || statusFilter !== "all" || deliveryFilter !== "all";
+  const filtersActive = search.trim() !== "" || methodFilter !== "all" || destinationFilter !== "all" || statusFilter !== "all" || deliveryFilter !== "all" || teamFilter !== "all";
   const shareSourcePayments = useMemo(() => {
     if (shareScope === "filtered") return filteredPayments;
     if (shareScope === "cash") return payments.filter((payment) => payment.paymentMethod === "Efectivo");
@@ -214,6 +226,8 @@ export default function DailyIncomePanel({
     setDestinationFilter("all");
     setStatusFilter("all");
     setDeliveryFilter("all");
+    setTeamFilter("all");
+    setTeamDeliveryMessage("");
   }
 
   function toggleStatusFilter(status: "received" | "pending" | "non_cash"): void {
@@ -238,6 +252,9 @@ export default function DailyIncomePanel({
       for (const payment of shareCashDeliveredRows) lines.push(`• ${payment.clientUnit} — ${formatCurrency(payment.amountReceived)} — ${getDeliveryContext(payment)}`);
     }
     lines.push("", `*Efectivo pendiente de entrega:* ${formatCurrency(shareCashPendingTotal)}`);
+    lines.push(`• Equipo PTY debe entregar: ${formatCurrency(pendingCashTeamSummary[0].total)} (${pendingCashTeamSummary[0].payments.length})`);
+    lines.push(`• Equipo WC debe entregar: ${formatCurrency(pendingCashTeamSummary[1].total)} (${pendingCashTeamSummary[1].payments.length})`);
+    if (unassignedPendingCashTotal > 0) lines.push(`• Sin equipo asignado: ${formatCurrency(unassignedPendingCashTotal)}`);
     if (shareCashPendingRows.length > 0) {
       for (const payment of shareCashPendingRows) lines.push(`• ${payment.clientUnit} — ${formatCurrency(payment.amountReceived)} — dinero del ${formatMoneyDay(getIncomeDate(payment))}`);
     }
@@ -378,6 +395,46 @@ export default function DailyIncomePanel({
     } : row));
   }
 
+  function filterPendingCashByTeam(team: "PTY" | "WC"): void {
+    if (teamFilter === team) {
+      clearFilters();
+      return;
+    }
+    setTeamFilter(team);
+    setMethodFilter("Efectivo");
+    setDeliveryFilter("no");
+    setStatusFilter("all");
+    setDestinationFilter("all");
+    setTeamDeliveryMessage("");
+  }
+
+  function markTeamCashDelivered(team: "PTY" | "WC"): void {
+    if (readOnly) return;
+    const targetIds = new Set(pendingCashByTeam[team].map((payment) => payment.id));
+    if (targetIds.size === 0) return;
+    const changedAt = new Date().toISOString();
+    onPaymentsChange(payments.map((payment) => {
+      if (!targetIds.has(payment.id)) return payment;
+      const audit: PaymentIncomeEdit = {
+        id: crypto.randomUUID(),
+        createdAt: changedAt,
+        actor: currentActor,
+        reason: `Entrega masiva de efectivo · Equipo ${team}`,
+        previousMoneyDelivered: false,
+        nextMoneyDelivered: true
+      };
+      return {
+        ...payment,
+        moneyDelivered: true,
+        moneyDeliveryDate: dateKey,
+        moneyDeliveryUpdatedAt: changedAt,
+        moneyDeliveryUpdatedBy: currentActor,
+        incomeEdits: [...(payment.incomeEdits ?? []), audit]
+      };
+    }));
+    setTeamDeliveryMessage(`Equipo ${team}: ${targetIds.size} cobro${targetIds.size === 1 ? "" : "s"} marcado${targetIds.size === 1 ? "" : "s"} como entregado${targetIds.size === 1 ? "" : "s"}.`);
+  }
+
   function saveEdit(): void {
     if (!editingPayment) return;
     const nextAccount = editAccount.trim();
@@ -468,6 +525,11 @@ export default function DailyIncomePanel({
       ] : []),
       ...nonBankGroups.map((group) => [group.label, group.status, group.payments.length, group.total]),
       [],
+      ["Efectivo por entregar · PTY", "pending", pendingCashTeamSummary[0].payments.length, pendingCashTeamSummary[0].total],
+      ["Efectivo por entregar · WC", "pending", pendingCashTeamSummary[1].payments.length, pendingCashTeamSummary[1].total],
+      ["Total efectivo por entregar de equipos", "pending", pendingCashTeamSummary[0].payments.length + pendingCashTeamSummary[1].payments.length, pendingCashTeamTotal],
+      ...(unassignedPendingCashTotal > 0 ? [["Efectivo pendiente sin equipo", "pending", pendingCashByTeam.unassigned.length, unassignedPendingCashTotal]] : []),
+      [],
       ["Total recibido", receivedTotal],
       ["Pendiente de acreditación", pendingTotal],
       ["Movimientos sin entrada", nonCashTotal]
@@ -493,6 +555,29 @@ export default function DailyIncomePanel({
       </div>
 
       {!isPaymentHistoryLoaded && <p className="hint">El historial completo todavía está cargando; los totales pueden cambiar.</p>}
+      <section className="income-team-closing" aria-label="Efectivo pendiente por equipo">
+        <div className="income-team-closing-head">
+          <div>
+            <h3>Efectivo que deben entregar los equipos</h3>
+            <p>Incluye todo el efectivo pendiente hasta la fecha seleccionada, aunque se haya cobrado otro día.</p>
+          </div>
+          <div><span>Total por entregar</span><strong>{formatCurrency(pendingCashTeamTotal)}</strong></div>
+        </div>
+        <div className="income-team-closing-grid">
+          {pendingCashTeamSummary.map((item) => (
+            <article key={item.team} className={`income-team-card income-team-card--${item.team.toLowerCase()}${teamFilter === item.team ? " income-team-card--active" : ""}`}>
+              <button type="button" className="income-team-card-filter" aria-pressed={teamFilter === item.team} onClick={() => filterPendingCashByTeam(item.team)}>
+                <span>Equipo {item.team}</span>
+                <strong>{formatCurrency(item.total)}</strong>
+                <small>{item.payments.length} cobro{item.payments.length === 1 ? "" : "s"} pendiente{item.payments.length === 1 ? "" : "s"} · Presiona para filtrar</small>
+              </button>
+              {!readOnly && item.payments.length > 0 ? <button type="button" className="income-team-deliver-all" onClick={() => markTeamCashDelivered(item.team)}>Marcar todo entregado</button> : null}
+            </article>
+          ))}
+        </div>
+        {unassignedPendingCashTotal > 0 ? <p className="income-team-unassigned">Atención: {formatCurrency(unassignedPendingCashTotal)} en efectivo pendiente no tiene equipo asignado.</p> : null}
+      </section>
+      {teamDeliveryMessage ? <p className="income-team-delivery-message" role="status">{teamDeliveryMessage}</p> : null}
       <div className="income-day-kpis">
         <button type="button" className={statusFilter === "received" ? "income-day-kpi--active" : ""} aria-pressed={statusFilter === "received"} onClick={() => toggleStatusFilter("received")}><span>Total recibido</span><strong>{formatCurrency(receivedTotal)}</strong><small>{receivedCount} pago(s) · Ver detalle</small></button>
         <button type="button" className={`income-day-kpi--pending${statusFilter === "pending" ? " income-day-kpi--active" : ""}`} aria-pressed={statusFilter === "pending"} onClick={() => toggleStatusFilter("pending")}><span>Pendiente de acreditación</span><strong>{formatCurrency(pendingTotal)}</strong><small>Principalmente tarjetas · Ver detalle</small></button>
@@ -547,6 +632,7 @@ export default function DailyIncomePanel({
         <label>Cuenta o destino<select value={destinationFilter} onChange={(event) => setDestinationFilter(event.target.value)}><option value="all">Todos</option>{destinationOptions.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
         <label>Estado<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Todos</option><option value="received">Recibido</option><option value="pending">Pendiente</option><option value="non_cash">Sin entrada de dinero</option></select></label>
         <label>Dinero entregado<select value={deliveryFilter} onChange={(event) => setDeliveryFilter(event.target.value)}><option value="all">Todos</option><option value="yes">Sí</option><option value="no">No</option></select></label>
+        <label>Equipo<select value={teamFilter} onChange={(event) => { setTeamFilter(event.target.value as "all" | "PTY" | "WC"); setTeamDeliveryMessage(""); }}><option value="all">Todos</option><option value="PTY">PTY</option><option value="WC">WC</option></select></label>
         <button type="button" className="button ghost" onClick={clearFilters} disabled={!filtersActive}>Limpiar filtros</button>
       </div>
 

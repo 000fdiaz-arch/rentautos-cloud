@@ -61,6 +61,22 @@ export function buildDeliveredFromPreviousRows(payments: Payment[], dateKey: str
     .sort((left, right) => getIncomeDate(left).localeCompare(getIncomeDate(right)) || left.createdAt.localeCompare(right.createdAt));
 }
 
+export function buildPendingCashRowsByTeam(payments: Payment[], dateKey: string): Record<"PTY" | "WC" | "unassigned", Payment[]> {
+  const rows: Record<"PTY" | "WC" | "unassigned", Payment[]> = { PTY: [], WC: [], unassigned: [] };
+  for (const payment of payments) {
+    if (
+      payment.paymentMethod !== "Efectivo" ||
+      payment.moneyDelivered !== false ||
+      getIncomeDate(payment) > dateKey
+    ) continue;
+    const team = payment.collectionTeam === "PTY" || payment.collectionTeam === "WC"
+      ? payment.collectionTeam
+      : "unassigned";
+    rows[team].push(payment);
+  }
+  return rows;
+}
+
 export function getDailyIncomeDestination(payment: Payment, bankRules: BankRule[] = []): { key: string; label: string; accountNumber?: string } {
   if (payment.paymentMethod === "Efectivo") return payment.moneyDelivered === false
     ? { key: "cash-pending", label: "Efectivo pendiente de entrega" }
