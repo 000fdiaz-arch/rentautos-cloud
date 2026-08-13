@@ -21,3 +21,4 @@ tests/validation-output/
 
 .claude/worktrees/
 .vercel
+.env*
