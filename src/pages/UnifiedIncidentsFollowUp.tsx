@@ -183,10 +183,11 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
           actionLabel: "Gestionar juicio", destination: "judicial", targetId: collision.id
         });
       } else if (trialOffset !== null && trialOffset >= 1) {
+        const closeTrial = trialOffset <= 3;
         addAlert(incident, {
-          id: `${incident.id}:trial-upcoming`, kind: "judicial", severity: "upcoming", priority: 30 + trialOffset,
+          id: `${incident.id}:trial-upcoming`, kind: "judicial", severity: closeTrial ? "attention" : "upcoming", priority: closeTrial ? 15 + trialOffset : 30 + trialOffset,
           title: trialOffset === 1 ? "Juicio programado para mañana" : `Juicio dentro de ${trialOffset} días`,
-          message: `Fecha de juicio: ${collision.trialDate}.`, actionLabel: "Ver juicio", destination: "judicial", targetId: collision.id
+          message: closeTrial ? `Alerta: el juicio es el ${collision.trialDate}.` : `Fecha de juicio: ${collision.trialDate}.`, actionLabel: "Ver juicio", destination: "judicial", targetId: collision.id
         });
       }
       const latestFollowUp = collision.judicialFollowUps[collision.judicialFollowUps.length - 1];
@@ -580,6 +581,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           const trialCountdownLabel = trialDaysRemaining !== null && trialDaysRemaining > 0
             ? trialDaysRemaining === 1 ? "Juicio mañana" : `Juicio en ${trialDaysRemaining} días`
             : "";
+          const trialCountdownSeverity: IncidentAlertSeverity = trialDaysRemaining !== null && trialDaysRemaining <= 3 ? "attention" : "upcoming";
           const topAlertIsTrialCountdown = topAlert?.id === `${incident.id}:trial-upcoming`;
           const judicialFinalized = incident.collision?.status === "ABSUELTO" || incident.collision?.status === "CULPABLE";
           return <article key={incident.id} className={`unified-incident-card status-${claimState}${expanded ? " expanded" : ""}`}>
@@ -597,7 +599,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
                 {incident.claim?.claimNumber && <span className="unified-incident-claim-reference"><small>N.º {incident.claim.claimNumber}</small><button type="button" className="unified-claim-copy" aria-label={`Copiar número de reclamo ${incident.claim.claimNumber}`} title="Copiar número de reclamo" onClick={(event) => { event.stopPropagation(); void copyClaimNumber(incident.claim!); }}>{copiedClaimId === incident.claim.id ? "✓" : "⧉"}</button></span>}
                 {incident.claim?.insurer && <small className="unified-incident-insurer">{incident.claim.insurer}</small>}
                 {(trialCountdownLabel || topAlert) && <div className="unified-incident-card-alerts">
-                  {trialCountdownLabel && <span className="unified-incident-alert severity-upcoming" role="status"><b>◷</b> {trialCountdownLabel}</span>}
+                  {trialCountdownLabel && <span className={`unified-incident-alert severity-${trialCountdownSeverity}`} role="status"><b>{trialCountdownSeverity === "attention" ? "⚠" : "◷"}</b> {trialCountdownLabel}</span>}
                   {topAlert && !topAlertIsTrialCountdown && <span className={`unified-incident-alert severity-${topAlert.severity}`} role="status"><b>{topAlert.severity === "urgent" ? "!" : topAlert.severity === "attention" ? "⚠" : "◷"}</b> {topAlert.title}</span>}
                 </div>}
               </div>
