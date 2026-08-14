@@ -19,6 +19,7 @@ import {
 } from "../cloudData";
 import type { Client } from "../types";
 import { useControlUnitsRows } from "./controlUnits/useControlUnitsRows";
+import IncidentPhotoGalleryModal from "./IncidentPhotoGalleryModal";
 
 type Props = {
   clients: Client[];
@@ -116,6 +117,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   const [editJustification, setEditJustification] = useState<string>("");
   const [editSavingId, setEditSavingId] = useState<string>("");
   const [driverEditedManually, setDriverEditedManually] = useState<boolean>(false);
+  const [photoGallery, setPhotoGallery] = useState<{ photos: InsuranceDamagePhotoAttachment[]; index: number } | null>(null);
 
   const activeClientsByUnit = useMemo(() => {
     return new Map(
@@ -624,18 +626,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
     }
   }
 
-  async function viewDamagePhoto(photo: InsuranceDamagePhotoAttachment): Promise<void> {
-    const previewWindow = window.open("", "_blank");
-    try {
-      const url = await createInsuranceDamagePhotoViewUrl(photo.path, photo.storageBucket);
-      if (previewWindow) previewWindow.location.href = url;
-      else window.location.href = url;
-    } catch (error) {
-      previewWindow?.close();
-      console.error("No se pudo abrir la foto de daños.", error);
-      setMessage("No se pudo abrir la foto de daños adjunta.");
-    }
-  }
+  const resolveDamagePhotoUrl = async (photo: InsuranceDamagePhotoAttachment): Promise<string> => createInsuranceDamagePhotoViewUrl(photo.path, photo.storageBucket);
 
   async function saveFollowUpComment(claim: InsuranceClaimRecord): Promise<void> {
     if (!dataOwnerUserId || readOnly) return;
@@ -1262,8 +1253,8 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                             <strong>Foto {index + 1}</strong>
                             <small title={photo.name}>{photo.name}</small>
                           </div>
-                          <button type="button" className="button" onClick={() => void viewDamagePhoto(photo)}>
-                            Ver foto
+                          <button type="button" className="button" onClick={() => setPhotoGallery({ photos: claim.damagePhotos, index })}>
+                            Ver galería
                           </button>
                         </div>
                       ))}
@@ -1351,6 +1342,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
           </div>
         </section>
       )}
+      {photoGallery && <IncidentPhotoGalleryModal photos={photoGallery.photos} initialIndex={photoGallery.index} title="Fotos de los daños" resolveUrl={resolveDamagePhotoUrl} onClose={() => setPhotoGallery(null)} />}
     </section>
   );
 }
