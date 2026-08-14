@@ -43,17 +43,20 @@ export default function IncidentsControlPage({
     setManagementTarget(null);
     setRefreshKey((current) => current + 1);
     const url = new URL(window.location.href);
-    if (url.searchParams.has("insuranceClaim")) {
+    if (url.searchParams.has("insuranceClaim") || url.searchParams.has("judicialCase")) {
       url.searchParams.delete("insuranceClaim");
+      url.searchParams.delete("judicialCase");
       window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
     }
   }
 
   useEffect(() => {
-    if (!canViewInsuranceWorkflow) return;
-    const claimId = new URLSearchParams(window.location.search).get("insuranceClaim")?.trim();
-    if (claimId) setManagementTarget({ destination: "insurance", id: claimId, search: "" });
-  }, [canViewInsuranceWorkflow]);
+    const params = new URLSearchParams(window.location.search);
+    const claimId = params.get("insuranceClaim")?.trim();
+    const judicialCaseId = params.get("judicialCase")?.trim();
+    if (claimId && canViewInsuranceWorkflow) setManagementTarget({ destination: "insurance", id: claimId, search: "" });
+    else if (judicialCaseId && canViewCollisions) setManagementTarget({ destination: "judicial", id: judicialCaseId, search: "" });
+  }, [canViewCollisions, canViewInsuranceWorkflow]);
 
   useEffect(() => {
     if (!managementTarget) return;

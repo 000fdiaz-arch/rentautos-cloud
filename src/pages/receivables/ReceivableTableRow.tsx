@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { inlineComputedStylesForCanvas } from "../../canvasExportStyles";
 import { formatCurrency, formatDate } from "../../format";
 import { PLAN_LABEL, STATE_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivables";
+import type { IncidentReceivableAction } from "./incidentReceivableActions";
 import type { CollectionStatus, CollectionStatusRecord, FieldManagementType, RouteUrgency } from "./receivablesTypes";
 import {
   COLLECTION_CUT_OPTIONS,
@@ -50,14 +51,7 @@ type Props = {
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
   onSupportNoteChange: (clientId: string, value: string) => void;
   onContactTimeChange: (clientId: string, value: string) => void;
-  insuranceAction?: InsuranceReceivableAction;
-};
-
-export type InsuranceReceivableAction = {
-  claimId: string;
-  label: string;
-  date: string;
-  urgent: boolean;
+  incidentAction?: IncidentReceivableAction;
 };
 
 function safeFilenamePart(value: string): string {
@@ -484,7 +478,7 @@ function ReceivableTableRowComponent({
   onWhatsAppMessageSent,
   onSupportNoteChange,
   onContactTimeChange,
-  insuranceAction
+  incidentAction
 }: Props) {
   const [isCopyingBalanceImage, setIsCopyingBalanceImage] = useState(false);
   const statementWasSentRecently = hasTimestampWithinWindow(statusRecord?.whatsAppMessageSentAt, now, STATEMENT_SUGGESTION_WINDOW_MS);
@@ -783,13 +777,14 @@ function ReceivableTableRowComponent({
             </div>
           </div>
 
-          {insuranceAction && !isRouteWorkflow ? <div className={`ar-insurance-action${insuranceAction.urgent ? " is-urgent" : ""}`}>
-            <div><small>Acción de seguros</small><strong>{insuranceAction.label}</strong>{insuranceAction.date && <span>Próxima gestión: {insuranceAction.date}</span>}</div>
+          {incidentAction && !isRouteWorkflow ? <div className={`ar-insurance-action${incidentAction.urgent ? " is-urgent" : ""}`}>
+            <div><small>Acción pendiente de siniestros</small><strong>{incidentAction.label}</strong>{incidentAction.date && <span>Fecha de acción: {incidentAction.date}</span>}</div>
             <button type="button" className="button small" onClick={() => {
               const state = { page: "incidents" };
-              window.history.pushState(state, "", `/control-de-siniestros?insuranceClaim=${encodeURIComponent(insuranceAction.claimId)}`);
+              const parameter = incidentAction.destination === "judicial" ? "judicialCase" : "insuranceClaim";
+              window.history.pushState(state, "", `/control-de-siniestros?${parameter}=${encodeURIComponent(incidentAction.targetId)}`);
               window.dispatchEvent(new PopStateEvent("popstate", { state }));
-            }}>Abrir reclamo</button>
+            }}>Abrir expediente</button>
           </div> : null}
 
           <div className="ar-card-workflow">
@@ -992,8 +987,9 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.onWhatsAppMessageSent === next.onWhatsAppMessageSent &&
   previous.onSupportNoteChange === next.onSupportNoteChange &&
   previous.onContactTimeChange === next.onContactTimeChange
-  && previous.insuranceAction?.claimId === next.insuranceAction?.claimId
-  && previous.insuranceAction?.label === next.insuranceAction?.label
-  && previous.insuranceAction?.date === next.insuranceAction?.date
-  && previous.insuranceAction?.urgent === next.insuranceAction?.urgent
+  && previous.incidentAction?.targetId === next.incidentAction?.targetId
+  && previous.incidentAction?.destination === next.incidentAction?.destination
+  && previous.incidentAction?.label === next.incidentAction?.label
+  && previous.incidentAction?.date === next.incidentAction?.date
+  && previous.incidentAction?.urgent === next.incidentAction?.urgent
 ));

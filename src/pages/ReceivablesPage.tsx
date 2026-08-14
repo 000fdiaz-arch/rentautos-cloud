@@ -13,6 +13,7 @@ import {
   loadCloudLatestPaymentsForReceivableTargets,
   loadCloudActiveRouteItems,
   loadCloudStreetManagement,
+  loadCollisionCases,
   loadControlUnits,
   loadInsuranceClaims,
   publishCloudActiveRouteItems,
@@ -22,6 +23,7 @@ import {
   saveCloudStreetManagement,
   syncCloudStreetManagementDelta,
   type ActiveRouteItem,
+  type CollisionCaseRecord,
   type ControlUnitRow,
   type InsuranceClaimRecord
 } from "../cloudData";
@@ -53,7 +55,7 @@ import type {
 import { ReceivableDetailModal } from "./receivables/ReceivableDetailModal";
 import { ReceivablesFiltersPanel } from "./receivables/ReceivablesFiltersPanel";
 import { ReceivablesLedgerTable, type ReceivablesHistoryRow } from "./receivables/ReceivablesLedgerTable";
-import type { InsuranceReceivableAction } from "./receivables/ReceivableTableRow";
+import { buildIncidentActionsByUnit } from "./receivables/incidentReceivableActions";
 import { exportRouteCollection } from "./receivables/routeCollectionExport";
 import {
   COLLECTION_STATUS_OPTIONS,
@@ -356,20 +358,6 @@ function buildPendingRouteRecord(previous: CollectionStatusRecord | undefined, u
   };
 }
 
-function insuranceActionForReceivables(claim: InsuranceClaimRecord, todayDateKey: string): InsuranceReceivableAction | null {
-  if (claim.status === "Finalizado") return null;
-  if (!claim.claimNumber.trim()) return { claimId: claim.id, label: "Agregar número de reclamo", date: "", urgent: true };
-  if (claim.settlementDelivered) return { claimId: claim.id, label: "Finalizar reclamo", date: claim.settlementDeliveredDate, urgent: true };
-  const latestFollowUp = claim.followUps[claim.followUps.length - 1];
-  if (!latestFollowUp) return { claimId: claim.id, label: "Registrar seguimiento del seguro", date: "", urgent: true };
-  return {
-    claimId: claim.id,
-    label: latestFollowUp.nextStep || "Dar seguimiento al reclamo",
-    date: latestFollowUp.nextActionDate,
-    urgent: Boolean(latestFollowUp.nextActionDate && latestFollowUp.nextActionDate <= todayDateKey)
-  };
-}
-
 function routeRemovalBlocksRecord(
   record: CollectionStatusRecord | undefined,
   removedItem: ActiveRouteItem | undefined
@@ -442,6 +430,7 @@ export default function ReceivablesPage({
   const [statusSavingByClient, setStatusSavingByClient] = useState<Record<string, boolean>>({});
   const [fleetUnits, setFleetUnits] = useState<ControlUnitRow[]>([]);
   const [insuranceClaims, setInsuranceClaims] = useState<InsuranceClaimRecord[]>([]);
+  const [collisionCases, setCollisionCases] = useState<CollisionCaseRecord[]>([]);
   const [supplementalLastPayments, setSupplementalLastPayments] = useState<Payment[]>([]);
   const [activeRouteItems, setActiveRouteItems] = useState<ActiveRouteItem[]>([]);
   const [activeRouteLoading, setActiveRouteLoading] = useState<boolean>(false);
@@ -501,11 +490,18 @@ export default function ReceivablesPage({
   }, []);
 
   useEffect(() => {
-    if (!dataOwnerUserId) { setInsuranceClaims([]); return; }
+    if (!dataOwnerUserId) { setInsuranceClaims([]); setCollisionCases([]); return; }
     let cancelled = false;
-    loadInsuranceClaims(dataOwnerUserId)
-      .then((claims) => { if (!cancelled) setInsuranceClaims(claims); })
-      .catch((error) => { console.error("No se pudieron cargar las acciones de seguros en cuentas por cobrar.", error); if (!cancelled) setInsuranceClaims([]); });
+    Promise.all([loadInsuranceClaims(dataOwnerUserId), loadCollisionCases(dataOwnerUserId)])
+      .then(([claims, collisions]) => {
+        if (cancelled) return;
+        setInsuranceClaims(claims);
+        setCollisionCases(collisions);
+      })
+      .catch((error) => {
+        console.error("No se pudieron cargar las acciones de siniestros en cuentas por cobrar.", error);
+        if (!cancelled) { setInsuranceClaims([]); setCollisionCases([]); }
+      });
     return () => { cancelled = true; };
   }, [dataOwnerUserId]);
 
@@ -825,18 +821,10 @@ export default function ReceivablesPage({
   }, [now, receivablesDateKey]);
   const receivablesDate = useMemo(() => dateFromDateKey(todayDateKey, now), [now, todayDateKey]);
   const receivablesDateLabel = useMemo(() => formatDate(receivablesDate), [receivablesDate]);
-  const insuranceActionsByUnit = useMemo(() => {
-    const result: Record<string, InsuranceReceivableAction> = {};
-    [...insuranceClaims]
-      .sort((left, right) => (right.updatedAt || right.createdAt).localeCompare(left.updatedAt || left.createdAt))
-      .forEach((claim) => {
-        const unit = claim.unit.trim().toUpperCase();
-        if (!unit || result[unit]) return;
-        const action = insuranceActionForReceivables(claim, todayDateKey);
-        if (action) result[unit] = action;
-      });
-    return result;
-  }, [insuranceClaims, todayDateKey]);
+  const incidentActionsByUnit = useMemo(
+    () => buildIncidentActionsByUnit(insuranceClaims, collisionCases, todayDateKey),
+    [collisionCases, insuranceClaims, todayDateKey]
+  );
 
   const receivablePayments = useMemo(() => {
     if (supplementalLastPayments.length === 0) return payments;
@@ -3535,7 +3523,7 @@ export default function ReceivablesPage({
             onSupportNoteChange={handleSupportNoteChange}
             onContactTimeChange={handleContactTimeChange}
             onClearFilters={clearFilters}
-            insuranceActionsByUnit={insuranceActionsByUnit}
+            incidentActionsByUnit={incidentActionsByUnit}
           />
         )}
       </section>
