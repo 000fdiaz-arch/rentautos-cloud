@@ -59,7 +59,7 @@ import AppNavigation, { type AppPage } from "./app/AppNavigation";
 import { appPageFromPathname, appPagePath, isCanonicalAppPagePath } from "./app/appRoutes";
 import { useBackupManager } from "./app/useBackupManager";
 import { useCoreCloudSync } from "./app/useCoreCloudSync";
-import { getBusinessDateKey } from "./billing";
+import { getBusinessDateKey, withResolvedInstallmentIssuance } from "./billing";
 import { supabase } from "./lib/supabase";
 import { countActiveRouteReviewItems } from "./routeReviewRules";
 import { stableEqual } from "./stableSerialize";
@@ -503,12 +503,13 @@ export default function AppShell({
     if (userId && !cloudReady) return;
     const previousClients = clients;
     const previousPayments = payments;
-    setClients(next);
+    const normalizedNextClients = next.map(withResolvedInstallmentIssuance);
+    setClients(normalizedNextClients);
     try {
       if (cloudDataUserId) {
-        await syncCoreDeltaOrQueue(previousClients, next, previousPayments, previousPayments);
+        await syncCoreDeltaOrQueue(previousClients, normalizedNextClients, previousPayments, previousPayments);
       }
-      if (!isSupabaseOnlyMode) saveClients(next);
+      if (!isSupabaseOnlyMode) saveClients(normalizedNextClients);
       setHasPendingChanges(true);
     } catch (error) {
       setClients(previousClients);
@@ -544,6 +545,7 @@ export default function AppShell({
     if (source === "route" ? !canEditRouteSearch : !canEditPayments) return false;
     const previousClients = clients;
     const previousPayments = payments;
+    const normalizedNextClients = nextClients.map(withResolvedInstallmentIssuance);
     const previousPaymentIds = new Set(previousPayments.map((payment) => payment.id));
     const hasNewPayments = nextPayments.some((payment) => !previousPaymentIds.has(payment.id));
     const isAppendOnlyPaymentChange =
@@ -557,9 +559,9 @@ export default function AppShell({
       setSyncStatus("syncing");
       try {
         if (isAppendOnlyPaymentChange) {
-          await registerCloudPaymentDeltas(cloudDataUserId, previousClients, nextClients, previousPayments, nextPayments);
+          await registerCloudPaymentDeltas(cloudDataUserId, previousClients, normalizedNextClients, previousPayments, nextPayments);
         } else {
-          await syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
+          await syncCoreDeltaOrQueue(previousClients, normalizedNextClients, previousPayments, nextPayments);
         }
       } catch (error) {
         console.error("No se pudo guardar clientes/pagos en Supabase.", error);
@@ -567,24 +569,24 @@ export default function AppShell({
         setPayments(previousPayments);
         throw error;
       }
-      setClients(nextClients);
+      setClients(normalizedNextClients);
       setPayments(nextPayments);
       setHasPendingChanges(true);
       return true;
     }
 
-    setClients(nextClients);
+    setClients(normalizedNextClients);
     setPayments(nextPayments);
     if (cloudDataUserId) {
       const syncTask = isAppendOnlyPaymentChange
-        ? registerCloudPaymentDeltas(cloudDataUserId, previousClients, nextClients, previousPayments, nextPayments)
-        : syncCoreDeltaOrQueue(previousClients, nextClients, previousPayments, nextPayments);
+        ? registerCloudPaymentDeltas(cloudDataUserId, previousClients, normalizedNextClients, previousPayments, nextPayments)
+        : syncCoreDeltaOrQueue(previousClients, normalizedNextClients, previousPayments, nextPayments);
       void syncTask.catch((error) => {
         console.error("No se pudo guardar clientes/pagos en Supabase.", error);
       });
     }
     if (!isSupabaseOnlyMode) {
-      saveClients(nextClients);
+      saveClients(normalizedNextClients);
       savePayments(nextPayments);
     }
     setHasPendingChanges(true);
@@ -666,11 +668,12 @@ export default function AppShell({
     if (userId && !cloudReady) return false;
     const previousClients = clients;
     const previousPayments = payments;
+    const normalizedNextClients = nextClients.map(withResolvedInstallmentIssuance);
 
     if (cloudDataUserId) {
       setSyncStatus("syncing");
       try {
-        await syncCloudClientsDelta(cloudDataUserId, previousClients, nextClients);
+        await syncCloudClientsDelta(cloudDataUserId, previousClients, normalizedNextClients);
         if (deletedPaymentIds.length === 1) {
           await deleteCloudPayment(cloudDataUserId, deletedPaymentIds[0]);
         } else {
@@ -679,7 +682,7 @@ export default function AppShell({
       } catch (error) {
         console.error("No se pudo eliminar el pago en Supabase.", error);
         try {
-          await syncCloudClientsDelta(cloudDataUserId, nextClients, previousClients);
+          await syncCloudClientsDelta(cloudDataUserId, normalizedNextClients, previousClients);
         } catch (rollbackError) {
           console.error("No se pudo revertir el cliente despues de fallar eliminando pago.", rollbackError);
         }
@@ -691,10 +694,10 @@ export default function AppShell({
       }
     }
 
-    setClients(nextClients);
+    setClients(normalizedNextClients);
     setPayments(nextPayments);
     if (!isSupabaseOnlyMode) {
-      saveClients(nextClients);
+      saveClients(normalizedNextClients);
       savePayments(nextPayments);
     }
     setSyncStatus("ok");
