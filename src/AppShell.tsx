@@ -1122,6 +1122,7 @@ export default function AppShell({
         {page === "incidents" && (canViewInsuranceWorkflow || canViewCollisions) && (
           <IncidentsControlPage
             clients={clients}
+            payments={payments}
             dataOwnerUserId={cloudDataUserId}
             canViewCollisions={canViewCollisions}
             canEditCollisions={canEditCollisions}

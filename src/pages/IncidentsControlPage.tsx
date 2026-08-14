@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Client } from "../types";
+import type { Client, Payment } from "../types";
 import CollisionsPage from "./CollisionsPage";
 import IncidentIntakeForm, { type IncidentDestination } from "./IncidentIntakeForm";
 import InsuranceWorkflowPage from "./InsuranceWorkflowPage";
@@ -7,6 +7,7 @@ import UnifiedIncidentsFollowUp from "./UnifiedIncidentsFollowUp";
 
 type Props = {
   clients: Client[];
+  payments: Payment[];
   dataOwnerUserId?: string | null;
   canViewCollisions: boolean;
   canEditCollisions: boolean;
@@ -20,6 +21,7 @@ type ManagementTarget = { destination: IncidentDestination; id: string; search: 
 
 export default function IncidentsControlPage({
   clients,
+  payments,
   dataOwnerUserId,
   canViewCollisions,
   canEditCollisions,
@@ -40,7 +42,18 @@ export default function IncidentsControlPage({
   function closeManagement(): void {
     setManagementTarget(null);
     setRefreshKey((current) => current + 1);
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("insuranceClaim")) {
+      url.searchParams.delete("insuranceClaim");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    }
   }
+
+  useEffect(() => {
+    if (!canViewInsuranceWorkflow) return;
+    const claimId = new URLSearchParams(window.location.search).get("insuranceClaim")?.trim();
+    if (claimId) setManagementTarget({ destination: "insurance", id: claimId, search: "" });
+  }, [canViewInsuranceWorkflow]);
 
   useEffect(() => {
     if (!managementTarget) return;
@@ -118,6 +131,7 @@ export default function IncidentsControlPage({
               <CollisionsPage
                 key={`judicial-${managementTarget.id}`}
                 clients={clients}
+                payments={payments}
                 dataOwnerUserId={dataOwnerUserId}
                 readOnly={!canEditCollisions}
                 onClientsChange={onClientsChange}

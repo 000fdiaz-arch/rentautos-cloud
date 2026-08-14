@@ -168,8 +168,12 @@ export type CollisionInsuranceClaim = {
 export type CollisionExpenseInvoice = {
   chargeId: string;
   label: string;
+  description?: string;
   amount: number;
   attachment?: CollisionPhotoAttachment | null;
+  evaluatedAt?: string;
+  creditedToRentAmount?: number;
+  creditedToRentAt?: string | null;
   createdAt: string;
 };
 
@@ -199,6 +203,9 @@ export type CollisionCaseRecord = {
   status: CollisionTrialStatus;
   trialDateHistory: CollisionTrialDateEvent[];
   judicialFollowUps: CollisionJudicialFollowUp[];
+  clientWillAttend?: boolean | null;
+  legalAssistanceRequested?: boolean | null;
+  attendanceConfirmedAt?: string | null;
   incidentPhotos?: CollisionPhotoAttachment[];
   judicialOutcomeEvidence: CollisionPhotoAttachment | null;
   judicialResolutionEvidence?: CollisionPhotoAttachment | null;
@@ -540,6 +547,9 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
           && typeof entry.createdAt === "string"
         ))
       : [],
+    clientWillAttend: typeof item.clientWillAttend === "boolean" ? item.clientWillAttend : null,
+    legalAssistanceRequested: typeof item.legalAssistanceRequested === "boolean" ? item.legalAssistanceRequested : null,
+    attendanceConfirmedAt: typeof item.attendanceConfirmedAt === "string" ? item.attendanceConfirmedAt : null,
     incidentPhotos: Array.isArray(item.incidentPhotos)
       ? item.incidentPhotos.filter((photo): photo is CollisionPhotoAttachment => Boolean(photo && typeof photo === "object" && typeof photo.path === "string"))
       : [],
@@ -553,9 +563,13 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
     expenseInvoice: item.expenseInvoice && typeof item.expenseInvoice === "object"
       ? {
           ...item.expenseInvoice,
+          description: typeof item.expenseInvoice.description === "string" ? item.expenseInvoice.description : item.expenseInvoice.label,
           attachment: item.expenseInvoice.attachment && typeof item.expenseInvoice.attachment.path === "string"
             ? item.expenseInvoice.attachment
-            : null
+            : null,
+          evaluatedAt: typeof item.expenseInvoice.evaluatedAt === "string" ? item.expenseInvoice.evaluatedAt : item.expenseInvoice.createdAt?.slice(0, 10) ?? "",
+          creditedToRentAmount: typeof item.expenseInvoice.creditedToRentAmount === "number" ? item.expenseInvoice.creditedToRentAmount : 0,
+          creditedToRentAt: typeof item.expenseInvoice.creditedToRentAt === "string" ? item.expenseInvoice.creditedToRentAt : null
         }
       : null,
     clientReturnedBeforeClosure: item.clientReturnedBeforeClosure === true,

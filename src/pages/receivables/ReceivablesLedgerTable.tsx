@@ -3,7 +3,7 @@ import { formatCurrency, formatDate } from "../../format";
 import { STATE_LABEL, type ReceivableRow, type ReceivableState } from "../../receivables";
 import type { Client } from "../../types";
 import { fieldManagementLabel, type CollectionStatusRecord, type FieldManagementType } from "./receivablesTypes";
-import { ReceivableTableRow } from "./ReceivableTableRow";
+import { ReceivableTableRow, type InsuranceReceivableAction } from "./ReceivableTableRow";
 import {
   COLLECTION_CUT_OPTIONS,
   COLLECTION_STATUS_HELP,
@@ -61,6 +61,7 @@ type Props = {
   onSupportNoteChange: (clientId: string, value: string) => void;
   onContactTimeChange: (clientId: string, value: string) => void;
   onClearFilters: () => void;
+  insuranceActionsByUnit: Record<string, InsuranceReceivableAction>;
 };
 
 function getCutItemsForClient(
@@ -147,7 +148,8 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   onWhatsAppMessageSent,
   onSupportNoteChange,
   onContactTimeChange,
-  onClearFilters
+  onClearFilters,
+  insuranceActionsByUnit
 }: Props) {
   const [customRouteEditorByClient, setCustomRouteEditorByClient] = useState<Record<string, boolean>>({});
   const [routeAmountDraftByClient, setRouteAmountDraftByClient] = useState<Record<string, string>>({});
@@ -566,6 +568,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               onWhatsAppMessageSent={onWhatsAppMessageSent}
               onSupportNoteChange={onSupportNoteChange}
               onContactTimeChange={onContactTimeChange}
+              insuranceAction={insuranceActionsByUnit[row.unitId.trim().toUpperCase()]}
             />
           ))}
         </tbody>

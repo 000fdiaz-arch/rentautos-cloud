@@ -50,6 +50,14 @@ type Props = {
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
   onSupportNoteChange: (clientId: string, value: string) => void;
   onContactTimeChange: (clientId: string, value: string) => void;
+  insuranceAction?: InsuranceReceivableAction;
+};
+
+export type InsuranceReceivableAction = {
+  claimId: string;
+  label: string;
+  date: string;
+  urgent: boolean;
 };
 
 function safeFilenamePart(value: string): string {
@@ -475,7 +483,8 @@ function ReceivableTableRowComponent({
   onRouteReleaseAmountChange,
   onWhatsAppMessageSent,
   onSupportNoteChange,
-  onContactTimeChange
+  onContactTimeChange,
+  insuranceAction
 }: Props) {
   const [isCopyingBalanceImage, setIsCopyingBalanceImage] = useState(false);
   const statementWasSentRecently = hasTimestampWithinWindow(statusRecord?.whatsAppMessageSentAt, now, STATEMENT_SUGGESTION_WINDOW_MS);
@@ -774,6 +783,15 @@ function ReceivableTableRowComponent({
             </div>
           </div>
 
+          {insuranceAction && !isRouteWorkflow ? <div className={`ar-insurance-action${insuranceAction.urgent ? " is-urgent" : ""}`}>
+            <div><small>Acción de seguros</small><strong>{insuranceAction.label}</strong>{insuranceAction.date && <span>Próxima gestión: {insuranceAction.date}</span>}</div>
+            <button type="button" className="button small" onClick={() => {
+              const state = { page: "incidents" };
+              window.history.pushState(state, "", `/control-de-siniestros?insuranceClaim=${encodeURIComponent(insuranceAction.claimId)}`);
+              window.dispatchEvent(new PopStateEvent("popstate", { state }));
+            }}>Abrir reclamo</button>
+          </div> : null}
+
           <div className="ar-card-workflow">
             <div className="ar-card-management ar-cut-cell ar-cut-cell--stacked">
               <div className="ar-cut-stack">
@@ -974,4 +992,8 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.onWhatsAppMessageSent === next.onWhatsAppMessageSent &&
   previous.onSupportNoteChange === next.onSupportNoteChange &&
   previous.onContactTimeChange === next.onContactTimeChange
+  && previous.insuranceAction?.claimId === next.insuranceAction?.claimId
+  && previous.insuranceAction?.label === next.insuranceAction?.label
+  && previous.insuranceAction?.date === next.insuranceAction?.date
+  && previous.insuranceAction?.urgent === next.insuranceAction?.urgent
 ));

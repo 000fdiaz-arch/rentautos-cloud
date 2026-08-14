@@ -20,13 +20,15 @@ import {
   type CollisionTrialStatus,
   type InsuranceClaimRecord
 } from "../cloudData";
-import type { Client } from "../types";
+import type { Client, Payment } from "../types";
 import { normalizeCourtName } from "../courtNames";
 import { useControlUnitsRows } from "./controlUnits/useControlUnitsRows";
 import IncidentPhotoGalleryModal from "./IncidentPhotoGalleryModal";
+import { calculateCollisionCredit } from "./incidents/collisionBalanceRules";
 
 type Props = {
   clients: Client[];
+  payments: Payment[];
   dataOwnerUserId?: string | null;
   readOnly?: boolean;
   onClientsChange: (next: Client[]) => void | Promise<void>;
@@ -82,6 +84,13 @@ function courtsFromCases(cases: CollisionCaseRecord[]): string[] {
 function localDateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
+function calendarDayOffset(value: string, today = new Date()): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const target = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(target.getTime())) return null;
+  const current = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12);
+  return Math.round((target.getTime() - current.getTime()) / 86_400_000);
+}
 function previousWeekRange(today = new Date()): { start: string; end: string } {
   const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const thisMonday = new Date(current);
@@ -98,7 +107,7 @@ function parseAmount(value: string): number {
 }
 function isFinalStatus(status: CollisionTrialStatus): boolean { return status === "ABSUELTO" || status === "CULPABLE"; }
 
-export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = false, onClientsChange, embedded = false, syncInsuranceClaims = true, hideCreateForm = false, initialExpandedId = "", initialSearch = "", focusedCaseId = "" }: Props) {
+export default function CollisionsPage({ clients, payments, dataOwnerUserId, readOnly = false, onClientsChange, embedded = false, syncInsuranceClaims = true, hideCreateForm = false, initialExpandedId = "", initialSearch = "", focusedCaseId = "" }: Props) {
   const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(hideCreateForm ? null : dataOwnerUserId);
   const [activeTab, setActiveTab] = useState<"form" | "agenda">(hideCreateForm ? "agenda" : "form");
   const [form, setForm] = useState<TrialForm>(EMPTY_FORM);
@@ -122,6 +131,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   const [rescheduleReasons, setRescheduleReasons] = useState<Record<string, string>>({});
   const [expenseAmounts, setExpenseAmounts] = useState<Record<string, string>>({});
   const [expenseLabels, setExpenseLabels] = useState<Record<string, string>>({});
+  const [expenseEvaluationDates, setExpenseEvaluationDates] = useState<Record<string, string>>({});
   const [expenseInvoiceFiles, setExpenseInvoiceFiles] = useState<Record<string, File | null>>({});
   const [returnedBeforeClosure, setReturnedBeforeClosure] = useState<Record<string, boolean>>({});
   const [claimDrafts, setClaimDrafts] = useState<Record<string, ClaimDraft>>({});
@@ -129,6 +139,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   const [judicialFollowUpDrafts, setJudicialFollowUpDrafts] = useState<Record<string, JudicialFollowUpDraft>>({});
   const [judicialFollowUpSavingId, setJudicialFollowUpSavingId] = useState("");
   const [judicialCaseTabs, setJudicialCaseTabs] = useState<Record<string, JudicialCaseTab>>({});
+  const [attendanceDrafts, setAttendanceDrafts] = useState<Record<string, { clientWillAttend: "" | "yes" | "no"; legalAssistanceRequested: "" | "yes" | "no" }>>({});
   const [photoGallery, setPhotoGallery] = useState<{ photos: CollisionPhotoAttachment[]; index: number; title: string } | null>(null);
 
   const fleetUnitsByUnit = useMemo(() => new Map(fleetUnits.map((row) => [normalizeUnit(row.unit_id), row])), [fleetUnits]);
@@ -189,7 +200,13 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
         setClaimDrafts(Object.fromEntries(nextCases.map((item) => [item.id, item.insuranceClaim
           ? { insurer: item.insuranceClaim.insurer, claimNumber: item.insuranceClaim.claimNumber, amount: item.insuranceClaim.amount }
           : EMPTY_CLAIM])));
-        setExpenseLabels(Object.fromEntries(nextCases.map((item) => [item.id, `GASTOS DE JUICIO - ${item.unit}`])));
+        setExpenseLabels(Object.fromEntries(nextCases.map((item) => [item.id, item.expenseInvoice?.description ?? ""] )));
+        setExpenseAmounts(Object.fromEntries(nextCases.map((item) => [item.id, item.expenseInvoice ? String(item.expenseInvoice.amount) : ""])));
+        setExpenseEvaluationDates(Object.fromEntries(nextCases.map((item) => [item.id, item.expenseInvoice?.evaluatedAt ?? localDateKey(new Date())])));
+        setAttendanceDrafts(Object.fromEntries(nextCases.map((item) => [item.id, {
+          clientWillAttend: item.clientWillAttend === true ? "yes" : item.clientWillAttend === false ? "no" : "",
+          legalAssistanceRequested: item.legalAssistanceRequested === true ? "yes" : item.legalAssistanceRequested === false ? "no" : ""
+        }])));
       })
       .catch((error) => { if (!cancelled) { console.error("No se pudieron cargar los juicios.", error); setLoadError("No se pudieron cargar los juicios desde la nube."); } })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -236,7 +253,13 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     patchForm({ court });
   }
   function initializeCaseDrafts(item: CollisionCaseRecord): void {
-    setExpenseLabels((current) => ({ ...current, [item.id]: current[item.id] ?? `GASTOS DE JUICIO - ${item.unit}` }));
+    setExpenseLabels((current) => ({ ...current, [item.id]: current[item.id] ?? item.expenseInvoice?.description ?? "" }));
+    setExpenseAmounts((current) => ({ ...current, [item.id]: current[item.id] ?? (item.expenseInvoice ? String(item.expenseInvoice.amount) : "") }));
+    setExpenseEvaluationDates((current) => ({ ...current, [item.id]: current[item.id] ?? item.expenseInvoice?.evaluatedAt ?? localDateKey(new Date()) }));
+    setAttendanceDrafts((current) => ({ ...current, [item.id]: current[item.id] ?? {
+      clientWillAttend: item.clientWillAttend === true ? "yes" : item.clientWillAttend === false ? "no" : "",
+      legalAssistanceRequested: item.legalAssistanceRequested === true ? "yes" : item.legalAssistanceRequested === false ? "no" : ""
+    } }));
     setClaimDrafts((current) => ({ ...current, [item.id]: current[item.id] ?? (item.insuranceClaim
       ? { insurer: item.insuranceClaim.insurer, claimNumber: item.insuranceClaim.claimNumber, amount: item.insuranceClaim.amount }
       : EMPTY_CLAIM) }));
@@ -287,6 +310,9 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       status: "PENDIENTE",
       trialDateHistory: [],
       judicialFollowUps: [],
+      clientWillAttend: null,
+      legalAssistanceRequested: null,
+      attendanceConfirmedAt: null,
       judicialOutcomeEvidence: null,
       insuranceClaim: null,
       expenseInvoice: null,
@@ -347,13 +373,90 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     }
   }
 
+  function findCaseClientIndex(item: CollisionCaseRecord): number {
+    const historicalClientIndex = item.clientId ? clients.findIndex((client) => client.id === item.clientId) : -1;
+    const historicalClientName = normalizePersonName(item.clientName || item.driver);
+    const namedClientIndex = historicalClientName
+      ? clients.findIndex((client) => normalizePersonName(client.name) === historicalClientName)
+      : -1;
+    return historicalClientIndex >= 0
+      ? historicalClientIndex
+      : namedClientIndex >= 0
+        ? namedClientIndex
+        : clients.findIndex((client) => normalizeUnit(client.unitId) === normalizeUnit(item.unit));
+  }
+
+  async function saveAttendanceConfirmation(item: CollisionCaseRecord): Promise<void> {
+    if (readOnly || busyId || !dataOwnerUserId) return;
+    const draft = attendanceDrafts[item.id];
+    if (!draft?.clientWillAttend || !draft.legalAssistanceRequested) {
+      setMessage("Responde si el cliente irá y si se pidió asistencia legal.");
+      return;
+    }
+    setBusyId(item.id); setMessage("");
+    try {
+      await persistCase({
+        ...item,
+        clientWillAttend: draft.clientWillAttend === "yes",
+        legalAssistanceRequested: draft.legalAssistanceRequested === "yes",
+        attendanceConfirmedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }, "Confirmación previa al juicio guardada.");
+    } catch (error) {
+      console.error("No se pudo guardar la confirmación previa al juicio.", error);
+      setMessage("No se pudo guardar la confirmación previa al juicio.");
+    } finally { setBusyId(""); }
+  }
+
+  async function saveCollisionBalance(item: CollisionCaseRecord): Promise<void> {
+    if (readOnly || busyId || !dataOwnerUserId || item.expenseInvoice) return;
+    const amount = parseAmount(expenseAmounts[item.id] ?? "");
+    const description = expenseLabels[item.id]?.trim() ?? "";
+    const evaluatedAt = expenseEvaluationDates[item.id] ?? localDateKey(new Date());
+    const clientIndex = findCaseClientIndex(item);
+    if (amount <= 0) { setMessage("Indica el monto del saldo de colisión."); return; }
+    if (!description) { setMessage("Describe brevemente el daño o la reparación."); return; }
+    if (!evaluatedAt) { setMessage("Indica la fecha de evaluación del taller."); return; }
+    if (clientIndex < 0) { setMessage("No se encontró el cliente asociado al siniestro."); return; }
+    let uploadedInvoice: CollisionPhotoAttachment | null = null;
+    setBusyId(item.id); setMessage("");
+    try {
+      const invoiceFile = expenseInvoiceFiles[item.id];
+      if (invoiceFile) uploadedInvoice = await uploadCollisionPhoto(dataOwnerUserId, item.id, invoiceFile);
+      const now = new Date().toISOString();
+      const chargeId = `collision-expense-${item.id}`;
+      const chargeLabel = `SALDO DE COLISIÓN - ${item.unit}`;
+      const nextClients = clients.map((client, index) => index !== clientIndex ? client : ({
+        ...client,
+        otherCharges: [...client.otherCharges.filter((charge) => charge.id !== chargeId), { id: chargeId, label: chargeLabel, amount }]
+      }));
+      const updatedCase: CollisionCaseRecord = {
+        ...item,
+        expenseInvoice: { chargeId, label: chargeLabel, description, amount, attachment: uploadedInvoice, evaluatedAt, creditedToRentAmount: 0, creditedToRentAt: null, createdAt: now },
+        updatedAt: now
+      };
+      await saveCollisionCase(dataOwnerUserId, updatedCase);
+      try { await onClientsChange(nextClients); }
+      catch (error) {
+        try { await saveCollisionCase(dataOwnerUserId, item); } catch (rollbackError) { console.error("No se pudo revertir el saldo de colisión.", rollbackError); }
+        throw error;
+      }
+      setCases((current) => current.map((candidate) => candidate.id === item.id ? updatedCase : candidate));
+      setExpenseInvoiceFiles((current) => ({ ...current, [item.id]: null }));
+      setMessage(`Saldo de colisión registrado por ${USD_FORMATTER.format(amount)}.`);
+    } catch (error) {
+      if (uploadedInvoice) { try { await removeCollisionPhotos([uploadedInvoice.path]); } catch { /* Limpieza de mejor esfuerzo. */ } }
+      console.error("No se pudo registrar el saldo de colisión.", error);
+      setMessage("No se pudo registrar el saldo de colisión.");
+    } finally { setBusyId(""); }
+  }
+
   async function applyOutcome(item: CollisionCaseRecord): Promise<void> {
     if (readOnly || busyId || !dataOwnerUserId) return;
     const outcome = outcomeDrafts[item.id];
     if (!outcome) { setMessage("Selecciona el resultado del juicio."); return; }
     const now = new Date().toISOString();
     let uploadedEvidence: CollisionPhotoAttachment | null = null;
-    let uploadedInvoice: CollisionPhotoAttachment | null = null;
     setBusyId(item.id); setMessage("");
     try {
       if (outcome === "CULPABLE") {
@@ -370,67 +473,71 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
           trialDate: nextDate,
           status: "NUEVA FECHA",
           trialDateHistory: [...item.trialDateHistory, { previousDate: item.trialDate, newDate: nextDate, reason, changedAt: now }],
+          clientWillAttend: null,
+          legalAssistanceRequested: null,
+          attendanceConfirmedAt: null,
           updatedAt: now
         }, "Nueva fecha de juicio guardada con su razón.");
+        setAttendanceDrafts((current) => ({ ...current, [item.id]: { clientWillAttend: "", legalAssistanceRequested: "" } }));
       } else if (outcome === "ABSUELTO") {
-        await persistCase({ ...item, status: "ABSUELTO", judicialOutcomeEvidence: null, judicialResolutionEvidence: null, updatedAt: now }, "Resultado ABSUELTO guardado. El próximo paso es buscar y adjuntar la resolución judicial.");
+        const clientIndex = findCaseClientIndex(item);
+        const invoice = item.expenseInvoice;
+        if (invoice && clientIndex < 0) throw new Error("CLIENT_NOT_FOUND");
+        if (!invoice) {
+          await persistCase({ ...item, status: "ABSUELTO", judicialOutcomeEvidence: null, judicialResolutionEvidence: null, updatedAt: now }, "Resultado ABSUELTO guardado. El próximo paso es buscar y adjuntar la resolución judicial.");
+        } else {
+          const currentClient = clients[clientIndex];
+          const paidToCollision = Math.min(invoice.amount, Math.max(0, Math.round((payments
+            .filter((payment) => payment.clientId === currentClient.id)
+            .flatMap((payment) => payment.otherChargesApplied ?? [])
+            .filter((charge) => charge.id === invoice.chargeId)
+            .reduce((sum, charge) => sum + charge.amount, 0) + Number.EPSILON) * 100) / 100));
+          const collisionCredit = calculateCollisionCredit({
+            invoiceAmount: invoice.amount,
+            paidToCollision,
+            rentBalance: currentClient.balance,
+            advanceBalance: currentClient.advanceBalance ?? 0,
+            rentAmount: currentClient.rentAmount
+          });
+          const nextClients = clients.map((client, index) => index !== clientIndex ? client : ({
+            ...client,
+            balance: collisionCredit.balanceAfter,
+            advanceBalance: collisionCredit.advanceBalanceAfter,
+            installmentsPaid: client.installmentsPaid + collisionCredit.installmentsCovered,
+            installmentsRemaining: Math.max(0, client.installmentsRemaining - collisionCredit.installmentsCovered),
+            otherCharges: client.otherCharges.filter((charge) => charge.id !== invoice.chargeId)
+          }));
+          const updatedCase: CollisionCaseRecord = {
+            ...item,
+            status: "ABSUELTO",
+            judicialOutcomeEvidence: null,
+            judicialResolutionEvidence: null,
+            expenseInvoice: { ...invoice, creditedToRentAmount: collisionCredit.creditedAmount, creditedToRentAt: now },
+            updatedAt: now
+          };
+          await saveCollisionCase(dataOwnerUserId, updatedCase);
+          try { await onClientsChange(nextClients); }
+          catch (error) {
+            try { await saveCollisionCase(dataOwnerUserId, item); } catch (rollbackError) { console.error("No se pudo revertir el crédito del saldo de colisión.", rollbackError); }
+            throw error;
+          }
+          setCases((current) => current.map((candidate) => candidate.id === item.id ? updatedCase : candidate));
+          setMessage(collisionCredit.creditedAmount > 0
+            ? `Resultado ABSUELTO. ${USD_FORMATTER.format(collisionCredit.creditedAmount)} abonados a la colisión se aplicaron a la letra.`
+            : "Resultado ABSUELTO. El saldo de colisión pendiente fue retirado.");
+        }
       } else {
         const clientReturned = returnedBeforeClosure[item.id] === true;
-        if (clientReturned) {
-          await persistCase({
-            ...item,
-            status: "CULPABLE",
-            judicialOutcomeEvidence: uploadedEvidence,
-            expenseInvoice: null,
-            clientReturnedBeforeClosure: true,
-            clientReturnedBeforeClosureAt: now,
-            updatedAt: now
-          }, "Resultado guardado. El cliente dejó el carro antes del cierre; no se generó una factura automática.");
-          setOutcomeDrafts((current) => ({ ...current, [item.id]: "" }));
-          setOutcomeEvidenceFiles((current) => ({ ...current, [item.id]: null }));
-          setExpenseInvoiceFiles((current) => ({ ...current, [item.id]: null }));
-          return;
-        }
-        const amount = parseAmount(expenseAmounts[item.id] ?? "");
-        const label = expenseLabels[item.id]?.trim() || `GASTOS DE JUICIO - ${item.unit}`;
-        const historicalClientIndex = item.clientId ? clients.findIndex((client) => client.id === item.clientId) : -1;
-        const historicalClientName = normalizePersonName(item.clientName || item.driver);
-        const namedClientIndex = historicalClientName
-          ? clients.findIndex((client) => normalizePersonName(client.name) === historicalClientName)
-          : -1;
-        const clientIndex = historicalClientIndex >= 0
-          ? historicalClientIndex
-          : namedClientIndex >= 0
-            ? namedClientIndex
-            : clients.findIndex((client) => normalizeUnit(client.unitId) === normalizeUnit(item.unit));
-        if (amount <= 0) throw new Error("EXPENSE_AMOUNT_REQUIRED");
-        if (clientIndex < 0) throw new Error("CLIENT_NOT_FOUND");
-        const invoiceFile = expenseInvoiceFiles[item.id];
-        if (invoiceFile) uploadedInvoice = await uploadCollisionPhoto(dataOwnerUserId, item.id, invoiceFile);
-        const chargeId = `collision-expense-${item.id}`;
-        const currentClient = clients[clientIndex];
-        const nextClients = clients.map((client, index) => index !== clientIndex ? client : {
-          ...client,
-          otherCharges: [...client.otherCharges.filter((charge) => charge.id !== chargeId), { id: chargeId, label, amount }]
-        });
-        const updatedCase: CollisionCaseRecord = {
+        await persistCase({
           ...item,
           status: "CULPABLE",
           judicialOutcomeEvidence: uploadedEvidence,
-          expenseInvoice: { chargeId, label, amount, attachment: uploadedInvoice, createdAt: now },
-          clientReturnedBeforeClosure: false,
-          clientReturnedBeforeClosureAt: null,
+          clientReturnedBeforeClosure: clientReturned,
+          clientReturnedBeforeClosureAt: clientReturned ? now : null,
           updatedAt: now
-        };
-        await saveCollisionCase(dataOwnerUserId, updatedCase);
-        try {
-          await onClientsChange(nextClients);
-        } catch (error) {
-          try { await saveCollisionCase(dataOwnerUserId, item); } catch (rollbackError) { console.error("No se pudo revertir el resultado del juicio.", rollbackError); }
-          throw error;
-        }
-        setCases((current) => current.map((candidate) => candidate.id === item.id ? updatedCase : candidate));
-        setMessage(`Resultado guardado. Se generó una factura de gastos por ${USD_FORMATTER.format(amount)}.`);
+        }, clientReturned
+          ? "Resultado CULPABLE guardado. El cliente dejó el carro antes del cierre."
+          : "Resultado CULPABLE guardado. Los abonos permanecen aplicados al saldo de colisión.");
       }
       setOutcomeDrafts((current) => ({ ...current, [item.id]: "" }));
       setOutcomeEvidenceFiles((current) => ({ ...current, [item.id]: null }));
@@ -438,14 +545,10 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     } catch (error) {
       if (error instanceof Error && error.message === "RESCHEDULE_REQUIRED") setMessage("Indica una fecha distinta y la razón obligatoria de la reprogramación.");
       else if (error instanceof Error && error.message === "OUTCOME_EVIDENCE_REQUIRED") setMessage("Adjunta la foto del documento que valida el resultado judicial.");
-      else if (error instanceof Error && error.message === "EXPENSE_AMOUNT_REQUIRED") setMessage("Indica el monto de los gastos para generar la factura.");
       else if (error instanceof Error && error.message === "CLIENT_NOT_FOUND") setMessage("No se encontró un cliente asociado a esta unidad para generar la factura.");
       else { console.error("No se pudo guardar el resultado del juicio.", error); setMessage("No se pudo guardar el resultado del juicio."); }
       if (uploadedEvidence) {
         try { await removeCollisionPhotos([uploadedEvidence.path]); } catch (cleanupError) { console.error("No se pudo limpiar el documento judicial subido.", cleanupError); }
-      }
-      if (uploadedInvoice) {
-        try { await removeCollisionPhotos([uploadedInvoice.path]); } catch (cleanupError) { console.error("No se pudo limpiar la factura adjunta.", cleanupError); }
       }
     } finally { setBusyId(""); }
   }
@@ -700,6 +803,9 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
             const outcomeEvidenceFile = outcomeEvidenceFiles[item.id] ?? null;
             const followUpDraft = judicialFollowUpDrafts[item.id] ?? EMPTY_JUDICIAL_FOLLOW_UP;
             const activeCaseTab = judicialCaseTabs[item.id] ?? "management";
+            const trialOffset = item.trialDate ? calendarDayOffset(item.trialDate) : null;
+            const attendanceComplete = typeof item.clientWillAttend === "boolean" && typeof item.legalAssistanceRequested === "boolean";
+            const attendanceDraft = attendanceDrafts[item.id] ?? { clientWillAttend: "", legalAssistanceRequested: "" };
             return <article key={item.id} className={`workflow-claim-card${expanded ? " expanded" : ""}`}>
               {!focusedCaseId && <div className="workflow-claim-summary">
                 <button type="button" className="workflow-claim-toggle" aria-expanded={expanded} onClick={() => { setExpandedId(expanded ? null : item.id); initializeCaseDrafts(item); }}>
@@ -726,13 +832,27 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                    <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>
                    </dl>
                  {item.incidentPhotos?.length ? <div className="workflow-damage-photo-list"><strong>Fotos adjuntas al juicio ({item.incidentPhotos.length})</strong>{item.incidentPhotos.map((photo, index) => <div key={photo.path} className="workflow-damage-photo-row"><div><strong>Foto {index + 1}</strong><small>{photo.name}</small></div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos!, index, title: "Fotos del juicio" })}>Ver galería</button></div>)}</div> : null}
+                 {!isFinalStatus(item.status) && <div className={`workflow-finalization-panel collision-attendance-panel${attendanceComplete ? " is-complete" : " is-pending"}`}>
+                  <div><strong>Confirmación previa al juicio</strong><span>{attendanceComplete ? (item.attendanceConfirmedAt ? `Confirmado el ${new Date(item.attendanceConfirmedAt).toLocaleString("es-PA")}` : "Confirmación guardada") : trialOffset !== null && trialOffset <= 10 ? "La confirmación ya está pendiente y requiere atención." : "Debe quedar completada como mínimo 10 días antes del juicio."}</span></div>
+                  <label>¿El cliente irá?<select value={attendanceDraft.clientWillAttend} onChange={(event) => setAttendanceDrafts((current) => ({ ...current, [item.id]: { ...attendanceDraft, clientWillAttend: event.target.value as "" | "yes" | "no" } }))} disabled={readOnly || busyId === item.id}><option value="">Seleccionar</option><option value="yes">Sí</option><option value="no">No</option></select></label>
+                  <label>¿Se pidió asistencia legal?<select value={attendanceDraft.legalAssistanceRequested} onChange={(event) => setAttendanceDrafts((current) => ({ ...current, [item.id]: { ...attendanceDraft, legalAssistanceRequested: event.target.value as "" | "yes" | "no" } }))} disabled={readOnly || busyId === item.id}><option value="">Seleccionar</option><option value="yes">Sí</option><option value="no">No</option></select></label>
+                  <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => void saveAttendanceConfirmation(item)} disabled={readOnly || busyId === item.id || !attendanceDraft.clientWillAttend || !attendanceDraft.legalAssistanceRequested}>{busyId === item.id ? "Guardando..." : attendanceComplete ? "Actualizar confirmación" : "Guardar confirmación"}</button></div>
+                 </div>}
+                 {!item.expenseInvoice && !isFinalStatus(item.status) && <div className="workflow-finalization-panel collision-balance-panel">
+                  <div><strong>Saldo de colisión</strong><span>Registra el costo determinado después de la evaluación del taller.</span></div>
+                  <label>Fecha de evaluación<input type="date" value={expenseEvaluationDates[item.id] ?? today} onChange={(event) => setExpenseEvaluationDates((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /></label>
+                  <label>Monto<input type="number" min="0.01" step="0.01" placeholder="0.00" value={expenseAmounts[item.id] ?? ""} onChange={(event) => setExpenseAmounts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /></label>
+                  <label className="workflow-finalization-reason">Descripción del daño o reparación<textarea value={expenseLabels[item.id] ?? ""} onChange={(event) => setExpenseLabels((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /></label>
+                  <label className="collision-outcome-evidence">Factura del taller (opcional)<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => selectExpenseInvoice(item.id, event.target.files?.[0])} disabled={readOnly || busyId === item.id} /><small>{expenseInvoiceFiles[item.id] ? `Seleccionada: ${expenseInvoiceFiles[item.id]!.name}` : "Adjunta PDF o imagen de hasta 10 MB"}</small></label>
+                  <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => void saveCollisionBalance(item)} disabled={readOnly || busyId === item.id || !expenseAmounts[item.id] || !expenseLabels[item.id]?.trim()}>{busyId === item.id ? "Guardando..." : "Registrar saldo de colisión"}</button></div>
+                 </div>}
+                 {item.expenseInvoice && <div className="collision-expense-invoice"><strong>Saldo de colisión registrado</strong><span>{item.expenseInvoice.description || item.expenseInvoice.label}</span><b>{USD_FORMATTER.format(item.expenseInvoice.amount)}</b><small>{item.expenseInvoice.creditedToRentAt ? `${USD_FORMATTER.format(item.expenseInvoice.creditedToRentAmount ?? 0)} transferidos a la letra al ganar el juicio.` : `Evaluado el ${item.expenseInvoice.evaluatedAt || item.expenseInvoice.createdAt.slice(0, 10)} · cobro activo en otros cargos.`}</small>{item.expenseInvoice.attachment && <button type="button" className="button" onClick={() => void viewExpenseInvoice(item.expenseInvoice!.attachment!)}>Ver factura adjunta</button>}</div>}
                  {!isFinalStatus(item.status) && <div className="workflow-finalization-panel collision-outcome-panel">
                   <div><strong>Resultado del juicio</strong><span>Selecciona el resultado para continuar el flujo.</span></div>
                   <label>Resultado<select value={outcome} onChange={(event) => setOutcomeDrafts((current) => ({ ...current, [item.id]: event.target.value as typeof outcome }))} disabled={readOnly || busyId === item.id}><option value="">Seleccionar</option><option>ABSUELTO</option><option>CULPABLE</option><option>NUEVA FECHA</option></select></label>
                   {outcome === "CULPABLE" && <label className="collision-outcome-evidence">Documento que valida el resultado<input type="file" accept="image/*" onChange={(event) => selectOutcomeEvidence(item.id, event.target.files?.[0])} disabled={readOnly || busyId === item.id} /><small>{outcomeEvidenceFile ? `Seleccionado: ${outcomeEvidenceFile.name}` : "Obligatorio · imagen de hasta 10 MB"}</small></label>}
                   {outcome === "NUEVA FECHA" && <><label>Nueva fecha de juicio<input type="date" value={newTrialDates[item.id] ?? ""} onChange={(event) => setNewTrialDates((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label className="workflow-finalization-reason">Razón de la nueva fecha<textarea value={rescheduleReasons[item.id] ?? ""} placeholder="La razón es obligatoria" onChange={(event) => setRescheduleReasons((current) => ({ ...current, [item.id]: event.target.value }))} /></label></>}
-                  {outcome === "CULPABLE" && <label className="collision-client-returned-option"><input type="checkbox" checked={returnedBeforeClosure[item.id] === true} onChange={(event) => setReturnedBeforeClosure((current) => ({ ...current, [item.id]: event.target.checked }))} disabled={readOnly || busyId === item.id} /><span><strong>El cliente dejó el carro antes del cierre del caso</strong><small>Se cerrará el juicio sin generar una factura automática.</small></span></label>}
-                  {outcome === "CULPABLE" && returnedBeforeClosure[item.id] !== true && <><label>Concepto de gastos<input value={expenseLabels[item.id] ?? `GASTOS DE JUICIO - ${item.unit}`} onChange={(event) => setExpenseLabels((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label>Monto de gastos<input type="number" min="0.01" step="0.01" placeholder="0.00" value={expenseAmounts[item.id] ?? ""} onChange={(event) => setExpenseAmounts((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label className="collision-outcome-evidence">Factura del taller (opcional)<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => selectExpenseInvoice(item.id, event.target.files?.[0])} disabled={readOnly || busyId === item.id} /><small>{expenseInvoiceFiles[item.id] ? `Seleccionada: ${expenseInvoiceFiles[item.id]!.name}` : "Adjunta PDF o imagen de hasta 10 MB"}</small></label></>}
+                  {outcome === "CULPABLE" && <label className="collision-client-returned-option"><input type="checkbox" checked={returnedBeforeClosure[item.id] === true} onChange={(event) => setReturnedBeforeClosure((current) => ({ ...current, [item.id]: event.target.checked }))} disabled={readOnly || busyId === item.id} /><span><strong>El cliente dejó el carro antes del cierre del caso</strong><small>El resultado se guardará en el expediente.</small></span></label>}
                   <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => void applyOutcome(item)} disabled={readOnly || busyId === item.id || !outcome || (outcome === "CULPABLE" && !outcomeEvidenceFile)}>{busyId === item.id ? "Guardando..." : "Confirmar resultado"}</button></div>
                 </div>}
                 {item.judicialOutcomeEvidence && <div className="collision-outcome-document"><div><strong>Documento del resultado: {item.status}</strong><span>{item.judicialOutcomeEvidence.name}</span><small>Guardado el {new Date(item.judicialOutcomeEvidence.uploadedAt).toLocaleString("es-PA")}</small></div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: [item.judicialOutcomeEvidence!], index: 0, title: `Documento del resultado: ${item.status}` })}>Ver documento</button></div>}
@@ -751,7 +871,6 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                   {message && <p className="hint workflow-message" role="status">{message}</p>}
                   <div className="workflow-form-actions"><button type="button" className="button primary" onClick={() => void saveClaim(item)} disabled={readOnly || busyId === item.id}>{busyId === item.id ? "Guardando..." : "Guardar reclamo"}</button></div>
                 </div>}
-                {item.status === "CULPABLE" && item.expenseInvoice && <div className="collision-expense-invoice"><strong>Factura de gastos generada</strong><span>{item.expenseInvoice.label}</span><b>{USD_FORMATTER.format(item.expenseInvoice.amount)}</b><small>Agregada a otros cargos del cliente.</small>{item.expenseInvoice.attachment && <button type="button" className="button" onClick={() => void viewExpenseInvoice(item.expenseInvoice!.attachment!)}>Ver factura adjunta</button>}</div>}
                 {item.status === "CULPABLE" && item.clientReturnedBeforeClosure && <div className="collision-client-returned"><strong>Cliente retirado antes del cierre</strong><span>{item.clientName || item.driver || "El cliente"} dejó el carro antes de finalizar el juicio.</span><small>No se generó una factura automática.</small></div>}
                 </div>}
                 {activeCaseTab === "follow_up" && <section className="judicial-follow-up-panel judicial-case-tab-panel" role="tabpanel" id={`judicial-follow-up-panel-${item.id}`} aria-labelledby={`judicial-follow-up-tab-${item.id}`}>

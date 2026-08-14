@@ -14334,6 +14334,68 @@ button.ar-route-publish-copy.is-active {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.collision-attendance-panel.is-pending {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.collision-attendance-panel.is-complete {
+  border-color: #22c55e;
+  background: #f0fdf4;
+}
+
+.collision-balance-panel {
+  border-color: #0ea5e9;
+  background: #f0f9ff;
+}
+
+.ar-insurance-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 16px 12px;
+  padding: 11px 13px;
+  border: 1px solid #93c5fd;
+  border-radius: 12px;
+  background: #eff6ff;
+}
+
+.ar-insurance-action.is-urgent {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.ar-insurance-action > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ar-insurance-action small {
+  color: #1d4ed8;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.ar-insurance-action strong,
+.ar-insurance-action span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ar-insurance-action span {
+  color: var(--color-text-muted);
+  font-size: .8rem;
+}
+
+@media (max-width: 640px) {
+  .ar-insurance-action { align-items: stretch; flex-direction: column; margin-inline: 10px; }
+  .ar-insurance-action .button { width: 100%; }
+}
+
 .collision-outcome-evidence {
   grid-column: 1 / -1;
   border: 1px solid #93c5fd;

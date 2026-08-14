@@ -19,12 +19,13 @@ type Props = {
 };
 
 type FollowUpFilter = "all" | "judicial" | "insurance_active" | "insurance_inactive" | "finalized";
-type NextActionFilter = "all" | "judicial_management" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim" | "finalized";
+type NextActionFilter = "all" | "judicial_management" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim" | "finalized";
 type IncidentAlertSeverity = "urgent" | "attention" | "upcoming";
 
 const NEXT_ACTION_LABELS: Record<NextActionFilter, string> = {
   all: "Todas las acciones",
   judicial_management: "Gestionar juicio",
+  judicial_attendance: "Confirmar asistencia al juicio",
   judicial_result: "Registrar resultado del juicio",
   judicial_resolution: "Buscar resolución judicial",
   start_claim: "Iniciar reclamo al seguro",
@@ -35,6 +36,7 @@ const NEXT_ACTION_LABELS: Record<NextActionFilter, string> = {
 };
 const ACTION_QUEUE_FILTERS: NextActionFilter[] = [
   "judicial_result",
+  "judicial_attendance",
   "judicial_resolution",
   "start_claim",
   "claim_number",
@@ -90,6 +92,8 @@ function nextActionCategory(incident: UnifiedIncident): NextActionFilter {
   if (collision?.status === "ABSUELTO" && collision.judicialResolutionEvidence && !claim) return "start_claim";
   if (collision && collision.status !== "ABSUELTO" && collision.status !== "CULPABLE") {
     if (collision.trialDate && collision.trialDate <= localDateKey()) return "judicial_result";
+    const trialOffset = collision.trialDate ? calendarDayOffset(collision.trialDate) : null;
+    if (trialOffset !== null && trialOffset <= 10 && (typeof collision.clientWillAttend !== "boolean" || typeof collision.legalAssistanceRequested !== "boolean")) return "judicial_attendance";
     return "judicial_management";
   }
   if (claim && !claim.claimNumber.trim()) return "claim_number";
@@ -163,6 +167,16 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
 
     if (collision && collision.status !== "ABSUELTO" && collision.status !== "CULPABLE") {
       const trialOffset = collision.trialDate ? calendarDayOffset(collision.trialDate) : null;
+      const attendanceIncomplete = typeof collision.clientWillAttend !== "boolean" || typeof collision.legalAssistanceRequested !== "boolean";
+      if (trialOffset !== null && trialOffset <= 10 && attendanceIncomplete) {
+        const urgent = trialOffset <= 3;
+        addAlert(incident, {
+          id: `${incident.id}:attendance-confirmation`, kind: "judicial", severity: urgent ? "urgent" : "attention", priority: urgent ? 2 : 12 + Math.max(0, trialOffset),
+          title: "Confirmación de asistencia pendiente",
+          message: "Confirma si el cliente irá y si se pidió asistencia legal.",
+          actionLabel: "Confirmar asistencia", destination: "judicial", targetId: collision.id
+        });
+      }
       if (!collision.trialDate) {
         addAlert(incident, {
           id: `${incident.id}:trial-missing`, kind: "judicial", severity: "urgent", priority: 10,
@@ -337,6 +351,10 @@ function collisionNextAction(collision: CollisionCaseRecord, claim: InsuranceCla
   }
   const requiresResult = Boolean(collision.trialDate && collision.trialDate <= localDateKey());
   if (requiresResult) return { label: "Registrar resultado del juicio", finalized: false, requiresAction: true };
+  const trialOffset = collision.trialDate ? calendarDayOffset(collision.trialDate) : null;
+  if (trialOffset !== null && trialOffset <= 10 && (typeof collision.clientWillAttend !== "boolean" || typeof collision.legalAssistanceRequested !== "boolean")) {
+    return { label: "Confirmar si el cliente irá y si se pidió asistencia legal", finalized: false, requiresAction: true };
+  }
   const latestFollowUp = collision.judicialFollowUps[collision.judicialFollowUps.length - 1];
   if (latestFollowUp?.nextActionDate) {
     const followUpDue = latestFollowUp.nextActionDate <= localDateKey();
