@@ -35,7 +35,9 @@ import {
   loadCloudOtherChargesRetention,
   loadCloudPayments,
   loadCloudActiveRouteItems,
+  loadCollisionCases,
   loadControlUnits,
+  loadInsuranceClaims,
   registerCloudPaymentDeltas,
   registerCloudRouteBankNotice,
   reserveCloudReceiptNumber,
@@ -250,6 +252,24 @@ export default function AppShell({
     () => countActiveRouteReviewItems(routeReviewItems, payments, getBusinessDateKey()),
     [payments, routeReviewItems]
   );
+
+  useEffect(() => {
+    if (!cloudDataUserId || (!canViewCollisions && !canViewInsuranceWorkflow)) {
+      setIncidentAlertCount(0);
+      return;
+    }
+    let cancelled = false;
+    Promise.all([
+      canViewCollisions ? loadCollisionCases(cloudDataUserId) : Promise.resolve([]),
+      canViewInsuranceWorkflow ? loadInsuranceClaims(cloudDataUserId) : Promise.resolve([]),
+      import("./pages/UnifiedIncidentsFollowUp")
+    ]).then(([collisions, claims, incidentRules]) => {
+      if (!cancelled) setIncidentAlertCount(incidentRules.countIncidentAlerts(collisions, claims, canViewInsuranceWorkflow));
+    }).catch((error) => {
+      console.error("No se pudo cargar el contador de alertas de siniestros.", error);
+    });
+    return () => { cancelled = true; };
+  }, [canViewCollisions, canViewInsuranceWorkflow, cloudDataUserId]);
 
   const {
     cloudReady,

@@ -407,6 +407,16 @@ function mergeIncidents(collisions: CollisionCaseRecord[], claims: InsuranceClai
   return incidents.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
+export function countIncidentAlerts(
+  collisions: CollisionCaseRecord[],
+  claims: InsuranceClaimRecord[],
+  canViewInsurance: boolean
+): number {
+  const incidents = mergeIncidents(collisions, claims, []);
+  const alerts = buildIncidentAlerts(incidents, canViewInsurance);
+  return new Set(alerts.map((alert) => alert.incidentId)).size;
+}
+
 export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudicial, canViewInsurance, refreshKey, onOpen, onAlertCountChange }: Props) {
   const [collisions, setCollisions] = useState<CollisionCaseRecord[]>([]);
   const [claims, setClaims] = useState<InsuranceClaimRecord[]>([]);
@@ -453,8 +463,8 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   }, [alerts]);
 
   useEffect(() => {
-    onAlertCountChange?.(alertIncidentCount);
-  }, [alertIncidentCount, onAlertCountChange]);
+    if (!loading && !loadError) onAlertCountChange?.(alertIncidentCount);
+  }, [alertIncidentCount, loadError, loading, onAlertCountChange]);
   const filterCounts = useMemo(() => {
     const count = (nextFilter: FollowUpFilter) => incidents.filter((incident) => incidentMatchesFilter(incident, nextFilter)).length;
     return {
