@@ -32,6 +32,7 @@ Para instalaciones existentes que ya ejecutaron las migraciones de cuentas por c
 
 - `supabase/54-cash-closing-client-sync-timeout.sql` (evita recalcular el ultimo pago durante actualizaciones financieras masivas del cierre de caja)
 - `supabase/57-active-route-zones.sql` (habilita las zonas temporales editables en Ruta en calle)
+- `supabase/62-route-operator-actions.sql` (habilita comentarios y decisiones para usuarios con permiso de editar Ruta en calle)
 
 En Vercel, produccion debe usar `VITE_PERSISTENCE_MODE=SUPABASE_ONLY`. `LOCAL_ONLY` queda limitado a desarrollo, salvo que se habilite deliberadamente `VITE_ALLOW_PRODUCTION_LOCAL_ONLY=1`.
 5. Crea una cuenta desde la pantalla de registro de la app.

@@ -1575,10 +1575,12 @@ export type ActiveRouteItem = {
   daysLate: number;
   lastPaymentDate: string | null;
   comment?: string;
+  partialDecisionRentAmount?: number;
+  partialDecisionAt?: string;
   publishedAt: string;
   routeStartedAt: string;
   removedAt?: string;
-  removedReason?: "paid" | "removed" | "inactive" | "manual_management" | "manual_published";
+  removedReason?: "paid" | "removed" | "inactive" | "manual_management" | "manual_published" | "operator_removed" | "route_editor_removed";
 };
 
 function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
@@ -1614,10 +1616,14 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
     daysLate: Number.isFinite(daysLate) ? daysLate : 0,
     lastPaymentDate: typeof row.lastPaymentDate === "string" ? row.lastPaymentDate : null,
     comment: typeof row.comment === "string" ? row.comment : undefined,
+    partialDecisionRentAmount: typeof row.partialDecisionRentAmount === "number" && Number.isFinite(row.partialDecisionRentAmount)
+      ? row.partialDecisionRentAmount
+      : undefined,
+    partialDecisionAt: typeof row.partialDecisionAt === "string" ? row.partialDecisionAt : undefined,
     publishedAt,
     routeStartedAt,
     removedAt: typeof row.removedAt === "string" ? row.removedAt : undefined,
-    removedReason: row.removedReason === "paid" || row.removedReason === "removed" || row.removedReason === "inactive" || row.removedReason === "manual_management" || row.removedReason === "manual_published" ? row.removedReason : undefined
+    removedReason: row.removedReason === "paid" || row.removedReason === "removed" || row.removedReason === "inactive" || row.removedReason === "manual_management" || row.removedReason === "manual_published" || row.removedReason === "operator_removed" || row.removedReason === "route_editor_removed" ? row.removedReason : undefined
   };
 }
 
@@ -1704,6 +1710,46 @@ export async function saveCloudActiveRouteZone(input: {
     p_client_id: input.clientId,
     p_route_assignment: input.routeAssignment ?? "",
     p_zone: input.zone ?? ""
+  });
+  if (error) throw error;
+}
+
+export async function saveCloudActiveRouteComment(input: {
+  userId: string;
+  clientId: string;
+  comment?: string;
+}): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("update_active_route_comment", {
+    p_user_id: input.userId,
+    p_client_id: input.clientId,
+    p_comment: input.comment ?? ""
+  });
+  if (error) throw error;
+}
+
+export async function removeCloudActiveRouteItemFromSearch(input: {
+  userId: string;
+  clientId: string;
+}): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("remove_active_route_item_from_search", {
+    p_user_id: input.userId,
+    p_client_id: input.clientId
+  });
+  if (error) throw error;
+}
+
+export async function keepCloudActiveRouteItemAfterPartialPayment(input: {
+  userId: string;
+  clientId: string;
+  confirmedRentAmount: number;
+}): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("keep_active_route_item_after_partial_payment", {
+    p_user_id: input.userId,
+    p_client_id: input.clientId,
+    p_confirmed_rent_amount: input.confirmedRentAmount
   });
   if (error) throw error;
 }

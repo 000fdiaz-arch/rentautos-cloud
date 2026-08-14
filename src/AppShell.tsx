@@ -34,6 +34,7 @@ import {
   loadCloudLateFeeSettings,
   loadCloudOtherChargesRetention,
   loadCloudPayments,
+  loadCloudActiveRouteItems,
   loadControlUnits,
   registerCloudPaymentDeltas,
   registerCloudRouteBankNotice,
@@ -44,7 +45,8 @@ import {
   saveCloudLeadEvaluation,
   saveCloudLateFeeSettings,
   saveCloudOtherChargesRetention,
-  syncCloudClientsDelta
+  syncCloudClientsDelta,
+  type ActiveRouteItem
 } from "./cloudData";
 import { flushCloudMirror } from "./cloudMirror";
 import { isSupabaseOnlyMode } from "./persistenceMode";
@@ -58,6 +60,8 @@ import { appPageFromPathname, appPagePath, isCanonicalAppPagePath } from "./app/
 import { useBackupManager } from "./app/useBackupManager";
 import { useCoreCloudSync } from "./app/useCoreCloudSync";
 import { getBusinessDateKey } from "./billing";
+import { supabase } from "./lib/supabase";
+import { countActiveRouteReviewItems } from "./routeReviewRules";
 import { stableEqual } from "./stableSerialize";
 import { buildManualPaymentTransaction } from "./pages/payments/manualPaymentWorkflow";
 import { loadNotifiedPayments, saveNotifiedPayments } from "./pages/payments/paymentStorage";
@@ -241,6 +245,11 @@ export default function AppShell({
   } | null>(null);
   const [signOutSyncError, setSignOutSyncError] = useState("");
   const [incidentAlertCount, setIncidentAlertCount] = useState(0);
+  const [routeReviewItems, setRouteReviewItems] = useState<ActiveRouteItem[]>([]);
+  const routeReviewCount = useMemo(
+    () => countActiveRouteReviewItems(routeReviewItems, payments, getBusinessDateKey()),
+    [payments, routeReviewItems]
+  );
 
   const {
     cloudReady,
@@ -366,6 +375,43 @@ export default function AppShell({
       cancelled = true;
     };
   }, [canViewLeads, cloudDataUserId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!canViewRouteSearch || !cloudDataUserId) {
+      setRouteReviewItems([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const reloadRouteReviewItems = async (): Promise<void> => {
+      try {
+        const items = await loadCloudActiveRouteItems(cloudDataUserId);
+        if (!cancelled) setRouteReviewItems(items);
+      } catch (error) {
+        console.warn("No se pudo actualizar la notificacion de Ruta en calle.", error);
+      }
+    };
+
+    void reloadRouteReviewItems();
+    if (!supabase) return () => {
+      cancelled = true;
+    };
+
+    const client = supabase;
+    const channel = client
+      .channel(`route-review-nav-${cloudDataUserId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "active_route_items_cloud", filter: `user_id=eq.${cloudDataUserId}` }, () => {
+        void reloadRouteReviewItems();
+      })
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void client.removeChannel(channel);
+    };
+  }, [canViewRouteSearch, cloudDataUserId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -953,6 +999,7 @@ export default function AppShell({
         canViewControlUnits={canViewControlUnits}
         canViewSettings={canViewSettingsPage}
         incidentAlertCount={incidentAlertCount}
+        routeReviewCount={routeReviewCount}
         showCoreSyncStatus={shouldSyncCoreData}
         syncStatus={syncStatus}
         syncErrorMessage={syncErrorMessage}
@@ -1042,8 +1089,10 @@ export default function AppShell({
         {page === "route_search" && canViewRouteSearch && (
           <RouteSearchPage
             dataOwnerUserId={cloudDataUserId}
+            clients={clients}
             payments={payments}
             readOnly={!canEditRouteSearch}
+            canRemoveFromRoute={canEditRouteSearch}
             onRegisterPayment={registerRoutePayment}
           />
         )}

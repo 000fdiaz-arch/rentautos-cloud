@@ -8,18 +8,28 @@ import {
 } from "../activeRouteOrdering";
 import { getBusinessDateKey } from "../billing";
 import { buildCloudErrorMessage } from "../app/appShellRules";
-import { loadCloudActiveRouteItems, saveCloudActiveRouteZone, type ActiveRouteItem } from "../cloudData";
+import {
+  loadCloudActiveRouteItems,
+  keepCloudActiveRouteItemAfterPartialPayment,
+  removeCloudActiveRouteItemFromSearch,
+  saveCloudActiveRouteComment,
+  saveCloudActiveRouteZone,
+  type ActiveRouteItem
+} from "../cloudData";
 import { formatCurrency, formatDate } from "../format";
 import { supabase } from "../lib/supabase";
-import type { CollectionTeam, Payment } from "../types";
+import { hasPendingPartialRouteDecision, routeRentAmountForDay } from "../routeReviewRules";
+import type { Client, CollectionTeam, Payment } from "../types";
 import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentStorage";
 import type { NotifiedPayment } from "./payments/paymentTypes";
 import { fieldManagementLabel, type FieldManagementType } from "./receivables/receivablesTypes";
 
 type Props = {
   dataOwnerUserId?: string | null;
+  clients: Client[];
   payments: Payment[];
   readOnly?: boolean;
+  canRemoveFromRoute?: boolean;
   onRegisterPayment?: (input: {
     clientId: string;
     amount: number;
@@ -52,18 +62,6 @@ function toTimestamp(value: string | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function routeRentAmountForDay(payments: Payment[], item: ActiveRouteItem, dateKey: string): number {
-  const total = payments
-    .filter((payment) => payment.clientId === item.clientId && payment.dateApplied === dateKey)
-    .reduce((sum, payment) => sum + Math.max(0, payment.appliedToRent), 0);
-  return Math.round(total * 100) / 100;
-}
-
-function hasPartialRoutePayment(payments: Payment[], item: ActiveRouteItem, dateKey: string): boolean {
-  const confirmedRentAmount = routeRentAmountForDay(payments, item, dateKey);
-  return confirmedRentAmount > 0 && confirmedRentAmount < item.releaseAmount;
-}
-
 function firstName(value: string): string {
   return value.trim().split(/\s+/)[0] || value;
 }
@@ -79,6 +77,19 @@ function formatPublishedAt(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return `${formatDate(date)} ${date.toLocaleTimeString("es-PA", { hour: "numeric", minute: "2-digit" })}`;
+}
+
+function formatRouteStartedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const dateLabel = date.toLocaleDateString("es-PA", {
+    day: "numeric",
+    month: "short",
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: "numeric" })
+  }).replace(/\./g, "");
+  const timeLabel = date.toLocaleTimeString("es-PA", { hour: "numeric", minute: "2-digit" });
+  return `${dateLabel} · ${timeLabel}`;
 }
 
 function canvasToJpegBlob(canvas: HTMLCanvasElement): Promise<Blob> {
@@ -104,7 +115,14 @@ function routeImageFileName(routeLabel: string, zoneLabel?: string): string {
   return `cobro-en-ruta-${route || "sin-ruta"}-${date}.jpg`;
 }
 
-export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = true, onRegisterPayment }: Props) {
+export default function RouteSearchPage({
+  dataOwnerUserId,
+  clients,
+  payments,
+  readOnly = true,
+  canRemoveFromRoute = false,
+  onRegisterPayment
+}: Props) {
   const businessDateKey = getBusinessDateKey();
   const [items, setItems] = useState<ActiveRouteItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,10 +131,18 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
   const [routeFilter, setRouteFilter] = useState(ALL_ACTIVE_ROUTE_FILTER);
   const [zoneFilter, setZoneFilter] = useState(ALL_ACTIVE_ZONE_FILTER);
   const [zoneFilterLabel, setZoneFilterLabel] = useState("");
-  const [paymentFilter, setPaymentFilter] = useState<"all" | "partial">("all");
+  const [paymentFilter, setPaymentFilter] = useState<"all" | "review">("all");
   const [zoneDrafts, setZoneDrafts] = useState<Record<string, string>>({});
   const [zoneSavingByClient, setZoneSavingByClient] = useState<Record<string, boolean>>({});
   const [zoneError, setZoneError] = useState("");
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [commentSavingByClient, setCommentSavingByClient] = useState<Record<string, boolean>>({});
+  const [commentError, setCommentError] = useState("");
+  const [removeTarget, setRemoveTarget] = useState<ActiveRouteItem | null>(null);
+  const [removeSaving, setRemoveSaving] = useState(false);
+  const [removeError, setRemoveError] = useState("");
+  const [partialDecisionSavingByClient, setPartialDecisionSavingByClient] = useState<Record<string, boolean>>({});
+  const [routeActionMessage, setRouteActionMessage] = useState("");
   const [lastRefreshAt, setLastRefreshAt] = useState("");
   const [sharing, setSharing] = useState(false);
   const [shareMessage, setShareMessage] = useState("");
@@ -129,6 +155,15 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
   const [paymentError, setPaymentError] = useState("");
   const [paymentMessage, setPaymentMessage] = useState("");
   const shareSheetRefs = useRef(new Map<string, HTMLDivElement>());
+
+  const currentBalanceByClient = useMemo(
+    () => new Map(clients.map((client) => [client.id, Math.max(0, client.balance)] as const)),
+    [clients]
+  );
+
+  function currentBalance(item: ActiveRouteItem): number {
+    return currentBalanceByClient.get(item.clientId) ?? item.overdueBalance;
+  }
 
   async function reload(): Promise<void> {
     if (!dataOwnerUserId) {
@@ -269,7 +304,7 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
     return activeItems
       .filter((item) => routeFilter === ALL_ACTIVE_ROUTE_FILTER || activeRouteFilterValue(item.routeAssignment) === routeFilter)
       .filter((item) => zoneFilter === ALL_ACTIVE_ZONE_FILTER || activeZoneFilterValue(item.zone) === zoneFilter)
-      .filter((item) => paymentFilter === "all" || hasPartialRoutePayment(payments, item, businessDateKey))
+      .filter((item) => paymentFilter === "all" || hasPendingPartialRouteDecision(payments, item, businessDateKey))
       .filter((item) => {
         if (!normalizedQuery) return true;
         return [
@@ -285,8 +320,8 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
       .sort(compareActiveRouteItems);
   }, [activeItems, businessDateKey, payments, paymentFilter, query, routeFilter, zoneFilter]);
 
-  const partialPaymentCount = useMemo(
-    () => activeItems.filter((item) => hasPartialRoutePayment(payments, item, businessDateKey)).length,
+  const reviewUnitCount = useMemo(
+    () => activeItems.filter((item) => hasPendingPartialRouteDecision(payments, item, businessDateKey)).length,
     [activeItems, businessDateKey, payments]
   );
 
@@ -357,6 +392,91 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
       void reload();
     } finally {
       setZoneSavingByClient((current) => ({ ...current, [item.clientId]: false }));
+    }
+  }
+
+  async function commitComment(item: ActiveRouteItem): Promise<void> {
+    const draft = commentDrafts[item.clientId];
+    if (draft === undefined || commentSavingByClient[item.clientId] || !dataOwnerUserId || readOnly) return;
+    const nextComment = draft.trim().slice(0, 25);
+    const previousComment = item.comment;
+    setCommentDrafts((current) => {
+      const next = { ...current };
+      delete next[item.clientId];
+      return next;
+    });
+    if ((previousComment ?? "") === nextComment) return;
+
+    setCommentError("");
+    setCommentSavingByClient((current) => ({ ...current, [item.clientId]: true }));
+    setItems((current) => current.map((currentItem) => (
+      currentItem.clientId === item.clientId ? { ...currentItem, comment: nextComment || undefined } : currentItem
+    )));
+    try {
+      await saveCloudActiveRouteComment({
+        userId: dataOwnerUserId,
+        clientId: item.clientId,
+        comment: nextComment || undefined
+      });
+    } catch (saveError) {
+      console.error("No se pudo guardar el comentario de Ruta en calle.", saveError);
+      setItems((current) => current.map((currentItem) => (
+        currentItem.clientId === item.clientId ? { ...currentItem, comment: previousComment } : currentItem
+      )));
+      setCommentError("No se pudo guardar el comentario. Se restauro el valor anterior.");
+      void reload();
+    } finally {
+      setCommentSavingByClient((current) => ({ ...current, [item.clientId]: false }));
+    }
+  }
+
+  async function confirmRemoveFromRoute(): Promise<void> {
+    if (!removeTarget || !dataOwnerUserId || !canRemoveFromRoute || removeSaving) return;
+    setRemoveSaving(true);
+    setRemoveError("");
+    try {
+      await removeCloudActiveRouteItemFromSearch({
+        userId: dataOwnerUserId,
+        clientId: removeTarget.clientId
+      });
+      const removedAt = new Date().toISOString();
+      setItems((current) => current.map((item) => (
+        item.clientId === removeTarget.clientId
+          ? { ...item, removedAt, removedReason: "route_editor_removed" }
+          : item
+      )));
+      setRouteActionMessage(`${removeTarget.unitId} fue retirada de Ruta en calle.`);
+      setRemoveTarget(null);
+    } catch (saveError) {
+      console.error("No se pudo sacar la unidad de Ruta en calle.", saveError);
+      setRemoveError(buildCloudErrorMessage("No se pudo sacar la unidad de la ruta.", saveError, { includeRawFallback: true }));
+    } finally {
+      setRemoveSaving(false);
+    }
+  }
+
+  async function keepInRouteAfterPartialPayment(item: ActiveRouteItem, confirmedRentAmount: number): Promise<void> {
+    if (!dataOwnerUserId || !canRemoveFromRoute || partialDecisionSavingByClient[item.clientId]) return;
+    setPartialDecisionSavingByClient((current) => ({ ...current, [item.clientId]: true }));
+    setError("");
+    try {
+      await keepCloudActiveRouteItemAfterPartialPayment({
+        userId: dataOwnerUserId,
+        clientId: item.clientId,
+        confirmedRentAmount
+      });
+      const partialDecisionAt = new Date().toISOString();
+      setItems((current) => current.map((currentItem) => (
+        currentItem.clientId === item.clientId
+          ? { ...currentItem, partialDecisionRentAmount: confirmedRentAmount, partialDecisionAt }
+          : currentItem
+      )));
+      setRouteActionMessage(`${item.unitId} quedó marcada: Debe pagar más.`);
+    } catch (saveError) {
+      console.error("No se pudo guardar la decision del pago parcial.", saveError);
+      setError(buildCloudErrorMessage("No se pudo guardar la decision.", saveError, { includeRawFallback: true }));
+    } finally {
+      setPartialDecisionSavingByClient((current) => ({ ...current, [item.clientId]: false }));
     }
   }
 
@@ -513,15 +633,22 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
         <span className="route-search-filter-label">Estado de pago</span>
         <div className="route-search-filters" aria-label="Filtrar por estado de pago">
           <button type="button" className={paymentFilter === "all" ? "is-active" : ""} onClick={() => setPaymentFilter("all")}>Todos</button>
-          <button type="button" className={paymentFilter === "partial" ? "is-active" : ""} onClick={() => setPaymentFilter("partial")}>
-            Pagos parciales ({partialPaymentCount})
+          <button
+            type="button"
+            className={`route-search-review-filter ${reviewUnitCount > 0 ? "has-items" : ""} ${paymentFilter === "review" ? "is-active" : ""}`}
+            onClick={() => setPaymentFilter("review")}
+            aria-label={`${reviewUnitCount} unidades pendientes de revisión`}
+          >
+            Unidades a revisar ({reviewUnitCount})
           </button>
         </div>
       </div>
       {error ? <p className="error-text">{error}</p> : null}
       {zoneError ? <p className="error-text" role="alert">{zoneError}</p> : null}
+      {commentError ? <p className="error-text" role="alert">{commentError}</p> : null}
       {shareMessage ? <p className="route-search-share-message" role="status">{shareMessage}</p> : null}
       {paymentMessage ? <p className="route-search-payment-message" role="status">{paymentMessage}</p> : null}
+      {routeActionMessage ? <p className="route-search-action-message" role="status">{routeActionMessage}</p> : null}
       {routeFilterOptions.length > 0 ? (
         <div className="route-search-filter-block">
           <span className="route-search-filter-label">Ruta</span>
@@ -596,6 +723,10 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
             const itemManagementTone = managementTone(item.managementType);
             const confirmedRentAmount = routeRentAmountForDay(payments, item, businessDateKey);
             const remainingToRelease = Math.max(0, item.releaseAmount - confirmedRentAmount);
+            const hasPartialPayment = confirmedRentAmount > 0 && remainingToRelease > 0;
+            const partialDecisionAcknowledged = typeof item.partialDecisionRentAmount === "number"
+              && Math.abs(item.partialDecisionRentAmount - confirmedRentAmount) < 0.005;
+            const partialDecisionRequired = hasPartialPayment && canRemoveFromRoute && !partialDecisionAcknowledged;
             const itemBankNotices = bankNoticesByClient.get(item.clientId) ?? [];
             const itemZoneOptions = (zoneOptionsByRoute.get(activeRouteFilterValue(item.routeAssignment)) ?? [])
               .filter((option) => option.value !== EMPTY_ACTIVE_ZONE_FILTER);
@@ -603,11 +734,26 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
             return (
               <article className={`route-search-card route-search-card--${itemManagementTone} ${item.urgency && item.urgency !== "normal" ? `route-search-card--${item.urgency}` : ""}`} key={item.clientId}>
                 <div className="route-search-card-head">
-                  <div>
+                  <div className="route-search-identity">
                     <strong>{item.unitId}</strong>
                     <span>{firstName(item.clientName)}</span>
                   </div>
-                  <span className="route-search-route">{item.routeAssignment || "Sin ruta"}</span>
+                  <div className="route-search-card-head-actions">
+                    <span className="route-search-route">{item.routeAssignment || "Sin ruta"}</span>
+                    {canRemoveFromRoute ? (
+                      <button
+                        type="button"
+                        className="button route-search-remove-button route-search-remove-button--head"
+                        onClick={() => {
+                          setRemoveError("");
+                          setRemoveTarget(item);
+                        }}
+                        title="Sacar de la lista activa"
+                      >
+                        Sacar de ruta
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
                 <label className="route-search-zone-field">
                   <span>Zona</span>
@@ -651,13 +797,27 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
                     <strong>{item.releaseAmount > 0 ? formatCurrency(item.releaseAmount) : "Monto pendiente"}</strong>
                   </div>
                   <div className="route-search-overdue-amount">
-                    <small>Vencido</small>
-                    <strong>{formatCurrency(item.overdueBalance)}</strong>
+                    <small>Saldo vencido</small>
+                    <strong>{formatCurrency(currentBalance(item))}</strong>
                   </div>
                 </div>
-                {confirmedRentAmount > 0 && remainingToRelease > 0 ? (
-                  <div className="route-search-payment-alert route-search-payment-alert--partial">
-                    Pago parcial aplicado a renta: {formatCurrency(confirmedRentAmount)} · Faltan {formatCurrency(remainingToRelease)}
+                {hasPartialPayment ? (
+                  <div className={`route-search-payment-alert route-search-payment-alert--partial ${partialDecisionRequired ? "route-search-payment-alert--decision" : ""}`}>
+                    <strong>{partialDecisionRequired ? "Pago parcial · Decisión pendiente" : partialDecisionAcknowledged ? "Decisión: Debe pagar más" : "Pago parcial aplicado"}</strong>
+                    <span>Pago parcial: {formatCurrency(confirmedRentAmount)} · Faltan {formatCurrency(remainingToRelease)}</span>
+                    {partialDecisionRequired ? (
+                      <div className="route-search-partial-actions">
+                        <button
+                          type="button"
+                          className="button route-search-keep-button"
+                          onClick={() => void keepInRouteAfterPartialPayment(item, confirmedRentAmount)}
+                          disabled={partialDecisionSavingByClient[item.clientId]}
+                          title="Marcar para continuar el cobro"
+                        >
+                          {partialDecisionSavingByClient[item.clientId] ? "Guardando..." : "Debe pagar más"}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 {itemBankNotices.map((notice) => (
@@ -672,13 +832,40 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
                   <span className={`route-search-management route-search-management--${itemManagementTone}`}>
                     {fieldManagementLabel(item.managementType)}
                   </span>
-                  <span className="route-search-added-at">En calle {formatPublishedAt(item.publishedAt)}</span>
+                  <span className="route-search-added-at">En ruta · {formatRouteStartedAt(item.publishedAt)}</span>
                 </div>
-                {item.comment ? <p className="route-search-comment">{item.comment}</p> : null}
+                {!readOnly ? (
+                  <label className="route-search-comment-field">
+                    <span>Comentario</span>
+                    <div>
+                      <input
+                        type="text"
+                        value={commentDrafts[item.clientId] ?? item.comment ?? ""}
+                        onChange={(event) => {
+                          setCommentError("");
+                          setCommentDrafts((current) => ({ ...current, [item.clientId]: event.target.value.slice(0, 25) }));
+                        }}
+                        onBlur={() => void commitComment(item)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") return;
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        }}
+                        maxLength={25}
+                        placeholder="Agregar comentario..."
+                        disabled={commentSavingByClient[item.clientId] || !dataOwnerUserId}
+                        aria-label={`Comentario de ${item.unitId}`}
+                      />
+                      <span>{commentSavingByClient[item.clientId] ? "Guardando..." : ""}</span>
+                    </div>
+                  </label>
+                ) : item.comment ? <p className="route-search-comment">{item.comment}</p> : null}
                 {!readOnly && onRegisterPayment ? (
-                  <button type="button" className="button primary route-search-payment-button" onClick={() => openPaymentDialog(item)}>
-                    Registrar pago
-                  </button>
+                  <div className="route-search-card-actions">
+                    <button type="button" className="button primary route-search-payment-button" onClick={() => openPaymentDialog(item)}>
+                      Registrar pago
+                    </button>
+                  </div>
                 ) : null}
               </article>
             );
@@ -733,6 +920,29 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
         </div>
       ) : null}
 
+      {removeTarget ? (
+        <div className="modal-overlay route-search-payment-overlay" onMouseDown={() => !removeSaving && setRemoveTarget(null)}>
+          <div className="modal route-search-remove-modal" role="dialog" aria-modal="true" aria-labelledby="route-remove-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2 id="route-remove-title">Sacar de ruta</h2>
+                <p>{removeTarget.unitId} · {removeTarget.clientName}</p>
+              </div>
+            </div>
+            <div className="route-search-remove-copy">
+              <p>La unidad dejará de aparecer en la lista activa de cobro en ruta.</p>
+              {removeError ? <p className="error-text" role="alert">{removeError}</p> : null}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="button ghost" onClick={() => setRemoveTarget(null)} disabled={removeSaving}>Cancelar</button>
+              <button type="button" className="button route-search-remove-confirm" onClick={() => void confirmRemoveFromRoute()} disabled={removeSaving}>
+                {removeSaving ? "Sacando..." : "Sí, sacar de ruta"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="route-share-stage" aria-hidden="true">
         {visibleRouteGroups.map((group) => (
           <div
@@ -776,8 +986,8 @@ export default function RouteSearchPage({ dataOwnerUserId, payments, readOnly = 
                       <strong>{item.releaseAmount > 0 ? formatCurrency(item.releaseAmount) : "Monto pendiente"}</strong>
                     </div>
                     <div>
-                      <small>Vencido</small>
-                      <strong>{formatCurrency(item.overdueBalance)}</strong>
+                      <small>Saldo vencido</small>
+                      <strong>{formatCurrency(currentBalance(item))}</strong>
                     </div>
                   </div>
                   <div className="route-share-tags">
