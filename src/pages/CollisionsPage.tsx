@@ -122,6 +122,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
   const [rescheduleReasons, setRescheduleReasons] = useState<Record<string, string>>({});
   const [expenseAmounts, setExpenseAmounts] = useState<Record<string, string>>({});
   const [expenseLabels, setExpenseLabels] = useState<Record<string, string>>({});
+  const [expenseInvoiceFiles, setExpenseInvoiceFiles] = useState<Record<string, File | null>>({});
   const [returnedBeforeClosure, setReturnedBeforeClosure] = useState<Record<string, boolean>>({});
   const [claimDrafts, setClaimDrafts] = useState<Record<string, ClaimDraft>>({});
   const [claimPhotoFiles, setClaimPhotoFiles] = useState<Record<string, File[]>>({});
@@ -352,6 +353,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     if (!outcome) { setMessage("Selecciona el resultado del juicio."); return; }
     const now = new Date().toISOString();
     let uploadedEvidence: CollisionPhotoAttachment | null = null;
+    let uploadedInvoice: CollisionPhotoAttachment | null = null;
     setBusyId(item.id); setMessage("");
     try {
       if (outcome === "CULPABLE") {
@@ -386,6 +388,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
           }, "Resultado guardado. El cliente dejó el carro antes del cierre; no se generó una factura automática.");
           setOutcomeDrafts((current) => ({ ...current, [item.id]: "" }));
           setOutcomeEvidenceFiles((current) => ({ ...current, [item.id]: null }));
+          setExpenseInvoiceFiles((current) => ({ ...current, [item.id]: null }));
           return;
         }
         const amount = parseAmount(expenseAmounts[item.id] ?? "");
@@ -402,6 +405,8 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
             : clients.findIndex((client) => normalizeUnit(client.unitId) === normalizeUnit(item.unit));
         if (amount <= 0) throw new Error("EXPENSE_AMOUNT_REQUIRED");
         if (clientIndex < 0) throw new Error("CLIENT_NOT_FOUND");
+        const invoiceFile = expenseInvoiceFiles[item.id];
+        if (invoiceFile) uploadedInvoice = await uploadCollisionPhoto(dataOwnerUserId, item.id, invoiceFile);
         const chargeId = `collision-expense-${item.id}`;
         const currentClient = clients[clientIndex];
         const nextClients = clients.map((client, index) => index !== clientIndex ? client : {
@@ -412,7 +417,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
           ...item,
           status: "CULPABLE",
           judicialOutcomeEvidence: uploadedEvidence,
-          expenseInvoice: { chargeId, label, amount, createdAt: now },
+          expenseInvoice: { chargeId, label, amount, attachment: uploadedInvoice, createdAt: now },
           clientReturnedBeforeClosure: false,
           clientReturnedBeforeClosureAt: null,
           updatedAt: now
@@ -429,6 +434,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       }
       setOutcomeDrafts((current) => ({ ...current, [item.id]: "" }));
       setOutcomeEvidenceFiles((current) => ({ ...current, [item.id]: null }));
+      setExpenseInvoiceFiles((current) => ({ ...current, [item.id]: null }));
     } catch (error) {
       if (error instanceof Error && error.message === "RESCHEDULE_REQUIRED") setMessage("Indica una fecha distinta y la razón obligatoria de la reprogramación.");
       else if (error instanceof Error && error.message === "OUTCOME_EVIDENCE_REQUIRED") setMessage("Adjunta la foto del documento que valida el resultado judicial.");
@@ -437,6 +443,9 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
       else { console.error("No se pudo guardar el resultado del juicio.", error); setMessage("No se pudo guardar el resultado del juicio."); }
       if (uploadedEvidence) {
         try { await removeCollisionPhotos([uploadedEvidence.path]); } catch (cleanupError) { console.error("No se pudo limpiar el documento judicial subido.", cleanupError); }
+      }
+      if (uploadedInvoice) {
+        try { await removeCollisionPhotos([uploadedInvoice.path]); } catch (cleanupError) { console.error("No se pudo limpiar la factura adjunta.", cleanupError); }
       }
     } finally { setBusyId(""); }
   }
@@ -453,6 +462,26 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     }
     setMessage("");
     setOutcomeEvidenceFiles((current) => ({ ...current, [caseId]: file }));
+  }
+
+  function selectExpenseInvoice(caseId: string, file: File | undefined): void {
+    if (!file) {
+      setExpenseInvoiceFiles((current) => ({ ...current, [caseId]: null }));
+      return;
+    }
+    const accepted = file.type === "application/pdf" || file.type.startsWith("image/") || (!file.type && file.name.toLowerCase().endsWith(".pdf"));
+    if (!accepted) {
+      setExpenseInvoiceFiles((current) => ({ ...current, [caseId]: null }));
+      setMessage("La factura debe ser un archivo PDF o una imagen.");
+      return;
+    }
+    if (file.size > MAX_PHOTO_SIZE) {
+      setExpenseInvoiceFiles((current) => ({ ...current, [caseId]: null }));
+      setMessage("La factura debe pesar 10 MB o menos.");
+      return;
+    }
+    setExpenseInvoiceFiles((current) => ({ ...current, [caseId]: file }));
+    setMessage("");
   }
 
   function selectResolutionEvidence(caseId: string, file: File | undefined): void {
@@ -598,6 +627,23 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
     ? createInsuranceDamagePhotoViewUrl(photo.path, photo.storageBucket)
     : createCollisionPhotoViewUrl(photo.path);
 
+  async function viewExpenseInvoice(attachment: CollisionPhotoAttachment): Promise<void> {
+    if (attachment.mimeType.startsWith("image/")) {
+      setPhotoGallery({ photos: [attachment], index: 0, title: "Factura del taller" });
+      return;
+    }
+    const previewWindow = window.open("", "_blank");
+    try {
+      const url = await createCollisionPhotoViewUrl(attachment.path);
+      if (previewWindow) previewWindow.location.href = url;
+      else window.location.href = url;
+    } catch (error) {
+      previewWindow?.close();
+      console.error("No se pudo abrir la factura adjunta.", error);
+      setMessage("No se pudo abrir la factura adjunta.");
+    }
+  }
+
   return (
     <section className="insurance-workflow-page">
       {!embedded && <div className="panel insurance-workflow-header"><div><span className="workflow-eyebrow">Gestión judicial vehicular</span><h2>Juicio por Colisiones y Choques</h2></div></div>}
@@ -686,7 +732,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                   {outcome === "CULPABLE" && <label className="collision-outcome-evidence">Documento que valida el resultado<input type="file" accept="image/*" onChange={(event) => selectOutcomeEvidence(item.id, event.target.files?.[0])} disabled={readOnly || busyId === item.id} /><small>{outcomeEvidenceFile ? `Seleccionado: ${outcomeEvidenceFile.name}` : "Obligatorio · imagen de hasta 10 MB"}</small></label>}
                   {outcome === "NUEVA FECHA" && <><label>Nueva fecha de juicio<input type="date" value={newTrialDates[item.id] ?? ""} onChange={(event) => setNewTrialDates((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label className="workflow-finalization-reason">Razón de la nueva fecha<textarea value={rescheduleReasons[item.id] ?? ""} placeholder="La razón es obligatoria" onChange={(event) => setRescheduleReasons((current) => ({ ...current, [item.id]: event.target.value }))} /></label></>}
                   {outcome === "CULPABLE" && <label className="collision-client-returned-option"><input type="checkbox" checked={returnedBeforeClosure[item.id] === true} onChange={(event) => setReturnedBeforeClosure((current) => ({ ...current, [item.id]: event.target.checked }))} disabled={readOnly || busyId === item.id} /><span><strong>El cliente dejó el carro antes del cierre del caso</strong><small>Se cerrará el juicio sin generar una factura automática.</small></span></label>}
-                  {outcome === "CULPABLE" && returnedBeforeClosure[item.id] !== true && <><label>Concepto de gastos<input value={expenseLabels[item.id] ?? `GASTOS DE JUICIO - ${item.unit}`} onChange={(event) => setExpenseLabels((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label>Monto de gastos<input type="number" min="0.01" step="0.01" placeholder="0.00" value={expenseAmounts[item.id] ?? ""} onChange={(event) => setExpenseAmounts((current) => ({ ...current, [item.id]: event.target.value }))} /></label></>}
+                  {outcome === "CULPABLE" && returnedBeforeClosure[item.id] !== true && <><label>Concepto de gastos<input value={expenseLabels[item.id] ?? `GASTOS DE JUICIO - ${item.unit}`} onChange={(event) => setExpenseLabels((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label>Monto de gastos<input type="number" min="0.01" step="0.01" placeholder="0.00" value={expenseAmounts[item.id] ?? ""} onChange={(event) => setExpenseAmounts((current) => ({ ...current, [item.id]: event.target.value }))} /></label><label className="collision-outcome-evidence">Factura del taller (opcional)<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => selectExpenseInvoice(item.id, event.target.files?.[0])} disabled={readOnly || busyId === item.id} /><small>{expenseInvoiceFiles[item.id] ? `Seleccionada: ${expenseInvoiceFiles[item.id]!.name}` : "Adjunta PDF o imagen de hasta 10 MB"}</small></label></>}
                   <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => void applyOutcome(item)} disabled={readOnly || busyId === item.id || !outcome || (outcome === "CULPABLE" && !outcomeEvidenceFile)}>{busyId === item.id ? "Guardando..." : "Confirmar resultado"}</button></div>
                 </div>}
                 {item.judicialOutcomeEvidence && <div className="collision-outcome-document"><div><strong>Documento del resultado: {item.status}</strong><span>{item.judicialOutcomeEvidence.name}</span><small>Guardado el {new Date(item.judicialOutcomeEvidence.uploadedAt).toLocaleString("es-PA")}</small></div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: [item.judicialOutcomeEvidence!], index: 0, title: `Documento del resultado: ${item.status}` })}>Ver documento</button></div>}
@@ -705,7 +751,7 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                   {message && <p className="hint workflow-message" role="status">{message}</p>}
                   <div className="workflow-form-actions"><button type="button" className="button primary" onClick={() => void saveClaim(item)} disabled={readOnly || busyId === item.id}>{busyId === item.id ? "Guardando..." : "Guardar reclamo"}</button></div>
                 </div>}
-                {item.status === "CULPABLE" && item.expenseInvoice && <div className="collision-expense-invoice"><strong>Factura de gastos generada</strong><span>{item.expenseInvoice.label}</span><b>{USD_FORMATTER.format(item.expenseInvoice.amount)}</b><small>Agregada a otros cargos del cliente.</small></div>}
+                {item.status === "CULPABLE" && item.expenseInvoice && <div className="collision-expense-invoice"><strong>Factura de gastos generada</strong><span>{item.expenseInvoice.label}</span><b>{USD_FORMATTER.format(item.expenseInvoice.amount)}</b><small>Agregada a otros cargos del cliente.</small>{item.expenseInvoice.attachment && <button type="button" className="button" onClick={() => void viewExpenseInvoice(item.expenseInvoice!.attachment!)}>Ver factura adjunta</button>}</div>}
                 {item.status === "CULPABLE" && item.clientReturnedBeforeClosure && <div className="collision-client-returned"><strong>Cliente retirado antes del cierre</strong><span>{item.clientName || item.driver || "El cliente"} dejó el carro antes de finalizar el juicio.</span><small>No se generó una factura automática.</small></div>}
                 </div>}
                 {activeCaseTab === "follow_up" && <section className="judicial-follow-up-panel judicial-case-tab-panel" role="tabpanel" id={`judicial-follow-up-panel-${item.id}`} aria-labelledby={`judicial-follow-up-tab-${item.id}`}>

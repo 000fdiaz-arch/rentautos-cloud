@@ -169,6 +169,7 @@ export type CollisionExpenseInvoice = {
   chargeId: string;
   label: string;
   amount: number;
+  attachment?: CollisionPhotoAttachment | null;
   createdAt: string;
 };
 
@@ -549,7 +550,14 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
       ? item.judicialResolutionEvidence
       : null,
     insuranceClaim: existingClaim ?? legacyClaim,
-    expenseInvoice: item.expenseInvoice && typeof item.expenseInvoice === "object" ? item.expenseInvoice : null,
+    expenseInvoice: item.expenseInvoice && typeof item.expenseInvoice === "object"
+      ? {
+          ...item.expenseInvoice,
+          attachment: item.expenseInvoice.attachment && typeof item.expenseInvoice.attachment.path === "string"
+            ? item.expenseInvoice.attachment
+            : null
+        }
+      : null,
     clientReturnedBeforeClosure: item.clientReturnedBeforeClosure === true,
     clientReturnedBeforeClosureAt: typeof item.clientReturnedBeforeClosureAt === "string" ? item.clientReturnedBeforeClosureAt : null
   };
