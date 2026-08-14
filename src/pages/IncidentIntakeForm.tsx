@@ -6,15 +6,18 @@ import {
   loadInsuranceInsurers,
   removeCollisionPhotos,
   removeInsuranceDamagePhotos,
+  removeInsuranceSettlement,
   saveCollisionCase,
   saveInsuranceClaim,
   saveInsuranceInsurer,
   uploadCollisionPhoto,
   uploadInsuranceDamagePhoto,
+  uploadInsuranceSettlement,
   type CollisionPhotoAttachment,
   type CollisionCaseRecord,
   type InsuranceClaimRecord,
-  type InsuranceDamagePhotoAttachment
+  type InsuranceDamagePhotoAttachment,
+  type InsuranceSettlementAttachment
 } from "../cloudData";
 import type { Client } from "../types";
 import { normalizeCourtName } from "../courtNames";
@@ -57,6 +60,7 @@ const EMPTY_FORM: IntakeForm = {
 };
 const MAX_DAMAGE_PHOTOS = 5;
 const MAX_PHOTO_SIZE = 10 * 1024 * 1024;
+const MAX_FUD_SIZE = 10 * 1024 * 1024;
 
 function normalizeUnit(value: string): string { return value.trim().toUpperCase(); }
 function normalizeInsurer(value: string): string { return value.trim().toUpperCase(); }
@@ -75,6 +79,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
   const [damagePhotoFiles, setDamagePhotoFiles] = useState<File[]>([]);
   const [judicialPhotoFiles, setJudicialPhotoFiles] = useState<File[]>([]);
   const [ticketStubPhotoFile, setTicketStubPhotoFile] = useState<File | null>(null);
+  const [fudFile, setFudFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(dataOwnerUserId);
@@ -184,6 +189,26 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     setMessage("");
   }
 
+  function handleFudChange(file: File | undefined): void {
+    if (!file) {
+      setFudFile(null);
+      return;
+    }
+    const isAccepted = file.type === "application/pdf" || file.type.startsWith("image/");
+    if (!isAccepted) {
+      setFudFile(null);
+      setMessage("El FUD debe ser un archivo PDF o una imagen.");
+      return;
+    }
+    if (file.size > MAX_FUD_SIZE) {
+      setFudFile(null);
+      setMessage("El FUD debe pesar 10 MB o menos.");
+      return;
+    }
+    setFudFile(file);
+    setMessage("");
+  }
+
   async function addInsurer(): Promise<void> {
     if (!dataOwnerUserId || readOnly) return;
     const insurer = normalizeInsurer(window.prompt("Nombre de la nueva aseguradora") ?? "");
@@ -213,6 +238,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
 
   async function saveIncident(): Promise<void> {
     if (!dataOwnerUserId || !destination || readOnly || saving || !validateCommonFields()) return;
+    if (!fudFile) { setMessage("Adjunta el documento FUD antes de guardar el siniestro."); return; }
     if (destination === "judicial" && (!form.trialDate || !form.ticketStub.trim() || !form.placeTime.trim() || !form.court.trim())) { setMessage("Completa todos los datos judiciales."); return; }
     if (destination === "insurance" && (!form.insurer || !form.hasClaimNumber)) { setMessage("Completa aseguradora e indica si tienes el número de reclamo."); return; }
     if (destination === "insurance" && form.hasClaimNumber === "yes" && !form.claimNumber.trim()) { setMessage("Escribe el número de reclamo."); return; }
@@ -222,10 +248,13 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     const common = { incidentDate: form.incidentDate, unit: normalizeUnit(form.unit), driver: form.driver.trim(), plate: form.plate.trim().toUpperCase(), vehicleDamage: form.vehicleDamage.trim() };
     const uploadedPhotos: InsuranceDamagePhotoAttachment[] = [];
     const uploadedJudicialPhotos: CollisionPhotoAttachment[] = [];
+    let uploadedInsuranceFud: InsuranceSettlementAttachment | null = null;
     try {
       if (destination === "judicial") {
         const caseClient = clientsByUnit.get(normalizeUnit(form.unit));
         const id = `collision-trial-${Date.now()}-${crypto.randomUUID()}`;
+        const fudAttachment = await uploadCollisionPhoto(dataOwnerUserId, id, fudFile);
+        uploadedJudicialPhotos.push(fudAttachment);
         for (const file of judicialPhotoFiles) uploadedJudicialPhotos.push(await uploadCollisionPhoto(dataOwnerUserId, id, file));
         const ticketStubPhoto = ticketStubPhotoFile ? await uploadCollisionPhoto(dataOwnerUserId, id, ticketStubPhotoFile) : null;
         if (ticketStubPhoto) uploadedJudicialPhotos.push(ticketStubPhoto);
@@ -233,17 +262,18 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           id, ...common,
           clientId: caseClient?.id ?? "", clientName: caseClient?.name ?? form.driver.trim(),
           trialDate: form.trialDate, ticketStub: form.ticketStub.trim(), ticketStubPhoto, placeTime: form.placeTime.trim(), court: normalizeCourtName(form.court), collisionAndRun: form.collisionAndRun,
-          status: "PENDIENTE", trialDateHistory: [], judicialFollowUps: [], incidentPhotos: uploadedJudicialPhotos.filter((photo) => photo.path !== ticketStubPhoto?.path), judicialOutcomeEvidence: null, judicialResolutionEvidence: null, insuranceClaim: null, expenseInvoice: null,
+          status: "PENDIENTE", trialDateHistory: [], judicialFollowUps: [], incidentPhotos: uploadedJudicialPhotos.filter((photo) => photo.path !== ticketStubPhoto?.path && photo.path !== fudAttachment.path), fudAttachment, judicialOutcomeEvidence: null, judicialResolutionEvidence: null, insuranceClaim: null, expenseInvoice: null,
           clientReturnedBeforeClosure: false, clientReturnedBeforeClosureAt: null, createdAt: now, updatedAt: now
         };
         await saveCollisionCase(dataOwnerUserId, collisionCase);
       } else {
         const id = `insurance-claim-${Date.now()}-${crypto.randomUUID()}`;
+        uploadedInsuranceFud = await uploadInsuranceSettlement(dataOwnerUserId, id, fudFile);
         for (const file of damagePhotoFiles) uploadedPhotos.push(await uploadInsuranceDamagePhoto(dataOwnerUserId, id, file));
         const claimNumber = form.hasClaimNumber === "yes" ? form.claimNumber.trim() : "";
         const claim: InsuranceClaimRecord = {
           id, ...common, insurer: normalizeInsurer(form.insurer), hasClaimNumber: Boolean(claimNumber), claimNumber, amount: form.amount,
-          status: claimNumber ? "Activo" : "Inactivo", damagePhotoNames: uploadedPhotos.map((photo) => photo.name), damagePhotos: uploadedPhotos,
+          status: claimNumber ? "Activo" : "Inactivo", damagePhotoNames: uploadedPhotos.map((photo) => photo.name), damagePhotos: uploadedPhotos, fudAttachment: uploadedInsuranceFud,
           settlementDelivered: false, settlementDeliveredDate: "", settlementMarkedAt: null, settlementAttachment: null,
           followUpComment: "", followUpCommentUpdatedAt: null, followUps: [], closureOutcome: null, closureJustification: "", finalizedAt: null, editHistory: [], createdAt: now, updatedAt: now
         };
@@ -251,11 +281,12 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
         await saveInsuranceClaim(dataOwnerUserId, claim);
       }
       const savedDestination = destination;
-      setForm(EMPTY_FORM); setDamagePhotoFiles([]); setJudicialPhotoFiles([]); setTicketStubPhotoFile(null); setDriverEditedManually(false);
+      setForm(EMPTY_FORM); setDamagePhotoFiles([]); setJudicialPhotoFiles([]); setTicketStubPhotoFile(null); setFudFile(null); setDriverEditedManually(false);
       setMessage(savedDestination === "judicial" ? "Siniestro enviado al proceso judicial." : "Siniestro enviado al reclamo de seguro.");
       onSaved(savedDestination);
     } catch (error) {
       if (uploadedPhotos.length) { try { await removeInsuranceDamagePhotos(uploadedPhotos.map((photo) => photo.path)); } catch { /* Limpieza de mejor esfuerzo. */ } }
+      if (uploadedInsuranceFud) { try { await removeInsuranceSettlement(uploadedInsuranceFud.path); } catch { /* Limpieza de mejor esfuerzo. */ } }
       if (uploadedJudicialPhotos.length) { try { await removeCollisionPhotos(uploadedJudicialPhotos.map((photo) => photo.path)); } catch { /* Limpieza de mejor esfuerzo. */ } }
       console.error("No se pudo guardar el siniestro.", error);
       setMessage(error instanceof DuplicateInsuranceClaimNumberError || error instanceof JudicialOutcomeRequiredForClaimError ? error.message : "No se pudo guardar el siniestro en la nube.");
@@ -282,6 +313,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           <label>Chofer<input value={form.driver} placeholder="Nombre completo" onChange={(event) => { setDriverEditedManually(true); patchForm({ driver: event.target.value }); }} disabled={readOnly} /></label>
           <label>Placa<input value={form.plate} placeholder="Placa del auto" onChange={(event) => patchForm({ plate: event.target.value })} disabled={readOnly} /></label>
           <label className="workflow-form-notes">Daños del auto<textarea value={form.vehicleDamage} placeholder="Describe los daños del auto" onChange={(event) => patchForm({ vehicleDamage: event.target.value })} disabled={readOnly} /></label>
+          <label className="workflow-form-notes">Documento FUD<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => handleFudChange(event.target.files?.[0])} disabled={readOnly || saving} required /><span className="hint">{fudFile ? `Seleccionado: ${fudFile.name}` : "Adjunta el FUD en PDF o imagen."} Máximo 10 MB.</span></label>
           {destination === "judicial" ? <>
             <label>Fecha de juicio<input type="date" value={form.trialDate} onChange={(event) => patchForm({ trialDate: event.target.value })} disabled={readOnly} /></label>
             <label>Colilla<input value={form.ticketStub} placeholder="Número o referencia" onChange={(event) => patchForm({ ticketStub: event.target.value })} disabled={readOnly} /></label>

@@ -98,6 +98,7 @@ export type InsuranceSettlementAttachment = {
   mimeType: string;
   size: number;
   uploadedAt: string;
+  storageBucket?: "insurance-settlements" | "collision-photos";
 };
 
 export type InsuranceDamagePhotoAttachment = {
@@ -123,6 +124,7 @@ export type InsuranceClaimRecord = {
   status: InsuranceClaimStatus;
   damagePhotoNames: string[];
   damagePhotos: InsuranceDamagePhotoAttachment[];
+  fudAttachment?: InsuranceSettlementAttachment | null;
   settlementDelivered: boolean;
   settlementDeliveredDate: string;
   settlementMarkedAt: string | null;
@@ -198,6 +200,7 @@ export type CollisionCaseRecord = {
   trialDateHistory: CollisionTrialDateEvent[];
   judicialFollowUps: CollisionJudicialFollowUp[];
   incidentPhotos?: CollisionPhotoAttachment[];
+  fudAttachment?: CollisionPhotoAttachment | null;
   judicialOutcomeEvidence: CollisionPhotoAttachment | null;
   judicialResolutionEvidence?: CollisionPhotoAttachment | null;
   insuranceClaim: CollisionInsuranceClaim | null;
@@ -262,6 +265,9 @@ function normalizeInsuranceClaim(claim: InsuranceClaimRecord): InsuranceClaimRec
     damagePhotos: Array.isArray(claim.damagePhotos)
       ? claim.damagePhotos.filter((photo) => photo && typeof photo.path === "string")
       : [],
+    fudAttachment: claim.fudAttachment && typeof claim.fudAttachment.path === "string"
+      ? claim.fudAttachment
+      : null,
     settlementDelivered: claim.settlementDelivered === true,
     settlementDeliveredDate: typeof claim.settlementDeliveredDate === "string" ? claim.settlementDeliveredDate : "",
     settlementMarkedAt: typeof claim.settlementMarkedAt === "string" ? claim.settlementMarkedAt : null,
@@ -426,7 +432,7 @@ export async function uploadInsuranceSettlement(
     .from(INSURANCE_SETTLEMENTS_BUCKET)
     .upload(path, file, { contentType: file.type || undefined, upsert: false });
   if (error) throw error;
-  return { name: file.name, path, mimeType: file.type, size: file.size, uploadedAt };
+  return { name: file.name, path, mimeType: file.type, size: file.size, uploadedAt, storageBucket: INSURANCE_SETTLEMENTS_BUCKET };
 }
 
 export async function removeInsuranceSettlement(path: string): Promise<void> {
@@ -436,10 +442,13 @@ export async function removeInsuranceSettlement(path: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function createInsuranceSettlementViewUrl(path: string): Promise<string> {
+export async function createInsuranceSettlementViewUrl(
+  path: string,
+  storageBucket: "insurance-settlements" | "collision-photos" = INSURANCE_SETTLEMENTS_BUCKET
+): Promise<string> {
   const client = getCloudClient();
   const { data, error } = await client.storage
-    .from(INSURANCE_SETTLEMENTS_BUCKET)
+    .from(storageBucket)
     .createSignedUrl(path, 60 * 10);
   if (error) throw error;
   return data.signedUrl;
@@ -538,6 +547,9 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
     incidentPhotos: Array.isArray(item.incidentPhotos)
       ? item.incidentPhotos.filter((photo): photo is CollisionPhotoAttachment => Boolean(photo && typeof photo === "object" && typeof photo.path === "string"))
       : [],
+    fudAttachment: item.fudAttachment && typeof item.fudAttachment === "object" && typeof item.fudAttachment.path === "string"
+      ? item.fudAttachment
+      : null,
     judicialOutcomeEvidence: item.judicialOutcomeEvidence && typeof item.judicialOutcomeEvidence === "object" && typeof item.judicialOutcomeEvidence.path === "string"
       ? item.judicialOutcomeEvidence
       : null,
