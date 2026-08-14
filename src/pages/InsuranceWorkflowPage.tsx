@@ -565,10 +565,10 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
     }
   }
 
-  async function viewSettlement(path: string, storageBucket?: "insurance-settlements" | "collision-photos"): Promise<void> {
+  async function viewSettlement(path: string): Promise<void> {
     const previewWindow = window.open("", "_blank");
     try {
-      const url = await createInsuranceSettlementViewUrl(path, storageBucket);
+      const url = await createInsuranceSettlementViewUrl(path);
       if (previewWindow) previewWindow.location.href = url;
       else window.location.href = url;
     } catch (error) {
@@ -1211,7 +1211,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                   <div><dt>Placa</dt><dd>{claim.plate || "-"}</dd></div>
                   <div><dt>Fotos de daños</dt><dd>{claim.damagePhotos.length || claim.damagePhotoNames.length || "-"}</dd></div>
                   <div><dt>Fecha de creación</dt><dd>{claim.createdAt ? new Date(claim.createdAt).toLocaleDateString("es-PA") : "-"}</dd></div>
-                  <div><dt>Documento FUD</dt><dd>{claim.fudAttachment ? <><span>{claim.fudAttachment.name}</span><button type="button" className="button small" onClick={() => void viewSettlement(claim.fudAttachment!.path, claim.fudAttachment!.storageBucket)}>Ver FUD</button></> : "No adjunto"}</dd></div>
+                  <div><dt>Documento FUD</dt><dd>{claim.fudAttachment ? <><span>{claim.fudAttachment.name}</span><button type="button" className="button small" onClick={() => void viewSettlement(claim.fudAttachment!.path)}>Ver FUD</button></> : "No adjunto"}</dd></div>
                   {claim.status === "Finalizado" && <div><dt>Resultado final</dt><dd>{claim.closureOutcome || "-"}</dd></div>}
                   {claim.closureOutcome === "Declinado" && <div className="workflow-claim-damage"><dt>Justificación del rechazo</dt><dd>{claim.closureJustification}</dd></div>}
                   <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{claim.vehicleDamage || "Sin descripción"}</dd></div>

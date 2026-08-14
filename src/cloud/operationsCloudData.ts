@@ -98,7 +98,6 @@ export type InsuranceSettlementAttachment = {
   mimeType: string;
   size: number;
   uploadedAt: string;
-  storageBucket?: "insurance-settlements" | "collision-photos";
 };
 
 export type InsuranceDamagePhotoAttachment = {
@@ -200,7 +199,6 @@ export type CollisionCaseRecord = {
   trialDateHistory: CollisionTrialDateEvent[];
   judicialFollowUps: CollisionJudicialFollowUp[];
   incidentPhotos?: CollisionPhotoAttachment[];
-  fudAttachment?: CollisionPhotoAttachment | null;
   judicialOutcomeEvidence: CollisionPhotoAttachment | null;
   judicialResolutionEvidence?: CollisionPhotoAttachment | null;
   insuranceClaim: CollisionInsuranceClaim | null;
@@ -432,7 +430,7 @@ export async function uploadInsuranceSettlement(
     .from(INSURANCE_SETTLEMENTS_BUCKET)
     .upload(path, file, { contentType: file.type || undefined, upsert: false });
   if (error) throw error;
-  return { name: file.name, path, mimeType: file.type, size: file.size, uploadedAt, storageBucket: INSURANCE_SETTLEMENTS_BUCKET };
+  return { name: file.name, path, mimeType: file.type, size: file.size, uploadedAt };
 }
 
 export async function removeInsuranceSettlement(path: string): Promise<void> {
@@ -442,13 +440,10 @@ export async function removeInsuranceSettlement(path: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function createInsuranceSettlementViewUrl(
-  path: string,
-  storageBucket: "insurance-settlements" | "collision-photos" = INSURANCE_SETTLEMENTS_BUCKET
-): Promise<string> {
+export async function createInsuranceSettlementViewUrl(path: string): Promise<string> {
   const client = getCloudClient();
   const { data, error } = await client.storage
-    .from(storageBucket)
+    .from(INSURANCE_SETTLEMENTS_BUCKET)
     .createSignedUrl(path, 60 * 10);
   if (error) throw error;
   return data.signedUrl;
@@ -547,9 +542,6 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
     incidentPhotos: Array.isArray(item.incidentPhotos)
       ? item.incidentPhotos.filter((photo): photo is CollisionPhotoAttachment => Boolean(photo && typeof photo === "object" && typeof photo.path === "string"))
       : [],
-    fudAttachment: item.fudAttachment && typeof item.fudAttachment === "object" && typeof item.fudAttachment.path === "string"
-      ? item.fudAttachment
-      : null,
     judicialOutcomeEvidence: item.judicialOutcomeEvidence && typeof item.judicialOutcomeEvidence === "object" && typeof item.judicialOutcomeEvidence.path === "string"
       ? item.judicialOutcomeEvidence
       : null,

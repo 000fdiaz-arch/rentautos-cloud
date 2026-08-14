@@ -553,7 +553,6 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
             createdAt: now
           }),
           id: insuranceClaimId,
-          fudAttachment: linkedClaim?.fudAttachment ?? item.fudAttachment ?? null,
           incidentDate: item.incidentDate,
           unit: normalizeUnit(item.unit),
           driver: item.driver,
@@ -682,7 +681,6 @@ export default function CollisionsPage({ clients, dataOwnerUserId, readOnly = fa
                   <div><dt>Colilla</dt><dd>{item.ticketStub}{item.ticketStubPhoto && <button type="button" className="button small" onClick={() => void viewPhoto(item.ticketStubPhoto!)}>Ver foto</button>}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
                   <div><dt>Colisión y fuga</dt><dd><span className={`collision-runaway-status ${item.collisionAndRun ? "collision-runaway-status--yes" : "collision-runaway-status--no"}`}>{item.collisionAndRun ? "Sí" : "No"}</span></dd></div>
                   <div><dt>Cliente del expediente</dt><dd>{item.clientName || item.driver || "-"}</dd></div>
-                  <div><dt>Documento FUD</dt><dd>{item.fudAttachment ? <><span>{item.fudAttachment.name}</span><button type="button" className="button small" onClick={() => void viewPhoto(item.fudAttachment!)}>Ver FUD</button></> : "No adjunto"}</dd></div>
                    <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>
                    </dl>
                  {item.incidentPhotos?.length ? <div className="workflow-damage-photo-list"><strong>Fotos adjuntas al juicio ({item.incidentPhotos.length})</strong>{item.incidentPhotos.map((photo, index) => <div key={photo.path} className="workflow-damage-photo-row"><div><strong>Foto {index + 1}</strong><small>{photo.name}</small></div><button type="button" className="button" onClick={() => void viewPhoto(photo)}>Ver foto</button></div>)}</div> : null}

@@ -238,7 +238,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
 
   async function saveIncident(): Promise<void> {
     if (!dataOwnerUserId || !destination || readOnly || saving || !validateCommonFields()) return;
-    if (!fudFile) { setMessage("Adjunta el documento FUD antes de guardar el siniestro."); return; }
+    if (destination === "insurance" && !fudFile) { setMessage("Adjunta el documento FUD antes de guardar el reclamo al seguro."); return; }
     if (destination === "judicial" && (!form.trialDate || !form.ticketStub.trim() || !form.placeTime.trim() || !form.court.trim())) { setMessage("Completa todos los datos judiciales."); return; }
     if (destination === "insurance" && (!form.insurer || !form.hasClaimNumber)) { setMessage("Completa aseguradora e indica si tienes el número de reclamo."); return; }
     if (destination === "insurance" && form.hasClaimNumber === "yes" && !form.claimNumber.trim()) { setMessage("Escribe el número de reclamo."); return; }
@@ -253,8 +253,6 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
       if (destination === "judicial") {
         const caseClient = clientsByUnit.get(normalizeUnit(form.unit));
         const id = `collision-trial-${Date.now()}-${crypto.randomUUID()}`;
-        const fudAttachment = await uploadCollisionPhoto(dataOwnerUserId, id, fudFile);
-        uploadedJudicialPhotos.push(fudAttachment);
         for (const file of judicialPhotoFiles) uploadedJudicialPhotos.push(await uploadCollisionPhoto(dataOwnerUserId, id, file));
         const ticketStubPhoto = ticketStubPhotoFile ? await uploadCollisionPhoto(dataOwnerUserId, id, ticketStubPhotoFile) : null;
         if (ticketStubPhoto) uploadedJudicialPhotos.push(ticketStubPhoto);
@@ -262,11 +260,12 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           id, ...common,
           clientId: caseClient?.id ?? "", clientName: caseClient?.name ?? form.driver.trim(),
           trialDate: form.trialDate, ticketStub: form.ticketStub.trim(), ticketStubPhoto, placeTime: form.placeTime.trim(), court: normalizeCourtName(form.court), collisionAndRun: form.collisionAndRun,
-          status: "PENDIENTE", trialDateHistory: [], judicialFollowUps: [], incidentPhotos: uploadedJudicialPhotos.filter((photo) => photo.path !== ticketStubPhoto?.path && photo.path !== fudAttachment.path), fudAttachment, judicialOutcomeEvidence: null, judicialResolutionEvidence: null, insuranceClaim: null, expenseInvoice: null,
+          status: "PENDIENTE", trialDateHistory: [], judicialFollowUps: [], incidentPhotos: uploadedJudicialPhotos.filter((photo) => photo.path !== ticketStubPhoto?.path), judicialOutcomeEvidence: null, judicialResolutionEvidence: null, insuranceClaim: null, expenseInvoice: null,
           clientReturnedBeforeClosure: false, clientReturnedBeforeClosureAt: null, createdAt: now, updatedAt: now
         };
         await saveCollisionCase(dataOwnerUserId, collisionCase);
       } else {
+        if (!fudFile) throw new Error("Falta el documento FUD.");
         const id = `insurance-claim-${Date.now()}-${crypto.randomUUID()}`;
         uploadedInsuranceFud = await uploadInsuranceSettlement(dataOwnerUserId, id, fudFile);
         for (const file of damagePhotoFiles) uploadedPhotos.push(await uploadInsuranceDamagePhoto(dataOwnerUserId, id, file));
@@ -313,7 +312,6 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           <label>Chofer<input value={form.driver} placeholder="Nombre completo" onChange={(event) => { setDriverEditedManually(true); patchForm({ driver: event.target.value }); }} disabled={readOnly} /></label>
           <label>Placa<input value={form.plate} placeholder="Placa del auto" onChange={(event) => patchForm({ plate: event.target.value })} disabled={readOnly} /></label>
           <label className="workflow-form-notes">Daños del auto<textarea value={form.vehicleDamage} placeholder="Describe los daños del auto" onChange={(event) => patchForm({ vehicleDamage: event.target.value })} disabled={readOnly} /></label>
-          <label className="workflow-form-notes">Documento FUD<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => handleFudChange(event.target.files?.[0])} disabled={readOnly || saving} required /><span className="hint">{fudFile ? `Seleccionado: ${fudFile.name}` : "Adjunta el FUD en PDF o imagen."} Máximo 10 MB.</span></label>
           {destination === "judicial" ? <>
             <label>Fecha de juicio<input type="date" value={form.trialDate} onChange={(event) => patchForm({ trialDate: event.target.value })} disabled={readOnly} /></label>
             <label>Colilla<input value={form.ticketStub} placeholder="Número o referencia" onChange={(event) => patchForm({ ticketStub: event.target.value })} disabled={readOnly} /></label>
@@ -323,6 +321,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
             <label className="collision-runaway-option"><input type="checkbox" checked={form.collisionAndRun} onChange={(event) => patchForm({ collisionAndRun: event.target.checked })} disabled={readOnly} /><span><strong>Colisión y fuga</strong><small>El conductor abandonó el lugar.</small></span></label>
             <label className="workflow-form-notes workflow-form-damage-photos">Fotos del juicio<input type="file" accept="image/*" multiple onChange={(event) => handleJudicialPhotosChange(event.target.files)} disabled={readOnly || saving} /><span className="hint">{judicialPhotoFiles.length ? `${judicialPhotoFiles.length} ${judicialPhotoFiles.length === 1 ? "foto seleccionada" : "fotos seleccionadas"}.` : "Puedes adjuntar todas las fotos necesarias."} Máximo 10 MB por foto.</span></label>
           </> : <>
+            <label className="workflow-form-notes">Documento FUD<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => handleFudChange(event.target.files?.[0])} disabled={readOnly || saving} required /><span className="hint">{fudFile ? `Seleccionado: ${fudFile.name}` : "Adjunta el FUD en PDF o imagen."} Máximo 10 MB.</span></label>
             <div className={`workflow-claim-number-question${!form.hasClaimNumber ? " is-pending" : ""}`}><div><strong>¿Tienes el número de reclamo?</strong><small>Define si el reclamo inicia activo o pendiente.</small></div><select value={form.hasClaimNumber} onChange={(event) => { const hasClaimNumber = event.target.value as IntakeForm["hasClaimNumber"]; patchForm({ hasClaimNumber, ...(hasClaimNumber !== "yes" ? { claimNumber: "" } : {}) }); }} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">Sí, tengo el número</option><option value="no">No, todavía no lo tengo</option></select></div>
             {form.hasClaimNumber === "yes" && <label className="workflow-claim-number-input">Número de reclamo<input value={form.claimNumber} placeholder="Escribe el número" onChange={(event) => patchForm({ claimNumber: event.target.value })} disabled={readOnly} /></label>}
             <label>Aseguradora<select value={form.insurer} onChange={(event) => event.target.value === "__new__" ? void addInsurer() : patchForm({ insurer: event.target.value })} disabled={readOnly}><option value="">Seleccionar aseguradora</option>{insurers.map((insurer) => <option key={insurer}>{insurer}</option>)}<option value="__new__">+ Nueva aseguradora</option></select></label>
