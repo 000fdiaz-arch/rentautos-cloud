@@ -143,6 +143,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [judicialCaseTabs, setJudicialCaseTabs] = useState<Record<string, JudicialCaseTab>>({});
   const [attendanceDrafts, setAttendanceDrafts] = useState<Record<string, { clientWillAttend: "" | "yes" | "no"; legalAssistanceRequested: "" | "yes" | "no" }>>({});
   const [ticketStubDrafts, setTicketStubDrafts] = useState<Record<string, string>>({});
+  const [vehicleInspectionDates, setVehicleInspectionDates] = useState<Record<string, string>>({});
   const [photoGallery, setPhotoGallery] = useState<{ photos: CollisionPhotoAttachment[]; index: number; title: string } | null>(null);
 
   const fleetUnitsByUnit = useMemo(() => new Map(fleetUnits.map((row) => [normalizeUnit(row.unit_id), row])), [fleetUnits]);
@@ -211,6 +212,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
           legalAssistanceRequested: item.legalAssistanceRequested === true ? "yes" : item.legalAssistanceRequested === false ? "no" : ""
         }])));
         setTicketStubDrafts(Object.fromEntries(nextCases.map((item) => [item.id, item.ticketStub])));
+        setVehicleInspectionDates(Object.fromEntries(nextCases.map((item) => [item.id, item.vehicleInspectionDate ?? localDateKey(new Date())])));
       })
       .catch((error) => { if (!cancelled) { console.error("No se pudieron cargar los juicios.", error); setLoadError("No se pudieron cargar los juicios desde la nube."); } })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -258,6 +260,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   }
   function initializeCaseDrafts(item: CollisionCaseRecord): void {
     setTicketStubDrafts((current) => ({ ...current, [item.id]: current[item.id] ?? item.ticketStub }));
+    setVehicleInspectionDates((current) => ({ ...current, [item.id]: current[item.id] ?? item.vehicleInspectionDate ?? localDateKey(new Date()) }));
     setExpenseLabels((current) => ({ ...current, [item.id]: current[item.id] ?? item.expenseInvoice?.description ?? "" }));
     setExpenseAmounts((current) => ({ ...current, [item.id]: current[item.id] ?? (item.expenseInvoice ? String(item.expenseInvoice.amount) : "") }));
     setExpenseEvaluationDates((current) => ({ ...current, [item.id]: current[item.id] ?? item.expenseInvoice?.evaluatedAt ?? localDateKey(new Date()) }));
@@ -314,6 +317,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       court: normalizeCourtName(form.court),
       collisionAndRun: form.collisionAndRun,
       status: "PENDIENTE",
+      vehicleInspectionDate: null,
+      vehicleInspectedAt: null,
       trialDateHistory: [],
       judicialFollowUps: [],
       clientWillAttend: null,
@@ -410,6 +415,32 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     }
   }
 
+  async function confirmWorkshopInspection(item: CollisionCaseRecord): Promise<void> {
+    if (readOnly || busyId || !dataOwnerUserId || isFinalStatus(item.status) || item.vehicleInspectedAt) return;
+    const inspectionDate = vehicleInspectionDates[item.id] ?? localDateKey(new Date());
+    if (!inspectionDate || inspectionDate > localDateKey(new Date())) {
+      setMessage("Indica una fecha válida, no futura, para la recepción y revisión del vehículo.");
+      return;
+    }
+    const now = new Date().toISOString();
+    setBusyId(item.id);
+    setMessage("");
+    try {
+      await persistCase({
+        ...item,
+        vehicleInspectionDate: inspectionDate,
+        vehicleInspectedAt: now,
+        updatedAt: now
+      }, "Vehículo recibido y revisado. Ya puedes registrar el saldo de colisión.");
+      setJudicialCaseTabs((current) => ({ ...current, [item.id]: "balance" }));
+    } catch (error) {
+      console.error("No se pudo confirmar la revisión del vehículo.", error);
+      setMessage("No se pudo confirmar la revisión del vehículo.");
+    } finally {
+      setBusyId("");
+    }
+  }
+
   function findCaseClientIndex(item: CollisionCaseRecord): number {
     const historicalClientIndex = item.clientId ? clients.findIndex((client) => client.id === item.clientId) : -1;
     const historicalClientName = normalizePersonName(item.clientName || item.driver);
@@ -447,6 +478,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
 
   async function saveCollisionBalance(item: CollisionCaseRecord): Promise<void> {
     if (readOnly || busyId || !dataOwnerUserId || item.expenseInvoice) return;
+    if (!item.vehicleInspectedAt) { setMessage("Confirma primero que el vehículo fue recibido y revisado en el taller."); return; }
     const amount = parseAmount(expenseAmounts[item.id] ?? "");
     const description = expenseLabels[item.id]?.trim() ?? "";
     const evaluatedAt = expenseEvaluationDates[item.id] ?? localDateKey(new Date());
@@ -490,6 +522,9 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
 
   async function applyOutcome(item: CollisionCaseRecord): Promise<void> {
     if (readOnly || busyId || !dataOwnerUserId) return;
+    const today = localDateKey(new Date());
+    if (!item.expenseInvoice) { setMessage("Registra primero el saldo de colisión."); return; }
+    if (!item.trialDate || item.trialDate > today) { setMessage("El resultado solo puede registrarse a partir de la fecha del juicio."); return; }
     const outcome = outcomeDrafts[item.id];
     if (!outcome) { setMessage("Selecciona el resultado del juicio."); return; }
     const now = new Date().toISOString();
@@ -839,7 +874,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
             const outcome = outcomeDrafts[item.id] ?? "";
             const outcomeEvidenceFile = outcomeEvidenceFiles[item.id] ?? null;
             const followUpDraft = judicialFollowUpDrafts[item.id] ?? EMPTY_JUDICIAL_FOLLOW_UP;
-            const availableCaseTabs = availableJudicialCaseTabs(item);
+            const availableCaseTabs = availableJudicialCaseTabs(item, today);
             const preferredCaseTab = judicialCaseTabs[item.id] ?? defaultJudicialCaseTab(item, today);
             const activeCaseTab = availableCaseTabs.includes(preferredCaseTab) ? preferredCaseTab : availableCaseTabs[0];
             const trialOffset = item.trialDate ? calendarDayOffset(item.trialDate) : null;
@@ -865,6 +900,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                     ["attendance", "Asistencia", attendanceComplete ? "OK" : isFinalStatus(item.status) ? "Cerrado" : "Pendiente"],
                     ["follow_up", "Notas", String(item.judicialFollowUps.length)],
                     ["history", "Historial", String(timelineEvents.length)],
+                    ["workshop", "Taller", item.vehicleInspectedAt || item.expenseInvoice ? "OK" : "Pendiente"],
                     ["balance", "Saldo", item.expenseInvoice ? "OK" : ""],
                     ["outcome", "Resultado", item.status],
                     ["insurance", "Seguro", item.insuranceClaim ? "Activo" : ""]
@@ -890,6 +926,15 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => void saveAttendanceConfirmation(item)} disabled={readOnly || busyId === item.id || !attendanceDraft.clientWillAttend || !attendanceDraft.legalAssistanceRequested}>{busyId === item.id ? "Guardando..." : attendanceComplete ? "Actualizar confirmación" : "Guardar confirmación"}</button></div>
                  </div>}
                  {isFinalStatus(item.status) && <p className="judicial-section-empty">La confirmación previa ya no se puede modificar porque el juicio está finalizado.</p>}
+                </div>}
+                {activeCaseTab === "workshop" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-workshop-panel-${item.id}`} aria-labelledby={`judicial-workshop-tab-${item.id}`}>
+                 {!item.vehicleInspectedAt && !item.expenseInvoice && !isFinalStatus(item.status) && <div className="workflow-finalization-panel collision-workshop-panel">
+                  <div><strong>Recepción y revisión del vehículo</strong><span>Confirma que el cliente llevó el carro al taller y que su estado fue verificado.</span></div>
+                  <label>Fecha de recepción y revisión<input type="date" max={today} value={vehicleInspectionDates[item.id] ?? today} onChange={(event) => setVehicleInspectionDates((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /></label>
+                  <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => void confirmWorkshopInspection(item)} disabled={readOnly || busyId === item.id || !vehicleInspectionDates[item.id]}>{busyId === item.id ? "Guardando..." : "Confirmar vehículo revisado"}</button></div>
+                 </div>}
+                 {item.vehicleInspectedAt && <div className="collision-workshop-complete"><strong>Vehículo recibido y revisado</strong><span>Fecha de revisión: {item.vehicleInspectionDate || item.vehicleInspectedAt.slice(0, 10)}</span><small>Confirmado el {new Date(item.vehicleInspectedAt).toLocaleString("es-PA")}. El saldo de colisión está habilitado.</small></div>}
+                 {!item.vehicleInspectedAt && item.expenseInvoice && <div className="collision-workshop-complete"><strong>Revisión de taller completada</strong><span>Este expediente ya cuenta con un saldo de colisión registrado.</span><small>Se reconoce como un caso anterior a la confirmación obligatoria del taller.</small></div>}
                 </div>}
                 {activeCaseTab === "balance" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-balance-panel-${item.id}`} aria-labelledby={`judicial-balance-tab-${item.id}`}>
                  {!item.expenseInvoice && !isFinalStatus(item.status) && <div className="workflow-finalization-panel collision-balance-panel">

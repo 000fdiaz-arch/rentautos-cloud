@@ -29,6 +29,8 @@ const events = buildJudicialCaseTimeline({
     newValue: "T08",
     changedAt: "2026-08-06T09:30:00Z"
   }],
+  vehicleInspectionDate: "2026-08-09",
+  vehicleInspectedAt: "2026-08-09T09:00:00Z",
   attendanceConfirmedAt: "2026-08-10T10:00:00Z",
   clientWillAttend: true,
   legalAssistanceRequested: false,
@@ -69,6 +71,7 @@ const expectedTitles = [
   "Expediente creado",
   "Fecha de juicio actualizada",
   "Número de colilla corregido",
+  "Vehículo recibido y revisado",
   "Asistencia confirmada",
   "Nota agregada",
   "Saldo de colisión registrado",

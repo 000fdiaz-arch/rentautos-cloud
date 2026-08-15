@@ -46,6 +46,17 @@ export function buildJudicialCaseTimeline(item: CollisionCaseRecord): JudicialCa
     });
   }
 
+  if (item.vehicleInspectedAt) {
+    events.push({
+      id: `workshop-${item.vehicleInspectedAt}`,
+      occurredAt: eventTimestamp(item.vehicleInspectedAt, fallback),
+      title: "Vehículo recibido y revisado",
+      description: `Revisión del taller confirmada para el ${item.vehicleInspectionDate || item.vehicleInspectedAt.slice(0, 10)}.`,
+      detail: "El registro del saldo de colisión quedó habilitado.",
+      tone: "success"
+    });
+  }
+
   if (item.attendanceConfirmedAt) {
     events.push({
       id: `attendance-${item.attendanceConfirmedAt}`,

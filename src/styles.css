@@ -14576,6 +14576,25 @@ button.ar-route-publish-copy.is-active {
   background: #f0f9ff;
 }
 
+.collision-workshop-panel {
+  border-color: #14b8a6;
+  background: #f0fdfa;
+}
+
+.collision-workshop-complete {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #86efac;
+  border-radius: 9px;
+  background: #f0fdf4;
+  padding: 13px;
+}
+
+.collision-workshop-complete span,
+.collision-workshop-complete small {
+  color: #166534;
+}
+
 .ar-insurance-action {
   display: flex;
   align-items: center;

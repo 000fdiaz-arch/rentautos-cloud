@@ -208,6 +208,8 @@ export type CollisionCaseRecord = {
   court: string;
   collisionAndRun: boolean;
   status: CollisionTrialStatus;
+  vehicleInspectionDate?: string | null;
+  vehicleInspectedAt?: string | null;
   trialDateHistory: CollisionTrialDateEvent[];
   judicialFollowUps: CollisionJudicialFollowUp[];
   clientWillAttend?: boolean | null;
@@ -549,6 +551,8 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
     placeTime: typeof item.placeTime === "string" ? item.placeTime : "",
     court: typeof item.court === "string" ? normalizeCourtName(item.court) : "",
     collisionAndRun: item.collisionAndRun === true,
+    vehicleInspectionDate: typeof item.vehicleInspectionDate === "string" ? item.vehicleInspectionDate : null,
+    vehicleInspectedAt: typeof item.vehicleInspectedAt === "string" ? item.vehicleInspectedAt : null,
     clientId: typeof item.clientId === "string" ? item.clientId : "",
     clientName: typeof item.clientName === "string" ? item.clientName : "",
     trialDateHistory: Array.isArray(item.trialDateHistory) ? item.trialDateHistory : [],

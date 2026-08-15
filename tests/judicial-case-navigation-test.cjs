@@ -21,6 +21,8 @@ function judicialCase(overrides = {}) {
     judicialFollowUps: [],
     judicialResolutionEvidence: null,
     insuranceClaim: null,
+    vehicleInspectedAt: "2026-08-10T10:00:00Z",
+    expenseInvoice: { chargeId: "charge-1" },
     ...overrides
   };
 }
@@ -52,10 +54,10 @@ assertEqual(defaultJudicialCaseTab(judicialCase({
 
 assertEqual(defaultJudicialCaseTab(judicialCase(), "2026-08-15"), "summary", "expediente al día abre Resumen");
 
-const pendingTabs = availableJudicialCaseTabs(judicialCase());
+const pendingTabs = availableJudicialCaseTabs(judicialCase(), "2026-08-15");
 if (pendingTabs.includes("insurance")) throw new Error("Seguro no debe aparecer antes de estar habilitado.");
 
-const guiltyTabs = availableJudicialCaseTabs(judicialCase({ status: "CULPABLE" }));
+const guiltyTabs = availableJudicialCaseTabs(judicialCase({ status: "CULPABLE", expenseInvoice: null }), "2026-08-15");
 if (guiltyTabs.includes("attendance") || guiltyTabs.includes("follow_up") || guiltyTabs.includes("balance") || guiltyTabs.includes("insurance")) {
   throw new Error("Un expediente culpable no debe mostrar pasos que ya no están habilitados.");
 }
@@ -63,7 +65,26 @@ if (guiltyTabs.includes("attendance") || guiltyTabs.includes("follow_up") || gui
 const settledTabs = availableJudicialCaseTabs(judicialCase({
   status: "ABSUELTO",
   judicialResolutionEvidence: { path: "resolution.jpg" }
-}));
+}), "2026-08-15");
 if (!settledTabs.includes("insurance")) throw new Error("Seguro debe aparecer al quedar habilitado.");
+
+const awaitingWorkshop = judicialCase({ vehicleInspectedAt: null, expenseInvoice: null });
+assertEqual(defaultJudicialCaseTab(awaitingWorkshop, "2026-08-15"), "workshop", "expediente nuevo abre Taller");
+const awaitingWorkshopTabs = availableJudicialCaseTabs(awaitingWorkshop, "2026-08-15");
+if (awaitingWorkshopTabs.includes("balance") || awaitingWorkshopTabs.includes("outcome")) {
+  throw new Error("Saldo y Resultado no deben aparecer antes de revisar el vehículo.");
+}
+
+const awaitingBalance = judicialCase({ expenseInvoice: null });
+assertEqual(defaultJudicialCaseTab(awaitingBalance, "2026-08-15"), "balance", "revisión completada abre Saldo");
+if (availableJudicialCaseTabs(awaitingBalance, "2026-08-15").includes("outcome")) {
+  throw new Error("Resultado no debe aparecer antes de registrar el saldo.");
+}
+
+const beforeTrialTabs = availableJudicialCaseTabs(judicialCase({ trialDate: "2026-08-16" }), "2026-08-15");
+if (beforeTrialTabs.includes("outcome")) throw new Error("Resultado no debe aparecer antes de la fecha del juicio.");
+
+const trialDayTabs = availableJudicialCaseTabs(judicialCase({ trialDate: "2026-08-15" }), "2026-08-15");
+if (!trialDayTabs.includes("outcome")) throw new Error("Resultado debe aparecer el día del juicio.");
 
 console.log("OK navegación judicial: cada acción abre directamente su sección del expediente.");
