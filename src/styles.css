@@ -14444,6 +14444,99 @@ button.ar-route-publish-copy.is-active {
   text-align: center;
 }
 
+.judicial-history-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.judicial-case-timeline {
+  display: grid;
+  margin: 0;
+  padding: 2px 0 0;
+  list-style: none;
+}
+
+.judicial-case-timeline li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 11px;
+  padding: 0 0 18px;
+}
+
+.judicial-case-timeline li:last-child {
+  padding-bottom: 0;
+}
+
+.judicial-case-timeline li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: 15px;
+  bottom: 0;
+  left: 7px;
+  width: 2px;
+  background: #dbe4f0;
+}
+
+.judicial-case-timeline-marker {
+  position: relative;
+  z-index: 1;
+  width: 16px;
+  height: 16px;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  background: #64748b;
+  box-shadow: 0 0 0 1px #cbd5e1;
+}
+
+.judicial-case-timeline .tone-info .judicial-case-timeline-marker {
+  background: #2563eb;
+  box-shadow: 0 0 0 1px #93c5fd;
+}
+
+.judicial-case-timeline .tone-success .judicial-case-timeline-marker {
+  background: #059669;
+  box-shadow: 0 0 0 1px #6ee7b7;
+}
+
+.judicial-case-timeline .tone-warning .judicial-case-timeline-marker {
+  background: #d97706;
+  box-shadow: 0 0 0 1px #fcd34d;
+}
+
+.judicial-case-timeline-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.judicial-case-timeline-head strong {
+  color: var(--color-text);
+  font-size: 0.88rem;
+}
+
+.judicial-case-timeline-head time {
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.judicial-case-timeline p {
+  margin: 4px 0 0;
+  color: var(--color-text);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.judicial-case-timeline small {
+  display: block;
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
 .collision-outcome-panel {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -15120,7 +15213,8 @@ button.ar-route-publish-copy.is-active {
   }
 
   .judicial-follow-up-head,
-  .judicial-follow-up-history li > div {
+  .judicial-follow-up-history li > div,
+  .judicial-case-timeline-head {
     align-items: flex-start;
     flex-direction: column;
   }

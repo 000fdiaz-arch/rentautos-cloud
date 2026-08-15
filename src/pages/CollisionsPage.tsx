@@ -26,6 +26,7 @@ import { useControlUnitsRows } from "./controlUnits/useControlUnitsRows";
 import IncidentPhotoGalleryModal from "./IncidentPhotoGalleryModal";
 import { calculateCollisionCredit } from "./incidents/collisionBalanceRules";
 import { defaultJudicialCaseTab, type JudicialCaseTab } from "./incidents/judicialCaseNavigation";
+import { buildJudicialCaseTimeline } from "./incidents/judicialCaseTimeline";
 
 type Props = {
   clients: Client[];
@@ -364,11 +365,11 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     setJudicialFollowUpSavingId(item.id);
     setMessage("");
     try {
-      await persistCase(updatedCase, "Seguimiento judicial guardado correctamente.");
+      await persistCase(updatedCase, "Nota judicial guardada correctamente.");
       setJudicialFollowUpDrafts((current) => ({ ...current, [item.id]: EMPTY_JUDICIAL_FOLLOW_UP }));
     } catch (error) {
-      console.error("No se pudo guardar el seguimiento judicial.", error);
-      setMessage("No se pudo guardar el seguimiento judicial.");
+      console.error("No se pudo guardar la nota judicial.", error);
+      setMessage("No se pudo guardar la nota judicial.");
     } finally {
       setJudicialFollowUpSavingId("");
     }
@@ -807,6 +808,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
             const trialOffset = item.trialDate ? calendarDayOffset(item.trialDate) : null;
             const attendanceComplete = typeof item.clientWillAttend === "boolean" && typeof item.legalAssistanceRequested === "boolean";
             const attendanceDraft = attendanceDrafts[item.id] ?? { clientWillAttend: "", legalAssistanceRequested: "" };
+            const timelineEvents = buildJudicialCaseTimeline(item);
             return <article key={item.id} className={`workflow-claim-card${expanded ? " expanded" : ""}`}>
               {!focusedCaseId && <div className="workflow-claim-summary">
                 <button type="button" className="workflow-claim-toggle" aria-expanded={expanded} onClick={() => { setExpandedId(expanded ? null : item.id); initializeCaseDrafts(item); }}>
@@ -824,7 +826,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   {([
                     ["summary", "Resumen", ""],
                     ["attendance", "Asistencia", attendanceComplete ? "OK" : isFinalStatus(item.status) ? "Cerrado" : "Pendiente"],
-                    ["follow_up", "Seguimiento", String(item.judicialFollowUps.length)],
+                    ["follow_up", "Notas", String(item.judicialFollowUps.length)],
+                    ["history", "Historial", String(timelineEvents.length)],
                     ["balance", "Saldo", item.expenseInvoice ? "OK" : ""],
                     ["outcome", "Resultado", item.status],
                     ["insurance", "Seguro", item.insuranceClaim ? "Activo" : ""]
@@ -895,14 +898,17 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                 </div>}
                 </div>}
                 {activeCaseTab === "follow_up" && <section className="judicial-follow-up-panel judicial-case-tab-panel" role="tabpanel" id={`judicial-follow-up-panel-${item.id}`} aria-labelledby={`judicial-follow-up-tab-${item.id}`}>
-                  <div className="judicial-follow-up-head"><div><strong>Timeline de seguimiento</strong><span>Registra cada gestión sin reemplazar las anteriores.</span></div><b>{item.judicialFollowUps.length} {item.judicialFollowUps.length === 1 ? "registro" : "registros"}</b></div>
+                  <div className="judicial-follow-up-head"><div><strong>Notas del expediente</strong><span>Registra cada nota sin reemplazar las anteriores.</span></div><b>{item.judicialFollowUps.length} {item.judicialFollowUps.length === 1 ? "nota" : "notas"}</b></div>
                   {!isFinalStatus(item.status) && <div className="judicial-follow-up-form">
-                    <label className="judicial-follow-up-comment">Novedad o gestión<textarea value={followUpDraft.comment} placeholder="Ej. Se llamó al juzgado y se confirmó la recepción de documentos" onChange={(event) => setJudicialFollowUpDrafts((current) => ({ ...current, [item.id]: { ...followUpDraft, comment: event.target.value } }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /></label>
+                    <label className="judicial-follow-up-comment">Nueva nota<textarea value={followUpDraft.comment} placeholder="Ej. Se llamó al juzgado y se confirmó la recepción de documentos" onChange={(event) => setJudicialFollowUpDrafts((current) => ({ ...current, [item.id]: { ...followUpDraft, comment: event.target.value } }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /></label>
                     <label>Próximo paso<input value={followUpDraft.nextStep} placeholder="Ej. Entregar copia autenticada" onChange={(event) => setJudicialFollowUpDrafts((current) => ({ ...current, [item.id]: { ...followUpDraft, nextStep: event.target.value } }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /></label>
                     <label>Próxima gestión<input type="date" min={today} value={followUpDraft.nextActionDate} onChange={(event) => setJudicialFollowUpDrafts((current) => ({ ...current, [item.id]: { ...followUpDraft, nextActionDate: event.target.value } }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /></label>
-                    <button type="button" className="button primary" onClick={() => void saveJudicialFollowUp(item)} disabled={readOnly || judicialFollowUpSavingId === item.id || !followUpDraft.comment.trim() || !followUpDraft.nextStep.trim() || !followUpDraft.nextActionDate}>{judicialFollowUpSavingId === item.id ? "Guardando..." : "Guardar seguimiento"}</button>
+                    <button type="button" className="button primary" onClick={() => void saveJudicialFollowUp(item)} disabled={readOnly || judicialFollowUpSavingId === item.id || !followUpDraft.comment.trim() || !followUpDraft.nextStep.trim() || !followUpDraft.nextActionDate}>{judicialFollowUpSavingId === item.id ? "Guardando..." : "Guardar nota"}</button>
                   </div>}
-                  {item.judicialFollowUps.length > 0 ? <ol className="judicial-follow-up-history">{[...item.judicialFollowUps].reverse().map((entry) => <li key={entry.id}><div><time>{new Date(entry.createdAt).toLocaleString("es-PA")}</time><span>Próxima gestión: <strong>{entry.nextActionDate}</strong></span></div><p>{entry.comment}</p><small>Próximo paso: <strong>{entry.nextStep}</strong></small></li>)}</ol> : <p className="judicial-follow-up-empty">Todavía no hay seguimientos registrados en este juicio.</p>}
+                </section>}
+                {activeCaseTab === "history" && <section className="judicial-case-tab-panel judicial-history-panel" role="tabpanel" id={`judicial-history-panel-${item.id}`} aria-labelledby={`judicial-history-tab-${item.id}`}>
+                  <div className="judicial-follow-up-head"><div><strong>Historial completo del expediente</strong><span>Todos los eventos judiciales ordenados del más reciente al más antiguo.</span></div><b>{timelineEvents.length} {timelineEvents.length === 1 ? "evento" : "eventos"}</b></div>
+                  <ol className="judicial-case-timeline">{timelineEvents.map((event) => <li key={event.id} className={`tone-${event.tone}`}><span className="judicial-case-timeline-marker" aria-hidden="true" /><div><div className="judicial-case-timeline-head"><strong>{event.title}</strong><time>{new Date(event.occurredAt).toLocaleString("es-PA")}</time></div><p>{event.description}</p>{event.detail ? <small>{event.detail}</small> : null}</div></li>)}</ol>
                 </section>}
               </div>}
             </article>;

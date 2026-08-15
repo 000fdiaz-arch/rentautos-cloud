@@ -1,6 +1,6 @@
 import type { CollisionCaseRecord } from "../../cloudData";
 
-export type JudicialCaseTab = "summary" | "attendance" | "follow_up" | "balance" | "outcome" | "insurance";
+export type JudicialCaseTab = "summary" | "attendance" | "follow_up" | "history" | "balance" | "outcome" | "insurance";
 
 function isFinalStatus(status: CollisionCaseRecord["status"]): boolean {
   return status === "ABSUELTO" || status === "CULPABLE";
