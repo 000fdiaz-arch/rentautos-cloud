@@ -14415,8 +14415,9 @@ button.ar-route-publish-copy.is-active {
 }
 
 .ar-insurance-action.is-urgent {
-  border-color: #f59e0b;
-  background: #fffbeb;
+  border-color: #dc2626;
+  background: #fff1f2;
+  box-shadow: 0 0 0 2px rgb(220 38 38 / 10%);
 }
 
 .ar-insurance-action > div {
@@ -14442,6 +14443,46 @@ button.ar-route-publish-copy.is-active {
 .ar-insurance-action span {
   color: var(--color-text-muted);
   font-size: .8rem;
+}
+
+.ar-insurance-action .ar-incident-action-rule {
+  margin-top: 3px;
+  color: #475569;
+  font-weight: 700;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.ar-insurance-action.is-urgent small,
+.ar-insurance-action.is-urgent .ar-incident-action-rule {
+  color: #b91c1c;
+}
+
+.ar-card-workflow.is-incident-blocked {
+  position: relative;
+  border-color: #fecaca;
+  background: #fffafa;
+}
+
+.ar-card-workflow.is-incident-blocked select:disabled,
+.ar-card-workflow.is-incident-blocked input:disabled,
+.ar-card-workflow.is-incident-blocked textarea:disabled,
+.ar-card-workflow.is-incident-blocked button:disabled {
+  cursor: not-allowed;
+  opacity: .58;
+}
+
+.ar-route-incident-blocked {
+  box-shadow: inset 4px 0 0 #dc2626;
+}
+
+.ar-incident-route-block {
+  display: block;
+  margin-top: 4px;
+  color: #b91c1c;
+  font-size: .72rem;
+  font-weight: 850;
 }
 
 @media (max-width: 640px) {

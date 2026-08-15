@@ -1115,12 +1115,12 @@ export default function ReceivablesPage({
   }, [collectionStatusByClient, isCollectionLocked, removedRouteClientIds, removedRouteItemByClient]);
   const routeWorkflowRowsCount = useMemo(
     () => baseRows.filter((row) => isRouteReadyToSendRow(row)).length,
-    [activeVisibleRouteClientIds, baseRows, blockingRemovedRouteClientIds, collectionStatusByClient, todayCollectionCuts]
+    [activeVisibleRouteClientIds, baseRows, blockingRemovedRouteClientIds, collectionStatusByClient, incidentActionsByUnit, todayCollectionCuts]
   );
   const canDownloadPublishedRoute = publishedRouteDownload !== null && routeWorkflowRowsCount === 0;
   const publishedRouteAddRows = useMemo(
-    () => baseRows.filter((row) => hasActiveOperationalClient(row) && !activeVisibleRouteClientIds.has(row.id)),
-    [activeVisibleRouteClientIds, baseRows]
+    () => baseRows.filter((row) => hasActiveOperationalClient(row) && !hasBlockingIncidentAction(row) && !activeVisibleRouteClientIds.has(row.id)),
+    [activeVisibleRouteClientIds, baseRows, incidentActionsByUnit]
   );
   const publishedRouteDraftSelectedRow = useMemo(
     () => baseRows.find((row) => row.id === publishedRouteDraft.clientId),
@@ -1340,6 +1340,15 @@ export default function ReceivablesPage({
     return row.state === "alDia" || hasPaymentToday(row);
   }
 
+  function hasBlockingIncidentAction(row: ReceivableRow): boolean {
+    return incidentActionsByUnit[row.unitId.trim().toUpperCase()]?.urgent === true;
+  }
+
+  function clientHasBlockingIncidentAction(clientId: string): boolean {
+    const row = baseRows.find((item) => item.id === clientId);
+    return row ? hasBlockingIncidentAction(row) : false;
+  }
+
   function hasRouteCollection(row: ReceivableRow): boolean {
     const management = collectionStatusByClient[row.id];
     if (!management) return false;
@@ -1357,7 +1366,11 @@ export default function ReceivablesPage({
   }
 
   function isRouteReadyToSendRow(row: ReceivableRow): boolean {
-    return hasActiveOperationalClient(row) && isRouteWorkflowRow(row) && !activeVisibleRouteClientIds.has(row.id) && !blockingRemovedRouteClientIds.has(row.id);
+    return hasActiveOperationalClient(row)
+      && !hasBlockingIncidentAction(row)
+      && isRouteWorkflowRow(row)
+      && !activeVisibleRouteClientIds.has(row.id)
+      && !blockingRemovedRouteClientIds.has(row.id);
   }
 
   function buildWhatsAppReceivableMessage(row: ReceivableRow): string {
@@ -1525,7 +1538,7 @@ export default function ReceivablesPage({
   }
 
   function handleSupportNoteChange(clientId: string, value: string): void {
-    if (isCollectionLocked) return;
+    if (isCollectionLocked || clientHasBlockingIncidentAction(clientId)) return;
     markClientStatusAsSaving(clientId);
     const note = normalizeSupportNote(value);
     const nowIso = new Date().toISOString();
@@ -1561,7 +1574,7 @@ export default function ReceivablesPage({
   }
 
   function handleContactTimeChange(clientId: string, value: string): void {
-    if (isCollectionLocked) return;
+    if (isCollectionLocked || clientHasBlockingIncidentAction(clientId)) return;
     markClientStatusAsSaving(clientId);
     const contactTime = normalizeContactTime(value);
     const nowIso = new Date().toISOString();
@@ -1664,7 +1677,7 @@ export default function ReceivablesPage({
   }
 
   function applyCollectionCutStatus(clientId: string, nextStatus: CollectionStatus, contactTime?: string): void {
-    if (isCollectionLocked) return;
+    if (isCollectionLocked || clientHasBlockingIncidentAction(clientId)) return;
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
@@ -1704,7 +1717,7 @@ export default function ReceivablesPage({
   }
 
   function handleCollectionCutStatusChange(cutKey: CollectionCutKey, clientId: string, nextStatus: string): void {
-    if (isCollectionLocked || cutKey !== "night") return;
+    if (isCollectionLocked || clientHasBlockingIncidentAction(clientId) || cutKey !== "night") return;
     if (collectionStatusByClient[clientId]?.isRouteTagged && nextStatus !== "pending") return;
     if (nextStatus === "pending") {
       setPendingContactPrompt({ clientId, step: "question", selectedTime: "" });
@@ -1738,6 +1751,7 @@ export default function ReceivablesPage({
       else handleRemoveFromRoute(clientId);
       return;
     }
+    if (clientHasBlockingIncidentAction(clientId)) return;
     const routeCandidate = baseRows.find((row) => row.id === clientId);
     if (!routeCandidate || !hasActiveOperationalClient(routeCandidate)) return;
     const nowIso = new Date().toISOString();
@@ -1815,7 +1829,7 @@ export default function ReceivablesPage({
   }
 
   function handleRouteManagementTypeChange(clientId: string, managementType: FieldManagementType): void {
-    if (isCollectionLocked) return;
+    if (isCollectionLocked || clientHasBlockingIncidentAction(clientId)) return;
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
@@ -1854,7 +1868,7 @@ export default function ReceivablesPage({
   }
 
   function handleRouteManagementCommentChange(clientId: string, value: string): void {
-    if (isCollectionLocked) return;
+    if (isCollectionLocked || clientHasBlockingIncidentAction(clientId)) return;
     const nowIso = new Date().toISOString();
     const managementComment = normalizeFieldManagementComment(value);
     markClientStatusAsSaving(clientId);
@@ -1893,7 +1907,7 @@ export default function ReceivablesPage({
   }
 
   function handleRouteAssignmentChange(clientId: string, value: string): void {
-    if (isCollectionLocked) return;
+    if (isCollectionLocked || clientHasBlockingIncidentAction(clientId)) return;
     const routeAssignment = normalizeRouteAssignment(value);
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
@@ -1938,7 +1952,7 @@ export default function ReceivablesPage({
   }
 
   function handleRouteUrgencyChange(clientId: string, value: RouteUrgency): void {
-    if (isCollectionLocked) return;
+    if (isCollectionLocked || clientHasBlockingIncidentAction(clientId)) return;
     const routeUrgency = normalizeRouteUrgency(value);
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
@@ -2122,10 +2136,12 @@ export default function ReceivablesPage({
   }
 
   function handlePublishedRouteTypeChange(clientId: string, managementType: FieldManagementType): void {
+    if (clientHasBlockingIncidentAction(clientId)) return;
     updatePublishedRouteItem(clientId, (item) => ({ ...item, managementType }));
   }
 
   function handlePublishedRouteReleaseAmountChange(clientId: string, value: string): void {
+    if (clientHasBlockingIncidentAction(clientId)) return;
     setPublishedRouteAmountDraftByClient((current) => ({
       ...current,
       [clientId]: value
@@ -2133,6 +2149,7 @@ export default function ReceivablesPage({
   }
 
   function commitPublishedRouteReleaseAmount(clientId: string): void {
+    if (clientHasBlockingIncidentAction(clientId)) return;
     const draft = publishedRouteAmountDraftByClient[clientId];
     if (draft === undefined) return;
     const parsedAmount = parsePositiveMoneyInput(draft);
@@ -2154,6 +2171,7 @@ export default function ReceivablesPage({
   }
 
   function handlePublishedRouteCommentChange(clientId: string, value: string): void {
+    if (clientHasBlockingIncidentAction(clientId)) return;
     setPublishedRouteCommentDraftByClient((current) => ({
       ...current,
       [clientId]: normalizeFieldManagementComment(value)
@@ -2161,6 +2179,7 @@ export default function ReceivablesPage({
   }
 
   function commitPublishedRouteComment(clientId: string): void {
+    if (clientHasBlockingIncidentAction(clientId)) return;
     const draft = publishedRouteCommentDraftByClient[clientId];
     if (draft === undefined) return;
     setPublishedRouteCommentDraftByClient((current) => {
@@ -2175,6 +2194,7 @@ export default function ReceivablesPage({
   }
 
   function handlePublishedRouteAssignmentChange(clientId: string, value: string): void {
+    if (clientHasBlockingIncidentAction(clientId)) return;
     updatePublishedRouteItem(clientId, (item) => ({
       ...item,
       routeAssignment: normalizeRouteAssignment(value),
@@ -2185,6 +2205,7 @@ export default function ReceivablesPage({
   }
 
   function handlePublishedRouteUrgencyChange(clientId: string, value: RouteUrgency): void {
+    if (clientHasBlockingIncidentAction(clientId)) return;
     updatePublishedRouteItem(clientId, (item) => ({
       ...item,
       urgency: normalizeRouteUrgency(value)
@@ -2219,6 +2240,10 @@ export default function ReceivablesPage({
     const row = baseRows.find((item) => item.id === publishedRouteDraft.clientId);
     if (!row) {
       setPublishedRouteDraftError("Selecciona una unidad.");
+      return;
+    }
+    if (hasBlockingIncidentAction(row)) {
+      setPublishedRouteDraftError("Completa primero la acción pendiente de siniestros de esta unidad.");
       return;
     }
     const releaseAmount = parsePositiveMoneyInput(publishedRouteDraft.amount);
@@ -2267,7 +2292,7 @@ export default function ReceivablesPage({
   }
 
   function handleRouteReleaseAmountChange(clientId: string, value: string): void {
-    if (isCollectionLocked) return;
+    if (isCollectionLocked || clientHasBlockingIncidentAction(clientId)) return;
     const parsedAmount = parsePositiveMoneyInput(value);
     const activePublishedItem = activeRouteItemsRef.current.find((item) => item.clientId === clientId && !item.removedAt);
     const nextAmount = parsedAmount ?? undefined;
@@ -2634,8 +2659,13 @@ export default function ReceivablesPage({
         const hasType = management?.managementType === "solo_cobrar" || management?.managementType === "cobrar_o_quitar" || management?.managementType === "desiste" || management?.managementType === "quitar";
         return hasType && !!management?.managementAmount && management.managementAmount > 0;
       };
-      const routeRowsForSend = baseRows.filter((row) => isRouteRowFromMap(row));
+      const blockedIncidentRows = baseRows.filter((row) => isRouteRowFromMap(row) && hasBlockingIncidentAction(row));
+      const routeRowsForSend = baseRows.filter((row) => isRouteRowFromMap(row) && !hasBlockingIncidentAction(row));
       if (routeRowsForSend.length === 0) {
+        if (blockedIncidentRows.length > 0) {
+          setExportError(`Completa primero la acción pendiente de siniestros de: ${blockedIncidentRows.map((row) => row.unitId).join(", ")}.`);
+          return;
+        }
         activeRouteItemsRef.current = activeRouteItemsForSend;
         setActiveRouteItems(activeRouteItemsForSend);
         setRouteExportMessage("Las unidades seleccionadas ya estaban publicadas. Se actualizo Ruta en calle.");
@@ -3208,12 +3238,14 @@ export default function ReceivablesPage({
                         const routeUrgency = item.urgency ?? "normal";
                         const isCustomRouteAssignment = !!routeAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(routeAssignment);
                         const isCustomRouteEditorOpen = isCustomRouteAssignment || !!publishedCustomRouteEditorByClient[item.clientId];
+                        const hasIncidentBlock = incidentActionsByUnit[item.unitId.trim().toUpperCase()]?.urgent === true;
                         return (
-                          <tr key={item.clientId} className={routeUrgency !== "normal" ? `ar-route-urgency-row ar-route-urgency-row--${routeUrgency}` : undefined}>
+                          <tr key={item.clientId} className={`${routeUrgency !== "normal" ? `ar-route-urgency-row ar-route-urgency-row--${routeUrgency}` : ""}${hasIncidentBlock ? " ar-route-incident-blocked" : ""}`.trim() || undefined}>
                             <td><strong className="ar-unit-id">{item.unitId}</strong></td>
                             <td>
                               <span className="client-name ar-route-client-name" title={item.clientName}>{item.clientName}</span>
                               <span className="ar-route-added-at">En calle {formatActiveRouteAddedAt(item.publishedAt)}</span>
+                              {hasIncidentBlock ? <span className="ar-incident-route-block">Acción de siniestros obligatoria</span> : null}
                             </td>
                             <td>{item.daysLate > 0 ? `${item.daysLate} dias` : "Sin atraso"}</td>
                             <td className="amount-debt">
@@ -3225,7 +3257,7 @@ export default function ReceivablesPage({
                                 className="ar-route-list-type"
                                 value={item.managementType ?? "solo_cobrar"}
                                 onChange={(event) => handlePublishedRouteTypeChange(item.clientId, event.target.value as FieldManagementType)}
-                                disabled={readOnly}
+                                disabled={readOnly || hasIncidentBlock}
                               >
                                 <option value="solo_cobrar">Solo cobrar</option>
                                 <option value="cobrar_o_quitar">Cobrar o quitar</option>
@@ -3246,7 +3278,7 @@ export default function ReceivablesPage({
                                 onKeyDown={(event) => {
                                   if (event.key === "Enter") event.currentTarget.blur();
                                 }}
-                                disabled={readOnly}
+                                disabled={readOnly || hasIncidentBlock}
                               />
                             </td>
                             <td>
@@ -3261,7 +3293,7 @@ export default function ReceivablesPage({
                                 }}
                                 placeholder="Comentario..."
                                 maxLength={25}
-                                disabled={readOnly}
+                                disabled={readOnly || hasIncidentBlock}
                               />
                             </td>
                             <td>
@@ -3278,7 +3310,7 @@ export default function ReceivablesPage({
                                   }}
                                   placeholder="Escribe ruta"
                                   maxLength={12}
-                                  disabled={readOnly}
+                                  disabled={readOnly || hasIncidentBlock}
                                 />
                               ) : (
                                 <select
@@ -3294,7 +3326,7 @@ export default function ReceivablesPage({
                                     setPublishedCustomRouteEditorByClient((current) => ({ ...current, [item.clientId]: false }));
                                     handlePublishedRouteAssignmentChange(item.clientId, selected);
                                   }}
-                                  disabled={readOnly}
+                                  disabled={readOnly || hasIncidentBlock}
                                 >
                                   <option value="">Sin ruta</option>
                                   {ROUTE_ASSIGNMENT_OPTIONS.map((option) => (
@@ -3309,7 +3341,7 @@ export default function ReceivablesPage({
                                 className={`ar-route-urgency-select ar-route-urgency-select--${routeUrgency}`}
                                 value={routeUrgency}
                                 onChange={(event) => handlePublishedRouteUrgencyChange(item.clientId, event.target.value as RouteUrgency)}
-                                disabled={readOnly}
+                                disabled={readOnly || hasIncidentBlock}
                               >
                                 {ROUTE_URGENCY_OPTIONS.map((option) => (
                                   <option key={option.value} value={option.value}>{option.label}</option>
@@ -3339,8 +3371,9 @@ export default function ReceivablesPage({
                     const routeUrgency = item.urgency ?? "normal";
                     const isCustomRouteAssignment = !!routeAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(routeAssignment);
                     const isCustomRouteEditorOpen = isCustomRouteAssignment || !!publishedCustomRouteEditorByClient[item.clientId];
+                    const hasIncidentBlock = incidentActionsByUnit[item.unitId.trim().toUpperCase()]?.urgent === true;
                     return (
-                      <article className={`ar-route-mobile-card ${routeUrgency !== "normal" ? `ar-route-mobile-card--${routeUrgency}` : ""}`} key={`published-mobile-${item.clientId}`}>
+                      <article className={`ar-route-mobile-card ${routeUrgency !== "normal" ? `ar-route-mobile-card--${routeUrgency}` : ""}${hasIncidentBlock ? " ar-route-incident-blocked" : ""}`} key={`published-mobile-${item.clientId}`}>
                         <div className="ar-route-mobile-head">
                           <div className="ar-route-mobile-unit">
                             <strong className="ar-unit-id">{item.unitId}</strong>
@@ -3356,6 +3389,7 @@ export default function ReceivablesPage({
                             {routeUrgency === "very_urgent" ? "Muy urgente" : "Urgente"}
                           </div>
                         ) : null}
+                        {hasIncidentBlock ? <div className="ar-incident-route-block">Acción de siniestros obligatoria · solo se permite sacar la unidad de ruta</div> : null}
                         <div className="ar-route-mobile-meta">
                           <span>{item.daysLate > 0 ? `${item.daysLate} dias de atraso` : "Sin atraso"}</span>
                           <span>
@@ -3371,7 +3405,7 @@ export default function ReceivablesPage({
                               className="ar-route-list-type"
                               value={item.managementType ?? "solo_cobrar"}
                               onChange={(event) => handlePublishedRouteTypeChange(item.clientId, event.target.value as FieldManagementType)}
-                              disabled={readOnly}
+                              disabled={readOnly || hasIncidentBlock}
                             >
                               <option value="solo_cobrar">Solo cobrar</option>
                               <option value="cobrar_o_quitar">Cobrar o quitar</option>
@@ -3393,7 +3427,7 @@ export default function ReceivablesPage({
                               onKeyDown={(event) => {
                                 if (event.key === "Enter") event.currentTarget.blur();
                               }}
-                              disabled={readOnly}
+                              disabled={readOnly || hasIncidentBlock}
                             />
                           </label>
                           <label>
@@ -3411,7 +3445,7 @@ export default function ReceivablesPage({
                                 }}
                                 placeholder="Escribe ruta"
                                 maxLength={12}
-                                disabled={readOnly}
+                                disabled={readOnly || hasIncidentBlock}
                               />
                             ) : (
                               <select
@@ -3427,7 +3461,7 @@ export default function ReceivablesPage({
                                   setPublishedCustomRouteEditorByClient((current) => ({ ...current, [item.clientId]: false }));
                                   handlePublishedRouteAssignmentChange(item.clientId, selected);
                                 }}
-                                disabled={readOnly}
+                                disabled={readOnly || hasIncidentBlock}
                               >
                                 <option value="">Sin ruta</option>
                                 {ROUTE_ASSIGNMENT_OPTIONS.map((option) => (
@@ -3450,7 +3484,7 @@ export default function ReceivablesPage({
                               }}
                               placeholder="Comentario..."
                               maxLength={25}
-                              disabled={readOnly}
+                              disabled={readOnly || hasIncidentBlock}
                             />
                           </label>
                           <label>
@@ -3459,7 +3493,7 @@ export default function ReceivablesPage({
                               className={`ar-route-urgency-select ar-route-urgency-select--${routeUrgency}`}
                               value={routeUrgency}
                               onChange={(event) => handlePublishedRouteUrgencyChange(item.clientId, event.target.value as RouteUrgency)}
-                              disabled={readOnly}
+                              disabled={readOnly || hasIncidentBlock}
                             >
                               {ROUTE_URGENCY_OPTIONS.map((option) => (
                                 <option key={option.value} value={option.value}>{option.label}</option>

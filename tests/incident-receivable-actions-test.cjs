@@ -10,7 +10,7 @@ const output = ts.transpileModule(source, {
 }).outputText;
 const target = path.join(os.tmpdir(), `incident-receivable-actions-${Date.now()}.cjs`);
 fs.writeFileSync(target, output);
-const { buildIncidentActionsByUnit } = require(target);
+const { buildIncidentActionsByUnit, incidentActionBlocksManagement } = require(target);
 
 function collision(id, unit, trialDate) {
   return {
@@ -31,7 +31,7 @@ function collision(id, unit, trialDate) {
 const actions = buildIncidentActionsByUnit(
   [],
   [collision("b17-case", "B17", "2026-08-17"), collision("t08-case", "T08", "2026-08-31")],
-  "2026-08-14"
+  "2026-08-15"
 );
 
 if (actions.B17?.label !== "Confirmar si el cliente irá y si se pidió asistencia legal") {
@@ -46,5 +46,14 @@ if (actions.T08?.date !== "2026-08-21" || actions.T08.urgent) {
 if (actions.B17.destination !== "judicial" || actions.B17.targetId !== "b17-case") {
   throw new Error("La acción de B17 no abre el expediente judicial correcto.");
 }
+if (!incidentActionBlocksManagement(actions.B17)) {
+  throw new Error("B17 debe bloquear la clasificación y gestión de cobro por estar urgente.");
+}
+if (incidentActionBlocksManagement(actions.T08)) {
+  throw new Error("T08 todavía debe permitir la gestión antes de su fecha límite.");
+}
+if (incidentActionBlocksManagement(undefined)) {
+  throw new Error("Una unidad sin acción de siniestros no debe quedar bloqueada.");
+}
 
-console.log("OK acciones de siniestros: B17 y T08 muestran confirmación judicial con fecha límite correcta.");
+console.log("OK acciones de siniestros: B17 bloquea la gestión urgente y T08 permanece como aviso futuro.");
