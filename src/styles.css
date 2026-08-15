@@ -12992,12 +12992,18 @@ button.ar-route-publish-copy.is-active {
 }
 
 .judicial-focused-case .workflow-claim-card {
-  border-color: #cbd5e1;
+  border: 0;
+  background: transparent;
   box-shadow: none;
 }
 
 .judicial-focused-case .workflow-claim-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   border-top: 0;
+  background: transparent;
+  padding: 0;
 }
 
 .judicial-focused-context {
@@ -13011,10 +13017,7 @@ button.ar-route-publish-copy.is-active {
 }
 
 .judicial-focused-case .judicial-focused-context {
-  position: sticky;
-  z-index: 2;
-  top: 72px;
-  box-shadow: 0 6px 14px rgb(15 23 42 / 8%);
+  box-shadow: none;
 }
 
 .judicial-focused-context > span {
@@ -14218,13 +14221,25 @@ button.ar-route-publish-copy.is-active {
 }
 
 .judicial-focused-case .judicial-case-tabs {
-  position: sticky;
-  z-index: 3;
-  top: 146px;
   overflow-x: auto;
-  background: var(--color-surface);
-  box-shadow: 0 5px 10px rgb(15 23 42 / 7%);
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 5px;
   scrollbar-width: thin;
+}
+
+.judicial-focused-case .judicial-case-tabs button {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 12px;
+}
+
+.judicial-focused-case .judicial-case-tabs button.active {
+  border: 0;
+  background: #dff7f3;
+  color: #08766d;
 }
 
 .judicial-case-tabs button,
@@ -14276,7 +14291,14 @@ button.ar-route-publish-copy.is-active {
 }
 
 .judicial-case-tab-panel {
-  min-height: 180px;
+  min-height: 0;
+}
+
+.judicial-focused-case .judicial-case-tab-panel {
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
 }
 
 .judicial-section-empty {
@@ -14292,11 +14314,9 @@ button.ar-route-publish-copy.is-active {
 
 .judicial-focused-case .judicial-case-tab-panel .workflow-finalization-actions,
 .judicial-focused-case .judicial-case-tab-panel .workflow-form-actions {
-  position: sticky;
-  z-index: 1;
-  bottom: 0;
-  background: linear-gradient(to top, var(--color-surface) 75%, rgb(255 255 255 / 0%));
-  padding-top: 12px;
+  position: static;
+  background: transparent;
+  padding-top: 0;
 }
 
 .judicial-case-tab-panel--management {
@@ -15089,10 +15109,6 @@ button.ar-route-publish-copy.is-active {
   .judicial-focused-case .judicial-focused-context {
     position: static;
     box-shadow: none;
-  }
-
-  .judicial-focused-case .judicial-case-tabs {
-    top: 68px;
   }
 
   .unified-incidents-filter-head {
