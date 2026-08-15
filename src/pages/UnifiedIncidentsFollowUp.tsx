@@ -616,6 +616,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
       {loadError && <p className="hint workflow-message">{loadError}</p>}
       {!loading && !loadError && <section className="incident-action-queue" aria-labelledby="incident-action-queue-title">
         <div className="incident-action-queue-head"><div><span className="workflow-eyebrow">Gestión prioritaria</span><h3 id="incident-action-queue-title">Acciones pendientes</h3></div><strong>{incidents.filter((incident) => !incident.finalized).length} pendientes</strong></div>
+        <small className="incident-action-queue-mobile-hint">Desliza para ver todas las acciones →</small>
         <div className="incident-action-queue-list">
           {ACTION_QUEUE_FILTERS.filter((key) => nextActionCounts[key] > 0).map((key) => {
             const closeTrialAlert = key === "judicial_management" && nextTrial !== null && nextTrial.offset <= 10;

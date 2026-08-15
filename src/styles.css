@@ -12333,6 +12333,10 @@ button.ar-route-publish-copy.is-active {
   color: #1d4ed8;
 }
 
+.incident-action-queue-mobile-hint {
+  display: none;
+}
+
 .incident-action-queue-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
@@ -14220,6 +14224,10 @@ button.ar-route-publish-copy.is-active {
   padding: 0 2px;
 }
 
+.judicial-case-mobile-nav {
+  display: none;
+}
+
 .judicial-focused-case .judicial-case-tabs {
   overflow-x: auto;
   border: 1px solid #dbe4f0;
@@ -15161,18 +15169,72 @@ button.ar-route-publish-copy.is-active {
 }
 
 @media (max-width: 760px) {
+  .incidents-control-page {
+    gap: 10px;
+  }
+
   .incidents-control-header {
     align-items: stretch;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
+    padding: 15px;
   }
 
   .incidents-control-header .button {
+    min-height: 46px;
     width: 100%;
   }
 
+  .unified-incidents-follow-up {
+    padding: 12px;
+  }
+
+  .incident-action-queue {
+    gap: 8px;
+    margin-top: 0;
+    padding: 12px;
+  }
+
+  .incident-action-queue-head {
+    align-items: center;
+    gap: 10px;
+  }
+
+  .incident-action-queue-head > strong {
+    flex: 0 0 auto;
+    border-radius: 999px;
+    background: #dbeafe;
+    font-size: 0.72rem;
+    padding: 6px 9px;
+  }
+
+  .incident-action-queue-mobile-hint {
+    display: block;
+    color: #64748b;
+    font-size: 0.7rem;
+    font-weight: 750;
+  }
+
+  .incident-action-queue-list {
+    grid-auto-columns: minmax(245px, 82vw);
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    overflow-x: auto;
+    padding: 2px 2px 7px;
+    scroll-padding-inline: 2px;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+  }
+
+  .incident-action-queue-list button {
+    min-height: 72px;
+    scroll-snap-align: start;
+  }
+
   .unified-incidents-toolbar {
-    top: 62px;
+    position: static;
+    margin-top: 10px;
+    box-shadow: none;
   }
 
   .unified-incidents-filter-head {
@@ -15181,8 +15243,8 @@ button.ar-route-publish-copy.is-active {
 
   .unified-incident-summary {
     grid-template-columns: minmax(0, 1fr) 32px;
-    gap: 14px;
-    padding: 16px;
+    gap: 10px;
+    padding: 13px;
   }
 
   .unified-incident-status-stack,
@@ -15191,12 +15253,96 @@ button.ar-route-publish-copy.is-active {
   }
 
   .unified-incident-action {
-    padding-top: 13px;
+    margin-top: 3px;
+    padding: 11px;
   }
 
   .unified-incident-summary .workflow-claim-chevron {
     grid-column: 2;
     grid-row: 1 / span 3;
+    min-width: 32px;
+    min-height: 44px;
+  }
+
+  .unified-incident-action-buttons {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .unified-incident-action-buttons .button {
+    justify-content: center;
+    min-height: 44px;
+    width: 100%;
+  }
+
+  .unified-incident-details {
+    padding: 13px;
+  }
+
+  .judicial-case-mobile-nav {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    gap: 6px;
+    border: 1px solid #99f6e4;
+    border-radius: 10px;
+    background: #f0fdfa;
+    color: #0f766e;
+    font-size: 0.72rem;
+    font-weight: 900;
+    letter-spacing: 0.05em;
+    padding: 9px 10px;
+    text-transform: uppercase;
+  }
+
+  .judicial-case-mobile-nav select {
+    min-height: 46px;
+    border-color: #5eead4;
+    background: #ffffff;
+    color: #0f172a;
+    font-size: 1rem;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .judicial-case-tabs {
+    display: none;
+  }
+
+  .judicial-focused-context {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .judicial-focused-context > span:nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .judicial-focused-context > span:nth-child(3),
+  .judicial-focused-context > span:nth-child(4) {
+    grid-row: 3;
+  }
+
+  .judicial-focused-case .judicial-case-tab-panel {
+    padding: 10px;
+  }
+
+  .judicial-focused-case input:not([type="checkbox"]):not([type="radio"]),
+  .judicial-focused-case select,
+  .judicial-focused-case textarea,
+  .incident-intake-form input:not([type="checkbox"]):not([type="radio"]),
+  .incident-intake-form select,
+  .incident-intake-form textarea {
+    min-height: 46px;
+    font-size: 16px;
+  }
+
+  .judicial-focused-case .workflow-finalization-actions .button,
+  .judicial-focused-case .workflow-form-actions .button {
+    justify-content: center;
+    min-height: 46px;
+    width: 100%;
   }
 
   .incident-alert-summary {
@@ -15234,10 +15380,6 @@ button.ar-route-publish-copy.is-active {
 }
 
 @media (max-width: 480px) {
-  .judicial-focused-context {
-    grid-template-columns: 1fr;
-  }
-
   .judicial-focused-case .judicial-focused-context {
     position: static;
     box-shadow: none;
@@ -15248,7 +15390,27 @@ button.ar-route-publish-copy.is-active {
   }
 
   .unified-incidents-clear {
-    justify-self: start;
+    justify-self: stretch;
+    min-height: 42px;
+    width: 100%;
+  }
+
+  .unified-incidents-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .unified-incidents-filters button {
+    justify-content: center;
+    min-height: 44px;
+    padding: 8px;
+    text-align: center;
+    white-space: normal;
+  }
+
+  .unified-incidents-filters button:has(.unified-filter-next-trial) {
+    justify-items: center;
   }
 
   .judicial-follow-up-head,
@@ -15287,9 +15449,43 @@ button.ar-route-publish-copy.is-active {
 
   .incident-claim-modal {
     width: 100%;
-    max-height: 94vh;
-    border-radius: 14px 14px 0 0;
-    padding: 0 14px 16px;
+    height: 100dvh;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+    padding: 0 12px 24px;
+    overscroll-behavior: contain;
+  }
+
+  .incident-claim-modal-head {
+    gap: 10px;
+    padding: 11px 0 10px;
+  }
+
+  .incident-claim-modal-head h2 {
+    font-size: 1.25rem;
+  }
+
+  .incident-claim-modal-head .button {
+    min-height: 44px;
+    padding-inline: 13px;
+  }
+
+  .incident-claim-modal .judicial-case-mobile-nav {
+    position: sticky;
+    top: 72px;
+  }
+
+  .judicial-focused-case .workflow-claim-details {
+    gap: 9px;
+  }
+
+  .judicial-focused-case .judicial-focused-context {
+    padding: 9px;
+  }
+
+  .judicial-section-empty {
+    padding: 16px 12px;
   }
 }
 

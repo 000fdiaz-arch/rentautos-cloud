@@ -881,6 +881,16 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
             const attendanceComplete = typeof item.clientWillAttend === "boolean" && typeof item.legalAssistanceRequested === "boolean";
             const attendanceDraft = attendanceDrafts[item.id] ?? { clientWillAttend: "", legalAssistanceRequested: "" };
             const timelineEvents = buildJudicialCaseTimeline(item);
+            const caseTabOptions = ([
+              ["summary", "Resumen", ""],
+              ["attendance", "Asistencia", attendanceComplete ? "OK" : isFinalStatus(item.status) ? "Cerrado" : "Pendiente"],
+              ["follow_up", "Notas", String(item.judicialFollowUps.length)],
+              ["history", "Historial", String(timelineEvents.length)],
+              ["workshop", "Taller", item.vehicleInspectedAt || item.expenseInvoice ? "OK" : "Pendiente"],
+              ["balance", "Saldo", item.expenseInvoice ? "OK" : ""],
+              ["outcome", "Resultado", item.status],
+              ["insurance", "Seguro", item.insuranceClaim ? "Activo" : ""]
+            ] as Array<[JudicialCaseTab, string, string]>).filter(([tab]) => availableCaseTabs.includes(tab));
             return <article key={item.id} className={`workflow-claim-card${expanded ? " expanded" : ""}`}>
               {!focusedCaseId && <div className="workflow-claim-summary">
                 <button type="button" className="workflow-claim-toggle" aria-expanded={expanded} onClick={() => { setExpandedId(expanded ? null : item.id); initializeCaseDrafts(item); }}>
@@ -894,17 +904,13 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
               </div>}
               {expanded && <div className="workflow-claim-details">
                 {requiresOutcome && <p className="collision-required-outcome" role="alert">La fecha del juicio llegó o está vencida. Debes registrar el resultado.</p>}
+                <label className="judicial-case-mobile-nav">Sección del expediente
+                  <select value={activeCaseTab} onChange={(event) => setJudicialCaseTabs((current) => ({ ...current, [item.id]: event.target.value as JudicialCaseTab }))}>
+                    {caseTabOptions.map(([tab, label, badge]) => <option key={tab} value={tab}>{label}{badge ? ` · ${badge}` : ""}</option>)}
+                  </select>
+                </label>
                 <div className="judicial-case-tabs" role="tablist" aria-label="Secciones del expediente judicial">
-                  {([
-                    ["summary", "Resumen", ""],
-                    ["attendance", "Asistencia", attendanceComplete ? "OK" : isFinalStatus(item.status) ? "Cerrado" : "Pendiente"],
-                    ["follow_up", "Notas", String(item.judicialFollowUps.length)],
-                    ["history", "Historial", String(timelineEvents.length)],
-                    ["workshop", "Taller", item.vehicleInspectedAt || item.expenseInvoice ? "OK" : "Pendiente"],
-                    ["balance", "Saldo", item.expenseInvoice ? "OK" : ""],
-                    ["outcome", "Resultado", item.status],
-                    ["insurance", "Seguro", item.insuranceClaim ? "Activo" : ""]
-                  ] as Array<[JudicialCaseTab, string, string]>).filter(([tab]) => availableCaseTabs.includes(tab)).map(([tab, label, badge]) => (
+                  {caseTabOptions.map(([tab, label, badge]) => (
                     <button type="button" role="tab" key={tab} id={`judicial-${tab}-tab-${item.id}`} aria-selected={activeCaseTab === tab} aria-controls={`judicial-${tab}-panel-${item.id}`} className={activeCaseTab === tab ? "active" : ""} onClick={() => setJudicialCaseTabs((current) => ({ ...current, [item.id]: tab }))}>{label}{badge ? <span>{badge}</span> : null}</button>
                   ))}
                 </div>
