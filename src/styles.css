@@ -94,6 +94,59 @@ body {
   color: var(--color-debt);
 }
 
+.provisional-rental-modal { max-width: 720px; }
+.provisional-rental-eyebrow,
+.receipt-rental-kicker,
+.payment-rental-label {
+  color: #b45309;
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.provisional-rental-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.provisional-rental-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid #dbe4ee;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.provisional-rental-summary span,
+.provisional-rental-history span { color: #64748b; font-size: .78rem; }
+.provisional-rental-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
+.provisional-rental-fields label { display: flex; flex-direction: column; gap: 6px; font-weight: 700; }
+.provisional-rental-history { margin: 14px 0; }
+.provisional-rental-history > div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
+.provisional-rental-actions { flex-wrap: wrap; }
+.provisional-rental-row-badge {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: .7rem;
+}
+.client-rental-balance { display: flex; flex-direction: column; gap: 3px; }
+.client-rental-balance > span { color: #b45309; font-size: .75rem; font-weight: 800; text-transform: uppercase; }
+.client-rental-balance > small { color: #64748b; }
+.control-op-badge--provisional-rental { background: #ffedd5; color: #9a3412; border-color: #fdba74; }
+.receipt-history-hero--rental { border-color: #fdba74; background: linear-gradient(135deg, #fff7ed, #ffffff); }
+
+@media (max-width: 640px) {
+  .provisional-rental-summary,
+  .provisional-rental-fields { grid-template-columns: 1fr; }
+}
+
 .app-shell-error,
 .history-partial-banner {
   display: flex;

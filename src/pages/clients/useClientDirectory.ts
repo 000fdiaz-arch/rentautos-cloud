@@ -17,10 +17,15 @@ export function useClientDirectoryRows(
   const rows = useMemo<ClientDirectoryRow[]>(() => {
     const activeClients = clients.filter((client) => client.status !== "archivado");
     const clientByUnit = new Map<string, Client>();
+    const provisionalClientByUnit = new Map<string, Client>();
     for (const client of activeClients) {
       const key = client.unitId.trim().toUpperCase();
-      if (!key || clientByUnit.has(key)) continue;
-      clientByUnit.set(key, client);
+      if (key && !clientByUnit.has(key)) clientByUnit.set(key, client);
+
+      const provisionalKey = client.activeProvisionalRental?.unitId.trim().toUpperCase() ?? "";
+      if (provisionalKey && !provisionalClientByUnit.has(provisionalKey)) {
+        provisionalClientByUnit.set(provisionalKey, client);
+      }
     }
 
     const fleetUnits = fleetUnitOptions
@@ -34,14 +39,33 @@ export function useClientDirectoryRows(
     const units = fleetUnits.length > 0 ? fleetUnits : clientUnits;
 
     const unitRows = units.map((unitId): ClientDirectoryRow => {
-      const client = clientByUnit.get(unitId) ?? null;
+      const provisionalClient = provisionalClientByUnit.get(unitId) ?? null;
+      const client = provisionalClient ?? clientByUnit.get(unitId) ?? null;
       if (!client) {
-        return { unitId, client: null, debtStartDate: null, nextChargeDate: null, pendingInstallments: 0 };
+        return {
+          unitId,
+          client: null,
+          assignmentKind: null,
+          debtStartDate: null,
+          nextChargeDate: null,
+          pendingInstallments: 0
+        };
+      }
+      if (provisionalClient) {
+        return {
+          unitId,
+          client,
+          assignmentKind: "provisional",
+          debtStartDate: null,
+          nextChargeDate: null,
+          pendingInstallments: 0
+        };
       }
       const debtStartDate = getDebtStartDate(client, operationalReferenceDate);
       return {
         unitId,
         client,
+        assignmentKind: "regular",
         debtStartDate,
         nextChargeDate: debtStartDate ? null : findNextChargeDay(client, operationalReferenceDate),
         pendingInstallments: getPendingInstallments(client)

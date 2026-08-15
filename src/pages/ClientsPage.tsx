@@ -6,9 +6,17 @@ import {
 } from "../billing";
 import { exportClientsToExcel, exportClientsToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
-import { loadControlUnits, setControlUnitStatus } from "../cloudData";
+import { loadControlUnits, saveProvisionalRentalState, setControlUnitStatus } from "../cloudData";
 import { supabase } from "../lib/supabase";
-import type { Client } from "../types";
+import type { Client, Payment } from "../types";
+import {
+  cancelActiveProvisionalRental,
+  collectReturnedProvisionalRentalCredit,
+  createProvisionalRental,
+  hasOutstandingProvisionalRentalDebt,
+  returnActiveProvisionalRental,
+  updateActiveProvisionalRentalTerms
+} from "../provisionalRentals";
 import {
   ClientInfoDialog,
   ConfirmDialog,
@@ -20,6 +28,7 @@ import {
 } from "./clients/ClientsDialogs";
 import { CreateClientDialog, EditClientDialog } from "./clients/ClientFormDialogs";
 import { ClientsDirectoryPanel } from "./clients/ClientsDirectoryPanel";
+import { ProvisionalRentalDialog, type ProvisionalRentalDraft } from "./clients/ProvisionalRentalDialog";
 import { useClientDirectoryFilters, useClientDirectoryRows } from "./clients/useClientDirectory";
 
 import { FREQUENCY_LABEL, INITIAL_EXPORT_FIELDS, initialForm } from "./clients/clientConstants";
@@ -42,13 +51,14 @@ import {
 
 type Props = {
   clients: Client[];
+  payments?: Payment[];
   onClientsChange: (next: Client[]) => void | Promise<void>;
   onClientsRefresh?: () => void | Promise<void>;
   dataOwnerUserId?: string | null;
   readOnly?: boolean;
 };
 
-export default function ClientsPage({ clients, onClientsChange, onClientsRefresh, dataOwnerUserId, readOnly = false }: Props) {
+export default function ClientsPage({ clients, payments = [], onClientsChange, onClientsRefresh, dataOwnerUserId, readOnly = false }: Props) {
   const [now, setNow] = useState<Date>(() => new Date());
   const [form, setForm] = useState<ClientForm>(initialForm);
   const [errors, setErrors] = useState<string[]>([]);
@@ -67,6 +77,10 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
   const [fleetDetailsByUnit, setFleetDetailsByUnit] = useState<Record<string, FleetDetail>>({});
   const [vehicleInfoUnit, setVehicleInfoUnit] = useState<string | null>(null);
   const [clientInfoId, setClientInfoId] = useState<string | null>(null);
+  const [provisionalRentalClientId, setProvisionalRentalClientId] = useState<string | null>(null);
+  const [provisionalRentalSaving, setProvisionalRentalSaving] = useState(false);
+  const [provisionalRentalError, setProvisionalRentalError] = useState("");
+  const [fleetReloadToken, setFleetReloadToken] = useState(0);
   const operationalReferenceDate = useMemo(() => getOperationalReferenceDate(now), [now]);
   const occupiedUnitSet = useMemo(() => {
     const set = new Set<string>();
@@ -83,6 +97,19 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
       : "";
     return fleetUnitOptions.filter((unit) => !occupiedUnitSet.has(unit) || unit === currentEditingUnit);
   }, [clients, editingClientId, fleetUnitOptions, occupiedUnitSet]);
+  const provisionalRentalClient = useMemo(
+    () => clients.find((client) => client.id === provisionalRentalClientId) ?? null,
+    [clients, provisionalRentalClientId]
+  );
+  const availableProvisionalUnits = useMemo(() => {
+    const activeRentalUnits = new Set(clients.flatMap((client) => client.activeProvisionalRental?.unitId
+      ? [client.activeProvisionalRental.unitId.trim().toUpperCase()]
+      : []));
+    return fleetUnitOptions.filter((unit) => {
+      const status = String(fleetDetailsByUnit[unit]?.operational_status ?? "").trim().toLowerCase();
+      return status === "libre" && !occupiedUnitSet.has(unit) && !activeRentalUnits.has(unit);
+    });
+  }, [clients, fleetDetailsByUnit, fleetUnitOptions, occupiedUnitSet]);
   const { rows, legacyClients: clients20Rows } = useClientDirectoryRows(
     clients,
     fleetUnitOptions,
@@ -104,6 +131,130 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
   async function persist(next: Client[]): Promise<void> {
     if (readOnly) return;
     await onClientsChange(next);
+  }
+
+  async function persistProvisionalRentalState(
+    current: Client,
+    nextClient: Client,
+    unitId: string,
+    fleetStatus: "provisional_rental" | "libre"
+  ): Promise<void> {
+    if (dataOwnerUserId) {
+      await saveProvisionalRentalState({
+        userId: dataOwnerUserId,
+        clientId: current.id,
+        clientData: nextClient,
+        unitId,
+        fleetStatus
+      });
+      // Mantiene el estado local y cualquier snapshot pendiente de sincronizacion
+      // alineados con la escritura atomica. Sin esto, un snapshot anterior podia
+      // volver a guardar el cliente sin activeProvisionalRental y dejar la flota
+      // marcada como provisional, pero sin cliente asociado.
+      await persist(clients.map((client) => client.id === current.id ? nextClient : client));
+      await onClientsRefresh?.();
+    } else {
+      await persist(clients.map((client) => client.id === current.id ? nextClient : client));
+    }
+    setFleetReloadToken((value) => value + 1);
+  }
+
+  async function handleAssignProvisionalRental(draft: ProvisionalRentalDraft): Promise<void> {
+    const client = provisionalRentalClient;
+    if (!client || readOnly) return;
+    if (client.activeProvisionalRental) {
+      setProvisionalRentalError("Este cliente ya tiene un auto provisional activo.");
+      return;
+    }
+    if (hasOutstandingProvisionalRentalDebt(client)) {
+      setProvisionalRentalError("Primero debes liquidar la deuda de un alquiler anterior.");
+      return;
+    }
+    if (!availableProvisionalUnits.includes(draft.unitId)) {
+      setProvisionalRentalError("El auto seleccionado ya no está libre.");
+      return;
+    }
+    setProvisionalRentalSaving(true);
+    setProvisionalRentalError("");
+    try {
+      const detail = fleetDetailsByUnit[draft.unitId];
+      const carriedCredit = collectReturnedProvisionalRentalCredit(client);
+      const activeProvisionalRental = createProvisionalRental({
+        client,
+        unitId: draft.unitId,
+        brandModel: detail?.brand_model ?? undefined,
+        plate: detail?.plate ?? undefined,
+        frequency: draft.frequency,
+        rentAmount: draft.rentAmount,
+        startDate: getBusinessDateKey(),
+        initialCredit: carriedCredit.credit
+      });
+      const nextClient = { ...client, activeProvisionalRental, provisionalRentalHistory: carriedCredit.history };
+      await persistProvisionalRentalState(client, nextClient, draft.unitId, "provisional_rental");
+      setProvisionalRentalClientId(null);
+    } catch (error) {
+      console.error("No se pudo asignar el auto provisional.", error);
+      setProvisionalRentalError(describeCloudSaveError("No se pudo asignar el auto provisional.", error));
+    } finally {
+      setProvisionalRentalSaving(false);
+    }
+  }
+
+  async function handleUpdateProvisionalRentalTerms(draft: ProvisionalRentalDraft): Promise<void> {
+    const client = provisionalRentalClient;
+    const rental = client?.activeProvisionalRental;
+    if (!client || !rental || readOnly) return;
+    setProvisionalRentalSaving(true);
+    setProvisionalRentalError("");
+    try {
+      const nextClient = updateActiveProvisionalRentalTerms(client, draft.frequency, draft.rentAmount, getBusinessDateKey());
+      await persistProvisionalRentalState(client, nextClient, rental.unitId, "provisional_rental");
+    } catch (error) {
+      console.error("No se pudo actualizar el alquiler provisional.", error);
+      setProvisionalRentalError(describeCloudSaveError("No se pudo actualizar el alquiler.", error));
+    } finally {
+      setProvisionalRentalSaving(false);
+    }
+  }
+
+  async function handleReturnProvisionalRental(): Promise<void> {
+    const client = provisionalRentalClient;
+    const rental = client?.activeProvisionalRental;
+    if (!client || !rental || readOnly) return;
+    setProvisionalRentalSaving(true);
+    setProvisionalRentalError("");
+    try {
+      const nextClient = returnActiveProvisionalRental(client, getBusinessDateKey());
+      await persistProvisionalRentalState(client, nextClient, rental.unitId, "libre");
+      setProvisionalRentalClientId(null);
+    } catch (error) {
+      console.error("No se pudo devolver el auto provisional.", error);
+      setProvisionalRentalError(describeCloudSaveError("No se pudo devolver el auto provisional.", error));
+    } finally {
+      setProvisionalRentalSaving(false);
+    }
+  }
+
+  async function handleCancelProvisionalRental(): Promise<void> {
+    const client = provisionalRentalClient;
+    const rental = client?.activeProvisionalRental;
+    if (!client || !rental || readOnly) return;
+    if (payments.some((payment) => payment.provisionalRentalId === rental.id)) {
+      setProvisionalRentalError("No se puede cancelar porque este alquiler ya tiene pagos. Debes devolver el auto.");
+      return;
+    }
+    setProvisionalRentalSaving(true);
+    setProvisionalRentalError("");
+    try {
+      const nextClient = cancelActiveProvisionalRental(client);
+      await persistProvisionalRentalState(client, nextClient, rental.unitId, "libre");
+      setProvisionalRentalClientId(null);
+    } catch (error) {
+      console.error("No se pudo cancelar la asignación provisional.", error);
+      setProvisionalRentalError(describeCloudSaveError("No se pudo cancelar la asignación.", error));
+    } finally {
+      setProvisionalRentalSaving(false);
+    }
   }
 
   function roundInlineMoney(value: number): number {
@@ -247,6 +398,7 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
           cupo?: string | null;
           company?: string | null;
           observation?: string | null;
+          operational_status?: string | null;
         }> = {};
         for (const row of data) {
           const key = String(row.unit_id ?? "").trim().toUpperCase();
@@ -258,7 +410,8 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
             chassis_serial: row.chassis_serial ?? null,
             cupo: row.cupo ?? null,
             company: row.company ?? null,
-            observation: row.observation ?? null
+            observation: row.observation ?? null,
+            operational_status: row.operational_status ?? null
           };
         }
         setFleetDetailsByUnit(nextDetails);
@@ -269,7 +422,7 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
     return () => {
       cancelled = true;
     };
-  }, [dataOwnerUserId]);
+  }, [dataOwnerUserId, fleetReloadToken]);
 
   function recalculateInstallments(nextForm: ClientForm): ClientForm {
     const agreed = parseIntegerOrNull(nextForm.installmentsAgreed);
@@ -699,6 +852,25 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
       <StatusChangeDialog dialog={statusDialog} setDialog={setStatusDialog} onConfirm={handleConfirmStatusChange} />
       <VehicleInfoDialog unitId={vehicleInfoUnit} detailsByUnit={fleetDetailsByUnit} onClose={() => setVehicleInfoUnit(null)} />
       <ClientInfoDialog clientId={clientInfoId} clients={clients} onClose={() => setClientInfoId(null)} />
+      <ProvisionalRentalDialog
+        client={provisionalRentalClient}
+        availableUnits={availableProvisionalUnits}
+        fleetDetailsByUnit={fleetDetailsByUnit}
+        hasRentalPayments={Boolean(provisionalRentalClient?.activeProvisionalRental && payments.some(
+          (payment) => payment.provisionalRentalId === provisionalRentalClient.activeProvisionalRental?.id
+        ))}
+        saving={provisionalRentalSaving}
+        error={provisionalRentalError}
+        onClose={() => {
+          if (provisionalRentalSaving) return;
+          setProvisionalRentalClientId(null);
+          setProvisionalRentalError("");
+        }}
+        onAssign={(draft) => void handleAssignProvisionalRental(draft)}
+        onUpdateTerms={(draft) => void handleUpdateProvisionalRentalTerms(draft)}
+        onReturn={() => void handleReturnProvisionalRental()}
+        onCancelAssignment={() => void handleCancelProvisionalRental()}
+      />
 
       <CreateClientDialog
         isOpen={isFormOpen}
@@ -758,6 +930,10 @@ export default function ClientsPage({ clients, onClientsChange, onClientsRefresh
         onEditClient={(client) => {
           handleStartEditClient(client);
           setEditClientTab("identidad");
+        }}
+        onOpenProvisionalRental={(client) => {
+          setProvisionalRentalError("");
+          setProvisionalRentalClientId(client.id);
         }}
         onUnlinkClient={handleUnlinkClient}
         onCreateClientFromUnit={handleCreateClientFromUnit}

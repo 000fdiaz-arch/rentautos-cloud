@@ -836,12 +836,14 @@ export default function AppShell({
 
   function handleFleetClientStatusSync(payload: {
     unitId: string;
-    status: Client["status"] | "libre";
+    status: Client["status"] | "libre" | "provisional_rental";
     archivedClientIds: string[];
     updatedClientIds: string[];
     statusComment?: string;
     archivedAt?: string;
   }): void {
+    if (payload.status === "provisional_rental") return;
+    const clientStatus: Client["status"] | "libre" = payload.status;
     const archivedIds = new Set(payload.archivedClientIds);
     const updatedIds = new Set(payload.updatedClientIds);
     if (archivedIds.size === 0 && updatedIds.size === 0) return;
@@ -855,8 +857,8 @@ export default function AppShell({
           archivedAt: payload.archivedAt ?? new Date().toISOString()
         };
       }
-      if (updatedIds.has(client.id) && payload.status !== "libre") {
-        if (payload.status === "activo") {
+      if (updatedIds.has(client.id) && clientStatus !== "libre") {
+        if (clientStatus === "activo") {
           return {
             ...client,
             status: "activo",
@@ -867,7 +869,7 @@ export default function AppShell({
         }
         return {
           ...client,
-          status: payload.status,
+          status: clientStatus,
           statusComment: payload.statusComment
         };
       }
@@ -1052,6 +1054,7 @@ export default function AppShell({
         {page === "clients" && canViewClients && (
           <ClientsPage
             clients={clients}
+            payments={payments}
             onClientsChange={persistClients}
             onClientsRefresh={refreshClientsFromCloud}
             dataOwnerUserId={cloudDataUserId}

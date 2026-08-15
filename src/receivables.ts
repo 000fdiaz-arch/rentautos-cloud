@@ -1,6 +1,7 @@
 import { findNextChargeDay, getDebtStartDate, isChargeDay, parseDateKey, startOfDay, toDateKey } from "./billing";
 import type { ControlUnitRow } from "./cloudData";
 import type { BillingFrequency, Client, Payment, WeeklyChargeDay } from "./types";
+import { getCollectibleProvisionalRental, nextProvisionalRentalChargeDate } from "./provisionalRentals";
 
 export type ReceivableState = "alDia" | "proximo" | "venceHoy" | "vencido" | "critico";
 export type ReceivableStateFilter = "all" | ReceivableState;
@@ -225,7 +226,7 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
   const activeClients = clients.filter((client) => !client.archivedAt);
   const activeClientByUnit = new Map<string, Client>();
   for (const client of activeClients) {
-    const normalizedUnit = normalizeUnit(client.unitId);
+    const normalizedUnit = normalizeUnit(client.activeProvisionalRental?.unitId ?? client.unitId);
     if (normalizedUnit && !activeClientByUnit.has(normalizedUnit)) activeClientByUnit.set(normalizedUnit, client);
   }
 
@@ -247,58 +248,76 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
   }
 
   function rowFromClient(client: Client, operationalStatus: string = client.status): ReceivableRow {
-      const debtStartDate = getDebtStartDate(client, referenceDate);
-      const nextChargeDate = debtStartDate ?? findNextChargeDay(client, referenceDate);
-      const nextDueDate = nextChargeDate ? toDateKey(nextChargeDate) : null;
+      const provisionalRental = getCollectibleProvisionalRental(client);
+      const effectiveUnitId = client.activeProvisionalRental?.unitId ?? client.unitId;
+      const effectiveBalance = provisionalRental?.balance ?? client.balance;
+      const effectiveRentAmount = provisionalRental?.rentAmount ?? client.rentAmount;
+      const effectiveFrequency = provisionalRental?.frequency ?? client.frequency;
+      const oldestRentalDebtKey = provisionalRental?.charges
+        .filter((charge) => charge.amountPaid < charge.amount)
+        .sort((left, right) => left.dueDate.localeCompare(right.dueDate))[0]?.dueDate;
+      const debtStartDate = provisionalRental
+        ? (oldestRentalDebtKey ? parseDateKey(oldestRentalDebtKey) : null)
+        : getDebtStartDate(client, referenceDate);
+      const regularNextChargeDate = provisionalRental ? null : (debtStartDate ?? findNextChargeDay(client, referenceDate));
+      const nextDueDate = provisionalRental
+        ? (oldestRentalDebtKey ?? nextProvisionalRentalChargeDate(provisionalRental))
+        : regularNextChargeDate ? toDateKey(regularNextChargeDate) : null;
       const daysLate = debtStartDate ? Math.max(0, daysBetween(debtStartDate, referenceDate)) : -1;
       const daysUntilDue = debtStartDate
         ? -daysLate
-        : nextChargeDate
-        ? daysBetween(referenceDate, nextChargeDate)
+        : nextDueDate && parseDateKey(nextDueDate)
+        ? daysBetween(referenceDate, parseDateKey(nextDueDate)!)
         : null;
-      const state = computeReceivableState(client.balance, daysLate, daysUntilDue);
-      const overdueInstallments = computeOverdueInstallments(client, debtStartDate, referenceDate);
-      const overdueBalance = debtStartDate && client.balance > 0
-        ? roundMoney(Math.max(0, client.balance))
+      const state = computeReceivableState(effectiveBalance, daysLate, daysUntilDue);
+      const overdueInstallments = provisionalRental
+        ? provisionalRental.charges.filter((charge) => charge.amountPaid < charge.amount).length
+        : computeOverdueInstallments(client, debtStartDate, referenceDate);
+      const overdueBalance = debtStartDate && effectiveBalance > 0
+        ? roundMoney(Math.max(0, effectiveBalance))
         : 0;
 
       const directPayments = paymentsByClient.get(client.id) ?? [];
-      const identityUnitPayments = (paymentsByUnit.get(normalizeUnit(client.unitId)) ?? [])
+      const identityUnitPayments = (paymentsByUnit.get(normalizeUnit(effectiveUnitId)) ?? [])
         .filter((payment) => payment.clientId !== client.id && paymentMatchesClientIdentity(payment, client));
       const clientPayments = mergePaymentLists(directPayments, identityUnitPayments);
       const lastPayment = clientPayments[0];
-      const contractTotal = roundMoney(Math.max(1, client.installmentsAgreed * client.rentAmount + sumOtherCharges(client)));
-      const totalPaid = roundMoney(clamp(contractTotal - Math.max(0, client.balance), 0, contractTotal));
-      const percentPaid = computeInstallmentsPercent(client.installmentsAgreed, client.installmentsPaid);
+      const contractTotal = provisionalRental
+        ? roundMoney(Math.max(1, provisionalRental.charges.reduce((sum, charge) => sum + charge.amount, 0)))
+        : roundMoney(Math.max(1, client.installmentsAgreed * client.rentAmount + sumOtherCharges(client)));
+      const totalPaid = roundMoney(clamp(contractTotal - Math.max(0, effectiveBalance), 0, contractTotal));
+      const percentPaid = provisionalRental
+        ? Math.round((totalPaid / contractTotal) * 100)
+        : computeInstallmentsPercent(client.installmentsAgreed, client.installmentsPaid);
 
       return {
         id: client.id,
-        unitId: client.unitId,
+        unitId: effectiveUnitId,
         name: client.name,
         cedula: client.cedula ?? "-",
         whatsAppPhone: client.whatsAppPhone,
-        group: getGroupFromUnit(client.unitId),
-        plan: client.frequency,
-        weeklyChargeDay: client.frequency === "weekly" ? (client.weeklyChargeDay ?? "monday") : undefined,
-        chargeFirstSunday: client.chargeFirstSunday,
-        monthlyChargeDay: client.frequency === "monthly" ? client.monthlyChargeDay : undefined,
+        group: getGroupFromUnit(effectiveUnitId),
+        plan: effectiveFrequency,
+        weeklyChargeDay: provisionalRental ? undefined : client.frequency === "weekly" ? (client.weeklyChargeDay ?? "monday") : undefined,
+        chargeFirstSunday: provisionalRental ? undefined : client.chargeFirstSunday,
+        monthlyChargeDay: provisionalRental ? undefined : client.frequency === "monthly" ? client.monthlyChargeDay : undefined,
         nextDueDate,
         daysLate,
         overdueInstallments,
         overdueBalance,
-        totalPending: roundMoney(Math.max(0, client.balance)),
+        totalPending: roundMoney(Math.max(0, effectiveBalance)),
         lastPaymentDate: lastPayment?.dateApplied ?? null,
         lastPaymentAt: lastPayment?.createdAt ?? (lastPayment?.dateApplied ? `${lastPayment.dateApplied}T12:00:00` : null),
         lastPaymentAmount: roundMoney(lastPayment?.amountReceived ?? 0),
         percentPaid,
-        installmentsAgreed: Math.max(0, client.installmentsAgreed),
-        installmentsPaid: Math.max(0, client.installmentsPaid),
-        installmentsRemaining: Math.max(0, client.installmentsRemaining),
-        rentAmount: roundMoney(Math.max(0, client.rentAmount)),
+        installmentsAgreed: provisionalRental ? provisionalRental.charges.length : Math.max(0, client.installmentsAgreed),
+        installmentsPaid: provisionalRental ? provisionalRental.charges.filter((charge) => charge.amountPaid >= charge.amount).length : Math.max(0, client.installmentsPaid),
+        installmentsRemaining: provisionalRental ? provisionalRental.charges.filter((charge) => charge.amountPaid < charge.amount).length : Math.max(0, client.installmentsRemaining),
+        rentAmount: roundMoney(Math.max(0, effectiveRentAmount)),
         contractTotal,
         totalPaid,
         state,
-        totalOtherCharges: sumOtherCharges(client),
+        totalOtherCharges: provisionalRental ? 0 : sumOtherCharges(client),
         recentPayments: clientPayments.slice(0, 5).map((payment) => ({
           id: payment.id,
           dateApplied: payment.dateApplied,
@@ -307,7 +326,7 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
           appliedToRent: roundMoney(payment.appliedToRent)
         })),
         hasActiveClient: true,
-        operationalStatus
+        operationalStatus: client.activeProvisionalRental ? "provisional_rental" : operationalStatus
       } satisfies ReceivableRow;
   }
 
@@ -356,7 +375,7 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
     rows.push(client ? rowFromClient(client, String(unit.operational_status ?? client.status)) : rowFromFleetUnit({ ...unit, unit_id: unitId }));
   }
   for (const client of activeClients) {
-    const normalizedUnit = normalizeUnit(client.unitId);
+    const normalizedUnit = normalizeUnit(client.activeProvisionalRental?.unitId ?? client.unitId);
     if (!normalizedUnit || seenUnits.has(normalizedUnit)) continue;
     seenUnits.add(normalizedUnit);
     rows.push(rowFromClient(client));

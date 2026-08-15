@@ -63,9 +63,21 @@ export default function ControlUnitsPage({
   const [statusDraft, setStatusDraft] = useState<FleetStatus>("activo");
   const [form, setForm] = useState<UnitFormState>({ ...DEFAULT_FORM });
 
-  const { groups, companies, models, statuses } = useMemo(() => getFleetFilterOptions(rows), [rows]);
+  const displayRows = useMemo(() => rows.map((row) => {
+    const unitId = normalizeText(row.unit_id).toUpperCase();
+    const rentalClient = clients.find((client) => client.activeProvisionalRental?.unitId.trim().toUpperCase() === unitId);
+    return rentalClient ? {
+      ...row,
+      operational_status: "provisional_rental",
+      client_id: rentalClient.id,
+      client_name: rentalClient.name,
+      client_cedula: rentalClient.cedula ?? null
+    } : row;
+  }), [clients, rows]);
+
+  const { groups, companies, models, statuses } = useMemo(() => getFleetFilterOptions(displayRows), [displayRows]);
   const filteredRows = useMemo(() => filterAndSortFleetRows({
-    rows,
+    rows: displayRows,
     search,
     groupFilter,
     companyFilter,
@@ -73,9 +85,9 @@ export default function ControlUnitsPage({
     statusFilter,
     sortField,
     sortDirection
-  }), [rows, search, groupFilter, companyFilter, modelFilter, statusFilter, sortField, sortDirection]);
-  const pieData = useMemo(() => buildFleetPieData(rows), [rows]);
-  const kpiTotal = rows.length;
+  }), [displayRows, search, groupFilter, companyFilter, modelFilter, statusFilter, sortField, sortDirection]);
+  const pieData = useMemo(() => buildFleetPieData(displayRows), [displayRows]);
+  const kpiTotal = displayRows.length;
   const hasActiveFilters = search.trim().length > 0 ||
     groupFilter !== "all" ||
     companyFilter !== "all" ||
@@ -86,7 +98,7 @@ export default function ControlUnitsPage({
     const unit = normalizeText(unitId).toUpperCase();
     if (!unit) return null;
     return clients.find((client) =>
-      normalizeText(client.unitId).toUpperCase() === unit &&
+      (normalizeText(client.unitId).toUpperCase() === unit || client.activeProvisionalRental?.unitId.trim().toUpperCase() === unit) &&
       normalizeStatus(client.status) !== "archivado"
     ) ?? null;
   }, [clients]);

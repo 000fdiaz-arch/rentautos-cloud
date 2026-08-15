@@ -43,6 +43,7 @@ export type ClientsViewTab = "current" | "legacy";
 export type ClientDirectoryRow = {
   unitId: string;
   client: Client | null;
+  assignmentKind: "regular" | "provisional" | null;
   debtStartDate: Date | null;
   nextChargeDate: Date | null;
   pendingInstallments: number;

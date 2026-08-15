@@ -3,7 +3,7 @@ import type { ClientStatus } from "../../types";
 
 export type SortField = "unit_id" | "group" | "operational_status" | "brand_model" | "company" | "plate";
 export type SortDirection = "asc" | "desc";
-export type FleetStatus = ClientStatus | "libre";
+export type FleetStatus = ClientStatus | "libre" | "provisional_rental";
 
 export type FleetClientStatusSyncPayload = {
   unitId: string;
@@ -137,6 +137,7 @@ export function statusLabel(value: string): string {
   if (normalized === "taller") return "Taller";
   if (normalized === "chapisteria") return "Chapisteria";
   if (normalized === "custodia") return "Custodia";
+  if (normalized === "provisional_rental") return "Auto provisional/alquilado";
   if (normalized === "archivado") return "Archivado";
   return normalized.length > 0 ? value : "Sin estado";
 }
@@ -148,6 +149,7 @@ export function statusBadgeClass(value: string): string {
   if (normalized === "taller") return "control-op-badge control-op-badge--taller";
   if (normalized === "chapisteria") return "control-op-badge control-op-badge--chapisteria";
   if (normalized === "custodia") return "control-op-badge control-op-badge--custodia";
+  if (normalized === "provisional_rental") return "control-op-badge control-op-badge--provisional-rental";
   if (normalized === "archivado") return "control-op-badge control-op-badge--archivado";
   return "control-op-badge control-op-badge--sin-estado";
 }
@@ -158,6 +160,7 @@ export function effectiveStatus(row: ControlUnitRow): string {
 
 export function toFleetStatus(value: string): FleetStatus {
   const normalized = normalizeStatus(value);
+  if (normalized === "provisional_rental") return "provisional_rental";
   return FLEET_STATUS_OPTIONS.some((option) => option.value === normalized)
     ? normalized as FleetStatus
     : "activo";

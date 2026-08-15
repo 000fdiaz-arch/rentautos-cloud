@@ -229,6 +229,14 @@ function normalizeClient(item: unknown): Client | null {
     statusComment:
       typeof raw.statusComment === "string" && raw.statusComment.trim()
         ? raw.statusComment
+        : undefined,
+    activeProvisionalRental:
+      raw.activeProvisionalRental && typeof raw.activeProvisionalRental === "object"
+        ? raw.activeProvisionalRental as Client["activeProvisionalRental"]
+        : undefined,
+    provisionalRentalHistory:
+      Array.isArray(raw.provisionalRentalHistory)
+        ? raw.provisionalRentalHistory as Client["provisionalRentalHistory"]
         : undefined
   };
 
@@ -406,6 +414,23 @@ function normalizePayment(item: unknown): Payment | null {
       typeof raw.reference === "string" && raw.reference.trim()
         ? raw.reference.trim()
         : undefined,
+    paymentContext: raw.paymentContext === "provisional_rental" ? "provisional_rental" : undefined,
+    provisionalRentalId: typeof raw.provisionalRentalId === "string" ? raw.provisionalRentalId : undefined,
+    provisionalRentalUnit: typeof raw.provisionalRentalUnit === "string" ? raw.provisionalRentalUnit : undefined,
+    provisionalRentalBrandModel: typeof raw.provisionalRentalBrandModel === "string" ? raw.provisionalRentalBrandModel : undefined,
+    provisionalRentalPlate: typeof raw.provisionalRentalPlate === "string" ? raw.provisionalRentalPlate : undefined,
+    provisionalRentalFrequency:
+      raw.provisionalRentalFrequency === "daily" || raw.provisionalRentalFrequency === "weekly" || raw.provisionalRentalFrequency === "biweekly"
+        ? raw.provisionalRentalFrequency
+        : undefined,
+    provisionalRentalAmount: parseFiniteNumber(raw.provisionalRentalAmount) ?? undefined,
+    provisionalRentalBalanceBefore: parseFiniteNumber(raw.provisionalRentalBalanceBefore) ?? undefined,
+    provisionalRentalBalanceAfter: parseFiniteNumber(raw.provisionalRentalBalanceAfter) ?? undefined,
+    provisionalRentalCreditAfter: parseFiniteNumber(raw.provisionalRentalCreditAfter) ?? undefined,
+    provisionalRentalNextChargeDate: typeof raw.provisionalRentalNextChargeDate === "string" ? raw.provisionalRentalNextChargeDate : undefined,
+    provisionalRentalChargesApplied: Array.isArray(raw.provisionalRentalChargesApplied)
+      ? raw.provisionalRentalChargesApplied as Payment["provisionalRentalChargesApplied"]
+      : undefined,
     bankAccountNumber:
       typeof raw.bankAccountNumber === "string" && raw.bankAccountNumber.trim()
         ? raw.bankAccountNumber.trim()

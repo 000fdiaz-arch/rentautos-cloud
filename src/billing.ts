@@ -1,4 +1,5 @@
 import type { Client, WeeklyChargeDay } from "./types";
+import { accrueClientProvisionalRental } from "./provisionalRentals";
 
 export const BUSINESS_TIME_ZONE = "America/Panama";
 
@@ -146,7 +147,9 @@ export function applyAutomaticCharges(currentClients: Client[], now: Date): { cl
   const todayKey = toDateKey(today);
   let changed = false;
 
-  const next = currentClients.map((client) => {
+  const next = currentClients.map((originalClient) => {
+    let client = accrueClientProvisionalRental(originalClient, todayKey);
+    if (client !== originalClient) changed = true;
     const issuance = resolveInstallmentIssuance(client);
     const issuanceWasNormalized =
       client.installmentsIssued !== issuance.issued ||
@@ -158,6 +161,7 @@ export function applyAutomaticCharges(currentClients: Client[], now: Date): { cl
     };
     client = clientWithIssuance;
     if (issuanceWasNormalized) changed = true;
+    if (client.activeProvisionalRental) return client;
     if (
       client.archivedAt ||
       client.status === "archivado" ||

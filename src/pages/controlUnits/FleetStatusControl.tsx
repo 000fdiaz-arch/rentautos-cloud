@@ -16,7 +16,7 @@ export const FleetStatusControl = memo(function FleetStatusControl({
   onOpenStatusDialog
 }: Props) {
   const status = effectiveStatus(row);
-  if (readOnly || !canEditStatus) {
+  if (readOnly || !canEditStatus || status === "provisional_rental") {
     return <span className={statusBadgeClass(status)}>{statusLabel(status)}</span>;
   }
   return (

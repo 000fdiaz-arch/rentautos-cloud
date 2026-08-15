@@ -1,4 +1,4 @@
-import type { BankRule, LateFeeSettings, LeadEvaluation, OtherChargesRetentionByClient, PaymentPromise } from "../types";
+import type { BankRule, Client, LateFeeSettings, LeadEvaluation, OtherChargesRetentionByClient, PaymentPromise } from "../types";
 import { dedupeLoad, getCloudClient, PAGE_SIZE, withCloudRetry, type DataRow, type SingletonDataRow } from "./cloudClient";
 import type {
   CashClosing,
@@ -1843,4 +1843,23 @@ export async function setControlUnitStatus(
   return (data && typeof data === "object" && !Array.isArray(data))
     ? data as ControlUnitStatusResult
     : {};
+}
+
+export async function saveProvisionalRentalState(input: {
+  userId: string;
+  clientId: string;
+  clientData: Client;
+  unitId: string;
+  fleetStatus: "provisional_rental" | "libre";
+}): Promise<Client> {
+  const client = getCloudClient();
+  const { data, error } = await client.rpc("save_provisional_rental_state", {
+    p_owner_user_id: input.userId,
+    p_client_id: input.clientId,
+    p_client_data: input.clientData,
+    p_unit_id: input.unitId,
+    p_fleet_status: input.fleetStatus
+  });
+  if (error) throw error;
+  return (data && typeof data === "object" && !Array.isArray(data)) ? data as Client : input.clientData;
 }

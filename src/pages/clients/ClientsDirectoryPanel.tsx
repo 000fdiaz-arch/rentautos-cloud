@@ -55,6 +55,7 @@ type Props = {
   onShowVehicle: (unitId: string) => void;
   onShowClient: (clientId: string) => void;
   onEditClient: (client: Client) => void;
+  onOpenProvisionalRental: (client: Client) => void;
   onUnlinkClient: (client: Client) => void;
   onCreateClientFromUnit: (unitId: string) => void;
   readOnly?: boolean;
@@ -98,6 +99,7 @@ export function ClientsDirectoryPanel({
   onShowVehicle,
   onShowClient,
   onEditClient,
+  onOpenProvisionalRental,
   onUnlinkClient,
   onCreateClientFromUnit,
   readOnly = false
@@ -259,8 +261,10 @@ export function ClientsDirectoryPanel({
                     <td colSpan={8} className="empty">Aun no hay clientes con ese filtro.</td>
                   </tr>
                 ) : (
-                  rows.map(({ client, unitId, debtStartDate, nextChargeDate }) => {
+                  rows.map(({ client, unitId, assignmentKind, debtStartDate, nextChargeDate }) => {
                     const vehicle = fleetDetailsByUnit[unitId];
+                    const isProvisionalRow = assignmentKind === "provisional" && Boolean(client?.activeProvisionalRental);
+                    const provisionalRental = isProvisionalRow ? client?.activeProvisionalRental : undefined;
                     const otherChargesTotal = client
                       ? client.otherCharges.reduce((sum, charge) => sum + charge.amount, 0)
                       : 0;
@@ -278,6 +282,12 @@ export function ClientsDirectoryPanel({
                           <strong className="clients-unit-id">{unitId}</strong>
                           <div className="debt-meta">{vehicle?.plate ? `Placa ${vehicle.plate}` : "Sin placa registrada"}</div>
                           <div className="debt-meta">{vehicle?.brand_model ?? "Sin modelo registrado"}</div>
+                          {isProvisionalRow && (
+                            <div className="provisional-rental-row-badge">
+                              <span>AUTO PROVISIONAL/ALQUILER DE AUTO</span>
+                              <strong>{unitId}</strong>
+                            </div>
+                          )}
                         </td>
                         <td>
                           {client ? (
@@ -296,27 +306,35 @@ export function ClientsDirectoryPanel({
                         <td>
                           {client ? (
                             <>
-                              <strong>{formatCurrency(client.rentAmount)}</strong>
+                              <strong>{formatCurrency(provisionalRental?.rentAmount ?? client.rentAmount)}</strong>
                               <span
-                                className={`badge ${client.frequency === "daily" ? "badge-good" : client.frequency === "weekly" ? "badge-warning" : client.frequency === "biweekly" ? "badge-debt" : "badge-good"}`}
+                                className={`badge ${(provisionalRental?.frequency ?? client.frequency) === "daily" ? "badge-good" : (provisionalRental?.frequency ?? client.frequency) === "weekly" ? "badge-warning" : (provisionalRental?.frequency ?? client.frequency) === "biweekly" ? "badge-debt" : "badge-good"}`}
                                 style={{ marginLeft: 8 }}
                               >
-                                {FREQUENCY_LABEL[client.frequency]}
+                                {FREQUENCY_LABEL[provisionalRental?.frequency ?? client.frequency]}
                               </span>
-                              <div className="debt-meta">{nextChargeLabel}</div>
+                              <div className="debt-meta">
+                                {provisionalRental ? `Proximo cobro: ${provisionalRental.nextChargeDate ?? "-"}` : nextChargeLabel}
+                              </div>
                             </>
                           ) : "-"}
                         </td>
                         <td>
                           {client ? (
-                            <label className="client-inline-edit">
+                            provisionalRental ? (
+                              <div className="client-rental-balance">
+                                <span>Provisional</span>
+                                <strong>{formatCurrency(provisionalRental.balance)}</strong>
+                                <small>Cuenta regular pausada</small>
+                              </div>
+                            ) : <label className="client-inline-edit">
                               <span>Debe</span>
                               <input
                                 type="number"
                                 min="0"
                                 step="0.01"
                                 defaultValue={client.balance}
-                                readOnly={readOnly}
+                                readOnly={readOnly || Boolean(client.activeProvisionalRental)}
                                 onBlur={(event) => onBalanceChange(client, event.currentTarget.value)}
                                 onKeyDown={blurOnEnter}
                               />
@@ -324,7 +342,9 @@ export function ClientsDirectoryPanel({
                           ) : "-"}
                         </td>
                         <td>
-                          {client ? (
+                          {client ? (isProvisionalRow ? (
+                            <span className="debt-meta">Cobros de alquiler</span>
+                          ) : (
                             <div className="client-inline-edit client-inline-edit--installments">
                               <label>
                                 <span>Pagadas</span>
@@ -333,7 +353,7 @@ export function ClientsDirectoryPanel({
                                   min="0"
                                   step="1"
                                   defaultValue={client.installmentsPaid}
-                                  readOnly={readOnly}
+                                  readOnly={readOnly || Boolean(client.activeProvisionalRental)}
                                   onBlur={(event) => onInstallmentsChange(client, "paid", event.currentTarget.value)}
                                   onKeyDown={blurOnEnter}
                                 />
@@ -345,17 +365,17 @@ export function ClientsDirectoryPanel({
                                   min="0"
                                   step="1"
                                   defaultValue={client.installmentsAgreed}
-                                  readOnly={readOnly}
+                                  readOnly={readOnly || Boolean(client.activeProvisionalRental)}
                                   onBlur={(event) => onInstallmentsChange(client, "agreed", event.currentTarget.value)}
                                   onKeyDown={blurOnEnter}
                                 />
                               </label>
                               <small>Emitidas: {client.installmentsIssued ?? 0}{client.installmentsIssuedEstimateNeedsReview ? " (revisar)" : ""} · Restan: {client.installmentsRemaining}</small>
                             </div>
-                          ) : "-"}
+                          )) : "-"}
                         </td>
                         <td>
-                          {client ? (
+                          {client ? (isProvisionalRow ? "-" : (
                             <div className="client-inline-edit client-inline-edit--charges-column">
                               <label>
                                 <span>Concepto</span>
@@ -364,7 +384,7 @@ export function ClientsDirectoryPanel({
                                   defaultValue={firstOtherCharge?.label ?? ""}
                                   placeholder="Ej. Mant."
                                   data-client-charge-label={client.id}
-                                  readOnly={readOnly}
+                                  readOnly={readOnly || Boolean(client.activeProvisionalRental)}
                                   onBlur={(event) => {
                                     const amountInput = event.currentTarget
                                       .closest(".client-inline-edit")
@@ -382,7 +402,7 @@ export function ClientsDirectoryPanel({
                                   step="0.01"
                                   defaultValue={otherChargesTotal}
                                   data-client-charge-amount={client.id}
-                                  readOnly={readOnly}
+                                  readOnly={readOnly || Boolean(client.activeProvisionalRental)}
                                   onBlur={(event) => {
                                     const labelInput = event.currentTarget
                                       .closest(".client-inline-edit")
@@ -393,10 +413,12 @@ export function ClientsDirectoryPanel({
                                 />
                               </label>
                             </div>
-                          ) : "-"}
+                          )) : "-"}
                         </td>
                         <td>
-                          {client ? (
+                          {client ? (isProvisionalRow ? (
+                            <span className="badge badge-warning">Auto provisional/alquilado</span>
+                          ) : (
                             <select
                               className={operationalToneClass(client.status)}
                               value={client.status}
@@ -410,7 +432,7 @@ export function ClientsDirectoryPanel({
                                 </option>
                               ))}
                             </select>
-                          ) : (
+                          )) : (
                             <span className="badge badge-warning">Libre</span>
                           )}
                         </td>
@@ -428,6 +450,9 @@ export function ClientsDirectoryPanel({
                                   <>
                                     <button type="button" className="button ghost small" onClick={() => onEditClient(client)}>
                                       Editar
+                                    </button>
+                                    <button type="button" className="button primary small" onClick={() => onOpenProvisionalRental(client)}>
+                                      {client.activeProvisionalRental ? "Ver alquiler" : "Unidad alquilada"}
                                     </button>
                                     <button
                                       type="button"

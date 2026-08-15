@@ -134,12 +134,12 @@ export async function importBankCsv(text: string, options: Options): Promise<Ban
     const capitalPart = Math.floor(amount);
     const centsPart = Math.round((amount - capitalPart) * 100) / 100;
     const { referenceId, extractedName } = parseBankDescription(description);
-    const candidateClients = options.clients.filter((client) => extractGroupCodeFromUnit(client.unitId) === mappedGroup);
+    const candidateClients = options.clients.filter((client) => extractGroupCodeFromUnit(client.activeProvisionalRental?.unitId ?? client.unitId) === mappedGroup);
     let matched: Client | null = null;
 
     if (referenceId) {
       const matches = candidateClients.filter((client) =>
-        normalizeBankText(client.unitId) === referenceId || normalizeBankText(client.cedula ?? "") === referenceId
+        normalizeBankText(client.activeProvisionalRental?.unitId ?? client.unitId) === referenceId || normalizeBankText(client.cedula ?? "") === referenceId
       );
       if (matches.length === 1) matched = matches[0];
     }

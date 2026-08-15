@@ -65,8 +65,10 @@ import {
   restoreTicketsAfterDelete,
   roundMoney,
   shouldForceRetentionToOtherCharges,
-  toInputMoney
+  toInputMoney,
+  splitWholeAndCents
 } from "./payments/paymentRules";
+import { applyPaymentToProvisionalRental, getCollectibleProvisionalRental, nextProvisionalRentalChargeDate, restoreProvisionalRentalPayment } from "../provisionalRentals";
 type Props = {
   clients: Client[];
   bankRules: BankRule[];
@@ -295,7 +297,7 @@ export default function PaymentsPage({
     const q = clientSearch.trim().toLowerCase();
     if (!q) return activeClients;
     return activeClients.filter((c) =>
-      `${c.unitId} ${c.name} ${c.cedula ?? ""}`.toLowerCase().includes(q)
+      `${c.unitId} ${c.activeProvisionalRental?.unitId ?? ""} ${c.name} ${c.cedula ?? ""}`.toLowerCase().includes(q)
     );
   }, [activeClients, clientSearch]);
 
@@ -313,6 +315,35 @@ export default function PaymentsPage({
     const amount = parseFloat(form.amountReceived);
     if (!Number.isFinite(amount) || amount <= 0) return null;
     const effectiveDateKey = form.dateApplied || getBusinessDateKey();
+
+    const collectibleRental = getCollectibleProvisionalRental(selectedClient);
+    if (collectibleRental) {
+      const { wholePart, centsPart } = splitWholeAndCents(amount);
+      const allocation = applyPaymentToProvisionalRental(collectibleRental, wholePart, effectiveDateKey);
+      return {
+        projectedClient: selectedClient,
+        balanceBefore: allocation.balanceBefore,
+        appliedToRent: allocation.amountApplied,
+        centavosAhorro: centsPart,
+        advanceBefore: collectibleRental.creditBalance,
+        advanceApplied: Math.max(0, wholePart - allocation.amountApplied),
+        advanceAfter: allocation.creditAfter,
+        balanceAfter: allocation.balanceAfter,
+        installmentsDeducted: 0,
+        installmentsCoveredByAdvance: 0,
+        installmentsTotalInPayment: 0,
+        pendingBefore: collectibleRental.rentAmount > 0 ? Math.ceil(allocation.balanceBefore / collectibleRental.rentAmount) : 0,
+        pendingAfter: collectibleRental.rentAmount > 0 ? Math.ceil(allocation.balanceAfter / collectibleRental.rentAmount) : 0,
+        totalLateFees: 0,
+        totalOtherCharges: 0,
+        otherChargesApplied: [],
+        totalFines: 0,
+        finesApplied: [],
+        totalTickets: 0,
+        ticketsApplied: [],
+        forcedOtherChargesRuleApplied: false
+      };
+    }
 
     return computeManualPaymentAllocation(
       selectedClient,
@@ -384,7 +415,7 @@ export default function PaymentsPage({
     [otherChargesRetentionByClient, selectedClient]
   );
 
-  const isZeroBalance = selectedClient !== null && selectedClient.balance === 0;
+  const isZeroBalance = selectedClient !== null && !getCollectibleProvisionalRental(selectedClient) && selectedClient.balance === 0;
   const isBankPayment = BANK_PAYMENT_METHODS.has(form.paymentMethod);
   const isCardPayment = form.paymentMethod === "Tarjeta";
 
@@ -467,6 +498,11 @@ export default function PaymentsPage({
 
   const projectedNextChargeDate = useMemo(() => {
     if (!selectedClient || !preview || preview.balanceAfter > 0) return null;
+    const rental = getCollectibleProvisionalRental(selectedClient);
+    if (rental) {
+      const nextDateKey = nextProvisionalRentalChargeDate(rental);
+      return nextDateKey ? parseDateKey(nextDateKey) : null;
+    }
     const projectedClient: Client = {
       ...selectedClient,
       balance: preview.balanceAfter,
@@ -478,11 +514,13 @@ export default function PaymentsPage({
 
   const previewAdvanceLetterLabel = useMemo(() => {
     if (!selectedClient || !preview || preview.advanceApplied <= 0) return null;
+    if (getCollectibleProvisionalRental(selectedClient)) return null;
     return getAdvanceLetterLabel(selectedClient, preview.advanceApplied);
   }, [preview, selectedClient]);
 
   const monthEndSuggestion = useMemo(() => {
     if (!selectedClient) return null;
+    if (getCollectibleProvisionalRental(selectedClient)) return null;
     if (selectedClient.balance > 0) return null;
     if ((selectedClient.otherCharges ?? []).length > 0) return null;
     const result = computeRequiredWholeAmountToReachDate(selectedClient, operationalDate, monthEndDate);
@@ -666,7 +704,9 @@ export default function PaymentsPage({
     const updatedClients = clients.map((c) => {
       const clientPayments = deletedByClientId.get(c.id);
       if (!clientPayments) return c;
-      return clientPayments.reduce((current, payment) => ({
+      return clientPayments.reduce((current, payment) => payment.paymentContext === "provisional_rental"
+        ? restoreProvisionalRentalPayment(current, payment)
+        : ({
           ...current,
           balance: roundMoney(current.balance + payment.appliedToRent),
           advanceBalance: roundMoney(Math.max(0, (current.advanceBalance ?? 0) - (payment.advanceApplied ?? 0))),

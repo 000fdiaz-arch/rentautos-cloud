@@ -11,6 +11,7 @@ import {
   roundMoney
 } from "./paymentRules";
 import type { ManualPaymentAllocation, PaymentForm } from "./paymentTypes";
+import { getCollectibleProvisionalRental } from "../../provisionalRentals";
 
 type MonthEndSuggestion = {
   requiredWholeAmount: number;
@@ -111,6 +112,7 @@ export default function RegisterPaymentPanel({
   isDateClosed,
   isConfirmingPayment
 }: Props) {
+  const provisionalRental = selectedClient ? getCollectibleProvisionalRental(selectedClient) : undefined;
   const lateFeeCharges = selectedClient && isLateFeeListClient(selectedClient, lateFeeSettings)
     ? (selectedClient.otherCharges ?? []).filter((charge) => isLateFeeOtherCharge(charge, lateFeeSettings))
     : [];
@@ -132,7 +134,10 @@ export default function RegisterPaymentPanel({
                 <label className="payment-label">Cliente</label>
                 {selectedClient ? (
                   <div className="client-selected-pill">
-                    <span><strong>{selectedClient.unitId}</strong> - {selectedClient.name}{selectedClient.cedula ? ` (${selectedClient.cedula})` : ""}</span>
+                    <span>
+                      {provisionalRental && <em className="payment-rental-label">AUTO PROVISIONAL/ALQUILER DE AUTO · </em>}
+                      <strong>{provisionalRental?.unitId ?? selectedClient.unitId}</strong> - {selectedClient.name}{selectedClient.cedula ? ` (${selectedClient.cedula})` : ""}
+                    </span>
                     <button type="button" className="client-pill-clear" onClick={handleClearClient} title="Cambiar cliente">X</button>
                   </div>
                 ) : (
@@ -152,9 +157,10 @@ export default function RegisterPaymentPanel({
                       <div className="client-dropdown">
                         {filteredClients.map((c) => (
                           <div key={c.id} className="client-dropdown-item" onMouseDown={() => handleSelectClient(c)}>
-                            <strong>{c.unitId}</strong> - {c.name}
+                            <strong>{c.activeProvisionalRental?.unitId ?? c.unitId}</strong> - {c.name}
+                            {c.activeProvisionalRental && <span className="payment-rental-label"> · AUTO PROVISIONAL</span>}
                             {c.cedula && <span className="client-dropdown-cedula"> - {c.cedula}</span>}
-                            <span className="client-dropdown-balance"> - {formatCurrency(c.balance)}</span>
+                            <span className="client-dropdown-balance"> - {formatCurrency(c.activeProvisionalRental?.balance ?? c.balance)}</span>
                           </div>
                         ))}
                       </div>
@@ -168,7 +174,7 @@ export default function RegisterPaymentPanel({
                 )}
               </div>
 
-              {selectedClient && (
+              {selectedClient && !provisionalRental && (
                 <div className="payment-field-group" style={{ gridColumn: "1 / -1" }}>
                   <label className="payment-label">Fondo de viaje (USD)</label>
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -323,7 +329,7 @@ export default function RegisterPaymentPanel({
             )}
 
             {/* Otros cargos */}
-            {selectedClient && lateFeeCharges.length > 0 && (
+            {selectedClient && !provisionalRental && lateFeeCharges.length > 0 && (
               <div className="other-charges-section" style={{ marginTop: 14 }}>
                 <div className="other-charges-title">Recargos por mora</div>
                 <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
@@ -340,7 +346,7 @@ export default function RegisterPaymentPanel({
               </div>
             )}
 
-            {selectedClient && getPendingFines(selectedClient).length > 0 && (
+            {selectedClient && !provisionalRental && getPendingFines(selectedClient).length > 0 && (
               <div className="other-charges-section" style={{ marginTop: 14 }}>
                 <div className="other-charges-title">Multas pendientes de este cliente</div>
                 <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
@@ -360,7 +366,7 @@ export default function RegisterPaymentPanel({
               </div>
             )}
 
-            {selectedClient && getPendingTickets(selectedClient).length > 0 && (
+            {selectedClient && !provisionalRental && getPendingTickets(selectedClient).length > 0 && (
               <div className="other-charges-section" style={{ marginTop: 14 }}>
                 <div className="other-charges-title">Boletas pendientes de este cliente</div>
                 <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
@@ -381,7 +387,7 @@ export default function RegisterPaymentPanel({
             )}
 
             {/* Otros cargos */}
-            {selectedClient && regularOtherCharges.length > 0 && (
+            {selectedClient && !provisionalRental && regularOtherCharges.length > 0 && (
               <div className="other-charges-section" style={{ marginTop: 14 }}>
                 <div className="other-charges-title">Otros cargos de este cliente</div>
                 {isForcedOtherChargesRuleClient && (
@@ -430,7 +436,7 @@ export default function RegisterPaymentPanel({
                 <div className="payment-preview-body">
                   <div className="payment-preview-col">
                     <div className="payment-preview-row">
-                      <span>Saldo actual</span>
+                      <span>{provisionalRental ? "Deuda provisional" : "Saldo actual"}</span>
                       <strong className="amount-debt">{formatCurrency(preview.balanceBefore)}</strong>
                     </div>
                     {preview.totalFines > 0 && (
@@ -452,7 +458,7 @@ export default function RegisterPaymentPanel({
                       </div>
                     )}
                     <div className="payment-preview-row">
-                      <span>Aplicado a renta</span>
+                      <span>{provisionalRental ? "Aplicado a alquiler de auto" : "Aplicado a renta"}</span>
                       <strong>{formatCurrency(preview.appliedToRent)}</strong>
                     </div>
                     {roundMoney(Math.max(0, preview.totalOtherCharges - preview.totalLateFees)) > 0 && (
@@ -469,7 +475,7 @@ export default function RegisterPaymentPanel({
                     )}
                     {preview.advanceApplied > 0 && (
                       <div className="payment-preview-row">
-                        <span>Pago adelantado</span>
+                        <span>{provisionalRental ? "Saldo a favor del alquiler" : "Pago adelantado"}</span>
                         <strong>{formatCurrency(preview.advanceApplied)}</strong>
                       </div>
                     )}
@@ -482,17 +488,17 @@ export default function RegisterPaymentPanel({
                   </div>
                   <div className="payment-preview-col">
                     <div className="payment-preview-row">
-                      <span>Nuevo saldo</span>
+                      <span>{provisionalRental ? "Nueva deuda provisional" : "Nuevo saldo"}</span>
                       <strong className={preview.balanceAfter <= 0 ? "amount-good" : "amount-debt"}>{formatCurrency(preview.balanceAfter)}</strong>
                     </div>
-                    <div className="payment-preview-row">
+                    {!provisionalRental && <div className="payment-preview-row">
                       <span>Cuotas deducidas</span>
                       <strong>{preview.installmentsDeducted}</strong>
-                    </div>
-                    <div className="payment-preview-row">
+                    </div>}
+                    {!provisionalRental && <div className="payment-preview-row">
                       <span>Cuotas restantes</span>
                       <strong>{Math.max(0, selectedClient.installmentsRemaining - preview.installmentsDeducted)}</strong>
-                    </div>
+                    </div>}
                     {projectedNextChargeDate && (
                       <div className="payment-preview-row">
                         <span>Prox. fecha de pago</span>

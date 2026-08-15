@@ -60,13 +60,13 @@ export default function useNotifiedPayments(clients: Client[], activeClients: Cl
   const notifiedClientMatch = useMemo(() => {
     const unit = notifiedForm.unitId.trim().toLowerCase();
     if (!unit) return undefined;
-    return activeClients.find((client) => client.unitId.trim().toLowerCase() === unit);
+    return activeClients.find((client) => (client.activeProvisionalRental?.unitId ?? client.unitId).trim().toLowerCase() === unit);
   }, [activeClients, notifiedForm.unitId]);
 
   const editingNotifiedClientMatch = useMemo(() => {
     const unit = editingNotifiedForm.unitId.trim().toLowerCase();
     if (!unit) return undefined;
-    return activeClients.find((client) => client.unitId.trim().toLowerCase() === unit);
+    return activeClients.find((client) => (client.activeProvisionalRental?.unitId ?? client.unitId).trim().toLowerCase() === unit);
   }, [activeClients, editingNotifiedForm.unitId]);
 
   function replaceNotifiedPayments(rows: NotifiedPayment[]): void {
@@ -108,7 +108,7 @@ export default function useNotifiedPayments(clients: Client[], activeClients: Cl
   function handleStartEditNotified(row: NotifiedPayment): void {
     const client = clients.find((candidate) => candidate.id === row.clientId);
     setEditingNotifiedId(row.id);
-    setEditingNotifiedForm({ unitId: client?.unitId ?? "", amount: String(row.amount) });
+    setEditingNotifiedForm({ unitId: client?.activeProvisionalRental?.unitId ?? client?.unitId ?? "", amount: String(row.amount) });
     setNotifiedErrors([]);
   }
 

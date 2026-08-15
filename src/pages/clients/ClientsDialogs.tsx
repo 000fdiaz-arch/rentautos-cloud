@@ -25,6 +25,7 @@ export type FleetDetail = {
   cupo?: string | null;
   company?: string | null;
   observation?: string | null;
+  operational_status?: string | null;
 };
 
 export function ConfirmDialog({

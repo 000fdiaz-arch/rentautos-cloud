@@ -118,6 +118,7 @@ export function applyLateFeesForClosingDate({
   const newEntries: LateFeeLedgerEntry[] = [];
   const nextClients = clients.map((client) => {
     if (
+      client.activeProvisionalRental ||
       client.archivedAt ||
       client.status === "archivado" ||
       client.status === "taller" ||

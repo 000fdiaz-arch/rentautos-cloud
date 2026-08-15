@@ -81,6 +81,7 @@ export type CashCloseClientSnapshot = {
     installmentsIssued?: number;
     installmentsIssuedEstimateNeedsReview?: boolean;
     otherCharges?: Client["otherCharges"];
+    activeProvisionalRental?: Client["activeProvisionalRental"];
   };
   after: {
     balance: number;
@@ -90,6 +91,7 @@ export type CashCloseClientSnapshot = {
     installmentsIssued?: number;
     installmentsIssuedEstimateNeedsReview?: boolean;
     otherCharges?: Client["otherCharges"];
+    activeProvisionalRental?: Client["activeProvisionalRental"];
   };
 };
 
@@ -134,9 +136,11 @@ export type ChargeApplyResult = {
 };
 
 export type PendingBankPreview = {
+  isProvisionalRental?: boolean;
   rentAmount: number;
   frequencyLabel: string;
   installmentsAgreed: number;
+  installmentsPendingBefore?: number;
   installmentsRemainingAfter: number;
   installmentsDeducted: number;
   totalLateFees: number;

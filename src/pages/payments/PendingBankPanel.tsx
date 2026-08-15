@@ -105,9 +105,11 @@ const filteredPendingBankItems = useMemo(() => {
       "Ignorar"
     ].filter(Boolean).join(" ");
     const previewLabel = pendingPreview
-      ? `Renta ${formatCurrency(pendingPreview.rentAmount)} ${pendingPreview.frequencyLabel} Multas ${formatCurrency(pendingPreview.totalFines)} Boletas ${formatCurrency(pendingPreview.totalTickets)} Recargos ${formatCurrency(pendingPreview.totalLateFees)} Otros cargos ${formatCurrency(Math.max(0, pendingPreview.totalOtherCharges - pendingPreview.totalLateFees))} Pactadas ${pendingPreview.installmentsAgreed} Cuotas ${pendingPreview.installmentsRemainingAfter} Impacto ${pendingPreview.installmentsDeducted} Cobro ${formatCurrency(pendingPreview.balanceAfter)}`
+      ? pendingPreview.isProvisionalRental
+        ? `Alquiler provisional Renta ${formatCurrency(pendingPreview.rentAmount)} ${pendingPreview.frequencyLabel} Pendientes antes ${pendingPreview.installmentsPendingBefore ?? 0} Pendientes despues ${pendingPreview.installmentsRemainingAfter} Cobro ${formatCurrency(pendingPreview.balanceAfter)}`
+        : `Renta ${formatCurrency(pendingPreview.rentAmount)} ${pendingPreview.frequencyLabel} Multas ${formatCurrency(pendingPreview.totalFines)} Boletas ${formatCurrency(pendingPreview.totalTickets)} Recargos ${formatCurrency(pendingPreview.totalLateFees)} Otros cargos ${formatCurrency(Math.max(0, pendingPreview.totalOtherCharges - pendingPreview.totalLateFees))} Pactadas ${pendingPreview.installmentsAgreed} Cuotas ${pendingPreview.installmentsRemainingAfter} Impacto ${pendingPreview.installmentsDeducted} Cobro ${formatCurrency(pendingPreview.balanceAfter)}`
       : "Sin vista previa";
-    const unitLabel = assignedClient ? `${assignedClient.unitId} ${assignedClient.name}` : "Sin asignar";
+    const unitLabel = assignedClient ? `${assignedClient.activeProvisionalRental?.unitId ?? assignedClient.unitId} ${assignedClient.name}` : "Sin asignar";
     const groupLabel = item.mappedGroup ? `Grupo ${item.mappedGroup}` : "";
     const nameLabel = item.suggestedClientName || item.extractedName || "";
     const similarityLabel = [
@@ -323,7 +325,7 @@ useEffect(() => {
                                   Probabilidad: {unitProbability}
                                 </div>
                                 {assignedClient && (
-                                  <div className="unit-preview">{assignedClient.unitId} - {assignedClient.name}</div>
+                                  <div className="unit-preview">{assignedClient.activeProvisionalRental?.unitId ?? assignedClient.unitId} - {assignedClient.name}</div>
                                 )}
                                 <select
                                   className="payment-input pending-unit-select"
@@ -336,7 +338,7 @@ useEffect(() => {
                                   <option value="">Asignar cliente</option>
                                   {activeClients.map((c) => (
                                     <option key={c.id} value={c.id}>
-                                      {c.unitId} - {c.name}
+                                      {c.activeProvisionalRental?.unitId ?? c.unitId} - {c.name}
                                     </option>
                                   ))}
                                 </select>
@@ -370,6 +372,11 @@ useEffect(() => {
                               <td>
                                 {pendingPreview ? (
                                   <div className="pending-preview-card">
+                                    {pendingPreview.isProvisionalRental && (
+                                      <div className="provisional-rental-row-badge">
+                                        AUTO PROVISIONAL/ALQUILER DE AUTO
+                                      </div>
+                                    )}
                                     <div className="pending-preview-row"><span>Renta</span><strong>{formatCurrency(pendingPreview.rentAmount)}</strong></div>
                                     <div className="pending-preview-row"><span>Frecuencia</span><strong>{pendingPreview.frequencyLabel}</strong></div>
                                     {pendingPreview.totalFines > 0 && (
@@ -396,9 +403,18 @@ useEffect(() => {
                                         <strong className="amount-warning">{formatCurrency(Math.max(0, pendingPreview.totalOtherCharges - pendingPreview.totalLateFees))}</strong>
                                       </div>
                                     )}
-                                    <div className="pending-preview-row"><span>Cuotas pactadas</span><strong>{pendingPreview.installmentsAgreed}</strong></div>
-                                    <div className="pending-preview-row"><span>Cuotas restantes despues del pago</span><strong>{pendingPreview.installmentsRemainingAfter}</strong></div>
-                                    {pendingPreview.balanceAfter <= 0 && (
+                                    {pendingPreview.isProvisionalRental ? (
+                                      <>
+                                        <div className="pending-preview-row"><span>Cuotas de alquiler pendientes</span><strong>{pendingPreview.installmentsPendingBefore ?? 0}</strong></div>
+                                        <div className="pending-preview-row"><span>Pendientes despues del pago</span><strong>{pendingPreview.installmentsRemainingAfter}</strong></div>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div className="pending-preview-row"><span>Cuotas pactadas</span><strong>{pendingPreview.installmentsAgreed}</strong></div>
+                                        <div className="pending-preview-row"><span>Cuotas restantes despues del pago</span><strong>{pendingPreview.installmentsRemainingAfter}</strong></div>
+                                      </>
+                                    )}
+                                    {!pendingPreview.isProvisionalRental && pendingPreview.balanceAfter <= 0 && (
                                       <div className="pending-preview-row">
                                         <span>Al dia hasta</span>
                                         <strong className="amount-good">{upToDateUntilDate ? formatDate(upToDateUntilDate) : "-"}</strong>
@@ -412,7 +428,10 @@ useEffect(() => {
                                           : "Sin cambio"}
                                       </strong>
                                     </div>
-                                    <div className="pending-preview-row"><span>Monto a cobrar</span><strong className={pendingPreview.balanceAfter > 0 ? "amount-debt" : "amount-good"}>{formatCurrency(pendingPreview.balanceAfter)}</strong></div>
+                                    <div className="pending-preview-row">
+                                      <span>{pendingPreview.isProvisionalRental ? "Saldo pendiente despues del pago" : "Monto a cobrar"}</span>
+                                      <strong className={pendingPreview.balanceAfter > 0 ? "amount-debt" : "amount-good"}>{formatCurrency(pendingPreview.balanceAfter)}</strong>
+                                    </div>
                                   </div>
                                 ) : (
                                   <span className="amount-muted">Asigna cliente para ver vista previa</span>

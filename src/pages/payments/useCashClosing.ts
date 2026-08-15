@@ -18,6 +18,7 @@ import { loadLateFeeLedger, saveLateFeeLedger } from "../../storage";
 import type { Client, LateFeeLedgerEntry, LateFeeSettings, Payment } from "../../types";
 import { loadCashSummaryRange } from "../../cashLedger";
 import { stableEqual } from "../../stableSerialize";
+import { accrueClientProvisionalRental } from "../../provisionalRentals";
 import { roundMoney } from "./paymentRules";
 import {
   loadCashClosingAudit,
@@ -240,7 +241,8 @@ function financialPayload(client: Client) {
     firstSundayChargedAt: client.firstSundayChargedAt,
     installmentsIssued: resolveInstallmentIssuance(client).issued,
     installmentsIssuedEstimateNeedsReview: resolveInstallmentIssuance(client).needsReview,
-    otherCharges: cloneOtherCharges(client)
+    otherCharges: cloneOtherCharges(client),
+    activeProvisionalRental: client.activeProvisionalRental
   };
 }
 
@@ -365,6 +367,10 @@ function applyNextDayChargesFromClosing(
   let chargedTotal = 0;
   const rows: ChargeReportRow[] = [];
   const nextClients = clientsWithLateFees.map((client) => {
+    const preClosingClient = clients.find((candidate) => candidate.id === client.id) ?? client;
+    if (preClosingClient.activeProvisionalRental) {
+      return accrueClientProvisionalRental(preClosingClient, targetDateKey);
+    }
     if (
       client.archivedAt ||
       client.status === "archivado" ||
@@ -745,7 +751,8 @@ async function handleConfirmReopen(): Promise<void> {
           firstSundayChargedAt: snapshot.before.firstSundayChargedAt,
           installmentsIssued: snapshot.before.installmentsIssued,
           installmentsIssuedEstimateNeedsReview: snapshot.before.installmentsIssuedEstimateNeedsReview,
-          otherCharges: snapshot.before.otherCharges ? snapshot.before.otherCharges.map((charge) => ({ ...charge })) : []
+          otherCharges: snapshot.before.otherCharges ? snapshot.before.otherCharges.map((charge) => ({ ...charge })) : [],
+          activeProvisionalRental: snapshot.before.activeProvisionalRental
         };
       });
       await onClientsChange(revertedClients);

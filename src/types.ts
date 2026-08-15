@@ -54,6 +54,48 @@ export type ClientStatus =
   | "custodia"
   | "archivado";
 
+export type ProvisionalRentalFrequency = "daily" | "weekly" | "biweekly";
+export type ProvisionalRentalStatus = "active" | "returned" | "cancelled";
+
+export type ProvisionalRentalCharge = {
+  id: string;
+  dueDate: string;
+  amount: number;
+  amountPaid: number;
+};
+
+export type ProvisionalRentalRateChange = {
+  id: string;
+  changedAt: string;
+  previousFrequency: ProvisionalRentalFrequency;
+  nextFrequency: ProvisionalRentalFrequency;
+  previousAmount: number;
+  nextAmount: number;
+};
+
+export type ProvisionalRental = {
+  id: string;
+  clientId: string;
+  regularUnitId: string;
+  unitId: string;
+  brandModel?: string;
+  plate?: string;
+  frequency: ProvisionalRentalFrequency;
+  rentAmount: number;
+  startDate: string;
+  lastChargeDate?: string;
+  nextChargeDate?: string;
+  returnedAt?: string;
+  cancelledAt?: string;
+  status: ProvisionalRentalStatus;
+  balance: number;
+  creditBalance: number;
+  charges: ProvisionalRentalCharge[];
+  rateChanges?: ProvisionalRentalRateChange[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Client = {
   id: string;
   unitId: string;
@@ -86,6 +128,8 @@ export type Client = {
   archivedAt?: string;
   status: ClientStatus;
   statusComment?: string;
+  activeProvisionalRental?: ProvisionalRental;
+  provisionalRentalHistory?: ProvisionalRental[];
 };
 
 export type LeadDecision = "aplica" | "aplica_con_abono" | "no_aplica";
@@ -244,6 +288,24 @@ export type Payment = {
   clientName: string;
   clientUnit: string;
   clientCedula?: string;
+  paymentContext?: "regular" | "provisional_rental";
+  provisionalRentalId?: string;
+  provisionalRentalUnit?: string;
+  provisionalRentalBrandModel?: string;
+  provisionalRentalPlate?: string;
+  provisionalRentalFrequency?: ProvisionalRentalFrequency;
+  provisionalRentalAmount?: number;
+  provisionalRentalBalanceBefore?: number;
+  provisionalRentalBalanceAfter?: number;
+  provisionalRentalCreditAfter?: number;
+  provisionalRentalNextChargeDate?: string;
+  provisionalRentalChargesApplied?: Array<{
+    chargeId: string;
+    dueDate: string;
+    amount: number;
+    chargeAmount: number;
+    paidAfter: number;
+  }>;
   dateApplied: string;
   paymentMethod: PaymentMethod;
   reference?: string;

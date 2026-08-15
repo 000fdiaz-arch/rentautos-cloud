@@ -29,6 +29,12 @@ import {
   roundMoney
 } from "./paymentRules";
 import type { NotifiedPayment, PendingBankPreview } from "./paymentTypes";
+import {
+  applyPaymentToProvisionalRental,
+  getCollectibleProvisionalRental,
+  replaceCollectibleRental,
+  nextProvisionalRentalChargeDate
+} from "../../provisionalRentals";
 
 export type SimilaritySignals = {
   nombre: boolean;
@@ -63,6 +69,33 @@ export function buildPendingBankPreview(
   { payments, retentionByClient, operationalDate, lateFeeSettings }: PreviewOptions
 ): PendingBankPreview | null {
   if (!client) return null;
+  const collectibleRental = getCollectibleProvisionalRental(client);
+  if (collectibleRental) {
+    const allocation = applyPaymentToProvisionalRental(collectibleRental, Math.max(0, item.capitalPart), item.dateApplied);
+    const pendingBefore = collectibleRental.rentAmount > 0
+      ? Math.ceil(allocation.balanceBefore / collectibleRental.rentAmount)
+      : 0;
+    const pendingAfter = collectibleRental.rentAmount > 0
+      ? Math.ceil(allocation.balanceAfter / collectibleRental.rentAmount)
+      : 0;
+    return {
+      isProvisionalRental: true,
+      rentAmount: collectibleRental.rentAmount,
+      frequencyLabel: FREQUENCY_LABEL[collectibleRental.frequency] ?? collectibleRental.frequency,
+      installmentsAgreed: pendingBefore,
+      installmentsPendingBefore: pendingBefore,
+      installmentsRemainingAfter: pendingAfter,
+      installmentsDeducted: Math.max(0, pendingBefore - pendingAfter),
+      totalLateFees: 0,
+      totalOtherCharges: 0,
+      totalFines: 0,
+      totalTickets: 0,
+      forcedOtherChargesRuleApplied: false,
+      balanceAfter: allocation.balanceAfter,
+      installmentsCoveredByAdvance: 0,
+      upToDateUntil: null
+    };
+  }
   const balanceBefore = roundMoney(Math.max(0, client.balance));
   const wholePart = roundMoney(Math.max(0, item.capitalPart));
   const lateFeesApplied = distributeAcrossLateFeeCharges(client, wholePart, lateFeeSettings);
@@ -157,6 +190,62 @@ export function buildPendingPaymentApplication(
     lateFeeSettings
   }: ApplicationOptions
 ): { updatedClient: Client; payment: Payment } {
+  const collectibleRental = getCollectibleProvisionalRental(client);
+  if (collectibleRental) {
+    const paymentDateKey = item.dateApplied || getBusinessDateKey();
+    const wholePart = roundMoney(item.capitalPart);
+    const centavosAhorro = roundMoney(item.centsPart);
+    const allocation = applyPaymentToProvisionalRental(collectibleRental, wholePart, paymentDateKey);
+    const savingsBefore = roundMoney(client.savings);
+    const savingsAfter = roundMoney(savingsBefore + centavosAhorro);
+    const payment: Payment = {
+      id: crypto.randomUUID(),
+      receiptNumber,
+      receiptDeliveryStatus: "pending",
+      clientId: client.id,
+      clientName: client.name,
+      clientUnit: allocation.rental.unitId,
+      clientCedula: client.cedula,
+      paymentContext: "provisional_rental",
+      provisionalRentalId: allocation.rental.id,
+      provisionalRentalUnit: allocation.rental.unitId,
+      provisionalRentalBrandModel: allocation.rental.brandModel,
+      provisionalRentalPlate: allocation.rental.plate,
+      provisionalRentalFrequency: allocation.rental.frequency,
+      provisionalRentalAmount: allocation.rental.rentAmount,
+      provisionalRentalBalanceBefore: allocation.balanceBefore,
+      provisionalRentalBalanceAfter: allocation.balanceAfter,
+      provisionalRentalCreditAfter: allocation.creditAfter,
+      provisionalRentalNextChargeDate: nextProvisionalRentalChargeDate(allocation.rental) ?? undefined,
+      provisionalRentalChargesApplied: allocation.chargeApplications,
+      dateApplied: paymentDateKey,
+      paymentMethod: inferBankPaymentMethod(item.transactionCode, item.description),
+      reference: `FOLIO:${item.folio} | REF:${item.referenceId || "N/A"} | ${referenceTag} | ${item.description}`,
+      bankAccountNumber: item.accountNumber || undefined,
+      bankGroupCode: item.mappedGroup || undefined,
+      fundsReceivedDate: paymentDateKey,
+      amountReceived: item.amountReceived,
+      appliedToRent: allocation.amountApplied,
+      centavosAhorro,
+      installmentsDeducted: 0,
+      installmentsFromDebt: 0,
+      installmentsFromAdvance: 0,
+      installmentsTotalInPayment: 0,
+      balanceBefore: allocation.balanceBefore,
+      balanceAfter: allocation.balanceAfter,
+      savingsBefore,
+      savingsAfter,
+      installmentsPaidAfter: client.installmentsPaid,
+      installmentsRemainingAfter: client.installmentsRemaining,
+      rentAmount: allocation.rental.rentAmount,
+      frequency: allocation.rental.frequency,
+      createdAt: new Date().toISOString()
+    };
+    return {
+      updatedClient: { ...replaceCollectibleRental(client, allocation.rental), savings: savingsAfter },
+      payment
+    };
+  }
   const balanceBefore = roundMoney(client.balance);
   const savingsBefore = roundMoney(client.savings);
   const advanceBefore = roundMoney(client.advanceBalance ?? 0);

@@ -153,6 +153,7 @@ export async function copyHistoryPaymentReceiptImage(payment: Payment): Promise<
 }
 
 function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment; format?: ReceiptFormat }) {
+  const isProvisionalRental = payment.paymentContext === "provisional_rental";
   const weeklyDayLabel =
     payment.weeklyChargeDay === "monday"
       ? "Lunes"
@@ -282,6 +283,55 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
   const isPendingCardSettlement =
     payment.paymentMethod === "Tarjeta" &&
     (payment.reference ?? "").toUpperCase().includes("TARJETA-PENDIENTE-CONCILIACION");
+
+  if (format === "history" && isProvisionalRental) {
+    const pending = roundMoney(Math.max(0, payment.provisionalRentalBalanceAfter ?? payment.balanceAfter));
+    const credit = roundMoney(Math.max(0, payment.provisionalRentalCreditAfter ?? 0));
+    const applications = payment.provisionalRentalChargesApplied ?? [];
+    const rentalStatusLabel = pending > 0 ? "PENDIENTE" : "AL DÍA";
+    return (
+      <>
+        <div className="receipt-history-brand">
+          <div className="receipt-history-number">{payment.receiptNumber}</div>
+          <div className="receipt-history-logo" aria-label="flotapp"><span>flotapp</span></div>
+        </div>
+        <div className="receipt-history-hero receipt-history-hero--rental">
+          <div className="receipt-rental-kicker">AUTO PROVISIONAL/ALQUILER DE AUTO</div>
+          <div className="receipt-history-unit">UNIDAD {payment.provisionalRentalUnit ?? payment.clientUnit}</div>
+          <div className="receipt-history-plan">Plan {frequencyLabel.toLowerCase()}: {formatCurrency(payment.provisionalRentalAmount ?? payment.rentAmount)}</div>
+          {(payment.provisionalRentalBrandModel || payment.provisionalRentalPlate) && (
+            <div className="receipt-history-plan">{[payment.provisionalRentalBrandModel, payment.provisionalRentalPlate].filter(Boolean).join(" · ")}</div>
+          )}
+        </div>
+        <div className="receipt-history-panel receipt-history-panel--compact">
+          <div className="receipt-history-icon receipt-history-icon--blue">D</div>
+          <div><div className="receipt-history-label">Fecha de pago</div><div className="receipt-history-date">{formatDateSpanishSingleLine(paymentDate)}</div></div>
+        </div>
+        <div className="receipt-history-panel receipt-history-panel--amount">
+          <div className="receipt-history-icon receipt-history-icon--money">$</div>
+          <div><div className="receipt-history-label">Monto pagado</div><div className="receipt-history-amount">{formatCurrency(payment.amountReceived)}</div></div>
+        </div>
+        <div className="receipt-history-panel receipt-history-cover">
+          <div className="receipt-history-section-title">Este pago cubre</div>
+          {applications.length ? applications.map((application) => (
+            <div key={application.chargeId} className="receipt-history-cover-row">
+              <span className={`receipt-history-status receipt-history-status--${application.paidAfter >= application.chargeAmount ? "complete" : "partial"}`}>
+                {application.paidAfter >= application.chargeAmount ? "OK" : "-"}
+              </span>
+              <span className="receipt-history-cover-main"><span className="receipt-history-cover-date">Alquiler {application.dueDate}</span><span className="receipt-history-cover-state">{application.paidAfter >= application.chargeAmount ? "Pagado completo" : "Abono parcial"}</span></span>
+              <strong className="receipt-history-cover-value">{formatCurrency(application.amount)}</strong>
+            </div>
+          )) : <div className="receipt-history-cover-row"><span>Saldo a favor del alquiler</span><strong>{formatCurrency(payment.appliedToRent)}</strong></div>}
+        </div>
+        <div className={`receipt-history-alert ${pending > 0 ? "receipt-history-alert--pending" : "receipt-history-alert--ok"}`}>
+          <span>Deuda provisional pendiente</span><strong>{formatCurrency(pending)}</strong>
+        </div>
+        {credit > 0 && <div className="receipt-history-alert receipt-history-alert--travel"><span>Saldo a favor del alquiler</span><strong>{formatCurrency(credit)}</strong></div>}
+        <div className="receipt-history-panel receipt-history-panel--paid"><span>Estado del alquiler</span><strong>{rentalStatusLabel}</strong></div>
+        <div className="receipt-history-powered"><span>Powered by <strong>flotapp</strong></span></div>
+      </>
+    );
+  }
 
   if (format === "history") {
     const coveredRows = buildCoveredPaymentRows(payment);
@@ -532,9 +582,10 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
         <div className="receipt-brand-sub receipt-brand-sub--title">COMPROBANTE DE PAGO</div>
         <div className="receipt-header-top">
           <div className="receipt-top-left-mini">
-            <div className="receipt-summary-compact-line"><strong>{payment.clientUnit}</strong></div>
+            {isProvisionalRental && <div className="receipt-rental-kicker">AUTO PROVISIONAL/ALQUILER DE AUTO</div>}
+            <div className="receipt-summary-compact-line"><strong>{isProvisionalRental ? `UNIDAD ${payment.provisionalRentalUnit ?? payment.clientUnit}` : payment.clientUnit}</strong></div>
             <div className="receipt-summary-compact-line">{frequencyLabel}, {formatCurrency(payment.rentAmount)}</div>
-            <div className="receipt-summary-compact-line">{installmentsPaidIncludingAdvance} Cuotas Pagadas</div>
+            {!isProvisionalRental && <div className="receipt-summary-compact-line">{installmentsPaidIncludingAdvance} Cuotas Pagadas</div>}
           </div>
           <div className="receipt-top-action">
             <div className={`receipt-next-payment-badge receipt-next-payment-badge--${badgeTone}`} title={badgeText}>
@@ -543,7 +594,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
             </div>
             {hasPending && (
               <>
-                <span className="receipt-top-action-label">Hoy para bajar 1 cuenta</span>
+                <span className="receipt-top-action-label">{isProvisionalRental ? "Para cubrir el periodo pendiente" : "Hoy para bajar 1 cuenta"}</span>
                 <strong>{formatCurrency(saldoParaBajarHoy)}</strong>
                 <span className="receipt-top-action-note">No cancela el total.</span>
               </>
@@ -568,7 +619,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
               <span>{formatCurrency(payment.amountReceived)}</span>
             </div>
             <div className="receipt-subrow">
-              <span>{advanceApplied > 0 ? "Aplicado a saldo actual" : "Aplicado a renta"}</span>
+              <span>{isProvisionalRental ? "Aplicado a alquiler de auto" : advanceApplied > 0 ? "Aplicado a saldo actual" : "Aplicado a renta"}</span>
               <span>{formatCurrency(appliedToCurrentRent)}</span>
             </div>
             {hasAdvancePanel && (
@@ -679,16 +730,16 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
                   <div className="receipt-overdue-grid">
                     {hasPartialForOneAccount && (
                       <div className="receipt-overdue-row">
-                        <span>{`Saldo bajar 1 cta${saldoParaBajarCuentaLabel}`}</span>
+                        <span>{isProvisionalRental ? "Saldo parcial del alquiler" : `Saldo bajar 1 cta${saldoParaBajarCuentaLabel}`}</span>
                         <strong>{formatCurrency(saldoParaBajarCuenta)}</strong>
                       </div>
                     )}
                     <div className="receipt-overdue-row receipt-overdue-row--next">
-                      <span>{`Saldo corriente${saldoCorrienteCuotasLabel}`}</span>
+                      <span>{isProvisionalRental ? "Saldo corriente del alquiler" : `Saldo corriente${saldoCorrienteCuotasLabel}`}</span>
                       <strong>{formatCurrency(saldoCorriente)}</strong>
                     </div>
                     <div className="receipt-overdue-row receipt-overdue-row--total">
-                      <span>{`Total pendiente de renta${totalPendienteCuotasLabel}`}</span>
+                      <span>{isProvisionalRental ? "Total pendiente del alquiler" : `Total pendiente de renta${totalPendienteCuotasLabel}`}</span>
                       <strong>{formatCurrency(totalPendienteRenta)}</strong>
                     </div>
                   </div>
@@ -766,9 +817,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
       <div className="receipt-footer">
         Emitido por Administración
       </div>
-      <div className="receipt-installments-corner">
-        <strong>{payment.installmentsRemainingAfter}</strong>
-      </div>
+      {!isProvisionalRental && <div className="receipt-installments-corner"><strong>{payment.installmentsRemainingAfter}</strong></div>}
     </>
   );
 }
