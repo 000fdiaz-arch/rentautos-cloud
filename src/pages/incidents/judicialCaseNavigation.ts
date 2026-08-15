@@ -1,6 +1,7 @@
 import type { CollisionCaseRecord } from "../../cloudData";
 
 export type JudicialCaseTab = "summary" | "attendance" | "follow_up" | "history" | "workshop" | "balance" | "outcome" | "insurance";
+export type PendingJudicialStep = "workshop" | "balance" | "attendance" | "outcome" | "management";
 
 function isFinalStatus(status: CollisionCaseRecord["status"]): boolean {
   return status === "ABSUELTO" || status === "CULPABLE";
@@ -8,6 +9,29 @@ function isFinalStatus(status: CollisionCaseRecord["status"]): boolean {
 
 function workshopStepComplete(item: CollisionCaseRecord): boolean {
   return Boolean(item.vehicleInspectedAt || item.expenseInvoice);
+}
+
+function calendarDayOffsetFromKeys(value: string, todayDateKey: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !/^\d{4}-\d{2}-\d{2}$/.test(todayDateKey)) return null;
+  const target = Date.parse(`${value}T12:00:00Z`);
+  const today = Date.parse(`${todayDateKey}T12:00:00Z`);
+  if (!Number.isFinite(target) || !Number.isFinite(today)) return null;
+  return Math.round((target - today) / 86_400_000);
+}
+
+export function nextPendingJudicialStep(item: CollisionCaseRecord, todayDateKey: string): PendingJudicialStep {
+  const trialDue = Boolean(item.trialDate && item.trialDate <= todayDateKey);
+  if (trialDue) {
+    if (!workshopStepComplete(item)) return "workshop";
+    if (!item.expenseInvoice) return "balance";
+    return "outcome";
+  }
+  const trialOffset = item.trialDate ? calendarDayOffsetFromKeys(item.trialDate, todayDateKey) : null;
+  const attendancePending = typeof item.clientWillAttend !== "boolean" || typeof item.legalAssistanceRequested !== "boolean";
+  if (trialOffset !== null && trialOffset <= 10 && attendancePending) return "attendance";
+  if (!workshopStepComplete(item)) return "workshop";
+  if (!item.expenseInvoice) return "balance";
+  return "management";
 }
 
 export function availableJudicialCaseTabs(item: CollisionCaseRecord, todayDateKey: string): JudicialCaseTab[] {
@@ -24,12 +48,13 @@ export function availableJudicialCaseTabs(item: CollisionCaseRecord, todayDateKe
 }
 
 export function defaultJudicialCaseTab(item: CollisionCaseRecord, todayDateKey: string): JudicialCaseTab {
-  if (item.trialDate && item.trialDate <= todayDateKey && !isFinalStatus(item.status) && item.expenseInvoice) return "outcome";
-  const attendancePending = !isFinalStatus(item.status)
-    && (typeof item.clientWillAttend !== "boolean" || typeof item.legalAssistanceRequested !== "boolean");
-  if (attendancePending) return "attendance";
-  if (!isFinalStatus(item.status) && !workshopStepComplete(item)) return "workshop";
-  if (!isFinalStatus(item.status) && !item.expenseInvoice) return "balance";
+  if (!isFinalStatus(item.status)) {
+    const pendingStep = nextPendingJudicialStep(item, todayDateKey);
+    if (pendingStep === "outcome") return "outcome";
+    if (pendingStep === "attendance") return "attendance";
+    if (pendingStep === "workshop") return "workshop";
+    if (pendingStep === "balance") return "balance";
+  }
   if (item.status === "ABSUELTO") {
     if (item.judicialResolutionEvidence && !item.insuranceClaim?.insuranceClaimId) return "insurance";
     return "outcome";

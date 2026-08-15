@@ -8,6 +8,7 @@ import {
   type InsuranceClaimRecord
 } from "../cloudData";
 import type { IncidentDestination } from "./IncidentIntakeForm";
+import { nextPendingJudicialStep } from "./incidents/judicialCaseNavigation";
 
 type Props = {
   dataOwnerUserId?: string | null;
@@ -19,12 +20,14 @@ type Props = {
 };
 
 type FollowUpFilter = "all" | "judicial" | "insurance_active" | "insurance_inactive" | "finalized";
-type NextActionFilter = "all" | "judicial_management" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim" | "finalized";
+type NextActionFilter = "all" | "judicial_management" | "judicial_workshop" | "judicial_balance" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim" | "finalized";
 type IncidentAlertSeverity = "urgent" | "attention" | "upcoming";
 
 const NEXT_ACTION_LABELS: Record<NextActionFilter, string> = {
   all: "Todas las acciones",
   judicial_management: "Gestionar juicio",
+  judicial_workshop: "Recibir y revisar vehículo",
+  judicial_balance: "Registrar saldo de colisión",
   judicial_attendance: "Confirmar asistencia al juicio",
   judicial_result: "Registrar resultado del juicio",
   judicial_resolution: "Buscar resolución judicial",
@@ -37,6 +40,8 @@ const NEXT_ACTION_LABELS: Record<NextActionFilter, string> = {
 const ACTION_QUEUE_FILTERS: NextActionFilter[] = [
   "judicial_result",
   "judicial_attendance",
+  "judicial_workshop",
+  "judicial_balance",
   "judicial_resolution",
   "start_claim",
   "claim_number",
@@ -91,9 +96,11 @@ function nextActionCategory(incident: UnifiedIncident): NextActionFilter {
   if (collision?.status === "ABSUELTO" && !collision.judicialResolutionEvidence) return "judicial_resolution";
   if (collision?.status === "ABSUELTO" && collision.judicialResolutionEvidence && !claim) return "start_claim";
   if (collision && collision.status !== "ABSUELTO" && collision.status !== "CULPABLE") {
-    if (collision.trialDate && collision.trialDate <= localDateKey()) return "judicial_result";
-    const trialOffset = collision.trialDate ? calendarDayOffset(collision.trialDate) : null;
-    if (trialOffset !== null && trialOffset <= 10 && (typeof collision.clientWillAttend !== "boolean" || typeof collision.legalAssistanceRequested !== "boolean")) return "judicial_attendance";
+    const pendingStep = nextPendingJudicialStep(collision, localDateKey());
+    if (pendingStep === "workshop") return "judicial_workshop";
+    if (pendingStep === "balance") return "judicial_balance";
+    if (pendingStep === "attendance") return "judicial_attendance";
+    if (pendingStep === "outcome") return "judicial_result";
     return "judicial_management";
   }
   if (claim && !claim.claimNumber.trim()) return "claim_number";
@@ -167,6 +174,7 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
 
     if (collision && collision.status !== "ABSUELTO" && collision.status !== "CULPABLE") {
       const trialOffset = collision.trialDate ? calendarDayOffset(collision.trialDate) : null;
+      const pendingStep = nextPendingJudicialStep(collision, localDateKey());
       const attendanceIncomplete = typeof collision.clientWillAttend !== "boolean" || typeof collision.legalAssistanceRequested !== "boolean";
       if (trialOffset !== null && trialOffset <= 10 && attendanceIncomplete) {
         const urgent = trialOffset <= 3;
@@ -177,6 +185,19 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
           actionLabel: "Confirmar asistencia", destination: "judicial", targetId: collision.id
         });
       }
+      if ((trialOffset === null || trialOffset > 0) && pendingStep === "workshop") {
+        addAlert(incident, {
+          id: `${incident.id}:workshop-pending`, kind: "judicial", severity: "attention", priority: 8,
+          title: "Vehículo pendiente de revisión", message: "El cliente debe llevar el vehículo al taller para verificar su estado.",
+          actionLabel: "Confirmar revisión", destination: "judicial", targetId: collision.id
+        });
+      } else if ((trialOffset === null || trialOffset > 0) && pendingStep === "balance") {
+        addAlert(incident, {
+          id: `${incident.id}:collision-balance-pending`, kind: "judicial", severity: "attention", priority: 9,
+          title: "Saldo de colisión pendiente", message: "La revisión del vehículo está completa; falta registrar el costo de reparación.",
+          actionLabel: "Registrar saldo", destination: "judicial", targetId: collision.id
+        });
+      }
       if (!collision.trialDate) {
         addAlert(incident, {
           id: `${incident.id}:trial-missing`, kind: "judicial", severity: "urgent", priority: 10,
@@ -185,16 +206,28 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
         });
       } else if (trialOffset !== null && trialOffset < 0) {
         const overdueDays = Math.abs(trialOffset);
+        const title = pendingStep === "workshop"
+          ? "Juicio vencido: falta revisar el vehículo"
+          : pendingStep === "balance"
+            ? "Juicio vencido: falta el saldo de colisión"
+            : "Juicio vencido sin resultado";
+        const actionLabel = pendingStep === "workshop" ? "Confirmar revisión" : pendingStep === "balance" ? "Registrar saldo" : "Registrar resultado";
         addAlert(incident, {
           id: `${incident.id}:trial-overdue`, kind: "judicial", severity: "urgent", priority: 1,
-          title: "Juicio vencido sin resultado", message: `La fecha fue ${collision.trialDate}; han pasado ${overdueDays} ${overdueDays === 1 ? "día" : "días"}.`,
-          actionLabel: "Registrar resultado", destination: "judicial", targetId: collision.id
+          title, message: `La fecha fue ${collision.trialDate}; han pasado ${overdueDays} ${overdueDays === 1 ? "día" : "días"}. Completa primero la acción indicada.`,
+          actionLabel, destination: "judicial", targetId: collision.id
         });
       } else if (trialOffset === 0) {
+        const title = pendingStep === "workshop"
+          ? "Juicio hoy: falta revisar el vehículo"
+          : pendingStep === "balance"
+            ? "Juicio hoy: falta el saldo de colisión"
+            : "Juicio programado para hoy";
+        const actionLabel = pendingStep === "workshop" ? "Confirmar revisión" : pendingStep === "balance" ? "Registrar saldo" : "Gestionar juicio";
         addAlert(incident, {
           id: `${incident.id}:trial-today`, kind: "judicial", severity: "urgent", priority: 2,
-          title: "Juicio programado para hoy", message: "El juicio requiere seguimiento durante el día de hoy.",
-          actionLabel: "Gestionar juicio", destination: "judicial", targetId: collision.id
+          title, message: pendingStep === "outcome" ? "El juicio requiere registrar su resultado." : "Completa primero la acción indicada para continuar el flujo.",
+          actionLabel, destination: "judicial", targetId: collision.id
         });
       } else if (trialOffset !== null && trialOffset >= 1) {
         const closeTrial = trialOffset <= 10;
@@ -349,12 +382,11 @@ function collisionNextAction(collision: CollisionCaseRecord, claim: InsuranceCla
     if (claim) return claimNextAction(claim);
     return { label: "Iniciar reclamo al seguro", finalized: false, requiresAction: true };
   }
-  const requiresResult = Boolean(collision.trialDate && collision.trialDate <= localDateKey());
-  if (requiresResult) return { label: "Registrar resultado del juicio", finalized: false, requiresAction: true };
-  const trialOffset = collision.trialDate ? calendarDayOffset(collision.trialDate) : null;
-  if (trialOffset !== null && trialOffset <= 10 && (typeof collision.clientWillAttend !== "boolean" || typeof collision.legalAssistanceRequested !== "boolean")) {
-    return { label: "Confirmar si el cliente irá y si se pidió asistencia legal", finalized: false, requiresAction: true };
-  }
+  const pendingStep = nextPendingJudicialStep(collision, localDateKey());
+  if (pendingStep === "workshop") return { label: "Recibir y revisar el vehículo en el taller", finalized: false, requiresAction: true };
+  if (pendingStep === "balance") return { label: "Registrar saldo de colisión", finalized: false, requiresAction: true };
+  if (pendingStep === "outcome") return { label: "Registrar resultado del juicio", finalized: false, requiresAction: true };
+  if (pendingStep === "attendance") return { label: "Confirmar si el cliente irá y si se pidió asistencia legal", finalized: false, requiresAction: true };
   const latestFollowUp = collision.judicialFollowUps[collision.judicialFollowUps.length - 1];
   if (latestFollowUp?.nextActionDate) {
     const followUpDue = latestFollowUp.nextActionDate <= localDateKey();

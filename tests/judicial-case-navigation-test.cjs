@@ -10,7 +10,7 @@ const output = ts.transpileModule(source, {
 }).outputText;
 const target = path.join(os.tmpdir(), `judicial-case-navigation-${Date.now()}.cjs`);
 fs.writeFileSync(target, output);
-const { availableJudicialCaseTabs, defaultJudicialCaseTab } = require(target);
+const { availableJudicialCaseTabs, defaultJudicialCaseTab, nextPendingJudicialStep } = require(target);
 
 function judicialCase(overrides = {}) {
   return {
@@ -86,5 +86,28 @@ if (beforeTrialTabs.includes("outcome")) throw new Error("Resultado no debe apar
 
 const trialDayTabs = availableJudicialCaseTabs(judicialCase({ trialDate: "2026-08-15" }), "2026-08-15");
 if (!trialDayTabs.includes("outcome")) throw new Error("Resultado debe aparecer el día del juicio.");
+
+assertEqual(nextPendingJudicialStep(judicialCase({
+  trialDate: "2026-08-31",
+  vehicleInspectedAt: null,
+  expenseInvoice: null
+}), "2026-08-15"), "workshop", "acción pendiente solicita Taller");
+
+assertEqual(nextPendingJudicialStep(judicialCase({
+  trialDate: "2026-08-31",
+  expenseInvoice: null
+}), "2026-08-15"), "balance", "acción pendiente solicita Saldo");
+
+assertEqual(nextPendingJudicialStep(judicialCase({
+  trialDate: "2026-08-14",
+  vehicleInspectedAt: null,
+  expenseInvoice: null,
+  clientWillAttend: null,
+  legalAssistanceRequested: null
+}), "2026-08-15"), "workshop", "juicio vencido mantiene el primer paso bloqueante");
+
+assertEqual(nextPendingJudicialStep(judicialCase({
+  trialDate: "2026-08-15"
+}), "2026-08-15"), "outcome", "flujo completo solicita Resultado el día del juicio");
 
 console.log("OK navegación judicial: cada acción abre directamente su sección del expediente.");
