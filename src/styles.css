@@ -13010,6 +13010,13 @@ button.ar-route-publish-copy.is-active {
   padding: 11px;
 }
 
+.judicial-focused-case .judicial-focused-context {
+  position: sticky;
+  z-index: 2;
+  top: 72px;
+  box-shadow: 0 6px 14px rgb(15 23 42 / 8%);
+}
+
 .judicial-focused-context > span {
   display: grid;
   gap: 3px;
@@ -14210,6 +14217,16 @@ button.ar-route-publish-copy.is-active {
   padding: 0 2px;
 }
 
+.judicial-focused-case .judicial-case-tabs {
+  position: sticky;
+  z-index: 3;
+  top: 146px;
+  overflow-x: auto;
+  background: var(--color-surface);
+  box-shadow: 0 5px 10px rgb(15 23 42 / 7%);
+  scrollbar-width: thin;
+}
+
 .judicial-case-tabs button,
 .workflow-record-tabs button {
   display: inline-flex;
@@ -14256,6 +14273,30 @@ button.ar-route-publish-copy.is-active {
 .judicial-case-tab-panel,
 .workflow-record-tab-panel {
   grid-column: 1 / -1;
+}
+
+.judicial-case-tab-panel {
+  min-height: 180px;
+}
+
+.judicial-section-empty {
+  margin: 0;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: var(--color-text-muted);
+  font-weight: 700;
+  padding: 20px;
+  text-align: center;
+}
+
+.judicial-focused-case .judicial-case-tab-panel .workflow-finalization-actions,
+.judicial-focused-case .judicial-case-tab-panel .workflow-form-actions {
+  position: sticky;
+  z-index: 1;
+  bottom: 0;
+  background: linear-gradient(to top, var(--color-surface) 75%, rgb(255 255 255 / 0%));
+  padding-top: 12px;
 }
 
 .judicial-case-tab-panel--management {
@@ -15043,6 +15084,15 @@ button.ar-route-publish-copy.is-active {
 @media (max-width: 480px) {
   .judicial-focused-context {
     grid-template-columns: 1fr;
+  }
+
+  .judicial-focused-case .judicial-focused-context {
+    position: static;
+    box-shadow: none;
+  }
+
+  .judicial-focused-case .judicial-case-tabs {
+    top: 68px;
   }
 
   .unified-incidents-filter-head {
