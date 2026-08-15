@@ -25,7 +25,7 @@ import { normalizeCourtName } from "../courtNames";
 import { useControlUnitsRows } from "./controlUnits/useControlUnitsRows";
 import IncidentPhotoGalleryModal from "./IncidentPhotoGalleryModal";
 import { calculateCollisionCredit } from "./incidents/collisionBalanceRules";
-import { defaultJudicialCaseTab, type JudicialCaseTab } from "./incidents/judicialCaseNavigation";
+import { availableJudicialCaseTabs, defaultJudicialCaseTab, type JudicialCaseTab } from "./incidents/judicialCaseNavigation";
 import { buildJudicialCaseTimeline } from "./incidents/judicialCaseTimeline";
 
 type Props = {
@@ -142,6 +142,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [judicialFollowUpSavingId, setJudicialFollowUpSavingId] = useState("");
   const [judicialCaseTabs, setJudicialCaseTabs] = useState<Record<string, JudicialCaseTab>>({});
   const [attendanceDrafts, setAttendanceDrafts] = useState<Record<string, { clientWillAttend: "" | "yes" | "no"; legalAssistanceRequested: "" | "yes" | "no" }>>({});
+  const [ticketStubDrafts, setTicketStubDrafts] = useState<Record<string, string>>({});
   const [photoGallery, setPhotoGallery] = useState<{ photos: CollisionPhotoAttachment[]; index: number; title: string } | null>(null);
 
   const fleetUnitsByUnit = useMemo(() => new Map(fleetUnits.map((row) => [normalizeUnit(row.unit_id), row])), [fleetUnits]);
@@ -209,6 +210,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
           clientWillAttend: item.clientWillAttend === true ? "yes" : item.clientWillAttend === false ? "no" : "",
           legalAssistanceRequested: item.legalAssistanceRequested === true ? "yes" : item.legalAssistanceRequested === false ? "no" : ""
         }])));
+        setTicketStubDrafts(Object.fromEntries(nextCases.map((item) => [item.id, item.ticketStub])));
       })
       .catch((error) => { if (!cancelled) { console.error("No se pudieron cargar los juicios.", error); setLoadError("No se pudieron cargar los juicios desde la nube."); } })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -255,6 +257,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     patchForm({ court });
   }
   function initializeCaseDrafts(item: CollisionCaseRecord): void {
+    setTicketStubDrafts((current) => ({ ...current, [item.id]: current[item.id] ?? item.ticketStub }));
     setExpenseLabels((current) => ({ ...current, [item.id]: current[item.id] ?? item.expenseInvoice?.description ?? "" }));
     setExpenseAmounts((current) => ({ ...current, [item.id]: current[item.id] ?? (item.expenseInvoice ? String(item.expenseInvoice.amount) : "") }));
     setExpenseEvaluationDates((current) => ({ ...current, [item.id]: current[item.id] ?? item.expenseInvoice?.evaluatedAt ?? localDateKey(new Date()) }));
@@ -306,6 +309,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       trialDate: form.trialDate,
       vehicleDamage: form.vehicleDamage.trim(),
       ticketStub: form.ticketStub.trim(),
+      ticketStubHistory: [],
       placeTime: form.placeTime.trim(),
       court: normalizeCourtName(form.court),
       collisionAndRun: form.collisionAndRun,
@@ -339,6 +343,37 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     await saveCollisionCase(dataOwnerUserId, updated);
     setCases((current) => current.map((item) => item.id === updated.id ? updated : item));
     setMessage(success);
+  }
+
+  async function saveTicketStub(item: CollisionCaseRecord): Promise<void> {
+    if (readOnly || busyId || !dataOwnerUserId) return;
+    const nextTicketStub = (ticketStubDrafts[item.id] ?? item.ticketStub).trim();
+    if (!nextTicketStub) {
+      setMessage("Indica el número de colilla.");
+      return;
+    }
+    if (nextTicketStub === item.ticketStub) return;
+    const now = new Date().toISOString();
+    setBusyId(item.id);
+    setMessage("");
+    try {
+      await persistCase({
+        ...item,
+        ticketStub: nextTicketStub,
+        ticketStubHistory: [...(item.ticketStubHistory ?? []), {
+          previousValue: item.ticketStub,
+          newValue: nextTicketStub,
+          changedAt: now
+        }],
+        updatedAt: now
+      }, "Número de colilla actualizado correctamente.");
+      setTicketStubDrafts((current) => ({ ...current, [item.id]: nextTicketStub }));
+    } catch (error) {
+      console.error("No se pudo actualizar el número de colilla.", error);
+      setMessage("No se pudo actualizar el número de colilla.");
+    } finally {
+      setBusyId("");
+    }
   }
 
   async function saveJudicialFollowUp(item: CollisionCaseRecord): Promise<void> {
@@ -804,7 +839,9 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
             const outcome = outcomeDrafts[item.id] ?? "";
             const outcomeEvidenceFile = outcomeEvidenceFiles[item.id] ?? null;
             const followUpDraft = judicialFollowUpDrafts[item.id] ?? EMPTY_JUDICIAL_FOLLOW_UP;
-            const activeCaseTab = judicialCaseTabs[item.id] ?? defaultJudicialCaseTab(item, today);
+            const availableCaseTabs = availableJudicialCaseTabs(item);
+            const preferredCaseTab = judicialCaseTabs[item.id] ?? defaultJudicialCaseTab(item, today);
+            const activeCaseTab = availableCaseTabs.includes(preferredCaseTab) ? preferredCaseTab : availableCaseTabs[0];
             const trialOffset = item.trialDate ? calendarDayOffset(item.trialDate) : null;
             const attendanceComplete = typeof item.clientWillAttend === "boolean" && typeof item.legalAssistanceRequested === "boolean";
             const attendanceDraft = attendanceDrafts[item.id] ?? { clientWillAttend: "", legalAssistanceRequested: "" };
@@ -831,14 +868,14 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                     ["balance", "Saldo", item.expenseInvoice ? "OK" : ""],
                     ["outcome", "Resultado", item.status],
                     ["insurance", "Seguro", item.insuranceClaim ? "Activo" : ""]
-                  ] as Array<[JudicialCaseTab, string, string]>).map(([tab, label, badge]) => (
+                  ] as Array<[JudicialCaseTab, string, string]>).filter(([tab]) => availableCaseTabs.includes(tab)).map(([tab, label, badge]) => (
                     <button type="button" role="tab" key={tab} id={`judicial-${tab}-tab-${item.id}`} aria-selected={activeCaseTab === tab} aria-controls={`judicial-${tab}-panel-${item.id}`} className={activeCaseTab === tab ? "active" : ""} onClick={() => setJudicialCaseTabs((current) => ({ ...current, [item.id]: tab }))}>{label}{badge ? <span>{badge}</span> : null}</button>
                   ))}
                 </div>
                 {activeCaseTab === "summary" && <div className="judicial-case-tab-panel judicial-case-tab-panel--summary" role="tabpanel" id={`judicial-summary-panel-${item.id}`} aria-labelledby={`judicial-summary-tab-${item.id}`}>
                   <dl className="workflow-claim-detail-grid">
                   <div><dt>Fecha del incidente</dt><dd>{item.incidentDate}</dd></div><div><dt>Fecha de juicio</dt><dd>{item.trialDate}</dd></div>
-                  <div><dt>Colilla</dt><dd>{item.ticketStub}{item.ticketStubPhoto && <button type="button" className="button small" onClick={() => setPhotoGallery({ photos: [item.ticketStubPhoto!], index: 0, title: "Foto de la colilla" })}>Ver foto</button>}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
+                  <div><dt>Número de colilla</dt><dd className="judicial-ticket-stub-editor"><div><input aria-label="Número de colilla" value={ticketStubDrafts[item.id] ?? item.ticketStub} onChange={(event) => setTicketStubDrafts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /><button type="button" className="button small" onClick={() => void saveTicketStub(item)} disabled={readOnly || busyId === item.id || !(ticketStubDrafts[item.id] ?? item.ticketStub).trim() || (ticketStubDrafts[item.id] ?? item.ticketStub).trim() === item.ticketStub}>{busyId === item.id ? "Guardando..." : "Guardar"}</button></div>{item.ticketStubPhoto && <button type="button" className="button small" onClick={() => setPhotoGallery({ photos: [item.ticketStubPhoto!], index: 0, title: "Foto de la colilla" })}>Ver foto original</button>}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
                   <div><dt>Colisión y fuga</dt><dd><span className={`collision-runaway-status ${item.collisionAndRun ? "collision-runaway-status--yes" : "collision-runaway-status--no"}`}>{item.collisionAndRun ? "Sí" : "No"}</span></dd></div>
                   <div><dt>Cliente del expediente</dt><dd>{item.clientName || item.driver || "-"}</dd></div>
                    <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>

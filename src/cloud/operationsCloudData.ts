@@ -185,6 +185,12 @@ export type CollisionJudicialFollowUp = {
   createdAt: string;
 };
 
+export type CollisionTicketStubEvent = {
+  previousValue: string;
+  newValue: string;
+  changedAt: string;
+};
+
 export type CollisionCaseRecord = {
   id: string;
   incidentDate: string;
@@ -196,6 +202,7 @@ export type CollisionCaseRecord = {
   trialDate: string;
   vehicleDamage: string;
   ticketStub: string;
+  ticketStubHistory?: CollisionTicketStubEvent[];
   ticketStubPhoto?: CollisionPhotoAttachment | null;
   placeTime: string;
   court: string;
@@ -528,6 +535,14 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
       ? item.trialDate
       : typeof legacy.nextFollowUpDate === "string" ? legacy.nextFollowUpDate : "",
     ticketStub: typeof item.ticketStub === "string" ? item.ticketStub : "",
+    ticketStubHistory: Array.isArray(item.ticketStubHistory)
+      ? item.ticketStubHistory.filter((entry): entry is CollisionTicketStubEvent => Boolean(
+          entry && typeof entry === "object"
+          && typeof entry.previousValue === "string"
+          && typeof entry.newValue === "string"
+          && typeof entry.changedAt === "string"
+        ))
+      : [],
     ticketStubPhoto: item.ticketStubPhoto && typeof item.ticketStubPhoto === "object" && typeof item.ticketStubPhoto.path === "string"
       ? item.ticketStubPhoto
       : null,

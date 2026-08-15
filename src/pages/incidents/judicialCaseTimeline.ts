@@ -36,6 +36,16 @@ export function buildJudicialCaseTimeline(item: CollisionCaseRecord): JudicialCa
     });
   }
 
+  for (const change of item.ticketStubHistory ?? []) {
+    events.push({
+      id: `ticket-stub-${change.changedAt}`,
+      occurredAt: eventTimestamp(change.changedAt, fallback),
+      title: "Número de colilla corregido",
+      description: `${change.previousValue || "Sin número"} → ${change.newValue}`,
+      tone: "info"
+    });
+  }
+
   if (item.attendanceConfirmedAt) {
     events.push({
       id: `attendance-${item.attendanceConfirmedAt}`,

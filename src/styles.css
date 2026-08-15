@@ -14449,6 +14449,26 @@ button.ar-route-publish-copy.is-active {
   gap: 14px;
 }
 
+.judicial-ticket-stub-editor {
+  display: grid;
+  gap: 7px;
+}
+
+.judicial-ticket-stub-editor > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.judicial-ticket-stub-editor input {
+  min-width: 0;
+  width: 100%;
+}
+
+.judicial-ticket-stub-editor > .button {
+  justify-self: start;
+}
+
 .judicial-case-timeline {
   display: grid;
   margin: 0;

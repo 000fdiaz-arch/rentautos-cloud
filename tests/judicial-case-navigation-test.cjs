@@ -10,7 +10,7 @@ const output = ts.transpileModule(source, {
 }).outputText;
 const target = path.join(os.tmpdir(), `judicial-case-navigation-${Date.now()}.cjs`);
 fs.writeFileSync(target, output);
-const { defaultJudicialCaseTab } = require(target);
+const { availableJudicialCaseTabs, defaultJudicialCaseTab } = require(target);
 
 function judicialCase(overrides = {}) {
   return {
@@ -51,5 +51,19 @@ assertEqual(defaultJudicialCaseTab(judicialCase({
 }), "2026-08-15"), "follow_up", "seguimiento vencido abre Seguimiento");
 
 assertEqual(defaultJudicialCaseTab(judicialCase(), "2026-08-15"), "summary", "expediente al día abre Resumen");
+
+const pendingTabs = availableJudicialCaseTabs(judicialCase());
+if (pendingTabs.includes("insurance")) throw new Error("Seguro no debe aparecer antes de estar habilitado.");
+
+const guiltyTabs = availableJudicialCaseTabs(judicialCase({ status: "CULPABLE" }));
+if (guiltyTabs.includes("attendance") || guiltyTabs.includes("follow_up") || guiltyTabs.includes("balance") || guiltyTabs.includes("insurance")) {
+  throw new Error("Un expediente culpable no debe mostrar pasos que ya no están habilitados.");
+}
+
+const settledTabs = availableJudicialCaseTabs(judicialCase({
+  status: "ABSUELTO",
+  judicialResolutionEvidence: { path: "resolution.jpg" }
+}));
+if (!settledTabs.includes("insurance")) throw new Error("Seguro debe aparecer al quedar habilitado.");
 
 console.log("OK navegación judicial: cada acción abre directamente su sección del expediente.");
