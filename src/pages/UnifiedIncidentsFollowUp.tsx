@@ -8,7 +8,7 @@ import {
   type InsuranceClaimRecord
 } from "../cloudData";
 import type { IncidentDestination } from "./IncidentIntakeForm";
-import { nextPendingJudicialStep } from "./incidents/judicialCaseNavigation";
+import { daysUntilAttendanceConfirmation, nextPendingJudicialStep } from "./incidents/judicialCaseNavigation";
 
 type Props = {
   dataOwnerUserId?: string | null;
@@ -388,14 +388,28 @@ function collisionNextAction(collision: CollisionCaseRecord, claim: InsuranceCla
   if (pendingStep === "outcome") return { label: "Registrar resultado del juicio", finalized: false, requiresAction: true };
   if (pendingStep === "attendance") return { label: "Confirmar si el cliente irá y si se pidió asistencia legal", finalized: false, requiresAction: true };
   const latestFollowUp = collision.judicialFollowUps[collision.judicialFollowUps.length - 1];
+  const attendanceCountdown = daysUntilAttendanceConfirmation(collision, localDateKey());
   if (latestFollowUp?.nextActionDate) {
     const followUpDue = latestFollowUp.nextActionDate <= localDateKey();
+    const followUpOffset = calendarDayOffset(latestFollowUp.nextActionDate);
+    if (!followUpDue && attendanceCountdown !== null && (followUpOffset === null || attendanceCountdown < followUpOffset)) {
+      return {
+        label: `En ${attendanceCountdown} ${attendanceCountdown === 1 ? "día" : "días"} se debe confirmar si el cliente irá y si se pidió asistencia legal`,
+        finalized: false,
+        requiresAction: false
+      };
+    }
     return {
       label: `${followUpDue ? "Realizar seguimiento judicial" : `Próxima gestión ${latestFollowUp.nextActionDate}`}: ${latestFollowUp.nextStep}`,
       finalized: false,
       requiresAction: followUpDue
     };
   }
+  if (attendanceCountdown !== null) return {
+    label: `En ${attendanceCountdown} ${attendanceCountdown === 1 ? "día" : "días"} se debe confirmar si el cliente irá y si se pidió asistencia legal`,
+    finalized: false,
+    requiresAction: false
+  };
   return { label: collision.trialDate ? `Esperar juicio del ${collision.trialDate}` : "Asignar fecha de juicio", finalized: false, requiresAction: !collision.trialDate };
 }
 

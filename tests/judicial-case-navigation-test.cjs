@@ -10,7 +10,7 @@ const output = ts.transpileModule(source, {
 }).outputText;
 const target = path.join(os.tmpdir(), `judicial-case-navigation-${Date.now()}.cjs`);
 fs.writeFileSync(target, output);
-const { availableJudicialCaseTabs, defaultJudicialCaseTab, nextPendingJudicialStep } = require(target);
+const { availableJudicialCaseTabs, daysUntilAttendanceConfirmation, defaultJudicialCaseTab, nextPendingJudicialStep } = require(target);
 
 function judicialCase(overrides = {}) {
   return {
@@ -109,5 +109,17 @@ assertEqual(nextPendingJudicialStep(judicialCase({
 assertEqual(nextPendingJudicialStep(judicialCase({
   trialDate: "2026-08-15"
 }), "2026-08-15"), "outcome", "flujo completo solicita Resultado el día del juicio");
+
+assertEqual(daysUntilAttendanceConfirmation(judicialCase({
+  trialDate: "2026-08-31",
+  clientWillAttend: null,
+  legalAssistanceRequested: null
+}), "2026-08-15"), 6, "T08 muestra días restantes para confirmar asistencia");
+
+assertEqual(daysUntilAttendanceConfirmation(judicialCase({
+  trialDate: "2026-08-25",
+  clientWillAttend: null,
+  legalAssistanceRequested: null
+}), "2026-08-15"), null, "al llegar a diez días la confirmación ya es inmediata");
 
 console.log("OK navegación judicial: cada acción abre directamente su sección del expediente.");

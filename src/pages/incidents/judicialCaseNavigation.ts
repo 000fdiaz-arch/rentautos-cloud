@@ -34,6 +34,14 @@ export function nextPendingJudicialStep(item: CollisionCaseRecord, todayDateKey:
   return "management";
 }
 
+export function daysUntilAttendanceConfirmation(item: CollisionCaseRecord, todayDateKey: string): number | null {
+  if (isFinalStatus(item.status)) return null;
+  if (typeof item.clientWillAttend === "boolean" && typeof item.legalAssistanceRequested === "boolean") return null;
+  const trialOffset = item.trialDate ? calendarDayOffsetFromKeys(item.trialDate, todayDateKey) : null;
+  if (trialOffset === null || trialOffset <= 10) return null;
+  return trialOffset - 10;
+}
+
 export function availableJudicialCaseTabs(item: CollisionCaseRecord, todayDateKey: string): JudicialCaseTab[] {
   const finalStatus = isFinalStatus(item.status);
   const workshopComplete = workshopStepComplete(item);
