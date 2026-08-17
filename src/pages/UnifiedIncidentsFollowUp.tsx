@@ -262,15 +262,29 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
     }
 
     if (collision?.status === "ABSUELTO" && !collision.judicialResolutionEvidence) {
-      const resolutionIdleDays = calendarDaysSince(dateKeyFromTimestamp(collision.updatedAt));
-      const resolutionOverdue = resolutionIdleDays !== null && resolutionIdleDays >= 3;
+      const resolutionDate = collision.judicialResolutionSearchDate;
+      const resolutionOffset = resolutionDate ? calendarDayOffset(resolutionDate) : null;
+      const resolutionOverdue = resolutionOffset !== null && resolutionOffset < 0;
+      const resolutionDue = resolutionOffset === null || resolutionOffset <= 0;
+      const resolutionSoon = resolutionOffset !== null && resolutionOffset > 0 && resolutionOffset <= 3;
+      const overdueDays = resolutionOverdue ? Math.abs(resolutionOffset) : 0;
       addAlert(incident, {
-        id: `${incident.id}:resolution-missing`, kind: "judicial", severity: resolutionOverdue ? "urgent" : "attention", priority: resolutionOverdue ? 3 : 18,
-        title: resolutionOverdue ? "Resolución judicial urgente" : "Resolución judicial pendiente",
+        id: `${incident.id}:resolution-missing`, kind: "judicial",
+        severity: resolutionDue ? "urgent" : resolutionSoon ? "attention" : "upcoming",
+        priority: resolutionDue ? 3 : resolutionSoon ? 18 + resolutionOffset : 40 + (resolutionOffset ?? 0),
+        title: resolutionOverdue
+          ? "Búsqueda de resolución vencida"
+          : resolutionOffset === 0
+            ? "Buscar resolución judicial hoy"
+            : resolutionOffset === 1
+              ? "Buscar resolución judicial mañana"
+              : "Búsqueda de resolución programada",
         message: resolutionOverdue
-          ? `El expediente lleva ${resolutionIdleDays} días sin movimiento. Falta adjuntar la resolución para habilitar el reclamo.`
-          : "El juicio quedó absuelto, pero falta buscar y adjuntar la resolución para habilitar el reclamo.",
-        actionLabel: "Adjuntar resolución", destination: "judicial", targetId: collision.id
+          ? `La búsqueda estaba programada para el ${shortCalendarDate(resolutionDate!)} y venció hace ${overdueDays} ${overdueDays === 1 ? "día" : "días"}.`
+          : resolutionDate
+            ? `Buscar y adjuntar la resolución el ${shortCalendarDate(resolutionDate)}${resolutionOffset && resolutionOffset > 1 ? `, dentro de ${resolutionOffset} días` : ""}.`
+            : "Falta definir la fecha para buscar y adjuntar la resolución judicial.",
+        actionLabel: resolutionDue ? "Adjuntar resolución" : "Ver fecha programada", destination: "judicial", targetId: collision.id
       });
     }
 
@@ -378,7 +392,17 @@ function collisionNextAction(collision: CollisionCaseRecord, claim: InsuranceCla
     requiresAction: false
   };
   if (collision.status === "ABSUELTO") {
-    if (!collision.judicialResolutionEvidence) return { label: "Buscar y adjuntar resolución judicial", finalized: false, requiresAction: true };
+    if (!collision.judicialResolutionEvidence) {
+      const resolutionDate = collision.judicialResolutionSearchDate;
+      const resolutionOffset = resolutionDate ? calendarDayOffset(resolutionDate) : null;
+      return {
+        label: resolutionDate
+          ? `Buscar y adjuntar resolución judicial · ${shortCalendarDate(resolutionDate)}`
+          : "Definir fecha para buscar y adjuntar resolución judicial",
+        finalized: false,
+        requiresAction: resolutionOffset === null || resolutionOffset <= 0
+      };
+    }
     if (claim) return claimNextAction(claim);
     return { label: "Iniciar reclamo al seguro", finalized: false, requiresAction: true };
   }
@@ -558,11 +582,25 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     : "";
   const nextTrialFilterLabel = nextTrial ? `Próximo: ${nextTrialRelativeLabel}` : "";
   const nextTrialQueueLabel = nextTrial ? `Próximo: ${shortCalendarDate(nextTrial.date)} · ${nextTrialRelativeLabel}` : "";
-  const overdueResolutionDays = useMemo(() => incidents
+  const nextResolution = useMemo(() => incidents
     .filter((incident) => incident.collision?.status === "ABSUELTO" && !incident.collision.judicialResolutionEvidence)
-    .map((incident) => calendarDaysSince(dateKeyFromTimestamp(incident.collision!.updatedAt)))
-    .filter((days): days is number => days !== null && days >= 3)
-    .sort((left, right) => right - left)[0] ?? null, [incidents]);
+    .map((incident) => ({
+      date: incident.collision!.judicialResolutionSearchDate,
+      offset: incident.collision!.judicialResolutionSearchDate
+        ? calendarDayOffset(incident.collision!.judicialResolutionSearchDate!)
+        : null
+    }))
+    .filter((item): item is { date: string; offset: number } => Boolean(item.date) && item.offset !== null)
+    .sort((left, right) => left.offset - right.offset)[0] ?? null, [incidents]);
+  const nextResolutionQueueLabel = nextResolution
+    ? nextResolution.offset < 0
+      ? `Programada: ${shortCalendarDate(nextResolution.date)} · vencida hace ${Math.abs(nextResolution.offset)} ${Math.abs(nextResolution.offset) === 1 ? "día" : "días"}`
+      : nextResolution.offset === 0
+        ? `Programada: ${shortCalendarDate(nextResolution.date)} · hoy`
+        : nextResolution.offset === 1
+          ? `Programada: ${shortCalendarDate(nextResolution.date)} · mañana`
+          : `Programada: ${shortCalendarDate(nextResolution.date)} · en ${nextResolution.offset} días`
+    : "";
   const filteredIncidents = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("es");
     return incidents.filter((incident) => {
@@ -620,13 +658,13 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
         <div className="incident-action-queue-list">
           {ACTION_QUEUE_FILTERS.filter((key) => nextActionCounts[key] > 0).map((key) => {
             const closeTrialAlert = key === "judicial_management" && nextTrial !== null && nextTrial.offset <= 10;
-            const overdueResolutionAlert = key === "judicial_resolution" && overdueResolutionDays !== null;
+            const overdueResolutionAlert = key === "judicial_resolution" && nextResolution !== null && nextResolution.offset <= 0;
             return <button type="button" key={key} className={`${nextActionFilter === key ? "active" : ""}${closeTrialAlert ? " trial-alert" : ""}${overdueResolutionAlert ? " resolution-alert" : ""}`} onClick={() => setNextActionFilter(nextActionFilter === key ? "all" : key)}>
               <strong className="incident-action-queue-count">{nextActionCounts[key]} {nextActionCounts[key] === 1 ? "caso" : "casos"}</strong><span>{NEXT_ACTION_LABELS[key]}</span>
               {closeTrialAlert && <span className="incident-action-queue-alert-badge">⚠ Alerta</span>}
               {overdueResolutionAlert && <span className="incident-action-queue-alert-badge">! Urgente</span>}
               {key === "judicial_management" && nextTrialQueueLabel && <em className="incident-action-queue-trial">{nextTrialQueueLabel}</em>}
-              {overdueResolutionAlert && <em className="incident-action-queue-resolution-delay">{overdueResolutionDays} días sin movimiento</em>}
+              {key === "judicial_resolution" && nextResolutionQueueLabel && <em className="incident-action-queue-resolution-delay">{nextResolutionQueueLabel}</em>}
             </button>;
           })}
           {!ACTION_QUEUE_FILTERS.some((key) => nextActionCounts[key] > 0) && <p>Todo al día. No hay acciones pendientes.</p>}
@@ -714,6 +752,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
                 <div><dt>Unidad / Placa</dt><dd>{incident.unit || "-"} / {incident.plate || "-"}</dd></div>
                 <div><dt>Año del vehículo</dt><dd>{incident.vehicleYear || "-"}</dd></div>
                 <div><dt>Chofer</dt><dd>{incident.driver || "-"}</dd></div>
+                {incident.collision?.status === "ABSUELTO" && !incident.collision.judicialResolutionEvidence && <div><dt>Buscar resolución</dt><dd>{incident.collision.judicialResolutionSearchDate ? shortCalendarDate(incident.collision.judicialResolutionSearchDate) : "Fecha pendiente"}</dd></div>}
                 <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{incident.vehicleDamage || "Sin descripción"}</dd></div>
               </dl>
               {incidentAlerts.length > 1 && <div className="unified-incident-secondary-alerts">

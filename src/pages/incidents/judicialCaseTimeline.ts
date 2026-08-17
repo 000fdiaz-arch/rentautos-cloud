@@ -125,7 +125,11 @@ export function buildJudicialCaseTimeline(item: CollisionCaseRecord): JudicialCa
       occurredAt: eventTimestamp(item.judicialOutcomeEvidence?.uploadedAt ?? item.judicialResolutionEvidence?.uploadedAt, fallback),
       title: `Resultado del juicio: ${item.status}`,
       description: item.status === "ABSUELTO" ? "El cliente fue absuelto." : "El cliente fue declarado culpable.",
-      detail: item.clientReturnedBeforeClosure ? "El cliente dejó el carro antes del cierre del caso." : undefined,
+      detail: item.clientReturnedBeforeClosure
+        ? "El cliente dejó el carro antes del cierre del caso."
+        : item.status === "ABSUELTO" && item.judicialResolutionSearchDate
+          ? `La búsqueda de la resolución judicial quedó programada para el ${item.judicialResolutionSearchDate}.`
+          : undefined,
       tone: item.status === "ABSUELTO" ? "success" : "warning"
     });
   }

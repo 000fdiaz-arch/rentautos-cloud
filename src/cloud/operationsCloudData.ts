@@ -234,6 +234,7 @@ export type CollisionCaseRecord = {
   incidentPhotos?: CollisionPhotoAttachment[];
   judicialOutcomeEvidence: CollisionPhotoAttachment | null;
   judicialResolutionEvidence?: CollisionPhotoAttachment | null;
+  judicialResolutionSearchDate?: string | null;
   insuranceClaim: CollisionInsuranceClaim | null;
   expenseInvoice: CollisionExpenseInvoice | null;
   clientReturnedBeforeClosure?: boolean;
@@ -546,6 +547,14 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
         updatedAt: item.updatedAt || item.createdAt || new Date().toISOString()
       }
     : null;
+  const legacyResolutionBase = item.updatedAt || item.createdAt;
+  const legacyResolutionDate = /^\d{4}-\d{2}-\d{2}/.test(legacyResolutionBase)
+    ? (() => {
+        const date = new Date(`${legacyResolutionBase.slice(0, 10)}T12:00:00`);
+        date.setDate(date.getDate() + 30);
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      })()
+    : null;
   return {
     ...item,
     status,
@@ -602,6 +611,9 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
     judicialResolutionEvidence: item.judicialResolutionEvidence && typeof item.judicialResolutionEvidence === "object" && typeof item.judicialResolutionEvidence.path === "string"
       ? item.judicialResolutionEvidence
       : null,
+    judicialResolutionSearchDate: typeof item.judicialResolutionSearchDate === "string"
+      ? item.judicialResolutionSearchDate
+      : status === "ABSUELTO" && !item.judicialResolutionEvidence ? legacyResolutionDate : null,
     insuranceClaim: existingClaim ?? legacyClaim,
     expenseInvoice: item.expenseInvoice && typeof item.expenseInvoice === "object"
       ? {

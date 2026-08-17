@@ -52,6 +52,7 @@ const events = buildJudicialCaseTimeline({
     attachment: { path: "invoice.pdf" }
   },
   status: "ABSUELTO",
+  judicialResolutionSearchDate: "2026-09-14",
   clientReturnedBeforeClosure: false,
   judicialOutcomeEvidence: null,
   judicialResolutionEvidence: {
@@ -85,6 +86,11 @@ for (const title of expectedTitles) {
   if (!events.some((event) => event.title === title)) {
     throw new Error(`Falta el evento: ${title}`);
   }
+}
+
+const outcomeEvent = events.find((event) => event.title === "Resultado del juicio: ABSUELTO");
+if (outcomeEvent?.detail !== "La búsqueda de la resolución judicial quedó programada para el 2026-09-14.") {
+  throw new Error("El historial no muestra la fecha programada para buscar la resolución judicial.");
 }
 
 for (let index = 1; index < events.length; index += 1) {

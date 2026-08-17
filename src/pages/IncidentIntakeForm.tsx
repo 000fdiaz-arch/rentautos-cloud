@@ -260,7 +260,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           id, ...common,
           clientId: caseClient?.id ?? "", clientName: caseClient?.name ?? form.driver.trim(),
           trialDate: form.trialDate, ticketStub: form.ticketStub.trim(), ticketStubPhoto, placeTime: form.placeTime.trim(), court: normalizeCourtName(form.court), collisionAndRun: form.collisionAndRun,
-          status: "PENDIENTE", trialDateHistory: [], editHistory: [], judicialFollowUps: [], clientWillAttend: null, legalAssistanceRequested: null, attendanceConfirmedAt: null, incidentPhotos: uploadedJudicialPhotos.filter((photo) => photo.path !== ticketStubPhoto?.path), judicialOutcomeEvidence: null, judicialResolutionEvidence: null, insuranceClaim: null, expenseInvoice: null,
+          status: "PENDIENTE", trialDateHistory: [], editHistory: [], judicialFollowUps: [], clientWillAttend: null, legalAssistanceRequested: null, attendanceConfirmedAt: null, incidentPhotos: uploadedJudicialPhotos.filter((photo) => photo.path !== ticketStubPhoto?.path), judicialOutcomeEvidence: null, judicialResolutionEvidence: null, judicialResolutionSearchDate: null, insuranceClaim: null, expenseInvoice: null,
           clientReturnedBeforeClosure: false, clientReturnedBeforeClosureAt: null, createdAt: now, updatedAt: now
         };
         await saveCollisionCase(dataOwnerUserId, collisionCase);
