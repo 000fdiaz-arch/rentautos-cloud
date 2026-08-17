@@ -135,6 +135,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [outcomeEvidenceFiles, setOutcomeEvidenceFiles] = useState<Record<string, File | null>>({});
   const [resolutionEvidenceFiles, setResolutionEvidenceFiles] = useState<Record<string, File | null>>({});
   const [resolutionSearchDates, setResolutionSearchDates] = useState<Record<string, string>>({});
+  const [editingResolutionId, setEditingResolutionId] = useState<string | null>(null);
   const [newTrialDates, setNewTrialDates] = useState<Record<string, string>>({});
   const [rescheduleReasons, setRescheduleReasons] = useState<Record<string, string>>({});
   const [expenseAmounts, setExpenseAmounts] = useState<Record<string, string>>({});
@@ -923,15 +924,60 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       uploadedResolution = await uploadCollisionPhoto(dataOwnerUserId, item.id, file);
       await persistCase(
         { ...item, judicialResolutionEvidence: uploadedResolution, judicialResolutionSearchDate: searchDate, updatedAt: new Date().toISOString() },
-        "Resolución judicial guardada. Ya puedes iniciar el reclamo al seguro."
+        item.judicialResolutionEvidence
+          ? "Resolución judicial reemplazada correctamente."
+          : "Resolución judicial guardada. Ya puedes iniciar el reclamo al seguro."
       );
+      if (item.judicialResolutionEvidence?.path && item.judicialResolutionEvidence.path !== uploadedResolution.path) {
+        try { await removeCollisionPhotos([item.judicialResolutionEvidence.path]); }
+        catch (cleanupError) { console.error("No se pudo eliminar la resolución reemplazada.", cleanupError); }
+      }
       setResolutionEvidenceFiles((current) => ({ ...current, [item.id]: null }));
+      setEditingResolutionId(null);
     } catch (error) {
       console.error("No se pudo guardar la resolución judicial.", error);
       setMessage("No se pudo guardar la resolución judicial.");
       if (uploadedResolution) {
         try { await removeCollisionPhotos([uploadedResolution.path]); } catch { /* Limpieza de mejor esfuerzo. */ }
       }
+    } finally { setBusyId(""); }
+  }
+
+  function startEditingResolution(item: CollisionCaseRecord): void {
+    setEditingResolutionId(item.id);
+    setResolutionEvidenceFiles((current) => ({ ...current, [item.id]: null }));
+    setResolutionSearchDates((current) => ({
+      ...current,
+      [item.id]: current[item.id] ?? item.judicialResolutionSearchDate ?? addCalendarDays(localDateKey(new Date()), 30)
+    }));
+    setMessage("");
+  }
+
+  function cancelResolutionEdit(caseId: string): void {
+    setEditingResolutionId(null);
+    setResolutionEvidenceFiles((current) => ({ ...current, [caseId]: null }));
+    setMessage("");
+  }
+
+  async function deleteJudicialResolution(item: CollisionCaseRecord): Promise<void> {
+    if (readOnly || busyId || !dataOwnerUserId || item.status !== "ABSUELTO" || !item.judicialResolutionEvidence) return;
+    if (!window.confirm("¿Eliminar esta resolución judicial? El expediente volverá al paso Buscar resolución. Los datos del reclamo no se eliminarán.")) return;
+    const deletedResolution = item.judicialResolutionEvidence;
+    const searchDate = item.judicialResolutionSearchDate ?? addCalendarDays(localDateKey(new Date()), 30);
+    setBusyId(item.id); setMessage("");
+    try {
+      await persistCase(
+        { ...item, judicialResolutionEvidence: null, judicialResolutionSearchDate: searchDate, updatedAt: new Date().toISOString() },
+        `Resolución eliminada. La búsqueda volvió a quedar programada para el ${searchDate}.`
+      );
+      setResolutionSearchDates((current) => ({ ...current, [item.id]: searchDate }));
+      setResolutionEvidenceFiles((current) => ({ ...current, [item.id]: null }));
+      setEditingResolutionId(null);
+      try { await removeCollisionPhotos([deletedResolution.path]); }
+      catch (cleanupError) { console.error("No se pudo eliminar el archivo anterior de la resolución.", cleanupError); }
+    } catch (error) {
+      console.error("No se pudo eliminar la resolución judicial.", error);
+      setMessage("No se pudo eliminar la resolución judicial.");
     } finally { setBusyId(""); }
   }
 
@@ -1256,7 +1302,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                 </div>}
                 {item.judicialOutcomeEvidence && <div className="collision-outcome-document"><div><strong>Documento del resultado: {item.status}</strong><span>{item.judicialOutcomeEvidence.name}</span><small>Guardado el {new Date(item.judicialOutcomeEvidence.uploadedAt).toLocaleString("es-PA")}</small></div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: [item.judicialOutcomeEvidence!], index: 0, title: `Documento del resultado: ${item.status}` })}>Ver documento</button></div>}
                 {item.status === "ABSUELTO" && !item.judicialResolutionEvidence && <div className="workflow-finalization-panel collision-outcome-panel"><div><strong>Buscar resolución judicial</strong><span>Este es el paso previo obligatorio para habilitar el reclamo al seguro.</span></div><label className="workflow-required-field">Fecha programada para buscarla<input type="date" value={resolutionSearchDates[item.id] ?? item.judicialResolutionSearchDate ?? ""} onChange={(event) => setResolutionSearchDates((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /><small>La fecha sugerida es 30 días después del resultado; puedes ajustarla.</small></label><label className="collision-outcome-evidence">Resolución judicial<input type="file" accept="image/*" onChange={(event) => selectResolutionEvidence(item.id, event.target.files?.[0])} disabled={readOnly || busyId === item.id} /><small>{resolutionEvidenceFiles[item.id] ? `Seleccionada: ${resolutionEvidenceFiles[item.id]!.name}` : "Adjunta la resolución · imagen de hasta 10 MB"}</small></label><div className="workflow-finalization-actions"><button type="button" className="button" onClick={() => void saveResolutionSearchDate(item)} disabled={readOnly || busyId === item.id || !resolutionSearchDates[item.id] || resolutionSearchDates[item.id] === item.judicialResolutionSearchDate}>{busyId === item.id ? "Guardando..." : "Guardar fecha"}</button><button type="button" className="button primary" onClick={() => void saveJudicialResolution(item)} disabled={readOnly || busyId === item.id || !resolutionEvidenceFiles[item.id]}>{busyId === item.id ? "Guardando..." : "Guardar resolución"}</button></div></div>}
-                {item.judicialResolutionEvidence && <div className="collision-outcome-document"><div><strong>Resolución judicial registrada</strong><span>{item.judicialResolutionEvidence.name}</span><small>El reclamo al seguro está habilitado.</small></div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: [item.judicialResolutionEvidence!], index: 0, title: "Resolución judicial" })}>Ver resolución</button></div>}
+                {item.judicialResolutionEvidence && editingResolutionId !== item.id && <div className="collision-outcome-document"><div><strong>Resolución judicial registrada</strong><span>{item.judicialResolutionEvidence.name}</span><small>El reclamo al seguro está habilitado.</small></div><div className="workflow-finalization-actions"><button type="button" className="button" onClick={() => setPhotoGallery({ photos: [item.judicialResolutionEvidence!], index: 0, title: "Resolución judicial" })}>Ver resolución</button><button type="button" className="button primary" onClick={() => startEditingResolution(item)} disabled={readOnly || busyId === item.id}>Editar resolución</button><button type="button" className="button danger" onClick={() => void deleteJudicialResolution(item)} disabled={readOnly || busyId === item.id}>Eliminar resolución</button></div></div>}
+                {item.judicialResolutionEvidence && editingResolutionId === item.id && <div className="workflow-finalization-panel collision-outcome-panel"><div><strong>Editar resolución judicial</strong><span>Selecciona el archivo correcto para reemplazar la resolución actual.</span></div><label className="workflow-required-field">Fecha en que se buscó la resolución<input type="date" value={resolutionSearchDates[item.id] ?? item.judicialResolutionSearchDate ?? ""} onChange={(event) => setResolutionSearchDates((current) => ({ ...current, [item.id]: event.target.value }))} disabled={busyId === item.id} /></label><label className="collision-outcome-evidence">Reemplazar resolución<input type="file" accept="image/*" onChange={(event) => selectResolutionEvidence(item.id, event.target.files?.[0])} disabled={busyId === item.id} /><small>{resolutionEvidenceFiles[item.id] ? `Nueva resolución: ${resolutionEvidenceFiles[item.id]!.name}` : `Actual: ${item.judicialResolutionEvidence.name}`}</small></label><div className="workflow-finalization-actions"><button type="button" className="button" onClick={() => cancelResolutionEdit(item.id)} disabled={busyId === item.id}>Cancelar</button><button type="button" className="button primary" onClick={() => void saveJudicialResolution(item)} disabled={busyId === item.id || !resolutionEvidenceFiles[item.id]}>{busyId === item.id ? "Guardando..." : "Guardar reemplazo"}</button></div></div>}
                 {item.trialDateHistory.length > 0 && <details className="workflow-edit-history" open><summary>Historial de fechas de juicio ({item.trialDateHistory.length})</summary><ul>{[...item.trialDateHistory].reverse().map((event) => <li key={`${event.changedAt}-${event.newDate}`}><time>{new Date(event.changedAt).toLocaleString("es-PA")}</time><span>{event.previousDate} → {event.newDate}: {event.reason}</span></li>)}</ul></details>}
                 {item.status === "CULPABLE" && item.clientReturnedBeforeClosure && <div className="collision-client-returned"><strong>Cliente retirado antes del cierre</strong><span>{item.clientName || item.driver || "El cliente"} dejó el carro antes de finalizar el juicio.</span><small>No se generó una factura automática.</small></div>}
                 </div>}
