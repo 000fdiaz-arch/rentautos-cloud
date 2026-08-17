@@ -82,9 +82,10 @@ type UnifiedIncident = {
 };
 
 function incidentMatchesFilter(incident: UnifiedIncident, filter: FollowUpFilter): boolean {
+  const resolutionPending = incident.collision?.status === "ABSUELTO" && !incident.collision.judicialResolutionEvidence;
   if (filter === "judicial") return Boolean(incident.collision);
-  if (filter === "insurance_active") return incident.claim?.status === "Activo";
-  if (filter === "insurance_inactive") return incident.claim?.status === "Inactivo";
+  if (filter === "insurance_active") return !resolutionPending && incident.claim?.status === "Activo";
+  if (filter === "insurance_inactive") return !resolutionPending && incident.claim?.status === "Inactivo";
   if (filter === "finalized") return incident.finalized;
   return true;
 }
@@ -299,6 +300,7 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
       }
     }
 
+    if (collision?.status === "ABSUELTO" && !collision.judicialResolutionEvidence) return;
     if (!claim || claim.status === "Finalizado") return;
     const createdDays = calendarDaysSince(dateKeyFromTimestamp(claim.createdAt));
     if (claim.status === "Inactivo" && !claim.claimNumber.trim() && createdDays !== null && createdDays >= 3) {
@@ -693,8 +695,11 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
         {!loading && incidents.length > 0 && !filteredIncidents.length && <p className="hint workflow-empty-filter">No hay expedientes que coincidan con los filtros.</p>}
         {filteredIncidents.map((incident) => {
           const expanded = expandedId === incident.id;
-          const claimState = !incident.claim ? "none" : incident.claim.status === "Activo" ? "active" : incident.claim.status === "Inactivo" ? "inactive" : "finished";
-          const claimStateLabel = claimState === "active"
+          const resolutionPending = incident.collision?.status === "ABSUELTO" && !incident.collision.judicialResolutionEvidence;
+          const claimState = resolutionPending || !incident.claim ? "none" : incident.claim.status === "Activo" ? "active" : incident.claim.status === "Inactivo" ? "inactive" : "finished";
+          const claimStateLabel = resolutionPending
+            ? "Resolución pendiente"
+            : claimState === "active"
             ? "Reclamo activo"
             : claimState === "inactive"
               ? "Reclamo inactivo"
@@ -729,8 +734,8 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
                   {judicialFinalized && <span className={`unified-incident-judicial-status status-${incident.collision!.status === "ABSUELTO" ? "absolved" : "guilty"}`}>Juicio: {incident.collision!.status}</span>}
                   <span className={`unified-incident-claim status-${claimState}`}><strong>{claimStateLabel}</strong></span>
                 </div>
-                {incident.claim?.claimNumber && <span className="unified-incident-claim-reference"><small>N.º {incident.claim.claimNumber}</small><button type="button" className="unified-claim-copy" aria-label={`Copiar número de reclamo ${incident.claim.claimNumber}`} title="Copiar número de reclamo" onClick={(event) => { event.stopPropagation(); void copyClaimNumber(incident.claim!); }}>{copiedClaimId === incident.claim.id ? "✓" : "⧉"}</button></span>}
-                {incident.claim?.insurer && <small className="unified-incident-insurer">{incident.claim.insurer}</small>}
+                {!resolutionPending && incident.claim?.claimNumber && <span className="unified-incident-claim-reference"><small>N.º {incident.claim.claimNumber}</small><button type="button" className="unified-claim-copy" aria-label={`Copiar número de reclamo ${incident.claim.claimNumber}`} title="Copiar número de reclamo" onClick={(event) => { event.stopPropagation(); void copyClaimNumber(incident.claim!); }}>{copiedClaimId === incident.claim.id ? "✓" : "⧉"}</button></span>}
+                {!resolutionPending && incident.claim?.insurer && <small className="unified-incident-insurer">{incident.claim.insurer}</small>}
                 {(trialCountdownLabel || topAlert) && <div className="unified-incident-card-alerts">
                   {trialCountdownLabel && <span className={`unified-incident-alert severity-${trialCountdownSeverity}`} role="status"><b>{trialCountdownSeverity === "attention" ? "⚠" : "◷"}</b> {trialCountdownLabel}</span>}
                   {topAlert && !topAlertIsTrialCountdown && <span className={`unified-incident-alert severity-${topAlert.severity}`} role="status"><b>{topAlert.severity === "urgent" ? "!" : topAlert.severity === "attention" ? "⚠" : "◷"}</b> {topAlert.title}</span>}
