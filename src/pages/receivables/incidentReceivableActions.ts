@@ -26,6 +26,10 @@ export function insuranceActionForReceivables(
 ): IncidentReceivableAction | null {
   if (claim.status === "Finalizado") return null;
   const base = { targetId: claim.id, destination: "insurance" as const };
+  if (claim.documentationPending) {
+    const deadline = shiftDateKey(claim.documentationPendingSince?.slice(0, 10) ?? "", 2);
+    return { ...base, label: "Obtener y adjuntar el FUD", date: deadline, urgent: Boolean(deadline && deadline <= todayDateKey) };
+  }
   if (!claim.claimNumber.trim()) return { ...base, label: "Agregar número de reclamo", date: "", urgent: true };
   if (claim.settlementDelivered) return { ...base, label: "Finalizar reclamo", date: claim.settlementDeliveredDate, urgent: true };
   const latestFollowUp = claim.followUps[claim.followUps.length - 1];
@@ -44,6 +48,10 @@ export function collisionActionForReceivables(
 ): IncidentReceivableAction | null {
   const base = { targetId: collision.id, destination: "judicial" as const };
   if (collision.status === "CULPABLE") return null;
+  if (collision.documentationPending) {
+    const deadline = shiftDateKey(collision.documentationPendingSince?.slice(0, 10) ?? "", 2);
+    return { ...base, label: "Obtener y registrar la colilla", date: deadline, urgent: Boolean(deadline && deadline <= todayDateKey) };
+  }
   if (collision.status === "ABSUELTO") {
     if (!collision.judicialResolutionEvidence) {
       return { ...base, label: "Buscar y adjuntar resolución judicial", date: "", urgent: true };

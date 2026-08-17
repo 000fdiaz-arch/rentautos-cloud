@@ -124,6 +124,9 @@ export type InsuranceClaimRecord = {
   damagePhotoNames: string[];
   damagePhotos: InsuranceDamagePhotoAttachment[];
   fudAttachment?: InsuranceSettlementAttachment | null;
+  documentationPending?: boolean;
+  documentationPendingSince?: string | null;
+  documentationReceivedAt?: string | null;
   settlementDelivered: boolean;
   settlementDeliveredDate: string;
   settlementMarkedAt: string | null;
@@ -220,6 +223,9 @@ export type CollisionCaseRecord = {
   ticketStubHistory?: CollisionTicketStubEvent[];
   editHistory?: CollisionCaseEditEvent[];
   ticketStubPhoto?: CollisionPhotoAttachment | null;
+  documentationPending?: boolean;
+  documentationPendingSince?: string | null;
+  documentationReceivedAt?: string | null;
   placeTime: string;
   court: string;
   collisionAndRun: boolean;
@@ -300,6 +306,9 @@ function normalizeInsuranceClaim(claim: InsuranceClaimRecord): InsuranceClaimRec
     fudAttachment: claim.fudAttachment && typeof claim.fudAttachment.path === "string"
       ? claim.fudAttachment
       : null,
+    documentationPending: claim.documentationPending === true,
+    documentationPendingSince: typeof claim.documentationPendingSince === "string" ? claim.documentationPendingSince : null,
+    documentationReceivedAt: typeof claim.documentationReceivedAt === "string" ? claim.documentationReceivedAt : null,
     settlementDelivered: claim.settlementDelivered === true,
     settlementDeliveredDate: typeof claim.settlementDeliveredDate === "string" ? claim.settlementDeliveredDate : "",
     settlementMarkedAt: typeof claim.settlementMarkedAt === "string" ? claim.settlementMarkedAt : null,
@@ -581,6 +590,9 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
     ticketStubPhoto: item.ticketStubPhoto && typeof item.ticketStubPhoto === "object" && typeof item.ticketStubPhoto.path === "string"
       ? item.ticketStubPhoto
       : null,
+    documentationPending: item.documentationPending === true,
+    documentationPendingSince: typeof item.documentationPendingSince === "string" ? item.documentationPendingSince : null,
+    documentationReceivedAt: typeof item.documentationReceivedAt === "string" ? item.documentationReceivedAt : null,
     placeTime: typeof item.placeTime === "string" ? item.placeTime : "",
     court: typeof item.court === "string" ? normalizeCourtName(item.court) : "",
     collisionAndRun: item.collisionAndRun === true,

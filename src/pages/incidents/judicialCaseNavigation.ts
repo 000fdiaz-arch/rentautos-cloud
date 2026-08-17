@@ -1,7 +1,7 @@
 import type { CollisionCaseRecord } from "../../cloudData";
 
 export type JudicialCaseTab = "summary" | "attendance" | "follow_up" | "history" | "workshop" | "balance" | "outcome" | "insurance";
-export type PendingJudicialStep = "workshop" | "balance" | "attendance" | "outcome" | "management";
+export type PendingJudicialStep = "documentation" | "workshop" | "balance" | "attendance" | "outcome" | "management";
 
 function isFinalStatus(status: CollisionCaseRecord["status"]): boolean {
   return status === "ABSUELTO" || status === "CULPABLE";
@@ -20,6 +20,7 @@ function calendarDayOffsetFromKeys(value: string, todayDateKey: string): number 
 }
 
 export function nextPendingJudicialStep(item: CollisionCaseRecord, todayDateKey: string): PendingJudicialStep {
+  if (item.documentationPending) return "documentation";
   const trialDue = Boolean(item.trialDate && item.trialDate <= todayDateKey);
   if (trialDue) {
     if (!workshopStepComplete(item)) return "workshop";
@@ -46,6 +47,7 @@ export function availableJudicialCaseTabs(item: CollisionCaseRecord, todayDateKe
   const finalStatus = isFinalStatus(item.status);
   const workshopComplete = workshopStepComplete(item);
   const tabs: JudicialCaseTab[] = ["summary"];
+  if (item.documentationPending) return ["summary", "follow_up", "history"];
   if (!finalStatus) tabs.push("attendance", "follow_up");
   tabs.push("history");
   if (!finalStatus || workshopComplete) tabs.push("workshop");
@@ -56,6 +58,7 @@ export function availableJudicialCaseTabs(item: CollisionCaseRecord, todayDateKe
 }
 
 export function defaultJudicialCaseTab(item: CollisionCaseRecord, todayDateKey: string): JudicialCaseTab {
+  if (item.documentationPending) return "summary";
   if (!isFinalStatus(item.status)) {
     const pendingStep = nextPendingJudicialStep(item, todayDateKey);
     if (pendingStep === "outcome") return "outcome";

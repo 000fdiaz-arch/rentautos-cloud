@@ -21,9 +21,19 @@ export function buildJudicialCaseTimeline(item: CollisionCaseRecord): JudicialCa
     occurredAt: eventTimestamp(item.createdAt, fallback),
     title: "Expediente creado",
     description: `Colisión de la unidad ${item.unit || "sin unidad"} registrada para gestión judicial.`,
-    detail: item.trialDate ? `Juicio programado para ${item.trialDate}.` : "Fecha de juicio pendiente.",
-    tone: "neutral"
+    detail: item.documentationPending ? "Colilla pendiente de recibir." : item.trialDate ? `Juicio programado para ${item.trialDate}.` : "Fecha de juicio pendiente.",
+    tone: item.documentationPending ? "warning" : "neutral"
   }];
+
+  if (item.documentationReceivedAt) {
+    events.push({
+      id: `documentation-${item.id}`,
+      occurredAt: eventTimestamp(item.documentationReceivedAt, fallback),
+      title: "Colilla recibida",
+      description: "La documentación judicial fue completada y el expediente quedó habilitado.",
+      tone: "success"
+    });
+  }
 
   for (const change of item.trialDateHistory) {
     events.push({

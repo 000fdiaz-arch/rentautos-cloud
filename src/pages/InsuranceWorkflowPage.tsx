@@ -96,6 +96,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   const [statusSavingId, setStatusSavingId] = useState<string>("");
   const [settlementSavingId, setSettlementSavingId] = useState<string>("");
   const [settlementUploadingId, setSettlementUploadingId] = useState<string>("");
+  const [fudUploadingId, setFudUploadingId] = useState<string>("");
   const [damagePhotosUploadingId, setDamagePhotosUploadingId] = useState<string>("");
   const [settlementDates, setSettlementDates] = useState<Record<string, string>>({});
   const [followUpSavingId, setFollowUpSavingId] = useState<string>("");
@@ -367,6 +368,9 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       status: claimNumber ? "Activo" : "Inactivo",
       damagePhotoNames: [],
       damagePhotos: [],
+      documentationPending: false,
+      documentationPendingSince: null,
+      documentationReceivedAt: now,
       settlementDelivered: false,
       settlementDeliveredDate: "",
       settlementMarkedAt: null,
@@ -436,6 +440,10 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
 
   function requestClaimStatusUpdate(claim: InsuranceClaimRecord, status: InsuranceClaimStatus): void {
     if (readOnly || claim.status === status) return;
+    if (claim.documentationPending) {
+      setMessage("Adjunta primero el FUD para continuar con la gestión del reclamo.");
+      return;
+    }
     if (claim.status === "Finalizado") {
       setMessage("Un reclamo finalizado solo puede reabrirse mediante una edición justificada que retire o corrija sus datos de cierre.");
       return;
@@ -462,6 +470,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
 
   async function finalizeClaim(claim: InsuranceClaimRecord): Promise<void> {
     if (!dataOwnerUserId || readOnly) return;
+    if (claim.documentationPending) { setMessage("Adjunta primero el FUD para continuar con el reclamo."); return; }
     if (!claim.claimNumber.trim()) {
       setMessage("No se puede finalizar un reclamo sin número de reclamo.");
       return;
@@ -502,6 +511,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
 
   async function updateSettlementDelivery(claim: InsuranceClaimRecord, delivered: boolean, date: string): Promise<void> {
     if (!dataOwnerUserId || readOnly) return;
+    if (claim.documentationPending) { setMessage("Adjunta primero el FUD para continuar con el reclamo."); return; }
     if (delivered && !date) {
       setMessage("Debes colocar la fecha de entrega antes de marcar el finiquito como entregado.");
       return;
@@ -531,6 +541,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
 
   async function handleSettlementFileChange(claim: InsuranceClaimRecord, file: File | undefined): Promise<void> {
     if (!file || !dataOwnerUserId || readOnly) return;
+    if (claim.documentationPending) { setMessage("Adjunta primero el FUD para continuar con el reclamo."); return; }
     if (file.size > MAX_SETTLEMENT_FILE_SIZE) {
       setMessage("El finiquito no puede superar 10 MB.");
       return;
@@ -564,6 +575,45 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       setMessage("No se pudo adjuntar el finiquito en la nube.");
     } finally {
       setSettlementUploadingId("");
+    }
+  }
+
+  async function handleFudFileChange(claim: InsuranceClaimRecord, file: File | undefined): Promise<void> {
+    if (!file || !dataOwnerUserId || readOnly) return;
+    if ((file.type !== "application/pdf" && !file.type.startsWith("image/")) || file.size > MAX_SETTLEMENT_FILE_SIZE) {
+      setMessage("El FUD debe ser un PDF o una imagen de 10 MB o menos.");
+      return;
+    }
+    setFudUploadingId(claim.id);
+    setMessage("");
+    let uploadedPath = "";
+    try {
+      const attachment = await uploadInsuranceSettlement(dataOwnerUserId, claim.id, file);
+      uploadedPath = attachment.path;
+      const now = new Date().toISOString();
+      const updatedClaim: InsuranceClaimRecord = {
+        ...claim,
+        fudAttachment: attachment,
+        documentationPending: false,
+        documentationReceivedAt: now,
+        status: claim.claimNumber.trim() ? "Activo" : "Inactivo",
+        editHistory: [...claim.editHistory, { editedAt: now, justification: "FUD recibido y adjuntado; documentación completada." }],
+        updatedAt: now
+      };
+      await saveInsuranceClaim(dataOwnerUserId, updatedClaim);
+      setClaims((current) => current.map((item) => item.id === claim.id ? updatedClaim : item));
+      if (claim.fudAttachment?.path) {
+        try { await removeInsuranceSettlement(claim.fudAttachment.path); } catch { /* Limpieza de mejor esfuerzo. */ }
+      }
+      setMessage("FUD adjuntado. El expediente ya puede continuar su flujo normal.");
+    } catch (error) {
+      if (uploadedPath) {
+        try { await removeInsuranceSettlement(uploadedPath); } catch { /* Limpieza de mejor esfuerzo. */ }
+      }
+      console.error("No se pudo adjuntar el FUD.", error);
+      setMessage("No se pudo adjuntar el FUD en la nube.");
+    } finally {
+      setFudUploadingId("");
     }
   }
 
@@ -713,7 +763,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       setMessage("Escribe el número de reclamo antes de guardar la edición.");
       return;
     }
-    const nextStatus: InsuranceClaimStatus = !claimNumber
+    const nextStatus: InsuranceClaimStatus = !claimNumber || claim.documentationPending
       ? "Inactivo"
       : claim.status === "Inactivo"
         ? "Activo"
@@ -1067,7 +1117,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                       className={`workflow-status-select status-${claim.status === "Inactivo" ? "inactive" : claim.status === "Activo" ? "active" : "finished"}`}
                       value={claim.status}
                       onChange={(event) => requestClaimStatusUpdate(claim, event.target.value as InsuranceClaimStatus)}
-                      disabled={readOnly || editingClaimId === claim.id || statusSavingId === claim.id || settlementSavingId === claim.id || settlementUploadingId === claim.id || damagePhotosUploadingId === claim.id || followUpSavingId === claim.id || editSavingId === claim.id}
+                      disabled={readOnly || claim.documentationPending || editingClaimId === claim.id || statusSavingId === claim.id || settlementSavingId === claim.id || settlementUploadingId === claim.id || damagePhotosUploadingId === claim.id || followUpSavingId === claim.id || editSavingId === claim.id}
                     >
                       <option value="Inactivo">Inactivo</option>
                       <option value="Activo">Activo</option>
@@ -1086,6 +1136,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                 </div>
                 {expanded && (
                 <div className="workflow-claim-details">
+                {claim.documentationPending && <div className="workflow-finalization-panel insurance-documentation-pending"><div><strong>FUD pendiente</strong><span>El reclamo está registrado, pero no avanzará hasta adjuntar el FUD. Registra los contactos en Seguimiento mientras obtienes el documento.</span></div><label className="workflow-required-field">Adjuntar FUD<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => void handleFudFileChange(claim, event.target.files?.[0])} disabled={readOnly || fudUploadingId === claim.id} /><small>PDF o imagen · máximo 10 MB.</small></label><div className="workflow-finalization-actions"><strong>{fudUploadingId === claim.id ? "Subiendo FUD..." : "La alerta se cerrará al guardar el documento."}</strong></div></div>}
                 <div className="workflow-claim-detail-head">
                   <div>
                     {!claim.claimNumber ? (

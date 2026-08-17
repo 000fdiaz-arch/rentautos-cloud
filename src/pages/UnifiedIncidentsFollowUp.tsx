@@ -9,6 +9,7 @@ import {
 } from "../cloudData";
 import type { IncidentDestination } from "./IncidentIntakeForm";
 import { daysUntilAttendanceConfirmation, nextPendingJudicialStep } from "./incidents/judicialCaseNavigation";
+import { documentationAlertState } from "./incidents/incidentDocumentation";
 
 type Props = {
   dataOwnerUserId?: string | null;
@@ -19,12 +20,13 @@ type Props = {
   onAlertCountChange?: (count: number) => void;
 };
 
-type FollowUpFilter = "all" | "judicial" | "insurance_active" | "insurance_inactive" | "finalized";
-type NextActionFilter = "all" | "judicial_management" | "judicial_workshop" | "judicial_balance" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim" | "finalized";
+type FollowUpFilter = "all" | "documentation_pending" | "judicial" | "insurance_active" | "insurance_inactive" | "finalized";
+type NextActionFilter = "all" | "documentation" | "judicial_management" | "judicial_workshop" | "judicial_balance" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim" | "finalized";
 type IncidentAlertSeverity = "urgent" | "attention" | "upcoming";
 
 const NEXT_ACTION_LABELS: Record<NextActionFilter, string> = {
   all: "Todas las acciones",
+  documentation: "Obtener documentación",
   judicial_management: "Gestionar juicio",
   judicial_workshop: "Recibir y revisar vehículo",
   judicial_balance: "Registrar saldo de colisión",
@@ -38,6 +40,7 @@ const NEXT_ACTION_LABELS: Record<NextActionFilter, string> = {
   finalized: "Sin acciones pendientes"
 };
 const ACTION_QUEUE_FILTERS: NextActionFilter[] = [
+  "documentation",
   "judicial_result",
   "judicial_attendance",
   "judicial_workshop",
@@ -83,6 +86,7 @@ type UnifiedIncident = {
 
 function incidentMatchesFilter(incident: UnifiedIncident, filter: FollowUpFilter): boolean {
   const resolutionPending = incident.collision?.status === "ABSUELTO" && !incident.collision.judicialResolutionEvidence;
+  if (filter === "documentation_pending") return Boolean(incident.collision?.documentationPending || incident.claim?.documentationPending);
   if (filter === "judicial") return Boolean(incident.collision);
   if (filter === "insurance_active") return !resolutionPending && incident.claim?.status === "Activo";
   if (filter === "insurance_inactive") return !resolutionPending && incident.claim?.status === "Inactivo";
@@ -94,6 +98,7 @@ function nextActionCategory(incident: UnifiedIncident): NextActionFilter {
   if (incident.finalized) return "finalized";
   const collision = incident.collision;
   const claim = incident.claim;
+  if (collision?.documentationPending || claim?.documentationPending) return "documentation";
   if (collision?.status === "ABSUELTO" && !collision.judicialResolutionEvidence) return "judicial_resolution";
   if (collision?.status === "ABSUELTO" && collision.judicialResolutionEvidence && !claim) return "start_claim";
   if (collision && collision.status !== "ABSUELTO" && collision.status !== "CULPABLE") {
@@ -172,6 +177,25 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
   incidents.forEach((incident) => {
     const collision = incident.collision;
     const claim = incident.claim;
+    const pendingDocument = collision?.documentationPending ? "colilla" : claim?.documentationPending ? "FUD" : "";
+    if (pendingDocument) {
+      const pendingSince = collision?.documentationPending ? collision.documentationPendingSince : claim?.documentationPendingSince;
+      const alertState = documentationAlertState(pendingSince ?? incident.updatedAt);
+      const overdue = alertState.hoursPending >= 48;
+      const delayed = alertState.hoursPending >= 24;
+      addAlert(incident, {
+        id: `${incident.id}:documentation-pending`, kind: collision?.documentationPending ? "judicial" : "insurance",
+        severity: alertState.severity, priority: overdue ? 0 : delayed ? 1 : 7,
+        title: alertState.title === "Pendiente" ? `${pendingDocument === "colilla" ? "Colilla" : "FUD"} pendiente` : alertState.title,
+        message: overdue
+          ? `Han pasado ${alertState.hoursPending} horas sin recibir ${pendingDocument === "colilla" ? "la colilla" : "el FUD"}. Requiere seguimiento urgente.`
+          : delayed
+            ? `Han pasado al menos 24 horas. Contacta nuevamente para obtener ${pendingDocument === "colilla" ? "la colilla" : "el FUD"}.`
+            : `Solicita ${pendingDocument === "colilla" ? "la colilla" : "el FUD"} y registra cada gestión de seguimiento.`,
+        actionLabel: "Completar documentación", destination: collision?.documentationPending ? "judicial" : "insurance", targetId: collision?.id ?? claim!.id
+      });
+      return;
+    }
 
     if (collision && collision.status !== "ABSUELTO" && collision.status !== "CULPABLE") {
       const trialOffset = collision.trialDate ? calendarDayOffset(collision.trialDate) : null;
@@ -371,6 +395,7 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
 }
 
 function claimNextAction(claim: InsuranceClaimRecord): { label: string; finalized: boolean; requiresAction: boolean } {
+  if (claim.documentationPending) return { label: "Obtener y adjuntar el FUD", finalized: false, requiresAction: true };
   if (claim.status === "Finalizado") return { label: `Reclamo ${claim.closureOutcome?.toLocaleLowerCase("es") ?? "finalizado"}`, finalized: true, requiresAction: false };
   if (!claim.claimNumber.trim()) return { label: "Agregar número de reclamo", finalized: false, requiresAction: true };
   const latestFollowUp = claim.followUps[claim.followUps.length - 1];
@@ -388,6 +413,7 @@ function claimNextAction(claim: InsuranceClaimRecord): { label: string; finalize
 }
 
 function collisionNextAction(collision: CollisionCaseRecord, claim: InsuranceClaimRecord | null): { label: string; finalized: boolean; requiresAction: boolean } {
+  if (collision.documentationPending) return { label: "Obtener y registrar la colilla", finalized: false, requiresAction: true };
   if (collision.status === "CULPABLE") return {
     label: collision.clientReturnedBeforeClosure ? "Cliente dejó el carro antes del cierre" : "Expediente judicial finalizado",
     finalized: true,
@@ -559,6 +585,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     const count = (nextFilter: FollowUpFilter) => incidents.filter((incident) => incidentMatchesFilter(incident, nextFilter)).length;
     return {
       all: incidents.length,
+      documentation_pending: count("documentation_pending"),
       judicial: count("judicial"),
       insurance_active: count("insurance_active"),
       insurance_inactive: count("insurance_inactive"),
@@ -622,7 +649,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
 
   function openNextAction(incident: UnifiedIncident): void {
     const category = nextActionCategory(incident);
-    if ((category === "claim_number" || category === "insurance_follow_up" || category === "finalize_claim") && incident.claim) {
+    if ((category === "documentation" || category === "claim_number" || category === "insurance_follow_up" || category === "finalize_claim") && incident.claim && !incident.collision?.documentationPending) {
       onOpen("insurance", { id: incident.claim.id, search: incident.unit });
       return;
     }
@@ -682,6 +709,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
             <span className="unified-incidents-filter-title" id="incident-type-filter-title">Tipo de expediente</span>
             <div className="unified-incidents-filters unified-incidents-filters--types" aria-label="Filtrar por tipo de expediente">
               <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Todos <span>{filterCounts.all}</span></button>
+              <button type="button" className={filter === "documentation_pending" ? "active" : ""} onClick={() => setFilter("documentation_pending")} disabled={filterCounts.documentation_pending === 0}>Documentación pendiente <span>{filterCounts.documentation_pending}</span></button>
               {canViewJudicial && <button type="button" className={filter === "judicial" ? "active" : ""} onClick={() => setFilter("judicial")}><strong className="unified-filter-label">Juicios <b>{filterCounts.judicial}</b></strong>{nextTrialFilterLabel && <small className="unified-filter-next-trial">{nextTrialFilterLabel}</small>}</button>}
               {canViewInsurance && <button type="button" className={filter === "insurance_active" ? "active" : ""} onClick={() => setFilter("insurance_active")}>Con reclamo activo <span>{filterCounts.insurance_active}</span></button>}
               {canViewInsurance && <button type="button" className={filter === "insurance_inactive" ? "active" : ""} onClick={() => setFilter("insurance_inactive")}>Sin número de reclamo <span>{filterCounts.insurance_inactive}</span></button>}

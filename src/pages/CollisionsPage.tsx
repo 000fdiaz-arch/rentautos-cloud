@@ -158,6 +158,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [caseEditForm, setCaseEditForm] = useState<TrialForm>(EMPTY_FORM);
   const [caseEditJustification, setCaseEditJustification] = useState("");
   const [caseEditSavingId, setCaseEditSavingId] = useState("");
+  const [caseEditTicketStubPhotoFile, setCaseEditTicketStubPhotoFile] = useState<File | null>(null);
   const [photoGallery, setPhotoGallery] = useState<{ photos: CollisionPhotoAttachment[]; index: number; title: string } | null>(null);
 
   const fleetUnitsByUnit = useMemo(() => new Map(fleetUnits.map((row) => [normalizeUnit(row.unit_id), row])), [fleetUnits]);
@@ -327,6 +328,9 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       trialDate: form.trialDate,
       vehicleDamage: form.vehicleDamage.trim(),
       ticketStub: form.ticketStub.trim(),
+      documentationPending: false,
+      documentationPendingSince: null,
+      documentationReceivedAt: now,
       ticketStubHistory: [],
       editHistory: [],
       placeTime: form.placeTime.trim(),
@@ -381,7 +385,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       court: item.court,
       collisionAndRun: item.collisionAndRun
     });
-    setCaseEditJustification("");
+    setCaseEditJustification(item.documentationPending ? "Documentación recibida y expediente completado." : "");
+    setCaseEditTicketStubPhotoFile(null);
     setMessage("");
   }
 
@@ -389,6 +394,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     setEditingCaseId(null);
     setCaseEditForm(EMPTY_FORM);
     setCaseEditJustification("");
+    setCaseEditTicketStubPhotoFile(null);
   }
 
   async function saveCaseEdit(item: CollisionCaseRecord): Promise<void> {
@@ -421,26 +427,36 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     const changedFields = fieldLabels
       .filter(([field]) => normalizedEdit[field] !== item[field])
       .map(([, label]) => label);
+    if (caseEditTicketStubPhotoFile) changedFields.push("Foto de la colilla");
     if (changedFields.length === 0) {
       setMessage("No hay cambios para guardar.");
       return;
     }
 
-    const now = new Date().toISOString();
-    const caseClient = clientsByUnit.get(normalizedEdit.unit);
-    const updated: CollisionCaseRecord = {
-      ...item,
-      ...normalizedEdit,
-      clientId: caseClient?.id ?? item.clientId ?? "",
-      clientName: caseClient?.name ?? normalizedEdit.driver,
-      editHistory: [...(item.editHistory ?? []), { editedAt: now, justification: caseEditJustification.trim(), changedFields }],
-      updatedAt: now
-    };
-
     setCaseEditSavingId(item.id);
     setMessage("");
     let previousLinkedClaim: InsuranceClaimRecord | null = null;
+    let uploadedTicketStubPhoto: CollisionPhotoAttachment | null = null;
     try {
+      if (caseEditTicketStubPhotoFile) {
+        if (!caseEditTicketStubPhotoFile.type.startsWith("image/") || caseEditTicketStubPhotoFile.size > MAX_PHOTO_SIZE) {
+          throw new Error("INVALID_TICKET_STUB_PHOTO");
+        }
+        uploadedTicketStubPhoto = await uploadCollisionPhoto(dataOwnerUserId, item.id, caseEditTicketStubPhotoFile);
+      }
+      const now = new Date().toISOString();
+      const caseClient = clientsByUnit.get(normalizedEdit.unit);
+      const updated: CollisionCaseRecord = {
+        ...item,
+        ...normalizedEdit,
+        clientId: caseClient?.id ?? item.clientId ?? "",
+        clientName: caseClient?.name ?? normalizedEdit.driver,
+        ticketStubPhoto: uploadedTicketStubPhoto ?? item.ticketStubPhoto ?? null,
+        documentationPending: false,
+        documentationReceivedAt: item.documentationPending ? now : item.documentationReceivedAt ?? null,
+        editHistory: [...(item.editHistory ?? []), { editedAt: now, justification: caseEditJustification.trim(), changedFields }],
+        updatedAt: now
+      };
       const linkedClaimId = item.insuranceClaim?.insuranceClaimId;
       if (syncInsuranceClaims && linkedClaimId) {
         const linkedClaim = (await loadInsuranceClaims(dataOwnerUserId)).find((claim) => claim.id === linkedClaimId) ?? null;
@@ -466,12 +482,15 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       setCourts((current) => [...new Set([...current, updated.court])].sort((left, right) => left.localeCompare(right, "es", { numeric: true })));
       cancelCaseEdit();
     } catch (error) {
+      if (uploadedTicketStubPhoto) {
+        try { await removeCollisionPhotos([uploadedTicketStubPhoto.path]); } catch { /* Limpieza de mejor esfuerzo. */ }
+      }
       if (previousLinkedClaim) {
         try { await saveInsuranceClaim(dataOwnerUserId, previousLinkedClaim); }
         catch (rollbackError) { console.error("No se pudo revertir la sincronización del reclamo.", rollbackError); }
       }
       console.error("No se pudo guardar la corrección del siniestro.", error);
-      setMessage("No se pudo guardar la corrección del siniestro en la nube.");
+      setMessage(error instanceof Error && error.message === "INVALID_TICKET_STUB_PHOTO" ? "La foto de la colilla debe ser una imagen de 10 MB o menos." : "No se pudo guardar la corrección del siniestro en la nube.");
     } finally {
       setCaseEditSavingId("");
     }
@@ -1274,9 +1293,10 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   ))}
                 </div>
                 {activeCaseTab === "summary" && <div className="judicial-case-tab-panel judicial-case-tab-panel--summary" role="tabpanel" id={`judicial-summary-panel-${item.id}`} aria-labelledby={`judicial-summary-tab-${item.id}`}>
+                  {item.documentationPending && <div className="workflow-finalization-panel collision-documentation-pending"><div><strong>Colilla pendiente</strong><span>Este expediente está guardado, pero no avanzará hasta registrar los datos de la colilla. Usa “Completar colilla” y registra cada contacto en Seguimiento.</span></div></div>}
                   <div className="workflow-claim-detail-head">
-                    <div><strong>Datos registrados del siniestro</strong><small>Corrige aquí la información ingresada por error.</small></div>
-                    {editingCaseId !== item.id && <button type="button" className="button" onClick={() => startEditingCase(item)} disabled={readOnly || busyId === item.id || Boolean(caseEditSavingId)}>Editar siniestro</button>}
+                    <div><strong>Datos registrados del siniestro</strong><small>{item.documentationPending ? "Completa la información cuando recibas la colilla." : "Corrige aquí la información ingresada por error."}</small></div>
+                    {editingCaseId !== item.id && <button type="button" className={`button${item.documentationPending ? " primary" : ""}`} onClick={() => startEditingCase(item)} disabled={readOnly || busyId === item.id || Boolean(caseEditSavingId)}>{item.documentationPending ? "Completar colilla" : "Editar siniestro"}</button>}
                   </div>
                   {editingCaseId === item.id ? <div className="workflow-claim-edit-panel">
                     <div className="workflow-claim-edit-grid">
@@ -1286,17 +1306,18 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                       <label>Placa<input value={caseEditForm.plate} onChange={(event) => setCaseEditForm((current) => ({ ...current, plate: event.target.value }))} /></label>
                       <label>Fecha de juicio<input type="date" value={caseEditForm.trialDate} onChange={(event) => setCaseEditForm((current) => ({ ...current, trialDate: event.target.value }))} /></label>
                       <label>Número de colilla<input value={caseEditForm.ticketStub} onChange={(event) => setCaseEditForm((current) => ({ ...current, ticketStub: event.target.value }))} /></label>
+                      <label>Foto de la colilla<input type="file" accept="image/*" onChange={(event) => setCaseEditTicketStubPhotoFile(event.target.files?.[0] ?? null)} /><span className="hint">{caseEditTicketStubPhotoFile ? caseEditTicketStubPhotoFile.name : item.ticketStubPhoto?.name ?? "Opcional · máximo 10 MB"}</span></label>
                       <label>Lugar y hora<input value={caseEditForm.placeTime} onChange={(event) => setCaseEditForm((current) => ({ ...current, placeTime: event.target.value }))} /></label>
                       <label>Juzgado<input list="collision-edit-court-options" value={caseEditForm.court} onChange={(event) => setCaseEditForm((current) => ({ ...current, court: event.target.value }))} /></label>
                       <label className="collision-client-returned-option"><input type="checkbox" checked={caseEditForm.collisionAndRun} onChange={(event) => setCaseEditForm((current) => ({ ...current, collisionAndRun: event.target.checked }))} /><span><strong>Colisión y fuga</strong></span></label>
                       <label className="workflow-claim-edit-wide">Daños del auto<textarea value={caseEditForm.vehicleDamage} onChange={(event) => setCaseEditForm((current) => ({ ...current, vehicleDamage: event.target.value }))} /></label>
-                      <label className="workflow-claim-edit-wide workflow-required-field">Motivo de la corrección<textarea value={caseEditJustification} placeholder="Explica qué información estaba errada y por qué se corrige" onChange={(event) => setCaseEditJustification(event.target.value)} /></label>
+                      <label className="workflow-claim-edit-wide workflow-required-field">{item.documentationPending ? "Registro de la gestión" : "Motivo de la corrección"}<textarea value={caseEditJustification} placeholder={item.documentationPending ? "Ej. Colilla recibida por WhatsApp" : "Explica qué información estaba errada y por qué se corrige"} onChange={(event) => setCaseEditJustification(event.target.value)} /></label>
                     </div>
                     <datalist id="collision-edit-unit-options">{unitOptions.map((unitId) => <option key={unitId} value={unitId} label={unitOptionLabels.get(unitId) ?? ""} />)}</datalist>
                     <datalist id="collision-edit-court-options">{courts.map((court) => <option key={court} value={court} />)}</datalist>
                     <div className="workflow-claim-edit-actions">
                       <button type="button" className="button" onClick={cancelCaseEdit} disabled={caseEditSavingId === item.id}>Cancelar</button>
-                      <button type="button" className="button primary" onClick={() => void saveCaseEdit(item)} disabled={!caseEditJustification.trim() || caseEditSavingId === item.id}>{caseEditSavingId === item.id ? "Guardando..." : "Guardar corrección"}</button>
+                      <button type="button" className="button primary" onClick={() => void saveCaseEdit(item)} disabled={!caseEditJustification.trim() || caseEditSavingId === item.id}>{caseEditSavingId === item.id ? "Guardando..." : item.documentationPending ? "Completar documentación" : "Guardar corrección"}</button>
                     </div>
                   </div> : <>
                   <dl className="workflow-claim-detail-grid">

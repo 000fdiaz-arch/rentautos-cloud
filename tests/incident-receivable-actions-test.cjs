@@ -56,4 +56,25 @@ if (incidentActionBlocksManagement(undefined)) {
   throw new Error("Una unidad sin acción de siniestros no debe quedar bloqueada.");
 }
 
+const documentationActions = buildIncidentActionsByUnit(
+  [{
+    id: "fud-case", unit: "S21", status: "Inactivo", claimNumber: "", documentationPending: true,
+    documentationPendingSince: "2026-08-13T08:00:00Z", followUps: [], settlementDelivered: false,
+    createdAt: "2026-08-13T08:00:00Z", updatedAt: "2026-08-13T08:00:00Z"
+  }],
+  [collision("stub-case", "B22", "")],
+  "2026-08-15"
+);
+if (documentationActions.S21?.label !== "Obtener y adjuntar el FUD" || !documentationActions.S21.urgent) {
+  throw new Error("El FUD pendiente debe escalar como acción urgente a las 48 horas.");
+}
+
+const pendingStub = collision("stub-case-2", "B23", "");
+pendingStub.documentationPending = true;
+pendingStub.documentationPendingSince = "2026-08-14T08:00:00Z";
+const pendingStubActions = buildIncidentActionsByUnit([], [pendingStub], "2026-08-15");
+if (pendingStubActions.B23?.label !== "Obtener y registrar la colilla" || pendingStubActions.B23.urgent) {
+  throw new Error("La colilla pendiente debe mostrarse sin bloquear antes de las 48 horas.");
+}
+
 console.log("OK acciones de siniestros: B17 bloquea la gestión urgente y T08 permanece como aviso futuro.");

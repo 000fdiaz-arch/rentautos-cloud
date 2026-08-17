@@ -54,6 +54,12 @@ assertEqual(defaultJudicialCaseTab(judicialCase({
 
 assertEqual(defaultJudicialCaseTab(judicialCase(), "2026-08-15"), "summary", "expediente al día abre Resumen");
 
+const documentationPendingCase = judicialCase({ documentationPending: true, trialDate: "", vehicleInspectedAt: null, expenseInvoice: null });
+assertEqual(nextPendingJudicialStep(documentationPendingCase, "2026-08-15"), "documentation", "la colilla pendiente bloquea los pasos posteriores");
+assertEqual(defaultJudicialCaseTab(documentationPendingCase, "2026-08-15"), "summary", "la colilla pendiente abre Resumen");
+const documentationTabs = availableJudicialCaseTabs(documentationPendingCase, "2026-08-15");
+if (documentationTabs.join(",") !== "summary,follow_up,history") throw new Error("Con colilla pendiente solo deben aparecer Resumen, Seguimiento e Historial.");
+
 const pendingTabs = availableJudicialCaseTabs(judicialCase(), "2026-08-15");
 if (pendingTabs.includes("insurance")) throw new Error("Seguro no debe aparecer antes de estar habilitado.");
 

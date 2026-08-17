@@ -51,12 +51,13 @@ type IntakeForm = {
   hasClaimNumber: "" | "yes" | "no";
   claimNumber: string;
   amount: string;
+  documentationAvailable: "" | "yes" | "no";
 };
 
 const EMPTY_FORM: IntakeForm = {
   incidentDate: "", unit: "", driver: "", plate: "", vehicleDamage: "",
   trialDate: "", ticketStub: "", placeTime: "", court: "", collisionAndRun: false,
-  insurer: "", hasClaimNumber: "", claimNumber: "", amount: ""
+  insurer: "", hasClaimNumber: "", claimNumber: "", amount: "", documentationAvailable: ""
 };
 const MAX_DAMAGE_PHOTOS = 5;
 const MAX_PHOTO_SIZE = 10 * 1024 * 1024;
@@ -238,8 +239,10 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
 
   async function saveIncident(): Promise<void> {
     if (!dataOwnerUserId || !destination || readOnly || saving || !validateCommonFields()) return;
-    if (destination === "insurance" && !fudFile) { setMessage("Adjunta el documento FUD antes de guardar el reclamo al seguro."); return; }
-    if (destination === "judicial" && (!form.trialDate || !form.ticketStub.trim() || !form.placeTime.trim() || !form.court.trim())) { setMessage("Completa todos los datos judiciales."); return; }
+    if (!form.documentationAvailable) { setMessage(`Indica si ya recibiste ${destination === "judicial" ? "la colilla" : "el FUD"}.`); return; }
+    const documentationPending = form.documentationAvailable === "no";
+    if (destination === "insurance" && !documentationPending && !fudFile) { setMessage("Adjunta el documento FUD antes de guardar el reclamo al seguro."); return; }
+    if (destination === "judicial" && !documentationPending && (!form.trialDate || !form.ticketStub.trim() || !form.placeTime.trim() || !form.court.trim())) { setMessage("Completa todos los datos judiciales."); return; }
     if (destination === "insurance" && (!form.insurer || !form.hasClaimNumber)) { setMessage("Completa aseguradora e indica si tienes el número de reclamo."); return; }
     if (destination === "insurance" && form.hasClaimNumber === "yes" && !form.claimNumber.trim()) { setMessage("Escribe el número de reclamo."); return; }
 
@@ -260,6 +263,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           id, ...common,
           clientId: caseClient?.id ?? "", clientName: caseClient?.name ?? form.driver.trim(),
           trialDate: form.trialDate, ticketStub: form.ticketStub.trim(), ticketStubPhoto, placeTime: form.placeTime.trim(), court: normalizeCourtName(form.court), collisionAndRun: form.collisionAndRun,
+          documentationPending, documentationPendingSince: documentationPending ? now : null, documentationReceivedAt: documentationPending ? null : now,
           status: "PENDIENTE", trialDateHistory: [], editHistory: [], judicialFollowUps: [], clientWillAttend: null, legalAssistanceRequested: null, attendanceConfirmedAt: null, incidentPhotos: uploadedJudicialPhotos.filter((photo) => photo.path !== ticketStubPhoto?.path), judicialOutcomeEvidence: null, judicialResolutionEvidence: null, judicialResolutionSearchDate: null, insuranceClaim: null, expenseInvoice: null,
           clientReturnedBeforeClosure: false, clientReturnedBeforeClosureAt: null, createdAt: now, updatedAt: now
         };
@@ -272,7 +276,8 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
         const claimNumber = form.hasClaimNumber === "yes" ? form.claimNumber.trim() : "";
         const claim: InsuranceClaimRecord = {
           id, ...common, insurer: normalizeInsurer(form.insurer), hasClaimNumber: Boolean(claimNumber), claimNumber, amount: form.amount,
-          status: claimNumber ? "Activo" : "Inactivo", damagePhotoNames: uploadedPhotos.map((photo) => photo.name), damagePhotos: uploadedPhotos, fudAttachment: uploadedInsuranceFud,
+          status: !documentationPending && claimNumber ? "Activo" : "Inactivo", damagePhotoNames: uploadedPhotos.map((photo) => photo.name), damagePhotos: uploadedPhotos, fudAttachment: uploadedInsuranceFud,
+          documentationPending, documentationPendingSince: documentationPending ? now : null, documentationReceivedAt: documentationPending ? null : now,
           settlementDelivered: false, settlementDeliveredDate: "", settlementMarkedAt: null, settlementAttachment: null,
           followUpComment: "", followUpCommentUpdatedAt: null, followUps: [], closureOutcome: null, closureJustification: "", finalizedAt: null, editHistory: [], createdAt: now, updatedAt: now
         };
@@ -312,16 +317,17 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           <label>Chofer<input value={form.driver} placeholder="Nombre completo" onChange={(event) => { setDriverEditedManually(true); patchForm({ driver: event.target.value }); }} disabled={readOnly} /></label>
           <label>Placa<input value={form.plate} placeholder="Placa del auto" onChange={(event) => patchForm({ plate: event.target.value })} disabled={readOnly} /></label>
           <label className="workflow-form-notes">Daños del auto<textarea value={form.vehicleDamage} placeholder="Describe los daños del auto" onChange={(event) => patchForm({ vehicleDamage: event.target.value })} disabled={readOnly} /></label>
+          <div className={`workflow-claim-number-question${!form.documentationAvailable ? " is-pending" : ""}`}><div><strong>¿Ya recibiste {destination === "judicial" ? "la colilla" : "el FUD"}?</strong><small>Si todavía no lo tienes, guardaremos el caso y activaremos las alertas de seguimiento.</small></div><select value={form.documentationAvailable} onChange={(event) => patchForm({ documentationAvailable: event.target.value as IntakeForm["documentationAvailable"] })} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">Sí, ya lo recibí</option><option value="no">No, está pendiente</option></select></div>
           {destination === "judicial" ? <>
-            <label>Fecha de juicio<input type="date" value={form.trialDate} onChange={(event) => patchForm({ trialDate: event.target.value })} disabled={readOnly} /></label>
+            {form.documentationAvailable === "yes" && <><label>Fecha de juicio<input type="date" value={form.trialDate} onChange={(event) => patchForm({ trialDate: event.target.value })} disabled={readOnly} /></label>
             <label>Colilla<input value={form.ticketStub} placeholder="Número o referencia" onChange={(event) => patchForm({ ticketStub: event.target.value })} disabled={readOnly} /></label>
             <label>Foto de la colilla<input type="file" accept="image/*" onChange={(event) => handleTicketStubPhotoChange(event.target.files?.[0])} disabled={readOnly || saving} /><span className="hint">{ticketStubPhotoFile ? `Seleccionada: ${ticketStubPhotoFile.name}` : "Adjunta una foto de la colilla."} Máximo 10 MB.</span></label>
             <label>Hora<input type="time" value={form.placeTime} onChange={(event) => patchForm({ placeTime: event.target.value })} disabled={readOnly} /></label>
-            <label>Juzgado<select value={form.court} onChange={(event) => event.target.value === "__new__" ? addCourt() : patchForm({ court: event.target.value })} disabled={readOnly}><option value="">Seleccionar juzgado</option>{courts.map((court) => <option key={court}>{court}</option>)}<option value="__new__">+ Nuevo juzgado</option></select></label>
+            <label>Juzgado<select value={form.court} onChange={(event) => event.target.value === "__new__" ? addCourt() : patchForm({ court: event.target.value })} disabled={readOnly}><option value="">Seleccionar juzgado</option>{courts.map((court) => <option key={court}>{court}</option>)}<option value="__new__">+ Nuevo juzgado</option></select></label></>}
             <label className="collision-runaway-option"><input type="checkbox" checked={form.collisionAndRun} onChange={(event) => patchForm({ collisionAndRun: event.target.checked })} disabled={readOnly} /><span><strong>Colisión y fuga</strong><small>El conductor abandonó el lugar.</small></span></label>
             <label className="workflow-form-notes workflow-form-damage-photos">Fotos del juicio<input type="file" accept="image/*" multiple onChange={(event) => handleJudicialPhotosChange(event.target.files)} disabled={readOnly || saving} /><span className="hint">{judicialPhotoFiles.length ? `${judicialPhotoFiles.length} ${judicialPhotoFiles.length === 1 ? "foto seleccionada" : "fotos seleccionadas"}.` : "Puedes adjuntar todas las fotos necesarias."} Máximo 10 MB por foto.</span></label>
           </> : <>
-            <label className="workflow-form-notes">Documento FUD<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => handleFudChange(event.target.files?.[0])} disabled={readOnly || saving} required /><span className="hint">{fudFile ? `Seleccionado: ${fudFile.name}` : "Adjunta el FUD en PDF o imagen."} Máximo 10 MB.</span></label>
+            {form.documentationAvailable === "yes" && <label className="workflow-form-notes">Documento FUD<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => handleFudChange(event.target.files?.[0])} disabled={readOnly || saving} required /><span className="hint">{fudFile ? `Seleccionado: ${fudFile.name}` : "Adjunta el FUD en PDF o imagen."} Máximo 10 MB.</span></label>}
             <div className={`workflow-claim-number-question${!form.hasClaimNumber ? " is-pending" : ""}`}><div><strong>¿Tienes el número de reclamo?</strong><small>Define si el reclamo inicia activo o pendiente.</small></div><select value={form.hasClaimNumber} onChange={(event) => { const hasClaimNumber = event.target.value as IntakeForm["hasClaimNumber"]; patchForm({ hasClaimNumber, ...(hasClaimNumber !== "yes" ? { claimNumber: "" } : {}) }); }} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">Sí, tengo el número</option><option value="no">No, todavía no lo tengo</option></select></div>
             {form.hasClaimNumber === "yes" && <label className="workflow-claim-number-input">Número de reclamo<input value={form.claimNumber} placeholder="Escribe el número" onChange={(event) => patchForm({ claimNumber: event.target.value })} disabled={readOnly} /></label>}
             <label>Aseguradora<select value={form.insurer} onChange={(event) => event.target.value === "__new__" ? void addInsurer() : patchForm({ insurer: event.target.value })} disabled={readOnly}><option value="">Seleccionar aseguradora</option>{insurers.map((insurer) => <option key={insurer}>{insurer}</option>)}<option value="__new__">+ Nueva aseguradora</option></select></label>
