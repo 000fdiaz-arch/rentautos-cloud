@@ -135,6 +135,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [expenseLabels, setExpenseLabels] = useState<Record<string, string>>({});
   const [expenseEvaluationDates, setExpenseEvaluationDates] = useState<Record<string, string>>({});
   const [expenseInvoiceFiles, setExpenseInvoiceFiles] = useState<Record<string, File | null>>({});
+  const [editingBalanceId, setEditingBalanceId] = useState<string | null>(null);
+  const [balanceEditJustification, setBalanceEditJustification] = useState("");
   const [returnedBeforeClosure, setReturnedBeforeClosure] = useState<Record<string, boolean>>({});
   const [claimDrafts, setClaimDrafts] = useState<Record<string, ClaimDraft>>({});
   const [claimPhotoFiles, setClaimPhotoFiles] = useState<Record<string, File[]>>({});
@@ -144,6 +146,10 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [attendanceDrafts, setAttendanceDrafts] = useState<Record<string, { clientWillAttend: "" | "yes" | "no"; legalAssistanceRequested: "" | "yes" | "no" }>>({});
   const [ticketStubDrafts, setTicketStubDrafts] = useState<Record<string, string>>({});
   const [vehicleInspectionDates, setVehicleInspectionDates] = useState<Record<string, string>>({});
+  const [editingCaseId, setEditingCaseId] = useState<string | null>(null);
+  const [caseEditForm, setCaseEditForm] = useState<TrialForm>(EMPTY_FORM);
+  const [caseEditJustification, setCaseEditJustification] = useState("");
+  const [caseEditSavingId, setCaseEditSavingId] = useState("");
   const [photoGallery, setPhotoGallery] = useState<{ photos: CollisionPhotoAttachment[]; index: number; title: string } | null>(null);
 
   const fleetUnitsByUnit = useMemo(() => new Map(fleetUnits.map((row) => [normalizeUnit(row.unit_id), row])), [fleetUnits]);
@@ -313,6 +319,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       vehicleDamage: form.vehicleDamage.trim(),
       ticketStub: form.ticketStub.trim(),
       ticketStubHistory: [],
+      editHistory: [],
       placeTime: form.placeTime.trim(),
       court: normalizeCourtName(form.court),
       collisionAndRun: form.collisionAndRun,
@@ -348,6 +355,116 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     await saveCollisionCase(dataOwnerUserId, updated);
     setCases((current) => current.map((item) => item.id === updated.id ? updated : item));
     setMessage(success);
+  }
+
+  function startEditingCase(item: CollisionCaseRecord): void {
+    setEditingCaseId(item.id);
+    setCaseEditForm({
+      incidentDate: item.incidentDate,
+      unit: item.unit,
+      driver: item.driver,
+      plate: item.plate,
+      trialDate: item.trialDate,
+      vehicleDamage: item.vehicleDamage,
+      ticketStub: item.ticketStub,
+      placeTime: item.placeTime,
+      court: item.court,
+      collisionAndRun: item.collisionAndRun
+    });
+    setCaseEditJustification("");
+    setMessage("");
+  }
+
+  function cancelCaseEdit(): void {
+    setEditingCaseId(null);
+    setCaseEditForm(EMPTY_FORM);
+    setCaseEditJustification("");
+  }
+
+  async function saveCaseEdit(item: CollisionCaseRecord): Promise<void> {
+    if (!dataOwnerUserId || readOnly || caseEditSavingId) return;
+    if (!caseEditForm.incidentDate || !caseEditForm.unit.trim() || !caseEditForm.driver.trim() || !caseEditForm.plate.trim() || !caseEditForm.trialDate || !caseEditForm.vehicleDamage.trim() || !caseEditForm.ticketStub.trim() || !caseEditForm.placeTime.trim() || !caseEditForm.court.trim()) {
+      setMessage("Completa todos los datos del siniestro antes de guardar la edición.");
+      return;
+    }
+    if (!caseEditJustification.trim()) {
+      setMessage("Debes indicar el motivo de la corrección antes de guardarla.");
+      return;
+    }
+
+    const normalizedEdit: TrialForm = {
+      ...caseEditForm,
+      unit: normalizeUnit(caseEditForm.unit),
+      driver: caseEditForm.driver.trim(),
+      plate: caseEditForm.plate.trim().toUpperCase(),
+      vehicleDamage: caseEditForm.vehicleDamage.trim(),
+      ticketStub: caseEditForm.ticketStub.trim(),
+      placeTime: caseEditForm.placeTime.trim(),
+      court: normalizeCourtName(caseEditForm.court)
+    };
+    const fieldLabels: Array<[keyof TrialForm, string]> = [
+      ["incidentDate", "Fecha del incidente"], ["unit", "Unidad"], ["driver", "Nombre completo"],
+      ["plate", "Placa"], ["trialDate", "Fecha de juicio"], ["vehicleDamage", "Daños del auto"],
+      ["ticketStub", "Número de colilla"], ["placeTime", "Lugar y hora"], ["court", "Juzgado"],
+      ["collisionAndRun", "Colisión y fuga"]
+    ];
+    const changedFields = fieldLabels
+      .filter(([field]) => normalizedEdit[field] !== item[field])
+      .map(([, label]) => label);
+    if (changedFields.length === 0) {
+      setMessage("No hay cambios para guardar.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const caseClient = clientsByUnit.get(normalizedEdit.unit);
+    const updated: CollisionCaseRecord = {
+      ...item,
+      ...normalizedEdit,
+      clientId: caseClient?.id ?? item.clientId ?? "",
+      clientName: caseClient?.name ?? normalizedEdit.driver,
+      editHistory: [...(item.editHistory ?? []), { editedAt: now, justification: caseEditJustification.trim(), changedFields }],
+      updatedAt: now
+    };
+
+    setCaseEditSavingId(item.id);
+    setMessage("");
+    let previousLinkedClaim: InsuranceClaimRecord | null = null;
+    try {
+      const linkedClaimId = item.insuranceClaim?.insuranceClaimId;
+      if (syncInsuranceClaims && linkedClaimId) {
+        const linkedClaim = (await loadInsuranceClaims(dataOwnerUserId)).find((claim) => claim.id === linkedClaimId) ?? null;
+        if (linkedClaim) {
+          previousLinkedClaim = linkedClaim;
+          await saveInsuranceClaim(dataOwnerUserId, {
+            ...linkedClaim,
+            incidentDate: updated.incidentDate,
+            unit: updated.unit,
+            driver: updated.driver,
+            plate: updated.plate,
+            vehicleDamage: updated.vehicleDamage,
+            editHistory: [...linkedClaim.editHistory, {
+              editedAt: now,
+              justification: `Corrección sincronizada desde el expediente del siniestro: ${caseEditJustification.trim()}`
+            }],
+            updatedAt: now
+          });
+        }
+      }
+      await persistCase(updated, "Corrección del siniestro guardada correctamente.");
+      setTicketStubDrafts((current) => ({ ...current, [item.id]: updated.ticketStub }));
+      setCourts((current) => [...new Set([...current, updated.court])].sort((left, right) => left.localeCompare(right, "es", { numeric: true })));
+      cancelCaseEdit();
+    } catch (error) {
+      if (previousLinkedClaim) {
+        try { await saveInsuranceClaim(dataOwnerUserId, previousLinkedClaim); }
+        catch (rollbackError) { console.error("No se pudo revertir la sincronización del reclamo.", rollbackError); }
+      }
+      console.error("No se pudo guardar la corrección del siniestro.", error);
+      setMessage("No se pudo guardar la corrección del siniestro en la nube.");
+    } finally {
+      setCaseEditSavingId("");
+    }
   }
 
   async function saveTicketStub(item: CollisionCaseRecord): Promise<void> {
@@ -501,7 +618,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       }));
       const updatedCase: CollisionCaseRecord = {
         ...item,
-        expenseInvoice: { chargeId, label: chargeLabel, description, amount, attachment: uploadedInvoice, evaluatedAt, creditedToRentAmount: 0, creditedToRentAt: null, createdAt: now },
+        expenseInvoice: { chargeId, label: chargeLabel, description, amount, attachment: uploadedInvoice, evaluatedAt, creditedToRentAmount: 0, creditedToRentAt: null, editHistory: [], createdAt: now },
         updatedAt: now
       };
       await saveCollisionCase(dataOwnerUserId, updatedCase);
@@ -517,6 +634,114 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       if (uploadedInvoice) { try { await removeCollisionPhotos([uploadedInvoice.path]); } catch { /* Limpieza de mejor esfuerzo. */ } }
       console.error("No se pudo registrar el saldo de colisión.", error);
       setMessage("No se pudo registrar el saldo de colisión.");
+    } finally { setBusyId(""); }
+  }
+
+  function startEditingBalance(item: CollisionCaseRecord): void {
+    if (!item.expenseInvoice) return;
+    setEditingBalanceId(item.id);
+    setExpenseAmounts((current) => ({ ...current, [item.id]: String(item.expenseInvoice!.amount) }));
+    setExpenseLabels((current) => ({ ...current, [item.id]: item.expenseInvoice!.description || item.expenseInvoice!.label }));
+    setExpenseEvaluationDates((current) => ({ ...current, [item.id]: item.expenseInvoice!.evaluatedAt || item.expenseInvoice!.createdAt.slice(0, 10) }));
+    setExpenseInvoiceFiles((current) => ({ ...current, [item.id]: null }));
+    setBalanceEditJustification("");
+    setMessage("");
+  }
+
+  function cancelBalanceEdit(caseId: string): void {
+    setEditingBalanceId(null);
+    setExpenseInvoiceFiles((current) => ({ ...current, [caseId]: null }));
+    setBalanceEditJustification("");
+  }
+
+  async function saveCollisionBalanceEdit(item: CollisionCaseRecord): Promise<void> {
+    const invoice = item.expenseInvoice;
+    if (readOnly || busyId || !dataOwnerUserId || !invoice) return;
+    if (invoice.creditedToRentAt) {
+      setMessage("Este saldo ya fue aplicado a la letra y no puede editarse desde el expediente.");
+      return;
+    }
+    const amount = parseAmount(expenseAmounts[item.id] ?? "");
+    const description = expenseLabels[item.id]?.trim() ?? "";
+    const evaluatedAt = expenseEvaluationDates[item.id] ?? "";
+    const replacementFile = expenseInvoiceFiles[item.id];
+    if (amount <= 0) { setMessage("Indica un monto válido para el saldo de colisión."); return; }
+    if (!description) { setMessage("Describe brevemente el daño o la reparación."); return; }
+    if (!evaluatedAt) { setMessage("Indica la fecha de evaluación del taller."); return; }
+    if (!balanceEditJustification.trim()) { setMessage("Indica el motivo de la corrección."); return; }
+
+    const changedFields = [
+      amount !== invoice.amount ? "Monto" : "",
+      description !== (invoice.description || invoice.label) ? "Descripción" : "",
+      evaluatedAt !== (invoice.evaluatedAt || invoice.createdAt.slice(0, 10)) ? "Fecha de evaluación" : "",
+      replacementFile ? "Factura adjunta" : ""
+    ].filter(Boolean);
+    if (changedFields.length === 0) { setMessage("No hay cambios para guardar."); return; }
+
+    const clientIndex = findCaseClientIndex(item);
+    if (clientIndex < 0) { setMessage("No se encontró el cliente asociado al siniestro."); return; }
+    const paidToCollision = Math.max(0, Math.round((payments
+      .filter((payment) => payment.clientId === clients[clientIndex].id)
+      .flatMap((payment) => payment.otherChargesApplied ?? [])
+      .filter((charge) => charge.id === invoice.chargeId)
+      .reduce((sum, charge) => sum + charge.amount, 0) + Number.EPSILON) * 100) / 100);
+    if (amount < paidToCollision) {
+      setMessage(`El monto no puede ser menor que ${USD_FORMATTER.format(paidToCollision)}, que ya fue pagado a este saldo.`);
+      return;
+    }
+
+    let uploadedInvoice: CollisionPhotoAttachment | null = null;
+    setBusyId(item.id);
+    setMessage("");
+    try {
+      if (replacementFile) uploadedInvoice = await uploadCollisionPhoto(dataOwnerUserId, item.id, replacementFile);
+      const now = new Date().toISOString();
+      const pendingAmount = Math.max(0, Math.round(((amount - paidToCollision) + Number.EPSILON) * 100) / 100);
+      const chargeLabel = `SALDO DE COLISIÓN - ${item.unit}`;
+      const nextClients = clients.map((client, index) => {
+        if (index !== clientIndex) return client;
+        const otherCharges = client.otherCharges.filter((charge) => charge.id !== invoice.chargeId);
+        if (pendingAmount > 0) otherCharges.push({ id: invoice.chargeId, label: chargeLabel, amount: pendingAmount });
+        return { ...client, otherCharges };
+      });
+      const updatedCase: CollisionCaseRecord = {
+        ...item,
+        expenseInvoice: {
+          ...invoice,
+          label: chargeLabel,
+          description,
+          amount,
+          evaluatedAt,
+          attachment: uploadedInvoice ?? invoice.attachment ?? null,
+          editHistory: [...(invoice.editHistory ?? []), {
+            editedAt: now,
+            justification: balanceEditJustification.trim(),
+            changedFields,
+            previousAmount: invoice.amount,
+            newAmount: amount
+          }]
+        },
+        updatedAt: now
+      };
+      await saveCollisionCase(dataOwnerUserId, updatedCase);
+      try { await onClientsChange(nextClients); }
+      catch (error) {
+        try { await saveCollisionCase(dataOwnerUserId, item); } catch (rollbackError) { console.error("No se pudo revertir la edición del saldo.", rollbackError); }
+        throw error;
+      }
+      if (uploadedInvoice && invoice.attachment?.path) {
+        try { await removeCollisionPhotos([invoice.attachment.path]); }
+        catch (cleanupError) { console.error("No se pudo eliminar la factura reemplazada.", cleanupError); }
+      }
+      setCases((current) => current.map((candidate) => candidate.id === item.id ? updatedCase : candidate));
+      setExpenseInvoiceFiles((current) => ({ ...current, [item.id]: null }));
+      setEditingBalanceId(null);
+      setBalanceEditJustification("");
+      setMessage("Saldo de colisión y cargo pendiente actualizados correctamente.");
+    } catch (error) {
+      if (uploadedInvoice) { try { await removeCollisionPhotos([uploadedInvoice.path]); } catch { /* Limpieza de mejor esfuerzo. */ } }
+      console.error("No se pudo editar el saldo de colisión.", error);
+      setMessage("No se pudo guardar la edición del saldo de colisión.");
     } finally { setBusyId(""); }
   }
 
@@ -915,6 +1140,31 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   ))}
                 </div>
                 {activeCaseTab === "summary" && <div className="judicial-case-tab-panel judicial-case-tab-panel--summary" role="tabpanel" id={`judicial-summary-panel-${item.id}`} aria-labelledby={`judicial-summary-tab-${item.id}`}>
+                  <div className="workflow-claim-detail-head">
+                    <div><strong>Datos registrados del siniestro</strong><small>Corrige aquí la información ingresada por error.</small></div>
+                    {editingCaseId !== item.id && <button type="button" className="button" onClick={() => startEditingCase(item)} disabled={readOnly || busyId === item.id || Boolean(caseEditSavingId)}>Editar siniestro</button>}
+                  </div>
+                  {editingCaseId === item.id ? <div className="workflow-claim-edit-panel">
+                    <div className="workflow-claim-edit-grid">
+                      <label>Fecha del incidente<input type="date" value={caseEditForm.incidentDate} onChange={(event) => setCaseEditForm((current) => ({ ...current, incidentDate: event.target.value }))} /></label>
+                      <label>Unidad<input list="collision-edit-unit-options" value={caseEditForm.unit} onChange={(event) => setCaseEditForm((current) => ({ ...current, unit: event.target.value }))} /></label>
+                      <label>Nombre completo<input value={caseEditForm.driver} onChange={(event) => setCaseEditForm((current) => ({ ...current, driver: event.target.value }))} /></label>
+                      <label>Placa<input value={caseEditForm.plate} onChange={(event) => setCaseEditForm((current) => ({ ...current, plate: event.target.value }))} /></label>
+                      <label>Fecha de juicio<input type="date" value={caseEditForm.trialDate} onChange={(event) => setCaseEditForm((current) => ({ ...current, trialDate: event.target.value }))} /></label>
+                      <label>Número de colilla<input value={caseEditForm.ticketStub} onChange={(event) => setCaseEditForm((current) => ({ ...current, ticketStub: event.target.value }))} /></label>
+                      <label>Lugar y hora<input value={caseEditForm.placeTime} onChange={(event) => setCaseEditForm((current) => ({ ...current, placeTime: event.target.value }))} /></label>
+                      <label>Juzgado<input list="collision-edit-court-options" value={caseEditForm.court} onChange={(event) => setCaseEditForm((current) => ({ ...current, court: event.target.value }))} /></label>
+                      <label className="collision-client-returned-option"><input type="checkbox" checked={caseEditForm.collisionAndRun} onChange={(event) => setCaseEditForm((current) => ({ ...current, collisionAndRun: event.target.checked }))} /><span><strong>Colisión y fuga</strong></span></label>
+                      <label className="workflow-claim-edit-wide">Daños del auto<textarea value={caseEditForm.vehicleDamage} onChange={(event) => setCaseEditForm((current) => ({ ...current, vehicleDamage: event.target.value }))} /></label>
+                      <label className="workflow-claim-edit-wide workflow-required-field">Motivo de la corrección<textarea value={caseEditJustification} placeholder="Explica qué información estaba errada y por qué se corrige" onChange={(event) => setCaseEditJustification(event.target.value)} /></label>
+                    </div>
+                    <datalist id="collision-edit-unit-options">{unitOptions.map((unitId) => <option key={unitId} value={unitId} label={unitOptionLabels.get(unitId) ?? ""} />)}</datalist>
+                    <datalist id="collision-edit-court-options">{courts.map((court) => <option key={court} value={court} />)}</datalist>
+                    <div className="workflow-claim-edit-actions">
+                      <button type="button" className="button" onClick={cancelCaseEdit} disabled={caseEditSavingId === item.id}>Cancelar</button>
+                      <button type="button" className="button primary" onClick={() => void saveCaseEdit(item)} disabled={!caseEditJustification.trim() || caseEditSavingId === item.id}>{caseEditSavingId === item.id ? "Guardando..." : "Guardar corrección"}</button>
+                    </div>
+                  </div> : <>
                   <dl className="workflow-claim-detail-grid">
                   <div><dt>Fecha del incidente</dt><dd>{item.incidentDate}</dd></div><div><dt>Fecha de juicio</dt><dd>{item.trialDate}</dd></div>
                   <div><dt>Número de colilla</dt><dd className="judicial-ticket-stub-editor"><div><input aria-label="Número de colilla" value={ticketStubDrafts[item.id] ?? item.ticketStub} onChange={(event) => setTicketStubDrafts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /><button type="button" className="button small" onClick={() => void saveTicketStub(item)} disabled={readOnly || busyId === item.id || !(ticketStubDrafts[item.id] ?? item.ticketStub).trim() || (ticketStubDrafts[item.id] ?? item.ticketStub).trim() === item.ticketStub}>{busyId === item.id ? "Guardando..." : "Guardar"}</button></div>{item.ticketStubPhoto && <button type="button" className="button small" onClick={() => setPhotoGallery({ photos: [item.ticketStubPhoto!], index: 0, title: "Foto de la colilla" })}>Ver foto original</button>}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
@@ -923,6 +1173,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                    <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>
                    </dl>
                  {item.incidentPhotos?.length ? <div className="workflow-damage-photo-list workflow-damage-photo-list--compact"><div className="workflow-damage-photo-row"><div><strong>Fotos adjuntas al juicio</strong><small>{item.incidentPhotos.length} {item.incidentPhotos.length === 1 ? "foto disponible" : "fotos disponibles"}</small></div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos!, index: 0, title: "Fotos del juicio" })}>Ver galería</button></div></div> : null}
+                  {(item.editHistory?.length ?? 0) > 0 && <details className="workflow-edit-history"><summary>Historial de correcciones ({item.editHistory!.length})</summary><ul>{[...item.editHistory!].reverse().map((event) => <li key={`${event.editedAt}-${event.justification}`}><time>{new Date(event.editedAt).toLocaleString("es-PA")}</time><span><strong>{event.changedFields.join(", ")}</strong>: {event.justification}</span></li>)}</ul></details>}
+                  </>}
                 </div>}
                 {activeCaseTab === "attendance" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-attendance-panel-${item.id}`} aria-labelledby={`judicial-attendance-tab-${item.id}`}>
                  {!isFinalStatus(item.status) && <div className={`workflow-finalization-panel collision-attendance-panel${attendanceComplete ? " is-complete" : " is-pending"}`}>
@@ -951,7 +1203,17 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   <label className="collision-outcome-evidence">Factura del taller (opcional)<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => selectExpenseInvoice(item.id, event.target.files?.[0])} disabled={readOnly || busyId === item.id} /><small>{expenseInvoiceFiles[item.id] ? `Seleccionada: ${expenseInvoiceFiles[item.id]!.name}` : "Adjunta PDF o imagen de hasta 10 MB"}</small></label>
                   <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => void saveCollisionBalance(item)} disabled={readOnly || busyId === item.id || !expenseAmounts[item.id] || !expenseLabels[item.id]?.trim()}>{busyId === item.id ? "Guardando..." : "Registrar saldo de colisión"}</button></div>
                  </div>}
-                 {item.expenseInvoice && <div className="collision-expense-invoice"><strong>Saldo de colisión registrado</strong><span>{item.expenseInvoice.description || item.expenseInvoice.label}</span><b>{USD_FORMATTER.format(item.expenseInvoice.amount)}</b><small>{item.expenseInvoice.creditedToRentAt ? `${USD_FORMATTER.format(item.expenseInvoice.creditedToRentAmount ?? 0)} transferidos a la letra al ganar el juicio.` : `Evaluado el ${item.expenseInvoice.evaluatedAt || item.expenseInvoice.createdAt.slice(0, 10)} · cobro activo en otros cargos.`}</small>{item.expenseInvoice.attachment && <button type="button" className="button" onClick={() => void viewExpenseInvoice(item.expenseInvoice!.attachment!)}>Ver factura adjunta</button>}</div>}
+                 {item.expenseInvoice && editingBalanceId !== item.id && <div className="collision-expense-invoice"><strong>Saldo de colisión registrado</strong><span>{item.expenseInvoice.description || item.expenseInvoice.label}</span><b>{USD_FORMATTER.format(item.expenseInvoice.amount)}</b><small>{item.expenseInvoice.creditedToRentAt ? `${USD_FORMATTER.format(item.expenseInvoice.creditedToRentAmount ?? 0)} transferidos a la letra al ganar el juicio.` : `Evaluado el ${item.expenseInvoice.evaluatedAt || item.expenseInvoice.createdAt.slice(0, 10)} · cobro activo en otros cargos.`}</small><div className="collision-expense-invoice-actions">{item.expenseInvoice.attachment && <button type="button" className="button" onClick={() => void viewExpenseInvoice(item.expenseInvoice!.attachment!)}>Ver factura adjunta</button>}<button type="button" className="button primary" onClick={() => startEditingBalance(item)} disabled={readOnly || busyId === item.id || Boolean(item.expenseInvoice.creditedToRentAt)} title={item.expenseInvoice.creditedToRentAt ? "El saldo ya fue aplicado a la letra" : "Editar saldo y factura"}>Editar saldo y factura</button></div></div>}
+                 {item.expenseInvoice && editingBalanceId === item.id && <div className="workflow-finalization-panel collision-balance-panel collision-balance-edit-panel">
+                  <div><strong>Editar saldo y factura de colisión</strong><span>La corrección actualizará también el cargo pendiente del cliente.</span></div>
+                  <label>Fecha de evaluación<input type="date" value={expenseEvaluationDates[item.id] ?? ""} onChange={(event) => setExpenseEvaluationDates((current) => ({ ...current, [item.id]: event.target.value }))} disabled={busyId === item.id} /></label>
+                  <label>Monto total<input type="number" min="0.01" step="0.01" value={expenseAmounts[item.id] ?? ""} onChange={(event) => setExpenseAmounts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={busyId === item.id} /></label>
+                  <label className="workflow-finalization-reason">Descripción del daño o reparación<textarea value={expenseLabels[item.id] ?? ""} onChange={(event) => setExpenseLabels((current) => ({ ...current, [item.id]: event.target.value }))} disabled={busyId === item.id} /></label>
+                  <label className="collision-outcome-evidence">Reemplazar factura adjunta<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => selectExpenseInvoice(item.id, event.target.files?.[0])} disabled={busyId === item.id} /><small>{expenseInvoiceFiles[item.id] ? `Nueva factura: ${expenseInvoiceFiles[item.id]!.name}` : item.expenseInvoice.attachment ? `Actual: ${item.expenseInvoice.attachment.name} · selecciona un archivo para reemplazarla` : "No hay factura actual · puedes adjuntar PDF o imagen de hasta 10 MB"}</small></label>
+                  <label className="workflow-finalization-reason workflow-required-field">Motivo de la corrección<textarea value={balanceEditJustification} placeholder="Explica qué dato o factura estaba errado" onChange={(event) => setBalanceEditJustification(event.target.value)} disabled={busyId === item.id} /></label>
+                  <div className="workflow-finalization-actions"><button type="button" className="button" onClick={() => cancelBalanceEdit(item.id)} disabled={busyId === item.id}>Cancelar</button><button type="button" className="button primary" onClick={() => void saveCollisionBalanceEdit(item)} disabled={busyId === item.id || !balanceEditJustification.trim()}>{busyId === item.id ? "Guardando..." : "Guardar corrección"}</button></div>
+                 </div>}
+                 {(item.expenseInvoice?.editHistory?.length ?? 0) > 0 && editingBalanceId !== item.id && <details className="workflow-edit-history"><summary>Historial de correcciones del saldo ({item.expenseInvoice!.editHistory!.length})</summary><ul>{[...item.expenseInvoice!.editHistory!].reverse().map((event) => <li key={`${event.editedAt}-${event.justification}`}><time>{new Date(event.editedAt).toLocaleString("es-PA")}</time><span><strong>{event.changedFields.join(", ")}</strong>{event.previousAmount !== event.newAmount ? ` · ${USD_FORMATTER.format(event.previousAmount)} → ${USD_FORMATTER.format(event.newAmount)}` : ""}: {event.justification}</span></li>)}</ul></details>}
                  {!item.expenseInvoice && isFinalStatus(item.status) && <p className="judicial-section-empty">No se registró saldo de colisión antes de finalizar el juicio.</p>}
                 </div>}
                 {activeCaseTab === "outcome" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-outcome-panel-${item.id}`} aria-labelledby={`judicial-outcome-tab-${item.id}`}>

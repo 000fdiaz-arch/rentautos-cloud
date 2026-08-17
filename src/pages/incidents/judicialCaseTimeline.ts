@@ -46,6 +46,17 @@ export function buildJudicialCaseTimeline(item: CollisionCaseRecord): JudicialCa
     });
   }
 
+  for (const edit of item.editHistory ?? []) {
+    events.push({
+      id: `case-edit-${edit.editedAt}`,
+      occurredAt: eventTimestamp(edit.editedAt, fallback),
+      title: "Datos del siniestro corregidos",
+      description: edit.changedFields.length > 0 ? edit.changedFields.join(", ") : "Información general del expediente",
+      detail: edit.justification,
+      tone: "info"
+    });
+  }
+
   if (item.vehicleInspectedAt) {
     events.push({
       id: `workshop-${item.vehicleInspectedAt}`,
@@ -87,6 +98,16 @@ export function buildJudicialCaseTimeline(item: CollisionCaseRecord): JudicialCa
       detail: item.expenseInvoice.attachment ? "Factura del taller adjunta." : "Sin factura adjunta.",
       tone: "warning"
     });
+    for (const edit of item.expenseInvoice.editHistory ?? []) {
+      events.push({
+        id: `balance-edit-${edit.editedAt}`,
+        occurredAt: eventTimestamp(edit.editedAt, fallback),
+        title: "Saldo de colisión corregido",
+        description: `${edit.changedFields.join(", ")}${edit.previousAmount !== edit.newAmount ? ` · $${edit.previousAmount.toFixed(2)} → $${edit.newAmount.toFixed(2)}` : ""}`,
+        detail: edit.justification,
+        tone: "info"
+      });
+    }
     if (item.expenseInvoice.creditedToRentAt) {
       events.push({
         id: `balance-credit-${item.expenseInvoice.creditedToRentAt}`,

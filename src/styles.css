@@ -14775,6 +14775,22 @@ button.ar-route-publish-copy.is-active {
   font-size: 1.05rem;
 }
 
+.collision-expense-invoice-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.collision-expense-invoice-actions .button {
+  flex: 1 1 220px;
+}
+
+.collision-balance-edit-panel {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
 .collision-client-returned-option {
   grid-column: 1 / -1;
   display: flex !important;

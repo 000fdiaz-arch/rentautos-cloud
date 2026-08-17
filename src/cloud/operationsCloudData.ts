@@ -174,7 +174,16 @@ export type CollisionExpenseInvoice = {
   evaluatedAt?: string;
   creditedToRentAmount?: number;
   creditedToRentAt?: string | null;
+  editHistory?: CollisionExpenseInvoiceEditEvent[];
   createdAt: string;
+};
+
+export type CollisionExpenseInvoiceEditEvent = {
+  editedAt: string;
+  justification: string;
+  changedFields: string[];
+  previousAmount: number;
+  newAmount: number;
 };
 
 export type CollisionJudicialFollowUp = {
@@ -191,6 +200,12 @@ export type CollisionTicketStubEvent = {
   changedAt: string;
 };
 
+export type CollisionCaseEditEvent = {
+  editedAt: string;
+  justification: string;
+  changedFields: string[];
+};
+
 export type CollisionCaseRecord = {
   id: string;
   incidentDate: string;
@@ -203,6 +218,7 @@ export type CollisionCaseRecord = {
   vehicleDamage: string;
   ticketStub: string;
   ticketStubHistory?: CollisionTicketStubEvent[];
+  editHistory?: CollisionCaseEditEvent[];
   ticketStubPhoto?: CollisionPhotoAttachment | null;
   placeTime: string;
   court: string;
@@ -545,6 +561,14 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
           && typeof entry.changedAt === "string"
         ))
       : [],
+    editHistory: Array.isArray(item.editHistory)
+      ? item.editHistory.filter((entry): entry is CollisionCaseEditEvent => Boolean(
+          entry && typeof entry === "object"
+          && typeof entry.editedAt === "string"
+          && typeof entry.justification === "string"
+          && Array.isArray(entry.changedFields)
+        ))
+      : [],
     ticketStubPhoto: item.ticketStubPhoto && typeof item.ticketStubPhoto === "object" && typeof item.ticketStubPhoto.path === "string"
       ? item.ticketStubPhoto
       : null,
@@ -588,7 +612,17 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
             : null,
           evaluatedAt: typeof item.expenseInvoice.evaluatedAt === "string" ? item.expenseInvoice.evaluatedAt : item.expenseInvoice.createdAt?.slice(0, 10) ?? "",
           creditedToRentAmount: typeof item.expenseInvoice.creditedToRentAmount === "number" ? item.expenseInvoice.creditedToRentAmount : 0,
-          creditedToRentAt: typeof item.expenseInvoice.creditedToRentAt === "string" ? item.expenseInvoice.creditedToRentAt : null
+          creditedToRentAt: typeof item.expenseInvoice.creditedToRentAt === "string" ? item.expenseInvoice.creditedToRentAt : null,
+          editHistory: Array.isArray(item.expenseInvoice.editHistory)
+            ? item.expenseInvoice.editHistory.filter((entry): entry is CollisionExpenseInvoiceEditEvent => Boolean(
+                entry && typeof entry === "object"
+                && typeof entry.editedAt === "string"
+                && typeof entry.justification === "string"
+                && Array.isArray(entry.changedFields)
+                && typeof entry.previousAmount === "number"
+                && typeof entry.newAmount === "number"
+              ))
+            : []
         }
       : null,
     clientReturnedBeforeClosure: item.clientReturnedBeforeClosure === true,
