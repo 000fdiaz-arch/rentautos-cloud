@@ -164,6 +164,8 @@ export function EditClientDialog({
                         </div>
                         {form.otherCharges.map((charge, i) => (
                           <div key={i} className="other-charge-row">
+                            <input type="date" aria-label={`Fecha del cargo ${i + 1}`} value={charge.createdAt} required={Boolean(charge.label.trim() || charge.amount.trim())}
+                              onChange={(e) => setForm((c) => ({ ...c, otherCharges: c.otherCharges.map((ch, idx) => idx === i ? { ...ch, createdAt: e.target.value } : ch) }))} />
                             <input type="text" placeholder="Concepto" value={charge.label}
                               onChange={(e) => setForm((c) => ({ ...c, otherCharges: c.otherCharges.map((ch, idx) => idx === i ? { ...ch, label: e.target.value } : ch) }))} />
                             <input type="number" step="0.01" min="0" placeholder="0.00" value={charge.amount}
@@ -330,6 +332,8 @@ export function CreateClientDialog({
                   </div>
                   {form.otherCharges.map((charge, i) => (
                     <div key={i} className="other-charge-row">
+                      <input type="date" aria-label={`Fecha del cargo ${i + 1}`} value={charge.createdAt} required={Boolean(charge.label.trim() || charge.amount.trim())}
+                        onChange={(e) => setForm((c) => ({ ...c, otherCharges: c.otherCharges.map((ch, idx) => idx === i ? { ...ch, createdAt: e.target.value } : ch) }))} />
                       <input type="text" placeholder="Concepto (ej. Mantenimiento)" value={charge.label}
                         onChange={(e) => setForm((c) => ({ ...c, otherCharges: c.otherCharges.map((ch, idx) => idx === i ? { ...ch, label: e.target.value } : ch) }))} />
                       <input type="number" step="0.01" min="0" placeholder="0.00" value={charge.amount}

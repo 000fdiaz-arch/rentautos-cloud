@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import { formatCurrency } from "../../format";
+import { otherChargeDateKey, sortOtherChargesOldestFirst } from "../../otherCharges";
 import type { Client } from "../../types";
 import { FREQUENCY_LABEL, STATUS_LABEL } from "./clientConstants";
 
@@ -175,7 +176,7 @@ export function ClientInfoDialog({
               <div style={{ gridColumn: "1 / -1" }}><span className="hint">Comentario de estado</span><p>{selected.statusComment ?? "-"}</p></div>
               <div style={{ gridColumn: "1 / -1" }}>
                 <span className="hint">Otros cargos</span>
-                <p>{selected.otherCharges.length > 0 ? selected.otherCharges.map((charge) => `${charge.label}: ${formatCurrency(charge.amount)}`).join(" | ") : "-"}</p>
+                <p>{selected.otherCharges.length > 0 ? sortOtherChargesOldestFirst(selected.otherCharges).map((charge) => `${otherChargeDateKey(charge) || "Sin fecha"} · ${charge.label}: ${formatCurrency(charge.amount)}`).join(" | ") : "-"}</p>
               </div>
             </div>
           )}

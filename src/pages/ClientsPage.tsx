@@ -6,6 +6,7 @@ import {
 } from "../billing";
 import { exportClientsToExcel, exportClientsToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
+import { otherChargeDateKey, sortOtherChargesOldestFirst } from "../otherCharges";
 import { loadControlUnits, saveProvisionalRentalState, setControlUnitStatus } from "../cloudData";
 import { supabase } from "../lib/supabase";
 import type { Client, Payment } from "../types";
@@ -311,7 +312,7 @@ export default function ClientsPage({ clients, payments = [], onClientsChange, o
     updateClientInline(client.id, (current) => ({
       ...current,
       otherCharges: amount > 0
-        ? [{ id: current.otherCharges[0]?.id ?? crypto.randomUUID(), label, amount }]
+        ? [{ id: current.otherCharges[0]?.id ?? crypto.randomUUID(), label, amount, createdAt: current.otherCharges[0]?.createdAt ?? getBusinessDateKey() }]
         : []
     }));
   }
@@ -532,6 +533,7 @@ export default function ClientsPage({ clients, payments = [], onClientsChange, o
       const amount = parseNumberOrNull(charge.amount);
       if (hasLabel && amount === null) { messages.push("Cada cargo adicional debe tener un monto valido."); break; }
       if (!hasLabel && amount !== null) { messages.push("Cada cargo adicional debe tener un concepto."); break; }
+      if ((hasLabel || amount !== null) && !parseDateKey(charge.createdAt)) { messages.push("Cada cargo adicional debe tener una fecha válida."); break; }
     }
 
     return { messages, fields };
@@ -602,8 +604,8 @@ export default function ClientsPage({ clients, payments = [], onClientsChange, o
       installmentsIssued: String(client.installmentsIssued ?? 0),
       installmentsRemaining: String(client.installmentsRemaining),
       installmentsPaid: String(client.installmentsPaid),
-      otherCharges: client.otherCharges.map((c) =>
-        createOtherChargeForm({ id: c.id, label: c.label, amount: String(c.amount) })
+      otherCharges: sortOtherChargesOldestFirst(client.otherCharges).map((c) =>
+        createOtherChargeForm({ id: c.id, label: c.label, amount: String(c.amount), createdAt: otherChargeDateKey(c) })
       )
     };
     setForm(recalculateInstallments(nextForm));
@@ -785,7 +787,7 @@ export default function ClientsPage({ clients, payments = [], onClientsChange, o
       case "installmentsPaid":      return client.installmentsPaid;
       case "otherCharges":
         return client.otherCharges.length > 0
-          ? client.otherCharges.map((c) => `${c.label}: ${formatCurrency(c.amount)}`).join(" | ")
+          ? sortOtherChargesOldestFirst(client.otherCharges).map((c) => `${otherChargeDateKey(c) || "Sin fecha"} · ${c.label}: ${formatCurrency(c.amount)}`).join(" | ")
           : "-";
       case "balance":               return client.balance;
       case "siniestrosSavings":     return client.savings;

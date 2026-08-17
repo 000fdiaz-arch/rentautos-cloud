@@ -18,6 +18,7 @@ import type {
   PendingBankItem
 } from "../types";
 import { withResolvedInstallmentIssuance } from "../billing";
+import { sortOtherChargesOldestFirst } from "../otherCharges";
 import { readIndexedDb, writeIndexedDb } from "./indexedDbStorage";
 
 const CLIENTS_KEY = "cobrapp.module1.clients.v1";
@@ -94,7 +95,7 @@ function normalizeLateFeeReason(value: unknown): LateFeeReason | null {
 function parseChargeArray(value: unknown): OtherCharge[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const parsed = (value as unknown[])
-    .filter((c): c is { id?: string; label: string; amount: number } =>
+    .filter((c): c is { id?: string; label: string; amount: number; createdAt?: string } =>
       typeof (c as Record<string, unknown>).label === "string" &&
       typeof (c as Record<string, unknown>).amount === "number" &&
       Number.isFinite((c as Record<string, unknown>).amount as number)
@@ -102,7 +103,8 @@ function parseChargeArray(value: unknown): OtherCharge[] | undefined {
     .map((c) => ({
       id: typeof c.id === "string" && c.id.trim().length > 0 ? c.id.trim() : undefined,
       label: c.label,
-      amount: c.amount
+      amount: c.amount,
+      createdAt: typeof c.createdAt === "string" && !Number.isNaN(Date.parse(c.createdAt)) ? c.createdAt : undefined
     }));
   return parsed.length > 0 ? parsed : undefined;
 }
@@ -110,9 +112,9 @@ function parseChargeArray(value: unknown): OtherCharge[] | undefined {
 function normalizeOtherCharges(raw: Record<string, unknown>): OtherCharge[] {
   // Formato nuevo: array de { label, amount }
   if (Array.isArray(raw.otherCharges)) {
-    return (raw.otherCharges as unknown[])
+    return sortOtherChargesOldestFirst((raw.otherCharges as unknown[])
       .filter(
-        (c): c is { id?: string; label: string; amount: number } =>
+        (c): c is { id?: string; label: string; amount: number; createdAt?: string } =>
           typeof (c as Record<string, unknown>).label === "string" &&
           typeof (c as Record<string, unknown>).amount === "number" &&
           ((c as Record<string, unknown>).label as string).trim().length > 0 &&
@@ -121,8 +123,9 @@ function normalizeOtherCharges(raw: Record<string, unknown>): OtherCharge[] {
       .map((c) => ({
         id: normalizeOtherChargeId(c.id),
         label: (c.label as string).trim(),
-        amount: c.amount as number
-      }));
+        amount: c.amount as number,
+        createdAt: typeof c.createdAt === "string" && !Number.isNaN(Date.parse(c.createdAt)) ? c.createdAt : undefined
+      })));
   }
 
   // Formato viejo: otherChargeLabel + otherChargeAmount -> migrar a array

@@ -1,5 +1,6 @@
 import { findNextChargeDay, parseDateKey, startOfDay } from "../../billing";
 import { formatCurrency, formatDate } from "../../format";
+import { otherChargeDateKey, sortOtherChargesOldestFirst } from "../../otherCharges";
 import type { Client, LateFeeSettings, OtherChargesRetentionByClient, Payment, PendingBankItem } from "../../types";
 import {
   computeOtherChargesDueAfter,
@@ -61,7 +62,7 @@ export default function PendingBankReview({
   const lateFeeCharges = isLateFeeListClient(client, lateFeeSettings)
     ? (client.otherCharges ?? []).filter((charge) => isLateFeeOtherCharge(charge, lateFeeSettings))
     : [];
-  const regularOtherCharges = (client.otherCharges ?? []).filter((charge) => !isLateFeeOtherCharge(charge, lateFeeSettings));
+  const regularOtherCharges = sortOtherChargesOldestFirst((client.otherCharges ?? []).filter((charge) => !isLateFeeOtherCharge(charge, lateFeeSettings)));
   const lateFeesApplied = distributeAcrossLateFeeCharges(client, wholePart, lateFeeSettings);
   const totalLateFees = roundMoney(lateFeesApplied.reduce((sum, charge) => sum + charge.amount, 0));
   const wholeAfterLateFees = roundMoney(Math.max(0, wholePart - totalLateFees));
@@ -147,7 +148,7 @@ export default function PendingBankReview({
             return (
               <div key={key} className="other-charges-row">
                 <label className="payment-label">
-                  {charge.label} <span className="amount-muted">({formatCurrency(charge.amount)})</span>
+                  {charge.label} <span className="amount-muted">({otherChargeDateKey(charge) || "sin fecha"} · {formatCurrency(charge.amount)})</span>
                 </label>
                 {forcedRuleActive ? (
                   <div className="payment-input">Aplicación automática</div>

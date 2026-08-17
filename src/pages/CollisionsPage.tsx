@@ -614,7 +614,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       const chargeLabel = `SALDO DE COLISIÓN - ${item.unit}`;
       const nextClients = clients.map((client, index) => index !== clientIndex ? client : ({
         ...client,
-        otherCharges: [...client.otherCharges.filter((charge) => charge.id !== chargeId), { id: chargeId, label: chargeLabel, amount }]
+        otherCharges: [...client.otherCharges.filter((charge) => charge.id !== chargeId), { id: chargeId, label: chargeLabel, amount, createdAt: now }]
       }));
       const updatedCase: CollisionCaseRecord = {
         ...item,
@@ -701,7 +701,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       const nextClients = clients.map((client, index) => {
         if (index !== clientIndex) return client;
         const otherCharges = client.otherCharges.filter((charge) => charge.id !== invoice.chargeId);
-        if (pendingAmount > 0) otherCharges.push({ id: invoice.chargeId, label: chargeLabel, amount: pendingAmount });
+        if (pendingAmount > 0) otherCharges.push({ id: invoice.chargeId, label: chargeLabel, amount: pendingAmount, createdAt: invoice.createdAt });
         return { ...client, otherCharges };
       });
       const updatedCase: CollisionCaseRecord = {

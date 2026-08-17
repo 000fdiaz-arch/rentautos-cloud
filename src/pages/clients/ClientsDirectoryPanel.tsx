@@ -1,5 +1,6 @@
 import type { KeyboardEvent } from "react";
 import { formatCurrency, formatDate } from "../../format";
+import { otherChargeDateKey } from "../../otherCharges";
 import type { Client } from "../../types";
 import type { FleetDetail } from "./ClientsDialogs";
 import {
@@ -412,6 +413,7 @@ export function ClientsDirectoryPanel({
                                   onKeyDown={blurOnEnter}
                                 />
                               </label>
+                              <small>Más antiguo: {firstOtherCharge ? otherChargeDateKey(firstOtherCharge) || "sin fecha registrada" : "-"}</small>
                             </div>
                           )) : "-"}
                         </td>

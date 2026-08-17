@@ -12,6 +12,7 @@ import {
 } from "./paymentRules";
 import type { ManualPaymentAllocation, PaymentForm } from "./paymentTypes";
 import { getCollectibleProvisionalRental } from "../../provisionalRentals";
+import { otherChargeDateKey, sortOtherChargesOldestFirst } from "../../otherCharges";
 
 type MonthEndSuggestion = {
   requiredWholeAmount: number;
@@ -114,10 +115,10 @@ export default function RegisterPaymentPanel({
 }: Props) {
   const provisionalRental = selectedClient ? getCollectibleProvisionalRental(selectedClient) : undefined;
   const lateFeeCharges = selectedClient && isLateFeeListClient(selectedClient, lateFeeSettings)
-    ? (selectedClient.otherCharges ?? []).filter((charge) => isLateFeeOtherCharge(charge, lateFeeSettings))
+    ? sortOtherChargesOldestFirst((selectedClient.otherCharges ?? []).filter((charge) => isLateFeeOtherCharge(charge, lateFeeSettings)))
     : [];
   const regularOtherCharges = selectedClient
-    ? (selectedClient.otherCharges ?? []).filter((charge) => !isLateFeeOtherCharge(charge, lateFeeSettings))
+    ? sortOtherChargesOldestFirst((selectedClient.otherCharges ?? []).filter((charge) => !isLateFeeOtherCharge(charge, lateFeeSettings)))
     : [];
 
   return (
@@ -408,7 +409,7 @@ export default function RegisterPaymentPanel({
                 )}
                 {regularOtherCharges.map((charge, index) => (
                   <div key={getOtherChargeKey(charge, index)} className="other-charges-row">
-                    <label className="payment-label">{charge.label} <span className="amount-muted">(configurado: {formatCurrency(charge.amount)})</span></label>
+                    <label className="payment-label">{charge.label} <span className="amount-muted">({otherChargeDateKey(charge) || "sin fecha"} · pendiente: {formatCurrency(charge.amount)})</span></label>
                     {isForcedOtherChargesRuleActive ? (
                       <div className="payment-input" style={{ display: "flex", alignItems: "center" }}>
                         Aplicacion automatica

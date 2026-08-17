@@ -11,6 +11,7 @@ export type OtherCharge = {
   id?: string;
   label: string;
   amount: number;
+  createdAt?: string;
 };
 
 export type FineType =

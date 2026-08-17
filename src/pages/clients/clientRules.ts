@@ -16,10 +16,12 @@ export function parseIntegerOrNull(value: string): number | null {
 }
 
 export function createOtherChargeForm(initial?: Partial<OtherChargeForm>): OtherChargeForm {
+  const today = toDateKey(new Date());
   return {
     id: initial?.id?.trim() || crypto.randomUUID(),
     label: initial?.label ?? "",
-    amount: initial?.amount ?? ""
+    amount: initial?.amount ?? "",
+    createdAt: initial ? initial.createdAt ?? "" : today
   };
 }
 
@@ -84,7 +86,8 @@ export function buildClient(form: ClientForm, existing?: Client): Client {
     .map((charge) => ({
       id: charge.id.trim() || crypto.randomUUID(),
       label: charge.label.trim(),
-      amount: Number(charge.amount)
+      amount: Number(charge.amount),
+      createdAt: charge.createdAt || undefined
     }));
   const now = new Date();
   const todayKey = toDateKey(now);

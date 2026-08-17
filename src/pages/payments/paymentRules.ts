@@ -1,4 +1,5 @@
 import { findNextChargeDay, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../../billing";
+import { sortOtherChargesOldestFirst } from "../../otherCharges";
 import type {
   BillingFrequency,
   Client,
@@ -260,13 +261,13 @@ export function getOtherChargeKey(charge: Pick<OtherCharge, "id" | "label">, fal
 export function distributeAcrossOtherCharges(configured: OtherCharge[] | undefined, amount: number): OtherCharge[] {
   let remaining = roundMoney(Math.max(0, amount));
   const applied: OtherCharge[] = [];
-  for (const charge of configured ?? []) {
+  for (const charge of sortOtherChargesOldestFirst(configured)) {
     if (remaining <= 0) break;
     const pendingForCharge = roundMoney(Math.max(0, charge.amount));
     if (pendingForCharge <= 0) continue;
     const appliedAmount = roundMoney(Math.min(pendingForCharge, remaining));
     if (appliedAmount <= 0) continue;
-    applied.push({ id: charge.id, label: charge.label, amount: appliedAmount });
+    applied.push({ id: charge.id, label: charge.label, amount: appliedAmount, createdAt: charge.createdAt });
     remaining = roundMoney(Math.max(0, remaining - appliedAmount));
   }
   return applied;
@@ -483,14 +484,14 @@ export function computeAppliedOtherCharges(
   maxAvailable: number
 ): { otherChargesApplied: OtherCharge[]; totalOtherCharges: number } {
   let remaining = roundMoney(Math.max(0, maxAvailable));
-  const otherChargesApplied = (configured ?? [])
+  const otherChargesApplied = sortOtherChargesOldestFirst(configured)
     .map((charge, index) => {
       const key = getOtherChargeKey(charge, index);
       const inputVal = parseFloat(manualInput[key] ?? "");
       const desired = roundMoney(Number.isFinite(inputVal) ? Math.max(0, inputVal) : 0);
       const appliedAmount = roundMoney(Math.min(desired, Math.max(0, remaining)));
       remaining = roundMoney(Math.max(0, remaining - appliedAmount));
-      return { id: charge.id, label: charge.label, amount: appliedAmount };
+      return { id: charge.id, label: charge.label, amount: appliedAmount, createdAt: charge.createdAt };
     })
     .filter((c) => c.amount > 0);
   const totalOtherCharges = roundMoney(otherChargesApplied.reduce((sum, charge) => sum + charge.amount, 0));
@@ -720,7 +721,7 @@ export function resolveFirstSundayChargedAtForManualPayment(
 
 export function computeOtherChargesDueAfter(configured: OtherCharge[] | undefined, applied: OtherCharge[] | undefined): OtherCharge[] | undefined {
   if (!configured || configured.length === 0) return undefined;
-  const due = configured
+  const due = sortOtherChargesOldestFirst(configured)
     .map((charge, index) => {
       const key = getOtherChargeKey(charge, index);
       const appliedAmount = roundMoney(
@@ -734,7 +735,8 @@ export function computeOtherChargesDueAfter(configured: OtherCharge[] | undefine
       return {
         id: charge.id,
         label: charge.label,
-        amount: roundMoney(Math.max(0, charge.amount - appliedAmount))
+        amount: roundMoney(Math.max(0, charge.amount - appliedAmount)),
+        createdAt: charge.createdAt
       };
     })
     .filter((charge) => charge.amount > 0);
@@ -746,7 +748,7 @@ export function restoreOtherChargesAfterDelete(current: OtherCharge[] | undefine
   const totals = new Map<string, OtherCharge>();
   for (const [index, charge] of (current ?? []).entries()) {
     const key = getOtherChargeKey(charge, index);
-    totals.set(key, { id: charge.id, label: charge.label, amount: roundMoney(Math.max(0, charge.amount)) });
+    totals.set(key, { id: charge.id, label: charge.label, amount: roundMoney(Math.max(0, charge.amount)), createdAt: charge.createdAt });
   }
   for (const [index, charge] of applied.entries()) {
     const key = getOtherChargeKey(charge, index);
@@ -755,8 +757,9 @@ export function restoreOtherChargesAfterDelete(current: OtherCharge[] | undefine
     totals.set(key, {
       id: charge.id,
       label: charge.label,
-      amount: roundMoney(previousAmount + charge.amount)
+      amount: roundMoney(previousAmount + charge.amount),
+      createdAt: previous?.createdAt ?? charge.createdAt
     });
   }
-  return [...totals.values()].filter((charge) => charge.amount > 0);
+  return sortOtherChargesOldestFirst([...totals.values()].filter((charge) => charge.amount > 0));
 }

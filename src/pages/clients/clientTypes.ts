@@ -8,7 +8,7 @@ export type ExportFieldKey =
 export type ExportField = { key: ExportFieldKey; label: string; enabled: boolean };
 
 
-export type OtherChargeForm = { id: string; label: string; amount: string };
+export type OtherChargeForm = { id: string; label: string; amount: string; createdAt: string };
 
 export type ClientForm = {
   unitId: string;

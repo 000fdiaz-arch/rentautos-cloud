@@ -462,7 +462,7 @@ select.input-error:focus {
 
 .other-charge-row {
   display: grid;
-  grid-template-columns: 1fr 130px 32px;
+  grid-template-columns: 145px minmax(160px, 1fr) 130px 32px;
   gap: 8px;
   align-items: center;
 }
@@ -627,6 +627,16 @@ select.input-error:focus {
 .confirm-modal-actions {
   display: flex;
   gap: 10px;
+}
+
+@media (max-width: 720px) {
+  .other-charge-row {
+    grid-template-columns: minmax(0, 1fr) 110px 32px;
+  }
+
+  .other-charge-row input[type="date"] {
+    grid-column: 1 / -1;
+  }
 }
 
 .ar-pending-contact-modal {

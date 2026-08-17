@@ -20,7 +20,7 @@ export function upsertOtherCharge(existing: OtherCharge[] | undefined, label: st
     current[index] = { ...current[index], label: normalizedLabel, amount: roundMoney(previous + normalizedAmount) };
     return current;
   }
-  return [...current, { id: crypto.randomUUID(), label: normalizedLabel, amount: normalizedAmount }];
+  return [...current, { id: crypto.randomUUID(), label: normalizedLabel, amount: normalizedAmount, createdAt: new Date().toISOString() }];
 }
 
 export function subtractOtherCharge(existing: OtherCharge[] | undefined, label: string, amountToSubtract: number): OtherCharge[] {
