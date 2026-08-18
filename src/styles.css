@@ -15416,8 +15416,7 @@ button.ar-route-publish-copy.is-active {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .judicial-focused-driver-at-incident,
-  .judicial-focused-current-driver {
+  .judicial-focused-driver-at-incident {
     grid-column: 1 / -1;
   }
 

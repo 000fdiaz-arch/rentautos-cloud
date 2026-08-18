@@ -1255,7 +1255,6 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
         {focusedCase && <div className="judicial-focused-context">
           <span className="judicial-focused-unit"><small>Unidad / placa</small><strong>{focusedCase.unit || "Sin unidad"} · {focusedCase.plate || "Sin placa"}</strong></span>
           <span className="judicial-focused-driver-at-incident"><small>Conductor al momento del incidente</small><strong>{focusedCase.driver || "Sin conductor"}</strong></span>
-          {clientsByUnit.get(normalizeUnit(focusedCase.unit))?.name && normalizePersonName(clientsByUnit.get(normalizeUnit(focusedCase.unit))!.name) !== normalizePersonName(focusedCase.driver) && <span className="judicial-focused-current-driver"><small>Conductor actual de la unidad</small><strong>{clientsByUnit.get(normalizeUnit(focusedCase.unit))!.name}</strong></span>}
           <span className="judicial-focused-trial"><small>Fecha de juicio</small><strong>{focusedCase.trialDate || "Sin fecha"}</strong></span>
           <span className={`judicial-focused-status status-${focusedCase.status === "ABSUELTO" ? "absolved" : focusedCase.status === "CULPABLE" ? "guilty" : "pending"}`}><small>Estado</small><strong>{focusedCase.status}</strong></span>
         </div>}
@@ -1276,8 +1275,6 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
             const attendanceComplete = typeof item.clientWillAttend === "boolean" && typeof item.legalAssistanceRequested === "boolean";
             const attendanceDraft = attendanceDrafts[item.id] ?? { clientWillAttend: "", legalAssistanceRequested: "" };
             const timelineEvents = buildJudicialCaseTimeline(item);
-            const currentUnitDriver = clientsByUnit.get(normalizeUnit(item.unit));
-            const hasDifferentCurrentDriver = Boolean(currentUnitDriver?.name && normalizePersonName(currentUnitDriver.name) !== normalizePersonName(item.driver));
             const caseTabOptions = ([
               ["summary", "Resumen", ""],
               ["attendance", "Asistencia", attendanceComplete ? "OK" : isFinalStatus(item.status) ? "Cerrado" : "Pendiente"],
@@ -1344,7 +1341,6 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   <div><dt>Número de colilla</dt><dd className="judicial-ticket-stub-editor"><div><input aria-label="Número de colilla" value={ticketStubDrafts[item.id] ?? item.ticketStub} onChange={(event) => setTicketStubDrafts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /><button type="button" className="button small" onClick={() => void saveTicketStub(item)} disabled={readOnly || busyId === item.id || !(ticketStubDrafts[item.id] ?? item.ticketStub).trim() || (ticketStubDrafts[item.id] ?? item.ticketStub).trim() === item.ticketStub}>{busyId === item.id ? "Guardando..." : "Guardar"}</button></div>{item.ticketStubPhoto && <button type="button" className="button small" onClick={() => setPhotoGallery({ photos: [item.ticketStubPhoto!], index: 0, title: "Foto de la colilla" })}>Ver foto original</button>}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
                   <div><dt>Colisión y fuga</dt><dd><span className={`collision-runaway-status ${item.collisionAndRun ? "collision-runaway-status--yes" : "collision-runaway-status--no"}`}>{item.collisionAndRun ? "Sí" : "No"}</span></dd></div>
                   <div><dt>Conductor al momento del incidente</dt><dd>{item.driver || "-"}</dd></div>
-                  {hasDifferentCurrentDriver && <div><dt>Conductor actual de la unidad</dt><dd>{currentUnitDriver!.name}</dd></div>}
                    <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>
                    </dl>
                  {item.incidentPhotos?.length ? <div className="workflow-damage-photo-list workflow-damage-photo-list--compact"><div className="workflow-damage-photo-row"><div><strong>Fotos adjuntas al juicio</strong><small>{item.incidentPhotos.length} {item.incidentPhotos.length === 1 ? "foto disponible" : "fotos disponibles"}</small></div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos!, index: 0, title: "Fotos del juicio" })}>Ver galería</button></div></div> : null}
