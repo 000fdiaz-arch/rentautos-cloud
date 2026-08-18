@@ -65,6 +65,7 @@ const MAX_FUD_SIZE = 10 * 1024 * 1024;
 
 function normalizeUnit(value: string): string { return value.trim().toUpperCase(); }
 function normalizeInsurer(value: string): string { return value.trim().toUpperCase(); }
+function normalizePersonName(value: string): string { return value.trim().toLocaleUpperCase("es").replace(/\s+/g, " "); }
 
 function courtsFromCases(cases: CollisionCaseRecord[]): string[] {
   return [...new Set(cases.map((item) => normalizeCourtName(item.court)).filter(Boolean))]
@@ -254,14 +255,15 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     let uploadedInsuranceFud: InsuranceSettlementAttachment | null = null;
     try {
       if (destination === "judicial") {
-        const caseClient = clientsByUnit.get(normalizeUnit(form.unit));
+        const driverName = normalizePersonName(form.driver);
+        const historicalClient = clients.find((client) => normalizePersonName(client.name) === driverName);
         const id = `collision-trial-${Date.now()}-${crypto.randomUUID()}`;
         for (const file of judicialPhotoFiles) uploadedJudicialPhotos.push(await uploadCollisionPhoto(dataOwnerUserId, id, file));
         const ticketStubPhoto = ticketStubPhotoFile ? await uploadCollisionPhoto(dataOwnerUserId, id, ticketStubPhotoFile) : null;
         if (ticketStubPhoto) uploadedJudicialPhotos.push(ticketStubPhoto);
         const collisionCase: CollisionCaseRecord = {
           id, ...common,
-          clientId: caseClient?.id ?? "", clientName: caseClient?.name ?? form.driver.trim(),
+          clientId: historicalClient?.id ?? "", clientName: form.driver.trim(),
           trialDate: form.trialDate, ticketStub: form.ticketStub.trim(), ticketStubPhoto, placeTime: form.placeTime.trim(), court: normalizeCourtName(form.court), collisionAndRun: form.collisionAndRun,
           documentationPending, documentationPendingSince: documentationPending ? now : null, documentationReceivedAt: documentationPending ? null : now,
           status: "PENDIENTE", trialDateHistory: [], editHistory: [], judicialFollowUps: [], clientWillAttend: null, legalAssistanceRequested: null, attendanceConfirmedAt: null, incidentPhotos: uploadedJudicialPhotos.filter((photo) => photo.path !== ticketStubPhoto?.path), judicialOutcomeEvidence: null, judicialResolutionEvidence: null, judicialResolutionSearchDate: null, insuranceClaim: null, expenseInvoice: null,
@@ -314,7 +316,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
         <div className="workflow-form-grid">
           <label>Fecha del incidente<input type="date" value={form.incidentDate} onChange={(event) => patchForm({ incidentDate: event.target.value })} disabled={readOnly} /></label>
           <label>Unidad<input list="incident-unit-options" placeholder="Ej. B52" value={form.unit} onChange={(event) => handleUnitChange(event.target.value)} disabled={readOnly} /><datalist id="incident-unit-options">{unitOptions.map((unitId) => <option key={unitId} value={unitId} label={unitOptionLabels.get(unitId) ?? ""} />)}</datalist></label>
-          <label>Chofer<input value={form.driver} placeholder="Nombre completo" onChange={(event) => { setDriverEditedManually(true); patchForm({ driver: event.target.value }); }} disabled={readOnly} /></label>
+          <label>Conductor al momento del incidente<input value={form.driver} placeholder="Nombre completo" onChange={(event) => { setDriverEditedManually(true); patchForm({ driver: event.target.value }); }} disabled={readOnly} /></label>
           <label>Placa<input value={form.plate} placeholder="Placa del auto" onChange={(event) => patchForm({ plate: event.target.value })} disabled={readOnly} /></label>
           <label className="workflow-form-notes">Daños del auto<textarea value={form.vehicleDamage} placeholder="Describe los daños del auto" onChange={(event) => patchForm({ vehicleDamage: event.target.value })} disabled={readOnly} /></label>
           <div className={`workflow-claim-number-question${!form.documentationAvailable ? " is-pending" : ""}`}><div><strong>¿Ya recibiste {destination === "judicial" ? "la colilla" : "el FUD"}?</strong><small>Si todavía no lo tienes, guardaremos el caso y activaremos las alertas de seguimiento.</small></div><select value={form.documentationAvailable} onChange={(event) => patchForm({ documentationAvailable: event.target.value as IntakeForm["documentationAvailable"] })} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">Sí, ya lo recibí</option><option value="no">No, está pendiente</option></select></div>

@@ -15416,14 +15416,9 @@ button.ar-route-publish-copy.is-active {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .judicial-focused-context > span:nth-child(2) {
+  .judicial-focused-driver-at-incident,
+  .judicial-focused-current-driver {
     grid-column: 1 / -1;
-    grid-row: 2;
-  }
-
-  .judicial-focused-context > span:nth-child(3),
-  .judicial-focused-context > span:nth-child(4) {
-    grid-row: 3;
   }
 
   .judicial-focused-case .judicial-case-tab-panel {

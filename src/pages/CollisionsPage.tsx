@@ -80,6 +80,10 @@ const CURRENT_DATE_FORMATTER = new Intl.DateTimeFormat("es-PA", { weekday: "long
 
 function normalizeUnit(value: string): string { return value.trim().toUpperCase(); }
 function normalizePersonName(value: string): string { return value.trim().toLocaleUpperCase("es").replace(/\s+/g, " "); }
+function findClientByName(clients: Client[], name: string): Client | undefined {
+  const normalizedName = normalizePersonName(name);
+  return normalizedName ? clients.find((client) => normalizePersonName(client.name) === normalizedName) : undefined;
+}
 function courtsFromCases(cases: CollisionCaseRecord[]): string[] {
   return [...new Set(cases.map((item) => normalizeCourtName(item.court)).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right, "es", { numeric: true }));
@@ -319,14 +323,14 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       setMessage("Completa todos los campos del formulario de juicio."); return;
     }
     const now = new Date().toISOString();
-    const caseClient = clientsByUnit.get(normalizeUnit(form.unit));
+    const historicalClient = findClientByName(clients, form.driver);
     const item: CollisionCaseRecord = {
       id: `collision-trial-${Date.now()}-${crypto.randomUUID()}`,
       incidentDate: form.incidentDate,
       unit: normalizeUnit(form.unit),
       driver: form.driver.trim(),
-      clientId: caseClient?.id ?? "",
-      clientName: caseClient?.name ?? form.driver.trim(),
+      clientId: historicalClient?.id ?? "",
+      clientName: form.driver.trim(),
       plate: form.plate.trim().toUpperCase(),
       trialDate: form.trialDate,
       vehicleDamage: form.vehicleDamage.trim(),
@@ -448,12 +452,12 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
         uploadedTicketStubPhoto = await uploadCollisionPhoto(dataOwnerUserId, item.id, caseEditTicketStubPhotoFile);
       }
       const now = new Date().toISOString();
-      const caseClient = clientsByUnit.get(normalizedEdit.unit);
+      const historicalClient = findClientByName(clients, normalizedEdit.driver);
       const updated: CollisionCaseRecord = {
         ...item,
         ...normalizedEdit,
-        clientId: caseClient?.id ?? item.clientId ?? "",
-        clientName: caseClient?.name ?? normalizedEdit.driver,
+        clientId: historicalClient?.id ?? "",
+        clientName: normalizedEdit.driver,
         ticketStubPhoto: uploadedTicketStubPhoto ?? item.ticketStubPhoto ?? null,
         documentationPending: false,
         documentationReceivedAt: item.documentationPending ? now : item.documentationReceivedAt ?? null,
@@ -591,16 +595,25 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   }
 
   function findCaseClientIndex(item: CollisionCaseRecord): number {
-    const historicalClientIndex = item.clientId ? clients.findIndex((client) => client.id === item.clientId) : -1;
-    const historicalClientName = normalizePersonName(item.clientName || item.driver);
-    const namedClientIndex = historicalClientName
+    const driverName = normalizePersonName(item.driver);
+    const driverClientIndex = driverName
+      ? clients.findIndex((client) => normalizePersonName(client.name) === driverName)
+      : -1;
+    const linkedClientIndex = item.clientId ? clients.findIndex((client) => client.id === item.clientId) : -1;
+    const historicalClientIndex = linkedClientIndex >= 0 && normalizePersonName(clients[linkedClientIndex].name) === driverName
+      ? linkedClientIndex
+      : -1;
+    const historicalClientName = normalizePersonName(item.clientName || "");
+    const namedClientIndex = historicalClientName && historicalClientName === driverName
       ? clients.findIndex((client) => normalizePersonName(client.name) === historicalClientName)
       : -1;
-    return historicalClientIndex >= 0
-      ? historicalClientIndex
-      : namedClientIndex >= 0
-        ? namedClientIndex
-        : clients.findIndex((client) => normalizeUnit(client.unitId) === normalizeUnit(item.unit));
+    return driverClientIndex >= 0
+      ? driverClientIndex
+      : historicalClientIndex >= 0
+        ? historicalClientIndex
+        : namedClientIndex >= 0
+          ? namedClientIndex
+          : -1;
   }
 
   async function saveAttendanceConfirmation(item: CollisionCaseRecord): Promise<void> {
@@ -1217,7 +1230,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
         <div className="workflow-form-grid">
           <label>Fecha del incidente<input type="date" value={form.incidentDate} onChange={(event) => patchForm({ incidentDate: event.target.value })} disabled={readOnly} /></label>
           <label>Unidad<input list="collision-unit-options" placeholder="Ej. B52" value={form.unit} onChange={(event) => handleUnitChange(event.target.value)} disabled={readOnly} /><datalist id="collision-unit-options">{unitOptions.map((unitId) => <option key={unitId} value={unitId} label={unitOptionLabels.get(unitId) ?? ""} />)}</datalist></label>
-          <label>Chofer<input value={form.driver} placeholder="Nombre completo" onChange={(event) => { setDriverEditedManually(true); patchForm({ driver: event.target.value }); }} disabled={readOnly} /></label>
+          <label>Conductor al momento del incidente<input value={form.driver} placeholder="Nombre completo" onChange={(event) => { setDriverEditedManually(true); patchForm({ driver: event.target.value }); }} disabled={readOnly} /></label>
           <label>Placa<input value={form.plate} placeholder="Placa del auto" onChange={(event) => patchForm({ plate: event.target.value })} disabled={readOnly} /></label>
           <label>Fecha de juicio<input type="date" value={form.trialDate} onChange={(event) => patchForm({ trialDate: event.target.value })} disabled={readOnly} /></label>
           <label>Colilla<input value={form.ticketStub} placeholder="Número o referencia de colilla" onChange={(event) => patchForm({ ticketStub: event.target.value })} disabled={readOnly} /></label>
@@ -1240,9 +1253,10 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
           <button type="button" className="button workflow-clear-filters" onClick={() => { setSearch(""); setDateFilter("all"); setStatusFilter("all"); }}>Limpiar filtros</button>
         </div>}
         {focusedCase && <div className="judicial-focused-context">
-          <span><small>Unidad / placa</small><strong>{focusedCase.unit || "Sin unidad"} · {focusedCase.plate || "Sin placa"}</strong></span>
-          <span><small>Cliente</small><strong>{focusedCase.clientName || focusedCase.driver || "Sin cliente"}</strong></span>
-          <span><small>Fecha de juicio</small><strong>{focusedCase.trialDate || "Sin fecha"}</strong></span>
+          <span className="judicial-focused-unit"><small>Unidad / placa</small><strong>{focusedCase.unit || "Sin unidad"} · {focusedCase.plate || "Sin placa"}</strong></span>
+          <span className="judicial-focused-driver-at-incident"><small>Conductor al momento del incidente</small><strong>{focusedCase.driver || "Sin conductor"}</strong></span>
+          {clientsByUnit.get(normalizeUnit(focusedCase.unit))?.name && normalizePersonName(clientsByUnit.get(normalizeUnit(focusedCase.unit))!.name) !== normalizePersonName(focusedCase.driver) && <span className="judicial-focused-current-driver"><small>Conductor actual de la unidad</small><strong>{clientsByUnit.get(normalizeUnit(focusedCase.unit))!.name}</strong></span>}
+          <span className="judicial-focused-trial"><small>Fecha de juicio</small><strong>{focusedCase.trialDate || "Sin fecha"}</strong></span>
           <span className={`judicial-focused-status status-${focusedCase.status === "ABSUELTO" ? "absolved" : focusedCase.status === "CULPABLE" ? "guilty" : "pending"}`}><small>Estado</small><strong>{focusedCase.status}</strong></span>
         </div>}
         <div className="workflow-claims-list">
@@ -1262,6 +1276,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
             const attendanceComplete = typeof item.clientWillAttend === "boolean" && typeof item.legalAssistanceRequested === "boolean";
             const attendanceDraft = attendanceDrafts[item.id] ?? { clientWillAttend: "", legalAssistanceRequested: "" };
             const timelineEvents = buildJudicialCaseTimeline(item);
+            const currentUnitDriver = clientsByUnit.get(normalizeUnit(item.unit));
+            const hasDifferentCurrentDriver = Boolean(currentUnitDriver?.name && normalizePersonName(currentUnitDriver.name) !== normalizePersonName(item.driver));
             const caseTabOptions = ([
               ["summary", "Resumen", ""],
               ["attendance", "Asistencia", attendanceComplete ? "OK" : isFinalStatus(item.status) ? "Cerrado" : "Pendiente"],
@@ -1305,7 +1321,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                     <div className="workflow-claim-edit-grid">
                       <label>Fecha del incidente<input type="date" value={caseEditForm.incidentDate} onChange={(event) => setCaseEditForm((current) => ({ ...current, incidentDate: event.target.value }))} /></label>
                       <label>Unidad<input list="collision-edit-unit-options" value={caseEditForm.unit} onChange={(event) => setCaseEditForm((current) => ({ ...current, unit: event.target.value }))} /></label>
-                      <label>Nombre completo<input value={caseEditForm.driver} onChange={(event) => setCaseEditForm((current) => ({ ...current, driver: event.target.value }))} /></label>
+                      <label>Conductor al momento del incidente<input value={caseEditForm.driver} onChange={(event) => setCaseEditForm((current) => ({ ...current, driver: event.target.value }))} /></label>
                       <label>Placa<input value={caseEditForm.plate} onChange={(event) => setCaseEditForm((current) => ({ ...current, plate: event.target.value }))} /></label>
                       <label>Fecha de juicio<input type="date" value={caseEditForm.trialDate} onChange={(event) => setCaseEditForm((current) => ({ ...current, trialDate: event.target.value }))} /></label>
                       <label>Número de colilla<input value={caseEditForm.ticketStub} onChange={(event) => setCaseEditForm((current) => ({ ...current, ticketStub: event.target.value }))} /></label>
@@ -1327,7 +1343,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   <div><dt>Fecha del incidente</dt><dd>{item.incidentDate}</dd></div><div><dt>Fecha de juicio</dt><dd>{item.trialDate}</dd></div>
                   <div><dt>Número de colilla</dt><dd className="judicial-ticket-stub-editor"><div><input aria-label="Número de colilla" value={ticketStubDrafts[item.id] ?? item.ticketStub} onChange={(event) => setTicketStubDrafts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /><button type="button" className="button small" onClick={() => void saveTicketStub(item)} disabled={readOnly || busyId === item.id || !(ticketStubDrafts[item.id] ?? item.ticketStub).trim() || (ticketStubDrafts[item.id] ?? item.ticketStub).trim() === item.ticketStub}>{busyId === item.id ? "Guardando..." : "Guardar"}</button></div>{item.ticketStubPhoto && <button type="button" className="button small" onClick={() => setPhotoGallery({ photos: [item.ticketStubPhoto!], index: 0, title: "Foto de la colilla" })}>Ver foto original</button>}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
                   <div><dt>Colisión y fuga</dt><dd><span className={`collision-runaway-status ${item.collisionAndRun ? "collision-runaway-status--yes" : "collision-runaway-status--no"}`}>{item.collisionAndRun ? "Sí" : "No"}</span></dd></div>
-                  <div><dt>Cliente del expediente</dt><dd>{item.clientName || item.driver || "-"}</dd></div>
+                  <div><dt>Conductor al momento del incidente</dt><dd>{item.driver || "-"}</dd></div>
+                  {hasDifferentCurrentDriver && <div><dt>Conductor actual de la unidad</dt><dd>{currentUnitDriver!.name}</dd></div>}
                    <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>
                    </dl>
                  {item.incidentPhotos?.length ? <div className="workflow-damage-photo-list workflow-damage-photo-list--compact"><div className="workflow-damage-photo-row"><div><strong>Fotos adjuntas al juicio</strong><small>{item.incidentPhotos.length} {item.incidentPhotos.length === 1 ? "foto disponible" : "fotos disponibles"}</small></div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos!, index: 0, title: "Fotos del juicio" })}>Ver galería</button></div></div> : null}
@@ -1391,7 +1408,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                 {item.judicialResolutionEvidence && editingResolutionId !== item.id && <div className="collision-outcome-document"><div><strong>Resolución judicial registrada</strong><span>{item.judicialResolutionEvidence.name}</span><small>El reclamo al seguro está habilitado.</small></div><div className="workflow-finalization-actions"><button type="button" className="button" onClick={() => setPhotoGallery({ photos: [item.judicialResolutionEvidence!], index: 0, title: "Resolución judicial" })}>Ver resolución</button><button type="button" className="button primary" onClick={() => startEditingResolution(item)} disabled={readOnly || busyId === item.id}>Editar resolución</button><button type="button" className="button danger" onClick={() => void deleteJudicialResolution(item)} disabled={readOnly || busyId === item.id}>Eliminar resolución</button></div></div>}
                 {item.judicialResolutionEvidence && editingResolutionId === item.id && <div className="workflow-finalization-panel collision-outcome-panel"><div><strong>Editar resolución judicial</strong><span>Selecciona el archivo correcto para reemplazar la resolución actual.</span></div><label className="workflow-required-field">Fecha en que se buscó la resolución<input type="date" value={resolutionSearchDates[item.id] ?? item.judicialResolutionSearchDate ?? ""} onChange={(event) => setResolutionSearchDates((current) => ({ ...current, [item.id]: event.target.value }))} disabled={busyId === item.id} /></label><label className="collision-outcome-evidence">Reemplazar resolución<input type="file" accept="image/*" onChange={(event) => selectResolutionEvidence(item.id, event.target.files?.[0])} disabled={busyId === item.id} /><small>{resolutionEvidenceFiles[item.id] ? `Nueva resolución: ${resolutionEvidenceFiles[item.id]!.name}` : `Actual: ${item.judicialResolutionEvidence.name}`}</small></label><div className="workflow-finalization-actions"><button type="button" className="button" onClick={() => cancelResolutionEdit(item.id)} disabled={busyId === item.id}>Cancelar</button><button type="button" className="button primary" onClick={() => void saveJudicialResolution(item)} disabled={busyId === item.id || !resolutionEvidenceFiles[item.id]}>{busyId === item.id ? "Guardando..." : "Guardar reemplazo"}</button></div></div>}
                 {item.trialDateHistory.length > 0 && <details className="workflow-edit-history" open><summary>Historial de fechas de juicio ({item.trialDateHistory.length})</summary><ul>{[...item.trialDateHistory].reverse().map((event) => <li key={`${event.changedAt}-${event.newDate}`}><time>{new Date(event.changedAt).toLocaleString("es-PA")}</time><span>{event.previousDate} → {event.newDate}: {event.reason}</span></li>)}</ul></details>}
-                {item.status === "CULPABLE" && item.clientReturnedBeforeClosure && <div className="collision-client-returned"><strong>Cliente retirado antes del cierre</strong><span>{item.clientName || item.driver || "El cliente"} dejó el carro antes de finalizar el juicio.</span><small>No se generó una factura automática.</small></div>}
+                {item.status === "CULPABLE" && item.clientReturnedBeforeClosure && <div className="collision-client-returned"><strong>Cliente retirado antes del cierre</strong><span>{item.driver || "El cliente"} dejó el carro antes de finalizar el juicio.</span><small>No se generó una factura automática.</small></div>}
                 </div>}
                 {activeCaseTab === "insurance" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-insurance-panel-${item.id}`} aria-labelledby={`judicial-insurance-tab-${item.id}`}>
                 {item.status !== "ABSUELTO" && <p className="judicial-section-empty">El reclamo al seguro se habilita después de registrar el resultado ABSUELTO y adjuntar la resolución judicial.</p>}
