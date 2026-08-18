@@ -30,6 +30,7 @@ type Props = {
   initialExpandedId?: string;
   initialSearch?: string;
   focusedClaimId?: string;
+  initialDetailTab?: ClaimDetailTab;
 };
 
 type ClaimForm = {
@@ -82,7 +83,7 @@ function localDateKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOnly = false, embedded = false, hideCreateForm = false, initialExpandedId = "", initialSearch = "", focusedClaimId = "" }: Props) {
+export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOnly = false, embedded = false, hideCreateForm = false, initialExpandedId = "", initialSearch = "", focusedClaimId = "", initialDetailTab }: Props) {
   const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(hideCreateForm ? null : dataOwnerUserId);
   const [form, setForm] = useState<ClaimForm>(EMPTY_FORM);
   const [insurers, setInsurers] = useState<string[]>([]);
@@ -103,7 +104,9 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   const [followUpComments, setFollowUpComments] = useState<Record<string, string>>({});
   const [followUpNextSteps, setFollowUpNextSteps] = useState<Record<string, string>>({});
   const [followUpDates, setFollowUpDates] = useState<Record<string, string>>({});
-  const [claimDetailTabs, setClaimDetailTabs] = useState<Record<string, ClaimDetailTab>>({});
+  const [claimDetailTabs, setClaimDetailTabs] = useState<Record<string, ClaimDetailTab>>(
+    focusedClaimId && initialDetailTab ? { [focusedClaimId]: initialDetailTab } : {}
+  );
   const [expandedClaimId, setExpandedClaimId] = useState<string | null>(initialExpandedId || null);
   const [claimSearch, setClaimSearch] = useState<string>(initialSearch);
   const [statusFilter, setStatusFilter] = useState<InsuranceClaimStatus | "all">("all");

@@ -16,16 +16,17 @@ type Props = {
   canViewJudicial: boolean;
   canViewInsurance: boolean;
   refreshKey: number;
-  onOpen: (destination: IncidentDestination, target: { id: string; search: string }) => void;
+  onOpen: (destination: IncidentDestination, target: { id: string; search: string; section?: "follow_up" }) => void;
   onAlertCountChange?: (count: number) => void;
 };
 
 type FollowUpFilter = "all" | "documentation_pending" | "judicial" | "insurance_active" | "insurance_inactive" | "finalized";
-type NextActionFilter = "all" | "documentation" | "judicial_management" | "judicial_workshop" | "judicial_balance" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim" | "finalized";
+type NextActionFilter = "all" | "scheduled_follow_up" | "documentation" | "judicial_management" | "judicial_workshop" | "judicial_balance" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim" | "finalized";
 type IncidentAlertSeverity = "urgent" | "attention" | "upcoming";
 
 const NEXT_ACTION_LABELS: Record<NextActionFilter, string> = {
   all: "Todas las acciones",
+  scheduled_follow_up: "En seguimiento",
   documentation: "Obtener documentación",
   judicial_management: "Gestionar juicio",
   judicial_workshop: "Recibir y revisar vehículo",
@@ -40,6 +41,7 @@ const NEXT_ACTION_LABELS: Record<NextActionFilter, string> = {
   finalized: "Sin acciones pendientes"
 };
 const ACTION_QUEUE_FILTERS: NextActionFilter[] = [
+  "scheduled_follow_up",
   "documentation",
   "judicial_result",
   "judicial_attendance",
@@ -84,6 +86,17 @@ type UnifiedIncident = {
   updatedAt: string;
 };
 
+type IncidentFollowUpSummary = {
+  comment: string;
+  nextStep: string;
+  nextActionDate: string;
+  relativeDate: string;
+  state: "scheduled" | "due" | "overdue";
+  stateLabel: string;
+  destination: IncidentDestination;
+  targetId: string;
+};
+
 function incidentMatchesFilter(incident: UnifiedIncident, filter: FollowUpFilter): boolean {
   const resolutionPending = incident.collision?.status === "ABSUELTO" && !incident.collision.judicialResolutionEvidence;
   if (filter === "documentation_pending") return Boolean(incident.collision?.documentationPending || incident.claim?.documentationPending);
@@ -96,6 +109,7 @@ function incidentMatchesFilter(incident: UnifiedIncident, filter: FollowUpFilter
 
 function nextActionCategory(incident: UnifiedIncident): NextActionFilter {
   if (incident.finalized) return "finalized";
+  if (incidentFollowUpSummary(incident)?.state === "scheduled") return "scheduled_follow_up";
   const collision = incident.collision;
   const claim = incident.claim;
   if (collision?.documentationPending || claim?.documentationPending) return "documentation";
@@ -161,6 +175,42 @@ function incidentAgeLabel(value: string): string {
   if (days === 0) return "Hoy";
   if (days === 1) return "Hace 1 día";
   return `Hace ${days} días`;
+}
+
+function followUpRelativeDate(value: string, offset: number): string {
+  const date = shortCalendarDate(value);
+  if (offset < 0) {
+    const days = Math.abs(offset);
+    return `${date} · venció hace ${days} ${days === 1 ? "día" : "días"}`;
+  }
+  if (offset === 0) return `${date} · hoy`;
+  if (offset === 1) return `${date} · mañana`;
+  return `${date} · en ${offset} días`;
+}
+
+function incidentFollowUpSummary(incident: UnifiedIncident): IncidentFollowUpSummary | null {
+  if (incident.finalized) return null;
+  const claimFollowUp = incident.claim?.status !== "Finalizado"
+    ? incident.claim?.followUps[incident.claim.followUps.length - 1]
+    : null;
+  const judicialFollowUp = incident.collision?.status !== "CULPABLE"
+    ? incident.collision?.judicialFollowUps[incident.collision.judicialFollowUps.length - 1]
+    : null;
+  const entry = claimFollowUp ?? judicialFollowUp;
+  if (!entry?.nextActionDate) return null;
+  const offset = calendarDayOffset(entry.nextActionDate);
+  if (offset === null) return null;
+  const state = offset < 0 ? "overdue" : offset === 0 ? "due" : "scheduled";
+  return {
+    comment: entry.comment,
+    nextStep: entry.nextStep,
+    nextActionDate: entry.nextActionDate,
+    relativeDate: followUpRelativeDate(entry.nextActionDate, offset),
+    state,
+    stateLabel: state === "overdue" ? "Seguimiento vencido" : state === "due" ? "Seguimiento para hoy" : "Seguimiento programado",
+    destination: claimFollowUp ? "insurance" : "judicial",
+    targetId: claimFollowUp ? incident.claim!.id : incident.collision!.id
+  };
 }
 
 function localDateKey(date = new Date()): string {
@@ -598,6 +648,8 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     incidents.forEach((incident) => { counts[nextActionCategory(incident)] += 1; });
     return counts;
   }, [incidents]);
+  const scheduledFollowUpCount = nextActionCounts.scheduled_follow_up;
+  const pendingIncidentCount = incidents.filter((incident) => !incident.finalized && incidentFollowUpSummary(incident)?.state !== "scheduled").length;
   const nextTrial = useMemo(() => {
     const upcomingTrials = collisions
       .filter((item) => item.status !== "ABSUELTO" && item.status !== "CULPABLE" && Boolean(item.trialDate))
@@ -682,13 +734,13 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
       {loading && <p className="hint workflow-message">Cargando expedientes...</p>}
       {loadError && <p className="hint workflow-message">{loadError}</p>}
       {!loading && !loadError && <section className="incident-action-queue" aria-labelledby="incident-action-queue-title">
-        <div className="incident-action-queue-head"><div><span className="workflow-eyebrow">Gestión prioritaria</span><h3 id="incident-action-queue-title">Acciones pendientes</h3></div><strong>{incidents.filter((incident) => !incident.finalized).length} pendientes</strong></div>
+        <div className="incident-action-queue-head"><div><span className="workflow-eyebrow">Gestión prioritaria</span><h3 id="incident-action-queue-title">Acciones pendientes</h3></div><strong>{pendingIncidentCount} pendientes{scheduledFollowUpCount > 0 ? ` · ${scheduledFollowUpCount} en seguimiento` : ""}</strong></div>
         <small className="incident-action-queue-mobile-hint">Desliza para ver todas las acciones →</small>
         <div className="incident-action-queue-list">
           {ACTION_QUEUE_FILTERS.filter((key) => nextActionCounts[key] > 0).map((key) => {
             const closeTrialAlert = key === "judicial_management" && nextTrial !== null && nextTrial.offset <= 10;
             const overdueResolutionAlert = key === "judicial_resolution" && nextResolution !== null && nextResolution.offset <= 0;
-            return <button type="button" key={key} className={`${nextActionFilter === key ? "active" : ""}${closeTrialAlert ? " trial-alert" : ""}${overdueResolutionAlert ? " resolution-alert" : ""}`} onClick={() => setNextActionFilter(nextActionFilter === key ? "all" : key)}>
+            return <button type="button" key={key} className={`${nextActionFilter === key ? "active" : ""}${key === "scheduled_follow_up" ? " scheduled-follow-up" : ""}${closeTrialAlert ? " trial-alert" : ""}${overdueResolutionAlert ? " resolution-alert" : ""}`} onClick={() => setNextActionFilter(nextActionFilter === key ? "all" : key)}>
               <strong className="incident-action-queue-count">{nextActionCounts[key]} {nextActionCounts[key] === 1 ? "caso" : "casos"}</strong><span>{NEXT_ACTION_LABELS[key]}</span>
               {closeTrialAlert && <span className="incident-action-queue-alert-badge">⚠ Alerta</span>}
               {overdueResolutionAlert && <span className="incident-action-queue-alert-badge">! Urgente</span>}
@@ -750,6 +802,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           const trialCountdownSeverity: IncidentAlertSeverity = trialDaysRemaining !== null && trialDaysRemaining <= 10 ? "attention" : "upcoming";
           const topAlertIsTrialCountdown = topAlert?.id === `${incident.id}:trial-upcoming`;
           const judicialFinalized = incident.collision?.status === "ABSUELTO" || incident.collision?.status === "CULPABLE";
+          const followUp = incidentFollowUpSummary(incident);
           return <article key={incident.id} className={`unified-incident-card status-${claimState}${expanded ? " expanded" : ""}`}>
             <div className="unified-incident-summary" onClick={() => setExpandedId(expanded ? null : incident.id)}>
               <div className="unified-incident-identity">
@@ -769,11 +822,22 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
                   {topAlert && !topAlertIsTrialCountdown && <span className={`unified-incident-alert severity-${topAlert.severity}`} role="status"><b>{topAlert.severity === "urgent" ? "!" : topAlert.severity === "attention" ? "⚠" : "◷"}</b> {topAlert.title}</span>}
                 </div>}
               </div>
-              <div className={`unified-incident-action${incident.requiresAction ? " attention" : incident.finalized ? " complete" : ""}`}>
-                <small>{incident.finalized ? "Estado" : "Próxima acción"}</small>
-                <strong>{incident.nextAction}</strong>
+              <div className={`unified-incident-action${incident.requiresAction && !followUp ? " attention" : incident.finalized ? " complete" : ""}${followUp ? ` has-follow-up follow-up-${followUp.state}` : ""}`}>
+                {followUp ? <>
+                  <small>Estado de la gestión</small>
+                  <span className="unified-incident-follow-up-head">
+                    <span className="unified-incident-follow-up-state"><b aria-hidden="true">{followUp.state === "overdue" ? "!" : "◷"}</b>{followUp.stateLabel}</span>
+                    <span className="unified-incident-follow-up-date"><b>{followUp.relativeDate}</b></span>
+                  </span>
+                  <strong className="unified-incident-follow-up-reason" title={followUp.comment}>{followUp.comment}</strong>
+                </> : <>
+                  <small>{incident.finalized ? "Estado" : "Próxima acción"}</small>
+                  <strong>{incident.nextAction}</strong>
+                </>}
                 <div className="unified-incident-action-buttons">
-                  {!incident.finalized && <button type="button" className="button primary" onClick={(event) => { event.stopPropagation(); openNextAction(incident); }}>Gestionar ahora</button>}
+                  {!incident.finalized && (followUp
+                    ? <button type="button" className="button primary" onClick={(event) => { event.stopPropagation(); onOpen(followUp.destination, { id: followUp.targetId, search: incident.unit, section: "follow_up" }); }}>{followUp.state === "scheduled" ? "Ver seguimiento" : "Actualizar seguimiento"}</button>
+                    : <button type="button" className="button primary" onClick={(event) => { event.stopPropagation(); openNextAction(incident); }}>Gestionar ahora</button>)}
                   <button type="button" className="button ghost" onClick={(event) => { event.stopPropagation(); if (incident.collision) onOpen("judicial", { id: incident.collision.id, search: incident.unit }); else if (incident.claim) onOpen("insurance", { id: incident.claim.id, search: incident.unit }); }}>Ver expediente</button>
                 </div>
               </div>

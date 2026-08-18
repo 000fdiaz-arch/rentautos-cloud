@@ -17,7 +17,7 @@ type Props = {
   onAlertCountChange?: (count: number) => void;
 };
 
-type ManagementTarget = { destination: IncidentDestination; id: string; search: string };
+type ManagementTarget = { destination: IncidentDestination; id: string; search: string; section?: "follow_up" };
 
 export default function IncidentsControlPage({
   clients,
@@ -143,6 +143,7 @@ export default function IncidentsControlPage({
                 hideCreateForm
                 initialExpandedId={managementTarget.id}
                 focusedCaseId={managementTarget.id}
+                initialCaseTab={managementTarget.section}
               />
             ) : (
               <InsuranceWorkflowPage
@@ -154,6 +155,7 @@ export default function IncidentsControlPage({
                 hideCreateForm
                 initialExpandedId={managementTarget.id}
                 focusedClaimId={managementTarget.id}
+                initialDetailTab={managementTarget.section}
               />
             )}
           </section>

@@ -40,6 +40,7 @@ type Props = {
   initialExpandedId?: string;
   initialSearch?: string;
   focusedCaseId?: string;
+  initialCaseTab?: JudicialCaseTab;
 };
 type DateFilter = "all" | "upcoming" | "today" | "last_week" | "overdue";
 type TrialForm = {
@@ -114,7 +115,7 @@ function parseAmount(value: string): number {
 }
 function isFinalStatus(status: CollisionTrialStatus): boolean { return status === "ABSUELTO" || status === "CULPABLE"; }
 
-export default function CollisionsPage({ clients, payments, dataOwnerUserId, readOnly = false, onClientsChange, embedded = false, syncInsuranceClaims = true, hideCreateForm = false, initialExpandedId = "", initialSearch = "", focusedCaseId = "" }: Props) {
+export default function CollisionsPage({ clients, payments, dataOwnerUserId, readOnly = false, onClientsChange, embedded = false, syncInsuranceClaims = true, hideCreateForm = false, initialExpandedId = "", initialSearch = "", focusedCaseId = "", initialCaseTab }: Props) {
   const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(hideCreateForm ? null : dataOwnerUserId);
   const [activeTab, setActiveTab] = useState<"form" | "agenda">(hideCreateForm ? "agenda" : "form");
   const [form, setForm] = useState<TrialForm>(EMPTY_FORM);
@@ -150,7 +151,9 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [claimPhotoFiles, setClaimPhotoFiles] = useState<Record<string, File[]>>({});
   const [judicialFollowUpDrafts, setJudicialFollowUpDrafts] = useState<Record<string, JudicialFollowUpDraft>>({});
   const [judicialFollowUpSavingId, setJudicialFollowUpSavingId] = useState("");
-  const [judicialCaseTabs, setJudicialCaseTabs] = useState<Record<string, JudicialCaseTab>>({});
+  const [judicialCaseTabs, setJudicialCaseTabs] = useState<Record<string, JudicialCaseTab>>(
+    focusedCaseId && initialCaseTab ? { [focusedCaseId]: initialCaseTab } : {}
+  );
   const [attendanceDrafts, setAttendanceDrafts] = useState<Record<string, { clientWillAttend: "" | "yes" | "no"; legalAssistanceRequested: "" | "yes" | "no" }>>({});
   const [ticketStubDrafts, setTicketStubDrafts] = useState<Record<string, string>>({});
   const [vehicleInspectionDates, setVehicleInspectionDates] = useState<Record<string, string>>({});
