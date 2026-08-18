@@ -154,6 +154,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [claimDrafts, setClaimDrafts] = useState<Record<string, ClaimDraft>>({});
   const [claimPhotoFiles, setClaimPhotoFiles] = useState<Record<string, File[]>>({});
   const [judicialFollowUpDrafts, setJudicialFollowUpDrafts] = useState<Record<string, JudicialFollowUpDraft>>({});
+  const [judicialFollowUpCompletionDrafts, setJudicialFollowUpCompletionDrafts] = useState<Record<string, string>>({});
   const [judicialFollowUpSavingId, setJudicialFollowUpSavingId] = useState("");
   const [judicialCaseTabs, setJudicialCaseTabs] = useState<Record<string, JudicialCaseTab>>(
     focusedCaseId && initialCaseTab ? { [focusedCaseId]: initialCaseTab } : {}
@@ -563,6 +564,36 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     } catch (error) {
       console.error("No se pudo guardar la nota judicial.", error);
       setMessage("No se pudo guardar la nota judicial.");
+    } finally {
+      setJudicialFollowUpSavingId("");
+    }
+  }
+
+  async function completeJudicialFollowUp(item: CollisionCaseRecord, followUpId: string): Promise<void> {
+    if (readOnly || judicialFollowUpSavingId || !dataOwnerUserId || isFinalStatus(item.status)) return;
+    const now = new Date().toISOString();
+    const completionComment = (judicialFollowUpCompletionDrafts[followUpId] ?? "").trim();
+    const updatedCase: CollisionCaseRecord = {
+      ...item,
+      judicialFollowUps: item.judicialFollowUps.map((entry) => entry.id !== followUpId ? entry : {
+        ...entry,
+        completedAt: now,
+        completionComment
+      }),
+      updatedAt: now
+    };
+    setJudicialFollowUpSavingId(item.id);
+    setMessage("");
+    try {
+      await persistCase(updatedCase, "Seguimiento marcado como realizado.");
+      setJudicialFollowUpCompletionDrafts((current) => {
+        const next = { ...current };
+        delete next[followUpId];
+        return next;
+      });
+    } catch (error) {
+      console.error("No se pudo completar el seguimiento judicial.", error);
+      setMessage("No se pudo marcar el seguimiento como realizado.");
     } finally {
       setJudicialFollowUpSavingId("");
     }
@@ -1430,6 +1461,13 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                     <label>Próxima gestión<input type="date" min={today} value={followUpDraft.nextActionDate} onChange={(event) => setJudicialFollowUpDrafts((current) => ({ ...current, [item.id]: { ...followUpDraft, nextActionDate: event.target.value } }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /></label>
                     <button type="button" className="button primary" onClick={() => void saveJudicialFollowUp(item)} disabled={readOnly || judicialFollowUpSavingId === item.id || !followUpDraft.comment.trim() || !followUpDraft.nextStep.trim() || !followUpDraft.nextActionDate}>{judicialFollowUpSavingId === item.id ? "Guardando..." : "Guardar nota"}</button>
                   </div>}
+                  {item.judicialFollowUps.length > 0 ? <ol className="judicial-follow-up-history">{[...item.judicialFollowUps].reverse().map((entry) => <li key={entry.id} className={entry.completedAt ? "is-completed" : "is-pending"}>
+                    <div><time>{new Date(entry.createdAt).toLocaleString("es-PA")}</time><span className="judicial-follow-up-status">{entry.completedAt ? `✓ Realizada · ${new Date(entry.completedAt).toLocaleString("es-PA")}` : `Pendiente · ${entry.nextActionDate}`}</span></div>
+                    <p>{entry.comment}</p>
+                    {entry.nextStep && <small>Próximo paso: <strong>{entry.nextStep}</strong></small>}
+                    {entry.completedAt && entry.completionComment && <small className="judicial-follow-up-result">Resultado: <strong>{entry.completionComment}</strong></small>}
+                    {!entry.completedAt && !isFinalStatus(item.status) && <div className="judicial-follow-up-complete-action"><input aria-label={`Resultado del seguimiento ${entry.nextStep}`} value={judicialFollowUpCompletionDrafts[entry.id] ?? ""} placeholder="Resultado opcional de la gestión" onChange={(event) => setJudicialFollowUpCompletionDrafts((current) => ({ ...current, [entry.id]: event.target.value }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /><button type="button" className="button" onClick={() => void completeJudicialFollowUp(item, entry.id)} disabled={readOnly || judicialFollowUpSavingId === item.id}>{judicialFollowUpSavingId === item.id ? "Guardando..." : "Marcar como realizado"}</button></div>}
+                  </li>)}</ol> : <p className="judicial-follow-up-empty">Todavía no hay notas registradas en este expediente.</p>}
                 </section>}
                 {activeCaseTab === "history" && <section className="judicial-case-tab-panel judicial-history-panel" role="tabpanel" id={`judicial-history-panel-${item.id}`} aria-labelledby={`judicial-history-tab-${item.id}`}>
                   <div className="judicial-follow-up-head"><div><strong>Historial completo del expediente</strong><span>Todos los eventos judiciales ordenados del más reciente al más antiguo.</span></div><b>{timelineEvents.length} {timelineEvents.length === 1 ? "evento" : "eventos"}</b></div>

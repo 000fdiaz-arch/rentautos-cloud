@@ -56,6 +56,29 @@ if (incidentActionBlocksManagement(undefined)) {
   throw new Error("Una unidad sin acción de siniestros no debe quedar bloqueada.");
 }
 
+const completedFollowUp = collision("completed-case", "C30", "2026-09-10");
+completedFollowUp.clientWillAttend = true;
+completedFollowUp.legalAssistanceRequested = true;
+completedFollowUp.judicialFollowUps = [{
+  nextStep: "Llamar al juzgado",
+  nextActionDate: "2026-08-14",
+  completedAt: "2026-08-15T09:00:00Z"
+}];
+const completedActions = buildIncidentActionsByUnit([], [completedFollowUp], "2026-08-15");
+if (completedActions.C30) {
+  throw new Error("Un seguimiento judicial realizado no debe seguir bloqueando la gestión.");
+}
+
+const completedInsuranceActions = buildIncidentActionsByUnit([{
+  id: "completed-claim", unit: "C31", status: "Activo", claimNumber: "REC-31",
+  documentationPending: false, settlementDelivered: false,
+  followUps: [{ nextStep: "Consultar ajustador", nextActionDate: "2026-08-14", completedAt: "2026-08-15T09:00:00Z" }],
+  createdAt: "2026-08-10T08:00:00Z", updatedAt: "2026-08-15T09:00:00Z"
+}], [], "2026-08-15");
+if (completedInsuranceActions.C31?.urgent || completedInsuranceActions.C31?.label !== "Definir próximo seguimiento del seguro") {
+  throw new Error("Un seguimiento de seguro realizado debe dejar de ser urgente.");
+}
+
 const documentationActions = buildIncidentActionsByUnit(
   [{
     id: "fud-case", unit: "S21", status: "Inactivo", claimNumber: "", documentationPending: true,

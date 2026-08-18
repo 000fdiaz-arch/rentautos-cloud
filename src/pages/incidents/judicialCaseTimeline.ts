@@ -97,6 +97,16 @@ export function buildJudicialCaseTimeline(item: CollisionCaseRecord): JudicialCa
       detail: `Próximo paso: ${note.nextStep}${note.nextActionDate ? ` · Próxima gestión: ${note.nextActionDate}` : ""}`,
       tone: "info"
     });
+    if (note.completedAt) {
+      events.push({
+        id: `note-completed-${note.id}`,
+        occurredAt: eventTimestamp(note.completedAt, fallback),
+        title: "Seguimiento realizado",
+        description: note.nextStep,
+        detail: note.completionComment || "Gestión completada sin comentario adicional.",
+        tone: "success"
+      });
+    }
   }
 
   if (item.expenseInvoice) {

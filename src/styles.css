@@ -14508,6 +14508,16 @@ button.ar-route-publish-copy.is-active {
   padding: 10px 12px;
 }
 
+.judicial-follow-up-history li.is-pending {
+  border-left: 4px solid #f59e0b;
+}
+
+.judicial-follow-up-history li.is-completed {
+  border-color: #bbf7d0;
+  border-left: 4px solid #16a34a;
+  background: #f0fdf4;
+}
+
 .judicial-follow-up-history li > div {
   display: flex;
   align-items: center;
@@ -14526,6 +14536,42 @@ button.ar-route-publish-copy.is-active {
 
 .judicial-follow-up-history small {
   color: #1e40af;
+}
+
+.judicial-follow-up-status {
+  font-weight: 900;
+}
+
+.judicial-follow-up-history li.is-pending .judicial-follow-up-status {
+  color: #92400e;
+}
+
+.judicial-follow-up-history li.is-completed .judicial-follow-up-status,
+.judicial-follow-up-result {
+  color: #166534;
+}
+
+.judicial-follow-up-complete-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.judicial-follow-up-complete-action input {
+  min-width: 0;
+}
+
+.judicial-follow-up-complete-action .button {
+  border-color: #86efac;
+  color: #166534;
+  background: #f0fdf4;
+  white-space: nowrap;
+}
+
+.judicial-follow-up-complete-action .button:hover {
+  border-color: #16a34a;
+  background: #dcfce7;
 }
 
 .judicial-follow-up-empty {
@@ -15514,6 +15560,15 @@ button.ar-route-publish-copy.is-active {
   .judicial-case-timeline-head {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .judicial-follow-up-complete-action {
+    grid-template-columns: 1fr;
+  }
+
+  .judicial-follow-up-complete-action .button {
+    min-height: 44px;
+    width: 100%;
   }
 
   .judicial-case-tabs,

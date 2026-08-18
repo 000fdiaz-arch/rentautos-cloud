@@ -90,6 +90,8 @@ export type InsuranceClaimFollowUp = {
   nextStep: string;
   nextActionDate: string;
   createdAt: string;
+  completedAt?: string | null;
+  completionComment?: string;
 };
 
 export type InsuranceSettlementAttachment = {
@@ -195,6 +197,8 @@ export type CollisionJudicialFollowUp = {
   nextStep: string;
   nextActionDate: string;
   createdAt: string;
+  completedAt?: string | null;
+  completionComment?: string;
 };
 
 export type CollisionTicketStubEvent = {

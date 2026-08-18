@@ -97,6 +97,13 @@ type IncidentFollowUpSummary = {
   targetId: string;
 };
 
+function latestPendingFollowUp<T extends { completedAt?: string | null }>(entries: T[]): T | undefined {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (!entries[index].completedAt) return entries[index];
+  }
+  return undefined;
+}
+
 function incidentMatchesFilter(incident: UnifiedIncident, filter: FollowUpFilter): boolean {
   const resolutionPending = incident.collision?.status === "ABSUELTO" && !incident.collision.judicialResolutionEvidence;
   if (filter === "documentation_pending") return Boolean(incident.collision?.documentationPending || incident.claim?.documentationPending);
@@ -191,10 +198,10 @@ function followUpRelativeDate(value: string, offset: number): string {
 function incidentFollowUpSummary(incident: UnifiedIncident): IncidentFollowUpSummary | null {
   if (incident.finalized) return null;
   const claimFollowUp = incident.claim?.status !== "Finalizado"
-    ? incident.claim?.followUps[incident.claim.followUps.length - 1]
+    ? latestPendingFollowUp(incident.claim?.followUps ?? [])
     : null;
   const judicialFollowUp = incident.collision?.status !== "CULPABLE"
-    ? incident.collision?.judicialFollowUps[incident.collision.judicialFollowUps.length - 1]
+    ? latestPendingFollowUp(incident.collision?.judicialFollowUps ?? [])
     : null;
   const entry = claimFollowUp ?? judicialFollowUp;
   if (!entry?.nextActionDate) return null;
@@ -312,7 +319,7 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
           message: closeTrial ? `Alerta: el juicio es el ${collision.trialDate}.` : `Fecha de juicio: ${collision.trialDate}.`, actionLabel: "Ver juicio", destination: "judicial", targetId: collision.id
         });
       }
-      const latestFollowUp = collision.judicialFollowUps[collision.judicialFollowUps.length - 1];
+      const latestFollowUp = latestPendingFollowUp(collision.judicialFollowUps);
       const followUpOffset = latestFollowUp?.nextActionDate ? calendarDayOffset(latestFollowUp.nextActionDate) : null;
       if (latestFollowUp && followUpOffset !== null && followUpOffset < 0) {
         const overdueDays = Math.abs(followUpOffset);
@@ -394,8 +401,8 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
       });
     }
 
-    const latestClaimFollowUp = claim.followUps[claim.followUps.length - 1];
-    if (!latestClaimFollowUp && createdDays !== null && createdDays >= 3) {
+    const latestClaimFollowUp = latestPendingFollowUp(claim.followUps);
+    if (!latestClaimFollowUp && claim.followUps.length === 0 && createdDays !== null && createdDays >= 3) {
       addAlert(incident, {
         id: `${incident.id}:first-follow-up-missing`, kind: "insurance", severity: "urgent", priority: 4,
         title: "Reclamo sin primer seguimiento", message: `El reclamo está activo desde hace ${createdDays} días y no tiene seguimiento registrado.`,
@@ -448,8 +455,10 @@ function claimNextAction(claim: InsuranceClaimRecord): { label: string; finalize
   if (claim.documentationPending) return { label: "Obtener y adjuntar el FUD", finalized: false, requiresAction: true };
   if (claim.status === "Finalizado") return { label: `Reclamo ${claim.closureOutcome?.toLocaleLowerCase("es") ?? "finalizado"}`, finalized: true, requiresAction: false };
   if (!claim.claimNumber.trim()) return { label: "Agregar número de reclamo", finalized: false, requiresAction: true };
-  const latestFollowUp = claim.followUps[claim.followUps.length - 1];
-  if (!latestFollowUp) return { label: "Registrar seguimiento del seguro", finalized: false, requiresAction: true };
+  const latestFollowUp = latestPendingFollowUp(claim.followUps);
+  if (!latestFollowUp) return claim.followUps.length > 0
+    ? { label: "Definir próximo seguimiento del seguro", finalized: false, requiresAction: false }
+    : { label: "Registrar seguimiento del seguro", finalized: false, requiresAction: true };
   if (claim.settlementDelivered) return { label: "Finalizar reclamo", finalized: false, requiresAction: true };
   if (latestFollowUp.nextActionDate) {
     const followUpDue = latestFollowUp.nextActionDate <= localDateKey();
@@ -489,7 +498,7 @@ function collisionNextAction(collision: CollisionCaseRecord, claim: InsuranceCla
   if (pendingStep === "balance") return { label: "Registrar saldo de colisión", finalized: false, requiresAction: true };
   if (pendingStep === "outcome") return { label: "Registrar resultado del juicio", finalized: false, requiresAction: true };
   if (pendingStep === "attendance") return { label: "Confirmar si el cliente irá y si se pidió asistencia legal", finalized: false, requiresAction: true };
-  const latestFollowUp = collision.judicialFollowUps[collision.judicialFollowUps.length - 1];
+  const latestFollowUp = latestPendingFollowUp(collision.judicialFollowUps);
   const attendanceCountdown = daysUntilAttendanceConfirmation(collision, localDateKey());
   if (latestFollowUp?.nextActionDate) {
     const followUpDue = latestFollowUp.nextActionDate <= localDateKey();

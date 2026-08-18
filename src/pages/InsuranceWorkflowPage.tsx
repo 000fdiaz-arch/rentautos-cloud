@@ -104,6 +104,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   const [followUpComments, setFollowUpComments] = useState<Record<string, string>>({});
   const [followUpNextSteps, setFollowUpNextSteps] = useState<Record<string, string>>({});
   const [followUpDates, setFollowUpDates] = useState<Record<string, string>>({});
+  const [followUpCompletionComments, setFollowUpCompletionComments] = useState<Record<string, string>>({});
   const [claimDetailTabs, setClaimDetailTabs] = useState<Record<string, ClaimDetailTab>>(
     focusedClaimId && initialDetailTab ? { [focusedClaimId]: initialDetailTab } : {}
   );
@@ -716,6 +717,38 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
     } catch (error) {
       console.error("No se pudo guardar el comentario de seguimiento.", error);
       setMessage("No se pudo guardar el comentario de seguimiento en la nube.");
+    } finally {
+      setFollowUpSavingId("");
+    }
+  }
+
+  async function completeFollowUp(claim: InsuranceClaimRecord, followUpId: string): Promise<void> {
+    if (!dataOwnerUserId || readOnly || followUpSavingId || claim.status === "Finalizado") return;
+    const now = new Date().toISOString();
+    const completionComment = (followUpCompletionComments[followUpId] ?? "").trim();
+    const updatedClaim: InsuranceClaimRecord = {
+      ...claim,
+      followUps: claim.followUps.map((entry) => entry.id !== followUpId ? entry : {
+        ...entry,
+        completedAt: now,
+        completionComment
+      }),
+      updatedAt: now
+    };
+    setFollowUpSavingId(claim.id);
+    setMessage("");
+    try {
+      await saveInsuranceClaim(dataOwnerUserId, updatedClaim);
+      setClaims((current) => current.map((item) => item.id === claim.id ? updatedClaim : item));
+      setFollowUpCompletionComments((current) => {
+        const next = { ...current };
+        delete next[followUpId];
+        return next;
+      });
+      setMessage("Seguimiento marcado como realizado.");
+    } catch (error) {
+      console.error("No se pudo completar el seguimiento del reclamo.", error);
+      setMessage("No se pudo marcar el seguimiento como realizado.");
     } finally {
       setFollowUpSavingId("");
     }
@@ -1386,7 +1419,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                     <label>Próxima gestión<input type="date" min={localDateKey()} value={followUpDates[claim.id] ?? ""} onChange={(event) => setFollowUpDates((current) => ({ ...current, [claim.id]: event.target.value }))} disabled={readOnly || followUpSavingId === claim.id} /></label>
                     <button type="button" className="button primary" onClick={() => void saveFollowUpComment(claim)} disabled={readOnly || followUpSavingId === claim.id || !(followUpComments[claim.id] ?? "").trim() || !(followUpNextSteps[claim.id] ?? "").trim() || !followUpDates[claim.id]}>{followUpSavingId === claim.id ? "Guardando..." : "Guardar seguimiento"}</button>
                   </div>}
-                  {claim.followUps.length > 0 ? <ol className="judicial-follow-up-history">{[...claim.followUps].reverse().map((entry) => <li key={entry.id}><div><time>{new Date(entry.createdAt).toLocaleString("es-PA")}</time>{entry.nextActionDate && <span>Próxima gestión: <strong>{entry.nextActionDate}</strong></span>}</div><p>{entry.comment}</p>{entry.nextStep && <small>Próximo paso: <strong>{entry.nextStep}</strong></small>}</li>)}</ol> : <p className="judicial-follow-up-empty">Todavía no hay seguimientos registrados en este reclamo.</p>}
+                  {claim.followUps.length > 0 ? <ol className="judicial-follow-up-history">{[...claim.followUps].reverse().map((entry) => <li key={entry.id} className={entry.completedAt ? "is-completed" : "is-pending"}><div><time>{new Date(entry.createdAt).toLocaleString("es-PA")}</time><span className="judicial-follow-up-status">{entry.completedAt ? `✓ Realizada · ${new Date(entry.completedAt).toLocaleString("es-PA")}` : `Pendiente · ${entry.nextActionDate}`}</span></div><p>{entry.comment}</p>{entry.nextStep && <small>Próximo paso: <strong>{entry.nextStep}</strong></small>}{entry.completedAt && entry.completionComment && <small className="judicial-follow-up-result">Resultado: <strong>{entry.completionComment}</strong></small>}{!entry.completedAt && claim.status !== "Finalizado" && <div className="judicial-follow-up-complete-action"><input aria-label={`Resultado del seguimiento ${entry.nextStep}`} value={followUpCompletionComments[entry.id] ?? ""} placeholder="Resultado opcional de la gestión" onChange={(event) => setFollowUpCompletionComments((current) => ({ ...current, [entry.id]: event.target.value }))} disabled={readOnly || followUpSavingId === claim.id} /><button type="button" className="button" onClick={() => void completeFollowUp(claim, entry.id)} disabled={readOnly || followUpSavingId === claim.id}>{followUpSavingId === claim.id ? "Guardando..." : "Marcar como realizado"}</button></div>}</li>)}</ol> : <p className="judicial-follow-up-empty">Todavía no hay seguimientos registrados en este reclamo.</p>}
                 </section>}
                 </div>
                 )}

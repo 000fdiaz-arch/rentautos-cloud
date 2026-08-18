@@ -20,6 +20,13 @@ function shiftDateKey(dateKey: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+function latestPendingFollowUp<T extends { completedAt?: string | null }>(entries: T[]): T | undefined {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (!entries[index].completedAt) return entries[index];
+  }
+  return undefined;
+}
+
 export function insuranceActionForReceivables(
   claim: InsuranceClaimRecord,
   todayDateKey: string
@@ -32,8 +39,10 @@ export function insuranceActionForReceivables(
   }
   if (!claim.claimNumber.trim()) return { ...base, label: "Agregar número de reclamo", date: "", urgent: true };
   if (claim.settlementDelivered) return { ...base, label: "Finalizar reclamo", date: claim.settlementDeliveredDate, urgent: true };
-  const latestFollowUp = claim.followUps[claim.followUps.length - 1];
-  if (!latestFollowUp) return { ...base, label: "Registrar seguimiento del seguro", date: "", urgent: true };
+  const latestFollowUp = latestPendingFollowUp(claim.followUps);
+  if (!latestFollowUp) return claim.followUps.length > 0
+    ? { ...base, label: "Definir próximo seguimiento del seguro", date: "", urgent: false }
+    : { ...base, label: "Registrar seguimiento del seguro", date: "", urgent: true };
   return {
     ...base,
     label: latestFollowUp.nextStep || "Dar seguimiento al reclamo",
@@ -75,7 +84,7 @@ export function collisionActionForReceivables(
       urgent: Boolean(deadline && deadline <= todayDateKey)
     };
   }
-  const latestFollowUp = collision.judicialFollowUps[collision.judicialFollowUps.length - 1];
+  const latestFollowUp = latestPendingFollowUp(collision.judicialFollowUps);
   if (latestFollowUp) {
     return {
       ...base,

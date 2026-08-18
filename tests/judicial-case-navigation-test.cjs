@@ -52,6 +52,10 @@ assertEqual(defaultJudicialCaseTab(judicialCase({
   judicialFollowUps: [{ nextActionDate: "2026-08-15" }]
 }), "2026-08-15"), "follow_up", "seguimiento vencido abre Seguimiento");
 
+assertEqual(defaultJudicialCaseTab(judicialCase({
+  judicialFollowUps: [{ nextActionDate: "2026-08-14", completedAt: "2026-08-15T09:00:00Z" }]
+}), "2026-08-15"), "summary", "seguimiento realizado deja de abrir Seguimiento");
+
 assertEqual(defaultJudicialCaseTab(judicialCase(), "2026-08-15"), "summary", "expediente al día abre Resumen");
 
 const documentationPendingCase = judicialCase({ documentationPending: true, trialDate: "", vehicleInspectedAt: null, expenseInvoice: null });
