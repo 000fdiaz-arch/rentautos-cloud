@@ -167,6 +167,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [caseEditJustification, setCaseEditJustification] = useState("");
   const [caseEditSavingId, setCaseEditSavingId] = useState("");
   const [caseEditTicketStubPhotoFile, setCaseEditTicketStubPhotoFile] = useState<File | null>(null);
+  const [caseEditIncidentPhotoFiles, setCaseEditIncidentPhotoFiles] = useState<File[]>([]);
+  const [caseEditRemovedIncidentPhotoPaths, setCaseEditRemovedIncidentPhotoPaths] = useState<string[]>([]);
   const [photoGallery, setPhotoGallery] = useState<{ photos: CollisionPhotoAttachment[]; index: number; title: string } | null>(null);
 
   const fleetUnitsByUnit = useMemo(() => new Map(fleetUnits.map((row) => [normalizeUnit(row.unit_id), row])), [fleetUnits]);
@@ -395,6 +397,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     });
     setCaseEditJustification(item.documentationPending ? "Documentación recibida y expediente completado." : "");
     setCaseEditTicketStubPhotoFile(null);
+    setCaseEditIncidentPhotoFiles([]);
+    setCaseEditRemovedIncidentPhotoPaths([]);
     setMessage("");
   }
 
@@ -403,6 +407,31 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     setCaseEditForm(EMPTY_FORM);
     setCaseEditJustification("");
     setCaseEditTicketStubPhotoFile(null);
+    setCaseEditIncidentPhotoFiles([]);
+    setCaseEditRemovedIncidentPhotoPaths([]);
+  }
+
+  function selectCaseEditIncidentPhotos(files: FileList | null): void {
+    const selected = Array.from(files ?? []);
+    if (selected.some((file) => !file.type.startsWith("image/"))) {
+      setCaseEditIncidentPhotoFiles([]);
+      setMessage("Solo se permiten archivos de imagen para las fotos del juicio.");
+      return;
+    }
+    if (selected.some((file) => file.size > MAX_PHOTO_SIZE)) {
+      setCaseEditIncidentPhotoFiles([]);
+      setMessage("Cada foto del juicio debe pesar 10 MB o menos.");
+      return;
+    }
+    setCaseEditIncidentPhotoFiles(selected);
+    setMessage("");
+  }
+
+  function toggleCaseEditIncidentPhotoRemoval(path: string): void {
+    setCaseEditRemovedIncidentPhotoPaths((current) => current.includes(path)
+      ? current.filter((currentPath) => currentPath !== path)
+      : [...current, path]);
+    setMessage("");
   }
 
   async function saveCaseEdit(item: CollisionCaseRecord): Promise<void> {
@@ -436,6 +465,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       .filter(([field]) => normalizedEdit[field] !== item[field])
       .map(([, label]) => label);
     if (caseEditTicketStubPhotoFile) changedFields.push("Foto de la colilla");
+    if (caseEditIncidentPhotoFiles.length || caseEditRemovedIncidentPhotoPaths.length) changedFields.push("Fotos adjuntas al juicio");
     if (changedFields.length === 0) {
       setMessage("No hay cambios para guardar.");
       return;
@@ -445,12 +475,16 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     setMessage("");
     let previousLinkedClaim: InsuranceClaimRecord | null = null;
     let uploadedTicketStubPhoto: CollisionPhotoAttachment | null = null;
+    const uploadedIncidentPhotos: CollisionPhotoAttachment[] = [];
     try {
       if (caseEditTicketStubPhotoFile) {
         if (!caseEditTicketStubPhotoFile.type.startsWith("image/") || caseEditTicketStubPhotoFile.size > MAX_PHOTO_SIZE) {
           throw new Error("INVALID_TICKET_STUB_PHOTO");
         }
         uploadedTicketStubPhoto = await uploadCollisionPhoto(dataOwnerUserId, item.id, caseEditTicketStubPhotoFile);
+      }
+      for (const file of caseEditIncidentPhotoFiles) {
+        uploadedIncidentPhotos.push(await uploadCollisionPhoto(dataOwnerUserId, item.id, file));
       }
       const now = new Date().toISOString();
       const historicalClient = findClientByName(clients, normalizedEdit.driver);
@@ -460,6 +494,10 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
         clientId: historicalClient?.id ?? "",
         clientName: normalizedEdit.driver,
         ticketStubPhoto: uploadedTicketStubPhoto ?? item.ticketStubPhoto ?? null,
+        incidentPhotos: [
+          ...(item.incidentPhotos ?? []).filter((photo) => !caseEditRemovedIncidentPhotoPaths.includes(photo.path)),
+          ...uploadedIncidentPhotos
+        ],
         documentationPending: false,
         documentationReceivedAt: item.documentationPending ? now : item.documentationReceivedAt ?? null,
         editHistory: [...(item.editHistory ?? []), { editedAt: now, justification: caseEditJustification.trim(), changedFields }],
@@ -486,12 +524,19 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
         }
       }
       await persistCase(updated, "Corrección del siniestro guardada correctamente.");
+      if (caseEditRemovedIncidentPhotoPaths.length) {
+        try { await removeCollisionPhotos(caseEditRemovedIncidentPhotoPaths); }
+        catch (cleanupError) { console.error("No se pudieron eliminar las fotos retiradas del juicio.", cleanupError); }
+      }
       setTicketStubDrafts((current) => ({ ...current, [item.id]: updated.ticketStub }));
       setCourts((current) => [...new Set([...current, updated.court])].sort((left, right) => left.localeCompare(right, "es", { numeric: true })));
       cancelCaseEdit();
     } catch (error) {
       if (uploadedTicketStubPhoto) {
         try { await removeCollisionPhotos([uploadedTicketStubPhoto.path]); } catch { /* Limpieza de mejor esfuerzo. */ }
+      }
+      if (uploadedIncidentPhotos.length) {
+        try { await removeCollisionPhotos(uploadedIncidentPhotos.map((photo) => photo.path)); } catch { /* Limpieza de mejor esfuerzo. */ }
       }
       if (previousLinkedClaim) {
         try { await saveInsuranceClaim(dataOwnerUserId, previousLinkedClaim); }
@@ -1358,6 +1403,14 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                       <label>Juzgado<input list="collision-edit-court-options" value={caseEditForm.court} onChange={(event) => setCaseEditForm((current) => ({ ...current, court: event.target.value }))} /></label>
                       <label className="collision-client-returned-option"><input type="checkbox" checked={caseEditForm.collisionAndRun} onChange={(event) => setCaseEditForm((current) => ({ ...current, collisionAndRun: event.target.checked }))} /><span><strong>Colisión y fuga</strong></span></label>
                       <label className="workflow-claim-edit-wide">Daños del auto<textarea value={caseEditForm.vehicleDamage} onChange={(event) => setCaseEditForm((current) => ({ ...current, vehicleDamage: event.target.value }))} /></label>
+                      <div className="workflow-claim-edit-wide workflow-damage-photos">
+                        <span>Fotos adjuntas al juicio</span>
+                        {(item.incidentPhotos ?? []).length > 0 && <div className="workflow-damage-photo-list">{(item.incidentPhotos ?? []).map((photo, index) => {
+                          const removed = caseEditRemovedIncidentPhotoPaths.includes(photo.path);
+                          return <div key={photo.path} className="workflow-damage-photo-row"><div><strong>Foto {index + 1}{removed ? " · Se eliminará" : ""}</strong><small>{photo.name}</small></div><div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos ?? [], index, title: "Fotos del juicio" })}>Ver</button><button type="button" className={`button${removed ? "" : " danger"}`} onClick={() => toggleCaseEditIncidentPhotoRemoval(photo.path)}>{removed ? "Conservar" : "Eliminar"}</button></div></div>;
+                        })}</div>}
+                        <label>Agregar fotos<input type="file" accept="image/*" multiple onChange={(event) => selectCaseEditIncidentPhotos(event.target.files)} /><span className="hint">{caseEditIncidentPhotoFiles.length ? `${caseEditIncidentPhotoFiles.length} ${caseEditIncidentPhotoFiles.length === 1 ? "foto nueva seleccionada" : "fotos nuevas seleccionadas"}.` : "Puedes agregar todas las fotos necesarias."} Máximo 10 MB por foto.</span></label>
+                      </div>
                       <label className="workflow-claim-edit-wide workflow-required-field">{item.documentationPending ? "Registro de la gestión" : "Motivo de la corrección"}<textarea value={caseEditJustification} placeholder={item.documentationPending ? "Ej. Colilla recibida por WhatsApp" : "Explica qué información estaba errada y por qué se corrige"} onChange={(event) => setCaseEditJustification(event.target.value)} /></label>
                     </div>
                     <datalist id="collision-edit-unit-options">{unitOptions.map((unitId) => <option key={unitId} value={unitId} label={unitOptionLabels.get(unitId) ?? ""} />)}</datalist>
