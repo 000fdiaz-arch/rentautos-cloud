@@ -14630,6 +14630,18 @@ button.ar-route-publish-copy.is-active {
   background: #f0f9ff;
 }
 
+.collision-balance-inline-message {
+  grid-column: 1 / -1;
+  margin: 0;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.82rem;
+  font-weight: 850;
+  padding: 9px 11px;
+}
+
 .collision-workshop-panel {
   border-color: #14b8a6;
   background: #f0fdfa;

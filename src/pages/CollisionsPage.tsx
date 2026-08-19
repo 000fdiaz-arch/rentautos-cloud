@@ -148,6 +148,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [expenseLabels, setExpenseLabels] = useState<Record<string, string>>({});
   const [expenseEvaluationDates, setExpenseEvaluationDates] = useState<Record<string, string>>({});
   const [expenseInvoiceFiles, setExpenseInvoiceFiles] = useState<Record<string, File | null>>({});
+  const [balanceClientIds, setBalanceClientIds] = useState<Record<string, string>>({});
   const [editingBalanceId, setEditingBalanceId] = useState<string | null>(null);
   const [balanceEditJustification, setBalanceEditJustification] = useState("");
   const [returnedBeforeClosure, setReturnedBeforeClosure] = useState<Record<string, boolean>>({});
@@ -670,26 +671,24 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     }
   }
 
-  function findCaseClientIndex(item: CollisionCaseRecord): number {
+  function findCaseClientIndex(item: CollisionCaseRecord, selectedClientId = ""): number {
+    const selectedClientIndex = selectedClientId ? clients.findIndex((client) => client.id === selectedClientId) : -1;
+    if (selectedClientIndex >= 0) return selectedClientIndex;
+    const linkedClientIndex = item.clientId ? clients.findIndex((client) => client.id === item.clientId) : -1;
+    if (linkedClientIndex >= 0) return linkedClientIndex;
     const driverName = normalizePersonName(item.driver);
     const driverClientIndex = driverName
       ? clients.findIndex((client) => normalizePersonName(client.name) === driverName)
       : -1;
-    const linkedClientIndex = item.clientId ? clients.findIndex((client) => client.id === item.clientId) : -1;
-    const historicalClientIndex = linkedClientIndex >= 0 && normalizePersonName(clients[linkedClientIndex].name) === driverName
-      ? linkedClientIndex
-      : -1;
     const historicalClientName = normalizePersonName(item.clientName || "");
-    const namedClientIndex = historicalClientName && historicalClientName === driverName
+    const namedClientIndex = historicalClientName
       ? clients.findIndex((client) => normalizePersonName(client.name) === historicalClientName)
       : -1;
     return driverClientIndex >= 0
       ? driverClientIndex
-      : historicalClientIndex >= 0
-        ? historicalClientIndex
-        : namedClientIndex >= 0
-          ? namedClientIndex
-          : -1;
+      : namedClientIndex >= 0
+        ? namedClientIndex
+        : -1;
   }
 
   async function saveAttendanceConfirmation(item: CollisionCaseRecord): Promise<void> {
@@ -720,11 +719,11 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     const amount = parseAmount(expenseAmounts[item.id] ?? "");
     const description = expenseLabels[item.id]?.trim() ?? "";
     const evaluatedAt = expenseEvaluationDates[item.id] ?? localDateKey(new Date());
-    const clientIndex = findCaseClientIndex(item);
+    const clientIndex = findCaseClientIndex(item, balanceClientIds[item.id]);
     if (amount <= 0) { setMessage("Indica el monto del saldo de colisión."); return; }
     if (!description) { setMessage("Describe brevemente el daño o la reparación."); return; }
     if (!evaluatedAt) { setMessage("Indica la fecha de evaluación del taller."); return; }
-    if (clientIndex < 0) { setMessage("No se encontró el cliente asociado al siniestro."); return; }
+    if (clientIndex < 0) { setMessage("Selecciona el cliente al que se aplicará el saldo de colisión."); return; }
     let uploadedInvoice: CollisionPhotoAttachment | null = null;
     setBusyId(item.id); setMessage("");
     try {
@@ -739,6 +738,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       }));
       const updatedCase: CollisionCaseRecord = {
         ...item,
+        clientId: clients[clientIndex].id,
+        clientName: clients[clientIndex].name,
         expenseInvoice: { chargeId, label: chargeLabel, description, amount, attachment: uploadedInvoice, evaluatedAt, creditedToRentAmount: 0, creditedToRentAt: null, editHistory: [], createdAt: now },
         updatedAt: now
       };
@@ -750,6 +751,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       }
       setCases((current) => current.map((candidate) => candidate.id === item.id ? updatedCase : candidate));
       setExpenseInvoiceFiles((current) => ({ ...current, [item.id]: null }));
+      setBalanceClientIds((current) => ({ ...current, [item.id]: clients[clientIndex].id }));
       setMessage(`Saldo de colisión registrado por ${USD_FORMATTER.format(amount)}.`);
     } catch (error) {
       if (uploadedInvoice) { try { await removeCollisionPhotos([uploadedInvoice.path]); } catch { /* Limpieza de mejor esfuerzo. */ } }
@@ -1350,6 +1352,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
             const trialOffset = item.trialDate ? calendarDayOffset(item.trialDate) : null;
             const attendanceComplete = typeof item.clientWillAttend === "boolean" && typeof item.legalAssistanceRequested === "boolean";
             const attendanceDraft = attendanceDrafts[item.id] ?? { clientWillAttend: "", legalAssistanceRequested: "" };
+            const balanceClientIndex = findCaseClientIndex(item, balanceClientIds[item.id]);
+            const balanceClientId = balanceClientIndex >= 0 ? clients[balanceClientIndex].id : "";
             const timelineEvents = buildJudicialCaseTimeline(item);
             const caseTabOptions = ([
               ["summary", "Resumen", ""],
@@ -1452,10 +1456,12 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                 {activeCaseTab === "balance" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-balance-panel-${item.id}`} aria-labelledby={`judicial-balance-tab-${item.id}`}>
                  {!item.expenseInvoice && !isFinalStatus(item.status) && <div className="workflow-finalization-panel collision-balance-panel">
                   <div><strong>Saldo de colisión</strong><span>Registra el costo determinado después de la evaluación del taller.</span></div>
+                  <label className="workflow-required-field">Cliente asociado<select value={balanceClientId} onChange={(event) => { setBalanceClientIds((current) => ({ ...current, [item.id]: event.target.value })); setMessage(""); }} disabled={readOnly || busyId === item.id}><option value="">Seleccionar cliente</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name} · {client.unitId || "Sin unidad"}{client.status === "archivado" ? " · Archivado" : ""}</option>)}</select><small>El saldo se agregará a los otros cargos de este cliente.</small></label>
                   <label>Fecha de evaluación<input type="date" value={expenseEvaluationDates[item.id] ?? today} onChange={(event) => setExpenseEvaluationDates((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /></label>
                   <label className="workflow-required-field">Monto obligatorio<input type="number" min="0.01" step="0.01" placeholder="0.00" value={expenseAmounts[item.id] ?? ""} onChange={(event) => setExpenseAmounts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /></label>
                   <label className="workflow-finalization-reason workflow-required-field">Descripción del daño o reparación (obligatoria)<textarea value={expenseLabels[item.id] ?? ""} placeholder="Ej. Reparación de guardafango y pintura" onChange={(event) => setExpenseLabels((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /></label>
                   <label className="collision-outcome-evidence">Factura del taller (opcional)<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => selectExpenseInvoice(item.id, event.target.files?.[0])} disabled={readOnly || busyId === item.id} /><small>{expenseInvoiceFiles[item.id] ? `Seleccionada: ${expenseInvoiceFiles[item.id]!.name}` : "Adjunta PDF o imagen de hasta 10 MB"}</small></label>
+                  {message && <p className="collision-balance-inline-message" role="alert">{message}</p>}
                   <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => void saveCollisionBalance(item)} disabled={readOnly || busyId === item.id}>{busyId === item.id ? "Guardando..." : "Registrar saldo de colisión"}</button></div>
                  </div>}
                  {item.expenseInvoice && editingBalanceId !== item.id && <div className="collision-expense-invoice"><strong>Saldo de colisión registrado</strong><span>{item.expenseInvoice.description || item.expenseInvoice.label}</span><b>{USD_FORMATTER.format(item.expenseInvoice.amount)}</b><small>{item.expenseInvoice.creditedToRentAt ? `${USD_FORMATTER.format(item.expenseInvoice.creditedToRentAmount ?? 0)} transferidos a la letra al ganar el juicio.` : `Evaluado el ${item.expenseInvoice.evaluatedAt || item.expenseInvoice.createdAt.slice(0, 10)} · cobro activo en otros cargos.`}</small><div className="collision-expense-invoice-actions">{item.expenseInvoice.attachment && <button type="button" className="button" onClick={() => void viewExpenseInvoice(item.expenseInvoice!.attachment!)}>Ver factura adjunta</button>}<button type="button" className="button primary" onClick={() => startEditingBalance(item)} disabled={readOnly || busyId === item.id || Boolean(item.expenseInvoice.creditedToRentAt)} title={item.expenseInvoice.creditedToRentAt ? "El saldo ya fue aplicado a la letra" : "Editar saldo y factura"}>Editar saldo y factura</button></div></div>}
