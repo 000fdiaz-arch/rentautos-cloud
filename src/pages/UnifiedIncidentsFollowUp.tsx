@@ -272,6 +272,13 @@ function incidentActionTiming(incident: UnifiedIncident): ActionTimingFilter {
   return "upcoming";
 }
 
+function countImmediateIncidentActions(incidents: UnifiedIncident[]): number {
+  return incidents.filter((incident) => {
+    const timing = incidentActionTiming(incident);
+    return timing === "overdue" || timing === "today";
+  }).length;
+}
+
 function localDateKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -637,11 +644,10 @@ function mergeIncidents(collisions: CollisionCaseRecord[], claims: InsuranceClai
 export function countIncidentAlerts(
   collisions: CollisionCaseRecord[],
   claims: InsuranceClaimRecord[],
-  canViewInsurance: boolean
+  _canViewInsurance: boolean
 ): number {
   const incidents = mergeIncidents(collisions, claims, []);
-  const alerts = buildIncidentAlerts(incidents, canViewInsurance);
-  return new Set(alerts.map((alert) => alert.incidentId)).size;
+  return countImmediateIncidentActions(incidents);
 }
 
 export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudicial, canViewInsurance, refreshKey, onOpen, onAlertCountChange }: Props) {
@@ -682,7 +688,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
 
   const incidents = useMemo(() => mergeIncidents(collisions, claims, fleetUnits), [claims, collisions, fleetUnits]);
   const alerts = useMemo(() => buildIncidentAlerts(incidents, canViewInsurance), [canViewInsurance, incidents]);
-  const alertIncidentCount = useMemo(() => new Set(alerts.map((alert) => alert.incidentId)).size, [alerts]);
+  const immediateIncidentCount = useMemo(() => countImmediateIncidentActions(incidents), [incidents]);
   const alertsByIncident = useMemo(() => {
     const grouped = new Map<string, IncidentAlert[]>();
     alerts.forEach((alert) => grouped.set(alert.incidentId, [...(grouped.get(alert.incidentId) ?? []), alert]));
@@ -690,8 +696,8 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   }, [alerts]);
 
   useEffect(() => {
-    if (!loading && !loadError) onAlertCountChange?.(alertIncidentCount);
-  }, [alertIncidentCount, loadError, loading, onAlertCountChange]);
+    if (!loading && !loadError) onAlertCountChange?.(immediateIncidentCount);
+  }, [immediateIncidentCount, loadError, loading, onAlertCountChange]);
   const filterCounts = useMemo(() => {
     const count = (nextFilter: FollowUpFilter) => incidents.filter((incident) => incidentMatchesFilter(incident, nextFilter)).length;
     return {
