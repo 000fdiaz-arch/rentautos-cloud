@@ -10,6 +10,8 @@ import {
 import type { IncidentDestination } from "./IncidentIntakeForm";
 import { daysUntilAttendanceConfirmation, nextPendingJudicialStep } from "./incidents/judicialCaseNavigation";
 import { documentationAlertState } from "./incidents/incidentDocumentation";
+import { dateMatchesRange, hasMissingClaimNumber } from "./incidents/incidentFilterRules";
+import "./incidents/incidentFilters.css";
 
 type Props = {
   dataOwnerUserId?: string | null;
@@ -23,6 +25,8 @@ type Props = {
 type FollowUpFilter = "in_progress" | "documentation_pending" | "judicial" | "insurance_active" | "insurance_inactive" | "finalized";
 type NextActionFilter = "all" | "scheduled_follow_up" | "documentation" | "judicial_management" | "judicial_workshop" | "judicial_balance" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim" | "finalized";
 type ActionTimingFilter = "all" | "overdue" | "today" | "upcoming";
+type DateFieldFilter = "incident" | "next_action";
+type IncidentSort = "action_asc" | "incident_desc" | "updated_desc" | "unit_asc";
 type IncidentAlertSeverity = "urgent" | "attention" | "upcoming";
 
 type IncidentAlert = {
@@ -80,7 +84,7 @@ function incidentMatchesFilter(incident: UnifiedIncident, filter: FollowUpFilter
   if (filter === "documentation_pending") return Boolean(incident.collision?.documentationPending || incident.claim?.documentationPending);
   if (filter === "judicial") return Boolean(incident.collision);
   if (filter === "insurance_active") return !resolutionPending && incident.claim?.status === "Activo";
-  if (filter === "insurance_inactive") return !resolutionPending && incident.claim?.status === "Inactivo";
+  if (filter === "insurance_inactive") return !resolutionPending && Boolean(incident.claim && hasMissingClaimNumber(incident.claim.claimNumber));
   if (filter === "finalized") return incident.finalized;
   return false;
 }
@@ -260,6 +264,13 @@ function compareByActionDate(left: UnifiedIncident, right: UnifiedIncident): num
   if (leftSchedule) return -1;
   if (rightSchedule) return 1;
   return right.updatedAt.localeCompare(left.updatedAt);
+}
+
+function compareIncidents(left: UnifiedIncident, right: UnifiedIncident, sort: IncidentSort): number {
+  if (sort === "incident_desc") return right.incidentDate.localeCompare(left.incidentDate) || compareByActionDate(left, right);
+  if (sort === "updated_desc") return right.updatedAt.localeCompare(left.updatedAt) || compareByActionDate(left, right);
+  if (sort === "unit_asc") return left.unit.localeCompare(right.unit, "es", { numeric: true, sensitivity: "base" }) || compareByActionDate(left, right);
+  return compareByActionDate(left, right);
 }
 
 function incidentActionTiming(incident: UnifiedIncident): ActionTimingFilter {
@@ -656,6 +667,12 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   const [fleetUnits, setFleetUnits] = useState<ControlUnitRow[]>([]);
   const [filter, setFilter] = useState<FollowUpFilter>("in_progress");
   const [actionTimingFilter, setActionTimingFilter] = useState<ActionTimingFilter>("all");
+  const [nextActionFilter, setNextActionFilter] = useState<NextActionFilter>("all");
+  const [insurerFilter, setInsurerFilter] = useState("all");
+  const [dateFieldFilter, setDateFieldFilter] = useState<DateFieldFilter>("incident");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sort, setSort] = useState<IncidentSort>("action_asc");
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -727,18 +744,29 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     ? nextTrial.offset === 0 ? "hoy" : nextTrial.offset === 1 ? "mañana" : `en ${nextTrial.offset} días`
     : "";
   const nextTrialFilterLabel = nextTrial ? `Próximo: ${nextTrialRelativeLabel}` : "";
+  const insurers = useMemo(() => Array.from(new Set(incidents
+    .map((incident) => incident.claim?.insurer.trim() ?? "")
+    .filter(Boolean)))
+    .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" })), [incidents]);
   const filteredIncidents = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("es");
     return incidents.filter((incident) => {
       if (!incidentMatchesFilter(incident, filter)) return false;
       if (actionTimingFilter !== "all" && incidentActionTiming(incident) !== actionTimingFilter) return false;
+      if (nextActionFilter !== "all" && nextActionCategory(incident) !== nextActionFilter) return false;
+      if (insurerFilter !== "all" && incident.claim?.insurer.trim() !== insurerFilter) return false;
+      if (dateFrom || dateTo) {
+        const selectedDate = dateFieldFilter === "incident" ? incident.incidentDate : incidentActionSchedule(incident)?.date ?? "";
+        if (!dateMatchesRange(selectedDate, dateFrom, dateTo)) return false;
+      }
       if (!needle) return true;
       return [incident.unit, incident.driver, incident.plate, incident.vehicleYear, incident.vehicleDamage, incident.nextAction,
         incident.claim?.claimNumber ?? "", incident.claim?.insurer ?? "", incident.claim?.status ?? ""]
         .some((value) => value.toLocaleLowerCase("es").includes(needle));
-    }).sort(compareByActionDate);
-  }, [actionTimingFilter, filter, incidents, search]);
-  const hasActiveFilters = Boolean(search.trim() || filter !== "in_progress" || actionTimingFilter !== "all");
+    }).sort((left, right) => compareIncidents(left, right, sort));
+  }, [actionTimingFilter, dateFieldFilter, dateFrom, dateTo, filter, incidents, insurerFilter, nextActionFilter, search, sort]);
+  const hasActiveFilters = Boolean(search.trim() || filter !== "in_progress" || actionTimingFilter !== "all"
+    || nextActionFilter !== "all" || insurerFilter !== "all" || dateFrom || dateTo || sort !== "action_asc");
 
   function openAlert(alert: IncidentAlert): void {
     onOpen(alert.destination, { id: alert.targetId, search: alert.unit });
@@ -761,15 +789,19 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     setFilter("in_progress");
     setSearch("");
     setActionTimingFilter("all");
+    setNextActionFilter("all");
+    setInsurerFilter("all");
+    setDateFieldFilter("incident");
+    setDateFrom("");
+    setDateTo("");
+    setSort("action_asc");
   }
 
   function selectFollowUpFilter(nextFilter: FollowUpFilter): void {
     setFilter(nextFilter);
-    setActionTimingFilter("all");
   }
 
   function toggleActionTiming(nextTiming: Exclude<ActionTimingFilter, "all">): void {
-    setFilter("in_progress");
     setActionTimingFilter((current) => current === nextTiming ? "all" : nextTiming);
   }
 
@@ -796,7 +828,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
       </section>}
       <div className="unified-incidents-toolbar" role="region" aria-label="Filtros fijos de expedientes y alertas">
         <div className="unified-incidents-filter-head">
-          <label className="workflow-claim-search">Buscar<input type="search" value={search} placeholder="Unidad, placa, año, aseguradora o número de reclamo" onChange={(event) => setSearch(event.target.value)} /></label>
+          <label className="workflow-claim-search">Buscar<input type="search" value={search} placeholder="Unidad, conductor, placa, año, aseguradora o número de reclamo" onChange={(event) => setSearch(event.target.value)} /></label>
           <button type="button" className="button ghost small unified-incidents-clear" onClick={clearFilters} disabled={!hasActiveFilters}>Limpiar filtros</button>
         </div>
         <div className="unified-incidents-filter-groups">
@@ -809,6 +841,51 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
               {canViewInsurance && <button type="button" className={filter === "insurance_active" ? "active" : ""} onClick={() => selectFollowUpFilter("insurance_active")}>Con reclamo activo <span>{filterCounts.insurance_active}</span></button>}
               {canViewInsurance && <button type="button" className={filter === "insurance_inactive" ? "active" : ""} onClick={() => selectFollowUpFilter("insurance_inactive")}>Sin número de reclamo <span>{filterCounts.insurance_inactive}</span></button>}
               <button type="button" className={filter === "finalized" ? "active" : ""} onClick={() => selectFollowUpFilter("finalized")} disabled={filterCounts.finalized === 0}>Finalizados <span>{filterCounts.finalized}</span></button>
+            </div>
+          </section>
+          <section className="unified-incidents-filter-section" aria-labelledby="incident-detail-filter-title">
+            <span className="unified-incidents-filter-title" id="incident-detail-filter-title">Filtros operativos</span>
+            <div className="unified-incidents-advanced-filters">
+              <label>Próxima acción
+                <select value={nextActionFilter} onChange={(event) => setNextActionFilter(event.target.value as NextActionFilter)}>
+                  <option value="all">Todas</option>
+                  <option value="scheduled_follow_up">Seguimiento programado</option>
+                  <option value="documentation">Completar documentación</option>
+                  <option value="judicial_management">Gestión judicial</option>
+                  <option value="judicial_workshop">Revisión en taller</option>
+                  <option value="judicial_balance">Registrar saldo</option>
+                  <option value="judicial_attendance">Confirmar asistencia</option>
+                  <option value="judicial_result">Registrar resultado</option>
+                  <option value="judicial_resolution">Buscar resolución</option>
+                  <option value="start_claim">Iniciar reclamo</option>
+                  <option value="claim_number">Obtener número de reclamo</option>
+                  <option value="insurance_follow_up">Seguimiento de seguro</option>
+                  <option value="finalize_claim">Finalizar reclamo</option>
+                  <option value="finalized">Finalizado</option>
+                </select>
+              </label>
+              {canViewInsurance && <label>Aseguradora
+                <select value={insurerFilter} onChange={(event) => setInsurerFilter(event.target.value)}>
+                  <option value="all">Todas</option>
+                  {insurers.map((insurer) => <option key={insurer} value={insurer}>{insurer}</option>)}
+                </select>
+              </label>}
+              <label>Fecha a consultar
+                <select value={dateFieldFilter} onChange={(event) => setDateFieldFilter(event.target.value as DateFieldFilter)}>
+                  <option value="incident">Fecha del siniestro</option>
+                  <option value="next_action">Fecha de próxima acción</option>
+                </select>
+              </label>
+              <label>Desde<input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} /></label>
+              <label>Hasta<input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} /></label>
+              <label>Ordenar por
+                <select value={sort} onChange={(event) => setSort(event.target.value as IncidentSort)}>
+                  <option value="action_asc">Próxima acción</option>
+                  <option value="incident_desc">Siniestro más reciente</option>
+                  <option value="updated_desc">Última actualización</option>
+                  <option value="unit_asc">Unidad</option>
+                </select>
+              </label>
             </div>
           </section>
         </div>

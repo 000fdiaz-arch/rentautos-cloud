@@ -1,0 +1,58 @@
+.unified-incidents-advanced-filters {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.35fr) minmax(150px, 1fr) minmax(180px, 1.2fr) minmax(135px, 0.8fr) minmax(135px, 0.8fr) minmax(170px, 1fr);
+  gap: 8px;
+  align-items: end;
+}
+
+.unified-incidents-advanced-filters label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.unified-incidents-advanced-filters input,
+.unified-incidents-advanced-filters select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--color-text);
+  padding: 7px 9px;
+}
+
+.unified-incidents-advanced-filters input:focus,
+.unified-incidents-advanced-filters select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+  outline: none;
+}
+
+@media (max-width: 1040px) {
+  .unified-incidents-advanced-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .unified-incidents-advanced-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .unified-incidents-advanced-filters input,
+  .unified-incidents-advanced-filters select {
+    min-height: 44px;
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .unified-incidents-advanced-filters {
+    grid-template-columns: 1fr;
+  }
+}
