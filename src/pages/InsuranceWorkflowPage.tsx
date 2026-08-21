@@ -98,6 +98,9 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   const [settlementSavingId, setSettlementSavingId] = useState<string>("");
   const [settlementUploadingId, setSettlementUploadingId] = useState<string>("");
   const [fudUploadingId, setFudUploadingId] = useState<string>("");
+  const [fudPhysicalDeliverySavingId, setFudPhysicalDeliverySavingId] = useState<string>("");
+  const [fudPhysicalDeliveryDates, setFudPhysicalDeliveryDates] = useState<Record<string, string>>({});
+  const [fudPhysicalDeliveryConfirmations, setFudPhysicalDeliveryConfirmations] = useState<Record<string, boolean>>({});
   const [damagePhotosUploadingId, setDamagePhotosUploadingId] = useState<string>("");
   const [settlementDates, setSettlementDates] = useState<Record<string, string>>({});
   const [followUpSavingId, setFollowUpSavingId] = useState<string>("");
@@ -369,12 +372,15 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       hasClaimNumber,
       claimNumber,
       id: `insurance-claim-${Date.now()}`,
-      status: claimNumber ? "Activo" : "Inactivo",
+      status: "Inactivo",
       damagePhotoNames: [],
       damagePhotos: [],
-      documentationPending: false,
-      documentationPendingSince: null,
-      documentationReceivedAt: now,
+      fudPhysicalDeliveryConfirmed: false,
+      fudPhysicalDeliveryDate: null,
+      fudPhysicalDeliveryConfirmedAt: null,
+      documentationPending: true,
+      documentationPendingSince: now,
+      documentationReceivedAt: null,
       settlementDelivered: false,
       settlementDeliveredDate: "",
       settlementMarkedAt: null,
@@ -405,7 +411,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       await saveInsuranceClaim(dataOwnerUserId, claimToSave);
       setClaims((current) => [claimToSave, ...current]);
       resetForm();
-      setMessage(`${claimToSave.status === "Activo" ? "Reclamo guardado como activo" : "Reclamo guardado como inactivo: falta el número de reclamo"}${uploadedPhotos.length > 0 ? `, con ${uploadedPhotos.length} foto${uploadedPhotos.length === 1 ? "" : "s"} de daños` : ""}.`);
+      setMessage(`Reclamo guardado como inactivo: falta confirmar la entrega presencial del FUD${!claimNumber ? " y agregar el número de reclamo" : ""}${uploadedPhotos.length > 0 ? `, con ${uploadedPhotos.length} foto${uploadedPhotos.length === 1 ? "" : "s"} de daños` : ""}.`);
       setActiveTab("list");
     } catch (error) {
       if (uploadedPhotos.length > 0) {
@@ -445,7 +451,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   function requestClaimStatusUpdate(claim: InsuranceClaimRecord, status: InsuranceClaimStatus): void {
     if (readOnly || claim.status === status) return;
     if (claim.documentationPending) {
-      setMessage("Adjunta primero el FUD para continuar con la gestión del reclamo.");
+      setMessage("Confirma la entrega presencial del FUD original y adjunta su copia digital para continuar.");
       return;
     }
     if (claim.status === "Finalizado") {
@@ -474,7 +480,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
 
   async function finalizeClaim(claim: InsuranceClaimRecord): Promise<void> {
     if (!dataOwnerUserId || readOnly) return;
-    if (claim.documentationPending) { setMessage("Adjunta primero el FUD para continuar con el reclamo."); return; }
+    if (claim.documentationPending) { setMessage("Confirma la entrega presencial del FUD original y adjunta su copia digital para continuar."); return; }
     if (!claim.claimNumber.trim()) {
       setMessage("No se puede finalizar un reclamo sin número de reclamo.");
       return;
@@ -515,7 +521,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
 
   async function updateSettlementDelivery(claim: InsuranceClaimRecord, delivered: boolean, date: string): Promise<void> {
     if (!dataOwnerUserId || readOnly) return;
-    if (claim.documentationPending) { setMessage("Adjunta primero el FUD para continuar con el reclamo."); return; }
+    if (claim.documentationPending) { setMessage("Confirma la entrega presencial del FUD original y adjunta su copia digital para continuar."); return; }
     if (delivered && !date) {
       setMessage("Debes colocar la fecha de entrega antes de marcar el finiquito como entregado.");
       return;
@@ -545,7 +551,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
 
   async function handleSettlementFileChange(claim: InsuranceClaimRecord, file: File | undefined): Promise<void> {
     if (!file || !dataOwnerUserId || readOnly) return;
-    if (claim.documentationPending) { setMessage("Adjunta primero el FUD para continuar con el reclamo."); return; }
+    if (claim.documentationPending) { setMessage("Confirma la entrega presencial del FUD original y adjunta su copia digital para continuar."); return; }
     if (file.size > MAX_SETTLEMENT_FILE_SIZE) {
       setMessage("El finiquito no puede superar 10 MB.");
       return;
@@ -598,10 +604,14 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       const updatedClaim: InsuranceClaimRecord = {
         ...claim,
         fudAttachment: attachment,
-        documentationPending: false,
-        documentationReceivedAt: now,
-        status: claim.claimNumber.trim() ? "Activo" : "Inactivo",
-        editHistory: [...claim.editHistory, { editedAt: now, justification: "FUD recibido y adjuntado; documentación completada." }],
+        fudPhysicalDeliveryConfirmed: false,
+        fudPhysicalDeliveryDate: null,
+        fudPhysicalDeliveryConfirmedAt: null,
+        documentationPending: true,
+        documentationPendingSince: claim.documentationPendingSince ?? now,
+        documentationReceivedAt: null,
+        status: claim.status === "Finalizado" ? "Finalizado" : "Inactivo",
+        editHistory: [...claim.editHistory, { editedAt: now, justification: "Copia digital del FUD adjuntada; entrega presencial todavía pendiente de confirmar." }],
         updatedAt: now
       };
       await saveInsuranceClaim(dataOwnerUserId, updatedClaim);
@@ -609,7 +619,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       if (claim.fudAttachment?.path) {
         try { await removeInsuranceSettlement(claim.fudAttachment.path); } catch { /* Limpieza de mejor esfuerzo. */ }
       }
-      setMessage("FUD adjuntado. El expediente ya puede continuar su flujo normal.");
+      setMessage("Copia digital del FUD adjuntada. Falta confirmar la entrega presencial del original.");
     } catch (error) {
       if (uploadedPath) {
         try { await removeInsuranceSettlement(uploadedPath); } catch { /* Limpieza de mejor esfuerzo. */ }
@@ -618,6 +628,50 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       setMessage("No se pudo adjuntar el FUD en la nube.");
     } finally {
       setFudUploadingId("");
+    }
+  }
+
+  async function confirmFudPhysicalDelivery(claim: InsuranceClaimRecord): Promise<void> {
+    if (!dataOwnerUserId || readOnly) return;
+    if (!claim.fudAttachment) {
+      setMessage("Adjunta primero una copia digital del FUD entregado presencialmente.");
+      return;
+    }
+    if (!fudPhysicalDeliveryConfirmations[claim.id]) {
+      setMessage("Marca la confirmación de que el FUD original fue recibido presencialmente.");
+      return;
+    }
+    const deliveryDate = fudPhysicalDeliveryDates[claim.id] ?? "";
+    if (!deliveryDate) {
+      setMessage("Indica la fecha de entrega presencial del FUD original.");
+      return;
+    }
+    const now = new Date().toISOString();
+    const updatedClaim: InsuranceClaimRecord = {
+      ...claim,
+      fudPhysicalDeliveryConfirmed: true,
+      fudPhysicalDeliveryDate: deliveryDate,
+      fudPhysicalDeliveryConfirmedAt: now,
+      documentationPending: false,
+      documentationPendingSince: null,
+      documentationReceivedAt: now,
+      status: claim.status === "Finalizado" ? "Finalizado" : claim.claimNumber.trim() ? "Activo" : "Inactivo",
+      editHistory: [...claim.editHistory, { editedAt: now, justification: `Entrega presencial del FUD original confirmada con fecha ${deliveryDate}.` }],
+      updatedAt: now
+    };
+    setFudPhysicalDeliverySavingId(claim.id);
+    setMessage("");
+    try {
+      await saveInsuranceClaim(dataOwnerUserId, updatedClaim);
+      setClaims((current) => current.map((item) => item.id === claim.id ? updatedClaim : item));
+      setFudPhysicalDeliveryConfirmations((current) => ({ ...current, [claim.id]: false }));
+      setFudPhysicalDeliveryDates((current) => ({ ...current, [claim.id]: "" }));
+      setMessage("Entrega presencial del FUD confirmada. El expediente ya puede continuar.");
+    } catch (error) {
+      console.error("No se pudo confirmar la entrega presencial del FUD.", error);
+      setMessage("No se pudo guardar la confirmación de entrega presencial en la nube.");
+    } finally {
+      setFudPhysicalDeliverySavingId("");
     }
   }
 
@@ -1172,7 +1226,15 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                 </div>
                 {expanded && (
                 <div className="workflow-claim-details">
-                {claim.documentationPending && <div className="workflow-finalization-panel insurance-documentation-pending"><div><strong>FUD pendiente</strong><span>El reclamo está registrado, pero no avanzará hasta adjuntar el FUD. Registra los contactos en Seguimiento mientras obtienes el documento.</span></div><label className="workflow-required-field">Adjuntar FUD<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => void handleFudFileChange(claim, event.target.files?.[0])} disabled={readOnly || fudUploadingId === claim.id} /><small>PDF o imagen · máximo 10 MB.</small></label><div className="workflow-finalization-actions"><strong>{fudUploadingId === claim.id ? "Subiendo FUD..." : "La alerta se cerrará al guardar el documento."}</strong></div></div>}
+                {claim.documentationPending && <div className="workflow-finalization-panel insurance-documentation-pending">
+                  <div><strong>Entrega presencial del FUD pendiente</strong><span>El reclamo no avanzará hasta recibir presencialmente el FUD original y adjuntar su copia digital. Una foto o PDF no sustituye la entrega física.</span></div>
+                  {claim.fudAttachment
+                    ? <div><strong>Copia digital adjunta</strong><span>{claim.fudAttachment.name}</span></div>
+                    : <label className="workflow-required-field">Copia digital del FUD<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => void handleFudFileChange(claim, event.target.files?.[0])} disabled={readOnly || fudUploadingId === claim.id} /><small>Adjúntala después de recibir el original · PDF o imagen · máximo 10 MB.</small></label>}
+                  <label className="workflow-required-field">Fecha de entrega presencial<input type="date" value={fudPhysicalDeliveryDates[claim.id] ?? ""} onChange={(event) => setFudPhysicalDeliveryDates((current) => ({ ...current, [claim.id]: event.target.value }))} disabled={readOnly || fudPhysicalDeliverySavingId === claim.id} /></label>
+                  <label className="collision-client-returned-option"><input type="checkbox" checked={fudPhysicalDeliveryConfirmations[claim.id] === true} onChange={(event) => setFudPhysicalDeliveryConfirmations((current) => ({ ...current, [claim.id]: event.target.checked }))} disabled={readOnly || fudPhysicalDeliverySavingId === claim.id} /><span><strong>Confirmo que el FUD original fue recibido presencialmente</strong><small>Esta confirmación no corresponde únicamente a una foto, PDF o envío digital.</small></span></label>
+                  <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => void confirmFudPhysicalDelivery(claim)} disabled={readOnly || !claim.fudAttachment || !fudPhysicalDeliveryConfirmations[claim.id] || !fudPhysicalDeliveryDates[claim.id] || fudPhysicalDeliverySavingId === claim.id}>{fudPhysicalDeliverySavingId === claim.id ? "Guardando..." : "Confirmar entrega presencial"}</button></div>
+                </div>}
                 <div className="workflow-claim-detail-head">
                   <div>
                     {!claim.claimNumber ? (
@@ -1289,7 +1351,8 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                   <div><dt>Placa</dt><dd>{claim.plate || "-"}</dd></div>
                   <div><dt>Fotos de daños</dt><dd>{claim.damagePhotos.length || claim.damagePhotoNames.length || "-"}</dd></div>
                   <div><dt>Fecha de creación</dt><dd>{claim.createdAt ? new Date(claim.createdAt).toLocaleDateString("es-PA") : "-"}</dd></div>
-                  <div><dt>Documento FUD</dt><dd>{claim.fudAttachment ? <><span>{claim.fudAttachment.name}</span><button type="button" className="button small" onClick={() => void viewSettlement(claim.fudAttachment!.path)}>Ver FUD</button></> : "No adjunto"}</dd></div>
+                  <div><dt>Entrega presencial del FUD</dt><dd>{claim.fudPhysicalDeliveryConfirmed ? `Confirmada${claim.fudPhysicalDeliveryDate ? ` · ${claim.fudPhysicalDeliveryDate}` : ""}` : "Pendiente de confirmar"}</dd></div>
+                  <div><dt>Copia digital del FUD</dt><dd>{claim.fudAttachment ? <><span>{claim.fudAttachment.name}</span><button type="button" className="button small" onClick={() => void viewSettlement(claim.fudAttachment!.path)}>Ver FUD</button></> : "No adjunta"}</dd></div>
                   {claim.status === "Finalizado" && <div><dt>Resultado final</dt><dd>{claim.closureOutcome || "-"}</dd></div>}
                   {claim.closureOutcome === "Declinado" && <div className="workflow-claim-damage"><dt>Justificación del rechazo</dt><dd>{claim.closureJustification}</dd></div>}
                   <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{claim.vehicleDamage || "Sin descripción"}</dd></div>

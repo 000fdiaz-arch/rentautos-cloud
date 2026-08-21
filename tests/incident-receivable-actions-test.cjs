@@ -88,8 +88,18 @@ const documentationActions = buildIncidentActionsByUnit(
   [collision("stub-case", "B22", "")],
   "2026-08-15"
 );
-if (documentationActions.S21?.label !== "Obtener y adjuntar el FUD" || !documentationActions.S21.urgent) {
+if (documentationActions.S21?.label !== "Coordinar entrega presencial del FUD" || !documentationActions.S21.urgent) {
   throw new Error("El FUD pendiente debe escalar como acción urgente a las 48 horas.");
+}
+
+const finalizedPendingActions = buildIncidentActionsByUnit([{
+  id: "finalized-fud-case", unit: "S22", status: "Finalizado", claimNumber: "REC-22",
+  documentationPending: true, documentationPendingSince: "2026-08-13T08:00:00Z",
+  followUps: [], settlementDelivered: true,
+  createdAt: "2026-08-10T08:00:00Z", updatedAt: "2026-08-13T08:00:00Z"
+}], [], "2026-08-15");
+if (finalizedPendingActions.S22?.label !== "Coordinar entrega presencial del FUD" || !finalizedPendingActions.S22.urgent) {
+  throw new Error("Un reclamo finalizado también debe revisarse si falta confirmar la entrega presencial del FUD.");
 }
 
 const pendingStub = collision("stub-case-2", "B23", "");

@@ -126,6 +126,9 @@ export type InsuranceClaimRecord = {
   damagePhotoNames: string[];
   damagePhotos: InsuranceDamagePhotoAttachment[];
   fudAttachment?: InsuranceSettlementAttachment | null;
+  fudPhysicalDeliveryConfirmed?: boolean;
+  fudPhysicalDeliveryDate?: string | null;
+  fudPhysicalDeliveryConfirmedAt?: string | null;
   documentationPending?: boolean;
   documentationPendingSince?: string | null;
   documentationReceivedAt?: string | null;
@@ -264,10 +267,12 @@ function normalizeInsuranceClaim(claim: InsuranceClaimRecord): InsuranceClaimRec
     ? rawHasClaimNumber
     : Boolean(claimNumber.trim());
   const rawStatus = (claim as unknown as { status?: string }).status;
-  const status: InsuranceClaimStatus = !claimNumber.trim()
-    ? "Inactivo"
-    : rawStatus === "Finalizado" || rawStatus === "Pagado"
-      ? "Finalizado"
+  const fudPhysicalDeliveryConfirmed = claim.fudPhysicalDeliveryConfirmed === true;
+  const documentationPending = claim.documentationPending === true || !fudPhysicalDeliveryConfirmed;
+  const status: InsuranceClaimStatus = rawStatus === "Finalizado" || rawStatus === "Pagado"
+    ? "Finalizado"
+    : !claimNumber.trim() || documentationPending
+      ? "Inactivo"
       : "Activo";
   const rawClosureOutcome = (claim as InsuranceClaimRecord & { closureOutcome?: unknown }).closureOutcome;
   const legacyFollowUpComment = typeof claim.followUpComment === "string" ? claim.followUpComment : "";
@@ -310,9 +315,14 @@ function normalizeInsuranceClaim(claim: InsuranceClaimRecord): InsuranceClaimRec
     fudAttachment: claim.fudAttachment && typeof claim.fudAttachment.path === "string"
       ? claim.fudAttachment
       : null,
-    documentationPending: claim.documentationPending === true,
-    documentationPendingSince: typeof claim.documentationPendingSince === "string" ? claim.documentationPendingSince : null,
-    documentationReceivedAt: typeof claim.documentationReceivedAt === "string" ? claim.documentationReceivedAt : null,
+    fudPhysicalDeliveryConfirmed,
+    fudPhysicalDeliveryDate: fudPhysicalDeliveryConfirmed && typeof claim.fudPhysicalDeliveryDate === "string" ? claim.fudPhysicalDeliveryDate : null,
+    fudPhysicalDeliveryConfirmedAt: fudPhysicalDeliveryConfirmed && typeof claim.fudPhysicalDeliveryConfirmedAt === "string" ? claim.fudPhysicalDeliveryConfirmedAt : null,
+    documentationPending,
+    documentationPendingSince: documentationPending
+      ? typeof claim.documentationPendingSince === "string" ? claim.documentationPendingSince : claim.updatedAt || claim.createdAt || null
+      : null,
+    documentationReceivedAt: documentationPending ? null : typeof claim.documentationReceivedAt === "string" ? claim.documentationReceivedAt : null,
     settlementDelivered: claim.settlementDelivered === true,
     settlementDeliveredDate: typeof claim.settlementDeliveredDate === "string" ? claim.settlementDeliveredDate : "",
     settlementMarkedAt: typeof claim.settlementMarkedAt === "string" ? claim.settlementMarkedAt : null,

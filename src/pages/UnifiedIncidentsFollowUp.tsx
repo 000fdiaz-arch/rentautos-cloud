@@ -90,11 +90,11 @@ function incidentMatchesFilter(incident: UnifiedIncident, filter: FollowUpFilter
 }
 
 function nextActionCategory(incident: UnifiedIncident): NextActionFilter {
+  if (incident.collision?.documentationPending || incident.claim?.documentationPending) return "documentation";
   if (incident.finalized) return "finalized";
   if (incidentFollowUpSummary(incident)?.state === "scheduled") return "scheduled_follow_up";
   const collision = incident.collision;
   const claim = incident.claim;
-  if (collision?.documentationPending || claim?.documentationPending) return "documentation";
   if (collision?.status === "ABSUELTO" && !collision.judicialResolutionEvidence) return "judicial_resolution";
   if (collision?.status === "ABSUELTO" && collision.judicialResolutionEvidence && !claim) return "start_claim";
   if (collision && collision.status !== "ABSUELTO" && collision.status !== "CULPABLE") {
@@ -306,6 +306,7 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
     const claim = incident.claim;
     const pendingDocument = collision?.documentationPending ? "colilla" : claim?.documentationPending ? "FUD" : "";
     if (pendingDocument) {
+      const insuranceFudPending = pendingDocument === "FUD";
       const pendingSince = collision?.documentationPending ? collision.documentationPendingSince : claim?.documentationPendingSince;
       const alertState = documentationAlertState(pendingSince ?? incident.updatedAt);
       const overdue = alertState.hoursPending >= 48;
@@ -313,13 +314,21 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
       addAlert(incident, {
         id: `${incident.id}:documentation-pending`, kind: collision?.documentationPending ? "judicial" : "insurance",
         severity: alertState.severity, priority: overdue ? 0 : delayed ? 1 : 7,
-        title: alertState.title === "Pendiente" ? `${pendingDocument === "colilla" ? "Colilla" : "FUD"} pendiente` : alertState.title,
-        message: overdue
-          ? `Han pasado ${alertState.hoursPending} horas sin recibir ${pendingDocument === "colilla" ? "la colilla" : "el FUD"}. Requiere seguimiento urgente.`
-          : delayed
-            ? `Han pasado al menos 24 horas. Contacta nuevamente para obtener ${pendingDocument === "colilla" ? "la colilla" : "el FUD"}.`
-            : `Solicita ${pendingDocument === "colilla" ? "la colilla" : "el FUD"} y registra cada gestión de seguimiento.`,
-        actionLabel: "Completar documentación", destination: collision?.documentationPending ? "judicial" : "insurance", targetId: collision?.id ?? claim!.id
+        title: insuranceFudPending
+          ? overdue ? "Entrega presencial del FUD vencida" : delayed ? "Entrega presencial del FUD sin confirmar" : "Entrega presencial del FUD pendiente"
+          : alertState.title === "Pendiente" ? "Colilla pendiente" : alertState.title,
+        message: insuranceFudPending
+          ? overdue
+            ? `Han pasado ${alertState.hoursPending} horas sin confirmar la entrega presencial del FUD original. Requiere seguimiento urgente.`
+            : delayed
+              ? "Han pasado al menos 24 horas. Contacta nuevamente para coordinar la entrega presencial del FUD original."
+              : "Coordina la entrega presencial del FUD original y registra cada gestión de seguimiento. Una copia digital no sustituye la entrega física."
+          : overdue
+            ? `Han pasado ${alertState.hoursPending} horas sin recibir la colilla. Requiere seguimiento urgente.`
+            : delayed
+              ? "Han pasado al menos 24 horas. Contacta nuevamente para obtener la colilla."
+              : "Solicita la colilla y registra cada gestión de seguimiento.",
+        actionLabel: insuranceFudPending ? "Confirmar entrega presencial" : "Completar documentación", destination: collision?.documentationPending ? "judicial" : "insurance", targetId: collision?.id ?? claim!.id
       });
       return;
     }
@@ -522,7 +531,7 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
 }
 
 function claimNextAction(claim: InsuranceClaimRecord): { label: string; finalized: boolean; requiresAction: boolean } {
-  if (claim.documentationPending) return { label: "Obtener y adjuntar el FUD", finalized: false, requiresAction: true };
+  if (claim.documentationPending) return { label: "Coordinar entrega presencial del FUD", finalized: false, requiresAction: true };
   if (claim.status === "Finalizado") return { label: `Reclamo ${claim.closureOutcome?.toLocaleLowerCase("es") ?? "finalizado"}`, finalized: true, requiresAction: false };
   if (!claim.claimNumber.trim()) return { label: "Agregar número de reclamo", finalized: false, requiresAction: true };
   const latestFollowUp = latestPendingFollowUp(claim.followUps);

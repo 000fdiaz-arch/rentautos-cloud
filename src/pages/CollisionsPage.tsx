@@ -1217,6 +1217,13 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
         const canonicalClaim: InsuranceClaimRecord = {
           ...(linkedClaim ?? {
             id: insuranceClaimId,
+            fudAttachment: null,
+            fudPhysicalDeliveryConfirmed: false,
+            fudPhysicalDeliveryDate: null,
+            fudPhysicalDeliveryConfirmedAt: null,
+            documentationPending: true,
+            documentationPendingSince: now,
+            documentationReceivedAt: null,
             settlementDelivered: false,
             settlementDeliveredDate: "",
             settlementMarkedAt: null,
@@ -1240,7 +1247,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
           claimNumber,
           amount: draft.amount,
           vehicleDamage: item.vehicleDamage,
-          status: linkedClaim?.status === "Finalizado" ? "Finalizado" : hasClaimNumber ? "Activo" : "Inactivo",
+          status: linkedClaim?.status === "Finalizado" ? "Finalizado" : linkedClaim?.documentationPending === false && hasClaimNumber ? "Activo" : "Inactivo",
           damagePhotos,
           damagePhotoNames: damagePhotos.map((photo) => photo.name),
           updatedAt: now
@@ -1250,9 +1257,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       }
       await persistCase(
         { ...item, insuranceClaim, updatedAt: now },
-        hasClaimNumber
-          ? "Reclamo guardado como activo y vinculado con Reclamos a seguros."
-          : "Reclamo guardado como inactivo. Podrás completar sus datos cuando estén disponibles."
+        "Reclamo guardado como inactivo y vinculado con Reclamos a seguros. Falta confirmar la entrega presencial del FUD."
       );
       setClaimDrafts((current) => ({ ...current, [item.id]: { insurer: insuranceClaim.insurer, claimNumber: insuranceClaim.claimNumber, amount: insuranceClaim.amount } }));
       setClaimPhotoFiles((current) => ({ ...current, [item.id]: [] }));
