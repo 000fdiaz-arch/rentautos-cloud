@@ -435,6 +435,75 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     setMessage("");
   }
 
+  async function addIncidentPhotos(item: CollisionCaseRecord, files: FileList | null): Promise<void> {
+    if (!dataOwnerUserId || readOnly || busyId) return;
+    const selected = Array.from(files ?? []);
+    if (selected.length === 0) return;
+    if (selected.some((file) => !file.type.startsWith("image/"))) {
+      setMessage("Solo se permiten archivos de imagen para las fotos del siniestro.");
+      return;
+    }
+    if (selected.some((file) => file.size > MAX_PHOTO_SIZE)) {
+      setMessage("Cada foto del siniestro debe pesar 10 MB o menos.");
+      return;
+    }
+
+    setBusyId(item.id);
+    setMessage("");
+    const uploaded: CollisionPhotoAttachment[] = [];
+    try {
+      for (const file of selected) uploaded.push(await uploadCollisionPhoto(dataOwnerUserId, item.id, file));
+      const now = new Date().toISOString();
+      const updated: CollisionCaseRecord = {
+        ...item,
+        incidentPhotos: [...(item.incidentPhotos ?? []), ...uploaded],
+        editHistory: [...(item.editHistory ?? []), {
+          editedAt: now,
+          justification: `${uploaded.length} ${uploaded.length === 1 ? "foto agregada" : "fotos agregadas"} al expediente sin modificar el estado del siniestro.`,
+          changedFields: ["Fotos del siniestro"]
+        }],
+        updatedAt: now
+      };
+      await persistCase(updated, `${uploaded.length} ${uploaded.length === 1 ? "foto agregada" : "fotos agregadas"} al siniestro correctamente.`);
+    } catch (error) {
+      if (uploaded.length) {
+        try { await removeCollisionPhotos(uploaded.map((photo) => photo.path)); } catch { /* Limpieza de mejor esfuerzo. */ }
+      }
+      console.error("No se pudieron agregar las fotos del siniestro.", error);
+      setMessage("No se pudieron guardar las fotos del siniestro en la nube.");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  async function deleteIncidentPhoto(item: CollisionCaseRecord, photo: CollisionPhotoAttachment): Promise<void> {
+    if (!dataOwnerUserId || readOnly || busyId) return;
+    if (!window.confirm(`¿Eliminar ${photo.name} de las fotos del siniestro?`)) return;
+    const now = new Date().toISOString();
+    const updated: CollisionCaseRecord = {
+      ...item,
+      incidentPhotos: (item.incidentPhotos ?? []).filter((current) => current.path !== photo.path),
+      editHistory: [...(item.editHistory ?? []), {
+        editedAt: now,
+        justification: `Foto eliminada del expediente: ${photo.name}.`,
+        changedFields: ["Fotos del siniestro"]
+      }],
+      updatedAt: now
+    };
+    setBusyId(item.id);
+    setMessage("");
+    try {
+      await persistCase(updated, "Foto eliminada del siniestro correctamente.");
+      try { await removeCollisionPhotos([photo.path]); }
+      catch (cleanupError) { console.error("No se pudo retirar del almacenamiento la foto eliminada.", cleanupError); }
+    } catch (error) {
+      console.error("No se pudo eliminar la foto del siniestro.", error);
+      setMessage("No se pudo eliminar la foto del siniestro en la nube.");
+    } finally {
+      setBusyId("");
+    }
+  }
+
   async function saveCaseEdit(item: CollisionCaseRecord): Promise<void> {
     if (!dataOwnerUserId || readOnly || caseEditSavingId) return;
     if (!caseEditForm.incidentDate || !caseEditForm.unit.trim() || !caseEditForm.driver.trim() || !caseEditForm.plate.trim() || !caseEditForm.trialDate || !caseEditForm.vehicleDamage.trim() || !caseEditForm.ticketStub.trim() || !caseEditForm.placeTime.trim() || !caseEditForm.court.trim()) {
@@ -1399,6 +1468,13 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                     <div><strong>Datos registrados del siniestro</strong><small>{item.documentationPending ? "Completa la información cuando recibas la colilla." : "Corrige aquí la información ingresada por error."}</small></div>
                     {editingCaseId !== item.id && <button type="button" className={`button${item.documentationPending ? " primary" : ""}`} onClick={() => startEditingCase(item)} disabled={readOnly || busyId === item.id || Boolean(caseEditSavingId)}>{item.documentationPending ? "Completar colilla" : "Editar siniestro"}</button>}
                   </div>
+                  {editingCaseId !== item.id && <div className="workflow-damage-photos">
+                    <div className="workflow-damage-photos-head"><div><strong>Fotos del siniestro</strong><small>Agrega evidencia en cualquier momento. Esto no completa la colilla ni cambia el estado del expediente.</small></div><label className="button primary">{busyId === item.id ? "Guardando fotos..." : "Agregar fotos"}<input type="file" accept="image/*" multiple hidden onChange={(event) => { const files = event.currentTarget.files; event.currentTarget.value = ""; void addIncidentPhotos(item, files); }} disabled={readOnly || busyId === item.id} /></label></div>
+                    {(item.incidentPhotos ?? []).length > 0
+                      ? <div className="workflow-damage-photo-list">{item.incidentPhotos!.map((photo, index) => <div key={photo.path} className="workflow-damage-photo-row"><div><strong>Foto {index + 1}</strong><small>{photo.name} · {new Date(photo.uploadedAt).toLocaleString("es-PA")}</small></div><div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos ?? [], index, title: "Fotos del siniestro" })}>Ver</button><button type="button" className="button danger" onClick={() => void deleteIncidentPhoto(item, photo)} disabled={readOnly || busyId === item.id}>Eliminar</button></div></div>)}</div>
+                      : <p className="judicial-section-empty">Todavía no hay fotos guardadas para este siniestro.</p>}
+                    <small>Imágenes de hasta 10 MB cada una. Puedes seleccionar varias a la vez.</small>
+                  </div>}
                   {editingCaseId === item.id ? <div className="workflow-claim-edit-panel">
                     <div className="workflow-claim-edit-grid">
                       <label>Fecha del incidente<input type="date" value={caseEditForm.incidentDate} onChange={(event) => setCaseEditForm((current) => ({ ...current, incidentDate: event.target.value }))} /></label>
@@ -1436,7 +1512,6 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   <div><dt>Conductor al momento del incidente</dt><dd>{item.driver || "-"}</dd></div>
                    <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>
                    </dl>
-                 {item.incidentPhotos?.length ? <div className="workflow-damage-photo-list workflow-damage-photo-list--compact"><div className="workflow-damage-photo-row"><div><strong>Fotos del siniestro</strong><small>{item.incidentPhotos.length} {item.incidentPhotos.length === 1 ? "foto disponible" : "fotos disponibles"}</small></div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos!, index: 0, title: "Fotos del siniestro" })}>Ver galería</button></div></div> : null}
                   {(item.editHistory?.length ?? 0) > 0 && <details className="workflow-edit-history"><summary>Historial de correcciones ({item.editHistory!.length})</summary><ul>{[...item.editHistory!].reverse().map((event) => <li key={`${event.editedAt}-${event.justification}`}><time>{new Date(event.editedAt).toLocaleString("es-PA")}</time><span><strong>{event.changedFields.join(", ")}</strong>: {event.justification}</span></li>)}</ul></details>}
                   </>}
                 </div>}
