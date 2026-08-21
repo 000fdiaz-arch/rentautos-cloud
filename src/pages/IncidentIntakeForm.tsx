@@ -165,12 +165,12 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     const selected = Array.from(files ?? []);
     if (selected.some((file) => !file.type.startsWith("image/"))) {
       setJudicialPhotoFiles([]);
-      setMessage("Solo se permiten archivos de imagen para las fotos del juicio.");
+      setMessage("Solo se permiten archivos de imagen para las fotos del siniestro.");
       return;
     }
     if (selected.some((file) => file.size > MAX_PHOTO_SIZE)) {
       setJudicialPhotoFiles([]);
-      setMessage("Cada foto del juicio debe pesar 10 MB o menos.");
+      setMessage("Cada foto del siniestro debe pesar 10 MB o menos.");
       return;
     }
     setJudicialPhotoFiles(selected);
@@ -333,7 +333,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
             <label>Hora<input type="time" value={form.placeTime} onChange={(event) => patchForm({ placeTime: event.target.value })} disabled={readOnly} /></label>
             <label>Juzgado<select value={form.court} onChange={(event) => event.target.value === "__new__" ? addCourt() : patchForm({ court: event.target.value })} disabled={readOnly}><option value="">Seleccionar juzgado</option>{courts.map((court) => <option key={court}>{court}</option>)}<option value="__new__">+ Nuevo juzgado</option></select></label></>}
             <label className="collision-runaway-option"><input type="checkbox" checked={form.collisionAndRun} onChange={(event) => patchForm({ collisionAndRun: event.target.checked })} disabled={readOnly} /><span><strong>Colisión y fuga</strong><small>El conductor abandonó el lugar.</small></span></label>
-            <label className="workflow-form-notes workflow-form-damage-photos">Fotos del juicio<input type="file" accept="image/*" multiple onChange={(event) => handleJudicialPhotosChange(event.target.files)} disabled={readOnly || saving} /><span className="hint">{judicialPhotoFiles.length ? `${judicialPhotoFiles.length} ${judicialPhotoFiles.length === 1 ? "foto seleccionada" : "fotos seleccionadas"}.` : "Puedes adjuntar todas las fotos necesarias."} Máximo 10 MB por foto.</span></label>
+            <label className="workflow-form-notes workflow-form-damage-photos">Fotos del siniestro<input type="file" accept="image/*" multiple onChange={(event) => handleJudicialPhotosChange(event.target.files)} disabled={readOnly || saving} /><span className="hint">{judicialPhotoFiles.length ? `${judicialPhotoFiles.length} ${judicialPhotoFiles.length === 1 ? "foto seleccionada" : "fotos seleccionadas"}.` : "Puedes adjuntar todas las fotos necesarias."} Máximo 10 MB por foto.</span></label>
           </> : <>
             {form.documentationAvailable === "yes" && <label className="workflow-form-notes">Documento FUD<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => handleFudChange(event.target.files?.[0])} disabled={readOnly || saving} required /><span className="hint">{fudFile ? `Seleccionado: ${fudFile.name}` : "Adjunta el FUD en PDF o imagen."} Máximo 10 MB.</span></label>}
             <div className={`workflow-claim-number-question${!form.hasClaimNumber ? " is-pending" : ""}`}><div><strong>¿Tienes el número de reclamo?</strong><small>Define si el reclamo inicia activo o pendiente.</small></div><select value={form.hasClaimNumber} onChange={(event) => { const hasClaimNumber = event.target.value as IntakeForm["hasClaimNumber"]; patchForm({ hasClaimNumber, ...(hasClaimNumber !== "yes" ? { claimNumber: "" } : {}) }); }} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">Sí, tengo el número</option><option value="no">No, todavía no lo tengo</option></select></div>

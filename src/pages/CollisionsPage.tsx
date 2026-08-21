@@ -416,12 +416,12 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     const selected = Array.from(files ?? []);
     if (selected.some((file) => !file.type.startsWith("image/"))) {
       setCaseEditIncidentPhotoFiles([]);
-      setMessage("Solo se permiten archivos de imagen para las fotos del juicio.");
+      setMessage("Solo se permiten archivos de imagen para las fotos del siniestro.");
       return;
     }
     if (selected.some((file) => file.size > MAX_PHOTO_SIZE)) {
       setCaseEditIncidentPhotoFiles([]);
-      setMessage("Cada foto del juicio debe pesar 10 MB o menos.");
+      setMessage("Cada foto del siniestro debe pesar 10 MB o menos.");
       return;
     }
     setCaseEditIncidentPhotoFiles(selected);
@@ -466,7 +466,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       .filter(([field]) => normalizedEdit[field] !== item[field])
       .map(([, label]) => label);
     if (caseEditTicketStubPhotoFile) changedFields.push("Foto de la colilla");
-    if (caseEditIncidentPhotoFiles.length || caseEditRemovedIncidentPhotoPaths.length) changedFields.push("Fotos adjuntas al juicio");
+    if (caseEditIncidentPhotoFiles.length || caseEditRemovedIncidentPhotoPaths.length) changedFields.push("Fotos del siniestro");
     if (changedFields.length === 0) {
       setMessage("No hay cambios para guardar.");
       return;
@@ -1408,10 +1408,10 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                       <label className="collision-client-returned-option"><input type="checkbox" checked={caseEditForm.collisionAndRun} onChange={(event) => setCaseEditForm((current) => ({ ...current, collisionAndRun: event.target.checked }))} /><span><strong>Colisión y fuga</strong></span></label>
                       <label className="workflow-claim-edit-wide">Daños del auto<textarea value={caseEditForm.vehicleDamage} onChange={(event) => setCaseEditForm((current) => ({ ...current, vehicleDamage: event.target.value }))} /></label>
                       <div className="workflow-claim-edit-wide workflow-damage-photos">
-                        <span>Fotos adjuntas al juicio</span>
+                        <span>Fotos del siniestro</span>
                         {(item.incidentPhotos ?? []).length > 0 && <div className="workflow-damage-photo-list">{(item.incidentPhotos ?? []).map((photo, index) => {
                           const removed = caseEditRemovedIncidentPhotoPaths.includes(photo.path);
-                          return <div key={photo.path} className="workflow-damage-photo-row"><div><strong>Foto {index + 1}{removed ? " · Se eliminará" : ""}</strong><small>{photo.name}</small></div><div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos ?? [], index, title: "Fotos del juicio" })}>Ver</button><button type="button" className={`button${removed ? "" : " danger"}`} onClick={() => toggleCaseEditIncidentPhotoRemoval(photo.path)}>{removed ? "Conservar" : "Eliminar"}</button></div></div>;
+                          return <div key={photo.path} className="workflow-damage-photo-row"><div><strong>Foto {index + 1}{removed ? " · Se eliminará" : ""}</strong><small>{photo.name}</small></div><div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos ?? [], index, title: "Fotos del siniestro" })}>Ver</button><button type="button" className={`button${removed ? "" : " danger"}`} onClick={() => toggleCaseEditIncidentPhotoRemoval(photo.path)}>{removed ? "Conservar" : "Eliminar"}</button></div></div>;
                         })}</div>}
                         <label>Agregar fotos<input type="file" accept="image/*" multiple onChange={(event) => selectCaseEditIncidentPhotos(event.target.files)} /><span className="hint">{caseEditIncidentPhotoFiles.length ? `${caseEditIncidentPhotoFiles.length} ${caseEditIncidentPhotoFiles.length === 1 ? "foto nueva seleccionada" : "fotos nuevas seleccionadas"}.` : "Puedes agregar todas las fotos necesarias."} Máximo 10 MB por foto.</span></label>
                       </div>
@@ -1431,7 +1431,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   <div><dt>Conductor al momento del incidente</dt><dd>{item.driver || "-"}</dd></div>
                    <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>
                    </dl>
-                 {item.incidentPhotos?.length ? <div className="workflow-damage-photo-list workflow-damage-photo-list--compact"><div className="workflow-damage-photo-row"><div><strong>Fotos adjuntas al juicio</strong><small>{item.incidentPhotos.length} {item.incidentPhotos.length === 1 ? "foto disponible" : "fotos disponibles"}</small></div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos!, index: 0, title: "Fotos del juicio" })}>Ver galería</button></div></div> : null}
+                 {item.incidentPhotos?.length ? <div className="workflow-damage-photo-list workflow-damage-photo-list--compact"><div className="workflow-damage-photo-row"><div><strong>Fotos del siniestro</strong><small>{item.incidentPhotos.length} {item.incidentPhotos.length === 1 ? "foto disponible" : "fotos disponibles"}</small></div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos!, index: 0, title: "Fotos del siniestro" })}>Ver galería</button></div></div> : null}
                   {(item.editHistory?.length ?? 0) > 0 && <details className="workflow-edit-history"><summary>Historial de correcciones ({item.editHistory!.length})</summary><ul>{[...item.editHistory!].reverse().map((event) => <li key={`${event.editedAt}-${event.justification}`}><time>{new Date(event.editedAt).toLocaleString("es-PA")}</time><span><strong>{event.changedFields.join(", ")}</strong>: {event.justification}</span></li>)}</ul></details>}
                   </>}
                 </div>}
