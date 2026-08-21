@@ -22,6 +22,11 @@ import {
 import type { Client } from "../types";
 import { normalizeCourtName } from "../courtNames";
 import { useControlUnitsRows } from "./controlUnits/useControlUnitsRows";
+import {
+  requiresInsuranceFud,
+  shouldUploadInsuranceFud,
+  type IncidentDocumentationAvailability
+} from "./incidents/incidentIntakeRules";
 
 export type IncidentDestination = "judicial" | "insurance";
 
@@ -51,7 +56,7 @@ type IntakeForm = {
   hasClaimNumber: "" | "yes" | "no";
   claimNumber: string;
   amount: string;
-  documentationAvailable: "" | "yes" | "no";
+  documentationAvailable: IncidentDocumentationAvailability;
 };
 
 const EMPTY_FORM: IntakeForm = {
@@ -242,7 +247,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     if (!dataOwnerUserId || !destination || readOnly || saving || !validateCommonFields()) return;
     if (!form.documentationAvailable) { setMessage(`Indica si ya recibiste ${destination === "judicial" ? "la colilla" : "el FUD"}.`); return; }
     const documentationPending = form.documentationAvailable === "no";
-    if (destination === "insurance" && !documentationPending && !fudFile) { setMessage("Adjunta el documento FUD antes de guardar el reclamo al seguro."); return; }
+    if (destination === "insurance" && requiresInsuranceFud(form.documentationAvailable) && !fudFile) { setMessage("Adjunta el documento FUD antes de guardar el reclamo al seguro."); return; }
     if (destination === "judicial" && !documentationPending && (!form.trialDate || !form.ticketStub.trim() || !form.placeTime.trim() || !form.court.trim())) { setMessage("Completa todos los datos judiciales."); return; }
     if (destination === "insurance" && (!form.insurer || !form.hasClaimNumber)) { setMessage("Completa aseguradora e indica si tienes el número de reclamo."); return; }
     if (destination === "insurance" && form.hasClaimNumber === "yes" && !form.claimNumber.trim()) { setMessage("Escribe el número de reclamo."); return; }
@@ -271,9 +276,10 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
         };
         await saveCollisionCase(dataOwnerUserId, collisionCase);
       } else {
-        if (!fudFile) throw new Error("Falta el documento FUD.");
         const id = `insurance-claim-${Date.now()}-${crypto.randomUUID()}`;
-        uploadedInsuranceFud = await uploadInsuranceSettlement(dataOwnerUserId, id, fudFile);
+        if (shouldUploadInsuranceFud(form.documentationAvailable, Boolean(fudFile)) && fudFile) {
+          uploadedInsuranceFud = await uploadInsuranceSettlement(dataOwnerUserId, id, fudFile);
+        }
         for (const file of damagePhotoFiles) uploadedPhotos.push(await uploadInsuranceDamagePhoto(dataOwnerUserId, id, file));
         const claimNumber = form.hasClaimNumber === "yes" ? form.claimNumber.trim() : "";
         const claim: InsuranceClaimRecord = {
@@ -310,7 +316,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
         </div>
       </fieldset>
       {readOnly && destination && <p className="hint workflow-message">Modo lectura: no tienes permiso para registrar datos en este flujo.</p>}
-      {fleetLoading && <p className="hint workflow-message">Cargando autos...</p>}{fleetLoadError && <p className="hint workflow-message">{fleetLoadError}</p>}{message && <p className="hint workflow-message" role="alert">{message}</p>}
+      {fleetLoading && <p className="hint workflow-message">Cargando autos...</p>}{fleetLoadError && <p className="hint workflow-message">{fleetLoadError}</p>}
       {destination && <section className={`incident-form-section incident-form-section--${destination}`}>
         <div className="incident-form-section-title"><strong>{destination === "judicial" ? "Formulario de juicio" : "Formulario de reclamo al seguro"}</strong><small>Completa los datos del incidente y de la gestión seleccionada.</small></div>
         <div className="workflow-form-grid">
@@ -338,7 +344,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           </>}
         </div>
       </section>}
-      {destination && <div className="workflow-form-actions incident-form-submit"><button type="submit" className="button primary" disabled={readOnly || saving}>{saving ? "Guardando..." : "Guardar siniestro"}</button></div>}
+      {destination && <div className="incident-form-submit">{message && <p className="hint workflow-message" role="alert">{message}</p>}<div className="workflow-form-actions"><button type="submit" className="button primary" disabled={readOnly || saving}>{saving ? "Guardando..." : "Guardar siniestro"}</button></div></div>}
     </form>
   );
 }
