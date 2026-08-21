@@ -72,6 +72,15 @@ function normalizeUnit(value: string): string { return value.trim().toUpperCase(
 function normalizeInsurer(value: string): string { return value.trim().toUpperCase(); }
 function normalizePersonName(value: string): string { return value.trim().toLocaleUpperCase("es").replace(/\s+/g, " "); }
 
+function incidentSaveErrorMessage(step: string, error: unknown): string {
+  const detail = error && typeof error === "object" && "message" in error && typeof error.message === "string"
+    ? error.message.trim()
+    : error instanceof Error
+      ? error.message.trim()
+      : "";
+  return `No se pudo ${step}${detail ? `: ${detail}` : "."}`;
+}
+
 function courtsFromCases(cases: CollisionCaseRecord[]): string[] {
   return [...new Set(cases.map((item) => normalizeCourtName(item.court)).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right, "es", { numeric: true }));
@@ -258,12 +267,17 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     const uploadedPhotos: InsuranceDamagePhotoAttachment[] = [];
     const uploadedJudicialPhotos: CollisionPhotoAttachment[] = [];
     let uploadedInsuranceFud: InsuranceSettlementAttachment | null = null;
+    let saveStep = "guardar el siniestro en la nube";
     try {
       if (destination === "judicial") {
         const driverName = normalizePersonName(form.driver);
         const historicalClient = clients.find((client) => normalizePersonName(client.name) === driverName);
         const id = `collision-trial-${Date.now()}-${crypto.randomUUID()}`;
-        for (const file of judicialPhotoFiles) uploadedJudicialPhotos.push(await uploadCollisionPhoto(dataOwnerUserId, id, file));
+        for (const file of judicialPhotoFiles) {
+          saveStep = `subir la foto del siniestro “${file.name}”`;
+          uploadedJudicialPhotos.push(await uploadCollisionPhoto(dataOwnerUserId, id, file));
+        }
+        saveStep = ticketStubPhotoFile ? `subir la foto de la colilla “${ticketStubPhotoFile.name}”` : "guardar el expediente judicial";
         const ticketStubPhoto = ticketStubPhotoFile ? await uploadCollisionPhoto(dataOwnerUserId, id, ticketStubPhotoFile) : null;
         if (ticketStubPhoto) uploadedJudicialPhotos.push(ticketStubPhoto);
         const collisionCase: CollisionCaseRecord = {
@@ -274,13 +288,18 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           status: "PENDIENTE", trialDateHistory: [], editHistory: [], judicialFollowUps: [], clientWillAttend: null, legalAssistanceRequested: null, attendanceConfirmedAt: null, incidentPhotos: uploadedJudicialPhotos.filter((photo) => photo.path !== ticketStubPhoto?.path), judicialOutcomeEvidence: null, judicialResolutionEvidence: null, judicialResolutionSearchDate: null, insuranceClaim: null, expenseInvoice: null,
           clientReturnedBeforeClosure: false, clientReturnedBeforeClosureAt: null, createdAt: now, updatedAt: now
         };
+        saveStep = "guardar el expediente judicial";
         await saveCollisionCase(dataOwnerUserId, collisionCase);
       } else {
         const id = `insurance-claim-${Date.now()}-${crypto.randomUUID()}`;
         if (shouldUploadInsuranceFud(form.documentationAvailable, Boolean(fudFile)) && fudFile) {
+          saveStep = `subir el documento FUD “${fudFile.name}”`;
           uploadedInsuranceFud = await uploadInsuranceSettlement(dataOwnerUserId, id, fudFile);
         }
-        for (const file of damagePhotoFiles) uploadedPhotos.push(await uploadInsuranceDamagePhoto(dataOwnerUserId, id, file));
+        for (const file of damagePhotoFiles) {
+          saveStep = `subir la foto del siniestro “${file.name}”`;
+          uploadedPhotos.push(await uploadInsuranceDamagePhoto(dataOwnerUserId, id, file));
+        }
         const claimNumber = form.hasClaimNumber === "yes" ? form.claimNumber.trim() : "";
         const claim: InsuranceClaimRecord = {
           id, ...common, insurer: normalizeInsurer(form.insurer), hasClaimNumber: Boolean(claimNumber), claimNumber, amount: form.amount,
@@ -289,7 +308,9 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           settlementDelivered: false, settlementDeliveredDate: "", settlementMarkedAt: null, settlementAttachment: null,
           followUpComment: "", followUpCommentUpdatedAt: null, followUps: [], closureOutcome: null, closureJustification: "", finalizedAt: null, editHistory: [], createdAt: now, updatedAt: now
         };
+        saveStep = "guardar la aseguradora";
         await saveInsuranceInsurer(dataOwnerUserId, claim.insurer);
+        saveStep = "guardar el reclamo al seguro";
         await saveInsuranceClaim(dataOwnerUserId, claim);
       }
       const savedDestination = destination;
@@ -301,7 +322,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
       if (uploadedInsuranceFud) { try { await removeInsuranceSettlement(uploadedInsuranceFud.path); } catch { /* Limpieza de mejor esfuerzo. */ } }
       if (uploadedJudicialPhotos.length) { try { await removeCollisionPhotos(uploadedJudicialPhotos.map((photo) => photo.path)); } catch { /* Limpieza de mejor esfuerzo. */ } }
       console.error("No se pudo guardar el siniestro.", error);
-      setMessage(error instanceof DuplicateInsuranceClaimNumberError || error instanceof JudicialOutcomeRequiredForClaimError ? error.message : "No se pudo guardar el siniestro en la nube.");
+      setMessage(error instanceof DuplicateInsuranceClaimNumberError || error instanceof JudicialOutcomeRequiredForClaimError ? error.message : incidentSaveErrorMessage(saveStep, error));
     } finally { setSaving(false); }
   }
 
