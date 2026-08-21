@@ -435,9 +435,9 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     setMessage("");
   }
 
-  async function addIncidentPhotos(item: CollisionCaseRecord, files: FileList | null): Promise<void> {
+  async function addIncidentPhotos(item: CollisionCaseRecord, files: File[]): Promise<void> {
     if (!dataOwnerUserId || readOnly || busyId) return;
-    const selected = Array.from(files ?? []);
+    const selected = files;
     if (selected.length === 0) return;
     if (selected.some((file) => !file.type.startsWith("image/"))) {
       setMessage("Solo se permiten archivos de imagen para las fotos del siniestro.");
@@ -1469,7 +1469,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                     {editingCaseId !== item.id && <button type="button" className={`button${item.documentationPending ? " primary" : ""}`} onClick={() => startEditingCase(item)} disabled={readOnly || busyId === item.id || Boolean(caseEditSavingId)}>{item.documentationPending ? "Completar colilla" : "Editar siniestro"}</button>}
                   </div>
                   {editingCaseId !== item.id && <div className="workflow-damage-photos">
-                    <div className="workflow-damage-photos-head"><div><strong>Fotos del siniestro</strong><small>Agrega evidencia en cualquier momento. Esto no completa la colilla ni cambia el estado del expediente.</small></div><label className="button primary">{busyId === item.id ? "Guardando fotos..." : "Agregar fotos"}<input type="file" accept="image/*" multiple hidden onChange={(event) => { const files = event.currentTarget.files; event.currentTarget.value = ""; void addIncidentPhotos(item, files); }} disabled={readOnly || busyId === item.id} /></label></div>
+                    <div className="workflow-damage-photos-head"><div><strong>Fotos del siniestro</strong><small>Agrega evidencia en cualquier momento. Esto no completa la colilla ni cambia el estado del expediente.</small></div><label className="button primary">{busyId === item.id ? "Guardando fotos..." : "Agregar fotos"}<input type="file" accept="image/*" multiple hidden onChange={(event) => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; void addIncidentPhotos(item, files); }} disabled={readOnly || busyId === item.id} /></label></div>
                     {(item.incidentPhotos ?? []).length > 0
                       ? <div className="workflow-damage-photo-list">{item.incidentPhotos!.map((photo, index) => <div key={photo.path} className="workflow-damage-photo-row"><div><strong>Foto {index + 1}</strong><small>{photo.name} · {new Date(photo.uploadedAt).toLocaleString("es-PA")}</small></div><div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos ?? [], index, title: "Fotos del siniestro" })}>Ver</button><button type="button" className="button danger" onClick={() => void deleteIncidentPhoto(item, photo)} disabled={readOnly || busyId === item.id}>Eliminar</button></div></div>)}</div>
                       : <p className="judicial-section-empty">Todavía no hay fotos guardadas para este siniestro.</p>}

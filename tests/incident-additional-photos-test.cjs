@@ -14,6 +14,8 @@ if (addHandler.includes("documentationPending:") || addHandler.includes("status:
 if (!deleteHandler.includes("window.confirm") || !deleteHandler.includes("removeCollisionPhotos([photo.path])")) throw new Error("Eliminar una foto debe pedir confirmación y retirarla del almacenamiento.");
 if (!source.includes("Agrega evidencia en cualquier momento. Esto no completa la colilla ni cambia el estado del expediente.")) throw new Error("La interfaz debe explicar que las fotos son independientes de la colilla.");
 if (!source.includes('multiple hidden') || !source.includes('"Agregar fotos"')) throw new Error("Debe existir carga múltiple visible desde el resumen.");
+const photoInputHandler = source.match(/onChange=\{\(event\) => \{ const files = Array\.from\(event\.currentTarget\.files \?\? \[\]\); event\.currentTarget\.value = ""; void addIncidentPhotos\(item, files\); \}\}/);
+if (!photoInputHandler) throw new Error("Las fotos deben copiarse a un arreglo antes de limpiar el selector del navegador.");
 if (!addHandler.includes('changedFields: ["Fotos del siniestro"]') || !deleteHandler.includes('changedFields: ["Fotos del siniestro"]')) throw new Error("Las altas y eliminaciones deben quedar en el historial.");
 
 console.log("OK fotos adicionales: carga múltiple, historial y eliminación sin alterar la colilla.");
