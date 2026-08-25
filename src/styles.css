@@ -136,6 +136,17 @@ body {
   color: #9a3412;
   font-size: .7rem;
 }
+.provisional-rental-link-badge {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid #99f6e4;
+  border-radius: 8px;
+  background: #f0fdfa;
+  color: #0f766e;
+  font-size: .7rem;
+}
 .client-rental-balance { display: flex; flex-direction: column; gap: 3px; }
 .client-rental-balance > span { color: #b45309; font-size: .75rem; font-weight: 800; text-transform: uppercase; }
 .client-rental-balance > small { color: #64748b; }

@@ -105,7 +105,9 @@ export function ClientsDirectoryPanel({
   onCreateClientFromUnit,
   readOnly = false
 }: Props) {
-  const visibleClientCount = rows.filter((row) => row.client !== null).length;
+  const visibleClientCount = new Set(
+    rows.flatMap((row) => row.client ? [row.client.id] : [])
+  ).size;
 
   return (
     <section className="panel">
@@ -266,6 +268,11 @@ export function ClientsDirectoryPanel({
                     const vehicle = fleetDetailsByUnit[unitId];
                     const isProvisionalRow = assignmentKind === "provisional" && Boolean(client?.activeProvisionalRental);
                     const provisionalRental = isProvisionalRow ? client?.activeProvisionalRental : undefined;
+                    const primaryUnitId = client?.unitId.trim().toUpperCase() ?? "";
+                    const activeProvisionalUnitId = client?.activeProvisionalRental?.unitId.trim().toUpperCase() ?? "";
+                    const rowKey = client
+                      ? `client-${client.id}-${assignmentKind ?? "unassigned"}-${unitId}`
+                      : `fleet-${unitId}`;
                     const otherChargesTotal = client
                       ? client.otherCharges.reduce((sum, charge) => sum + charge.amount, 0)
                       : 0;
@@ -278,7 +285,7 @@ export function ClientsDirectoryPanel({
                           : "Al dia"
                       : "-";
                     return (
-                      <tr key={client?.id ?? `fleet-${unitId}`} className={!client ? "clients-row--no-driver" : ""}>
+                      <tr key={rowKey} className={!client ? "clients-row--no-driver" : ""}>
                         <td>
                           <strong className="clients-unit-id">{unitId}</strong>
                           <div className="debt-meta">{vehicle?.plate ? `Placa ${vehicle.plate}` : "Sin placa registrada"}</div>
@@ -286,7 +293,13 @@ export function ClientsDirectoryPanel({
                           {isProvisionalRow && (
                             <div className="provisional-rental-row-badge">
                               <span>AUTO PROVISIONAL/ALQUILER DE AUTO</span>
-                              <strong>{unitId}</strong>
+                              <strong>Unidad principal: {primaryUnitId || "-"}</strong>
+                            </div>
+                          )}
+                          {!isProvisionalRow && activeProvisionalUnitId && (
+                            <div className="provisional-rental-link-badge">
+                              <span>Provisional activo</span>
+                              <strong>{activeProvisionalUnitId}</strong>
                             </div>
                           )}
                         </td>
