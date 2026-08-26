@@ -160,8 +160,11 @@ export type CollisionPhotoAttachment = {
 export type CollisionTrialDateEvent = {
   previousDate: string;
   newDate: string;
+  previousTime?: string;
+  newTime?: string;
   reason: string;
   changedAt: string;
+  evidence?: CollisionPhotoAttachment | null;
 };
 
 export type CollisionInsuranceClaim = {

@@ -40,8 +40,8 @@ export function buildJudicialCaseTimeline(item: CollisionCaseRecord): JudicialCa
       id: `trial-date-${change.changedAt}-${change.newDate}`,
       occurredAt: eventTimestamp(change.changedAt, fallback),
       title: "Fecha de juicio actualizada",
-      description: `${change.previousDate || "Sin fecha"} → ${change.newDate}`,
-      detail: change.reason,
+      description: `${change.previousDate || "Sin fecha"}${change.previousTime ? ` · ${change.previousTime}` : ""} → ${change.newDate}${change.newTime ? ` · ${change.newTime}` : ""}`,
+      detail: `${change.reason}${change.evidence ? ` · Documento adjunto: ${change.evidence.name}` : ""}`,
       tone: "warning"
     });
   }

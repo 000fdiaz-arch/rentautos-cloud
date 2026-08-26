@@ -21,8 +21,11 @@ const events = buildJudicialCaseTimeline({
   trialDateHistory: [{
     previousDate: "2026-08-17",
     newDate: "2026-08-31",
+    previousTime: "08:00",
+    newTime: "10:30",
     reason: "Reprogramado por el juzgado",
-    changedAt: "2026-08-05T09:00:00Z"
+    changedAt: "2026-08-05T09:00:00Z",
+    evidence: { path: "reprogramacion.pdf", name: "reprogramacion.pdf" }
   }],
   ticketStubHistory: [{
     previousValue: "T07",
@@ -91,6 +94,14 @@ for (const title of expectedTitles) {
 const outcomeEvent = events.find((event) => event.title === "Resultado del juicio: ABSUELTO");
 if (outcomeEvent?.detail !== "La búsqueda de la resolución judicial quedó programada para el 2026-09-14.") {
   throw new Error("El historial no muestra la fecha programada para buscar la resolución judicial.");
+}
+
+const rescheduleEvent = events.find((event) => event.title === "Fecha de juicio actualizada");
+if (rescheduleEvent?.description !== "2026-08-17 · 08:00 → 2026-08-31 · 10:30") {
+  throw new Error("El historial no muestra la hora anterior y la nueva hora del juicio.");
+}
+if (!rescheduleEvent.detail?.includes("Documento adjunto: reprogramacion.pdf")) {
+  throw new Error("El historial no identifica el documento que avala la reprogramación.");
 }
 
 for (let index = 1; index < events.length; index += 1) {
