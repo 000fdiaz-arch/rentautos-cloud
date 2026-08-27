@@ -16,10 +16,15 @@ assertIncludes(intake, "Una foto o PDF no sustituye la entrega física del origi
 assertIncludes(intake, "Fecha de entrega presencial", "La entrega presencial debe conservar su fecha.");
 assertIncludes(intake, "fudPhysicalDeliveryConfirmed: !documentationPending", "Los reclamos nuevos deben guardar la confirmación presencial explícita.");
 
-assertIncludes(workflow, "Copia digital del FUD adjuntada. Falta confirmar la entrega presencial del original.", "Adjuntar una copia no debe completar el requisito presencial.");
-assertIncludes(workflow, "documentationPending: true", "La copia digital debe mantener pendiente el expediente.");
+assertIncludes(workflow, "Datos del FUD pendientes", "El expediente debe identificar claramente la documentación pendiente.");
+assertIncludes(workflow, "Completar FUD", "Debe existir una acción equivalente a Completar colilla.");
+assertIncludes(workflow, "Aseguradora", "Completar FUD debe solicitar la aseguradora.");
+assertIncludes(workflow, "Monto del reclamo", "Completar FUD debe solicitar el monto.");
+assertIncludes(workflow, "¿Tienes el número de reclamo?", "Completar FUD debe registrar la disponibilidad del número.");
+assertIncludes(workflow, "Registro de la gestión", "Completar FUD debe dejar trazabilidad de la gestión.");
 assertIncludes(workflow, "Confirmo que el FUD original fue recibido presencialmente", "La revisión debe exigir confirmación explícita.");
-assertIncludes(workflow, "Confirmar entrega presencial", "Debe existir una acción separada para completar la entrega física.");
+assertIncludes(workflow, "documentationPending: false", "Completar el FUD debe retirar el pendiente documental.");
+assertIncludes(workflow, "insuranceClaimStatusAfterFudCompletion(claim.status, claimNumber)", "El estado debe depender de la existencia del número de reclamo.");
 
 assertIncludes(cloud, "claim.documentationPending === true || !fudPhysicalDeliveryConfirmed", "Los reclamos anteriores sin confirmación deben normalizarse como pendientes.");
 assertIncludes(followUp, "Coordinar entrega presencial del FUD", "Las alertas deben describir la acción presencial correcta.");

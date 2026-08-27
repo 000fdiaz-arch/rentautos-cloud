@@ -23,6 +23,7 @@ import type { Client } from "../types";
 import { normalizeCourtName } from "../courtNames";
 import { useControlUnitsRows } from "./controlUnits/useControlUnitsRows";
 import {
+  requiresInsuranceClaimDetails,
   requiresInsuranceFud,
   shouldUploadInsuranceFud,
   type IncidentDocumentationAvailability
@@ -260,8 +261,8 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     if (destination === "insurance" && requiresInsuranceFud(form.documentationAvailable) && !form.fudPhysicalDeliveryDate) { setMessage("Indica la fecha en que el FUD original fue entregado presencialmente."); return; }
     if (destination === "insurance" && requiresInsuranceFud(form.documentationAvailable) && !fudFile) { setMessage("Adjunta una copia digital del FUD entregado presencialmente."); return; }
     if (destination === "judicial" && !documentationPending && (!form.trialDate || !form.ticketStub.trim() || !form.placeTime.trim() || !form.court.trim())) { setMessage("Completa todos los datos judiciales."); return; }
-    if (destination === "insurance" && (!form.insurer || !form.hasClaimNumber)) { setMessage("Completa aseguradora e indica si tienes el número de reclamo."); return; }
-    if (destination === "insurance" && form.hasClaimNumber === "yes" && !form.claimNumber.trim()) { setMessage("Escribe el número de reclamo."); return; }
+    if (destination === "insurance" && requiresInsuranceClaimDetails(form.documentationAvailable) && (!form.insurer || !form.hasClaimNumber || !form.amount.trim())) { setMessage("Completa aseguradora, monto e indica si tienes el número de reclamo."); return; }
+    if (destination === "insurance" && requiresInsuranceClaimDetails(form.documentationAvailable) && form.hasClaimNumber === "yes" && !form.claimNumber.trim()) { setMessage("Escribe el número de reclamo."); return; }
 
     setSaving(true); setMessage("");
     const now = new Date().toISOString();
@@ -311,8 +312,10 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           settlementDelivered: false, settlementDeliveredDate: "", settlementMarkedAt: null, settlementAttachment: null,
           followUpComment: "", followUpCommentUpdatedAt: null, followUps: [], closureOutcome: null, closureJustification: "", finalizedAt: null, editHistory: [], createdAt: now, updatedAt: now
         };
-        saveStep = "guardar la aseguradora";
-        await saveInsuranceInsurer(dataOwnerUserId, claim.insurer);
+        if (claim.insurer) {
+          saveStep = "guardar la aseguradora";
+          await saveInsuranceInsurer(dataOwnerUserId, claim.insurer);
+        }
         saveStep = "guardar el reclamo al seguro";
         await saveInsuranceClaim(dataOwnerUserId, claim);
       }
@@ -349,7 +352,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
           <label>Conductor al momento del incidente<input value={form.driver} placeholder="Nombre completo" onChange={(event) => { setDriverEditedManually(true); patchForm({ driver: event.target.value }); }} disabled={readOnly} /></label>
           <label>Placa<input value={form.plate} placeholder="Placa del auto" onChange={(event) => patchForm({ plate: event.target.value })} disabled={readOnly} /></label>
           <label className="workflow-form-notes">Daños del auto<textarea value={form.vehicleDamage} placeholder="Describe los daños del auto" onChange={(event) => patchForm({ vehicleDamage: event.target.value })} disabled={readOnly} /></label>
-          <div className={`workflow-claim-number-question${!form.documentationAvailable ? " is-pending" : ""}`}><div><strong>{destination === "judicial" ? "¿Ya recibiste la colilla?" : "¿El FUD original ya fue entregado presencialmente?"}</strong><small>{destination === "judicial" ? "Si todavía no la tienes, guardaremos el caso y activaremos las alertas de seguimiento." : "La entrega debe realizarse en persona. Una foto o PDF no sustituye la entrega física del original."}</small></div><select value={form.documentationAvailable} onChange={(event) => patchForm({ documentationAvailable: event.target.value as IntakeForm["documentationAvailable"], ...(destination === "insurance" && event.target.value !== "yes" ? { fudPhysicalDeliveryDate: "" } : {}) })} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">{destination === "insurance" ? "Sí, fue entregado presencialmente" : "Sí, ya la recibí"}</option><option value="no">{destination === "insurance" ? "No, está pendiente de entrega presencial" : "No, está pendiente"}</option></select></div>
+          <div className={`workflow-claim-number-question${!form.documentationAvailable ? " is-pending" : ""}`}><div><strong>{destination === "judicial" ? "¿Ya recibiste la colilla?" : "¿El FUD original ya fue entregado presencialmente?"}</strong><small>{destination === "judicial" ? "Si todavía no la tienes, guardaremos el caso y activaremos las alertas de seguimiento." : "La entrega debe realizarse en persona. Una foto o PDF no sustituye la entrega física del original."}</small></div><select value={form.documentationAvailable} onChange={(event) => { const documentationAvailable = event.target.value as IntakeForm["documentationAvailable"]; patchForm({ documentationAvailable, ...(destination === "insurance" && documentationAvailable !== "yes" ? { fudPhysicalDeliveryDate: "", insurer: "", hasClaimNumber: "", claimNumber: "", amount: "" } : {}) }); }} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">{destination === "insurance" ? "Sí, fue entregado presencialmente" : "Sí, ya la recibí"}</option><option value="no">{destination === "insurance" ? "No, está pendiente de entrega presencial" : "No, está pendiente"}</option></select></div>
           {destination === "judicial" ? <>
             {form.documentationAvailable === "yes" && <><label>Fecha de juicio<input type="date" value={form.trialDate} onChange={(event) => patchForm({ trialDate: event.target.value })} disabled={readOnly} /></label>
             <label>Colilla<input value={form.ticketStub} placeholder="Número o referencia" onChange={(event) => patchForm({ ticketStub: event.target.value })} disabled={readOnly} /></label>
@@ -359,11 +362,15 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
             <label className="collision-runaway-option"><input type="checkbox" checked={form.collisionAndRun} onChange={(event) => patchForm({ collisionAndRun: event.target.checked })} disabled={readOnly} /><span><strong>Colisión y fuga</strong><small>El conductor abandonó el lugar.</small></span></label>
             <label className="workflow-form-notes workflow-form-damage-photos">Fotos del siniestro<input type="file" accept="image/*" multiple onChange={(event) => handleJudicialPhotosChange(event.target.files)} disabled={readOnly || saving} /><span className="hint">{judicialPhotoFiles.length ? `${judicialPhotoFiles.length} ${judicialPhotoFiles.length === 1 ? "foto seleccionada" : "fotos seleccionadas"}.` : "Puedes adjuntar todas las fotos necesarias."} Máximo 10 MB por foto.</span></label>
           </> : <>
-            {form.documentationAvailable === "yes" && <><label>Fecha de entrega presencial<input type="date" value={form.fudPhysicalDeliveryDate} onChange={(event) => patchForm({ fudPhysicalDeliveryDate: event.target.value })} disabled={readOnly} required /></label><label className="workflow-form-notes">Copia digital del FUD entregado<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => handleFudChange(event.target.files?.[0])} disabled={readOnly || saving} required /><span className="hint">{fudFile ? `Seleccionado: ${fudFile.name}` : "Después de recibir el original presencialmente, adjunta una foto o PDF para el expediente."} Máximo 10 MB.</span></label></>}
-            <div className={`workflow-claim-number-question${!form.hasClaimNumber ? " is-pending" : ""}`}><div><strong>¿Tienes el número de reclamo?</strong><small>Define si el reclamo inicia activo o pendiente.</small></div><select value={form.hasClaimNumber} onChange={(event) => { const hasClaimNumber = event.target.value as IntakeForm["hasClaimNumber"]; patchForm({ hasClaimNumber, ...(hasClaimNumber !== "yes" ? { claimNumber: "" } : {}) }); }} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">Sí, tengo el número</option><option value="no">No, todavía no lo tengo</option></select></div>
-            {form.hasClaimNumber === "yes" && <label className="workflow-claim-number-input">Número de reclamo<input value={form.claimNumber} placeholder="Escribe el número" onChange={(event) => patchForm({ claimNumber: event.target.value })} disabled={readOnly} /></label>}
-            <label>Aseguradora<select value={form.insurer} onChange={(event) => event.target.value === "__new__" ? void addInsurer() : patchForm({ insurer: event.target.value })} disabled={readOnly}><option value="">Seleccionar aseguradora</option>{insurers.map((insurer) => <option key={insurer}>{insurer}</option>)}<option value="__new__">+ Nueva aseguradora</option></select></label>
-            <label>Monto<input type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={(event) => patchForm({ amount: event.target.value })} disabled={readOnly} /></label>
+            {form.documentationAvailable === "no" && <div className="workflow-finalization-panel insurance-documentation-pending"><div><strong>Datos del FUD pendientes</strong><span>El siniestro se guardará ahora. Cuando recibas el FUD, usa “Completar FUD” para registrar aseguradora, monto, número de reclamo, entrega presencial y copia digital.</span></div></div>}
+            {form.documentationAvailable === "yes" && <>
+              <label>Fecha de entrega presencial<input type="date" value={form.fudPhysicalDeliveryDate} onChange={(event) => patchForm({ fudPhysicalDeliveryDate: event.target.value })} disabled={readOnly} required /></label>
+              <label className="workflow-form-notes">Copia digital del FUD entregado<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => handleFudChange(event.target.files?.[0])} disabled={readOnly || saving} required /><span className="hint">{fudFile ? `Seleccionado: ${fudFile.name}` : "Después de recibir el original presencialmente, adjunta una foto o PDF para el expediente."} Máximo 10 MB.</span></label>
+              <div className={`workflow-claim-number-question${!form.hasClaimNumber ? " is-pending" : ""}`}><div><strong>¿Tienes el número de reclamo?</strong><small>Define si el reclamo inicia activo o pendiente.</small></div><select value={form.hasClaimNumber} onChange={(event) => { const hasClaimNumber = event.target.value as IntakeForm["hasClaimNumber"]; patchForm({ hasClaimNumber, ...(hasClaimNumber !== "yes" ? { claimNumber: "" } : {}) }); }} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">Sí, tengo el número</option><option value="no">No, todavía no lo tengo</option></select></div>
+              {form.hasClaimNumber === "yes" && <label className="workflow-claim-number-input">Número de reclamo<input value={form.claimNumber} placeholder="Escribe el número" onChange={(event) => patchForm({ claimNumber: event.target.value })} disabled={readOnly} /></label>}
+              <label>Aseguradora<select value={form.insurer} onChange={(event) => event.target.value === "__new__" ? void addInsurer() : patchForm({ insurer: event.target.value })} disabled={readOnly}><option value="">Seleccionar aseguradora</option>{insurers.map((insurer) => <option key={insurer}>{insurer}</option>)}<option value="__new__">+ Nueva aseguradora</option></select></label>
+              <label>Monto<input type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={(event) => patchForm({ amount: event.target.value })} disabled={readOnly} required /></label>
+            </>}
             <label className="workflow-form-notes workflow-form-damage-photos">Fotos de los daños<input type="file" accept="image/*" multiple onChange={(event) => handleDamagePhotosChange(event.target.files)} disabled={readOnly || saving} /><span className="hint">{damagePhotoFiles.length} de {MAX_DAMAGE_PHOTOS} fotos seleccionadas. Máximo 10 MB por foto.</span></label>
           </>}
         </div>

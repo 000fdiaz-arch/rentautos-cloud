@@ -4,6 +4,18 @@ export function requiresInsuranceFud(documentationAvailable: IncidentDocumentati
   return documentationAvailable === "yes";
 }
 
+export function requiresInsuranceClaimDetails(documentationAvailable: IncidentDocumentationAvailability): boolean {
+  return documentationAvailable === "yes";
+}
+
+export function insuranceClaimStatusAfterFudCompletion(
+  currentStatus: "Inactivo" | "Activo" | "Finalizado",
+  claimNumber: string
+): "Inactivo" | "Activo" | "Finalizado" {
+  if (currentStatus === "Finalizado") return "Finalizado";
+  return claimNumber.trim() ? "Activo" : "Inactivo";
+}
+
 export function shouldUploadInsuranceFud(
   documentationAvailable: IncidentDocumentationAvailability,
   hasFudFile: boolean
