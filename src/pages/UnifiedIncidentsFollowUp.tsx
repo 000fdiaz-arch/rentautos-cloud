@@ -683,6 +683,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   const [dateTo, setDateTo] = useState("");
   const [sort, setSort] = useState<IncidentSort>("action_asc");
   const [search, setSearch] = useState("");
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -776,6 +777,15 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   }, [actionTimingFilter, dateFieldFilter, dateFrom, dateTo, filter, incidents, insurerFilter, nextActionFilter, search, sort]);
   const hasActiveFilters = Boolean(search.trim() || filter !== "in_progress" || actionTimingFilter !== "all"
     || nextActionFilter !== "all" || insurerFilter !== "all" || dateFrom || dateTo || sort !== "action_asc");
+  const activeFilterCount = [
+    Boolean(search.trim()),
+    filter !== "in_progress",
+    actionTimingFilter !== "all",
+    nextActionFilter !== "all",
+    insurerFilter !== "all",
+    Boolean(dateFrom || dateTo),
+    sort !== "action_asc"
+  ].filter(Boolean).length;
 
   function openAlert(alert: IncidentAlert): void {
     onOpen(alert.destination, { id: alert.targetId, search: alert.unit });
@@ -804,6 +814,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     setDateFrom("");
     setDateTo("");
     setSort("action_asc");
+    setFiltersExpanded(false);
   }
 
   function selectFollowUpFilter(nextFilter: FollowUpFilter): void {
@@ -838,9 +849,22 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
       <div className="unified-incidents-toolbar" role="region" aria-label="Filtros fijos de expedientes y alertas">
         <div className="unified-incidents-filter-head">
           <label className="workflow-claim-search">Buscar<input type="search" value={search} placeholder="Unidad, conductor, placa, año, aseguradora o número de reclamo" onChange={(event) => setSearch(event.target.value)} /></label>
-          <button type="button" className="button ghost small unified-incidents-clear" onClick={clearFilters} disabled={!hasActiveFilters}>Limpiar filtros</button>
+          <div className="unified-incidents-filter-actions">
+            <button
+              type="button"
+              className="button ghost small unified-incidents-filter-toggle"
+              aria-expanded={filtersExpanded}
+              aria-controls="unified-incidents-filter-groups"
+              onClick={() => setFiltersExpanded((current) => !current)}
+            >
+              {filtersExpanded ? "Ocultar filtros" : `Mostrar filtros${activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}`}
+            </button>
+            <button type="button" className="button ghost small unified-incidents-clear" onClick={clearFilters} disabled={!hasActiveFilters}>
+              Limpiar<span className="unified-incidents-clear-suffix"> filtros</span>
+            </button>
+          </div>
         </div>
-        <div className="unified-incidents-filter-groups">
+        <div id="unified-incidents-filter-groups" className={`unified-incidents-filter-groups${filtersExpanded ? " is-expanded" : ""}`}>
           <section className="unified-incidents-filter-section" aria-labelledby="incident-type-filter-title">
             <span className="unified-incidents-filter-title" id="incident-type-filter-title">Tipo de expediente</span>
             <div className="unified-incidents-filters unified-incidents-filters--types" aria-label="Filtrar por tipo de expediente">

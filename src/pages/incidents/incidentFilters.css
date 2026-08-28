@@ -56,3 +56,56 @@
     grid-template-columns: 1fr;
   }
 }
+
+.unified-incidents-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.unified-incidents-filter-toggle {
+  display: none;
+  white-space: nowrap;
+}
+
+@media (orientation: landscape) and (max-height: 820px) and (any-pointer: coarse) {
+  .incidents-control-header {
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  .incidents-control-header .hint {
+    display: none;
+  }
+
+  .unified-incidents-toolbar {
+    position: static;
+    margin-top: 8px;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  .unified-incidents-filter-toggle {
+    display: inline-flex;
+  }
+
+  .unified-incidents-clear-suffix {
+    display: none;
+  }
+
+  .unified-incidents-filter-groups {
+    display: none;
+  }
+
+  .unified-incidents-filter-groups.is-expanded {
+    display: grid;
+    max-height: min(430px, calc(100dvh - 190px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 3px;
+  }
+
+  .unified-incidents-filter-groups .unified-incidents-advanced-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
