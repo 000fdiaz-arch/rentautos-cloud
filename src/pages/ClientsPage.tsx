@@ -9,7 +9,7 @@ import { formatCurrency, formatDate } from "../format";
 import { otherChargeDateKey, sortOtherChargesOldestFirst } from "../otherCharges";
 import { loadControlUnits, saveProvisionalRentalState, setControlUnitStatus } from "../cloudData";
 import { supabase } from "../lib/supabase";
-import type { Client, Payment } from "../types";
+import type { BankRule, Client, Payment } from "../types";
 import {
   cancelActiveProvisionalRental,
   collectReturnedProvisionalRentalCredit,
@@ -53,13 +53,14 @@ import {
 type Props = {
   clients: Client[];
   payments?: Payment[];
+  bankRules?: BankRule[];
   onClientsChange: (next: Client[]) => void | Promise<void>;
   onClientsRefresh?: () => void | Promise<void>;
   dataOwnerUserId?: string | null;
   readOnly?: boolean;
 };
 
-export default function ClientsPage({ clients, payments = [], onClientsChange, onClientsRefresh, dataOwnerUserId, readOnly = false }: Props) {
+export default function ClientsPage({ clients, payments = [], bankRules = [], onClientsChange, onClientsRefresh, dataOwnerUserId, readOnly = false }: Props) {
   const [now, setNow] = useState<Date>(() => new Date());
   const [form, setForm] = useState<ClientForm>(initialForm);
   const [errors, setErrors] = useState<string[]>([]);
@@ -118,6 +119,7 @@ export default function ClientsPage({ clients, payments = [], onClientsChange, o
   );
   const {
     displayedRows,
+    groupOptions,
     generalGroupFilter,
     setGeneralGroupFilter,
     planFilter,
@@ -128,7 +130,7 @@ export default function ClientsPage({ clients, payments = [], onClientsChange, o
     setUnitSearchFilter,
     clientNameSearchFilter,
     setClientNameSearchFilter
-  } = useClientDirectoryFilters({ rows });
+  } = useClientDirectoryFilters({ rows, bankRules });
   async function persist(next: Client[]): Promise<void> {
     if (readOnly) return;
     await onClientsChange(next);
@@ -907,6 +909,7 @@ export default function ClientsPage({ clients, payments = [], onClientsChange, o
         onExportExcel={() => void handleExportExcel()}
         onExportPdf={() => void handleExportPDF()}
         groupFilter={generalGroupFilter}
+        groupOptions={groupOptions}
         planFilter={planFilter}
         weeklyChargeDayFilter={weeklyChargeDayFilter}
         unitSearch={unitSearchFilter}

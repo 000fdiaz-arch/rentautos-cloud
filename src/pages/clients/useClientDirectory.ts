@@ -1,6 +1,6 @@
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { findNextChargeDay, getDebtStartDate, getPendingInstallments } from "../../billing";
-import type { Client } from "../../types";
+import type { BankRule, Client } from "../../types";
 import { normalizePersonName } from "./clientRules";
 import type {
   ClientDirectoryRow,
@@ -95,21 +95,18 @@ export function useClientDirectoryRows(
   return { rows, legacyClients };
 }
 
-function getRowGroup(unitId: string): Exclude<GeneralGroupFilterKey, "ALL"> {
-  const normalized = unitId.trim().toUpperCase();
-  if (normalized.startsWith("A")) return "A";
-  if (normalized.startsWith("B")) return "B";
-  if (normalized.startsWith("C")) return "C";
-  if (normalized.startsWith("D")) return "D";
-  return "T";
+export function getRowGroup(unitId: string): string {
+  return unitId.trim().toUpperCase().match(/^([A-Z])/)?.[1] ?? "";
 }
 
 type FilterOptions = {
   rows: ClientDirectoryRow[];
+  bankRules: BankRule[];
 };
 
 export function useClientDirectoryFilters({
-  rows
+  rows,
+  bankRules
 }: FilterOptions) {
   const [generalGroupFilter, setGeneralGroupFilter] = useState<GeneralGroupFilterKey>("ALL");
   const [planFilter, setPlanFilter] = useState<PlanFilterKey>("ALL");
@@ -118,6 +115,19 @@ export function useClientDirectoryFilters({
   const [clientNameSearchFilter, setClientNameSearchFilter] = useState("");
   const deferredUnitSearch = useDeferredValue(unitSearchFilter);
   const deferredClientSearch = useDeferredValue(clientNameSearchFilter);
+  const groupOptions = useMemo(() => Array.from(new Set([
+    ...bankRules
+      .filter((rule) => rule.active)
+      .map((rule) => rule.groupCode.trim().toUpperCase())
+      .filter((group) => /^[A-Z]$/.test(group)),
+    ...rows.map((row) => getRowGroup(row.unitId)).filter(Boolean)
+  ])).sort((left, right) => left.localeCompare(right)), [bankRules, rows]);
+
+  useEffect(() => {
+    if (generalGroupFilter !== "ALL" && !groupOptions.includes(generalGroupFilter)) {
+      setGeneralGroupFilter("ALL");
+    }
+  }, [generalGroupFilter, groupOptions]);
 
   const displayedRows = useMemo(() => {
     let filteredRows = generalGroupFilter === "ALL"
@@ -152,6 +162,7 @@ export function useClientDirectoryFilters({
 
   return {
     displayedRows,
+    groupOptions,
     generalGroupFilter,
     setGeneralGroupFilter,
     planFilter,

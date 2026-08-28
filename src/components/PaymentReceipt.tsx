@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { inlineComputedStylesForCanvas } from "../canvasExportStyles";
 import { formatCurrency, formatDate } from "../format";
@@ -152,7 +152,7 @@ export async function copyHistoryPaymentReceiptImage(payment: Payment): Promise<
   await copyPaymentReceiptImage(payment, { format: "history" });
 }
 
-function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment; format?: ReceiptFormat }) {
+export function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment; format?: ReceiptFormat }) {
   const isProvisionalRental = payment.paymentContext === "provisional_rental";
   const weeklyDayLabel =
     payment.weeklyChargeDay === "monday"
@@ -242,6 +242,9 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
   const hasAdvancePanel = advanceApplied > 0 && normalizedRent > 0;
   const hasAdvancePendingForNextInstallment = hasAdvancePanel && advanceRemainingForNextInstallment > 0;
   const appliedToCurrentRent = roundMoney(Math.max(0, payment.appliedToRent));
+  const advanceDaysBeforeDue = nextChargeDate ? diffDays(paymentDate, nextChargeDate) : null;
+  const isFutureAdvancePayment = hasAdvancePanel && advanceDaysBeforeDue !== null && advanceDaysBeforeDue > 0;
+  const isAdvanceOnlyRentPayment = isFutureAdvancePayment && appliedToCurrentRent <= 0 && !hasMoroseBalance;
   const hasPartialForOneAccount =
     hasMoroseBalance &&
     normalizedRent > 0 &&
@@ -362,15 +365,25 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
       }
       return row.status === "complete" ? normalizedRent : roundMoney(row.amount ?? 0);
     };
-    const coverageRows: Array<{ label: string; status: "complete" | "partial" | "applied"; amount: number; value: string }> = coveredRows.map((row) => {
-      const amount = takeRentAmountForCycle(row);
+    const coverageRows: Array<{
+      label: string;
+      status: "complete" | "partial" | "applied";
+      amount: number;
+      value: string;
+      isAdvanceRent?: boolean;
+    }> = coveredRows.map((row) => {
+      const isAdvanceRent = isAdvanceOnlyRentPayment;
+      const amount = isAdvanceRent && row.status === "partial"
+        ? advanceAppliedToNextInstallment
+        : takeRentAmountForCycle(row);
       return {
-        label: row.dateLabel,
+        label: isAdvanceRent ? `Cuota futura · ${row.dateLabel}` : row.dateLabel,
         status: row.status,
         amount,
-        value: row.status === "complete"
-          ? "Pagado completo"
-          : "Abono parcial"
+        value: isAdvanceRent
+          ? (row.status === "complete" ? "Pagada por adelantado" : "Abono adelantado parcial")
+          : (row.status === "complete" ? "Pagado completo" : "Abono parcial"),
+        isAdvanceRent
       };
     });
     rentBreakdownQueue.forEach((row) => {
@@ -379,7 +392,10 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
         label: row.label,
         status: isCompleteRentCycle ? "complete" : "partial",
         amount: row.amount,
-        value: isCompleteRentCycle ? "Pagado completo" : "Abono parcial"
+        value: isAdvanceOnlyRentPayment
+          ? (isCompleteRentCycle ? "Pagada por adelantado" : "Abono adelantado parcial")
+          : (isCompleteRentCycle ? "Pagado completo" : "Abono parcial"),
+        isAdvanceRent: isAdvanceOnlyRentPayment
       });
     });
     otherChargesApplied
@@ -449,6 +465,21 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
           </div>
         </div>
 
+        {isFutureAdvancePayment && nextChargeDate && (
+          <div className="receipt-history-advance-banner">
+            <div className="receipt-history-advance-head">
+              <span>PAGO ADELANTADO</span>
+              <strong>{advanceDaysBeforeDue} {advanceDaysBeforeDue === 1 ? "DÍA" : "DÍAS"} ANTES</strong>
+            </div>
+            <div className="receipt-history-advance-detail">
+              Aplicado por adelantado a la cuota del {formatDateSpanishSingleLine(nextChargeDate).toLowerCase()}.
+            </div>
+          </div>
+        )}
+
+        {/* Regla de comunicación: el recibo del cliente no debe mostrar ahorro ni su
+            distribución interna. Aquí solo se explica la aplicación del adelanto. */}
+
         {isPendingCardSettlement && (
           <div className="receipt-history-note receipt-history-note--warning">
             Pago en tarjeta pendiente de conciliación bancaria.
@@ -456,7 +487,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
         )}
 
         <div className="receipt-history-panel receipt-history-cover">
-          <div className="receipt-history-section-title">Este pago cubre</div>
+          <div className="receipt-history-section-title">{isAdvanceOnlyRentPayment ? "Aplicación del adelanto" : "Este pago cubre"}</div>
           {coverageRows.length > 0 ? coverageRows.map((row, index) => (
             <div key={`${row.label}-${index}`} className="receipt-history-cover-row">
               <span className={`receipt-history-status receipt-history-status--${row.status}`}>
@@ -467,6 +498,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
                 <span className={`receipt-history-cover-state receipt-history-cover-state--${row.status}`}>{row.value}</span>
               </span>
               <strong className={`receipt-history-cover-value receipt-history-cover-value--${row.status}`}>
+                {row.isAdvanceRent && row.status === "partial" && <small>Acumulado</small>}
                 {formatCurrency(row.amount)}
               </strong>
             </div>
@@ -484,7 +516,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
           )}
         </div>
 
-        {shouldShowPartialMissing && rentPendingAmount <= 0 && (
+        {shouldShowPartialMissing && rentPendingAmount <= 0 && !isAdvanceOnlyRentPayment && (
           <div className="receipt-history-alert receipt-history-alert--warning">
             <span>{getPartialMissingLabel(partialRow, payment)}</span>
             <strong>{formatCurrency(missingForPartial)}</strong>
@@ -541,10 +573,20 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
           </>
         ) : (
           <>
-            <div className={`receipt-history-alert ${partialFuturePendingAmount > 0 ? "receipt-history-alert--pending" : "receipt-history-alert--ok"}`}>
-              <span>Saldo pendiente</span>
-              <strong>{formatCurrency(partialFuturePendingAmount)}</strong>
-            </div>
+            {isAdvanceOnlyRentPayment ? (
+              <div className={`receipt-history-alert ${partialFuturePendingAmount > 0 ? "receipt-history-alert--advance" : "receipt-history-alert--ok"}`}>
+                <span>
+                  {partialFuturePendingAmount > 0 ? "Restante de la cuota futura" : "Cuota futura pagada"}
+                  <small>{partialFuturePendingAmount > 0 ? "Aún no está vencida" : "Completada por adelantado"}</small>
+                </span>
+                <strong>{partialFuturePendingAmount > 0 ? formatCurrency(partialFuturePendingAmount) : "COMPLETA"}</strong>
+              </div>
+            ) : (
+              <div className={`receipt-history-alert ${partialFuturePendingAmount > 0 ? "receipt-history-alert--pending" : "receipt-history-alert--ok"}`}>
+                <span>Saldo pendiente</span>
+                <strong>{formatCurrency(partialFuturePendingAmount)}</strong>
+              </div>
+            )}
             {hasTravelFundBalance && (
               <div className="receipt-history-alert receipt-history-alert--travel">
                 <span>Fondo de viaje</span>
@@ -556,7 +598,7 @@ function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment
 
         {!hasPending && (
           <div className="receipt-history-next-date">
-            <span>Próxima fecha de pago</span>
+            <span>{isAdvanceOnlyRentPayment && partialFuturePendingAmount > 0 ? "Fecha límite de esta cuota" : "Próxima fecha de pago"}</span>
             <strong>{nextPaymentDate ? formatDateSpanishSingleLine(nextPaymentDate) : "Por definir"}</strong>
           </div>
         )}

@@ -1,13 +1,15 @@
 import { memo } from "react";
 import type { ControlUnitRow } from "../../cloudData";
-import { FLEET_STATUS_OPTIONS, normalizeUnitIdInput, type UnitFormState } from "./controlUnitsRules";
+import { FLEET_STATUS_OPTIONS, type UnitFormState } from "./controlUnitsRules";
 
 type Props = {
   form: UnitFormState;
   editTarget: ControlUnitRow | null;
   companies: string[];
   saving: boolean;
+  error?: string;
   onFormChange: (updater: (current: UnitFormState) => UnitFormState) => void;
+  onUnitIdChange: (value: string) => void;
   onCancel: () => void;
   onSave: () => void;
 };
@@ -17,7 +19,9 @@ export const UnitFormModal = memo(function UnitFormModal({
   editTarget,
   companies,
   saving,
+  error,
   onFormChange,
+  onUnitIdChange,
   onCancel,
   onSave
 }: Props) {
@@ -33,7 +37,7 @@ export const UnitFormModal = memo(function UnitFormModal({
             <label>Unidad
               <input
                 value={form.unit_id}
-                onChange={(event) => onFormChange((s) => ({ ...s, unit_id: normalizeUnitIdInput(event.target.value) }))}
+                onChange={(event) => onUnitIdChange(event.target.value)}
                 placeholder="Ejemplo: A1"
               />
             </label>
@@ -85,6 +89,7 @@ export const UnitFormModal = memo(function UnitFormModal({
               <option key={company} value={company} />
             ))}
           </datalist>
+          {error && <p className="error-text" role="alert" style={{ marginTop: 12 }}>{error}</p>}
 
           <div className="modal-actions" style={{ marginTop: 14 }}>
             <button type="button" className="button ghost" onClick={onCancel}>

@@ -30,7 +30,7 @@ export type ClientForm = {
   otherCharges: OtherChargeForm[];
 };
 
-export type GeneralGroupFilterKey = "ALL" | "T" | "A" | "B" | "C" | "D";
+export type GeneralGroupFilterKey = string;
 
 export type PlanFilterKey = "ALL" | BillingFrequency;
 

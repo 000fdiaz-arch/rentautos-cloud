@@ -1,5 +1,5 @@
 import type { ControlUnitRow } from "../../cloudData";
-import type { ClientStatus } from "../../types";
+import type { BankRule, ClientStatus } from "../../types";
 
 export type SortField = "unit_id" | "group" | "operational_status" | "brand_model" | "company" | "plate";
 export type SortDirection = "asc" | "desc";
@@ -53,13 +53,7 @@ export const DEFAULT_FORM: UnitFormState = {
   observation: ""
 };
 
-export const UNIT_GROUP_MAX: Record<"A" | "B" | "C" | "D" | "T", number> = {
-  A: 100,
-  B: 100,
-  C: 100,
-  D: 100,
-  T: 100
-};
+export const UNIT_GROUP_MAX = 100;
 
 export const FLEET_STATUS_OPTIONS: Array<{ value: FleetStatus; label: string }> = [
   { value: "libre", label: "LIBRE" },
@@ -191,6 +185,44 @@ export function getFleetFilterOptions(rows: ControlUnitRow[]) {
     models: Array.from(new Set(rows.map((item) => normalizeText(item.brand_model)).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
     statuses: Array.from(new Set(rows.map((item) => effectiveStatus(item)))).sort((a, b) => a.localeCompare(b))
   };
+}
+
+export function getActiveFleetRule(bankRules: BankRule[], group: string): BankRule | undefined {
+  const normalizedGroup = normalizeText(group).toUpperCase();
+  return bankRules.find((rule) =>
+    rule.active &&
+    /^[A-Z]$/.test(normalizeText(rule.groupCode).toUpperCase()) &&
+    normalizeText(rule.groupCode).toUpperCase() === normalizedGroup
+  );
+}
+
+export function getActiveFleetGroups(bankRules: BankRule[]): string[] {
+  return Array.from(new Set(bankRules
+    .filter((rule) => rule.active)
+    .map((rule) => normalizeText(rule.groupCode).toUpperCase())
+    .filter((group) => /^[A-Z]$/.test(group))))
+    .sort();
+}
+
+export function getFleetCompanyForGroup(
+  rows: ControlUnitRow[],
+  bankRules: BankRule[],
+  group: string
+): string {
+  const normalizedGroup = normalizeText(group).toUpperCase();
+  const ruleCompany = normalizeText(getActiveFleetRule(bankRules, normalizedGroup)?.accountName);
+  if (ruleCompany) return ruleCompany;
+  return normalizeText(rows.find((row) => toGroup(row.unit_id ?? "") === normalizedGroup && normalizeText(row.company))?.company);
+}
+
+export function getFleetCompanyOptions(rows: ControlUnitRow[], bankRules: BankRule[]): string[] {
+  return Array.from(new Set([
+    ...bankRules
+      .filter((rule) => rule.active)
+      .map((rule) => normalizeText(rule.accountName))
+      .filter(Boolean),
+    ...rows.map((item) => normalizeText(item.company)).filter(Boolean)
+  ])).sort((a, b) => a.localeCompare(b));
 }
 
 export function filterAndSortFleetRows(args: {

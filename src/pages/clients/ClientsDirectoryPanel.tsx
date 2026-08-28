@@ -38,6 +38,7 @@ type Props = {
   onExportExcel: () => void;
   onExportPdf: () => void;
   groupFilter: GeneralGroupFilterKey;
+  groupOptions: string[];
   planFilter: PlanFilterKey;
   weeklyChargeDayFilter: WeeklyChargeDayFilterKey;
   unitSearch: string;
@@ -82,6 +83,7 @@ export function ClientsDirectoryPanel({
   onExportExcel,
   onExportPdf,
   groupFilter,
+  groupOptions,
   planFilter,
   weeklyChargeDayFilter,
   unitSearch,
@@ -182,11 +184,9 @@ export function ClientsDirectoryPanel({
               title="Filtrar por grupo"
             >
               <option value="ALL">Todos</option>
-              <option value="T">Grupo T</option>
-              <option value="A">Grupo A</option>
-              <option value="B">Grupo B</option>
-              <option value="C">Grupo C</option>
-              <option value="D">Grupo D</option>
+              {groupOptions.map((group) => (
+                <option key={group} value={group}>Grupo {group}</option>
+              ))}
             </select>
             <select
               value={planFilter}

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { saveControlUnit, setControlUnitStatus, type ControlUnitRow, type ControlUnitUpsertInput } from "../cloudData";
-import type { Client } from "../types";
+import type { BankRule, Client } from "../types";
 import { FleetDashboard } from "./controlUnits/FleetDashboard";
 import { FleetFilters } from "./controlUnits/FleetFilters";
 import { FleetMobileList } from "./controlUnits/FleetMobileList";
@@ -16,6 +16,10 @@ import {
   describeStatusError,
   effectiveStatus,
   filterAndSortFleetRows,
+  getActiveFleetGroups,
+  getActiveFleetRule,
+  getFleetCompanyForGroup,
+  getFleetCompanyOptions,
   getFleetFilterOptions,
   normalizeStatus,
   normalizeText,
@@ -36,6 +40,7 @@ type Props = {
   dataOwnerUserId?: string | null;
   readOnly?: boolean;
   clients?: Client[];
+  bankRules?: BankRule[];
   onFleetClientStatusSync?: (payload: FleetClientStatusSyncPayload) => void;
 };
 
@@ -43,6 +48,7 @@ export default function ControlUnitsPage({
   dataOwnerUserId,
   readOnly = false,
   clients = [],
+  bankRules = [],
   onFleetClientStatusSync
 }: Props) {
   const { rows, setRows, loading, loadError, reloadRows } = useControlUnitsRows(dataOwnerUserId);
@@ -76,6 +82,8 @@ export default function ControlUnitsPage({
   }), [clients, rows]);
 
   const { groups, companies, models, statuses } = useMemo(() => getFleetFilterOptions(displayRows), [displayRows]);
+  const companyOptions = useMemo(() => getFleetCompanyOptions(displayRows, bankRules), [bankRules, displayRows]);
+  const activeFleetGroups = useMemo(() => getActiveFleetGroups(bankRules), [bankRules]);
   const filteredRows = useMemo(() => filterAndSortFleetRows({
     rows: displayRows,
     search,
@@ -138,6 +146,18 @@ export default function ControlUnitsPage({
     setSaveError("");
   }, []);
 
+  const changeUnitId = useCallback((rawUnitId: string): void => {
+    const unitId = normalizeUnitIdInput(rawUnitId);
+    const nextGroup = unitId.slice(0, 1);
+    const mappedCompany = getFleetCompanyForGroup(displayRows, bankRules, nextGroup);
+    setForm((current) => ({
+      ...current,
+      unit_id: unitId,
+      company: current.unit_id.slice(0, 1) === nextGroup ? current.company : mappedCompany
+    }));
+    setSaveError("");
+  }, [bankRules, displayRows]);
+
   async function persistUnit(state: UnitFormState, previousUnitId?: string): Promise<void> {
     if (!dataOwnerUserId) {
       setSaveError("No hay owner de datos para guardar autos en Supabase.");
@@ -148,13 +168,17 @@ export default function ControlUnitsPage({
       setSaveError("La unidad es obligatoria.");
       return;
     }
-    if (!/^[ABCDT][0-9]{1,3}$/.test(unitId)) {
-      setSaveError("Formato de unidad invalido. Usa grupos A/B/C/D/T y formato como A1, B12, C100 o T100.");
+    if (!/^[A-Z][0-9]{1,3}$/.test(unitId)) {
+      setSaveError("Formato de unidad invalido. Usa la letra configurada en Regla bancaria y un numero, por ejemplo E1.");
       return;
     }
-    const group = unitId[0] as "A" | "B" | "C" | "D" | "T";
+    const group = unitId[0];
+    if (!activeFleetGroups.includes(group)) {
+      setSaveError(`El grupo ${group} no tiene una regla bancaria activa. Configuralo antes de guardar el auto.`);
+      return;
+    }
     const numericPart = Number(unitId.slice(1));
-    const maxAllowed = UNIT_GROUP_MAX[group];
+    const maxAllowed = UNIT_GROUP_MAX;
     if (!Number.isFinite(numericPart) || numericPart < 1 || numericPart > maxAllowed) {
       setSaveError(`Unidad fuera de rango para grupo ${group}. Rango permitido: ${group}1 a ${group}${maxAllowed}.`);
       return;
@@ -174,7 +198,7 @@ export default function ControlUnitsPage({
     const payload: ControlUnitUpsertInput = {
       user_id: dataOwnerUserId,
       unit_id: unitId,
-      company: state.company.trim() || null,
+      company: normalizeText(getActiveFleetRule(bankRules, group)?.accountName) || state.company.trim() || null,
       brand_model: state.brand_model.trim() || null,
       plate: state.plate.trim().toUpperCase() || null,
       engine_serial: state.engine_serial.trim() || null,
@@ -364,9 +388,11 @@ export default function ControlUnitsPage({
         <UnitFormModal
           form={form}
           editTarget={editTarget}
-          companies={companies}
+          companies={companyOptions}
           saving={saving}
+          error={saveError}
           onFormChange={setForm}
+          onUnitIdChange={changeUnitId}
           onCancel={closeUnitDialog}
           onSave={() => void persistUnit(form, editTarget?.unit_id)}
         />

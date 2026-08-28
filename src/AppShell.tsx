@@ -209,9 +209,10 @@ export default function AppShell({
     }
     if (canViewRouteSearch) keys.add("cobrapp.module2.notified.v1");
     if (canViewReceivables) RECEIVABLES_MIRROR_KEYS.forEach((key) => keys.add(key));
+    if (canViewClients || canViewControlUnits) keys.add("cobrapp.settings.bank_rules.v1");
     if (canViewSettingsPage) SETTINGS_MIRROR_KEYS.forEach((key) => keys.add(key));
     return [...keys];
-  }, [canViewInsuranceWorkflow, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
+  }, [canViewClients, canViewControlUnits, canViewInsuranceWorkflow, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = effectiveOwnerUserId ?? dataOwnerUserId ?? userId;
   const [page, setPage] = useState<AppPage>(() => {
@@ -1055,6 +1056,7 @@ export default function AppShell({
           <ClientsPage
             clients={clients}
             payments={payments}
+            bankRules={bankRules}
             onClientsChange={persistClients}
             onClientsRefresh={refreshClientsFromCloud}
             dataOwnerUserId={cloudDataUserId}
@@ -1140,6 +1142,7 @@ export default function AppShell({
             dataOwnerUserId={cloudDataUserId}
             readOnly={!canEditControlUnits}
             clients={clients}
+            bankRules={bankRules}
             onFleetClientStatusSync={handleFleetClientStatusSync}
           />
         )}
