@@ -11,6 +11,7 @@ export type UserProfileRow = {
   id: string;
   email: string | null;
   role: AppRole;
+  is_active: boolean;
   data_owner_user_id: string | null;
   permissions: AppPermissions;
   created_at?: string | null;
@@ -21,6 +22,7 @@ type RawUserProfileRow = {
   id: string;
   email: string | null;
   role: unknown;
+  is_active?: unknown;
   data_owner_user_id: string | null;
   permissions?: unknown;
   created_at?: string | null;
@@ -33,6 +35,7 @@ function normalizeRow(row: RawUserProfileRow): UserProfileRow {
     id: row.id,
     email: row.email,
     role,
+    is_active: row.is_active !== false,
     data_owner_user_id: row.data_owner_user_id,
     permissions: normalizeAppPermissions(role, row.permissions),
     created_at: row.created_at,
@@ -44,7 +47,7 @@ export async function loadUserProfiles(): Promise<UserProfileRow[]> {
   const client = getCloudClient();
   const { data, error } = await client
     .from("user_profiles")
-    .select("id,email,role,data_owner_user_id,permissions,created_at,updated_at")
+    .select("id,email,role,is_active,data_owner_user_id,permissions,created_at,updated_at")
     .order("email", { ascending: true });
   if (error) throw error;
   return ((data ?? []) as RawUserProfileRow[]).map(normalizeRow);
@@ -94,6 +97,16 @@ export async function resetAppUserPassword(userId: string, password: string): Pr
     p_password: password
   });
   if (error) throw error;
+}
+
+export async function setAppUserActive(userId: string, active: boolean): Promise<UserProfileRow> {
+  const client = getCloudClient();
+  const { data, error } = await client.rpc("admin_set_app_user_active", {
+    p_user_id: userId,
+    p_active: active
+  });
+  if (error) throw error;
+  return normalizeRow(data as RawUserProfileRow);
 }
 
 export async function markOwnPasswordChanged(): Promise<void> {

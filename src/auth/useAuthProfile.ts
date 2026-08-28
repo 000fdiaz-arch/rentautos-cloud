@@ -17,6 +17,7 @@ import {
 
 type AuthProfileRow = {
   role?: unknown;
+  is_active?: unknown;
   data_owner_user_id?: unknown;
   permissions?: unknown;
 };
@@ -24,6 +25,7 @@ type AuthProfileRow = {
 export type AuthProfileState = {
   session: Session | null;
   role: AppRole;
+  isActive: boolean;
   dataOwnerUserId: string | null;
   effectiveOwnerUserId: string | undefined;
   userId: string | undefined;
@@ -50,13 +52,13 @@ async function loadProfileRow(userId: string): Promise<AuthProfileRow | null> {
   if (!supabase) return null;
   const withPermissions = await supabase
     .from("user_profiles")
-    .select("role,data_owner_user_id,permissions")
+    .select("role,is_active,data_owner_user_id,permissions")
     .eq("id", userId)
     .maybeSingle<AuthProfileRow>();
   if (!withPermissions.error) return withPermissions.data ?? null;
 
   const normalizedMessage = `${withPermissions.error.code ?? ""} ${withPermissions.error.message ?? ""}`.toLowerCase();
-  if (!normalizedMessage.includes("permissions") && withPermissions.error.code !== "42703") {
+  if (!normalizedMessage.includes("permissions") && !normalizedMessage.includes("is_active") && withPermissions.error.code !== "42703") {
     throw withPermissions.error;
   }
 
@@ -72,6 +74,7 @@ async function loadProfileRow(userId: string): Promise<AuthProfileRow | null> {
 export function useAuthProfile(): AuthProfileState {
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<AppRole>("lectura");
+  const [isActive, setIsActive] = useState(true);
   const [permissions, setPermissions] = useState<AppPermissions>(() => normalizeAppPermissions("lectura", null));
   const [dataOwnerUserId, setDataOwnerUserId] = useState<string | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
@@ -124,6 +127,7 @@ export function useAuthProfile(): AuthProfileState {
     async function loadProfile() {
       if (!session?.user.id || !supabase) {
         setRole("lectura");
+        setIsActive(true);
         setPermissions(normalizeAppPermissions("lectura", null));
         setDataOwnerUserId(null);
         setLoadingProfile(false);
@@ -140,12 +144,14 @@ export function useAuthProfile(): AuthProfileState {
         const data = await loadProfileRow(session.user.id);
         if (cancelled) return;
         const nextRole = normalizeAppRole(data?.role);
+        setIsActive(data?.is_active !== false);
         setDataOwnerUserId(getDataOwnerUserId(data?.data_owner_user_id));
         setRole(nextRole);
         setPermissions(normalizeAppPermissions(nextRole, data?.permissions));
       } catch {
         if (!cancelled) {
           setRole("lectura");
+          setIsActive(true);
           setPermissions(normalizeAppPermissions("lectura", null));
           setDataOwnerUserId(null);
         }
@@ -176,6 +182,7 @@ export function useAuthProfile(): AuthProfileState {
   return useMemo(() => ({
     session,
     role,
+    isActive,
     dataOwnerUserId,
     effectiveOwnerUserId,
     userId,
@@ -204,6 +211,7 @@ export function useAuthProfile(): AuthProfileState {
     mustChangePassword,
     permissions,
     role,
+    isActive,
     session,
     userId
   ]);

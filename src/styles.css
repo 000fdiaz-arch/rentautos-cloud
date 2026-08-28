@@ -386,7 +386,8 @@ input[readonly] {
 
 .button.primary.button-disabled,
 .button.primary:disabled,
-.button.secondary:disabled {
+.button.secondary:disabled,
+.button.danger:disabled {
   opacity: 0.5;
   cursor: not-allowed;
   box-shadow: none;
@@ -416,6 +417,66 @@ input[readonly] {
 .button.danger.small {
   padding: 6px 12px;
   font-size: 0.82rem;
+}
+
+.user-status-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 14px 0 12px;
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+}
+
+.user-status-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 14px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.user-status-tab:hover {
+  background: rgba(15, 118, 110, 0.05);
+  color: var(--color-text);
+}
+
+.user-status-tab:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.user-status-tab.is-active {
+  border-bottom-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.user-status-tab span {
+  min-width: 23px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.user-status-tab.is-active span {
+  background: rgba(15, 118, 110, 0.12);
+  color: var(--color-primary);
+}
+
+.user-status-empty {
+  padding: 28px 16px !important;
+  color: var(--color-text-muted);
+  text-align: center;
 }
 
 /* -- Error states -- */

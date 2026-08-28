@@ -72,6 +72,20 @@ export default function App() {
     );
   }
 
+  if (!authProfile.isActive) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <h1>Rentautos</h1>
+          <p>Este usuario esta inactivo. Contacta a un administrador para recuperar el acceso.</p>
+          <button type="button" className="button primary" onClick={() => void authProfile.signOut()}>
+            Volver al inicio de sesion
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   if (authProfile.mustChangePassword) {
     return <ForcePasswordChangePanel onChanged={() => window.location.reload()} />;
   }

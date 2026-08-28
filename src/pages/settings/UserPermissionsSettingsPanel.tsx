@@ -13,12 +13,16 @@ import {
   loadUserProfiles,
   resetAppUserPassword,
   saveUserProfileAccess,
+  setAppUserActive,
   type UserProfileRow
 } from "../../cloudData";
+import { formatUserLogin } from "./userSettingsRules";
 
 type Props = {
   currentUserId?: string;
 };
+
+type UserStatusTab = "active" | "inactive";
 
 const ROLE_OPTIONS: Array<{ value: AppRole; label: string }> = [
   { value: "admin", label: "Admin" },
@@ -70,15 +74,21 @@ export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
   const [createPermissions, setCreatePermissions] = useState<AppPermissions>(() => getRoleScreenPermissions("lectura"));
   const [resetTarget, setResetTarget] = useState<UserProfileRow | null>(null);
   const [resetPassword, setResetPassword] = useState("");
+  const [statusTab, setStatusTab] = useState<UserStatusTab>("active");
+  const [statusTarget, setStatusTarget] = useState<UserProfileRow | null>(null);
+  const [statusSaving, setStatusSaving] = useState(false);
 
   const sortedProfiles = useMemo(
     () => [...profiles].sort((a, b) => (a.email ?? "").localeCompare(b.email ?? "")),
     [profiles]
   );
   const ownerOptions = useMemo(
-    () => sortedProfiles.filter((profile) => profile.role === "admin"),
+    () => sortedProfiles.filter((profile) => profile.role === "admin" && profile.is_active),
     [sortedProfiles]
   );
+  const activeProfiles = useMemo(() => sortedProfiles.filter((profile) => profile.is_active), [sortedProfiles]);
+  const inactiveProfiles = useMemo(() => sortedProfiles.filter((profile) => !profile.is_active), [sortedProfiles]);
+  const visibleProfiles = statusTab === "active" ? activeProfiles : inactiveProfiles;
   const fallbackOwnerId = useMemo(
     () => ownerOptions.find((profile) => profile.id === currentUserId)?.id ?? ownerOptions[0]?.id ?? currentUserId ?? "",
     [currentUserId, ownerOptions]
@@ -251,6 +261,27 @@ export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
     }
   }
 
+  async function changeUserStatus(): Promise<void> {
+    if (!statusTarget) return;
+    const nextActive = !statusTarget.is_active;
+    setStatusSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      await setAppUserActive(statusTarget.id, nextActive);
+      setStatusTarget(null);
+      setMessage(nextActive ? "Usuario reactivado." : "Usuario desactivado.");
+      setStatusTab(nextActive ? "active" : "inactive");
+      await reload();
+    } catch (statusError) {
+      console.error("No se pudo cambiar el estado del usuario.", statusError);
+      const details = getErrorMessage(statusError);
+      setError(details ? `No se pudo cambiar el estado: ${details}` : "No se pudo cambiar el estado del usuario.");
+    } finally {
+      setStatusSaving(false);
+    }
+  }
+
   function renderPermissionRows(
     permissions: AppPermissions,
     onToggle: (screen: AppScreen, field: "view" | "edit", checked: boolean) => void
@@ -296,10 +327,40 @@ export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
       {message && <p className="success-text">{message}</p>}
       {error && !createOpen && <p className="error-text">{error}</p>}
 
+      <div className="user-status-tabs" role="tablist" aria-label="Estado de usuarios">
+        <button
+          type="button"
+          role="tab"
+          id="users-active-tab"
+          aria-selected={statusTab === "active"}
+          aria-controls="users-status-panel"
+          className={`user-status-tab${statusTab === "active" ? " is-active" : ""}`}
+          onClick={() => setStatusTab("active")}
+        >
+          Activos <span>{activeProfiles.length}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="users-inactive-tab"
+          aria-selected={statusTab === "inactive"}
+          aria-controls="users-status-panel"
+          className={`user-status-tab${statusTab === "inactive" ? " is-active" : ""}`}
+          onClick={() => setStatusTab("inactive")}
+        >
+          Inactivos <span>{inactiveProfiles.length}</span>
+        </button>
+      </div>
+
       {loading ? (
         <p className="hint">Cargando usuarios...</p>
       ) : (
-        <div className="table-scroll">
+        <div
+          id="users-status-panel"
+          role="tabpanel"
+          aria-labelledby={statusTab === "active" ? "users-active-tab" : "users-inactive-tab"}
+          className="table-scroll"
+        >
           <table className="ar-table">
             <thead>
               <tr>
@@ -311,7 +372,7 @@ export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
               </tr>
             </thead>
             <tbody>
-              {sortedProfiles.map((profile) => {
+              {visibleProfiles.map((profile) => {
                 const visibleScreens = APP_SCREENS
                   .filter((screen) => profile.permissions[screen.id].view)
                   .map((screen) => `${screen.label}${profile.permissions[screen.id].edit ? " (editar)" : " (leer)"}`);
@@ -319,34 +380,56 @@ export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
                 return (
                   <tr key={profile.id}>
                     <td>
-                      <strong>{profile.email ?? profile.id}</strong>
+                      <strong>{formatUserLogin(profile.email) || profile.id}</strong>
                       {profile.id === currentUserId && <div className="hint">Sesion actual</div>}
                     </td>
                     <td>{roleLabel(profile.role)}</td>
-                    <td>{owner?.email ?? profile.data_owner_user_id ?? "Propio"}</td>
+                    <td>{formatUserLogin(owner?.email) || profile.data_owner_user_id || "Propio"}</td>
                     <td>{visibleScreens.length > 0 ? visibleScreens.join(", ") : "Sin pantallas"}</td>
                     <td>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <button type="button" className="button ghost small" onClick={() => startEdit(profile)}>
                           Editar permisos
                         </button>
+                        {profile.is_active && (
+                          <button
+                            type="button"
+                            className="button ghost small"
+                            onClick={() => {
+                              setResetTarget(profile);
+                              setResetPassword("");
+                              setMessage("");
+                              setError("");
+                            }}
+                          >
+                            Reset password
+                          </button>
+                        )}
                         <button
                           type="button"
-                          className="button ghost small"
+                          className={`button small ${profile.is_active ? "danger" : "primary"}`}
+                          disabled={profile.id === currentUserId}
+                          title={profile.id === currentUserId ? "No puedes desactivar tu propia sesion." : undefined}
                           onClick={() => {
-                            setResetTarget(profile);
-                            setResetPassword("");
+                            setStatusTarget(profile);
                             setMessage("");
                             setError("");
                           }}
                         >
-                          Reset password
+                          {profile.is_active ? "Desactivar" : "Reactivar"}
                         </button>
                       </div>
                     </td>
                   </tr>
                 );
               })}
+              {visibleProfiles.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="user-status-empty">
+                    {statusTab === "active" ? "No hay usuarios activos." : "No hay usuarios inactivos."}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -392,7 +475,7 @@ export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
                     disabled={createRole === "admin"}
                   >
                     {ownerOptions.map((profile) => (
-                      <option key={profile.id} value={profile.id}>{profile.email ?? profile.id}</option>
+                      <option key={profile.id} value={profile.id}>{formatUserLogin(profile.email) || profile.id}</option>
                     ))}
                   </select>
                 </label>
@@ -433,7 +516,7 @@ export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
         <div className="modal-overlay">
           <div className="modal" style={{ maxWidth: 920 }}>
             <div className="modal-header">
-              <h2>{editingProfile.email ?? "Usuario"}</h2>
+              <h2>{formatUserLogin(editingProfile.email) || "Usuario"}</h2>
               <button type="button" className="modal-close" onClick={() => setEditingId(null)}>
                 X
               </button>
@@ -451,7 +534,7 @@ export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
                   <select value={draftOwnerId} onChange={(event) => setDraftOwnerId(event.target.value)}>
                     <option value={editingProfile.id}>Propio</option>
                     {ownerOptions.map((profile) => (
-                      <option key={profile.id} value={profile.id}>{profile.email ?? profile.id}</option>
+                      <option key={profile.id} value={profile.id}>{formatUserLogin(profile.email) || profile.id}</option>
                     ))}
                   </select>
                 </label>
@@ -493,7 +576,7 @@ export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
               </button>
             </div>
             <div className="modal-body">
-              <p className="hint">{resetTarget.email ?? resetTarget.id}</p>
+              <p className="hint">{formatUserLogin(resetTarget.email) || resetTarget.id}</p>
               <label>Contrasena temporal
                 <input
                   type="password"
@@ -511,6 +594,40 @@ export default function UserPermissionsSettingsPanel({ currentUserId }: Props) {
                 </button>
                 <button type="button" className="button primary" onClick={() => void resetPasswordForUser()} disabled={saving}>
                   {saving ? "Guardando..." : "Guardar reset"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {statusTarget && (
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 520 }}>
+            <div className="modal-header">
+              <h2>{statusTarget.is_active ? "Desactivar usuario" : "Reactivar usuario"}</h2>
+              <button type="button" className="modal-close" onClick={() => setStatusTarget(null)} disabled={statusSaving}>
+                X
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>
+                {statusTarget.is_active
+                  ? <>El usuario <strong>{formatUserLogin(statusTarget.email) || statusTarget.id}</strong> perdera acceso inmediatamente.</>
+                  : <>El usuario <strong>{formatUserLogin(statusTarget.email) || statusTarget.id}</strong> podra volver a iniciar sesion.</>}
+              </p>
+              {error && <p className="error-text" style={{ marginTop: 12 }}>{error}</p>}
+              <div className="modal-actions" style={{ marginTop: 14 }}>
+                <button type="button" className="button ghost" onClick={() => setStatusTarget(null)} disabled={statusSaving}>
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className={`button ${statusTarget.is_active ? "danger" : "primary"}`}
+                  onClick={() => void changeUserStatus()}
+                  disabled={statusSaving}
+                >
+                  {statusSaving ? "Guardando..." : statusTarget.is_active ? "Confirmar desactivacion" : "Confirmar reactivacion"}
                 </button>
               </div>
             </div>
