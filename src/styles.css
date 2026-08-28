@@ -13109,6 +13109,19 @@ button.ar-route-publish-copy.is-active {
   padding: 0 20px 20px;
 }
 
+.incident-management-modal--judicial {
+  width: min(1380px, 96vw);
+  max-height: 92vh;
+}
+
+.incident-management-modal--judicial:has(.judicial-case-tab-panel--summary) {
+  width: min(1040px, 92vw);
+}
+
+.incident-management-modal--judicial:has(.judicial-documents-panel) {
+  width: min(1120px, 94vw);
+}
+
 .incident-claim-modal-head {
   position: sticky;
   top: 0;
@@ -14090,10 +14103,32 @@ button.ar-route-publish-copy.is-active {
   place-items: center;
   min-height: 0;
   padding: 18px 68px;
-  overflow: hidden;
+  overflow: auto;
 }
 
-.incident-photo-gallery-stage img {
+.incident-photo-gallery-stage.is-pannable {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.incident-photo-gallery-stage.is-dragging {
+  cursor: grabbing;
+}
+
+.incident-photo-gallery-stage.is-dragging img {
+  pointer-events: none;
+}
+
+.incident-photo-gallery-canvas {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  transition: width 160ms ease, height 160ms ease;
+}
+
+.incident-photo-gallery-canvas img {
   display: block;
   width: 100%;
   height: 100%;
@@ -14101,6 +14136,11 @@ button.ar-route-publish-copy.is-active {
   min-height: 0;
   object-fit: contain;
   border-radius: 8px;
+  transition: transform 180ms ease, scale 180ms ease;
+}
+
+.incident-photo-gallery-canvas img.is-rotated-sideways {
+  scale: 0.78;
 }
 
 .incident-photo-gallery-stage .hint,
@@ -14131,7 +14171,7 @@ button.ar-route-publish-copy.is-active {
   display: flex;
   justify-content: center;
   gap: 8px;
-  padding: 12px 16px 16px;
+  padding: 0;
 }
 
 .incident-photo-gallery-index button {
@@ -14150,6 +14190,114 @@ button.ar-route-publish-copy.is-active {
   background: #fff;
 }
 
+.incident-photo-gallery-controls {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  justify-items: center;
+  gap: 9px;
+  min-height: 58px;
+  border-top: 1px solid rgb(255 255 255 / 12%);
+  padding: 10px 16px 13px;
+}
+
+.incident-photo-gallery-rotation {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+}
+
+.incident-photo-gallery-zoom {
+  grid-column: 1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 8%);
+}
+
+.incident-photo-gallery-zoom button {
+  min-width: 34px;
+  min-height: 34px;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 850;
+  padding: 5px 8px;
+}
+
+.incident-photo-gallery-zoom button:hover:not(:disabled) {
+  background: rgb(255 255 255 / 16%);
+}
+
+.incident-photo-gallery-zoom button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.incident-photo-gallery-zoom .incident-photo-gallery-zoom-value {
+  min-width: 56px;
+  border-right: 1px solid rgb(255 255 255 / 16%);
+  border-left: 1px solid rgb(255 255 255 / 16%);
+  font-size: 0.74rem;
+}
+
+.incident-photo-gallery-rotation button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 8%);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 750;
+  padding: 6px 10px;
+}
+
+.incident-photo-gallery-rotation button:hover {
+  background: rgb(255 255 255 / 16%);
+}
+
+.incident-photo-gallery-rotation small {
+  min-width: 34px;
+  color: rgb(255 255 255 / 62%);
+  text-align: center;
+}
+
+.incident-photo-gallery-delete {
+  grid-column: 3;
+  justify-self: end;
+  min-height: 34px;
+  border: 1px solid #ef4444;
+  border-radius: 8px;
+  background: #7f1d1d;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 6px 11px;
+}
+
+.incident-photo-gallery-delete:hover:not(:disabled) {
+  background: #991b1b;
+}
+
+.incident-photo-gallery-delete:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.incident-photo-gallery-controls .incident-photo-gallery-index {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 560px) {
   .incident-photo-gallery-backdrop { padding: 0; }
   .incident-photo-gallery { width: 100%; height: 100%; border-radius: 0; }
@@ -14157,6 +14305,11 @@ button.ar-route-publish-copy.is-active {
   .incident-photo-gallery-arrow { width: 38px; height: 52px; }
   .incident-photo-gallery-arrow.previous { left: 6px; }
   .incident-photo-gallery-arrow.next { right: 6px; }
+  .incident-photo-gallery-rotation button span { display: none; }
+  .incident-photo-gallery-controls { grid-template-columns: 1fr 1fr; }
+  .incident-photo-gallery-zoom { grid-column: 1; }
+  .incident-photo-gallery-rotation { grid-column: 2; }
+  .incident-photo-gallery-delete { grid-column: 1 / -1; justify-self: center; }
 }
 
 .workflow-photo-limit {
@@ -14448,6 +14601,386 @@ button.ar-route-publish-copy.is-active {
   border-radius: 12px;
   background: #fff;
   padding: 12px;
+}
+
+.judicial-focused-case .judicial-case-tab-panel--summary {
+  width: min(100%, 900px);
+  margin-inline: auto;
+  border-color: #e2e8f0;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+  padding: 10px;
+}
+
+.judicial-case-tab-panel--summary .workflow-claim-detail-head {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 2px 2px 9px;
+}
+
+.judicial-case-tab-panel--summary .workflow-claim-detail-head small {
+  font-size: 0.76rem;
+}
+
+.judicial-case-tab-panel--summary .workflow-claim-detail-grid {
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.judicial-case-tab-panel--summary .workflow-claim-detail-grid > div {
+  min-height: 58px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  padding: 8px 10px;
+}
+
+.judicial-case-tab-panel--summary .workflow-claim-detail-grid dt {
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+}
+
+.judicial-case-tab-panel--summary .workflow-claim-detail-grid dd {
+  font-size: 0.84rem;
+}
+
+.judicial-case-tab-panel--summary .workflow-claim-damage {
+  min-height: 0;
+}
+
+.judicial-case-tab-panel--summary .judicial-ticket-stub-editor {
+  gap: 4px;
+}
+
+.judicial-case-tab-panel--summary .judicial-ticket-stub-editor input {
+  min-height: 32px;
+  padding-block: 5px;
+}
+
+.judicial-case-tab-panel--summary .judicial-ticket-stub-editor .button.small {
+  min-height: 32px;
+  padding-block: 5px;
+}
+
+.judicial-summary-next-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid #99f6e4;
+  border-left: 5px solid #0f766e;
+  border-radius: 11px;
+  background: #f0fdfa;
+  margin-bottom: 9px;
+  padding: 10px 12px;
+}
+
+.judicial-summary-next-action.is-urgent {
+  border-color: #fdba74;
+  border-left-color: #ea580c;
+  background: #fff7ed;
+}
+
+.judicial-summary-next-action > div {
+  display: grid;
+  gap: 3px;
+}
+
+.judicial-summary-next-action small,
+.judicial-document-card-head small {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.judicial-summary-next-action strong {
+  font-size: 0.9rem;
+}
+
+.judicial-summary-next-action span,
+.judicial-section-heading span,
+.judicial-management-navigation > div:first-child span {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.judicial-section-heading,
+.judicial-management-navigation > div:first-child {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.judicial-section-heading > div,
+.judicial-management-navigation > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.judicial-section-heading b {
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.72rem;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+
+.judicial-documents-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.judicial-focused-case .judicial-documents-panel {
+  width: min(100%, 1000px);
+  margin-inline: auto;
+  background: #f8fafc;
+  padding: 14px;
+}
+
+.judicial-document-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 8px;
+}
+
+.judicial-document-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid #dbe4f0;
+  border-radius: 9px;
+  background: #ffffff;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.035);
+  padding: 10px 11px;
+}
+
+.judicial-document-card > p {
+  margin: 0;
+}
+
+.judicial-document-card--compact {
+  align-content: start;
+}
+
+.judicial-document-card-head,
+.judicial-document-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.judicial-document-card-head > div,
+.judicial-document-file > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.judicial-document-card-head > span {
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 850;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.judicial-document-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.judicial-document-card-actions > span {
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 850;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.judicial-document-card-actions > span.is-ready {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.judicial-document-card-actions > span.is-missing {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.judicial-compact-document-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+  border-top: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 0.8rem;
+  padding-top: 7px;
+}
+
+.judicial-compact-document-line small {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.judicial-compact-document-line .button {
+  min-height: 32px;
+  padding-block: 5px;
+}
+
+.judicial-document-card-head > span.is-ready {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.judicial-document-card-head > span.is-missing {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.judicial-document-list {
+  display: grid;
+  gap: 7px;
+}
+
+.judicial-document-file {
+  border: 0;
+  border-top: 1px solid #e2e8f0;
+  border-radius: 0;
+  background: transparent;
+  padding: 7px 0 0;
+}
+
+.judicial-document-file strong,
+.judicial-document-file small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.judicial-document-file small,
+.judicial-document-empty {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+.judicial-document-file > div {
+  display: flex;
+  gap: 6px;
+}
+
+.judicial-document-add {
+  width: fit-content;
+  min-height: 32px;
+  padding-block: 5px;
+}
+
+.judicial-photo-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 34px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 7px;
+}
+
+.judicial-photo-card-actions .button {
+  min-height: 32px;
+  padding-block: 5px;
+}
+
+.judicial-photo-card-actions small {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.judicial-document-empty {
+  margin: 0;
+  border: 0;
+  background: transparent;
+  padding: 3px 0;
+  font-style: italic;
+}
+
+.judicial-document-file .button {
+  min-height: 32px;
+  padding-block: 5px;
+}
+
+.judicial-management-navigation {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.judicial-management-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.judicial-management-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 8px 11px;
+}
+
+.judicial-management-tabs button.active {
+  border-color: #0f766e;
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
+.judicial-management-tabs button span {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  font-size: 0.66rem;
+  padding: 3px 6px;
+}
+
+@media (max-width: 900px) {
+  .incident-management-modal--judicial {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .judicial-document-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .judicial-summary-next-action,
+  .judicial-document-card-head,
+  .judicial-document-file {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .judicial-summary-next-action .button,
+  .judicial-document-file .button {
+    width: 100%;
+  }
 }
 
 .judicial-section-empty {

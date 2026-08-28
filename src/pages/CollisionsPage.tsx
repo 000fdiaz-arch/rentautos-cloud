@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DuplicateInsuranceClaimNumberError,
   JudicialOutcomeRequiredForClaimError,
@@ -43,6 +43,7 @@ type Props = {
   initialCaseTab?: JudicialCaseTab;
 };
 type DateFilter = "all" | "upcoming" | "today" | "last_week" | "overdue";
+type JudicialWorkspaceTab = "summary" | "documents" | "management" | "follow_up" | "history";
 type TrialForm = {
   incidentDate: string;
   unit: string;
@@ -118,12 +119,28 @@ function parseAmount(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 function isFinalStatus(status: CollisionTrialStatus): boolean { return status === "ABSUELTO" || status === "CULPABLE"; }
+function workspaceTabFromCaseTab(tab?: JudicialCaseTab): JudicialWorkspaceTab {
+  if (tab === "follow_up" || tab === "history" || tab === "summary") return tab;
+  return "management";
+}
+function judicialStepLabel(tab: JudicialCaseTab): string {
+  if (tab === "attendance") return "Confirmar asistencia al juicio";
+  if (tab === "workshop") return "Registrar revisión de taller";
+  if (tab === "balance") return "Registrar saldo de la colisión";
+  if (tab === "outcome") return "Registrar resultado del juicio";
+  if (tab === "insurance") return "Gestionar reclamo al seguro";
+  if (tab === "follow_up") return "Registrar próxima gestión";
+  if (tab === "history") return "Revisar historial";
+  return "Revisar expediente";
+}
 
 export default function CollisionsPage({ clients, payments, dataOwnerUserId, readOnly = false, onClientsChange, embedded = false, syncInsuranceClaims = true, hideCreateForm = false, initialExpandedId = "", initialSearch = "", focusedCaseId = "", initialCaseTab }: Props) {
   const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(hideCreateForm ? null : dataOwnerUserId);
   const [activeTab, setActiveTab] = useState<"form" | "agenda">(hideCreateForm ? "agenda" : "form");
   const [form, setForm] = useState<TrialForm>(EMPTY_FORM);
   const [cases, setCases] = useState<CollisionCaseRecord[]>([]);
+  const casesRef = useRef<CollisionCaseRecord[]>([]);
+  casesRef.current = cases;
   const [courts, setCourts] = useState<string[]>([]);
   const [insurers, setInsurers] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -162,6 +179,9 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [judicialCaseTabs, setJudicialCaseTabs] = useState<Record<string, JudicialCaseTab>>(
     focusedCaseId && initialCaseTab ? { [focusedCaseId]: initialCaseTab } : {}
   );
+  const [judicialWorkspaceTabs, setJudicialWorkspaceTabs] = useState<Record<string, JudicialWorkspaceTab>>(
+    focusedCaseId ? { [focusedCaseId]: workspaceTabFromCaseTab(initialCaseTab) } : {}
+  );
   const [attendanceDrafts, setAttendanceDrafts] = useState<Record<string, { clientWillAttend: "" | "yes" | "no"; legalAssistanceRequested: "" | "yes" | "no" }>>({});
   const [ticketStubDrafts, setTicketStubDrafts] = useState<Record<string, string>>({});
   const [vehicleInspectionDates, setVehicleInspectionDates] = useState<Record<string, string>>({});
@@ -172,7 +192,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [caseEditTicketStubPhotoFile, setCaseEditTicketStubPhotoFile] = useState<File | null>(null);
   const [caseEditIncidentPhotoFiles, setCaseEditIncidentPhotoFiles] = useState<File[]>([]);
   const [caseEditRemovedIncidentPhotoPaths, setCaseEditRemovedIncidentPhotoPaths] = useState<string[]>([]);
-  const [photoGallery, setPhotoGallery] = useState<{ photos: CollisionPhotoAttachment[]; index: number; title: string } | null>(null);
+  const [photoGallery, setPhotoGallery] = useState<{ photos: CollisionPhotoAttachment[]; index: number; title: string; onDelete?: (photo: CollisionPhotoAttachment) => Promise<boolean> } | null>(null);
 
   const fleetUnitsByUnit = useMemo(() => new Map(fleetUnits.map((row) => [normalizeUnit(row.unit_id), row])), [fleetUnits]);
   const clientsByUnit = useMemo(() => {
@@ -478,14 +498,15 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     }
   }
 
-  async function deleteIncidentPhoto(item: CollisionCaseRecord, photo: CollisionPhotoAttachment): Promise<void> {
-    if (!dataOwnerUserId || readOnly || busyId) return;
-    if (!window.confirm(`¿Eliminar ${photo.name} de las fotos del siniestro?`)) return;
+  async function deleteIncidentPhoto(item: CollisionCaseRecord, photo: CollisionPhotoAttachment, confirmed = false): Promise<boolean> {
+    if (!dataOwnerUserId || readOnly || busyId) return false;
+    if (!confirmed && !window.confirm(`¿Eliminar ${photo.name} de las fotos del siniestro?`)) return false;
+    const currentItem = casesRef.current.find((current) => current.id === item.id) ?? item;
     const now = new Date().toISOString();
     const updated: CollisionCaseRecord = {
-      ...item,
-      incidentPhotos: (item.incidentPhotos ?? []).filter((current) => current.path !== photo.path),
-      editHistory: [...(item.editHistory ?? []), {
+      ...currentItem,
+      incidentPhotos: (currentItem.incidentPhotos ?? []).filter((current) => current.path !== photo.path),
+      editHistory: [...(currentItem.editHistory ?? []), {
         editedAt: now,
         justification: `Foto eliminada del expediente: ${photo.name}.`,
         changedFields: ["Fotos del siniestro"]
@@ -498,9 +519,11 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       await persistCase(updated, "Foto eliminada del siniestro correctamente.");
       try { await removeCollisionPhotos([photo.path]); }
       catch (cleanupError) { console.error("No se pudo retirar del almacenamiento la foto eliminada.", cleanupError); }
+      return true;
     } catch (error) {
       console.error("No se pudo eliminar la foto del siniestro.", error);
       setMessage("No se pudo eliminar la foto del siniestro en la nube.");
+      return false;
     } finally {
       setBusyId("");
     }
@@ -1473,22 +1496,56 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
             const availableCaseTabs = availableJudicialCaseTabs(item, today);
             const preferredCaseTab = judicialCaseTabs[item.id] ?? defaultJudicialCaseTab(item, today);
             const activeCaseTab = availableCaseTabs.includes(preferredCaseTab) ? preferredCaseTab : availableCaseTabs[0];
+            const activeWorkspaceTab = judicialWorkspaceTabs[item.id] ?? workspaceTabFromCaseTab(defaultJudicialCaseTab(item, today));
             const trialOffset = item.trialDate ? calendarDayOffset(item.trialDate) : null;
             const attendanceComplete = typeof item.clientWillAttend === "boolean" && typeof item.legalAssistanceRequested === "boolean";
             const attendanceDraft = attendanceDrafts[item.id] ?? { clientWillAttend: "", legalAssistanceRequested: "" };
             const balanceClientIndex = findCaseClientIndex(item, balanceClientIds[item.id]);
             const balanceClientId = balanceClientIndex >= 0 ? clients[balanceClientIndex].id : "";
             const timelineEvents = buildJudicialCaseTimeline(item);
-            const caseTabOptions = ([
-              ["summary", "Resumen", ""],
+            const managementTabOptions = ([
               ["attendance", "Asistencia", attendanceComplete ? "OK" : isFinalStatus(item.status) ? "Cerrado" : "Pendiente"],
-              ["follow_up", "Notas", String(item.judicialFollowUps.length)],
-              ["history", "Historial", String(timelineEvents.length)],
               ["workshop", "Taller", item.vehicleInspectedAt || item.expenseInvoice ? "OK" : "Pendiente"],
               ["balance", "Saldo", item.expenseInvoice ? "OK" : ""],
               ["outcome", "Resultado", item.status],
               ["insurance", "Seguro", item.insuranceClaim ? "Activo" : ""]
             ] as Array<[JudicialCaseTab, string, string]>).filter(([tab]) => availableCaseTabs.includes(tab));
+            const rescheduleDocuments = item.trialDateHistory.flatMap((event) => event.evidence ? [event.evidence] : []);
+            const documentCount = (item.ticketStubPhoto ? 1 : 0)
+              + (item.incidentPhotos?.length ?? 0)
+              + rescheduleDocuments.length
+              + (item.judicialOutcomeEvidence ? 1 : 0)
+              + (item.judicialResolutionEvidence ? 1 : 0)
+              + (item.expenseInvoice?.attachment ? 1 : 0)
+              + (item.insuranceClaim?.photos.length ?? 0);
+            const resolutionPending = item.status === "ABSUELTO" && !item.judicialResolutionEvidence;
+            const insuranceManagementPending = item.status === "ABSUELTO" && Boolean(item.judicialResolutionEvidence);
+            const summaryActionTab: JudicialCaseTab = resolutionPending ? "outcome" : insuranceManagementPending ? "insurance" : defaultJudicialCaseTab(item, today);
+            const summaryActionLabel = item.documentationPending
+              ? "Completar la documentación de la colilla"
+              : resolutionPending
+                ? "Retirar y adjuntar la resolución judicial"
+                : insuranceManagementPending
+                  ? item.insuranceClaim ? "Continuar gestión del reclamo al seguro" : "Iniciar reclamo al seguro"
+                  : item.status === "CULPABLE"
+                    ? "Expediente judicial finalizado"
+                    : judicialStepLabel(summaryActionTab);
+            const summaryActionDetail = resolutionPending
+              ? item.judicialResolutionSearchDate ? `Retiro programado para el ${item.judicialResolutionSearchDate}.` : "Define la fecha de retiro y adjunta la resolución cuando esté disponible."
+              : insuranceManagementPending
+                ? item.insuranceClaim ? "La resolución está adjunta; el reclamo al seguro continúa en gestión." : "La resolución está adjunta y ya puedes iniciar el reclamo al seguro."
+              : requiresOutcome
+                ? "La fecha del juicio llegó o está vencida."
+                : item.status === "CULPABLE"
+                  ? "El juicio ya tiene un resultado registrado."
+                  : `Estado actual: ${item.status}.`;
+            const caseTabOptions: Array<[JudicialWorkspaceTab, string, string]> = [
+              ["summary", "Resumen", ""],
+              ["documents", "Documentos", String(documentCount)],
+              ["management", "Gestión", !managementTabOptions.length ? "Bloqueada" : item.status === "CULPABLE" ? "Cerrado" : "En curso"],
+              ["follow_up", "Notas", String(item.judicialFollowUps.length)],
+              ["history", "Historial", String(timelineEvents.length)]
+            ];
             return <article key={item.id} className={`workflow-claim-card${expanded ? " expanded" : ""}`}>
               {!focusedCaseId && <div className="workflow-claim-summary">
                 <button type="button" className="workflow-claim-toggle" aria-expanded={expanded} onClick={() => { setExpandedId(expanded ? null : item.id); initializeCaseDrafts(item); }}>
@@ -1503,28 +1560,22 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
               {expanded && <div className="workflow-claim-details">
                 {requiresOutcome && <p className="collision-required-outcome" role="alert">La fecha del juicio llegó o está vencida. Debes registrar el resultado.</p>}
                 <label className="judicial-case-mobile-nav">Sección del expediente
-                  <select value={activeCaseTab} onChange={(event) => setJudicialCaseTabs((current) => ({ ...current, [item.id]: event.target.value as JudicialCaseTab }))}>
+                  <select value={activeWorkspaceTab} onChange={(event) => setJudicialWorkspaceTabs((current) => ({ ...current, [item.id]: event.target.value as JudicialWorkspaceTab }))}>
                     {caseTabOptions.map(([tab, label, badge]) => <option key={tab} value={tab}>{label}{badge ? ` · ${badge}` : ""}</option>)}
                   </select>
                 </label>
                 <div className="judicial-case-tabs" role="tablist" aria-label="Secciones del expediente judicial">
                   {caseTabOptions.map(([tab, label, badge]) => (
-                    <button type="button" role="tab" key={tab} id={`judicial-${tab}-tab-${item.id}`} aria-selected={activeCaseTab === tab} aria-controls={`judicial-${tab}-panel-${item.id}`} className={activeCaseTab === tab ? "active" : ""} onClick={() => setJudicialCaseTabs((current) => ({ ...current, [item.id]: tab }))}>{label}{badge ? <span>{badge}</span> : null}</button>
+                    <button type="button" role="tab" key={tab} id={`judicial-${tab}-tab-${item.id}`} aria-selected={activeWorkspaceTab === tab} aria-controls={`judicial-${tab}-panel-${item.id}`} className={activeWorkspaceTab === tab ? "active" : ""} onClick={() => setJudicialWorkspaceTabs((current) => ({ ...current, [item.id]: tab }))}>{label}{badge ? <span>{badge}</span> : null}</button>
                   ))}
                 </div>
-                {activeCaseTab === "summary" && <div className="judicial-case-tab-panel judicial-case-tab-panel--summary" role="tabpanel" id={`judicial-summary-panel-${item.id}`} aria-labelledby={`judicial-summary-tab-${item.id}`}>
+                {activeWorkspaceTab === "summary" && <div className="judicial-case-tab-panel judicial-case-tab-panel--summary" role="tabpanel" id={`judicial-summary-panel-${item.id}`} aria-labelledby={`judicial-summary-tab-${item.id}`}>
+                  <div className={`judicial-summary-next-action${requiresOutcome || item.documentationPending || resolutionPending ? " is-urgent" : ""}`}><div><small>{item.status === "CULPABLE" ? "Estado del expediente" : "Próxima gestión"}</small><strong>{summaryActionLabel}</strong><span>{summaryActionDetail}</span></div><button type="button" className="button primary" onClick={() => { if (item.documentationPending) { startEditingCase(item); return; } if (item.status === "CULPABLE") { setJudicialWorkspaceTabs((current) => ({ ...current, [item.id]: "history" })); return; } setJudicialCaseTabs((current) => ({ ...current, [item.id]: summaryActionTab })); setJudicialWorkspaceTabs((current) => ({ ...current, [item.id]: workspaceTabFromCaseTab(summaryActionTab) })); }}>{item.documentationPending ? "Completar datos" : item.status === "CULPABLE" ? "Ver historial" : resolutionPending ? "Gestionar resolución" : "Ir a la gestión"}</button></div>
                   {item.documentationPending && <div className="workflow-finalization-panel collision-documentation-pending"><div><strong>Colilla pendiente</strong><span>Este expediente está guardado, pero no avanzará hasta registrar los datos de la colilla. Usa “Completar colilla” y registra cada contacto en Seguimiento.</span></div></div>}
                   <div className="workflow-claim-detail-head">
                     <div><strong>Datos registrados del siniestro</strong><small>{item.documentationPending ? "Completa la información cuando recibas la colilla." : "Corrige aquí la información ingresada por error."}</small></div>
                     {editingCaseId !== item.id && <button type="button" className={`button${item.documentationPending ? " primary" : ""}`} onClick={() => startEditingCase(item)} disabled={readOnly || busyId === item.id || Boolean(caseEditSavingId)}>{item.documentationPending ? "Completar colilla" : "Editar siniestro"}</button>}
                   </div>
-                  {editingCaseId !== item.id && <div className="workflow-damage-photos">
-                    <div className="workflow-damage-photos-head"><div><strong>Fotos del siniestro</strong><small>Agrega evidencia en cualquier momento. Esto no completa la colilla ni cambia el estado del expediente.</small></div><label className="button primary">{busyId === item.id ? "Guardando fotos..." : "Agregar fotos"}<input type="file" accept="image/*" multiple hidden onChange={(event) => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; void addIncidentPhotos(item, files); }} disabled={readOnly || busyId === item.id} /></label></div>
-                    {(item.incidentPhotos ?? []).length > 0
-                      ? <div className="workflow-damage-photo-list">{item.incidentPhotos!.map((photo, index) => <div key={photo.path} className="workflow-damage-photo-row"><div><strong>Foto {index + 1}</strong><small>{photo.name} · {new Date(photo.uploadedAt).toLocaleString("es-PA")}</small></div><div><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos ?? [], index, title: "Fotos del siniestro" })}>Ver</button><button type="button" className="button danger" onClick={() => void deleteIncidentPhoto(item, photo)} disabled={readOnly || busyId === item.id}>Eliminar</button></div></div>)}</div>
-                      : <p className="judicial-section-empty">Todavía no hay fotos guardadas para este siniestro.</p>}
-                    <small>Imágenes de hasta 10 MB cada una. Puedes seleccionar varias a la vez.</small>
-                  </div>}
                   {editingCaseId === item.id ? <div className="workflow-claim-edit-panel">
                     <div className="workflow-claim-edit-grid">
                       <label>Fecha del incidente<input type="date" value={caseEditForm.incidentDate} onChange={(event) => setCaseEditForm((current) => ({ ...current, incidentDate: event.target.value }))} /></label>
@@ -1565,7 +1616,17 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   {(item.editHistory?.length ?? 0) > 0 && <details className="workflow-edit-history"><summary>Historial de correcciones ({item.editHistory!.length})</summary><ul>{[...item.editHistory!].reverse().map((event) => <li key={`${event.editedAt}-${event.justification}`}><time>{new Date(event.editedAt).toLocaleString("es-PA")}</time><span><strong>{event.changedFields.join(", ")}</strong>: {event.justification}</span></li>)}</ul></details>}
                   </>}
                 </div>}
-                {activeCaseTab === "attendance" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-attendance-panel-${item.id}`} aria-labelledby={`judicial-attendance-tab-${item.id}`}>
+                {activeWorkspaceTab === "documents" && <section className="judicial-case-tab-panel judicial-documents-panel" role="tabpanel" id={`judicial-documents-panel-${item.id}`} aria-labelledby={`judicial-documents-tab-${item.id}`}>
+                  <div className="judicial-section-heading"><div><strong>Documentación del expediente</strong><span>Todos los archivos y evidencias están reunidos aquí.</span></div><b>{documentCount} {documentCount === 1 ? "archivo" : "archivos"}</b></div>
+                  <div className="judicial-document-grid">
+                    <article className="judicial-document-card judicial-document-card--compact"><div className="judicial-document-card-head"><div><small>Documento inicial</small><strong>Colilla del incidente</strong></div><span className={item.ticketStubPhoto ? "is-ready" : "is-missing"}>{item.ticketStubPhoto ? "Disponible" : "Pendiente"}</span></div><div className="judicial-compact-document-line"><span>Colilla <strong>{item.ticketStub || "sin número"}</strong></span>{item.ticketStubPhoto ? <button type="button" className="button" title={item.ticketStubPhoto.name} onClick={() => setPhotoGallery({ photos: [item.ticketStubPhoto!], index: 0, title: "Foto de la colilla" })}>Abrir colilla</button> : <small>Sin archivo adjunto</small>}</div></article>
+                    <article className="judicial-document-card judicial-document-card--compact"><div className="judicial-document-card-head"><div><small>Evidencia del incidente</small><strong>Fotos adjuntas</strong></div><span className={(item.incidentPhotos?.length ?? 0) ? "is-ready" : "is-missing"}>{item.incidentPhotos?.length ?? 0} fotos</span></div><div className="judicial-photo-card-actions">{(item.incidentPhotos?.length ?? 0) > 0 && <button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos ?? [], index: 0, title: "Evidencia del incidente", onDelete: (photo) => deleteIncidentPhoto(item, photo, true) })}>Ver fotos ({item.incidentPhotos?.length ?? 0})</button>}<label className="button primary judicial-document-add">{busyId === item.id ? "Guardando..." : "Agregar"}<input type="file" accept="image/*" multiple hidden onChange={(event) => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; void addIncidentPhotos(item, files); }} disabled={readOnly || busyId === item.id} /></label>{!(item.incidentPhotos?.length ?? 0) && <small>Sin fotos adjuntas</small>}</div></article>
+                    <article className="judicial-document-card"><div className="judicial-document-card-head"><div><small>Proceso judicial</small><strong>Evidencias y resolución</strong></div><span className={rescheduleDocuments.length || item.judicialOutcomeEvidence || item.judicialResolutionEvidence ? "is-ready" : "is-missing"}>{rescheduleDocuments.length + (item.judicialOutcomeEvidence ? 1 : 0) + (item.judicialResolutionEvidence ? 1 : 0)} archivos</span></div><div className="judicial-document-list">{rescheduleDocuments.map((document, index) => <div className="judicial-document-file" key={document.path}><span><strong>Cambio de fecha {index + 1}</strong><small>{document.name}</small></span><button type="button" className="button" onClick={() => void viewRescheduleEvidence(document)}>Ver</button></div>)}{item.judicialOutcomeEvidence && <div className="judicial-document-file"><span><strong>Evidencia del resultado</strong><small>{item.judicialOutcomeEvidence.name}</small></span><button type="button" className="button" onClick={() => setPhotoGallery({ photos: [item.judicialOutcomeEvidence!], index: 0, title: "Evidencia del resultado" })}>Ver</button></div>}{item.judicialResolutionEvidence && <div className="judicial-document-file"><span><strong>Resolución judicial</strong><small>{item.judicialResolutionEvidence.name}</small></span><button type="button" className="button" onClick={() => setPhotoGallery({ photos: [item.judicialResolutionEvidence!], index: 0, title: "Resolución judicial" })}>Ver</button></div>}{!rescheduleDocuments.length && !item.judicialOutcomeEvidence && !item.judicialResolutionEvidence && <p className="judicial-document-empty">Todavía no hay evidencia judicial adjunta.</p>}</div></article>
+                    <article className="judicial-document-card"><div className="judicial-document-card-head"><div><small>Costos y seguro</small><strong>Factura y daños asegurados</strong></div><span className={item.expenseInvoice?.attachment || item.insuranceClaim?.photos.length ? "is-ready" : "is-missing"}>{(item.expenseInvoice?.attachment ? 1 : 0) + (item.insuranceClaim?.photos.length ?? 0)} archivos</span></div><div className="judicial-document-list">{item.expenseInvoice?.attachment && <div className="judicial-document-file"><span><strong>Factura de taller</strong><small>{item.expenseInvoice.attachment.name}</small></span><button type="button" className="button" onClick={() => void viewExpenseInvoice(item.expenseInvoice!.attachment!)}>Ver</button></div>}{item.insuranceClaim?.photos.map((photo, index) => <div className="judicial-document-file" key={photo.path}><span><strong>Daño para seguro {index + 1}</strong><small>{photo.name}</small></span><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.insuranceClaim!.photos, index, title: "Fotos del reclamo al seguro" })}>Ver</button></div>)}{!item.expenseInvoice?.attachment && !item.insuranceClaim?.photos.length && <p className="judicial-document-empty">No hay facturas ni fotos del reclamo.</p>}</div></article>
+                  </div>
+                </section>}
+                {activeWorkspaceTab === "management" && <div className="judicial-management-navigation" role="tabpanel" id={`judicial-management-panel-${item.id}`} aria-labelledby={`judicial-management-tab-${item.id}`}><div><strong>Gestión del expediente</strong><span>Selecciona el paso que necesitas consultar o completar.</span></div>{managementTabOptions.length ? <div className="judicial-management-tabs" role="tablist" aria-label="Pasos de gestión">{managementTabOptions.map(([tab, label, badge]) => <button type="button" key={tab} className={activeCaseTab === tab ? "active" : ""} aria-selected={activeCaseTab === tab} onClick={() => setJudicialCaseTabs((current) => ({ ...current, [item.id]: tab }))}>{label}{badge && <span>{badge}</span>}</button>)}</div> : <p className="judicial-document-empty">Completa primero la documentación inicial desde Resumen para habilitar la gestión judicial.</p>}</div>}
+                {activeWorkspaceTab === "management" && activeCaseTab === "attendance" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-attendance-panel-${item.id}`}>
                  {!isFinalStatus(item.status) && <div className={`workflow-finalization-panel collision-attendance-panel${attendanceComplete ? " is-complete" : " is-pending"}`}>
                   <div><strong>Confirmación previa al juicio</strong><span>{attendanceComplete ? (item.attendanceConfirmedAt ? `Confirmado el ${new Date(item.attendanceConfirmedAt).toLocaleString("es-PA")}` : "Confirmación guardada") : trialOffset !== null && trialOffset <= 10 ? "La confirmación ya está pendiente y requiere atención." : "Debe quedar completada como mínimo 10 días antes del juicio."}</span></div>
                   <label>¿El cliente irá?<select value={attendanceDraft.clientWillAttend} onChange={(event) => setAttendanceDrafts((current) => ({ ...current, [item.id]: { ...attendanceDraft, clientWillAttend: event.target.value as "" | "yes" | "no" } }))} disabled={readOnly || busyId === item.id}><option value="">Seleccionar</option><option value="yes">Sí</option><option value="no">No</option></select></label>
@@ -1574,7 +1635,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                  </div>}
                  {isFinalStatus(item.status) && <p className="judicial-section-empty">La confirmación previa ya no se puede modificar porque el juicio está finalizado.</p>}
                 </div>}
-                {activeCaseTab === "workshop" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-workshop-panel-${item.id}`} aria-labelledby={`judicial-workshop-tab-${item.id}`}>
+                {activeWorkspaceTab === "management" && activeCaseTab === "workshop" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-workshop-panel-${item.id}`}>
                  {!item.vehicleInspectedAt && !item.expenseInvoice && !isFinalStatus(item.status) && <div className="workflow-finalization-panel collision-workshop-panel">
                   <div><strong>Recepción y revisión del vehículo</strong><span>Confirma que el cliente llevó el carro al taller y que su estado fue verificado.</span></div>
                   <label>Fecha de recepción y revisión<input type="date" max={today} value={vehicleInspectionDates[item.id] ?? today} onChange={(event) => setVehicleInspectionDates((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /></label>
@@ -1583,7 +1644,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                  {item.vehicleInspectedAt && <div className="collision-workshop-complete"><strong>Vehículo recibido y revisado</strong><span>Fecha de revisión: {item.vehicleInspectionDate || item.vehicleInspectedAt.slice(0, 10)}</span><small>Confirmado el {new Date(item.vehicleInspectedAt).toLocaleString("es-PA")}. El saldo de colisión está habilitado.</small></div>}
                  {!item.vehicleInspectedAt && item.expenseInvoice && <div className="collision-workshop-complete"><strong>Revisión de taller completada</strong><span>Este expediente ya cuenta con un saldo de colisión registrado.</span><small>Se reconoce como un caso anterior a la confirmación obligatoria del taller.</small></div>}
                 </div>}
-                {activeCaseTab === "balance" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-balance-panel-${item.id}`} aria-labelledby={`judicial-balance-tab-${item.id}`}>
+                {activeWorkspaceTab === "management" && activeCaseTab === "balance" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-balance-panel-${item.id}`}>
                  {!item.expenseInvoice && !isFinalStatus(item.status) && <div className="workflow-finalization-panel collision-balance-panel">
                   <div><strong>Saldo de colisión</strong><span>Registra el costo determinado después de la evaluación del taller.</span></div>
                   <label className="workflow-required-field">Cliente asociado<select value={balanceClientId} onChange={(event) => { setBalanceClientIds((current) => ({ ...current, [item.id]: event.target.value })); setMessage(""); }} disabled={readOnly || busyId === item.id}><option value="">Seleccionar cliente</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name} · {client.unitId || "Sin unidad"}{client.status === "archivado" ? " · Archivado" : ""}</option>)}</select><small>El saldo se agregará a los otros cargos de este cliente.</small></label>
@@ -1607,7 +1668,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                  {(item.expenseInvoice?.editHistory?.length ?? 0) > 0 && editingBalanceId !== item.id && <details className="workflow-edit-history"><summary>Historial de correcciones del saldo ({item.expenseInvoice!.editHistory!.length})</summary><ul>{[...item.expenseInvoice!.editHistory!].reverse().map((event) => <li key={`${event.editedAt}-${event.justification}`}><time>{new Date(event.editedAt).toLocaleString("es-PA")}</time><span><strong>{event.changedFields.join(", ")}</strong>{event.previousAmount !== event.newAmount ? ` · ${USD_FORMATTER.format(event.previousAmount)} → ${USD_FORMATTER.format(event.newAmount)}` : ""}: {event.justification}</span></li>)}</ul></details>}
                  {!item.expenseInvoice && isFinalStatus(item.status) && <p className="judicial-section-empty">No se registró saldo de colisión antes de finalizar el juicio.</p>}
                 </div>}
-                {activeCaseTab === "outcome" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-outcome-panel-${item.id}`} aria-labelledby={`judicial-outcome-tab-${item.id}`}>
+                {activeWorkspaceTab === "management" && activeCaseTab === "outcome" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-outcome-panel-${item.id}`}>
                  {!isFinalStatus(item.status) && <div className="workflow-finalization-panel collision-outcome-panel">
                   <div><strong>Resultado del juicio</strong><span>Selecciona el resultado para continuar el flujo.</span></div>
                   <label>Resultado<select value={outcome} onChange={(event) => { const nextOutcome = event.target.value as typeof outcome; setOutcomeDrafts((current) => ({ ...current, [item.id]: nextOutcome })); if (nextOutcome === "ABSUELTO") setResolutionSearchDates((current) => ({ ...current, [item.id]: current[item.id] ?? addCalendarDays(today, 30) })); }} disabled={readOnly || busyId === item.id}><option value="">Seleccionar</option><option>ABSUELTO</option><option>CULPABLE</option><option>NUEVA FECHA</option></select></label>
@@ -1626,7 +1687,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                 {item.trialDateHistory.length > 0 && <details className="workflow-edit-history" open><summary>Historial de fechas de juicio ({item.trialDateHistory.length})</summary><ul>{[...item.trialDateHistory].reverse().map((event) => <li key={`${event.changedAt}-${event.newDate}`}><time>{new Date(event.changedAt).toLocaleString("es-PA")}</time><span>{event.previousDate}{event.previousTime ? ` · ${event.previousTime}` : ""} → {event.newDate}{event.newTime ? ` · ${event.newTime}` : ""}: {event.reason}{event.evidence && <button type="button" className="button" onClick={() => void viewRescheduleEvidence(event.evidence!)}>Ver documento</button>}</span></li>)}</ul></details>}
                 {item.status === "CULPABLE" && item.clientReturnedBeforeClosure && <div className="collision-client-returned"><strong>Cliente retirado antes del cierre</strong><span>{item.driver || "El cliente"} dejó el carro antes de finalizar el juicio.</span><small>No se generó una factura automática.</small></div>}
                 </div>}
-                {activeCaseTab === "insurance" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-insurance-panel-${item.id}`} aria-labelledby={`judicial-insurance-tab-${item.id}`}>
+                {activeWorkspaceTab === "management" && activeCaseTab === "insurance" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-insurance-panel-${item.id}`}>
                 {item.status !== "ABSUELTO" && <p className="judicial-section-empty">El reclamo al seguro se habilita después de registrar el resultado ABSUELTO y adjuntar la resolución judicial.</p>}
                 {item.status === "ABSUELTO" && !item.judicialResolutionEvidence && <p className="judicial-section-empty">Adjunta primero la resolución judicial en la sección Resultado.</p>}
                 {item.status === "ABSUELTO" && item.judicialResolutionEvidence && <div className="collision-claim-panel">
@@ -1642,7 +1703,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   <div className="workflow-form-actions"><button type="button" className="button primary" onClick={() => void saveClaim(item)} disabled={readOnly || busyId === item.id}>{busyId === item.id ? "Guardando..." : "Guardar reclamo"}</button></div>
                 </div>}
                 </div>}
-                {activeCaseTab === "follow_up" && <section className="judicial-follow-up-panel judicial-case-tab-panel" role="tabpanel" id={`judicial-follow-up-panel-${item.id}`} aria-labelledby={`judicial-follow-up-tab-${item.id}`}>
+                {activeWorkspaceTab === "follow_up" && <section className="judicial-follow-up-panel judicial-case-tab-panel" role="tabpanel" id={`judicial-follow-up-panel-${item.id}`} aria-labelledby={`judicial-follow-up-tab-${item.id}`}>
                   <div className="judicial-follow-up-head"><div><strong>Notas del expediente</strong><span>Registra cada nota sin reemplazar las anteriores.</span></div><b>{item.judicialFollowUps.length} {item.judicialFollowUps.length === 1 ? "nota" : "notas"}</b></div>
                   {!isFinalStatus(item.status) && <div className="judicial-follow-up-form">
                     <label className="judicial-follow-up-comment">Nueva nota<textarea value={followUpDraft.comment} placeholder="Ej. Se llamó al juzgado y se confirmó la recepción de documentos" onChange={(event) => setJudicialFollowUpDrafts((current) => ({ ...current, [item.id]: { ...followUpDraft, comment: event.target.value } }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /></label>
@@ -1658,7 +1719,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                     {!entry.completedAt && !isFinalStatus(item.status) && <div className="judicial-follow-up-complete-action"><input aria-label={`Resultado del seguimiento ${entry.nextStep}`} value={judicialFollowUpCompletionDrafts[entry.id] ?? ""} placeholder="Resultado opcional de la gestión" onChange={(event) => setJudicialFollowUpCompletionDrafts((current) => ({ ...current, [entry.id]: event.target.value }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /><button type="button" className="button" onClick={() => void completeJudicialFollowUp(item, entry.id)} disabled={readOnly || judicialFollowUpSavingId === item.id}>{judicialFollowUpSavingId === item.id ? "Guardando..." : "Marcar como realizado"}</button></div>}
                   </li>)}</ol> : <p className="judicial-follow-up-empty">Todavía no hay notas registradas en este expediente.</p>}
                 </section>}
-                {activeCaseTab === "history" && <section className="judicial-case-tab-panel judicial-history-panel" role="tabpanel" id={`judicial-history-panel-${item.id}`} aria-labelledby={`judicial-history-tab-${item.id}`}>
+                {activeWorkspaceTab === "history" && <section className="judicial-case-tab-panel judicial-history-panel" role="tabpanel" id={`judicial-history-panel-${item.id}`} aria-labelledby={`judicial-history-tab-${item.id}`}>
                   <div className="judicial-follow-up-head"><div><strong>Historial completo del expediente</strong><span>Todos los eventos judiciales ordenados del más reciente al más antiguo.</span></div><b>{timelineEvents.length} {timelineEvents.length === 1 ? "evento" : "eventos"}</b></div>
                   <ol className="judicial-case-timeline">{timelineEvents.map((event) => <li key={event.id} className={`tone-${event.tone}`}><span className="judicial-case-timeline-marker" aria-hidden="true" /><div><div className="judicial-case-timeline-head"><strong>{event.title}</strong><time>{new Date(event.occurredAt).toLocaleString("es-PA")}</time></div><p>{event.description}</p>{event.detail ? <small>{event.detail}</small> : null}</div></li>)}</ol>
                 </section>}
@@ -1667,7 +1728,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
           })}
         </div>
       </section>}
-      {photoGallery && <IncidentPhotoGalleryModal photos={photoGallery.photos} initialIndex={photoGallery.index} title={photoGallery.title} resolveUrl={resolveGalleryPhotoUrl} onClose={() => setPhotoGallery(null)} />}
+      {photoGallery && <IncidentPhotoGalleryModal photos={photoGallery.photos} initialIndex={photoGallery.index} title={photoGallery.title} resolveUrl={resolveGalleryPhotoUrl} onDelete={photoGallery.onDelete} onClose={() => setPhotoGallery(null)} />}
     </section>
   );
 }
