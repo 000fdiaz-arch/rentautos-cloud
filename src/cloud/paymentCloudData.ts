@@ -634,16 +634,19 @@ export async function registerCloudPaymentDeltas(
   for (const group of groups) {
     const firstPayment = group.payments[0];
     const expectedBalanceBefore = firstPayment?.balanceBefore ?? group.previousClient.balance;
-    const { error } = await withCloudRetry(() =>
-      client.rpc("register_client_payment_deltas", {
+    await withCloudRetry(async () => {
+      const { error } = await client.rpc("register_client_payment_deltas", {
         p_owner_user_id: userId,
         p_client_id: group.clientId,
         p_expected_balance_before: expectedBalanceBefore,
         p_next_client: group.nextClient,
         p_payments: group.payments
-      })
-    );
-    if (error) throw error;
+      });
+      // Supabase resuelve la promesa aun cuando PostgREST devuelve un error.
+      // Lanzarlo dentro del callback permite que withCloudRetry reintente 57014
+      // usando los mismos ids; la RPC es idempotente y no aplica el saldo dos veces.
+      if (error) throw error;
+    });
   }
 }
 
