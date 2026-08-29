@@ -1,6 +1,6 @@
 .unified-incidents-advanced-filters {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.2fr) minmax(135px, 0.8fr) minmax(135px, 0.8fr) minmax(170px, 1fr);
+  grid-template-columns: minmax(180px, 1.2fr) minmax(150px, 1fr) minmax(180px, 1.2fr) minmax(135px, 0.8fr) minmax(135px, 0.8fr) minmax(170px, 1fr);
   gap: 8px;
   align-items: end;
 }
