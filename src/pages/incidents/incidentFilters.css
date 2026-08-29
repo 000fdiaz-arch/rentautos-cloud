@@ -1,8 +1,66 @@
 .unified-incidents-advanced-filters {
   display: grid;
-  grid-template-columns: minmax(180px, 1.35fr) minmax(150px, 1fr) minmax(180px, 1.2fr) minmax(135px, 0.8fr) minmax(135px, 0.8fr) minmax(170px, 1fr);
+  grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.2fr) minmax(135px, 0.8fr) minmax(135px, 0.8fr) minmax(170px, 1fr);
   gap: 8px;
   align-items: end;
+}
+
+.incident-next-action-filter {
+  display: grid;
+  flex: 0 1 360px;
+  gap: 4px;
+  min-width: 260px;
+}
+
+.incident-next-action-filter select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--color-text);
+  font-weight: 750;
+  padding: 6px 9px;
+}
+
+.incident-next-action-filter select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+  outline: none;
+}
+
+.unified-incidents-filter-label-with-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.unified-incidents-filter-label-with-count b {
+  display: inline-grid;
+  min-width: 20px;
+  min-height: 20px;
+  place-items: center;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.68rem;
+  line-height: 1;
+  padding: 3px 6px;
+}
+
+.unified-incident-action-group {
+  display: inline-flex;
+  align-self: start;
+  width: fit-content;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.035em;
+  line-height: 1;
+  padding: 5px 7px;
+  text-transform: uppercase;
 }
 
 .unified-incidents-advanced-filters label {

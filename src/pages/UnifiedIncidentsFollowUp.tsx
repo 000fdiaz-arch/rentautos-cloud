@@ -23,7 +23,8 @@ type Props = {
 };
 
 type FollowUpFilter = "in_progress" | "documentation_pending" | "judicial" | "insurance_active" | "insurance_inactive" | "finalized";
-type NextActionFilter = "all" | "scheduled_follow_up" | "documentation" | "judicial_management" | "judicial_workshop" | "judicial_balance" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim" | "finalized";
+type NextActionCategory = "documentation" | "judicial_management" | "judicial_workshop" | "judicial_balance" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim";
+type NextActionGroupKey = "insurance_follow_up" | "claim_number" | "documentation" | "claim_lifecycle" | "workshop" | "judicial_resolution" | "judicial_attendance" | "judicial_balance" | "custom";
 type ActionTimingFilter = "all" | "overdue" | "today" | "upcoming";
 type DateFieldFilter = "incident" | "next_action";
 type IncidentSort = "action_asc" | "incident_desc" | "updated_desc" | "unit_asc";
@@ -71,6 +72,18 @@ type IncidentFollowUpSummary = {
   targetId: string;
 };
 
+const NEXT_ACTION_GROUPS: Array<{ value: NextActionGroupKey; label: string }> = [
+  { value: "insurance_follow_up", label: "Seguimiento del seguro" },
+  { value: "claim_number", label: "Número de reclamo" },
+  { value: "documentation", label: "Documentación / FUD" },
+  { value: "claim_lifecycle", label: "Iniciar o finalizar reclamo" },
+  { value: "workshop", label: "Taller / revisión" },
+  { value: "judicial_resolution", label: "Resolución o resultado judicial" },
+  { value: "judicial_attendance", label: "Asistencia legal" },
+  { value: "judicial_balance", label: "Saldo judicial" },
+  { value: "custom", label: "Gestión personalizada" }
+];
+
 function latestPendingFollowUp<T extends { completedAt?: string | null }>(entries: T[]): T | undefined {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     if (!entries[index].completedAt) return entries[index];
@@ -89,10 +102,11 @@ function incidentMatchesFilter(incident: UnifiedIncident, filter: FollowUpFilter
   return false;
 }
 
-function nextActionCategory(incident: UnifiedIncident): NextActionFilter {
+function nextActionCategory(incident: UnifiedIncident): NextActionCategory | null {
   if (incident.collision?.documentationPending || incident.claim?.documentationPending) return "documentation";
-  if (incident.finalized) return "finalized";
-  if (incidentFollowUpSummary(incident)?.state === "scheduled") return "scheduled_follow_up";
+  if (incident.finalized) return null;
+  const followUp = incidentFollowUpSummary(incident);
+  if (followUp) return followUp.destination === "insurance" ? "insurance_follow_up" : "judicial_management";
   const collision = incident.collision;
   const claim = incident.claim;
   if (collision?.status === "ABSUELTO" && !collision.judicialResolutionEvidence) return "judicial_resolution";
@@ -193,6 +207,33 @@ function incidentFollowUpSummary(incident: UnifiedIncident): IncidentFollowUpSum
     destination: claimFollowUp ? "insurance" : "judicial",
     targetId: claimFollowUp ? incident.claim!.id : incident.collision!.id
   };
+}
+
+function visibleNextAction(incident: UnifiedIncident): string | null {
+  if (incident.finalized) return null;
+  const followUp = incidentFollowUpSummary(incident);
+  if (followUp) return followUp.comment.trim() || followUp.nextStep.trim() || incident.nextAction.trim() || "Seguimiento pendiente";
+  return incident.nextAction.trim() || "Acción pendiente";
+}
+
+function nextActionGroup(incident: UnifiedIncident): { value: NextActionGroupKey; label: string } | null {
+  if (incident.finalized) return null;
+  const followUp = incidentFollowUpSummary(incident);
+  const value: NextActionGroupKey = followUp
+    ? followUp.destination === "insurance" ? "insurance_follow_up" : "custom"
+    : (() => {
+      const category = nextActionCategory(incident);
+      if (category === "insurance_follow_up") return "insurance_follow_up";
+      if (category === "claim_number") return "claim_number";
+      if (category === "documentation") return "documentation";
+      if (category === "start_claim" || category === "finalize_claim") return "claim_lifecycle";
+      if (category === "judicial_workshop") return "workshop";
+      if (category === "judicial_resolution" || category === "judicial_result") return "judicial_resolution";
+      if (category === "judicial_attendance") return "judicial_attendance";
+      if (category === "judicial_balance") return "judicial_balance";
+      return "custom";
+    })();
+  return NEXT_ACTION_GROUPS.find((group) => group.value === value) ?? null;
 }
 
 type IncidentActionSchedule = {
@@ -535,9 +576,7 @@ function claimNextAction(claim: InsuranceClaimRecord): { label: string; finalize
   if (claim.status === "Finalizado") return { label: `Reclamo ${claim.closureOutcome?.toLocaleLowerCase("es") ?? "finalizado"}`, finalized: true, requiresAction: false };
   if (!claim.claimNumber.trim()) return { label: "Agregar número de reclamo", finalized: false, requiresAction: true };
   const latestFollowUp = latestPendingFollowUp(claim.followUps);
-  if (!latestFollowUp) return claim.followUps.length > 0
-    ? { label: "Definir próximo seguimiento del seguro", finalized: false, requiresAction: false }
-    : { label: "Registrar seguimiento del seguro", finalized: false, requiresAction: true };
+  if (!latestFollowUp) return { label: "Registrar seguimiento del seguro", finalized: false, requiresAction: true };
   if (claim.settlementDelivered) return { label: "Finalizar reclamo", finalized: false, requiresAction: true };
   if (latestFollowUp.nextActionDate) {
     const followUpDue = latestFollowUp.nextActionDate <= localDateKey();
@@ -676,7 +715,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   const [fleetUnits, setFleetUnits] = useState<ControlUnitRow[]>([]);
   const [filter, setFilter] = useState<FollowUpFilter>("in_progress");
   const [actionTimingFilter, setActionTimingFilter] = useState<ActionTimingFilter>("all");
-  const [nextActionFilter, setNextActionFilter] = useState<NextActionFilter>("all");
+  const [nextActionFilter, setNextActionFilter] = useState("all");
   const [insurerFilter, setInsurerFilter] = useState("all");
   const [dateFieldFilter, setDateFieldFilter] = useState<DateFieldFilter>("incident");
   const [dateFrom, setDateFrom] = useState("");
@@ -742,6 +781,34 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     if (timing !== "all") counts[timing] += 1;
     return counts;
   }, { overdue: 0, today: 0, upcoming: 0 }), [incidents]);
+  const incidentsMatchingActionContext = useMemo(() => {
+    const needle = search.trim().toLocaleLowerCase("es");
+    return incidents.filter((incident) => {
+      if (!incidentMatchesFilter(incident, filter)) return false;
+      if (actionTimingFilter !== "all" && incidentActionTiming(incident) !== actionTimingFilter) return false;
+      if (insurerFilter !== "all" && incident.claim?.insurer.trim() !== insurerFilter) return false;
+      if (dateFrom || dateTo) {
+        const selectedDate = dateFieldFilter === "incident" ? incident.incidentDate : incidentActionSchedule(incident)?.date ?? "";
+        if (!dateMatchesRange(selectedDate, dateFrom, dateTo)) return false;
+      }
+      if (!needle) return true;
+      return [incident.unit, incident.driver, incident.plate, incident.vehicleYear, incident.vehicleDamage, visibleNextAction(incident) ?? "",
+        incident.claim?.claimNumber ?? "", incident.claim?.insurer ?? "", incident.claim?.status ?? ""]
+        .some((value) => value.toLocaleLowerCase("es").includes(needle));
+    });
+  }, [actionTimingFilter, dateFieldFilter, dateFrom, dateTo, filter, incidents, insurerFilter, search]);
+  const nextActionOptions = useMemo(() => {
+    const counts = new Map<NextActionGroupKey, number>();
+    incidentsMatchingActionContext.forEach((incident) => {
+      const group = nextActionGroup(incident);
+      if (group) counts.set(group.value, (counts.get(group.value) ?? 0) + 1);
+    });
+    return NEXT_ACTION_GROUPS
+      .map((group) => ({ ...group, count: counts.get(group.value) ?? 0 }))
+      .filter((group) => group.count > 0)
+      .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "es", { sensitivity: "base" }));
+  }, [incidentsMatchingActionContext]);
+  const nextActionTotal = useMemo(() => nextActionOptions.reduce((total, option) => total + option.count, 0), [nextActionOptions]);
   const nextTrial = useMemo(() => {
     const upcomingTrials = collisions
       .filter((item) => item.status !== "ABSUELTO" && item.status !== "CULPABLE" && Boolean(item.trialDate))
@@ -759,22 +826,11 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     .filter(Boolean)))
     .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" })), [incidents]);
   const filteredIncidents = useMemo(() => {
-    const needle = search.trim().toLocaleLowerCase("es");
-    return incidents.filter((incident) => {
-      if (!incidentMatchesFilter(incident, filter)) return false;
-      if (actionTimingFilter !== "all" && incidentActionTiming(incident) !== actionTimingFilter) return false;
-      if (nextActionFilter !== "all" && nextActionCategory(incident) !== nextActionFilter) return false;
-      if (insurerFilter !== "all" && incident.claim?.insurer.trim() !== insurerFilter) return false;
-      if (dateFrom || dateTo) {
-        const selectedDate = dateFieldFilter === "incident" ? incident.incidentDate : incidentActionSchedule(incident)?.date ?? "";
-        if (!dateMatchesRange(selectedDate, dateFrom, dateTo)) return false;
-      }
-      if (!needle) return true;
-      return [incident.unit, incident.driver, incident.plate, incident.vehicleYear, incident.vehicleDamage, incident.nextAction,
-        incident.claim?.claimNumber ?? "", incident.claim?.insurer ?? "", incident.claim?.status ?? ""]
-        .some((value) => value.toLocaleLowerCase("es").includes(needle));
+    return incidentsMatchingActionContext.filter((incident) => {
+      if (nextActionFilter !== "all" && nextActionGroup(incident)?.value !== nextActionFilter) return false;
+      return true;
     }).sort((left, right) => compareIncidents(left, right, sort));
-  }, [actionTimingFilter, dateFieldFilter, dateFrom, dateTo, filter, incidents, insurerFilter, nextActionFilter, search, sort]);
+  }, [incidentsMatchingActionContext, nextActionFilter, sort]);
   const hasActiveFilters = Boolean(search.trim() || filter !== "in_progress" || actionTimingFilter !== "all"
     || nextActionFilter !== "all" || insurerFilter !== "all" || dateFrom || dateTo || sort !== "action_asc");
   const activeFilterCount = [
@@ -819,6 +875,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
 
   function selectFollowUpFilter(nextFilter: FollowUpFilter): void {
     setFilter(nextFilter);
+    if (nextFilter === "finalized") setNextActionFilter("all");
   }
 
   function toggleActionTiming(nextTiming: Exclude<ActionTimingFilter, "all">): void {
@@ -842,6 +899,13 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
       {loadError && <p className="hint workflow-message">{loadError}</p>}
       {!loading && !loadError && <section className="incident-action-strip" aria-label="Resumen de acciones por fecha">
         <span className="incident-action-strip-title">Acciones</span>
+        <label className="incident-next-action-filter"><span className="unified-incidents-filter-label-with-count">Próx. acción <b>{nextActionTotal}</b></span>
+          <select value={nextActionFilter} onChange={(event) => setNextActionFilter(event.target.value)}>
+            <option value="all">Todas pendientes ({nextActionTotal})</option>
+            {nextActionFilter !== "all" && !nextActionOptions.some((option) => option.value === nextActionFilter) && <option value={nextActionFilter}>{nextActionFilter} (0)</option>}
+            {nextActionOptions.map((option) => <option key={option.value} value={option.value}>{option.label} ({option.count})</option>)}
+          </select>
+        </label>
         <button type="button" className={`overdue${actionTimingFilter === "overdue" ? " active" : ""}`} onClick={() => toggleActionTiming("overdue")}><strong>{actionTimingCounts.overdue}</strong><span>Vencidos</span></button>
         <button type="button" className={`today${actionTimingFilter === "today" ? " active" : ""}`} onClick={() => toggleActionTiming("today")}><strong>{actionTimingCounts.today}</strong><span>Para hoy</span></button>
         <button type="button" className={`upcoming${actionTimingFilter === "upcoming" ? " active" : ""}`} onClick={() => toggleActionTiming("upcoming")}><strong>{actionTimingCounts.upcoming}</strong><span>Próximos</span></button>
@@ -879,24 +943,6 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           <section className="unified-incidents-filter-section" aria-labelledby="incident-detail-filter-title">
             <span className="unified-incidents-filter-title" id="incident-detail-filter-title">Filtros operativos</span>
             <div className="unified-incidents-advanced-filters">
-              <label>Próxima acción
-                <select value={nextActionFilter} onChange={(event) => setNextActionFilter(event.target.value as NextActionFilter)}>
-                  <option value="all">Todas</option>
-                  <option value="scheduled_follow_up">Seguimiento programado</option>
-                  <option value="documentation">Completar documentación</option>
-                  <option value="judicial_management">Gestión judicial</option>
-                  <option value="judicial_workshop">Revisión en taller</option>
-                  <option value="judicial_balance">Registrar saldo</option>
-                  <option value="judicial_attendance">Confirmar asistencia</option>
-                  <option value="judicial_result">Registrar resultado</option>
-                  <option value="judicial_resolution">Buscar resolución</option>
-                  <option value="start_claim">Iniciar reclamo</option>
-                  <option value="claim_number">Obtener número de reclamo</option>
-                  <option value="insurance_follow_up">Seguimiento de seguro</option>
-                  <option value="finalize_claim">Finalizar reclamo</option>
-                  <option value="finalized">Finalizado</option>
-                </select>
-              </label>
               {canViewInsurance && <label>Aseguradora
                 <select value={insurerFilter} onChange={(event) => setInsurerFilter(event.target.value)}>
                   <option value="all">Todas</option>
@@ -956,6 +1002,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           const topAlertIsTrialCountdown = topAlert?.id === `${incident.id}:trial-upcoming`;
           const judicialFinalized = incident.collision?.status === "ABSUELTO" || incident.collision?.status === "CULPABLE";
           const followUp = incidentFollowUpSummary(incident);
+          const actionGroup = nextActionGroup(incident);
           const actionSchedule = incidentActionSchedule(incident);
           return <article key={incident.id} className={`unified-incident-card status-${claimState}${expanded ? " expanded" : ""}`}>
             <div className="unified-incident-summary" onClick={() => setExpandedId(expanded ? null : incident.id)}>
@@ -977,6 +1024,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
                 </div>}
               </div>
               <div className={`unified-incident-action${incident.requiresAction && !followUp ? " attention" : incident.finalized ? " complete" : ""}${followUp ? ` has-follow-up follow-up-${followUp.state}` : ""}`}>
+                {actionGroup && <span className="unified-incident-action-group">{actionGroup.label}</span>}
                 {followUp ? <>
                   <small>Estado de la gestión</small>
                   <span className="unified-incident-follow-up-head">
