@@ -39,7 +39,9 @@ export const UnitFormModal = memo(function UnitFormModal({
                 value={form.unit_id}
                 onChange={(event) => onUnitIdChange(event.target.value)}
                 placeholder="Ejemplo: A1"
+                disabled={Boolean(editTarget)}
               />
+              {editTarget && <small className="hint">Usa “Cambiar nomenclatura” para modificar este código.</small>}
             </label>
             <label>Marca / Modelo
               <input value={form.brand_model} onChange={(event) => onFormChange((s) => ({ ...s, brand_model: event.target.value }))} />

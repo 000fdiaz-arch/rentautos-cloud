@@ -9,6 +9,9 @@ type Props = {
   canEditStatus: boolean;
   onToggleSort: (field: SortField) => void;
   onEditUnit: (row: ControlUnitRow) => void;
+  onRenameUnit: (row: ControlUnitRow) => void;
+  onRetireUnit: (row: ControlUnitRow) => void;
+  onShowHistory: (row: ControlUnitRow) => void;
   onOpenStatusDialog: (row: ControlUnitRow) => void;
 };
 
@@ -18,6 +21,9 @@ export const FleetTable = memo(function FleetTable({
   canEditStatus,
   onToggleSort,
   onEditUnit,
+  onRenameUnit,
+  onRetireUnit,
+  onShowHistory,
   onOpenStatusDialog
 }: Props) {
   return (
@@ -53,7 +59,7 @@ export const FleetTable = memo(function FleetTable({
               const transmission = optionalString(row, ["transmission", "transmission_type"]);
               const mileage = optionalString(row, ["mileage", "kilometraje", "kilometrage"]);
               return (
-                <tr key={`${row.user_id}-${row.unit_id}`}>
+                <tr key={row.fleet_id || `${row.user_id}-${row.unit_id}`}>
                   <td><strong>{row.unit_id}</strong></td>
                   <td>{toGroup(row.unit_id ?? "")}</td>
                   <td>
@@ -76,9 +82,12 @@ export const FleetTable = memo(function FleetTable({
                   <td className="ar-truncate-line" title={row.observation ?? ""}>{row.observation ?? "-"}</td>
                   {!readOnly && (
                     <td>
-                      <button type="button" className="button ghost small" onClick={() => onEditUnit(row)}>
-                        Editar
-                      </button>
+                      <div className="panel-actions" style={{ flexWrap: "wrap" }}>
+                        <button type="button" className="button ghost small" onClick={() => onEditUnit(row)}>Editar</button>
+                        <button type="button" className="button ghost small" onClick={() => onRenameUnit(row)}>Cambiar nomenclatura</button>
+                        <button type="button" className="button ghost small" onClick={() => onRetireUnit(row)}>Dar de baja</button>
+                        <button type="button" className="button ghost small" onClick={() => onShowHistory(row)}>Historial</button>
+                      </div>
                     </td>
                   )}
                 </tr>

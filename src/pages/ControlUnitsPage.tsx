@@ -1,10 +1,24 @@
-import { useCallback, useMemo, useState } from "react";
-import { saveControlUnit, setControlUnitStatus, type ControlUnitRow, type ControlUnitUpsertInput } from "../cloudData";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  loadFleetUnitEvents,
+  previewFleetUnitLifecycle,
+  renameControlUnit,
+  restoreControlUnit,
+  retireControlUnit,
+  saveControlUnit,
+  setControlUnitStatus,
+  type ControlUnitRow,
+  type ControlUnitUpsertInput,
+  type FleetLifecycleImpact,
+  type FleetUnitEvent
+} from "../cloudData";
 import type { BankRule, Client } from "../types";
 import { FleetDashboard } from "./controlUnits/FleetDashboard";
 import { FleetFilters } from "./controlUnits/FleetFilters";
 import { FleetMobileList } from "./controlUnits/FleetMobileList";
 import { FleetMobileToolbar } from "./controlUnits/FleetMobileToolbar";
+import { FleetUnitHistoryModal, RenameFleetUnitModal, RestoreFleetUnitModal, RetireFleetUnitModal } from "./controlUnits/FleetLifecycleModals";
+import { RetiredFleetList } from "./controlUnits/RetiredFleetList";
 import { FleetStatusModal } from "./controlUnits/FleetStatusModal";
 import { FleetTable } from "./controlUnits/FleetTable";
 import { UnitFormModal } from "./controlUnits/UnitFormModal";
@@ -51,7 +65,7 @@ export default function ControlUnitsPage({
   bankRules = [],
   onFleetClientStatusSync
 }: Props) {
-  const { rows, setRows, loading, loadError, reloadRows } = useControlUnitsRows(dataOwnerUserId);
+  const { rows, setRows, retiredRows, loading, loadError, reloadRows, reloadAllRows } = useControlUnitsRows(dataOwnerUserId);
   const [saving, setSaving] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string>("");
   const [statusSaving, setStatusSaving] = useState<boolean>(false);
@@ -68,6 +82,22 @@ export default function ControlUnitsPage({
   const [statusTarget, setStatusTarget] = useState<ControlUnitRow | null>(null);
   const [statusDraft, setStatusDraft] = useState<FleetStatus>("activo");
   const [form, setForm] = useState<UnitFormState>({ ...DEFAULT_FORM });
+  const [viewTab, setViewTab] = useState<"active" | "retired">("active");
+  const [retiredSearch, setRetiredSearch] = useState<string>("");
+  const [renameTarget, setRenameTarget] = useState<ControlUnitRow | null>(null);
+  const [retireTarget, setRetireTarget] = useState<ControlUnitRow | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<ControlUnitRow | null>(null);
+  const [nextUnitId, setNextUnitId] = useState<string>("");
+  const [lifecycleReason, setLifecycleReason] = useState<string>("");
+  const [lifecycleNote, setLifecycleNote] = useState<string>("");
+  const [lifecycleImpact, setLifecycleImpact] = useState<FleetLifecycleImpact | null>(null);
+  const [lifecycleSaving, setLifecycleSaving] = useState<boolean>(false);
+  const [lifecycleError, setLifecycleError] = useState<string>("");
+  const [lifecycleMessage, setLifecycleMessage] = useState<string>("");
+  const [historyTarget, setHistoryTarget] = useState<ControlUnitRow | null>(null);
+  const [historyEvents, setHistoryEvents] = useState<FleetUnitEvent[]>([]);
+  const [historyLoading, setHistoryLoading] = useState<boolean>(false);
+  const [historyError, setHistoryError] = useState<string>("");
 
   const displayRows = useMemo(() => rows.map((row) => {
     const unitId = normalizeText(row.unit_id).toUpperCase();
@@ -101,6 +131,19 @@ export default function ControlUnitsPage({
     companyFilter !== "all" ||
     modelFilter !== "all" ||
     statusFilter !== "all";
+  const filteredRetiredRows = useMemo(() => {
+    const query = retiredSearch.trim().toLocaleLowerCase("es");
+    if (!query) return retiredRows;
+    return retiredRows.filter((row) => [
+      row.unit_id,
+      row.brand_model,
+      row.plate,
+      row.chassis_serial,
+      row.retired_client_name,
+      row.retired_reason,
+      row.retired_note
+    ].some((value) => String(value ?? "").toLocaleLowerCase("es").includes(query)));
+  }, [retiredRows, retiredSearch]);
 
   const activeClientForUnit = useCallback((unitId: string): Client | null => {
     const unit = normalizeText(unitId).toUpperCase();
@@ -293,6 +336,161 @@ export default function ControlUnitsPage({
     }
   }
 
+  const resetLifecycleDialog = useCallback((): void => {
+    setRenameTarget(null);
+    setRetireTarget(null);
+    setRestoreTarget(null);
+    setNextUnitId("");
+    setLifecycleReason("");
+    setLifecycleNote("");
+    setLifecycleImpact(null);
+    setLifecycleError("");
+  }, []);
+
+  const openRenameDialog = useCallback((row: ControlUnitRow): void => {
+    setRenameTarget(row);
+    setRetireTarget(null);
+    setRestoreTarget(null);
+    setNextUnitId("");
+    setLifecycleReason("");
+    setLifecycleNote("");
+    setLifecycleImpact(null);
+    setLifecycleError("");
+    setLifecycleMessage("");
+  }, []);
+
+  const openRetireDialog = useCallback((row: ControlUnitRow): void => {
+    setRetireTarget(row);
+    setRenameTarget(null);
+    setRestoreTarget(null);
+    setLifecycleReason("");
+    setLifecycleNote("");
+    setLifecycleImpact(null);
+    setLifecycleError("");
+    setLifecycleMessage("");
+    if (!dataOwnerUserId || !row.fleet_id) return;
+    void previewFleetUnitLifecycle({ userId: dataOwnerUserId, fleetId: row.fleet_id })
+      .then(setLifecycleImpact)
+      .catch((error) => setLifecycleError(describeStatusError(error)));
+  }, [dataOwnerUserId]);
+
+  const openRestoreDialog = useCallback((row: ControlUnitRow): void => {
+    setRestoreTarget(row);
+    setRenameTarget(null);
+    setRetireTarget(null);
+    setNextUnitId(row.unit_id);
+    setLifecycleReason("");
+    setLifecycleNote("");
+    setLifecycleImpact(null);
+    setLifecycleError("");
+    setLifecycleMessage("");
+  }, []);
+
+  useEffect(() => {
+    if (!renameTarget || !dataOwnerUserId || !renameTarget.fleet_id) return;
+    const normalized = normalizeUnitIdInput(nextUnitId);
+    if (!/^[A-Z][0-9]{1,3}$/.test(normalized)) {
+      setLifecycleImpact(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void previewFleetUnitLifecycle({
+        userId: dataOwnerUserId,
+        fleetId: renameTarget.fleet_id,
+        nextUnitId: normalized
+      }).then((impact) => {
+        if (!cancelled) setLifecycleImpact(impact);
+      }).catch((error) => {
+        if (!cancelled) setLifecycleError(describeStatusError(error));
+      });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [dataOwnerUserId, nextUnitId, renameTarget]);
+
+  async function confirmRename(): Promise<void> {
+    if (!renameTarget || !dataOwnerUserId) return;
+    setLifecycleSaving(true);
+    setLifecycleError("");
+    try {
+      const result = await renameControlUnit({
+        userId: dataOwnerUserId,
+        fleetId: renameTarget.fleet_id,
+        nextUnitId: normalizeUnitIdInput(nextUnitId),
+        reason: lifecycleReason.trim(),
+        note: lifecycleNote.trim() || undefined
+      });
+      await reloadAllRows();
+      resetLifecycleDialog();
+      setLifecycleMessage(`${result.previousUnitId} ahora es ${result.nextUnitId}. Se aplicó la regla bancaria del grupo ${result.nextUnitId[0]}.`);
+    } catch (error) {
+      setLifecycleError(describeStatusError(error));
+    } finally {
+      setLifecycleSaving(false);
+    }
+  }
+
+  async function confirmRetire(): Promise<void> {
+    if (!retireTarget || !dataOwnerUserId) return;
+    setLifecycleSaving(true);
+    setLifecycleError("");
+    try {
+      const retiredUnitId = retireTarget.unit_id;
+      await retireControlUnit({
+        userId: dataOwnerUserId,
+        fleetId: retireTarget.fleet_id,
+        reason: lifecycleReason,
+        note: lifecycleNote.trim() || undefined
+      });
+      await reloadAllRows();
+      resetLifecycleDialog();
+      setViewTab("retired");
+      setLifecycleMessage(`${retiredUnitId} fue dado de baja y su nomenclatura quedó libre.`);
+    } catch (error) {
+      setLifecycleError(describeStatusError(error));
+    } finally {
+      setLifecycleSaving(false);
+    }
+  }
+
+  async function confirmRestore(): Promise<void> {
+    if (!restoreTarget || !dataOwnerUserId) return;
+    setLifecycleSaving(true);
+    setLifecycleError("");
+    try {
+      const unitId = normalizeUnitIdInput(nextUnitId);
+      await restoreControlUnit({
+        userId: dataOwnerUserId,
+        fleetId: restoreTarget.fleet_id,
+        unitId,
+        reason: lifecycleReason.trim()
+      });
+      await reloadAllRows();
+      resetLifecycleDialog();
+      setViewTab("active");
+      setLifecycleMessage(`El auto fue reactivado como ${unitId}.`);
+    } catch (error) {
+      setLifecycleError(describeStatusError(error));
+    } finally {
+      setLifecycleSaving(false);
+    }
+  }
+
+  const openHistoryDialog = useCallback((row: ControlUnitRow): void => {
+    setHistoryTarget(row);
+    setHistoryEvents([]);
+    setHistoryError("");
+    if (!dataOwnerUserId || !row.fleet_id) return;
+    setHistoryLoading(true);
+    void loadFleetUnitEvents(dataOwnerUserId, row.fleet_id)
+      .then(setHistoryEvents)
+      .catch((error) => setHistoryError(describeStatusError(error)))
+      .finally(() => setHistoryLoading(false));
+  }, [dataOwnerUserId]);
+
   const statusTargetUnit = statusTarget ? normalizeText(statusTarget.unit_id).toUpperCase() : "";
   const statusTargetClient = statusTarget ? activeClientForUnit(statusTarget.unit_id) : null;
   const statusTargetClientName = statusTargetClient?.name || normalizeText(statusTarget?.client_name);
@@ -305,7 +503,7 @@ export default function ControlUnitsPage({
     <section className="panel">
       <div className="panel-head">
         <h2>Autos</h2>
-        {!readOnly && dataOwnerUserId && (
+        {!readOnly && dataOwnerUserId && viewTab === "active" && (
           <button type="button" className="button primary" onClick={openCreateDialog}>
             Nuevo auto
           </button>
@@ -314,43 +512,59 @@ export default function ControlUnitsPage({
 
       <p className="hint">Dashboard de flota con enfoque solo vehicular.</p>
 
-      <FleetDashboard
-        kpiTotal={kpiTotal}
-        pieData={pieData}
-        statusFilter={statusFilter}
-        onStatusFilterChange={setStatusFilter}
-      />
+      <div className="cash-view-tabs" style={{ margin: "12px 0" }} role="tablist" aria-label="Estado de autos">
+        <button type="button" className={`button ghost small ${viewTab === "active" ? "cash-tab-active" : ""}`} onClick={() => setViewTab("active")}>Flota activa ({rows.length})</button>
+        <button type="button" className={`button ghost small ${viewTab === "retired" ? "cash-tab-active" : ""}`} onClick={() => setViewTab("retired")}>Autos dados de baja ({retiredRows.length})</button>
+      </div>
 
-      <FleetFilters
-        search={search}
-        groupFilter={groupFilter}
-        modelFilter={modelFilter}
-        companyFilter={companyFilter}
-        statusFilter={statusFilter}
-        groups={groups}
-        models={models}
-        companies={companies}
-        statuses={statuses}
-        onSearchChange={setSearch}
-        onGroupFilterChange={setGroupFilter}
-        onModelFilterChange={setModelFilter}
-        onCompanyFilterChange={setCompanyFilter}
-        onStatusFilterChange={setStatusFilter}
-      />
+      {viewTab === "active" ? (
+        <>
+          <FleetDashboard
+            kpiTotal={kpiTotal}
+            pieData={pieData}
+            statusFilter={statusFilter}
+            onStatusFilterChange={setStatusFilter}
+          />
 
-      <FleetMobileToolbar
-        visibleCount={filteredRows.length}
-        totalCount={kpiTotal}
-        hasActiveFilters={hasActiveFilters}
-        onClearFilters={clearFilters}
-      />
+          <FleetFilters
+            search={search}
+            groupFilter={groupFilter}
+            modelFilter={modelFilter}
+            companyFilter={companyFilter}
+            statusFilter={statusFilter}
+            groups={groups}
+            models={models}
+            companies={companies}
+            statuses={statuses}
+            onSearchChange={setSearch}
+            onGroupFilterChange={setGroupFilter}
+            onModelFilterChange={setModelFilter}
+            onCompanyFilterChange={setCompanyFilter}
+            onStatusFilterChange={setStatusFilter}
+          />
+
+          <FleetMobileToolbar
+            visibleCount={filteredRows.length}
+            totalCount={kpiTotal}
+            hasActiveFilters={hasActiveFilters}
+            onClearFilters={clearFilters}
+          />
+        </>
+      ) : (
+        <div className="form-grid" style={{ marginBottom: 12 }}>
+          <label>Buscar en autos dados de baja
+            <input value={retiredSearch} onChange={(event) => setRetiredSearch(event.target.value)} placeholder="Nomenclatura, placa, chasis, cliente o motivo" />
+          </label>
+        </div>
+      )}
 
       {loadError && <p className="hint error-text">{loadError}</p>}
       {saveError && <p className="hint error-text">{saveError}</p>}
+      {lifecycleMessage && <p className="hint" role="status">{lifecycleMessage}</p>}
 
       {loading ? (
         <p className="hint">Cargando flota...</p>
-      ) : (
+      ) : viewTab === "active" ? (
         <>
           <FleetTable
             rows={filteredRows}
@@ -358,6 +572,9 @@ export default function ControlUnitsPage({
             canEditStatus={Boolean(dataOwnerUserId)}
             onToggleSort={toggleSort}
             onEditUnit={openEditDialog}
+            onRenameUnit={openRenameDialog}
+            onRetireUnit={openRetireDialog}
+            onShowHistory={openHistoryDialog}
             onOpenStatusDialog={openStatusDialog}
           />
           <FleetMobileList
@@ -365,9 +582,14 @@ export default function ControlUnitsPage({
             readOnly={readOnly}
             canEditStatus={Boolean(dataOwnerUserId)}
             onEditUnit={openEditDialog}
+            onRenameUnit={openRenameDialog}
+            onRetireUnit={openRetireDialog}
+            onShowHistory={openHistoryDialog}
             onOpenStatusDialog={openStatusDialog}
           />
         </>
+      ) : (
+        <RetiredFleetList rows={filteredRetiredRows} readOnly={readOnly} onRestore={openRestoreDialog} onHistory={openHistoryDialog} />
       )}
 
       {statusTarget && !readOnly && (
@@ -381,6 +603,62 @@ export default function ControlUnitsPage({
           onDraftChange={setStatusDraft}
           onCancel={closeStatusDialog}
           onConfirm={() => void confirmStatusChange()}
+        />
+      )}
+
+      {renameTarget && !readOnly && (
+        <RenameFleetUnitModal
+          target={renameTarget}
+          nextUnitId={nextUnitId}
+          reason={lifecycleReason}
+          note={lifecycleNote}
+          impact={lifecycleImpact}
+          saving={lifecycleSaving}
+          error={lifecycleError}
+          onNextUnitIdChange={(value) => { setNextUnitId(normalizeUnitIdInput(value)); setLifecycleImpact(null); setLifecycleError(""); }}
+          onReasonChange={setLifecycleReason}
+          onNoteChange={setLifecycleNote}
+          onCancel={resetLifecycleDialog}
+          onConfirm={() => void confirmRename()}
+        />
+      )}
+
+      {retireTarget && !readOnly && (
+        <RetireFleetUnitModal
+          target={retireTarget}
+          reason={lifecycleReason}
+          note={lifecycleNote}
+          impact={lifecycleImpact}
+          saving={lifecycleSaving}
+          error={lifecycleError}
+          onReasonChange={setLifecycleReason}
+          onNoteChange={setLifecycleNote}
+          onCancel={resetLifecycleDialog}
+          onConfirm={() => void confirmRetire()}
+        />
+      )}
+
+      {restoreTarget && !readOnly && (
+        <RestoreFleetUnitModal
+          target={restoreTarget}
+          unitId={nextUnitId}
+          reason={lifecycleReason}
+          saving={lifecycleSaving}
+          error={lifecycleError}
+          onUnitIdChange={(value) => setNextUnitId(normalizeUnitIdInput(value))}
+          onReasonChange={setLifecycleReason}
+          onCancel={resetLifecycleDialog}
+          onConfirm={() => void confirmRestore()}
+        />
+      )}
+
+      {historyTarget && (
+        <FleetUnitHistoryModal
+          target={historyTarget}
+          events={historyEvents}
+          loading={historyLoading}
+          error={historyError}
+          onClose={() => setHistoryTarget(null)}
         />
       )}
 

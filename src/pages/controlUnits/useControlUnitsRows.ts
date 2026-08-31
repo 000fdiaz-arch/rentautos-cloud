@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { loadControlUnits, type ControlUnitRow } from "../../cloudData";
+import { loadControlUnits, loadRetiredControlUnits, type ControlUnitRow } from "../../cloudData";
 import { supabase } from "../../lib/supabase";
 
 export function useControlUnitsRows(dataOwnerUserId?: string | null) {
   const [rows, setRows] = useState<ControlUnitRow[]>([]);
+  const [retiredRows, setRetiredRows] = useState<ControlUnitRow[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string>("");
 
@@ -19,6 +20,20 @@ export function useControlUnitsRows(dataOwnerUserId?: string | null) {
     return data;
   }, [dataOwnerUserId]);
 
+  const reloadRetiredRows = useCallback(async (): Promise<ControlUnitRow[]> => {
+    if (!dataOwnerUserId) {
+      setRetiredRows([]);
+      return [];
+    }
+    const data = await loadRetiredControlUnits(dataOwnerUserId);
+    setRetiredRows(data);
+    return data;
+  }, [dataOwnerUserId]);
+
+  const reloadAllRows = useCallback(async (): Promise<void> => {
+    await Promise.all([reloadRows(), reloadRetiredRows()]);
+  }, [reloadRetiredRows, reloadRows]);
+
   useEffect(() => {
     if (!dataOwnerUserId) {
       setRows([]);
@@ -29,7 +44,7 @@ export function useControlUnitsRows(dataOwnerUserId?: string | null) {
     let cancelled = false;
     setLoading(true);
     setLoadError("");
-    void reloadRows()
+    void reloadAllRows()
       .catch((error) => {
         if (cancelled) return;
         console.error("No se pudo cargar autos.", error);
@@ -41,7 +56,7 @@ export function useControlUnitsRows(dataOwnerUserId?: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [dataOwnerUserId, reloadRows]);
+  }, [dataOwnerUserId, reloadAllRows]);
 
   useEffect(() => {
     if (!dataOwnerUserId || !supabase) return;
@@ -53,7 +68,7 @@ export function useControlUnitsRows(dataOwnerUserId?: string | null) {
       if (reloadTimer !== null) window.clearTimeout(reloadTimer);
       reloadTimer = window.setTimeout(() => {
         reloadTimer = null;
-        void reloadRows().catch((error) => {
+        void reloadAllRows().catch((error) => {
           if (!cancelled) console.error("No se pudo refrescar autos desde realtime.", error);
         });
       }, 150);
@@ -75,7 +90,7 @@ export function useControlUnitsRows(dataOwnerUserId?: string | null) {
       if (reloadTimer !== null) window.clearTimeout(reloadTimer);
       void client.removeChannel(channel);
     };
-  }, [dataOwnerUserId, reloadRows]);
+  }, [dataOwnerUserId, reloadAllRows]);
 
-  return { rows, setRows, loading, loadError, reloadRows };
+  return { rows, setRows, retiredRows, loading, loadError, reloadRows, reloadRetiredRows, reloadAllRows };
 }

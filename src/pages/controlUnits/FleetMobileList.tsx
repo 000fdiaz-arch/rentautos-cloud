@@ -8,6 +8,9 @@ type Props = {
   readOnly: boolean;
   canEditStatus: boolean;
   onEditUnit: (row: ControlUnitRow) => void;
+  onRenameUnit: (row: ControlUnitRow) => void;
+  onRetireUnit: (row: ControlUnitRow) => void;
+  onShowHistory: (row: ControlUnitRow) => void;
   onOpenStatusDialog: (row: ControlUnitRow) => void;
 };
 
@@ -16,6 +19,9 @@ export const FleetMobileList = memo(function FleetMobileList({
   readOnly,
   canEditStatus,
   onEditUnit,
+  onRenameUnit,
+  onRetireUnit,
+  onShowHistory,
   onOpenStatusDialog
 }: Props) {
   return (
@@ -29,7 +35,7 @@ export const FleetMobileList = memo(function FleetMobileList({
           const transmission = optionalString(row, ["transmission", "transmission_type"]);
           const mileage = optionalString(row, ["mileage", "kilometraje", "kilometrage"]);
           return (
-            <article className="fleet-mobile-card" key={`mobile-${row.user_id}-${row.unit_id}`}>
+            <article className="fleet-mobile-card" key={`mobile-${row.fleet_id || `${row.user_id}-${row.unit_id}`}`}>
               <div className="fleet-mobile-card-head">
                 <div>
                   <span className="fleet-mobile-kicker">Unidad</span>
@@ -62,9 +68,12 @@ export const FleetMobileList = memo(function FleetMobileList({
                 {row.observation && <p className="fleet-mobile-note">{row.observation}</p>}
               </details>
               {!readOnly && (
-                <button type="button" className="button ghost small fleet-mobile-edit" onClick={() => onEditUnit(row)}>
-                  Editar
-                </button>
+                <div className="panel-actions" style={{ marginTop: 10, flexWrap: "wrap" }}>
+                  <button type="button" className="button ghost small fleet-mobile-edit" onClick={() => onEditUnit(row)}>Editar</button>
+                  <button type="button" className="button ghost small" onClick={() => onRenameUnit(row)}>Cambiar nomenclatura</button>
+                  <button type="button" className="button ghost small" onClick={() => onRetireUnit(row)}>Dar de baja</button>
+                  <button type="button" className="button ghost small" onClick={() => onShowHistory(row)}>Historial</button>
+                </div>
               )}
             </article>
           );

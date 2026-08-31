@@ -29,6 +29,7 @@ export async function registerCloudRouteBankNotice(
 }
 
 export type ControlUnitRow = {
+  fleet_id: string;
   user_id: string;
   unit_id: string;
   company: string | null;
@@ -55,6 +56,15 @@ export type ControlUnitRow = {
   mileage?: number | string | null;
   kilometrage?: number | string | null;
   kilometraje?: number | string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  retired_at?: string | null;
+  retired_reason?: string | null;
+  retired_note?: string | null;
+  retired_by?: string | null;
+  retired_by_email?: string | null;
+  retired_client_id?: string | null;
+  retired_client_name?: string | null;
   [key: string]: unknown;
 };
 
@@ -1818,6 +1828,51 @@ export async function saveCloudActiveRouteItem(userId: string, item: ActiveRoute
   if (error) throw error;
 }
 
+export async function loadRetiredControlUnits(userId: string): Promise<ControlUnitRow[]> {
+  const client = getCloudClient();
+  const allRows: ControlUnitRow[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await client
+      .from("fleet_units_cloud")
+      .select("*")
+      .eq("user_id", userId)
+      .not("retired_at", "is", null)
+      .order("retired_at", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const batch = (data ?? []) as ControlUnitRow[];
+    allRows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
+  return allRows;
+}
+
+export type FleetUnitEvent = {
+  id: string;
+  user_id: string;
+  fleet_id: string;
+  event_type: "renamed" | "retired" | "restored";
+  previous_unit_id: string | null;
+  next_unit_id: string | null;
+  reason: string;
+  note: string | null;
+  performed_by: string | null;
+  performed_by_email: string | null;
+  occurred_at: string;
+};
+
+export async function loadFleetUnitEvents(userId: string, fleetId: string): Promise<FleetUnitEvent[]> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("fleet_unit_events_cloud")
+    .select("id,user_id,fleet_id,event_type,previous_unit_id,next_unit_id,reason,note,performed_by,performed_by_email,occurred_at")
+    .eq("user_id", userId)
+    .eq("fleet_id", fleetId)
+    .order("occurred_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as FleetUnitEvent[];
+}
+
 export async function saveCloudActiveRouteZone(input: {
   userId: string;
   clientId: string;
@@ -1937,6 +1992,98 @@ export async function setControlUnitStatus(
   return (data && typeof data === "object" && !Array.isArray(data))
     ? data as ControlUnitStatusResult
     : {};
+}
+
+export type FleetLifecycleImpact = {
+  fleetId: string;
+  unitId: string;
+  retired: boolean;
+  activeClients: number;
+  activeRoutes: number;
+  pendingPromises: number;
+  openInsuranceClaims: number;
+  openCollisionCases: number;
+  destinationOccupied: boolean;
+  destinationCompany: string | null;
+  destinationHasBankRule: boolean;
+};
+
+export type FleetRenameResult = {
+  fleetId: string;
+  previousUnitId: string;
+  nextUnitId: string;
+  company: string | null;
+  clientsUpdated: number;
+  routesUpdated: number;
+  promisesUpdated: number;
+  insuranceUpdated: number;
+  collisionsUpdated: number;
+};
+
+export async function previewFleetUnitLifecycle(input: {
+  userId: string;
+  fleetId: string;
+  nextUnitId?: string;
+}): Promise<FleetLifecycleImpact> {
+  const client = getCloudClient();
+  const { data, error } = await client.rpc("preview_fleet_unit_lifecycle", {
+    p_owner_user_id: input.userId,
+    p_fleet_id: input.fleetId,
+    p_next_unit_id: input.nextUnitId ?? null
+  });
+  if (error) throw error;
+  return data as FleetLifecycleImpact;
+}
+
+export async function renameControlUnit(input: {
+  userId: string;
+  fleetId: string;
+  nextUnitId: string;
+  reason: string;
+  note?: string;
+}): Promise<FleetRenameResult> {
+  const client = getCloudClient();
+  const { data, error } = await client.rpc("rename_fleet_unit", {
+    p_owner_user_id: input.userId,
+    p_fleet_id: input.fleetId,
+    p_next_unit_id: input.nextUnitId,
+    p_reason: input.reason,
+    p_note: input.note ?? null
+  });
+  if (error) throw error;
+  return data as FleetRenameResult;
+}
+
+export async function retireControlUnit(input: {
+  userId: string;
+  fleetId: string;
+  reason: string;
+  note?: string;
+}): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("retire_fleet_unit", {
+    p_owner_user_id: input.userId,
+    p_fleet_id: input.fleetId,
+    p_reason: input.reason,
+    p_note: input.note ?? null
+  });
+  if (error) throw error;
+}
+
+export async function restoreControlUnit(input: {
+  userId: string;
+  fleetId: string;
+  unitId: string;
+  reason: string;
+}): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("restore_fleet_unit", {
+    p_owner_user_id: input.userId,
+    p_fleet_id: input.fleetId,
+    p_unit_id: input.unitId,
+    p_reason: input.reason
+  });
+  if (error) throw error;
 }
 
 export async function saveProvisionalRentalState(input: {
