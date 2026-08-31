@@ -179,17 +179,15 @@ export default function AppShell({
   const canEditReceivables = canEditScreen(permissions, "receivables");
   const canViewRouteSearch = canViewScreen(permissions, "route_search");
   const canEditRouteSearch = canEditScreen(permissions, "route_search");
-  const canViewInsuranceWorkflow = canViewScreen(permissions, "insurance_workflow");
-  const canEditInsuranceWorkflow = canEditScreen(permissions, "insurance_workflow");
-  const canViewCollisions = canViewScreen(permissions, "collisions");
-  const canEditCollisions = canEditScreen(permissions, "collisions");
+  const canViewIncidents = canViewScreen(permissions, "incidents");
+  const canEditIncidents = canEditScreen(permissions, "incidents");
   const canViewControlUnits = canViewScreen(permissions, "control_units");
   const canEditControlUnits = canEditScreen(permissions, "control_units");
   const canViewSettings = canViewScreen(permissions, "settings");
   const canEditSettings = canEditScreen(permissions, "settings") && canManageSettings;
   const canViewSettingsPage = canViewSettings || canManageUsers;
   const isReadOnlyReceivables = isReadOnlyExperience || !canEditReceivables;
-  const shouldSyncCoreData = canViewClients || canViewPayments || canViewReceivables || canViewRouteSearch || canViewInsuranceWorkflow || canViewCollisions || canViewSettingsPage;
+  const shouldSyncCoreData = canViewClients || canViewPayments || canViewReceivables || canViewRouteSearch || canViewIncidents || canViewSettingsPage;
   const shouldLoadCloudSettings = canViewPayments || canViewSettingsPage;
   const pageVisibility = {
     leads: canViewLeads,
@@ -197,7 +195,7 @@ export default function AppShell({
     payments: canViewPayments,
     receivables: canViewReceivables,
     route_search: canViewRouteSearch,
-    incidents: canViewInsuranceWorkflow || canViewCollisions,
+    incidents: canViewIncidents,
     control_units: canViewControlUnits,
     settings: canViewSettingsPage
   } satisfies Record<AppPage, boolean>;
@@ -212,7 +210,7 @@ export default function AppShell({
     if (canViewClients || canViewControlUnits) keys.add("cobrapp.settings.bank_rules.v1");
     if (canViewSettingsPage) SETTINGS_MIRROR_KEYS.forEach((key) => keys.add(key));
     return [...keys];
-  }, [canViewClients, canViewControlUnits, canViewInsuranceWorkflow, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
+  }, [canViewClients, canViewControlUnits, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = effectiveOwnerUserId ?? dataOwnerUserId ?? userId;
   const [page, setPage] = useState<AppPage>(() => {
@@ -224,7 +222,7 @@ export default function AppShell({
       canViewPayments,
       canViewReceivables,
       canViewRouteSearch,
-      canViewIncidents: canViewInsuranceWorkflow || canViewCollisions,
+      canViewIncidents,
       canViewControlUnits,
       canViewSettingsPage
     });
@@ -255,22 +253,22 @@ export default function AppShell({
   );
 
   useEffect(() => {
-    if (!cloudDataUserId || (!canViewCollisions && !canViewInsuranceWorkflow)) {
+    if (!cloudDataUserId || !canViewIncidents) {
       setIncidentAlertCount(0);
       return;
     }
     let cancelled = false;
     Promise.all([
-      canViewCollisions ? loadCollisionCases(cloudDataUserId) : Promise.resolve([]),
-      canViewInsuranceWorkflow ? loadInsuranceClaims(cloudDataUserId) : Promise.resolve([]),
+      loadCollisionCases(cloudDataUserId),
+      loadInsuranceClaims(cloudDataUserId),
       import("./pages/UnifiedIncidentsFollowUp")
     ]).then(([collisions, claims, incidentRules]) => {
-      if (!cancelled) setIncidentAlertCount(incidentRules.countIncidentAlerts(collisions, claims, canViewInsuranceWorkflow));
+      if (!cancelled) setIncidentAlertCount(incidentRules.countIncidentAlerts(collisions, claims, true));
     }).catch((error) => {
       console.error("No se pudo cargar el contador de alertas de siniestros.", error);
     });
     return () => { cancelled = true; };
-  }, [canViewCollisions, canViewInsuranceWorkflow, cloudDataUserId]);
+  }, [canViewIncidents, cloudDataUserId]);
 
   const {
     cloudReady,
@@ -319,7 +317,7 @@ export default function AppShell({
     const nextPath = appPagePath(nextPage);
     if (window.location.pathname === nextPath) return;
     window.history[replace ? "replaceState" : "pushState"]({ page: nextPage }, "", nextPath);
-  }, [canViewClients, canViewCollisions, canViewControlUnits, canViewInsuranceWorkflow, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
+  }, [canViewClients, canViewControlUnits, canViewIncidents, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
 
   useEffect(() => {
     if (!pageVisibility[page]) {
@@ -329,7 +327,7 @@ export default function AppShell({
         canViewPayments,
         canViewReceivables,
         canViewRouteSearch,
-        canViewIncidents: canViewInsuranceWorkflow || canViewCollisions,
+        canViewIncidents,
         canViewControlUnits,
         canViewSettingsPage
       }), true);
@@ -338,7 +336,7 @@ export default function AppShell({
     if (!isCanonicalAppPagePath(window.location.pathname, page)) {
       window.history.replaceState({ page }, "", appPagePath(page));
     }
-  }, [canViewClients, canViewCollisions, canViewControlUnits, canViewInsuranceWorkflow, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage, navigateToPage, page]);
+  }, [canViewClients, canViewControlUnits, canViewIncidents, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage, navigateToPage, page]);
 
   useEffect(() => {
     function handleHistoryNavigation(): void {
@@ -356,7 +354,7 @@ export default function AppShell({
         canViewPayments,
         canViewReceivables,
         canViewRouteSearch,
-        canViewIncidents: canViewInsuranceWorkflow || canViewCollisions,
+        canViewIncidents,
         canViewControlUnits,
         canViewSettingsPage
       });
@@ -366,7 +364,7 @@ export default function AppShell({
 
     window.addEventListener("popstate", handleHistoryNavigation);
     return () => window.removeEventListener("popstate", handleHistoryNavigation);
-  }, [canViewClients, canViewCollisions, canViewControlUnits, canViewInsuranceWorkflow, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
+  }, [canViewClients, canViewControlUnits, canViewIncidents, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -520,7 +518,7 @@ export default function AppShell({
   }
 
   async function persistClients(next: Client[]): Promise<void> {
-    if (!canEditClients && !canEditPayments && !canEditSettings && !canEditReceivables && !canEditCollisions) return;
+    if (!canEditClients && !canEditPayments && !canEditSettings && !canEditReceivables && !canEditIncidents) return;
     if (userId && !cloudReady) return;
     const previousClients = clients;
     const previousPayments = payments;
@@ -1021,7 +1019,7 @@ export default function AppShell({
         canViewPayments={canViewPayments}
         canViewReceivables={canViewReceivables}
         canViewRouteSearch={canViewRouteSearch}
-        canViewIncidents={canViewInsuranceWorkflow || canViewCollisions}
+        canViewIncidents={canViewIncidents}
         canViewControlUnits={canViewControlUnits}
         canViewSettings={canViewSettingsPage}
         incidentAlertCount={incidentAlertCount}
@@ -1124,15 +1122,13 @@ export default function AppShell({
             onRegisterPayment={registerRoutePayment}
           />
         )}
-        {page === "incidents" && (canViewInsuranceWorkflow || canViewCollisions) && (
+        {page === "incidents" && canViewIncidents && (
           <IncidentsControlPage
             clients={clients}
             payments={payments}
             dataOwnerUserId={cloudDataUserId}
-            canViewCollisions={canViewCollisions}
-            canEditCollisions={canEditCollisions}
-            canViewInsuranceWorkflow={canViewInsuranceWorkflow}
-            canEditInsuranceWorkflow={canEditInsuranceWorkflow}
+            canViewIncidents={canViewIncidents}
+            canEditIncidents={canEditIncidents}
             onClientsChange={persistClients}
             onAlertCountChange={setIncidentAlertCount}
           />

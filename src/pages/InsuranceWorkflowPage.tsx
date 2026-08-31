@@ -126,9 +126,6 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   const [settlementDates, setSettlementDates] = useState<Record<string, string>>({});
   const [followUpSavingId, setFollowUpSavingId] = useState<string>("");
   const [followUpComments, setFollowUpComments] = useState<Record<string, string>>({});
-  const [followUpNextSteps, setFollowUpNextSteps] = useState<Record<string, string>>({});
-  const [followUpDates, setFollowUpDates] = useState<Record<string, string>>({});
-  const [followUpCompletionComments, setFollowUpCompletionComments] = useState<Record<string, string>>({});
   const [claimDetailTabs, setClaimDetailTabs] = useState<Record<string, ClaimDetailTab>>(
     focusedClaimId && initialDetailTab ? { [focusedClaimId]: initialDetailTab } : {}
   );
@@ -445,60 +442,6 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
     }
   }
 
-  async function saveClaimStatus(claim: InsuranceClaimRecord, status: InsuranceClaimStatus): Promise<void> {
-    if (!dataOwnerUserId || readOnly || claim.status === status) return;
-    const updatedClaim: InsuranceClaimRecord = {
-      ...claim,
-      status,
-      closureOutcome: null,
-      closureJustification: "",
-      finalizedAt: null,
-      updatedAt: new Date().toISOString()
-    };
-    setStatusSavingId(claim.id);
-    setMessage("");
-    try {
-      await saveInsuranceClaim(dataOwnerUserId, updatedClaim);
-      setClaims((current) => current.map((item) => item.id === claim.id ? updatedClaim : item));
-      setMessage(`Reclamo marcado como ${status}.`);
-    } catch (error) {
-      console.error("No se pudo actualizar estado de reclamo.", error);
-      setMessage("No se pudo actualizar el estado en la nube.");
-    } finally {
-      setStatusSavingId("");
-    }
-  }
-
-  function requestClaimStatusUpdate(claim: InsuranceClaimRecord, status: InsuranceClaimStatus): void {
-    if (readOnly || claim.status === status) return;
-    if (claim.documentationPending) {
-      setMessage("Confirma la entrega presencial del FUD original y adjunta su copia digital para continuar.");
-      return;
-    }
-    if (claim.status === "Finalizado") {
-      setMessage("Un reclamo finalizado solo puede reabrirse mediante una edición justificada que retire o corrija sus datos de cierre.");
-      return;
-    }
-    if (!claim.claimNumber.trim()) {
-      setMessage("Este reclamo no puede activarse ni finalizarse hasta colocar el número de reclamo mediante Editar reclamo.");
-      return;
-    }
-    if (status === "Inactivo") {
-      setMessage("Un reclamo con número debe permanecer Activo o Finalizado.");
-      return;
-    }
-    if (status === "Finalizado") {
-      setExpandedClaimId(claim.id);
-      setFinalizingClaimId(claim.id);
-      setClosureOutcome("");
-      setClosureJustification("");
-      setMessage("Indica si el reclamo fue pagado o declinado para finalizarlo.");
-      return;
-    }
-    setFinalizingClaimId(null);
-    void saveClaimStatus(claim, status);
-  }
-
   async function finalizeClaim(claim: InsuranceClaimRecord): Promise<void> {
     if (!dataOwnerUserId || readOnly) return;
     if (claim.documentationPending) { setMessage("Confirma la entrega presencial del FUD original y adjunta su copia digital para continuar."); return; }
@@ -701,8 +644,8 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       }
       cancelFudCompletion();
       setMessage(claimNumber
-        ? "Datos del FUD completados. El reclamo quedó Activo."
-        : "Datos del FUD completados. El reclamo permanece Inactivo hasta registrar el número de reclamo.");
+        ? "Datos del FUD completados. El reclamo quedó en gestión con la aseguradora. Siguiente paso: registra cada novedad en Notas."
+        : "Datos del FUD completados. Todavía falta el número de reclamo; agrégalo cuando la aseguradora lo asigne.");
     } catch (error) {
       if (uploadedAttachment?.path) {
         try { await removeInsuranceSettlement(uploadedAttachment.path); } catch { /* Limpieza de mejor esfuerzo. */ }
@@ -778,10 +721,8 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   async function saveFollowUpComment(claim: InsuranceClaimRecord): Promise<void> {
     if (!dataOwnerUserId || readOnly) return;
     const comment = (followUpComments[claim.id] ?? "").trim();
-    const nextStep = (followUpNextSteps[claim.id] ?? "").trim();
-    const nextActionDate = followUpDates[claim.id] ?? "";
-    if (!comment || !nextStep || !nextActionDate) {
-      setMessage("Completa la novedad, el próximo paso y la fecha de la próxima gestión.");
+    if (!comment) {
+      setMessage("Escribe una nota antes de guardarla.");
       return;
     }
     const now = new Date().toISOString();
@@ -792,8 +733,8 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       followUps: [...claim.followUps, {
         id: `insurance-follow-up-${Date.now()}-${crypto.randomUUID()}`,
         comment,
-        nextStep,
-        nextActionDate,
+        nextStep: "",
+        nextActionDate: "",
         createdAt: now
       }],
       updatedAt: now
@@ -804,44 +745,10 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       await saveInsuranceClaim(dataOwnerUserId, updatedClaim);
       setClaims((current) => current.map((item) => item.id === claim.id ? updatedClaim : item));
       setFollowUpComments((current) => ({ ...current, [claim.id]: "" }));
-      setFollowUpNextSteps((current) => ({ ...current, [claim.id]: "" }));
-      setFollowUpDates((current) => ({ ...current, [claim.id]: "" }));
-      setMessage("Seguimiento del reclamo guardado correctamente.");
+      setMessage("Nota del reclamo guardada correctamente.");
     } catch (error) {
-      console.error("No se pudo guardar el comentario de seguimiento.", error);
-      setMessage("No se pudo guardar el comentario de seguimiento en la nube.");
-    } finally {
-      setFollowUpSavingId("");
-    }
-  }
-
-  async function completeFollowUp(claim: InsuranceClaimRecord, followUpId: string): Promise<void> {
-    if (!dataOwnerUserId || readOnly || followUpSavingId || claim.status === "Finalizado") return;
-    const now = new Date().toISOString();
-    const completionComment = (followUpCompletionComments[followUpId] ?? "").trim();
-    const updatedClaim: InsuranceClaimRecord = {
-      ...claim,
-      followUps: claim.followUps.map((entry) => entry.id !== followUpId ? entry : {
-        ...entry,
-        completedAt: now,
-        completionComment
-      }),
-      updatedAt: now
-    };
-    setFollowUpSavingId(claim.id);
-    setMessage("");
-    try {
-      await saveInsuranceClaim(dataOwnerUserId, updatedClaim);
-      setClaims((current) => current.map((item) => item.id === claim.id ? updatedClaim : item));
-      setFollowUpCompletionComments((current) => {
-        const next = { ...current };
-        delete next[followUpId];
-        return next;
-      });
-      setMessage("Seguimiento marcado como realizado.");
-    } catch (error) {
-      console.error("No se pudo completar el seguimiento del reclamo.", error);
-      setMessage("No se pudo marcar el seguimiento como realizado.");
+      console.error("No se pudo guardar la nota del reclamo.", error);
+      setMessage("No se pudo guardar la nota del reclamo en la nube.");
     } finally {
       setFollowUpSavingId("");
     }
@@ -919,8 +826,8 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       setClaims((current) => current.map((item) => item.id === claim.id ? updatedClaim : item));
       cancelClaimEdit();
       setMessage(!claimNumber
-        ? "Edición guardada. El reclamo quedó Inactivo porque falta el número de reclamo."
-        : "Edición del reclamo guardada con su justificación.");
+        ? "Edición guardada. Todavía falta el número de reclamo; agrégalo cuando la aseguradora lo asigne."
+        : "Edición guardada. Siguiente paso: revisa la acción pendiente del expediente.");
     } catch (error) {
       console.error("No se pudo guardar la edición del reclamo.", error);
       setMessage(error instanceof DuplicateInsuranceClaimNumberError ? error.message : "No se pudo guardar la edición del reclamo en la nube.");
@@ -1128,7 +1035,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
               <small>{filteredClaims.length} reclamos</small>
             </div>
             <div>
-              <span>Monto en seguimiento</span>
+              <span>Monto pendiente de resolución</span>
               <strong>{USD_FORMATTER.format(claimKpis.followUpAmount)}</strong>
               <small>Pendiente de pago</small>
             </div>
@@ -1169,9 +1076,9 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
               Estado
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as InsuranceClaimStatus | "all")}>
                 <option value="all">Todos</option>
-                <option value="Inactivo">Inactivo</option>
-                <option value="Activo">Activo</option>
-                <option value="Finalizado">Finalizado</option>
+                <option value="Inactivo">Falta información</option>
+                <option value="Activo">En gestión con aseguradora</option>
+                <option value="Finalizado">Reclamo cerrado</option>
               </select>
             </label>
             <label>
@@ -1218,7 +1125,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                     <span className="workflow-claim-reference">
                       <strong>{claim.insurer || "Sin aseguradora"}</strong>
                       <small className={!claim.claimNumber ? "missing" : ""}>
-                        {claim.claimNumber ? `Reclamo N.º ${claim.claimNumber}` : "Número de reclamo: No"}
+                        {claim.claimNumber ? `Reclamo N.º ${claim.claimNumber}` : "Número todavía no asignado"}
                       </small>
                     </span>
                     <span className="workflow-claim-summary-value">
@@ -1233,7 +1140,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                       <span className={claim.settlementDelivered ? "complete" : "pending"}>
                         {claim.settlementDelivered ? "Finiquito entregado" : "Finiquito pendiente"}
                       </span>
-                      {claim.followUps.length > 0 && <span className="complete">Con seguimiento</span>}
+                      {claim.followUps.length > 0 && <span className="complete">Con notas</span>}
                       {!claim.claimNumber && <span className="missing">Sin número</span>}
                       {claim.status === "Finalizado" && claim.closureOutcome && (
                         <span className={claim.closureOutcome === "Pagado" ? "complete" : "declined"}>{claim.closureOutcome}</span>
@@ -1242,16 +1149,9 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                     <span className="workflow-claim-chevron" aria-hidden="true">{expanded ? "−" : "+"}</span>
                   </button>
                   <div className="workflow-claim-row-actions">
-                    <select
-                      className={`workflow-status-select status-${claim.status === "Inactivo" ? "inactive" : claim.status === "Activo" ? "active" : "finished"}`}
-                      value={claim.status}
-                      onChange={(event) => requestClaimStatusUpdate(claim, event.target.value as InsuranceClaimStatus)}
-                      disabled={readOnly || claim.documentationPending || editingClaimId === claim.id || statusSavingId === claim.id || settlementSavingId === claim.id || settlementUploadingId === claim.id || damagePhotosUploadingId === claim.id || followUpSavingId === claim.id || editSavingId === claim.id}
-                    >
-                      <option value="Inactivo">Inactivo</option>
-                      <option value="Activo">Activo</option>
-                      <option value="Finalizado">Finalizado</option>
-                    </select>
+                    <span className={`workflow-status-select status-${claim.status === "Inactivo" ? "inactive" : claim.status === "Activo" ? "active" : "finished"}`}>
+                      {claim.status === "Inactivo" ? "Falta información" : claim.status === "Activo" ? "En gestión con aseguradora" : "Reclamo cerrado"}
+                    </span>
                     <button
                       type="button"
                       className={`workflow-photos-shortcut${claim.damagePhotos.length > 0 ? " has-photos" : ""}`}
@@ -1288,7 +1188,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                 <div className="workflow-claim-detail-head">
                   <div>
                     {!claim.claimNumber ? (
-                      <strong className="workflow-claim-number-warning">Indicó que no tiene número de reclamo. El caso permanecerá Inactivo.</strong>
+                      <strong className="workflow-claim-number-warning">La aseguradora todavía no asignó el número. El expediente queda en “Falta información”.</strong>
                     ) : (
                       <strong>Número de reclamo: {claim.claimNumber}</strong>
                     )}
@@ -1307,7 +1207,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                 </div>
                 <div className="workflow-record-tabs" role="tablist" aria-label="Secciones del reclamo">
                   <button type="button" role="tab" id={`claim-management-tab-${claim.id}`} aria-selected={activeClaimDetailTab === "management"} aria-controls={`claim-management-panel-${claim.id}`} className={activeClaimDetailTab === "management" ? "active" : ""} onClick={() => setClaimDetailTabs((current) => ({ ...current, [claim.id]: "management" }))}>Gestión del reclamo</button>
-                  <button type="button" role="tab" id={`claim-follow-up-tab-${claim.id}`} aria-selected={activeClaimDetailTab === "follow_up"} aria-controls={`claim-follow-up-panel-${claim.id}`} className={activeClaimDetailTab === "follow_up" ? "active" : ""} onClick={() => setClaimDetailTabs((current) => ({ ...current, [claim.id]: "follow_up" }))}>Seguimiento <span>{claim.followUps.length}</span></button>
+                  <button type="button" role="tab" id={`claim-follow-up-tab-${claim.id}`} aria-selected={activeClaimDetailTab === "follow_up"} aria-controls={`claim-follow-up-panel-${claim.id}`} className={activeClaimDetailTab === "follow_up" ? "active" : ""} onClick={() => setClaimDetailTabs((current) => ({ ...current, [claim.id]: "follow_up" }))}>Notas <span>{claim.followUps.length}</span></button>
                 </div>
                 {activeClaimDetailTab === "management" && <div className="workflow-record-tab-panel workflow-record-tab-panel--management" role="tabpanel" id={`claim-management-panel-${claim.id}`} aria-labelledby={`claim-management-tab-${claim.id}`}>
                 {finalizingClaimId === claim.id && (
@@ -1467,6 +1367,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                 <div className="workflow-settlement">
                   <div className="workflow-settlement-head">
                     <strong>Finiquito</strong>
+                    <small>Documento final de pago o cierre emitido por la aseguradora.</small>
                     <span>{claim.settlementDelivered ? "Entregado" : "Pendiente"}</span>
                   </div>
                   <label className="workflow-settlement-date">
@@ -1525,14 +1426,12 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                 </div>
                 </div>}
                 {activeClaimDetailTab === "follow_up" && <section className="insurance-follow-up-panel workflow-record-tab-panel" role="tabpanel" id={`claim-follow-up-panel-${claim.id}`} aria-labelledby={`claim-follow-up-tab-${claim.id}`}>
-                  <div className="judicial-follow-up-head"><div><strong>Timeline de seguimiento</strong><span>Registra cada gestión sin reemplazar las anteriores.</span></div><b>{claim.followUps.length} {claim.followUps.length === 1 ? "registro" : "registros"}</b></div>
+                  <div className="judicial-follow-up-head"><div><strong>Notas del reclamo</strong><span>Agrega contexto sin modificar el paso pendiente del siniestro.</span></div><b>{claim.followUps.length} {claim.followUps.length === 1 ? "nota" : "notas"}</b></div>
                   {claim.status !== "Finalizado" && <div className="judicial-follow-up-form">
-                    <label className="judicial-follow-up-comment">Novedad o gestión<textarea value={followUpComments[claim.id] ?? ""} placeholder="Ej. La aseguradora confirmó que el reclamo está en revisión" onChange={(event) => setFollowUpComments((current) => ({ ...current, [claim.id]: event.target.value }))} disabled={readOnly || followUpSavingId === claim.id} /></label>
-                    <label>Próximo paso<input value={followUpNextSteps[claim.id] ?? ""} placeholder="Ej. Solicitar actualización al ajustador" onChange={(event) => setFollowUpNextSteps((current) => ({ ...current, [claim.id]: event.target.value }))} disabled={readOnly || followUpSavingId === claim.id} /></label>
-                    <label>Próxima gestión<input type="date" min={localDateKey()} value={followUpDates[claim.id] ?? ""} onChange={(event) => setFollowUpDates((current) => ({ ...current, [claim.id]: event.target.value }))} disabled={readOnly || followUpSavingId === claim.id} /></label>
-                    <button type="button" className="button primary" onClick={() => void saveFollowUpComment(claim)} disabled={readOnly || followUpSavingId === claim.id || !(followUpComments[claim.id] ?? "").trim() || !(followUpNextSteps[claim.id] ?? "").trim() || !followUpDates[claim.id]}>{followUpSavingId === claim.id ? "Guardando..." : "Guardar seguimiento"}</button>
+                    <label className="judicial-follow-up-comment">Nueva nota<textarea value={followUpComments[claim.id] ?? ""} placeholder="Ej. La aseguradora confirmó que el reclamo está en revisión" onChange={(event) => setFollowUpComments((current) => ({ ...current, [claim.id]: event.target.value }))} disabled={readOnly || followUpSavingId === claim.id} /></label>
+                    <button type="button" className="button primary" onClick={() => void saveFollowUpComment(claim)} disabled={readOnly || followUpSavingId === claim.id || !(followUpComments[claim.id] ?? "").trim()}>{followUpSavingId === claim.id ? "Guardando..." : "Guardar nota"}</button>
                   </div>}
-                  {claim.followUps.length > 0 ? <ol className="judicial-follow-up-history">{[...claim.followUps].reverse().map((entry) => <li key={entry.id} className={entry.completedAt ? "is-completed" : "is-pending"}><div><time>{new Date(entry.createdAt).toLocaleString("es-PA")}</time><span className="judicial-follow-up-status">{entry.completedAt ? `✓ Realizada · ${new Date(entry.completedAt).toLocaleString("es-PA")}` : `Pendiente · ${entry.nextActionDate}`}</span></div><p>{entry.comment}</p>{entry.nextStep && <small>Próximo paso: <strong>{entry.nextStep}</strong></small>}{entry.completedAt && entry.completionComment && <small className="judicial-follow-up-result">Resultado: <strong>{entry.completionComment}</strong></small>}{!entry.completedAt && claim.status !== "Finalizado" && <div className="judicial-follow-up-complete-action"><input aria-label={`Resultado del seguimiento ${entry.nextStep}`} value={followUpCompletionComments[entry.id] ?? ""} placeholder="Resultado opcional de la gestión" onChange={(event) => setFollowUpCompletionComments((current) => ({ ...current, [entry.id]: event.target.value }))} disabled={readOnly || followUpSavingId === claim.id} /><button type="button" className="button" onClick={() => void completeFollowUp(claim, entry.id)} disabled={readOnly || followUpSavingId === claim.id}>{followUpSavingId === claim.id ? "Guardando..." : "Marcar como realizado"}</button></div>}</li>)}</ol> : <p className="judicial-follow-up-empty">Todavía no hay seguimientos registrados en este reclamo.</p>}
+                  {claim.followUps.length > 0 ? <ol className="judicial-follow-up-history">{[...claim.followUps].reverse().map((entry) => <li key={entry.id}><div><time>{new Date(entry.createdAt).toLocaleString("es-PA")}</time><span className="judicial-follow-up-status">Nota</span></div><p>{entry.comment}</p></li>)}</ol> : <p className="judicial-follow-up-empty">Todavía no hay notas registradas en este reclamo.</p>}
                 </section>}
                 </div>
                 )}

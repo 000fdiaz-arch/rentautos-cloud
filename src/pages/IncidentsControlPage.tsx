@@ -9,10 +9,8 @@ type Props = {
   clients: Client[];
   payments: Payment[];
   dataOwnerUserId?: string | null;
-  canViewCollisions: boolean;
-  canEditCollisions: boolean;
-  canViewInsuranceWorkflow: boolean;
-  canEditInsuranceWorkflow: boolean;
+  canViewIncidents: boolean;
+  canEditIncidents: boolean;
   onClientsChange: (next: Client[]) => void | Promise<void>;
   onAlertCountChange?: (count: number) => void;
 };
@@ -23,20 +21,22 @@ export default function IncidentsControlPage({
   clients,
   payments,
   dataOwnerUserId,
-  canViewCollisions,
-  canEditCollisions,
-  canViewInsuranceWorkflow,
-  canEditInsuranceWorkflow,
+  canViewIncidents,
+  canEditIncidents,
   onClientsChange,
   onAlertCountChange
 }: Props) {
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [managementTarget, setManagementTarget] = useState<ManagementTarget | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [pageMessage, setPageMessage] = useState("");
 
-  function handleIncidentSaved(): void {
+  function handleIncidentSaved(destination: IncidentDestination): void {
     setRefreshKey((current) => current + 1);
     setRegistrationOpen(false);
+    setPageMessage(destination === "judicial"
+      ? "Siniestro guardado. Siguiente paso: abre el expediente judicial y revisa la acción indicada en “Lo que debes hacer ahora”."
+      : "Siniestro guardado. Siguiente paso: abre el reclamo y revisa la acción pendiente indicada por el sistema.");
   }
 
   function closeManagement(): void {
@@ -54,9 +54,9 @@ export default function IncidentsControlPage({
     const params = new URLSearchParams(window.location.search);
     const claimId = params.get("insuranceClaim")?.trim();
     const judicialCaseId = params.get("judicialCase")?.trim();
-    if (claimId && canViewInsuranceWorkflow) setManagementTarget({ destination: "insurance", id: claimId, search: "" });
-    else if (judicialCaseId && canViewCollisions) setManagementTarget({ destination: "judicial", id: judicialCaseId, search: "" });
-  }, [canViewCollisions, canViewInsuranceWorkflow]);
+    if (claimId && canViewIncidents) setManagementTarget({ destination: "insurance", id: claimId, search: "" });
+    else if (judicialCaseId && canViewIncidents) setManagementTarget({ destination: "judicial", id: judicialCaseId, search: "" });
+  }, [canViewIncidents]);
 
   useEffect(() => {
     if (!managementTarget) return;
@@ -92,11 +92,12 @@ export default function IncidentsControlPage({
         </div>
         <button type="button" className="button primary" onClick={() => setRegistrationOpen(true)}>+ Registrar colisión</button>
       </header>
+      {pageMessage && <div className="workflow-message incident-save-confirmation" role="status"><span>{pageMessage}</span><button type="button" className="button ghost small" onClick={() => setPageMessage("")}>Cerrar</button></div>}
 
       <UnifiedIncidentsFollowUp
         dataOwnerUserId={dataOwnerUserId}
-        canViewJudicial={canViewCollisions}
-        canViewInsurance={canViewInsuranceWorkflow}
+        canViewJudicial={canViewIncidents}
+        canViewInsurance={canViewIncidents}
         refreshKey={refreshKey}
         onAlertCountChange={onAlertCountChange}
         onOpen={(destination, target) => setManagementTarget({ destination, ...target })}
@@ -112,10 +113,10 @@ export default function IncidentsControlPage({
             <IncidentIntakeForm
               clients={clients}
               dataOwnerUserId={dataOwnerUserId}
-              canViewJudicial={canViewCollisions}
-              canEditJudicial={canEditCollisions}
-              canViewInsurance={canViewInsuranceWorkflow}
-              canEditInsurance={canEditInsuranceWorkflow}
+              canViewJudicial={canViewIncidents}
+              canEditJudicial={canEditIncidents}
+              canViewInsurance={canViewIncidents}
+              canEditInsurance={canEditIncidents}
               embedded
               onSaved={handleIncidentSaved}
             />
@@ -123,7 +124,7 @@ export default function IncidentsControlPage({
         </div>
       )}
 
-      {managementTarget && ((managementTarget.destination === "judicial" && canViewCollisions) || (managementTarget.destination === "insurance" && canViewInsuranceWorkflow)) && (
+      {managementTarget && canViewIncidents && (
         <div className="incident-claim-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeManagement(); }}>
           <section className={`incident-claim-modal incident-management-modal--${managementTarget.destination}`} role="dialog" aria-modal="true" aria-labelledby="incident-management-modal-title">
             <div className="incident-claim-modal-head">
@@ -136,10 +137,10 @@ export default function IncidentsControlPage({
                 clients={clients}
                 payments={payments}
                 dataOwnerUserId={dataOwnerUserId}
-                readOnly={!canEditCollisions}
+                readOnly={!canEditIncidents}
                 onClientsChange={onClientsChange}
                 embedded
-                syncInsuranceClaims={canEditInsuranceWorkflow}
+                syncInsuranceClaims={canEditIncidents}
                 hideCreateForm
                 initialExpandedId={managementTarget.id}
                 focusedCaseId={managementTarget.id}
@@ -150,7 +151,7 @@ export default function IncidentsControlPage({
                 key={`insurance-${managementTarget.id}`}
                 clients={clients}
                 dataOwnerUserId={dataOwnerUserId}
-                readOnly={!canEditInsuranceWorkflow}
+                readOnly={!canEditIncidents}
                 embedded
                 hideCreateForm
                 initialExpandedId={managementTarget.id}

@@ -57,7 +57,7 @@ type TrialForm = {
   collisionAndRun: boolean;
 };
 type ClaimDraft = { insurer: string; claimNumber: string; amount: string };
-type JudicialFollowUpDraft = { comment: string; nextStep: string; nextActionDate: string };
+type JudicialFollowUpDraft = { comment: string };
 
 const EMPTY_FORM: TrialForm = {
   incidentDate: "",
@@ -72,7 +72,7 @@ const EMPTY_FORM: TrialForm = {
   collisionAndRun: false
 };
 const EMPTY_CLAIM: ClaimDraft = { insurer: "", claimNumber: "", amount: "" };
-const EMPTY_JUDICIAL_FOLLOW_UP: JudicialFollowUpDraft = { comment: "", nextStep: "", nextActionDate: "" };
+const EMPTY_JUDICIAL_FOLLOW_UP: JudicialFollowUpDraft = { comment: "" };
 
 const MAX_PHOTOS = 5;
 const MAX_PHOTO_SIZE = 10 * 1024 * 1024;
@@ -174,7 +174,6 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [claimDrafts, setClaimDrafts] = useState<Record<string, ClaimDraft>>({});
   const [claimPhotoFiles, setClaimPhotoFiles] = useState<Record<string, File[]>>({});
   const [judicialFollowUpDrafts, setJudicialFollowUpDrafts] = useState<Record<string, JudicialFollowUpDraft>>({});
-  const [judicialFollowUpCompletionDrafts, setJudicialFollowUpCompletionDrafts] = useState<Record<string, string>>({});
   const [judicialFollowUpSavingId, setJudicialFollowUpSavingId] = useState("");
   const [judicialCaseTabs, setJudicialCaseTabs] = useState<Record<string, JudicialCaseTab>>(
     focusedCaseId && initialCaseTab ? { [focusedCaseId]: initialCaseTab } : {}
@@ -679,9 +678,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     if (readOnly || judicialFollowUpSavingId || !dataOwnerUserId || isFinalStatus(item.status)) return;
     const draft = judicialFollowUpDrafts[item.id] ?? EMPTY_JUDICIAL_FOLLOW_UP;
     const comment = draft.comment.trim();
-    const nextStep = draft.nextStep.trim();
-    if (!comment || !nextStep || !draft.nextActionDate) {
-      setMessage("Completa la novedad, el próximo paso y la fecha de la próxima gestión.");
+    if (!comment) {
+      setMessage("Escribe una nota antes de guardarla.");
       return;
     }
     const now = new Date().toISOString();
@@ -690,8 +688,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       judicialFollowUps: [...item.judicialFollowUps, {
         id: `judicial-follow-up-${Date.now()}-${crypto.randomUUID()}`,
         comment,
-        nextStep,
-        nextActionDate: draft.nextActionDate,
+        nextStep: "",
+        nextActionDate: "",
         createdAt: now
       }],
       updatedAt: now
@@ -704,36 +702,6 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     } catch (error) {
       console.error("No se pudo guardar la nota judicial.", error);
       setMessage("No se pudo guardar la nota judicial.");
-    } finally {
-      setJudicialFollowUpSavingId("");
-    }
-  }
-
-  async function completeJudicialFollowUp(item: CollisionCaseRecord, followUpId: string): Promise<void> {
-    if (readOnly || judicialFollowUpSavingId || !dataOwnerUserId || isFinalStatus(item.status)) return;
-    const now = new Date().toISOString();
-    const completionComment = (judicialFollowUpCompletionDrafts[followUpId] ?? "").trim();
-    const updatedCase: CollisionCaseRecord = {
-      ...item,
-      judicialFollowUps: item.judicialFollowUps.map((entry) => entry.id !== followUpId ? entry : {
-        ...entry,
-        completedAt: now,
-        completionComment
-      }),
-      updatedAt: now
-    };
-    setJudicialFollowUpSavingId(item.id);
-    setMessage("");
-    try {
-      await persistCase(updatedCase, "Seguimiento marcado como realizado.");
-      setJudicialFollowUpCompletionDrafts((current) => {
-        const next = { ...current };
-        delete next[followUpId];
-        return next;
-      });
-    } catch (error) {
-      console.error("No se pudo completar el seguimiento judicial.", error);
-      setMessage("No se pudo marcar el seguimiento como realizado.");
     } finally {
       setJudicialFollowUpSavingId("");
     }
@@ -1570,8 +1538,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   ))}
                 </div>
                 {activeWorkspaceTab === "summary" && <div className="judicial-case-tab-panel judicial-case-tab-panel--summary" role="tabpanel" id={`judicial-summary-panel-${item.id}`} aria-labelledby={`judicial-summary-tab-${item.id}`}>
-                  <div className={`judicial-summary-next-action${requiresOutcome || item.documentationPending || resolutionPending ? " is-urgent" : ""}`}><div><small>{item.status === "CULPABLE" ? "Estado del expediente" : "Próxima gestión"}</small><strong>{summaryActionLabel}</strong><span>{summaryActionDetail}</span></div><button type="button" className="button primary" onClick={() => { if (item.documentationPending) { startEditingCase(item); return; } if (item.status === "CULPABLE") { setJudicialWorkspaceTabs((current) => ({ ...current, [item.id]: "history" })); return; } setJudicialCaseTabs((current) => ({ ...current, [item.id]: summaryActionTab })); setJudicialWorkspaceTabs((current) => ({ ...current, [item.id]: workspaceTabFromCaseTab(summaryActionTab) })); }}>{item.documentationPending ? "Completar datos" : item.status === "CULPABLE" ? "Ver historial" : resolutionPending ? "Gestionar resolución" : "Ir a la gestión"}</button></div>
-                  {item.documentationPending && <div className="workflow-finalization-panel collision-documentation-pending"><div><strong>Colilla pendiente</strong><span>Este expediente está guardado, pero no avanzará hasta registrar los datos de la colilla. Usa “Completar colilla” y registra cada contacto en Seguimiento.</span></div></div>}
+                  <div className={`judicial-summary-next-action${requiresOutcome || item.documentationPending || resolutionPending ? " is-urgent" : ""}`}><div><small>{item.status === "CULPABLE" ? "Estado del expediente" : "Lo que debes hacer ahora"}</small><strong>{summaryActionLabel}</strong><span>{summaryActionDetail}</span></div><button type="button" className="button primary" onClick={() => { if (item.documentationPending) { startEditingCase(item); return; } if (item.status === "CULPABLE") { setJudicialWorkspaceTabs((current) => ({ ...current, [item.id]: "history" })); return; } setJudicialCaseTabs((current) => ({ ...current, [item.id]: summaryActionTab })); setJudicialWorkspaceTabs((current) => ({ ...current, [item.id]: workspaceTabFromCaseTab(summaryActionTab) })); }}>{item.documentationPending ? "Completar datos" : item.status === "CULPABLE" ? "Ver historial" : resolutionPending ? "Gestionar resolución" : summaryActionTab === "attendance" ? "Confirmar asistencia" : summaryActionTab === "workshop" ? "Confirmar revisión" : summaryActionTab === "balance" ? "Registrar saldo" : summaryActionTab === "outcome" ? "Registrar resultado" : summaryActionTab === "insurance" ? "Gestionar reclamo" : "Ver paso pendiente"}</button></div>
+                  {item.documentationPending && <div className="workflow-finalization-panel collision-documentation-pending"><div><strong>Colilla pendiente</strong><span>Este expediente está guardado, pero no avanzará hasta registrar los datos de la colilla. Usa “Completar colilla” y agrega cada novedad en Notas.</span></div></div>}
                   <div className="workflow-claim-detail-head">
                     <div><strong>Datos registrados del siniestro</strong><small>{item.documentationPending ? "Completa la información cuando recibas la colilla." : "Corrige aquí la información ingresada por error."}</small></div>
                     {editingCaseId !== item.id && <button type="button" className={`button${item.documentationPending ? " primary" : ""}`} onClick={() => startEditingCase(item)} disabled={readOnly || busyId === item.id || Boolean(caseEditSavingId)}>{item.documentationPending ? "Completar colilla" : "Editar siniestro"}</button>}
@@ -1617,10 +1585,10 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   </>}
                 </div>}
                 {activeWorkspaceTab === "documents" && <section className="judicial-case-tab-panel judicial-documents-panel" role="tabpanel" id={`judicial-documents-panel-${item.id}`} aria-labelledby={`judicial-documents-tab-${item.id}`}>
-                  <div className="judicial-section-heading"><div><strong>Documentación del expediente</strong><span>Todos los archivos y evidencias están reunidos aquí.</span></div><b>{documentCount} {documentCount === 1 ? "archivo" : "archivos"}</b></div>
+                  <div className="judicial-section-heading"><div><strong>Documentación del expediente</strong><span>Todos los archivos y evidencias están reunidos aquí. Agrega evidencia en cualquier momento. Esto no completa la colilla ni cambia el estado del expediente.</span></div><b>{documentCount} {documentCount === 1 ? "archivo" : "archivos"}</b></div>
                   <div className="judicial-document-grid">
                     <article className="judicial-document-card judicial-document-card--compact"><div className="judicial-document-card-head"><div><small>Documento inicial</small><strong>Colilla del incidente</strong></div><span className={item.ticketStubPhoto ? "is-ready" : "is-missing"}>{item.ticketStubPhoto ? "Disponible" : "Pendiente"}</span></div><div className="judicial-compact-document-line"><span>Colilla <strong>{item.ticketStub || "sin número"}</strong></span>{item.ticketStubPhoto ? <button type="button" className="button" title={item.ticketStubPhoto.name} onClick={() => setPhotoGallery({ photos: [item.ticketStubPhoto!], index: 0, title: "Foto de la colilla" })}>Abrir colilla</button> : <small>Sin archivo adjunto</small>}</div></article>
-                    <article className="judicial-document-card judicial-document-card--compact"><div className="judicial-document-card-head"><div><small>Evidencia del incidente</small><strong>Fotos adjuntas</strong></div><span className={(item.incidentPhotos?.length ?? 0) ? "is-ready" : "is-missing"}>{item.incidentPhotos?.length ?? 0} fotos</span></div><div className="judicial-photo-card-actions">{(item.incidentPhotos?.length ?? 0) > 0 && <button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos ?? [], index: 0, title: "Evidencia del incidente", onDelete: (photo) => deleteIncidentPhoto(item, photo, true) })}>Ver fotos ({item.incidentPhotos?.length ?? 0})</button>}<label className="button primary judicial-document-add">{busyId === item.id ? "Guardando..." : "Agregar"}<input type="file" accept="image/*" multiple hidden onChange={(event) => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; void addIncidentPhotos(item, files); }} disabled={readOnly || busyId === item.id} /></label>{!(item.incidentPhotos?.length ?? 0) && <small>Sin fotos adjuntas</small>}</div></article>
+                    <article className="judicial-document-card judicial-document-card--compact"><div className="judicial-document-card-head"><div><small>Evidencia del incidente</small><strong>Fotos adjuntas</strong></div><span className={(item.incidentPhotos?.length ?? 0) ? "is-ready" : "is-missing"}>{item.incidentPhotos?.length ?? 0} fotos</span></div><div className="judicial-photo-card-actions">{(item.incidentPhotos?.length ?? 0) > 0 && <button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos ?? [], index: 0, title: "Evidencia del incidente", onDelete: (photo) => deleteIncidentPhoto(item, photo, true) })}>Ver fotos ({item.incidentPhotos?.length ?? 0})</button>}<label className="button primary judicial-document-add">{busyId === item.id ? "Guardando..." : "Agregar fotos"}<input type="file" accept="image/*" multiple hidden onChange={(event) => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; void addIncidentPhotos(item, files); }} disabled={readOnly || busyId === item.id} /></label>{!(item.incidentPhotos?.length ?? 0) && <small>Sin fotos adjuntas</small>}</div></article>
                     <article className="judicial-document-card"><div className="judicial-document-card-head"><div><small>Proceso judicial</small><strong>Evidencias y resolución</strong></div><span className={rescheduleDocuments.length || item.judicialOutcomeEvidence || item.judicialResolutionEvidence ? "is-ready" : "is-missing"}>{rescheduleDocuments.length + (item.judicialOutcomeEvidence ? 1 : 0) + (item.judicialResolutionEvidence ? 1 : 0)} archivos</span></div><div className="judicial-document-list">{rescheduleDocuments.map((document, index) => <div className="judicial-document-file" key={document.path}><span><strong>Cambio de fecha {index + 1}</strong><small>{document.name}</small></span><button type="button" className="button" onClick={() => void viewRescheduleEvidence(document)}>Ver</button></div>)}{item.judicialOutcomeEvidence && <div className="judicial-document-file"><span><strong>Evidencia del resultado</strong><small>{item.judicialOutcomeEvidence.name}</small></span><button type="button" className="button" onClick={() => setPhotoGallery({ photos: [item.judicialOutcomeEvidence!], index: 0, title: "Evidencia del resultado" })}>Ver</button></div>}{item.judicialResolutionEvidence && <div className="judicial-document-file"><span><strong>Resolución judicial</strong><small>{item.judicialResolutionEvidence.name}</small></span><button type="button" className="button" onClick={() => setPhotoGallery({ photos: [item.judicialResolutionEvidence!], index: 0, title: "Resolución judicial" })}>Ver</button></div>}{!rescheduleDocuments.length && !item.judicialOutcomeEvidence && !item.judicialResolutionEvidence && <p className="judicial-document-empty">Todavía no hay evidencia judicial adjunta.</p>}</div></article>
                     <article className="judicial-document-card"><div className="judicial-document-card-head"><div><small>Costos y seguro</small><strong>Factura y daños asegurados</strong></div><span className={item.expenseInvoice?.attachment || item.insuranceClaim?.photos.length ? "is-ready" : "is-missing"}>{(item.expenseInvoice?.attachment ? 1 : 0) + (item.insuranceClaim?.photos.length ?? 0)} archivos</span></div><div className="judicial-document-list">{item.expenseInvoice?.attachment && <div className="judicial-document-file"><span><strong>Factura de taller</strong><small>{item.expenseInvoice.attachment.name}</small></span><button type="button" className="button" onClick={() => void viewExpenseInvoice(item.expenseInvoice!.attachment!)}>Ver</button></div>}{item.insuranceClaim?.photos.map((photo, index) => <div className="judicial-document-file" key={photo.path}><span><strong>Daño para seguro {index + 1}</strong><small>{photo.name}</small></span><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.insuranceClaim!.photos, index, title: "Fotos del reclamo al seguro" })}>Ver</button></div>)}{!item.expenseInvoice?.attachment && !item.insuranceClaim?.photos.length && <p className="judicial-document-empty">No hay facturas ni fotos del reclamo.</p>}</div></article>
                   </div>
@@ -1704,19 +1672,14 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                 </div>}
                 </div>}
                 {activeWorkspaceTab === "follow_up" && <section className="judicial-follow-up-panel judicial-case-tab-panel" role="tabpanel" id={`judicial-follow-up-panel-${item.id}`} aria-labelledby={`judicial-follow-up-tab-${item.id}`}>
-                  <div className="judicial-follow-up-head"><div><strong>Notas del expediente</strong><span>Registra cada nota sin reemplazar las anteriores.</span></div><b>{item.judicialFollowUps.length} {item.judicialFollowUps.length === 1 ? "nota" : "notas"}</b></div>
+                  <div className="judicial-follow-up-head"><div><strong>Notas del expediente</strong><span>Agrega contexto sin modificar el paso pendiente del siniestro.</span></div><b>{item.judicialFollowUps.length} {item.judicialFollowUps.length === 1 ? "nota" : "notas"}</b></div>
                   {!isFinalStatus(item.status) && <div className="judicial-follow-up-form">
                     <label className="judicial-follow-up-comment">Nueva nota<textarea value={followUpDraft.comment} placeholder="Ej. Se llamó al juzgado y se confirmó la recepción de documentos" onChange={(event) => setJudicialFollowUpDrafts((current) => ({ ...current, [item.id]: { ...followUpDraft, comment: event.target.value } }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /></label>
-                    <label>Próximo paso<input value={followUpDraft.nextStep} placeholder="Ej. Entregar copia autenticada" onChange={(event) => setJudicialFollowUpDrafts((current) => ({ ...current, [item.id]: { ...followUpDraft, nextStep: event.target.value } }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /></label>
-                    <label>Próxima gestión<input type="date" min={today} value={followUpDraft.nextActionDate} onChange={(event) => setJudicialFollowUpDrafts((current) => ({ ...current, [item.id]: { ...followUpDraft, nextActionDate: event.target.value } }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /></label>
-                    <button type="button" className="button primary" onClick={() => void saveJudicialFollowUp(item)} disabled={readOnly || judicialFollowUpSavingId === item.id || !followUpDraft.comment.trim() || !followUpDraft.nextStep.trim() || !followUpDraft.nextActionDate}>{judicialFollowUpSavingId === item.id ? "Guardando..." : "Guardar nota"}</button>
+                    <button type="button" className="button primary" onClick={() => void saveJudicialFollowUp(item)} disabled={readOnly || judicialFollowUpSavingId === item.id || !followUpDraft.comment.trim()}>{judicialFollowUpSavingId === item.id ? "Guardando..." : "Guardar nota"}</button>
                   </div>}
-                  {item.judicialFollowUps.length > 0 ? <ol className="judicial-follow-up-history">{[...item.judicialFollowUps].reverse().map((entry) => <li key={entry.id} className={entry.completedAt ? "is-completed" : "is-pending"}>
-                    <div><time>{new Date(entry.createdAt).toLocaleString("es-PA")}</time><span className="judicial-follow-up-status">{entry.completedAt ? `✓ Realizada · ${new Date(entry.completedAt).toLocaleString("es-PA")}` : `Pendiente · ${entry.nextActionDate}`}</span></div>
+                  {item.judicialFollowUps.length > 0 ? <ol className="judicial-follow-up-history">{[...item.judicialFollowUps].reverse().map((entry) => <li key={entry.id}>
+                    <div><time>{new Date(entry.createdAt).toLocaleString("es-PA")}</time><span className="judicial-follow-up-status">Nota</span></div>
                     <p>{entry.comment}</p>
-                    {entry.nextStep && <small>Próximo paso: <strong>{entry.nextStep}</strong></small>}
-                    {entry.completedAt && entry.completionComment && <small className="judicial-follow-up-result">Resultado: <strong>{entry.completionComment}</strong></small>}
-                    {!entry.completedAt && !isFinalStatus(item.status) && <div className="judicial-follow-up-complete-action"><input aria-label={`Resultado del seguimiento ${entry.nextStep}`} value={judicialFollowUpCompletionDrafts[entry.id] ?? ""} placeholder="Resultado opcional de la gestión" onChange={(event) => setJudicialFollowUpCompletionDrafts((current) => ({ ...current, [entry.id]: event.target.value }))} disabled={readOnly || judicialFollowUpSavingId === item.id} /><button type="button" className="button" onClick={() => void completeJudicialFollowUp(item, entry.id)} disabled={readOnly || judicialFollowUpSavingId === item.id}>{judicialFollowUpSavingId === item.id ? "Guardando..." : "Marcar como realizado"}</button></div>}
                   </li>)}</ol> : <p className="judicial-follow-up-empty">Todavía no hay notas registradas en este expediente.</p>}
                 </section>}
                 {activeWorkspaceTab === "history" && <section className="judicial-case-tab-panel judicial-history-panel" role="tabpanel" id={`judicial-history-panel-${item.id}`} aria-labelledby={`judicial-history-tab-${item.id}`}>

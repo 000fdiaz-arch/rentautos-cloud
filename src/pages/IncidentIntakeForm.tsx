@@ -60,6 +60,8 @@ type IntakeForm = {
   documentationAvailable: IncidentDocumentationAvailability;
   fudPhysicalDeliveryDate: string;
 };
+type IntakeStep = 1 | 2 | 3;
+type CommonField = "incidentDate" | "unit" | "driver" | "plate" | "vehicleDamage";
 
 const EMPTY_FORM: IntakeForm = {
   incidentDate: "", unit: "", driver: "", plate: "", vehicleDamage: "",
@@ -89,11 +91,17 @@ function courtsFromCases(cases: CollisionCaseRecord[]): string[] {
 }
 
 export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJudicial, canEditJudicial, canViewInsurance, canEditInsurance, embedded = false, onSaved }: Props) {
+  const [intakeStep, setIntakeStep] = useState<IntakeStep>(1);
   const [destination, setDestination] = useState<IncidentDestination | "">("");
   const [form, setForm] = useState<IntakeForm>(EMPTY_FORM);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<CommonField, string>>>({});
   const [driverEditedManually, setDriverEditedManually] = useState(false);
   const [insurers, setInsurers] = useState<string[]>([]);
   const [courts, setCourts] = useState<string[]>([]);
+  const [addingInsurer, setAddingInsurer] = useState(false);
+  const [newInsurerDraft, setNewInsurerDraft] = useState("");
+  const [addingCourt, setAddingCourt] = useState(false);
+  const [newCourtDraft, setNewCourtDraft] = useState("");
   const [damagePhotoFiles, setDamagePhotoFiles] = useState<File[]>([]);
   const [judicialPhotoFiles, setJudicialPhotoFiles] = useState<File[]>([]);
   const [ticketStubPhotoFile, setTicketStubPhotoFile] = useState<File | null>(null);
@@ -151,7 +159,15 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
   }, [clientsByUnit, driverEditedManually, fleetUnitsByUnit, form.driver, form.plate, form.unit]);
 
   const readOnly = destination === "judicial" ? !canEditJudicial : destination === "insurance" ? !canEditInsurance : true;
-  function patchForm(patch: Partial<IntakeForm>): void { setForm((current) => ({ ...current, ...patch })); }
+  const canEditAnyDestination = (canViewJudicial && canEditJudicial) || (canViewInsurance && canEditInsurance);
+  function patchForm(patch: Partial<IntakeForm>): void {
+    setForm((current) => ({ ...current, ...patch }));
+    setFieldErrors((current) => {
+      const next = { ...current };
+      Object.keys(patch).forEach((key) => { delete next[key as CommonField]; });
+      return next;
+    });
+  }
   function handleUnitChange(value: string): void {
     const unit = normalizeUnit(value);
     const fleetUnit = fleetUnitsByUnit.get(unit);
@@ -160,8 +176,15 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     patchForm({ unit, driver: fleetUnit?.client_name ?? client?.name ?? "", plate: fleetUnit?.plate ?? "" });
   }
   function selectDestination(next: IncidentDestination): void {
-    setDestination((current) => current === next ? "" : next);
+    setDestination(next);
     setMessage("");
+  }
+
+  function focusFirstInvalidField(): void {
+    window.setTimeout(() => {
+      const firstInvalid = document.querySelector<HTMLElement>('.incident-intake-form [aria-invalid="true"]');
+      firstInvalid?.focus();
+    });
   }
 
   function handleDamagePhotosChange(files: FileList | null): void {
@@ -228,30 +251,69 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
   }
 
   async function addInsurer(): Promise<void> {
+    if (readOnly) return;
+    setAddingInsurer(true);
+    setNewInsurerDraft("");
+  }
+
+  async function saveNewInsurer(): Promise<void> {
     if (!dataOwnerUserId || readOnly) return;
-    const insurer = normalizeInsurer(window.prompt("Nombre de la nueva aseguradora") ?? "");
+    const insurer = normalizeInsurer(newInsurerDraft);
     if (!insurer) return;
     try {
       await saveInsuranceInsurer(dataOwnerUserId, insurer);
       setInsurers((current) => [...new Set([...current, insurer])].sort((a, b) => a.localeCompare(b, "es")));
       patchForm({ insurer });
+      setAddingInsurer(false);
+      setNewInsurerDraft("");
     } catch (error) { console.error("No se pudo guardar la aseguradora.", error); setMessage("No se pudo guardar la aseguradora."); }
   }
 
   function addCourt(): void {
     if (readOnly) return;
-    const court = normalizeCourtName(window.prompt("Nombre del nuevo juzgado") ?? "");
+    setAddingCourt(true);
+    setNewCourtDraft("");
+  }
+
+  function saveNewCourt(): void {
+    if (readOnly) return;
+    const court = normalizeCourtName(newCourtDraft);
     if (!court) return;
     setCourts((current) => [...new Set([...current, court])].sort((a, b) => a.localeCompare(b, "es", { numeric: true })));
     patchForm({ court });
+    setAddingCourt(false);
+    setNewCourtDraft("");
   }
 
   function validateCommonFields(): boolean {
-    if (!form.incidentDate || !form.unit.trim() || !form.driver.trim() || !form.plate.trim() || !form.vehicleDamage.trim()) {
+    const errors: Partial<Record<CommonField, string>> = {};
+    if (!form.incidentDate) errors.incidentDate = "Indica la fecha de la colisión.";
+    if (!form.unit.trim()) errors.unit = "Selecciona o escribe la unidad.";
+    if (!form.driver.trim()) errors.driver = "Escribe el nombre del conductor.";
+    if (!form.plate.trim()) errors.plate = "Escribe la placa del vehículo.";
+    if (!form.vehicleDamage.trim()) errors.vehicleDamage = "Describe brevemente los daños.";
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
       setMessage("Completa fecha del incidente, unidad, chofer, placa y daños del auto.");
+      focusFirstInvalidField();
       return false;
     }
     return true;
+  }
+
+  function continueFromCommonFields(): void {
+    if (!validateCommonFields()) return;
+    setMessage("");
+    setIntakeStep(2);
+  }
+
+  function continueFromDestination(): void {
+    if (!destination) {
+      setMessage("Responde si la colisión debe pasar por un juzgado o va directamente a la aseguradora.");
+      return;
+    }
+    setMessage("");
+    setIntakeStep(3);
   }
 
   async function saveIncident(): Promise<void> {
@@ -335,47 +397,73 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
   return (
     <form className={`panel workflow-form-panel incident-intake-form${embedded ? " incident-intake-form--embedded" : ""}`} onSubmit={(event) => { event.preventDefault(); void saveIncident(); }}>
       {!embedded && <div className="panel-head"><div><span className="workflow-eyebrow">Nueva colisión</span><h2>Registrar colisión</h2></div></div>}
-      <fieldset className="incident-destination-fieldset">
-        <legend>¿Qué proceso corresponde a esta colisión?</legend>
-        <div className="incident-destination-options">
-          {canViewJudicial && <button type="button" className={destination === "judicial" ? "active" : ""} aria-pressed={destination === "judicial"} onClick={() => selectDestination("judicial")}><span>Juicio</span></button>}
-          {canViewInsurance && <button type="button" className={destination === "insurance" ? "active" : ""} aria-pressed={destination === "insurance"} onClick={() => selectDestination("insurance")}><span>Reclamo al seguro</span></button>}
-        </div>
-      </fieldset>
-      {readOnly && destination && <p className="hint workflow-message">Modo lectura: no tienes permiso para registrar datos en este flujo.</p>}
+      <ol className="incident-intake-progress" aria-label={`Paso ${intakeStep} de 3`}>
+        {["Datos de la colisión", "Destino del caso", "Documentos y confirmación"].map((label, index) => <li key={label} className={intakeStep === index + 1 ? "active" : intakeStep > index + 1 ? "complete" : ""}><b>{intakeStep > index + 1 ? "✓" : index + 1}</b><span>{label}</span></li>)}
+      </ol>
       {fleetLoading && <p className="hint workflow-message">Cargando autos...</p>}{fleetLoadError && <p className="hint workflow-message">{fleetLoadError}</p>}
-      {destination && <section className={`incident-form-section incident-form-section--${destination}`}>
-        <div className="incident-form-section-title"><strong>{destination === "judicial" ? "Formulario de juicio" : "Formulario de reclamo al seguro"}</strong><small>Completa los datos del incidente y de la gestión seleccionada.</small></div>
+
+      {intakeStep === 1 && <section className="incident-form-section">
+        <div className="incident-form-section-title"><strong>Paso 1 · Datos de la colisión</strong><small>Primero identifica el vehículo, el conductor y lo ocurrido.</small></div>
         <div className="workflow-form-grid">
-          <label>Fecha del incidente<input type="date" value={form.incidentDate} onChange={(event) => patchForm({ incidentDate: event.target.value })} disabled={readOnly} /></label>
-          <label>Unidad<input list="incident-unit-options" placeholder="Ej. B52" value={form.unit} onChange={(event) => handleUnitChange(event.target.value)} disabled={readOnly} /><datalist id="incident-unit-options">{unitOptions.map((unitId) => <option key={unitId} value={unitId} label={unitOptionLabels.get(unitId) ?? ""} />)}</datalist></label>
-          <label>Conductor al momento del incidente<input value={form.driver} placeholder="Nombre completo" onChange={(event) => { setDriverEditedManually(true); patchForm({ driver: event.target.value }); }} disabled={readOnly} /></label>
-          <label>Placa<input value={form.plate} placeholder="Placa del auto" onChange={(event) => patchForm({ plate: event.target.value })} disabled={readOnly} /></label>
-          <label className="workflow-form-notes">Daños del auto<textarea value={form.vehicleDamage} placeholder="Describe los daños del auto" onChange={(event) => patchForm({ vehicleDamage: event.target.value })} disabled={readOnly} /></label>
-          <div className={`workflow-claim-number-question${!form.documentationAvailable ? " is-pending" : ""}`}><div><strong>{destination === "judicial" ? "¿Ya recibiste la colilla?" : "¿El FUD original ya fue entregado presencialmente?"}</strong><small>{destination === "judicial" ? "Si todavía no la tienes, guardaremos el caso y activaremos las alertas de seguimiento." : "La entrega debe realizarse en persona. Una foto o PDF no sustituye la entrega física del original."}</small></div><select value={form.documentationAvailable} onChange={(event) => { const documentationAvailable = event.target.value as IntakeForm["documentationAvailable"]; patchForm({ documentationAvailable, ...(destination === "insurance" && documentationAvailable !== "yes" ? { fudPhysicalDeliveryDate: "", insurer: "", hasClaimNumber: "", claimNumber: "", amount: "" } : {}) }); }} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">{destination === "insurance" ? "Sí, fue entregado presencialmente" : "Sí, ya la recibí"}</option><option value="no">{destination === "insurance" ? "No, está pendiente de entrega presencial" : "No, está pendiente"}</option></select></div>
+          <label className="workflow-required-field">Fecha del incidente <small>Obligatorio</small><input aria-invalid={Boolean(fieldErrors.incidentDate)} type="date" value={form.incidentDate} onChange={(event) => patchForm({ incidentDate: event.target.value })} disabled={!canEditAnyDestination} />{fieldErrors.incidentDate && <span className="workflow-field-error">{fieldErrors.incidentDate}</span>}</label>
+          <label className="workflow-required-field">Unidad <small>Obligatorio</small><input aria-invalid={Boolean(fieldErrors.unit)} list="incident-unit-options" placeholder="Ej. B52" value={form.unit} onChange={(event) => handleUnitChange(event.target.value)} disabled={!canEditAnyDestination} /><datalist id="incident-unit-options">{unitOptions.map((unitId) => <option key={unitId} value={unitId} label={unitOptionLabels.get(unitId) ?? ""} />)}</datalist>{fieldErrors.unit && <span className="workflow-field-error">{fieldErrors.unit}</span>}</label>
+          <label className="workflow-required-field">Conductor al momento del incidente <small>Obligatorio</small><input aria-invalid={Boolean(fieldErrors.driver)} value={form.driver} placeholder="Nombre completo" onChange={(event) => { setDriverEditedManually(true); patchForm({ driver: event.target.value }); }} disabled={!canEditAnyDestination} />{fieldErrors.driver && <span className="workflow-field-error">{fieldErrors.driver}</span>}</label>
+          <label className="workflow-required-field">Placa <small>Obligatorio</small><input aria-invalid={Boolean(fieldErrors.plate)} value={form.plate} placeholder="Placa del auto" onChange={(event) => patchForm({ plate: event.target.value })} disabled={!canEditAnyDestination} />{fieldErrors.plate && <span className="workflow-field-error">{fieldErrors.plate}</span>}</label>
+          <label className="workflow-form-notes workflow-required-field">Daños del auto <small>Obligatorio · escribe una descripción breve</small><textarea aria-invalid={Boolean(fieldErrors.vehicleDamage)} value={form.vehicleDamage} placeholder="Ej. Golpe en la puerta delantera derecha" onChange={(event) => patchForm({ vehicleDamage: event.target.value })} disabled={!canEditAnyDestination} />{fieldErrors.vehicleDamage && <span className="workflow-field-error">{fieldErrors.vehicleDamage}</span>}</label>
+        </div>
+      </section>}
+
+      {intakeStep === 2 && <fieldset className="incident-destination-fieldset incident-destination-guided">
+        <legend>Paso 2 · ¿La colisión debe pasar por un juzgado?</legend>
+        <p>Escoge la respuesta que mejor describe el caso. El sistema abrirá el proceso correcto.</p>
+        <div className="incident-destination-options">
+          {canViewJudicial && <button type="button" className={destination === "judicial" ? "active" : ""} aria-pressed={destination === "judicial"} onClick={() => selectDestination("judicial")}><span>Sí, requiere juicio</span><small>Hay una colilla, citación o intervención de la ATTT y el caso debe continuar por el juzgado.</small></button>}
+          {canViewInsurance && <button type="button" className={destination === "insurance" ? "active" : ""} aria-pressed={destination === "insurance"} onClick={() => selectDestination("insurance")}><span>No, va directo al seguro</span><small>No requiere juicio y se gestionará directamente con la aseguradora.</small></button>}
+        </div>
+        {destination && <div className="incident-destination-result"><b>Proceso seleccionado:</b> {destination === "judicial" ? "Gestión judicial" : "Reclamo directo al seguro"}</div>}
+      </fieldset>}
+
+      {intakeStep === 3 && destination && <section className={`incident-form-section incident-form-section--${destination}`}>
+        <div className="incident-form-section-title"><strong>Paso 3 · Documentos y confirmación</strong><small>{destination === "judicial" ? "Completa los datos disponibles de la colilla y del juicio." : "Completa los datos disponibles del FUD y del reclamo."}</small></div>
+        {readOnly && <p className="hint workflow-message">Modo lectura: no tienes permiso para registrar datos en este flujo.</p>}
+        <div className="workflow-form-grid">
+          <div className={`workflow-claim-number-question workflow-required-field${!form.documentationAvailable ? " is-pending" : ""}`}><div><strong>{destination === "judicial" ? "¿Ya recibiste la colilla?" : "¿El FUD original ya fue entregado presencialmente?"}</strong><small>{destination === "judicial" ? "La colilla es el volante o desprendible físico que entrega el inspector de tránsito o la Policía durante la colisión, emitido por la ATTT." : "FUD significa Formato Único y Definitivo para Accidentes de Tránsito Menor. El original debe entregarse presencialmente."}</small></div><select value={form.documentationAvailable} onChange={(event) => { const documentationAvailable = event.target.value as IntakeForm["documentationAvailable"]; patchForm({ documentationAvailable, ...(destination === "insurance" && documentationAvailable !== "yes" ? { fudPhysicalDeliveryDate: "", insurer: "", hasClaimNumber: "", claimNumber: "", amount: "" } : {}) }); }} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">{destination === "insurance" ? "Sí, fue entregado presencialmente" : "Sí, ya la recibí"}</option><option value="no">{destination === "insurance" ? "No, está pendiente de entrega presencial" : "No, está pendiente"}</option></select></div>
           {destination === "judicial" ? <>
-            {form.documentationAvailable === "yes" && <><label>Fecha de juicio<input type="date" value={form.trialDate} onChange={(event) => patchForm({ trialDate: event.target.value })} disabled={readOnly} /></label>
-            <label>Colilla<input value={form.ticketStub} placeholder="Número o referencia" onChange={(event) => patchForm({ ticketStub: event.target.value })} disabled={readOnly} /></label>
-            <label>Foto de la colilla<input type="file" accept="image/*" onChange={(event) => handleTicketStubPhotoChange(event.target.files?.[0])} disabled={readOnly || saving} /><span className="hint">{ticketStubPhotoFile ? `Seleccionada: ${ticketStubPhotoFile.name}` : "Adjunta una foto de la colilla."} Máximo 10 MB.</span></label>
-            <label>Hora<input type="time" value={form.placeTime} onChange={(event) => patchForm({ placeTime: event.target.value })} disabled={readOnly} /></label>
-            <label>Juzgado<select value={form.court} onChange={(event) => event.target.value === "__new__" ? addCourt() : patchForm({ court: event.target.value })} disabled={readOnly}><option value="">Seleccionar juzgado</option>{courts.map((court) => <option key={court}>{court}</option>)}<option value="__new__">+ Nuevo juzgado</option></select></label></>}
-            <label className="collision-runaway-option"><input type="checkbox" checked={form.collisionAndRun} onChange={(event) => patchForm({ collisionAndRun: event.target.checked })} disabled={readOnly} /><span><strong>Colisión y fuga</strong><small>El conductor abandonó el lugar.</small></span></label>
-            <label className="workflow-form-notes workflow-form-damage-photos">Fotos del siniestro<input type="file" accept="image/*" multiple onChange={(event) => handleJudicialPhotosChange(event.target.files)} disabled={readOnly || saving} /><span className="hint">{judicialPhotoFiles.length ? `${judicialPhotoFiles.length} ${judicialPhotoFiles.length === 1 ? "foto seleccionada" : "fotos seleccionadas"}.` : "Puedes adjuntar todas las fotos necesarias."} Máximo 10 MB por foto.</span></label>
+            {form.documentationAvailable === "yes" && <><label className="workflow-required-field">Fecha de juicio <small>Obligatorio</small><input type="date" value={form.trialDate} onChange={(event) => patchForm({ trialDate: event.target.value })} disabled={readOnly} /></label>
+            <label className="workflow-required-field">Número o referencia de la colilla <small>Obligatorio</small><input value={form.ticketStub} placeholder="Número o referencia" onChange={(event) => patchForm({ ticketStub: event.target.value })} disabled={readOnly} /></label>
+            <label>Foto de la colilla <small>Opcional</small><input type="file" accept="image/*" onChange={(event) => handleTicketStubPhotoChange(event.target.files?.[0])} disabled={readOnly || saving} /><span className="hint">{ticketStubPhotoFile ? `Seleccionada: ${ticketStubPhotoFile.name}` : "Adjunta una foto si la tienes."} Máximo 10 MB.</span></label>
+            <label className="workflow-required-field">Hora del juicio <small>Obligatorio</small><input type="time" value={form.placeTime} onChange={(event) => patchForm({ placeTime: event.target.value })} disabled={readOnly} /></label>
+            <label className="workflow-required-field">Juzgado <small>Obligatorio</small><select value={form.court} onChange={(event) => event.target.value === "__new__" ? addCourt() : patchForm({ court: event.target.value })} disabled={readOnly}><option value="">Seleccionar juzgado</option>{courts.map((court) => <option key={court}>{court}</option>)}<option value="__new__">+ Nuevo juzgado</option></select></label>
+            {addingCourt && <div className="incident-inline-create workflow-form-notes"><label>Nombre del nuevo juzgado<input autoFocus value={newCourtDraft} onChange={(event) => setNewCourtDraft(event.target.value)} placeholder="Ej. Juzgado de Tránsito de Panamá" /></label><div><button type="button" className="button" onClick={() => { setAddingCourt(false); setNewCourtDraft(""); }}>Cancelar</button><button type="button" className="button primary" onClick={() => void saveNewCourt()} disabled={!newCourtDraft.trim()}>Agregar juzgado</button></div></div>}</>}
+            {form.documentationAvailable === "no" && <div className="workflow-finalization-panel collision-documentation-pending"><div><strong>La colilla está pendiente</strong><span>El caso se guardará y quedará marcado para completar la documentación después.</span></div></div>}
+            <label className="collision-runaway-option"><input type="checkbox" checked={form.collisionAndRun} onChange={(event) => patchForm({ collisionAndRun: event.target.checked })} disabled={readOnly} /><span><strong>Colisión y fuga</strong><small>Márcalo solamente si el otro conductor abandonó el lugar.</small></span></label>
+            <label className="workflow-form-notes workflow-form-damage-photos">Fotos del siniestro <small>Opcional</small><input type="file" accept="image/*" multiple onChange={(event) => handleJudicialPhotosChange(event.target.files)} disabled={readOnly || saving} /><span className="hint">{judicialPhotoFiles.length ? `${judicialPhotoFiles.length} ${judicialPhotoFiles.length === 1 ? "foto seleccionada" : "fotos seleccionadas"}.` : "Puedes adjuntar todas las fotos necesarias."} Máximo 10 MB por foto.</span></label>
           </> : <>
             {form.documentationAvailable === "no" && <div className="workflow-finalization-panel insurance-documentation-pending"><div><strong>Datos del FUD pendientes</strong><span>El siniestro se guardará ahora. Cuando recibas el FUD, usa “Completar FUD” para registrar aseguradora, monto, número de reclamo, entrega presencial y copia digital.</span></div></div>}
             {form.documentationAvailable === "yes" && <>
-              <label>Fecha de entrega presencial<input type="date" value={form.fudPhysicalDeliveryDate} onChange={(event) => patchForm({ fudPhysicalDeliveryDate: event.target.value })} disabled={readOnly} required /></label>
-              <label className="workflow-form-notes">Copia digital del FUD entregado<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => handleFudChange(event.target.files?.[0])} disabled={readOnly || saving} required /><span className="hint">{fudFile ? `Seleccionado: ${fudFile.name}` : "Después de recibir el original presencialmente, adjunta una foto o PDF para el expediente."} Máximo 10 MB.</span></label>
-              <div className={`workflow-claim-number-question${!form.hasClaimNumber ? " is-pending" : ""}`}><div><strong>¿Tienes el número de reclamo?</strong><small>Define si el reclamo inicia activo o pendiente.</small></div><select value={form.hasClaimNumber} onChange={(event) => { const hasClaimNumber = event.target.value as IntakeForm["hasClaimNumber"]; patchForm({ hasClaimNumber, ...(hasClaimNumber !== "yes" ? { claimNumber: "" } : {}) }); }} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">Sí, tengo el número</option><option value="no">No, todavía no lo tengo</option></select></div>
-              {form.hasClaimNumber === "yes" && <label className="workflow-claim-number-input">Número de reclamo<input value={form.claimNumber} placeholder="Escribe el número" onChange={(event) => patchForm({ claimNumber: event.target.value })} disabled={readOnly} /></label>}
-              <label>Aseguradora<select value={form.insurer} onChange={(event) => event.target.value === "__new__" ? void addInsurer() : patchForm({ insurer: event.target.value })} disabled={readOnly}><option value="">Seleccionar aseguradora</option>{insurers.map((insurer) => <option key={insurer}>{insurer}</option>)}<option value="__new__">+ Nueva aseguradora</option></select></label>
-              <label>Monto<input type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={(event) => patchForm({ amount: event.target.value })} disabled={readOnly} required /></label>
+              <label className="workflow-required-field">Fecha de entrega presencial <small>Obligatorio</small><input type="date" value={form.fudPhysicalDeliveryDate} onChange={(event) => patchForm({ fudPhysicalDeliveryDate: event.target.value })} disabled={readOnly} required /></label>
+              <label className="workflow-form-notes workflow-required-field">Copia digital del FUD entregado <small>Obligatorio</small><input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => handleFudChange(event.target.files?.[0])} disabled={readOnly || saving} required /><span className="hint">{fudFile ? `Seleccionado: ${fudFile.name}` : "Después de recibir el original presencialmente, adjunta una foto o PDF para el expediente."} Una foto o PDF no sustituye la entrega física del original. Máximo 10 MB.</span></label>
+              <div className={`workflow-claim-number-question workflow-required-field${!form.hasClaimNumber ? " is-pending" : ""}`}><div><strong>¿Ya tienes el número asignado por la aseguradora?</strong><small>Si todavía no lo tienes, el caso quedará como “Falta información” hasta registrarlo.</small></div><select value={form.hasClaimNumber} onChange={(event) => { const hasClaimNumber = event.target.value as IntakeForm["hasClaimNumber"]; patchForm({ hasClaimNumber, ...(hasClaimNumber !== "yes" ? { claimNumber: "" } : {}) }); }} disabled={readOnly}><option value="">Seleccionar Sí o No</option><option value="yes">Sí, tengo el número</option><option value="no">No, todavía no lo tengo</option></select></div>
+              {form.hasClaimNumber === "yes" && <label className="workflow-claim-number-input workflow-required-field">Número de reclamo <small>Obligatorio</small><input value={form.claimNumber} placeholder="Escribe el número" onChange={(event) => patchForm({ claimNumber: event.target.value })} disabled={readOnly} /></label>}
+              <label className="workflow-required-field">Aseguradora <small>Obligatorio</small><select value={form.insurer} onChange={(event) => event.target.value === "__new__" ? void addInsurer() : patchForm({ insurer: event.target.value })} disabled={readOnly}><option value="">Seleccionar aseguradora</option>{insurers.map((insurer) => <option key={insurer}>{insurer}</option>)}<option value="__new__">+ Nueva aseguradora</option></select></label>
+              {addingInsurer && <div className="incident-inline-create workflow-form-notes"><label>Nombre de la nueva aseguradora<input autoFocus value={newInsurerDraft} onChange={(event) => setNewInsurerDraft(event.target.value)} placeholder="Ej. Seguros Panamá" /></label><div><button type="button" className="button" onClick={() => { setAddingInsurer(false); setNewInsurerDraft(""); }}>Cancelar</button><button type="button" className="button primary" onClick={() => void saveNewInsurer()} disabled={!newInsurerDraft.trim()}>Agregar aseguradora</button></div></div>}
+              <label className="workflow-required-field">Monto reclamado <small>Obligatorio</small><input type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={(event) => patchForm({ amount: event.target.value })} disabled={readOnly} required /></label>
             </>}
-            <label className="workflow-form-notes workflow-form-damage-photos">Fotos de los daños<input type="file" accept="image/*" multiple onChange={(event) => handleDamagePhotosChange(event.target.files)} disabled={readOnly || saving} /><span className="hint">{damagePhotoFiles.length} de {MAX_DAMAGE_PHOTOS} fotos seleccionadas. Máximo 10 MB por foto.</span></label>
+            <label className="workflow-form-notes workflow-form-damage-photos">Fotos de los daños <small>Opcional</small><input type="file" accept="image/*" multiple onChange={(event) => handleDamagePhotosChange(event.target.files)} disabled={readOnly || saving} /><span className="hint">{damagePhotoFiles.length} de {MAX_DAMAGE_PHOTOS} fotos seleccionadas. Máximo 10 MB por foto.</span></label>
           </>}
         </div>
+        <div className="incident-intake-review"><small>Revisa antes de guardar</small><strong>{form.unit} · {form.driver}</strong><span>{destination === "judicial" ? "Proceso judicial" : "Reclamo directo al seguro"} · Incidente del {form.incidentDate}</span></div>
       </section>}
-      {destination && <div className="incident-form-submit">{message && <p className="hint workflow-message" role="alert">{message}</p>}<div className="workflow-form-actions"><button type="submit" className="button primary" disabled={readOnly || saving}>{saving ? "Guardando..." : "Guardar siniestro"}</button></div></div>}
+
+      <div className="incident-form-submit">
+        {message && <p className="hint workflow-message" role="alert">{message}</p>}
+        <div className="workflow-form-actions incident-intake-actions">
+          {intakeStep > 1 && <button type="button" className="button" onClick={() => { setMessage(""); setIntakeStep((intakeStep - 1) as IntakeStep); }} disabled={saving}>Atrás</button>}
+          {intakeStep === 1 && <button type="button" className="button primary" onClick={continueFromCommonFields} disabled={!canEditAnyDestination}>Continuar</button>}
+          {intakeStep === 2 && <button type="button" className="button primary" onClick={continueFromDestination} disabled={!destination}>Continuar</button>}
+          {intakeStep === 3 && <button type="submit" className="button primary" disabled={readOnly || saving}>{saving ? "Guardando..." : "Guardar siniestro"}</button>}
+        </div>
+      </div>
     </form>
   );
 }

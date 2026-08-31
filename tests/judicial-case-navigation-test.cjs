@@ -50,7 +50,7 @@ assertEqual(defaultJudicialCaseTab(judicialCase({
 
 assertEqual(defaultJudicialCaseTab(judicialCase({
   judicialFollowUps: [{ nextActionDate: "2026-08-15" }]
-}), "2026-08-15"), "follow_up", "seguimiento vencido abre Seguimiento");
+}), "2026-08-15"), "summary", "una nota anterior no reemplaza el paso actual");
 
 assertEqual(defaultJudicialCaseTab(judicialCase({
   judicialFollowUps: [{ nextActionDate: "2026-08-14", completedAt: "2026-08-15T09:00:00Z" }]

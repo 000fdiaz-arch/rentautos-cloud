@@ -20,13 +20,6 @@ function shiftDateKey(dateKey: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-function latestPendingFollowUp<T extends { completedAt?: string | null }>(entries: T[]): T | undefined {
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    if (!entries[index].completedAt) return entries[index];
-  }
-  return undefined;
-}
-
 export function insuranceActionForReceivables(
   claim: InsuranceClaimRecord,
   todayDateKey: string
@@ -39,16 +32,7 @@ export function insuranceActionForReceivables(
   if (claim.status === "Finalizado") return null;
   if (!claim.claimNumber.trim()) return { ...base, label: "Agregar número de reclamo", date: "", urgent: true };
   if (claim.settlementDelivered) return { ...base, label: "Finalizar reclamo", date: claim.settlementDeliveredDate, urgent: true };
-  const latestFollowUp = latestPendingFollowUp(claim.followUps);
-  if (!latestFollowUp) return claim.followUps.length > 0
-    ? { ...base, label: "Definir próximo seguimiento del seguro", date: "", urgent: false }
-    : { ...base, label: "Registrar seguimiento del seguro", date: "", urgent: true };
-  return {
-    ...base,
-    label: latestFollowUp.nextStep || "Dar seguimiento al reclamo",
-    date: latestFollowUp.nextActionDate,
-    urgent: Boolean(latestFollowUp.nextActionDate && latestFollowUp.nextActionDate <= todayDateKey)
-  };
+  return { ...base, label: "Dar seguimiento y gestionar finiquito", date: "", urgent: false };
 }
 
 export function collisionActionForReceivables(
@@ -82,15 +66,6 @@ export function collisionActionForReceivables(
       label: "Confirmar si el cliente irá y si se pidió asistencia legal",
       date: deadline,
       urgent: Boolean(deadline && deadline <= todayDateKey)
-    };
-  }
-  const latestFollowUp = latestPendingFollowUp(collision.judicialFollowUps);
-  if (latestFollowUp) {
-    return {
-      ...base,
-      label: latestFollowUp.nextStep || "Dar seguimiento al juicio",
-      date: latestFollowUp.nextActionDate,
-      urgent: Boolean(latestFollowUp.nextActionDate && latestFollowUp.nextActionDate <= todayDateKey)
     };
   }
   if (!collision.trialDate) return { ...base, label: "Asignar fecha de juicio", date: "", urgent: true };

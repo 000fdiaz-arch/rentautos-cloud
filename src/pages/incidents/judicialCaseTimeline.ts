@@ -94,10 +94,10 @@ export function buildJudicialCaseTimeline(item: CollisionCaseRecord): JudicialCa
       occurredAt: eventTimestamp(note.createdAt, fallback),
       title: "Nota agregada",
       description: note.comment,
-      detail: `Próximo paso: ${note.nextStep}${note.nextActionDate ? ` · Próxima gestión: ${note.nextActionDate}` : ""}`,
+      detail: note.nextStep ? `Próximo paso: ${note.nextStep}${note.nextActionDate ? ` · Próxima gestión: ${note.nextActionDate}` : ""}` : undefined,
       tone: "info"
     });
-    if (note.completedAt) {
+    if (note.completedAt && note.nextStep) {
       events.push({
         id: `note-completed-${note.id}`,
         occurredAt: eventTimestamp(note.completedAt, fallback),

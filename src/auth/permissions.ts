@@ -9,7 +9,7 @@ export type Permission =
   | "users.manage"
   | "cash.manage";
 
-export type AppScreen = "leads" | "clients" | "payments" | "receivables" | "route_search" | "insurance_workflow" | "collisions" | "control_units" | "settings" | "users";
+export type AppScreen = "leads" | "clients" | "payments" | "receivables" | "route_search" | "incidents" | "control_units" | "settings" | "users";
 
 export type ScreenAccess = {
   view: boolean;
@@ -25,8 +25,7 @@ export const APP_SCREENS: Array<{ id: AppScreen; label: string }> = [
   { id: "payments", label: "Pagos" },
   { id: "receivables", label: "Cuentas por cobrar" },
   { id: "route_search", label: "Ruta en calle" },
-  { id: "collisions", label: "Juicio por Colisiones y Choques" },
-  { id: "insurance_workflow", label: "Reclamos a seguros" },
+  { id: "incidents", label: "Control de siniestros" },
   { id: "settings", label: "Configuraciones" },
   { id: "users", label: "Usuarios" }
 ];
@@ -62,8 +61,7 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     payments: { view: true, edit: true },
     receivables: { view: true, edit: true },
     route_search: { view: true, edit: true },
-    insurance_workflow: { view: true, edit: true },
-    collisions: { view: true, edit: true },
+    incidents: { view: true, edit: true },
     control_units: { view: true, edit: true },
     settings: { view: true, edit: true },
     users: { view: true, edit: true }
@@ -74,8 +72,7 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     payments: { view: true, edit: true },
     receivables: { view: true, edit: true },
     route_search: { view: true, edit: true },
-    insurance_workflow: { view: true, edit: true },
-    collisions: { view: true, edit: true },
+    incidents: { view: true, edit: true },
     control_units: { view: true, edit: true },
     settings: { view: false, edit: false },
     users: { view: false, edit: false }
@@ -86,8 +83,7 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     payments: { view: false, edit: false },
     receivables: { view: false, edit: false },
     route_search: { view: false, edit: false },
-    insurance_workflow: { view: false, edit: false },
-    collisions: { view: false, edit: false },
+    incidents: { view: false, edit: false },
     control_units: { view: true, edit: false },
     settings: { view: false, edit: false },
     users: { view: false, edit: false }
@@ -98,8 +94,7 @@ export const ROLE_SCREEN_PERMISSIONS: Record<AppRole, AppPermissions> = {
     payments: { view: false, edit: false },
     receivables: { view: false, edit: false },
     route_search: { view: true, edit: false },
-    insurance_workflow: { view: false, edit: false },
-    collisions: { view: false, edit: false },
+    incidents: { view: false, edit: false },
     control_units: { view: false, edit: false },
     settings: { view: false, edit: false },
     users: { view: false, edit: false }
@@ -139,6 +134,15 @@ export function normalizeAppPermissions(role: AppRole, value: unknown): AppPermi
   if (!value || typeof value !== "object" || Array.isArray(value)) return clonePermissions(fallback);
   const record = value as Record<string, unknown>;
   return APP_SCREENS.reduce((acc, screen) => {
+    if (screen.id === "incidents" && !record.incidents) {
+      const legacyCollisions = normalizeScreenAccess(record.collisions, { view: false, edit: false });
+      const legacyInsurance = normalizeScreenAccess(record.insurance_workflow, { view: false, edit: false });
+      const hadLegacyPermission = Boolean(record.collisions || record.insurance_workflow);
+      acc.incidents = hadLegacyPermission
+        ? { view: legacyCollisions.view || legacyInsurance.view, edit: legacyCollisions.edit || legacyInsurance.edit }
+        : { ...fallback.incidents };
+      return acc;
+    }
     acc[screen.id] = normalizeScreenAccess(record[screen.id], fallback[screen.id]);
     return acc;
   }, {} as AppPermissions);
@@ -163,8 +167,7 @@ export function canWriteOperationalData(role: AppRole, permissions = getRoleScre
     canEditScreen(permissions, "receivables") ||
     canEditScreen(permissions, "leads") ||
     canEditScreen(permissions, "route_search") ||
-    canEditScreen(permissions, "insurance_workflow") ||
-    canEditScreen(permissions, "collisions") ||
+    canEditScreen(permissions, "incidents") ||
     canEditScreen(permissions, "control_units")
   );
 }
@@ -184,8 +187,7 @@ export function canUseReadOnlyExperience(role: AppRole, permissions = getRoleScr
     !canEditScreen(permissions, "receivables") &&
     !canEditScreen(permissions, "leads") &&
     !canEditScreen(permissions, "route_search") &&
-    !canEditScreen(permissions, "insurance_workflow") &&
-    !canEditScreen(permissions, "collisions") &&
+    !canEditScreen(permissions, "incidents") &&
     !canEditScreen(permissions, "control_units")
   );
 }

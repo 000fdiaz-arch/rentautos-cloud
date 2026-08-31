@@ -12116,8 +12116,73 @@ button.ar-route-publish-copy.is-active {
   gap: 18px;
 }
 
+.incident-intake-progress {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.incident-intake-progress li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border-bottom: 3px solid #e2e8f0;
+  color: var(--color-text-muted);
+  padding: 0 4px 9px;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.incident-intake-progress li b {
+  display: grid;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.incident-intake-progress li.active {
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.incident-intake-progress li.active b {
+  background: #2563eb;
+  color: #fff;
+}
+
+.incident-intake-progress li.complete {
+  border-color: #22c55e;
+  color: #166534;
+}
+
+.incident-intake-progress li.complete b {
+  background: #dcfce7;
+  color: #166534;
+}
+
 .incident-intake-form .panel-head h2 {
   margin: 2px 0 0;
+}
+
+.incident-save-confirmation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #86efac;
+  border-radius: 10px;
+  background: #f0fdf4;
+  color: #166534;
+  padding: 11px 14px;
+  font-weight: 800;
 }
 
 .incident-registration-modal {
@@ -12167,6 +12232,84 @@ button.ar-route-publish-copy.is-active {
   text-align: center;
 }
 
+.incident-destination-guided > p {
+  margin: 0 0 12px;
+  color: var(--color-text-muted);
+}
+
+.incident-destination-guided .incident-destination-options {
+  width: 100%;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.incident-destination-guided .incident-destination-options button {
+  display: grid;
+  gap: 6px;
+  min-height: 108px;
+  border: 2px solid var(--color-border);
+  background: #fff;
+  padding: 16px;
+  text-align: left;
+}
+
+.incident-destination-guided .incident-destination-options button.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.incident-destination-guided .incident-destination-options small {
+  color: var(--color-text-muted);
+  line-height: 1.45;
+}
+
+.incident-destination-result {
+  margin-top: 12px;
+  border-radius: 9px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  padding: 11px 13px;
+}
+
+.workflow-field-error {
+  color: #b91c1c;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.incident-intake-review {
+  display: grid;
+  gap: 3px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  padding: 13px 15px;
+}
+
+.incident-intake-review small,
+.incident-intake-review span {
+  color: #475569;
+}
+
+.incident-inline-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  padding: 12px;
+}
+
+.incident-inline-create > div {
+  display: flex;
+  gap: 7px;
+}
+
 .incident-destination-options button:hover {
   background: #ffffff;
   color: var(--color-text);
@@ -12184,8 +12327,43 @@ button.ar-route-publish-copy.is-active {
 }
 
 .incident-form-submit {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background: rgba(255, 255, 255, 0.96);
   border-top: 1px solid var(--color-border);
-  padding-top: 16px;
+  padding: 14px 0 2px;
+  backdrop-filter: blur(8px);
+}
+
+.incident-intake-actions {
+  justify-content: flex-end;
+}
+
+@media (max-width: 700px) {
+  .incident-intake-progress li {
+    justify-content: center;
+    padding-inline: 2px;
+  }
+
+  .incident-intake-progress li span {
+    display: none;
+  }
+
+  .incident-destination-guided .incident-destination-options,
+  .incident-inline-create {
+    grid-template-columns: 1fr;
+  }
+
+  .incident-inline-create > div,
+  .incident-intake-actions {
+    justify-content: stretch;
+  }
+
+  .incident-inline-create .button,
+  .incident-intake-actions .button {
+    flex: 1;
+  }
 }
 
 .incident-form-section {
@@ -12857,6 +13035,41 @@ button.ar-route-publish-copy.is-active {
   color: #1d4ed8;
   font-size: 0.74rem;
   line-height: 1.35;
+}
+
+.unified-incident-latest-note {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  margin-top: 7px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #ffffff;
+  color: inherit;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.unified-incident-latest-note span {
+  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.unified-incident-latest-note strong {
+  overflow: hidden;
+  color: #334155;
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unified-incident-latest-note:hover {
+  border-color: #93c5fd;
+  background: #f8fbff;
 }
 
 .unified-incident-action.follow-up-due,
@@ -15056,7 +15269,7 @@ button.ar-route-publish-copy.is-active {
 
 .judicial-follow-up-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(170px, 0.6fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 9px;
   border: 1px solid #dbeafe;
@@ -15066,7 +15279,7 @@ button.ar-route-publish-copy.is-active {
 }
 
 .judicial-follow-up-comment {
-  grid-column: 1 / -1;
+  grid-column: 1;
 }
 
 .judicial-follow-up-form textarea {

@@ -7,13 +7,6 @@ function isFinalStatus(status: CollisionCaseRecord["status"]): boolean {
   return status === "ABSUELTO" || status === "CULPABLE";
 }
 
-function latestPendingFollowUp(item: CollisionCaseRecord) {
-  for (let index = item.judicialFollowUps.length - 1; index >= 0; index -= 1) {
-    if (!item.judicialFollowUps[index].completedAt) return item.judicialFollowUps[index];
-  }
-  return undefined;
-}
-
 function workshopStepComplete(item: CollisionCaseRecord): boolean {
   return Boolean(item.vehicleInspectedAt || item.expenseInvoice);
 }
@@ -77,7 +70,5 @@ export function defaultJudicialCaseTab(item: CollisionCaseRecord, todayDateKey: 
     if (item.judicialResolutionEvidence && !item.insuranceClaim?.insuranceClaimId) return "insurance";
     return "outcome";
   }
-  const latestFollowUp = latestPendingFollowUp(item);
-  if (latestFollowUp?.nextActionDate && latestFollowUp.nextActionDate <= todayDateKey) return "follow_up";
   return "summary";
 }
