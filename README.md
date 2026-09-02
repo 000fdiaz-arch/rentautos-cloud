@@ -112,6 +112,41 @@ Ejecutar en SQL Editor (orden recomendado):
 26. `supabase/59-seller-lead-requests.sql`
 27. `supabase/63-provisional-rental-workflow.sql`
 28. `supabase/64-provisional-rental-payment-balance.sql`
+29. `supabase/66-shared-seller-lead-portal.sql`
+
+### Consulta pública de vendedores
+
+Aplicar `supabase/66-shared-seller-lead-portal.sql` (o la migración equivalente
+`20260901000200_shared_seller_lead_portal.sql`, no ambas) después de la 59.
+Luego desplegar la aplicación. En **Leads → Zona de vendedores → Copiar enlace público**
+se obtiene un enlace estable por dataset, compartido por todos los vendedores sin login.
+Copiarlo otra vez no genera una solicitud ni cambia el enlace.
+
+La consulta por cédula reconoce guiones, espacios y mayúsculas. Si hay una revisión
+pendiente tiene prioridad sobre un dictamen anterior. Si no hay registro se habilita
+el formulario; el registro se crea solamente al enviarlo. Las correcciones reutilizan
+la solicitud y requieren volver a introducir fecha y documento: estos datos nunca
+se devuelven en la consulta pública. Los enlaces privados anteriores siguen funcionando.
+
+La respuesta anónima contiene únicamente estado, decisión y abono; nunca IDs privados,
+tokens, documentos, fecha de nacimiento, notas o antecedentes. Cualquier persona con
+el enlace y una cédula puede consultar el resultado. El servidor limita cada portal a
+60 consultas/minuto y 3000/día; envíos a 5/minuto y 100/día. Son límites globales básicos
+contra abuso, no una verificación de identidad ni un CAPTCHA. Los documentos admitidos
+son PNG, JPEG, WebP o PDF de hasta 4 MB.
+
+Pruebas locales (sin acceder a producción):
+
+```powershell
+npm install --prefix .tmp/lead-portal-tests --no-package-lock --no-save @electric-sql/pglite@0.5.8
+node tests/shared-seller-lead-db-test.mjs
+node tests/shared-seller-lead-ui-test.mjs
+npm run build
+```
+
+La prueba SQL usa PostgreSQL en memoria y un contexto de autenticación de prueba;
+la prueba de navegador simula las respuestas Supabase. No sustituyen una prueba
+contra Supabase después de aplicar la nueva migración.
 
 Despues:
 - Crear usuario desde UI de login/registro.

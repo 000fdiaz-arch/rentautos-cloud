@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import {
-  createSellerLeadRequest,
+  getSellerLeadPortalId,
   loadSellerLeadRequests,
   markSellerLeadRequestIncomplete,
   markSellerLeadRequestReviewed
@@ -165,6 +165,8 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   const [errors, setErrors] = useState<string[]>([]);
   const [sellerRequests, setSellerRequests] = useState<SellerLeadRequest[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
+  const [publicPortalUrl, setPublicPortalUrl] = useState("");
+  const [portalError, setPortalError] = useState("");
   const [activeSellerRequest, setActiveSellerRequest] = useState<SellerLeadRequest | null>(null);
   const verdictRef = useRef<HTMLDivElement | null>(null);
   const verdict = useMemo(() => buildVerdict(form), [form]);
@@ -193,32 +195,24 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
 
   useEffect(() => { void refreshSellerRequests(); }, [ownerUserId]);
 
-  function sellerRequestUrl(token: string): string {
-    return `${window.location.origin}/consulta-vendedor/${token}`;
-  }
-
   async function handleCreateSellerRequest(): Promise<void> {
     if (!ownerUserId || readOnly) return;
     setSaving(true);
     try {
-      const request = await createSellerLeadRequest(ownerUserId);
-      setSellerRequests((current) => [request, ...current]);
-      await navigator.clipboard.writeText(sellerRequestUrl(request.token));
-      setMessage("Enlace privado creado y copiado. Ya puedes enviarlo al vendedor.");
-      setErrors([]);
+      setPortalError("");
+      const portalId = await getSellerLeadPortalId(ownerUserId);
+      const url = `${window.location.origin}/consulta-vendedores/${portalId}`;
+      setPublicPortalUrl(url);
+      try {
+        await navigator.clipboard.writeText(url);
+        setMessage("Enlace público copiado. Comparte este mismo enlace con todos los vendedores.");
+      } catch {
+        setPortalError("El enlace está listo. Puedes copiarlo manualmente desde el campo de abajo.");
+      }
     } catch {
-      setErrors(["No se pudo crear o copiar el enlace del vendedor."]);
+      setPortalError("No se pudo obtener el enlace público. Verifica que la migración 66 esté aplicada.");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function handleCopySellerRequest(request: SellerLeadRequest): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(sellerRequestUrl(request.token));
-      setMessage("Enlace del vendedor copiado al portapapeles.");
-    } catch {
-      setErrors(["No se pudo copiar el enlace. Abrelo y copialo desde el navegador."]);
     }
   }
 
@@ -239,6 +233,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   }
 
   async function handleRequestCorrection(request: SellerLeadRequest): Promise<void> {
+    if (readOnly || saving) return;
     const note = window.prompt("Indica al vendedor que debe corregir:", request.correctionNote ?? "");
     if (!note?.trim()) return;
     setSaving(true);
@@ -276,7 +271,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       pendingDailyReports: checked ? "0" : form.pendingDailyReports
     };
     setForm(nextForm);
-    if (!checked) return;
+    if (!checked || activeSellerRequest) return;
     const nextVerdict = buildVerdict(nextForm);
     const nextErrors = validate(nextForm, nextVerdict);
     if (nextErrors.length > 0) {
@@ -316,6 +311,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   }
 
   function handleConsultCedula(): void {
+    setActiveSellerRequest(null);
     const cedula = normalizeCedula(queryCedula);
     if (!cedula) {
       setErrors(["Coloca una cedula para consultar."]);
@@ -531,15 +527,17 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
         <div className="panel-head">
           <div>
             <h2>Zona de vendedores</h2>
-            <p className="hint">Crea un enlace privado para que el vendedor envie cedula, fecha de nacimiento y documento.</p>
+            <p className="hint">Un solo enlace público para todos los vendedores: consulta por cédula y envío de personas nuevas a verificación.</p>
           </div>
           <div className="lead-row-actions">
             <button type="button" className="button ghost small" onClick={() => void refreshSellerRequests()} disabled={!ownerUserId || requestsLoading}>Actualizar</button>
             <button type="button" className="button primary small" onClick={() => void handleCreateSellerRequest()} disabled={!ownerUserId || readOnly || saving}>
-              Crear y copiar enlace
+              Copiar enlace público
             </button>
           </div>
         </div>
+        {portalError && <p role="status" className="hint">{portalError}</p>}
+        {publicPortalUrl && <label className="seller-shared-link">Enlace para todos los vendedores<input readOnly value={publicPortalUrl} onFocus={(event) => event.target.select()} /></label>}
         {requestsLoading && <p className="hint">Cargando solicitudes...</p>}
         <div className="lead-request-list">
           {sellerRequests.length === 0 && !requestsLoading && <p className="hint">Aun no hay solicitudes enviadas a vendedores.</p>}
@@ -550,9 +548,8 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
                 <span>{requestStatusLabel[request.status]} · {formatDateTime(request.updatedAt)}</span>
               </div>
               <div className="lead-row-actions">
-                <button type="button" className="button ghost small" onClick={() => void handleCopySellerRequest(request)}>Copiar enlace</button>
                 {request.status === "pending_review" && <button type="button" className="button primary small" onClick={() => openSellerRequest(request)}>Revisar</button>}
-                {request.status === "pending_review" && <button type="button" className="button ghost small" onClick={() => void handleRequestCorrection(request)}>Solicitar correccion</button>}
+                {request.status === "pending_review" && <button type="button" className="button ghost small" disabled={readOnly || saving} onClick={() => void handleRequestCorrection(request)}>Solicitar correccion</button>}
               </div>
             </article>
           ))}

@@ -87,7 +87,7 @@ function normalizePublicPayload(value: unknown): PublicSellerLeadRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("La solicitud no existe o el enlace no es valido.");
   const raw = value as Record<string, unknown>;
   const status = String(raw.status ?? "") as PublicSellerLeadRequest["status"];
-  if (!["waiting_information", "pending_review", "incomplete", "reviewed", "expired"].includes(status)) {
+  if (!["waiting_information", "pending_review", "incomplete", "reviewed", "expired", "not_found"].includes(status)) {
     throw new Error("La solicitud no existe o el enlace no es valido.");
   }
   const decision = raw.decision === "aplica" || raw.decision === "aplica_con_abono" || raw.decision === "no_aplica"
@@ -104,6 +104,41 @@ function normalizePublicPayload(value: unknown): PublicSellerLeadRequest {
     extraDeposit: typeof raw.extraDeposit === "number" ? raw.extraDeposit : undefined,
     reviewedAt: typeof raw.reviewedAt === "string" ? raw.reviewedAt : undefined
   };
+}
+
+// One stable, public portal identifier per dataset; never expose request tokens here.
+export async function getSellerLeadPortalId(userId: string): Promise<string> {
+  const { data, error } = await getCloudClient().rpc("get_or_create_seller_lead_portal", { p_user_id: userId });
+  if (error) throw error;
+  if (typeof data !== "string") throw new Error("No se pudo obtener el enlace público.");
+  return data;
+}
+
+function publicPortalError(error: { message?: string }): Error {
+  if (error.message?.includes("PORTAL_RATE_LIMIT")) return new Error("Se alcanzó el límite de consultas o envíos. Intenta más tarde o comunícate con Rentautos.");
+  if (error.message?.includes("PORTAL_UNAVAILABLE")) return new Error("Este enlace no está disponible. Comunícate con Rentautos.");
+  return new Error("No se pudo completar la operación. Revisa tu conexión e intenta nuevamente.");
+}
+
+export async function lookupPublicSellerLead(portalId: string, cedula: string): Promise<PublicSellerLeadRequest> {
+  const client = createEphemeralSupabaseClient();
+  if (!client) throw new Error("El servicio de consulta no está configurado.");
+  const { data, error } = await client.rpc("lookup_seller_lead", { p_portal_id: portalId, p_cedula: cedula });
+  if (error) throw publicPortalError(error);
+  return normalizePublicPayload(data);
+}
+
+export async function submitSharedSellerLead(portalId: string, input: {
+  cedula: string; birthDate: string; attachmentName: string; attachmentDataUrl: string;
+}): Promise<PublicSellerLeadRequest> {
+  const client = createEphemeralSupabaseClient();
+  if (!client) throw new Error("El servicio de consulta no está configurado.");
+  const { data, error } = await client.rpc("submit_shared_seller_lead", {
+    p_portal_id: portalId, p_cedula: input.cedula, p_birth_date: input.birthDate,
+    p_attachment_name: input.attachmentName, p_attachment_data_url: input.attachmentDataUrl
+  });
+  if (error) throw publicPortalError(error);
+  return normalizePublicPayload(data);
 }
 
 export async function loadPublicSellerLeadRequest(token: string): Promise<PublicSellerLeadRequest> {

@@ -12177,6 +12177,32 @@ button.ar-route-publish-copy.is-active {
   margin-top: 15px;
 }
 
+.seller-lead-result--neutral {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+.seller-lead-search {
+  margin: 18px 0;
+}
+
+.seller-lead-privacy {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+.seller-shared-link {
+  display: block;
+  margin: 12px 0;
+}
+
+.seller-shared-link input {
+  width: 100%;
+  text-transform: none;
+}
+
 
 @media (max-width: 980px) {
   .lead-workspace {

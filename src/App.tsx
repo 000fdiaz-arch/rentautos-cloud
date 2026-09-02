@@ -11,10 +11,16 @@ import SellerLeadPortalPage from "./pages/SellerLeadPortalPage";
 const testBypassAuth = import.meta.env.VITE_RENTAUTOS_TEST_BYPASS_AUTH === "1";
 
 export default function App() {
-  const authProfile = useAuthProfile();
   const sellerPortalMatch = window.location.pathname.match(/^\/consulta-vendedor\/([0-9a-f-]{36})\/?$/i);
+  const sharedPortalMatch = window.location.pathname.match(/^\/consulta-vendedores\/([0-9a-f-]{36})\/?$/i);
 
   if (sellerPortalMatch) return <SellerLeadPortalPage token={sellerPortalMatch[1]} />;
+  if (sharedPortalMatch) return <SellerLeadPortalPage portalId={sharedPortalMatch[1]} />;
+  return <AuthenticatedApp />;
+}
+
+function AuthenticatedApp() {
+  const authProfile = useAuthProfile();
 
   if (isLocalOnlyMode && (!isSupabaseConfigured || testBypassAuth)) {
     const permissions = getRoleScreenPermissions("admin");

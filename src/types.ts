@@ -156,7 +156,7 @@ export type SellerLeadRequest = {
 };
 
 export type PublicSellerLeadRequest = {
-  status: SellerLeadRequestStatus | "expired";
+  status: SellerLeadRequestStatus | "expired" | "not_found";
   cedula: string;
   birthDate: string;
   attachmentName?: string;
