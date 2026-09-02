@@ -109,8 +109,9 @@ Ejecutar en SQL Editor (orden recomendado):
 23. `supabase/25-fleet-unit-status-rpc.sql`
 24. `supabase/26-modular-charge-runs.sql`
 25. `supabase/27-cash-day-summary-performance.sql`
-26. `supabase/63-provisional-rental-workflow.sql`
-27. `supabase/64-provisional-rental-payment-balance.sql`
+26. `supabase/59-seller-lead-requests.sql`
+27. `supabase/63-provisional-rental-workflow.sql`
+28. `supabase/64-provisional-rental-payment-balance.sql`
 
 Despues:
 - Crear usuario desde UI de login/registro.

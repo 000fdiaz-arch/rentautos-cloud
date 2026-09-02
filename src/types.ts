@@ -135,6 +135,38 @@ export type Client = {
 
 export type LeadDecision = "aplica" | "aplica_con_abono" | "no_aplica";
 
+export type SellerLeadRequestStatus = "waiting_information" | "pending_review" | "incomplete" | "reviewed";
+
+export type SellerLeadRequest = {
+  id: string;
+  userId: string;
+  token: string;
+  status: SellerLeadRequestStatus;
+  cedula: string;
+  birthDate: string;
+  attachmentName?: string;
+  attachmentDataUrl?: string;
+  correctionNote?: string;
+  evaluationId?: string;
+  expiresAt: string;
+  submittedAt?: string;
+  reviewedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PublicSellerLeadRequest = {
+  status: SellerLeadRequestStatus | "expired";
+  cedula: string;
+  birthDate: string;
+  attachmentName?: string;
+  correctionNote?: string;
+  expiresAt: string;
+  decision?: LeadDecision;
+  extraDeposit?: number;
+  reviewedAt?: string;
+};
+
 export type LeadEvaluation = {
   id: string;
   cedula: string;
@@ -154,6 +186,7 @@ export type LeadEvaluation = {
   extraDeposit: number;
   blockers: string[];
   extraDepositReasons: string[];
+  sellerRequestId?: string;
   createdAt: string;
   updatedAt: string;
 };

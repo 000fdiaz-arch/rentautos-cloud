@@ -1069,6 +1069,7 @@ export default function AppShell({
             loading={leadsLoading}
             cloudError={leadsCloudError}
             readOnly={!canEditLeads}
+            ownerUserId={cloudDataUserId}
           />
         )}
         {page === "payments" && canViewPayments && (

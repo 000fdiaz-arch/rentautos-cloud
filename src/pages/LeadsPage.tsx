@@ -1,6 +1,12 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import type { LeadDecision, LeadEvaluation } from "../types";
+import {
+  createSellerLeadRequest,
+  loadSellerLeadRequests,
+  markSellerLeadRequestIncomplete,
+  markSellerLeadRequestReviewed
+} from "../cloudData";
+import type { LeadDecision, LeadEvaluation, SellerLeadRequest, SellerLeadRequestStatus } from "../types";
 
 type LeadForm = {
   cedula: string;
@@ -32,6 +38,7 @@ type Props = {
   loading: boolean;
   cloudError: string;
   readOnly?: boolean;
+  ownerUserId?: string;
 };
 
 type LeadFlowMode = "idle" | "creating" | "viewing";
@@ -55,6 +62,13 @@ const decisionLabel: Record<LeadDecision, string> = {
   aplica: "SI APLICA",
   aplica_con_abono: "APLICA CON ABONO EXTRA",
   no_aplica: "NO APLICA"
+};
+
+const requestStatusLabel: Record<SellerLeadRequestStatus, string> = {
+  waiting_information: "Esperando informacion",
+  pending_review: "Pendiente de revision",
+  incomplete: "Informacion incompleta",
+  reviewed: "Dictamen publicado"
 };
 
 function normalizeCedula(value: string): string {
@@ -141,7 +155,7 @@ function buildFormFromEvaluation(evaluation: LeadEvaluation): LeadForm {
   };
 }
 
-export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluationLoad, loading, cloudError, readOnly = false }: Props) {
+export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluationLoad, loading, cloudError, readOnly = false, ownerUserId }: Props) {
   const [form, setForm] = useState<LeadForm>(initialForm);
   const [queryCedula, setQueryCedula] = useState("");
   const [flowMode, setFlowMode] = useState<LeadFlowMode>("idle");
@@ -149,6 +163,9 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
+  const [sellerRequests, setSellerRequests] = useState<SellerLeadRequest[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [activeSellerRequest, setActiveSellerRequest] = useState<SellerLeadRequest | null>(null);
   const verdictRef = useRef<HTMLDivElement | null>(null);
   const verdict = useMemo(() => buildVerdict(form), [form]);
   const normalizedQuery = normalizeCedula(queryCedula || form.cedula);
@@ -161,6 +178,81 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     if (!focusedCedula) return evaluations;
     return evaluations.filter((evaluation) => normalizeCedula(evaluation.cedula) === focusedCedula);
   }, [evaluations, form.cedula, queryCedula]);
+
+  async function refreshSellerRequests(): Promise<void> {
+    if (!ownerUserId) return;
+    setRequestsLoading(true);
+    try {
+      setSellerRequests(await loadSellerLeadRequests(ownerUserId));
+    } catch {
+      setErrors(["No se pudieron cargar las solicitudes de vendedores."]);
+    } finally {
+      setRequestsLoading(false);
+    }
+  }
+
+  useEffect(() => { void refreshSellerRequests(); }, [ownerUserId]);
+
+  function sellerRequestUrl(token: string): string {
+    return `${window.location.origin}/consulta-vendedor/${token}`;
+  }
+
+  async function handleCreateSellerRequest(): Promise<void> {
+    if (!ownerUserId || readOnly) return;
+    setSaving(true);
+    try {
+      const request = await createSellerLeadRequest(ownerUserId);
+      setSellerRequests((current) => [request, ...current]);
+      await navigator.clipboard.writeText(sellerRequestUrl(request.token));
+      setMessage("Enlace privado creado y copiado. Ya puedes enviarlo al vendedor.");
+      setErrors([]);
+    } catch {
+      setErrors(["No se pudo crear o copiar el enlace del vendedor."]);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCopySellerRequest(request: SellerLeadRequest): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(sellerRequestUrl(request.token));
+      setMessage("Enlace del vendedor copiado al portapapeles.");
+    } catch {
+      setErrors(["No se pudo copiar el enlace. Abrelo y copialo desde el navegador."]);
+    }
+  }
+
+  function openSellerRequest(request: SellerLeadRequest): void {
+    if (request.status !== "pending_review") return;
+    setActiveSellerRequest(request);
+    setForm({
+      ...initialForm,
+      cedula: request.cedula,
+      birthDate: request.birthDate,
+      attachmentName: request.attachmentName ?? "",
+      attachmentDataUrl: request.attachmentDataUrl ?? ""
+    });
+    setQueryCedula(request.cedula);
+    setFlowMode("creating");
+    setMessage("Informacion del vendedor cargada. Completa la revision interna.");
+    setErrors([]);
+  }
+
+  async function handleRequestCorrection(request: SellerLeadRequest): Promise<void> {
+    const note = window.prompt("Indica al vendedor que debe corregir:", request.correctionNote ?? "");
+    if (!note?.trim()) return;
+    setSaving(true);
+    try {
+      await markSellerLeadRequestIncomplete(request.id, note.trim());
+      await refreshSellerRequests();
+      if (activeSellerRequest?.id === request.id) handleNewEvaluation();
+      setMessage("Se habilito el enlace para que el vendedor corrija la informacion.");
+    } catch {
+      setErrors(["No se pudo solicitar la correccion."]);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function updateReportFlag(field: keyof Pick<LeadForm, "hasGpsTamperingReport" | "hasLegalCases" | "hasViolenceReports" | "hasDuiReports" | "hasPiracyReports">, checked: boolean): void {
     setForm((current) => ({
@@ -218,6 +310,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     setForm(buildFormFromEvaluation(fullEvaluation));
     setQueryCedula(fullEvaluation.cedula);
     setFlowMode("viewing");
+    setActiveSellerRequest(null);
     setMessage("Esta registrado. Se cargo el dictamen anterior.");
     setErrors([]);
   }
@@ -333,6 +426,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       extraDeposit: targetVerdict.extraDeposit,
       blockers: targetVerdict.blockers,
       extraDepositReasons: targetVerdict.extraDepositReasons,
+      sellerRequestId: activeSellerRequest?.id ?? previous?.sellerRequestId,
       createdAt: previous?.createdAt ?? now,
       updatedAt: now
     };
@@ -343,6 +437,10 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     setSaving(true);
     try {
       await onEvaluationsChange(next);
+      if (activeSellerRequest) {
+        await markSellerLeadRequestReviewed(activeSellerRequest.id, nextEvaluation.id);
+        await refreshSellerRequests();
+      }
       setQueryCedula(normalizedCedula);
       setFlowMode("viewing");
       setMessage(successMessage ?? `Dictamen guardado: ${decisionLabel[nextEvaluation.decision]}.`);
@@ -369,6 +467,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     setIncludeDetails(false);
     setMessage("");
     setErrors([]);
+    setActiveSellerRequest(null);
   }
 
   async function handleDeleteEvaluation(evaluationId: string): Promise<void> {
@@ -428,6 +527,38 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
         {cloudError && <p className="error-banner">{cloudError}</p>}
       </section>
 
+      <section className="panel lead-seller-requests">
+        <div className="panel-head">
+          <div>
+            <h2>Zona de vendedores</h2>
+            <p className="hint">Crea un enlace privado para que el vendedor envie cedula, fecha de nacimiento y documento.</p>
+          </div>
+          <div className="lead-row-actions">
+            <button type="button" className="button ghost small" onClick={() => void refreshSellerRequests()} disabled={!ownerUserId || requestsLoading}>Actualizar</button>
+            <button type="button" className="button primary small" onClick={() => void handleCreateSellerRequest()} disabled={!ownerUserId || readOnly || saving}>
+              Crear y copiar enlace
+            </button>
+          </div>
+        </div>
+        {requestsLoading && <p className="hint">Cargando solicitudes...</p>}
+        <div className="lead-request-list">
+          {sellerRequests.length === 0 && !requestsLoading && <p className="hint">Aun no hay solicitudes enviadas a vendedores.</p>}
+          {sellerRequests.map((request) => (
+            <article className="lead-request-item" key={request.id}>
+              <div>
+                <strong>{request.cedula || "Vendedor pendiente de completar"}</strong>
+                <span>{requestStatusLabel[request.status]} · {formatDateTime(request.updatedAt)}</span>
+              </div>
+              <div className="lead-row-actions">
+                <button type="button" className="button ghost small" onClick={() => void handleCopySellerRequest(request)}>Copiar enlace</button>
+                {request.status === "pending_review" && <button type="button" className="button primary small" onClick={() => openSellerRequest(request)}>Revisar</button>}
+                {request.status === "pending_review" && <button type="button" className="button ghost small" onClick={() => void handleRequestCorrection(request)}>Solicitar correccion</button>}
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
       {flowMode !== "idle" && (
       <div className={`lead-workspace ${flowMode === "viewing" ? "lead-workspace--result-only" : ""}`}>
         {flowMode === "creating" && (
@@ -439,18 +570,20 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
             </span>
           </div>
 
+          {activeSellerRequest && <p className="success-banner">Datos enviados por el vendedor. Los campos personales estan protegidos durante la revision.</p>}
+
           <div className="form-grid lead-form-grid">
             <label>
               Cedula
-              <input value={form.cedula} onChange={(event) => setForm((current) => ({ ...current, cedula: event.target.value }))} disabled={readOnly || saving || loading} />
+              <input value={form.cedula} onChange={(event) => setForm((current) => ({ ...current, cedula: event.target.value }))} disabled={Boolean(activeSellerRequest) || readOnly || saving || loading} />
             </label>
             <label>
               Fecha de nacimiento
-              <input type="date" value={form.birthDate} onChange={(event) => setForm((current) => ({ ...current, birthDate: event.target.value }))} disabled={readOnly || saving || loading} />
+              <input type="date" value={form.birthDate} onChange={(event) => setForm((current) => ({ ...current, birthDate: event.target.value }))} disabled={Boolean(activeSellerRequest) || readOnly || saving || loading} />
             </label>
             <label>
               Foto de cedula o licencia
-              <input type="file" accept="image/*,.pdf" onChange={(event) => void handleAttachmentChange(event)} disabled={readOnly || saving || loading} />
+              <input type="file" accept="image/*,.pdf" onChange={(event) => void handleAttachmentChange(event)} disabled={Boolean(activeSellerRequest) || readOnly || saving || loading} />
             </label>
             <label>
               Reportes de colision/choque
@@ -514,7 +647,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
 
           <div className="modal-actions">
             <button type="submit" className="button primary" disabled={readOnly || saving || loading || Boolean(cloudError)}>
-              {saving ? "Guardando..." : "Procesar y guardar dictamen"}
+              {saving ? "Guardando..." : activeSellerRequest ? "Guardar y publicar dictamen" : "Procesar y guardar dictamen"}
             </button>
           </div>
         </form>

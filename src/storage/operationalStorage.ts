@@ -511,6 +511,7 @@ function normalizeLeadEvaluation(item: unknown): LeadEvaluation | null {
     extraDeposit: extraDeposit !== null && extraDeposit >= 0 ? extraDeposit : 0,
     blockers: normalizeStringArray(raw.blockers),
     extraDepositReasons: normalizeStringArray(raw.extraDepositReasons),
+    sellerRequestId: typeof raw.sellerRequestId === "string" && raw.sellerRequestId.trim() ? raw.sellerRequestId.trim() : undefined,
     createdAt,
     updatedAt
   };

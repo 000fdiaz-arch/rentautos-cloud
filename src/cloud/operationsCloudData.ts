@@ -1202,6 +1202,7 @@ type LeadEvaluationSummaryRow = {
   extraDeposit?: unknown;
   blockers?: unknown;
   extraDepositReasons?: unknown;
+  sellerRequestId?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
 };
@@ -1248,6 +1249,7 @@ function leadSummaryFromRow(row: LeadEvaluationSummaryRow): LeadEvaluation {
     extraDeposit: numberValue(row.extraDeposit),
     blockers: stringArrayValue(row.blockers),
     extraDepositReasons: stringArrayValue(row.extraDepositReasons),
+    sellerRequestId: stringValue(row.sellerRequestId) || undefined,
     createdAt: stringValue(row.createdAt) || now,
     updatedAt: stringValue(row.updatedAt) || now
   };
@@ -1275,6 +1277,7 @@ export async function loadCloudLeadEvaluationSummaries(userId: string): Promise<
     "data->extraDeposit",
     "data->blockers",
     "data->extraDepositReasons",
+    "data->sellerRequestId",
     "data->createdAt",
     "data->updatedAt"
   ].join(",");
