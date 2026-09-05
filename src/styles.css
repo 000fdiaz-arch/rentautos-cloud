@@ -18304,8 +18304,10 @@ button.ar-route-publish-copy.is-active {
 .route-collection-details dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .route-collection-details dt { color: var(--color-text-muted); }
 .route-collection-details dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
-.route-collection-details label { display: grid; gap: 5px; margin: 10px 0; }
-.route-collection-details input, .route-collection-details select { min-width: 0; width: 100%; min-height: 40px; padding: 8px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface, white); color: var(--color-text); }
+.route-collection-field { display: grid; gap: 5px; margin: 0 0 14px; color: var(--color-text-muted); font-size: .8rem; font-weight: 600; }
+.route-collection-field input { min-width: 0; width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface, white); color: var(--color-text); font: inherit; font-size: .9rem; }
+.route-collection-field input:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.route-collection-comment { margin-top: 12px; }
 .route-collection-filters, .route-collection-cash-summary { margin: 8px 0; }
 .route-collection-methods { margin: 8px 0 16px; }
 .route-collection-success { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px; border: 1px solid #6ee7b7; border-radius: 10px; margin: 12px 0; }

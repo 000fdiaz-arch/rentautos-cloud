@@ -39,6 +39,8 @@ try {
       custody=input.p_in_custody;return route.fulfill({status:204});
     }
     if(url.pathname.endsWith('/rpc/read_route_report_receipts'))return route.fulfill({json:[receipt]});
+    if(url.pathname.endsWith('/rpc/update_active_route_zone')) {item.zone=req.postDataJSON().p_zone;return route.fulfill({status:204});}
+    if(url.pathname.endsWith('/rpc/update_active_route_comment')) {item.comment=req.postDataJSON().p_comment;return route.fulfill({status:204});}
     if(url.pathname.endsWith('/notified_payments_cloud'))return route.fulfill({json:[]});
     if(url.pathname.endsWith('/route_payment_reports'))return route.fulfill({json:reports});
     if(url.pathname.endsWith('/rpc/change_active_route_assignment')){
@@ -253,7 +255,8 @@ try {
   assert.equal(await page.getByRole('button',{name:'Vehículo en custodia',exact:true}).count(),0);
   await page.goto(base+'/__route-test');
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
-  assert.equal(await page.getByLabel('Zona de RA-042').isVisible(),false);
+  assert.equal(await page.getByLabel('Zona de RA-042').isVisible(),true);
+  assert.equal(await page.locator('.route-collection-details input, .route-collection-details select, .route-collection-details button').count(),0);
   await page.getByRole('button',{name:'Vehículo en custodia',exact:true}).click();
   await modal.getByRole('button',{name:'Cancelar',exact:true}).click();assert.equal(custodyWrites.length,0);
   await page.getByRole('button',{name:'Vehículo en custodia',exact:true}).click();
@@ -291,5 +294,22 @@ try {
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
   await page.getByRole('button',{name:'En revisión (1)',exact:true}).waitFor();
   assert.equal(reports.filter(report=>report.status==='confirmed').length,1);
+  reports=[];delete item.partialDecisionRentAmount;
+  await page.goto(base+'/__route-test?cashregister&editor');
+  const zoneInput=page.getByLabel('Zona de RA-042');const commentInput=page.getByLabel('Comentario de RA-042');
+  await zoneInput.waitFor({state:'visible'});await commentInput.waitFor({state:'visible'});
+  assert.equal(await page.locator('.route-collection-details').getAttribute('open'),null);
+  assert.equal(await page.locator('.route-collection-details input, .route-collection-details select, .route-collection-details button').count(),0);
+  await page.getByRole('button',{name:'Sacar de ruta',exact:true}).waitFor({state:'visible'});
+  await zoneInput.fill('Costa del Este');await zoneInput.press('Enter');
+  await page.waitForFunction(()=>!document.querySelector('[aria-label="Zona de RA-042"]').disabled);
+  assert.equal(item.zone,'Costa del Este');
+  await commentInput.fill('Llamar antes');await commentInput.press('Enter');
+  await page.waitForFunction(()=>!document.querySelector('[aria-label="Comentario de RA-042"]').disabled);
+  assert.equal(item.comment,'Llamar antes');
+  await page.reload();await zoneInput.waitFor({state:'visible'});
+  assert.equal(await zoneInput.inputValue(),'Costa del Este');assert.equal(await commentInput.inputValue(),'Llamar antes');
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.screenshot({path:'.tmp/route-reports/mobile-visible-editing.png',fullPage:true});
   assert.deepEqual(errors,[]);console.log('OK: WC/PTY from shared payments, zero extra queries, historical receipts, live delivered removal, read-only; report form, mixed split and confirmation');
 } finally {await browser?.close();server.kill();}
