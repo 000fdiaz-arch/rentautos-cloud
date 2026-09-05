@@ -4,7 +4,7 @@ export type JudicialCaseTab = "summary" | "attendance" | "follow_up" | "history"
 export type PendingJudicialStep = "documentation" | "workshop" | "balance" | "attendance" | "outcome" | "management";
 
 function isFinalStatus(status: CollisionCaseRecord["status"]): boolean {
-  return status === "ABSUELTO" || status === "CULPABLE";
+  return status === "ABSUELTO" || status === "CULPABLE" || status === "CIERRE ADMINISTRATIVO";
 }
 
 function workshopStepComplete(item: CollisionCaseRecord): boolean {
@@ -47,6 +47,7 @@ export function availableJudicialCaseTabs(item: CollisionCaseRecord, todayDateKe
   const finalStatus = isFinalStatus(item.status);
   const workshopComplete = workshopStepComplete(item);
   const tabs: JudicialCaseTab[] = ["summary"];
+  if (item.status === "CIERRE ADMINISTRATIVO") return ["summary", "history"];
   if (item.documentationPending) return ["summary", "follow_up", "history"];
   if (!finalStatus) tabs.push("attendance", "follow_up");
   tabs.push("history");

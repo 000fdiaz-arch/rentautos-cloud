@@ -3,6 +3,8 @@ import {
   loadCollisionCases,
   loadControlUnits,
   loadInsuranceClaims,
+  saveCollisionCase,
+  saveInsuranceClaim,
   type CollisionCaseRecord,
   type ControlUnitRow,
   type InsuranceClaimRecord
@@ -17,6 +19,7 @@ type Props = {
   dataOwnerUserId?: string | null;
   canViewJudicial: boolean;
   canViewInsurance: boolean;
+  canEditIncidents: boolean;
   refreshKey: number;
   onOpen: (destination: IncidentDestination, target: { id: string; search: string; section?: "follow_up" }) => void;
   onAlertCountChange?: (count: number) => void;
@@ -63,8 +66,10 @@ type UnifiedIncident = {
 };
 
 type IncidentNoteSummary = {
+  id: string;
   comment: string;
   createdAt: string;
+  completedAt?: string | null;
   destination: IncidentDestination;
   targetId: string;
 };
@@ -85,6 +90,10 @@ function latestNote<T extends { createdAt: string }>(entries: T[]): T | undefine
   return entries.reduce<T | undefined>((latest, entry) => !latest || entry.createdAt > latest.createdAt ? entry : latest, undefined);
 }
 
+function isCollisionFinal(status: CollisionCaseRecord["status"]): boolean {
+  return status === "ABSUELTO" || status === "CULPABLE" || status === "CIERRE ADMINISTRATIVO";
+}
+
 function incidentMatchesFilter(incident: UnifiedIncident, filter: AreaFilter): boolean {
   const resolutionPending = incident.collision?.status === "ABSUELTO" && !incident.collision.judicialResolutionEvidence;
   if (filter === "pending") return !incident.finalized;
@@ -95,13 +104,13 @@ function incidentMatchesFilter(incident: UnifiedIncident, filter: AreaFilter): b
 }
 
 function nextActionCategory(incident: UnifiedIncident): NextActionCategory | null {
-  if (incident.collision?.documentationPending || incident.claim?.documentationPending) return "documentation";
   if (incident.finalized) return null;
+  if (incident.collision?.documentationPending || incident.claim?.documentationPending || (incident.claim?.fudPhysicalDeliveryConfirmed && !incident.claim.fudAttachment)) return "documentation";
   const collision = incident.collision;
   const claim = incident.claim;
   if (collision?.status === "ABSUELTO" && !collision.judicialResolutionEvidence) return "judicial_resolution";
   if (collision?.status === "ABSUELTO" && collision.judicialResolutionEvidence && !claim) return "start_claim";
-  if (collision && collision.status !== "ABSUELTO" && collision.status !== "CULPABLE") {
+  if (collision && !isCollisionFinal(collision.status)) {
     const pendingStep = nextPendingJudicialStep(collision, localDateKey());
     if (pendingStep === "workshop") return "judicial_workshop";
     if (pendingStep === "balance") return "judicial_balance";
@@ -179,14 +188,27 @@ function incidentAgeLabel(value: string): string {
   return `Hace ${days} días`;
 }
 
+function completedNoteDateTime(value: string): string {
+  return new Intl.DateTimeFormat("es-PA", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true
+  }).format(new Date(value)).replace(",", " a las");
+}
+
 function incidentLatestNote(incident: UnifiedIncident): IncidentNoteSummary | null {
   const claimNote = latestNote(incident.claim?.followUps ?? []);
   const judicialNote = latestNote(incident.collision?.judicialFollowUps ?? []);
   const entry = !claimNote ? judicialNote : !judicialNote || claimNote.createdAt >= judicialNote.createdAt ? claimNote : judicialNote;
   if (!entry) return null;
   return {
+    id: entry.id,
     comment: entry.comment,
     createdAt: entry.createdAt,
+    completedAt: entry.completedAt,
     destination: entry === claimNote ? "insurance" : "judicial",
     targetId: entry === claimNote ? incident.claim!.id : incident.collision!.id
   };
@@ -266,11 +288,15 @@ function incidentActionSchedule(incident: UnifiedIncident): IncidentActionSchedu
     const date = pendingSince ? dateKeyFromTimestamp(pendingSince) : incident.incidentDate || today;
     return { date: date || today, label: actionScheduleLabel(date || today) };
   }
+  if (claim?.fudPhysicalDeliveryConfirmed && !claim.fudAttachment) {
+    const date = dateKeyFromTimestamp(claim.fudPhysicalDeliveryConfirmedAt || claim.documentationReceivedAt || claim.createdAt) || today;
+    return { date, label: actionScheduleLabel(date) };
+  }
   if (collision?.status === "ABSUELTO" && !collision.judicialResolutionEvidence) {
     const date = collision.judicialResolutionSearchDate || today;
     return { date, label: actionScheduleLabel(date) };
   }
-  if (collision && collision.status !== "ABSUELTO" && collision.status !== "CULPABLE") {
+  if (collision && !isCollisionFinal(collision.status)) {
     const pendingStep = nextPendingJudicialStep(collision, today);
     if (pendingStep === "attendance") {
       const date = offsetCalendarDate(collision.trialDate, -10) || today;
@@ -319,7 +345,7 @@ function countImmediateIncidentActions(incidents: UnifiedIncident[]): number {
     const timing = incidentActionTiming(incident);
     if (timing === "overdue" || timing === "today") return true;
     const collision = incident.collision;
-    if (!collision || collision.status === "ABSUELTO" || collision.status === "CULPABLE" || !collision.trialDate) return false;
+    if (!collision || isCollisionFinal(collision.status) || !collision.trialDate) return false;
     const trialOffset = calendarDayOffset(collision.trialDate);
     return trialOffset !== null && trialOffset >= 1 && trialOffset <= 10;
   }).length;
@@ -337,6 +363,7 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
   };
 
   incidents.forEach((incident) => {
+    if (incident.finalized) return;
     const collision = incident.collision;
     const claim = incident.claim;
     const pendingDocument = collision?.documentationPending ? "colilla" : claim?.documentationPending ? "FUD" : "";
@@ -368,7 +395,27 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
       return;
     }
 
-    if (collision && collision.status !== "ABSUELTO" && collision.status !== "CULPABLE") {
+    if (claim?.fudPhysicalDeliveryConfirmed && !claim.fudAttachment && claim.status !== "Finalizado") {
+      const pendingSince = claim.fudPhysicalDeliveryConfirmedAt || claim.documentationReceivedAt || claim.createdAt;
+      const alertState = documentationAlertState(pendingSince);
+      addAlert(incident, {
+        id: `${incident.id}:fud-attachment-missing`, kind: "insurance",
+        severity: alertState.severity, priority: alertState.hoursPending >= 48 ? 0 : alertState.hoursPending >= 24 ? 1 : 7,
+        title: "Copia digital del FUD no adjunta",
+        message: "El FUD original fue recibido, pero falta agregar una foto o PDF al expediente.",
+        actionLabel: "Adjuntar FUD", destination: "insurance", targetId: claim.id
+      });
+    }
+
+    if (claim && !claim.amount.trim() && claim.status !== "Finalizado") {
+      addAlert(incident, {
+        id: `${incident.id}:claim-amount-missing`, kind: "insurance", severity: "attention", priority: 19,
+        title: "Monto reclamado pendiente", message: "El expediente puede continuar, pero falta registrar el monto antes de finalizarlo.",
+        actionLabel: "Completar monto", destination: "insurance", targetId: claim.id
+      });
+    }
+
+    if (collision && !isCollisionFinal(collision.status)) {
       const trialOffset = collision.trialDate ? calendarDayOffset(collision.trialDate) : null;
       const pendingStep = nextPendingJudicialStep(collision, localDateKey());
       const attendanceIncomplete = typeof collision.clientWillAttend !== "boolean" || typeof collision.legalAssistanceRequested !== "boolean";
@@ -518,12 +565,14 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
 function claimNextAction(claim: InsuranceClaimRecord): { label: string; finalized: boolean; requiresAction: boolean } {
   if (claim.documentationPending) return { label: "Coordinar entrega presencial del FUD", finalized: false, requiresAction: true };
   if (claim.status === "Finalizado") return { label: `Reclamo ${claim.closureOutcome?.toLocaleLowerCase("es") ?? "finalizado"}`, finalized: true, requiresAction: false };
+  if (claim.fudPhysicalDeliveryConfirmed && !claim.fudAttachment) return { label: "Adjuntar copia digital del FUD", finalized: false, requiresAction: true };
   if (!claim.claimNumber.trim()) return { label: "Agregar número de reclamo", finalized: false, requiresAction: true };
   if (claim.settlementDelivered) return { label: "Finalizar reclamo", finalized: false, requiresAction: true };
   return { label: "Dar seguimiento y gestionar finiquito", finalized: false, requiresAction: true };
 }
 
 function collisionNextAction(collision: CollisionCaseRecord, claim: InsuranceClaimRecord | null): { label: string; finalized: boolean; requiresAction: boolean } {
+  if (collision.status === "CIERRE ADMINISTRATIVO") return { label: "Cierre administrativo", finalized: true, requiresAction: false };
   if (collision.documentationPending) return { label: "Obtener y registrar la colilla", finalized: false, requiresAction: true };
   if (collision.status === "CULPABLE") return {
     label: collision.clientReturnedBeforeClosure ? "Cliente dejó el carro antes del cierre" : "Expediente judicial finalizado",
@@ -626,7 +675,7 @@ export function countIncidentAlerts(
   return countImmediateIncidentActions(incidents);
 }
 
-export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudicial, canViewInsurance, refreshKey, onOpen, onAlertCountChange }: Props) {
+export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudicial, canViewInsurance, canEditIncidents, refreshKey, onOpen, onAlertCountChange }: Props) {
   const [collisions, setCollisions] = useState<CollisionCaseRecord[]>([]);
   const [claims, setClaims] = useState<InsuranceClaimRecord[]>([]);
   const [fleetUnits, setFleetUnits] = useState<ControlUnitRow[]>([]);
@@ -645,6 +694,8 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [copiedClaimId, setCopiedClaimId] = useState<string | null>(null);
+  const [noteCompletionSavingId, setNoteCompletionSavingId] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState("");
 
   useEffect(() => {
     if (!dataOwnerUserId) { setLoading(false); setLoadError("No se encontró owner de datos para cargar los expedientes."); return; }
@@ -670,11 +721,51 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     return () => { cancelled = true; };
   }, [canViewInsurance, canViewJudicial, dataOwnerUserId, refreshKey]);
 
+  async function markNoteCompleted(note: IncidentNoteSummary): Promise<void> {
+    if (!dataOwnerUserId || !canEditIncidents || note.completedAt || noteCompletionSavingId) return;
+    const now = new Date().toISOString();
+    setNoteCompletionSavingId(note.id);
+    setActionMessage("");
+    try {
+      if (note.destination === "insurance") {
+        const claim = claims.find((item) => item.id === note.targetId);
+        if (!claim) throw new Error("No se encontró el reclamo de la nota.");
+        const updatedClaim: InsuranceClaimRecord = {
+          ...claim,
+          followUps: claim.followUps.map((entry) => entry.id === note.id
+            ? { ...entry, completedAt: now, completionComment: "Marcado como realizado desde Control de siniestros." }
+            : entry),
+          updatedAt: now
+        };
+        await saveInsuranceClaim(dataOwnerUserId, updatedClaim);
+        setClaims((current) => current.map((item) => item.id === claim.id ? updatedClaim : item));
+      } else {
+        const collision = collisions.find((item) => item.id === note.targetId);
+        if (!collision) throw new Error("No se encontró el expediente judicial de la nota.");
+        const updatedCollision: CollisionCaseRecord = {
+          ...collision,
+          judicialFollowUps: collision.judicialFollowUps.map((entry) => entry.id === note.id
+            ? { ...entry, completedAt: now, completionComment: "Marcado como realizado desde Control de siniestros." }
+            : entry),
+          updatedAt: now
+        };
+        await saveCollisionCase(dataOwnerUserId, updatedCollision);
+        setCollisions((current) => current.map((item) => item.id === collision.id ? updatedCollision : item));
+      }
+      setActionMessage("Nota marcada como realizada.");
+    } catch (error) {
+      console.error("No se pudo marcar la nota como realizada.", error);
+      setActionMessage("No se pudo marcar la nota como realizada. Intenta nuevamente.");
+    } finally {
+      setNoteCompletionSavingId(null);
+    }
+  }
+
   const incidents = useMemo(() => mergeIncidents(collisions, claims, fleetUnits), [claims, collisions, fleetUnits]);
   const alerts = useMemo(() => buildIncidentAlerts(incidents, canViewInsurance), [canViewInsurance, incidents]);
   const immediateIncidentCount = useMemo(() => countImmediateIncidentActions(incidents), [incidents]);
   const trialOverview = useMemo(() => {
-    const openJudicial = incidents.filter((incident) => incident.collision && incident.collision.status !== "ABSUELTO" && incident.collision.status !== "CULPABLE");
+    const openJudicial = incidents.filter((incident) => incident.collision && !isCollisionFinal(incident.collision.status));
     const missingDate = openJudicial.filter((incident) => !incident.collision!.trialDate);
     const upcoming = openJudicial
       .map((incident) => ({ incident, offset: calendarDayOffset(incident.collision!.trialDate) }))
@@ -813,6 +904,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     <section className="panel workflow-claims-panel unified-incidents-follow-up">
       {loading && <p className="hint workflow-message">Cargando expedientes...</p>}
       {loadError && <p className="hint workflow-message">{loadError}</p>}
+      {actionMessage && <p className="hint workflow-message" role="status">{actionMessage}</p>}
       {!loading && !loadError && canViewJudicial && <div className="incident-workspace-tabs" role="tablist" aria-label="Vistas de control de siniestros">
         <button type="button" role="tab" aria-selected={workspaceView === "incidents"} className={workspaceView === "incidents" ? "active" : ""} onClick={() => setWorkspaceView("incidents")}>Expedientes <b>{filterCounts.pending}</b></button>
         <button type="button" role="tab" aria-selected={workspaceView === "agenda"} className={workspaceView === "agenda" ? "active" : ""} onClick={() => setWorkspaceView("agenda")}>Agenda judicial <b>{trialOverview.upcomingCount}</b></button>
@@ -925,8 +1017,11 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           const expanded = expandedId === incident.id;
           const resolutionPending = incident.collision?.status === "ABSUELTO" && !incident.collision.judicialResolutionEvidence;
           const claimState = resolutionPending || !incident.claim ? "none" : incident.claim.status === "Activo" ? "active" : incident.claim.status === "Inactivo" ? "inactive" : "finished";
-          const claimStateLabel = resolutionPending
-            ? "Resolución pendiente"
+          const administrativelyClosed = incident.collision?.status === "CIERRE ADMINISTRATIVO";
+          const claimStateLabel = administrativelyClosed
+            ? "Caso finalizado"
+            : resolutionPending
+              ? "Resolución pendiente"
             : claimState === "active"
             ? "En gestión con aseguradora"
             : claimState === "inactive"
@@ -941,7 +1036,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           const incidentAlerts = alertsByIncident.get(incident.id) ?? [];
           const topAlert = incidentAlerts[0];
           const ageLabel = incidentAgeLabel(incident.incidentDate);
-          const trialDaysRemaining = incident.collision && incident.collision.status !== "ABSUELTO" && incident.collision.status !== "CULPABLE" && incident.collision.trialDate
+          const trialDaysRemaining = incident.collision && !isCollisionFinal(incident.collision.status) && incident.collision.trialDate
             ? calendarDayOffset(incident.collision.trialDate)
             : null;
           const trialCountdownLabel = trialDaysRemaining !== null && trialDaysRemaining > 0
@@ -949,7 +1044,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
             : "";
           const trialCountdownSeverity: IncidentAlertSeverity = trialDaysRemaining !== null && trialDaysRemaining <= 3 ? "urgent" : trialDaysRemaining !== null && trialDaysRemaining <= 10 ? "attention" : "upcoming";
           const topAlertIsTrialCountdown = topAlert?.id === `${incident.id}:trial-upcoming`;
-          const judicialFinalized = incident.collision?.status === "ABSUELTO" || incident.collision?.status === "CULPABLE";
+          const judicialFinalized = Boolean(incident.collision && isCollisionFinal(incident.collision.status));
           const latestIncidentNote = incidentLatestNote(incident);
           const actionGroup = nextActionGroup(incident);
           const actionSchedule = incidentActionSchedule(incident);
@@ -962,7 +1057,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
               </div>
               <div className="unified-incident-status-stack">
                 <div className="unified-incident-status-line">
-                  {judicialFinalized && <span className={`unified-incident-judicial-status status-${incident.collision!.status === "ABSUELTO" ? "absolved" : "guilty"}`}>Juicio: {incident.collision!.status}</span>}
+                  {judicialFinalized && <span className={`unified-incident-judicial-status status-${incident.collision!.status === "ABSUELTO" ? "absolved" : incident.collision!.status === "CULPABLE" ? "guilty" : "administrative"}`}>{incident.collision!.status === "CIERRE ADMINISTRATIVO" ? "Cierre administrativo" : `Juicio: ${incident.collision!.status}`}</span>}
                   <span className={`unified-incident-claim status-${claimState}`}><strong>{claimStateLabel}</strong></span>
                 </div>
                 {!resolutionPending && incident.claim?.claimNumber && <span className="unified-incident-claim-reference"><small>N.º {incident.claim.claimNumber}</small><button type="button" className="unified-claim-copy" aria-label={`Copiar número de reclamo ${incident.claim.claimNumber}`} title="Copiar número de reclamo" onClick={(event) => { event.stopPropagation(); void copyClaimNumber(incident.claim!); }}>{copiedClaimId === incident.claim.id ? "✓" : "⧉"}</button></span>}
@@ -977,10 +1072,18 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
                 <small>{incident.finalized ? "Estado" : "Acción pendiente"}</small>
                 <strong>{incident.nextAction}</strong>
                 {!incident.finalized && actionSchedule && <span className="unified-incident-follow-up-date"><b>{actionSchedule.label}</b></span>}
-                {latestIncidentNote && <button type="button" className="unified-incident-latest-note" onClick={(event) => { event.stopPropagation(); onOpen(latestIncidentNote.destination, { id: latestIncidentNote.targetId, search: incident.unit, section: "follow_up" }); }}>
-                  <span>Última nota · {new Date(latestIncidentNote.createdAt).toLocaleString("es-PA")}</span>
-                  <strong>{latestIncidentNote.comment}</strong>
-                </button>}
+                {latestIncidentNote && <div className={`unified-incident-latest-note${latestIncidentNote.completedAt ? " is-complete" : ""}`}>
+                  <button type="button" className="unified-incident-latest-note-open" onClick={(event) => { event.stopPropagation(); onOpen(latestIncidentNote.destination, { id: latestIncidentNote.targetId, search: incident.unit, section: "follow_up" }); }}>
+                    {latestIncidentNote.completedAt ? <>
+                      <span>Última gestión realizada</span>
+                      <strong>{completedNoteDateTime(latestIncidentNote.completedAt)}</strong>
+                    </> : <>
+                      <span>Última nota · {new Date(latestIncidentNote.createdAt).toLocaleString("es-PA")}</span>
+                      <strong>{latestIncidentNote.comment}</strong>
+                    </>}
+                  </button>
+                  {!latestIncidentNote.completedAt && <button type="button" className="unified-incident-note-complete-button" aria-label="Marcar esta nota como realizada" title="Marcar como realizada" disabled={!canEditIncidents || noteCompletionSavingId === latestIncidentNote.id} onClick={(event) => { event.stopPropagation(); void markNoteCompleted(latestIncidentNote); }}>{noteCompletionSavingId === latestIncidentNote.id ? "Guardando…" : "Pendiente"}</button>}
+                </div>}
                 <div className="unified-incident-action-buttons">
                   {!incident.finalized && <button type="button" className="button primary" onClick={(event) => { event.stopPropagation(); openNextAction(incident); }}>{nextActionButtonLabel(incident)}</button>}
                   <button type="button" className="button ghost" onClick={(event) => { event.stopPropagation(); if (incident.collision) onOpen("judicial", { id: incident.collision.id, search: incident.unit }); else if (incident.claim) onOpen("insurance", { id: incident.claim.id, search: incident.unit }); }}>Ver expediente</button>

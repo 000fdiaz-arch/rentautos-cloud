@@ -21,16 +21,13 @@ import {
   saveLateFeeLedger,
 } from "./storage";
 import {
-  deleteCloudLeadEvaluation,
   deleteCloudPayment,
   deleteCloudPayments,
   loadCloudBankRules,
   loadCloudChargeRunsWithDetails,
   loadCloudClient,
   loadCloudClients,
-  loadCloudLeadEvaluation,
   loadCloudLeadEvaluations,
-  loadCloudLeadEvaluationSummaries,
   loadCloudLateFeeSettings,
   loadCloudOtherChargesRetention,
   loadCloudPayments,
@@ -44,7 +41,6 @@ import {
   saveCloudBankRules,
   saveCloudChargeRuns,
   saveControlUnit,
-  saveCloudLeadEvaluation,
   saveCloudLateFeeSettings,
   saveCloudOtherChargesRetention,
   syncCloudClientsDelta,
@@ -61,11 +57,14 @@ import AppNavigation, { type AppPage } from "./app/AppNavigation";
 import { appPageFromPathname, appPagePath, isCanonicalAppPagePath } from "./app/appRoutes";
 import { useBackupManager } from "./app/useBackupManager";
 import { useCoreCloudSync } from "./app/useCoreCloudSync";
+import { useLeadCloudData } from "./app/useLeadCloudData";
+import { usePendingLeadReviewCount } from "./app/usePendingLeadReviewCount";
 import { getBusinessDateKey, withResolvedInstallmentIssuance } from "./billing";
 import { supabase } from "./lib/supabase";
 import { countActiveRouteReviewItems } from "./routeReviewRules";
 import { stableEqual } from "./stableSerialize";
 import { buildManualPaymentTransaction } from "./pages/payments/manualPaymentWorkflow";
+import { getPendingCashChangeError } from "./cashTeamRules";
 import { loadNotifiedPayments, saveNotifiedPayments } from "./pages/payments/paymentStorage";
 import "./styles.css";
 
@@ -233,9 +232,9 @@ export default function AppShell({
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
   const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
   const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>(() => loadOtherChargesRetentionByClient());
-  const [leadEvaluations, setLeadEvaluations] = useState<LeadEvaluation[]>([]);
-  const [leadsLoading, setLeadsLoading] = useState(false);
-  const [leadsCloudError, setLeadsCloudError] = useState("");
+  const leads = useLeadCloudData(cloudDataUserId, canViewLeads, page === "leads");
+  const pendingLeadReviewCount = usePendingLeadReviewCount(cloudDataUserId, canViewLeads);
+  const leadEvaluations = leads.evaluations;
   const [fullPaymentHistoryLoaded, setFullPaymentHistoryLoaded] = useState<boolean>(false);
   const [cashPaymentPrefill, setCashPaymentPrefill] = useState<{
     dateApplied: string;
@@ -365,35 +364,6 @@ export default function AppShell({
     window.addEventListener("popstate", handleHistoryNavigation);
     return () => window.removeEventListener("popstate", handleHistoryNavigation);
   }, [canViewClients, canViewControlUnits, canViewIncidents, canViewLeads, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!canViewLeads || !cloudDataUserId) {
-      setLeadEvaluations([]);
-      setLeadsLoading(false);
-      setLeadsCloudError("");
-      return () => {
-        cancelled = true;
-      };
-    }
-    setLeadsLoading(true);
-    setLeadsCloudError("");
-    void loadCloudLeadEvaluationSummaries(cloudDataUserId)
-      .then((items) => {
-        if (cancelled) return;
-        setLeadEvaluations(items);
-      })
-      .catch((error) => {
-        console.error("No se pudo cargar Leads desde Supabase.", error);
-        if (!cancelled) setLeadsCloudError(`No se pudieron cargar los Leads desde nube. ${describeCloudError(error)}`);
-      })
-      .finally(() => {
-        if (!cancelled) setLeadsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [canViewLeads, cloudDataUserId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -545,6 +515,8 @@ export default function AppShell({
   async function persistPayments(next: Payment[]): Promise<void> {
     if (!canEditPayments) return;
     if (userId && !cloudReady) return;
+    const teamError = getPendingCashChangeError(payments, next);
+    if (teamError) { setSyncStatus("error"); setSyncErrorMessage(teamError); return; }
     const previousClients = clients;
     const previousPayments = payments;
     setPayments(next);
@@ -562,6 +534,8 @@ export default function AppShell({
     source: "payments" | "route" = "payments"
   ): Promise<boolean> {
     if (source === "route" ? !canEditRouteSearch : !canEditPayments) return false;
+    const teamError = getPendingCashChangeError(payments, nextPayments);
+    if (teamError) throw new Error(teamError);
     const previousClients = clients;
     const previousPayments = payments;
     const normalizedNextClients = nextClients.map(withResolvedInstallmentIssuance);
@@ -663,6 +637,7 @@ export default function AppShell({
         dateApplied: operationalDateKey,
         paymentMethod: "Efectivo",
         cashDeliveryStatus: "pending",
+        collectionTeam: input.team,
         reference: "",
         amountReceived: String(input.amount)
       },
@@ -796,41 +771,9 @@ export default function AppShell({
   }
 
   async function persistLeadEvaluations(next: LeadEvaluation[]): Promise<void> {
-    if (!canEditLeads) return;
-    if (!cloudDataUserId) {
-      setLeadsCloudError("No hay dataset cloud configurado para guardar Leads.");
-      return;
-    }
-    const previous = leadEvaluations;
-    setLeadEvaluations(next);
-    setLeadsCloudError("");
-    try {
-      const previousById = new Map(previous.map((item) => [item.id, item]));
-      const nextById = new Map(next.map((item) => [item.id, item]));
-      const removedIds = previous.map((item) => item.id).filter((id) => !nextById.has(id));
-      const changedItems = next.filter((item) => !stableEqual(previousById.get(item.id), item));
-
-      for (const item of changedItems) {
-        await saveCloudLeadEvaluation(cloudDataUserId, item);
-      }
-      for (const id of removedIds) {
-        await deleteCloudLeadEvaluation(cloudDataUserId, id);
-      }
-      setHasPendingChanges(true);
-    } catch (error) {
-      console.error("No se pudo guardar Leads en Supabase.", error);
-      setLeadEvaluations(previous);
-      setLeadsCloudError(`No se pudo guardar el Lead en nube. ${describeCloudError(error)}`);
-      throw error;
-    }
-  }
-
-  async function loadFullLeadEvaluation(evaluationId: string): Promise<LeadEvaluation | null> {
-    if (!cloudDataUserId) return null;
-    const full = await loadCloudLeadEvaluation(cloudDataUserId, evaluationId);
-    if (!full) return null;
-    setLeadEvaluations((current) => current.map((item) => item.id === full.id ? full : item));
-    return full;
+    if (!canEditLeads) throw new Error("No tienes permiso para guardar Leads.");
+    await leads.persist(next);
+    setHasPendingChanges(true);
   }
 
   function handleFleetClientStatusSync(payload: {
@@ -999,7 +942,7 @@ export default function AppShell({
     await onSignOut?.();
   }
 
-  if (userId && !cloudReady && !cloudBootTimedOut) {
+  if (userId && !cloudReady && !cloudBootTimedOut && page !== "leads") {
     return (
       <main className="auth-page">
         <section className="auth-card">
@@ -1023,6 +966,7 @@ export default function AppShell({
         canViewControlUnits={canViewControlUnits}
         canViewSettings={canViewSettingsPage}
         incidentAlertCount={incidentAlertCount}
+        pendingLeadReviewCount={pendingLeadReviewCount}
         routeReviewCount={routeReviewCount}
         showCoreSyncStatus={shouldSyncCoreData}
         syncStatus={syncStatus}
@@ -1065,9 +1009,15 @@ export default function AppShell({
           <LeadsPage
             evaluations={leadEvaluations}
             onEvaluationsChange={persistLeadEvaluations}
-            onEvaluationLoad={loadFullLeadEvaluation}
-            loading={leadsLoading}
-            cloudError={leadsCloudError}
+            onEvaluationSave={async item => { if (!canEditLeads) throw new Error("No autorizado"); await leads.save(item); setHasPendingChanges(true); }}
+            onEvaluationDelete={async id => { if (!canEditLeads) throw new Error("No autorizado"); await leads.remove(id); setHasPendingChanges(true); }}
+            onEvaluationLoad={leads.loadDocument}
+            onEvaluationFind={cloudDataUserId ? leads.find : undefined}
+            onLoadMore={leads.loadMore}
+            onRefresh={leads.refresh}
+            hasMore={leads.hasMore}
+            loading={leads.loading}
+            cloudError={leads.error}
             readOnly={!canEditLeads}
             ownerUserId={cloudDataUserId}
           />

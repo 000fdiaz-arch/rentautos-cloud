@@ -40,6 +40,18 @@ export function isMoneyDelivered(payment: Payment): boolean {
   return payment.moneyDelivered !== false;
 }
 
+export function validateCashDeliveryDate(payments: Payment[], date: string, today: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T12:00:00Z`)) ||
+    new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date) {
+    return "Selecciona una fecha de entrega válida.";
+  }
+  if (date > today) return "La entrega no puede registrarse en una fecha futura.";
+  if (payments.some(payment => date < getIncomeDate(payment))) {
+    return "La fecha de entrega no puede ser anterior al cobro. Revisa los recibos seleccionados.";
+  }
+  return null;
+}
+
 export function buildPendingDeliveryRows(payments: Payment[], dateKey: string): Payment[] {
   return payments
     .filter((payment) => (

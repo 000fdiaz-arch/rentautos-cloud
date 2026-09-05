@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { getBusinessDateKey, isBeforeFirstChargeDate, isChargeDay, parseDateKey, resolveInstallmentIssuance, toDateKey } from "../../billing";
+import { applyPendingCashClosingCharges, getCashClosingDateError, getLastClosableDateKey } from "../../cashClosingRules";
 import {
   loadCloudCashClosingAudit,
   loadCloudCashClosings,
@@ -205,7 +206,7 @@ export default function useCashClosing({
   const nextUnclosedDateKey = useMemo(() => {
     const today = getBusinessDateKey();
     const candidates = [...closedDateSet].map((date) => date.trim()).filter((date) => date.length > 0);
-    if (candidates.length === 0) return today;
+    if (candidates.length === 0) return getLastClosableDateKey();
     const sortedClosedDates = [...new Set(candidates)].sort();
     const latestClosed = sortedClosedDates[sortedClosedDates.length - 1];
     if (!latestClosed) return today;
@@ -277,7 +278,9 @@ function isPendingRunApplied(run: ChargeRun, currentClients: Client[]): boolean 
 
 function applyNextDayChargesFromClosing(
   closingDateKey: string,
-  options: { repairExistingRun?: boolean; forceIncompleteZeroRun?: boolean } = {}
+  options: { repairExistingRun?: boolean; forceIncompleteZeroRun?: boolean } = {},
+  sourceClients: Client[] = clients,
+  sourceChargeRuns: ChargeRun[] = chargeRuns
 ): InternalChargeApplyResult {
   const closingDate = parseDateKey(closingDateKey);
   if (!closingDate) {
@@ -291,7 +294,7 @@ function applyNextDayChargesFromClosing(
       lateFeeClients: 0,
       lateFeeTotal: 0,
       rows: [],
-      nextClients: clients,
+      nextClients: sourceClients,
       newLateFeeEntries: [],
       clientSnapshots: []
     };
@@ -299,12 +302,12 @@ function applyNextDayChargesFromClosing(
   const targetDate = new Date(closingDate);
   targetDate.setDate(targetDate.getDate() + 1);
   const targetDateKey = toDateKey(targetDate);
-  const pendingRun = chargeRuns.find((r) =>
+  const pendingRun = sourceChargeRuns.find((r) =>
     r.targetDate === targetDateKey &&
     r.status === "pending" &&
     Array.isArray(r.clientSnapshots) &&
     r.clientSnapshots.length > 0 &&
-    isPendingRunApplied(r, clients)
+    isPendingRunApplied(r, sourceClients)
   );
   if (pendingRun) {
     return {
@@ -317,13 +320,13 @@ function applyNextDayChargesFromClosing(
       lateFeeClients: 0,
       lateFeeTotal: 0,
       rows: [],
-      nextClients: clients,
+      nextClients: sourceClients,
       newLateFeeEntries: [],
       clientSnapshots: pendingRun.clientSnapshots ?? [],
       run: { ...pendingRun, status: "completed" }
     };
   }
-  const existingRun = chargeRuns.find((r) => r.targetDate === targetDateKey && r.status !== "pending" && r.status !== "reverted");
+  const existingRun = sourceChargeRuns.find((r) => r.targetDate === targetDateKey && r.status !== "pending" && r.status !== "reverted");
   const alreadyProcessed = !!existingRun;
   const shouldForceIncompleteZeroRun = !!(
     options.forceIncompleteZeroRun &&
@@ -333,7 +336,7 @@ function applyNextDayChargesFromClosing(
   );
 
   const lateFeeResult = applyLateFeesForClosingDate({
-    clients,
+    clients: sourceClients,
     payments,
     lateFeeLedger,
     lateFeeSettings,
@@ -357,7 +360,7 @@ function applyNextDayChargesFromClosing(
       rows: [],
       nextClients: clientsWithLateFees,
       newLateFeeEntries,
-      clientSnapshots: buildClientSnapshots(clients, clientsWithLateFees)
+      clientSnapshots: buildClientSnapshots(sourceClients, clientsWithLateFees)
     };
   }
 
@@ -367,7 +370,7 @@ function applyNextDayChargesFromClosing(
   let chargedTotal = 0;
   const rows: ChargeReportRow[] = [];
   const nextClients = clientsWithLateFees.map((client) => {
-    const preClosingClient = clients.find((candidate) => candidate.id === client.id) ?? client;
+    const preClosingClient = sourceClients.find((candidate) => candidate.id === client.id) ?? client;
     if (preClosingClient.activeProvisionalRental) {
       return accrueClientProvisionalRental(preClosingClient, targetDateKey);
     }
@@ -489,7 +492,7 @@ function applyNextDayChargesFromClosing(
       lateFeeClients: 0,
       lateFeeTotal: 0,
       rows,
-      nextClients: clients,
+      nextClients: sourceClients,
       newLateFeeEntries: [],
       clientSnapshots: [],
       blockingError: `No se pudo cerrar: ${anomalyClients} cliente(s) tenian estado inconsistente para ${targetDateKey}.`
@@ -506,7 +509,7 @@ function applyNextDayChargesFromClosing(
     chargedTotal,
     createdAt: new Date().toISOString(),
     status: "pending",
-    clientSnapshots: buildClientSnapshots(clients, nextClients),
+    clientSnapshots: buildClientSnapshots(sourceClients, nextClients),
     lateFeeEntryIds: newLateFeeEntries.map((entry) => entry.id)
   };
 
@@ -524,6 +527,60 @@ function applyNextDayChargesFromClosing(
     newLateFeeEntries,
     clientSnapshots: run.clientSnapshots ?? [],
     run
+  };
+}
+
+function mergeClientSnapshots(
+  existingSnapshots: CashCloseClientSnapshot[],
+  repairSnapshots: CashCloseClientSnapshot[]
+): CashCloseClientSnapshot[] {
+  const byClientId = new Map(existingSnapshots.map((snapshot) => [snapshot.clientId, snapshot]));
+  for (const repair of repairSnapshots) {
+    const existing = byClientId.get(repair.clientId);
+    byClientId.set(repair.clientId, existing
+      ? { ...repair, before: existing.before }
+      : repair);
+  }
+  return [...byClientId.values()];
+}
+
+async function buildSameDayRepairRun(
+  targetDateKey: string,
+  repairedClients: Client[],
+  chargedClients: number,
+  chargedTotal: number
+): Promise<ChargeRun | null> {
+  if (chargedClients === 0) return null;
+  const targetDate = parseDateKey(targetDateKey);
+  if (!targetDate) return null;
+  const previousDate = new Date(targetDate);
+  previousDate.setDate(previousDate.getDate() - 1);
+  const existingRun = chargeRuns.find((run) => run.targetDate === targetDateKey && run.status !== "reverted");
+  let existingSnapshots = existingRun?.clientSnapshots ?? [];
+  let existingLateFeeEntryIds = existingRun?.lateFeeEntryIds ?? [];
+  if (existingRun && dataOwnerUserId) {
+    [existingSnapshots, existingLateFeeEntryIds] = await Promise.all([
+      existingSnapshots.length > 0
+        ? Promise.resolve(existingSnapshots)
+        : loadCloudChargeRunSnapshots(dataOwnerUserId, existingRun.id),
+      existingLateFeeEntryIds.length > 0
+        ? Promise.resolve(existingLateFeeEntryIds)
+        : loadCloudChargeRunLateFeeEntryIds(dataOwnerUserId, existingRun.id)
+    ]);
+  }
+  const repairSnapshots = buildClientSnapshots(clients, repairedClients);
+  return {
+    id: existingRun?.id ?? crypto.randomUUID(),
+    closingDate: existingRun?.closingDate ?? toDateKey(previousDate),
+    targetDate: targetDateKey,
+    expectedClients: (existingRun?.expectedClients ?? 0) + chargedClients,
+    chargedClients: (existingRun?.chargedClients ?? 0) + chargedClients,
+    anomalyClients: existingRun?.anomalyClients ?? 0,
+    chargedTotal: roundMoney((existingRun?.chargedTotal ?? 0) + chargedTotal),
+    createdAt: existingRun?.createdAt ?? new Date().toISOString(),
+    status: "pending",
+    clientSnapshots: mergeClientSnapshots(existingSnapshots, repairSnapshots),
+    lateFeeEntryIds: existingLateFeeEntryIds
   };
 }
 
@@ -548,8 +605,9 @@ async function handleCloseCashForDate(): Promise<void> {
     setCashClosingInfo("");
     return;
   }
-  if (!date) {
-    setCashClosingError("Debes seleccionar una fecha para cerrar caja.");
+  const dateError = getCashClosingDateError(date);
+  if (dateError) {
+    setCashClosingError(dateError);
     setCashClosingInfo("");
     return;
   }
@@ -574,7 +632,8 @@ async function handleCloseCashForDate(): Promise<void> {
       return;
     }
 
-    const chargeResult = applyNextDayChargesFromClosing(date);
+    const sameDayRepair = applyPendingCashClosingCharges(clients, date);
+    const chargeResult = applyNextDayChargesFromClosing(date, {}, sameDayRepair.clients);
     const closeReport: ChargeCloseReport = {
       closingDate: date,
       targetDate: chargeResult.targetDate,
@@ -596,6 +655,9 @@ async function handleCloseCashForDate(): Promise<void> {
 
     const confirmMessage = [
       `Cerrar caja de ${date}.`,
+      sameDayRepair.chargedClients > 0
+        ? `Primero se repararan ${sameDayRepair.chargedClients} cargo(s) pendiente(s) de ${date}, por ${formatCurrency(sameDayRepair.chargedTotal)}.`
+        : "",
       chargeResult.alreadyProcessed
         ? `Los cargos para ${chargeResult.targetDate} ya estan aplicados; se completara el cierre pendiente.`
         : `Se aplicaran cargos automaticos para ${chargeResult.targetDate}.`,
@@ -621,16 +683,30 @@ async function handleCloseCashForDate(): Promise<void> {
     }
 
     let nextRuns = chargeRuns;
+    const repairRun = await buildSameDayRepairRun(
+      date,
+      sameDayRepair.clients,
+      sameDayRepair.chargedClients,
+      sameDayRepair.chargedTotal
+    );
+    if (repairRun) {
+      nextRuns = [repairRun, ...nextRuns.filter((item) => item.id !== repairRun.id)].slice(0, 400);
+    }
     if (chargeResult.run) {
-      nextRuns = [chargeResult.run, ...chargeRuns.filter((item) => item.targetDate !== chargeResult.targetDate)].slice(0, 400);
+      nextRuns = [
+        chargeResult.run,
+        ...nextRuns.filter((item) => item.targetDate !== chargeResult.targetDate || item.status === "reverted")
+      ].slice(0, 400);
+    }
+    if (repairRun || chargeResult.run) {
       await persistChargeRuns(nextRuns);
     }
 
     await onClientsChange(chargeResult.nextClients);
 
-    if (chargeResult.run) {
-      const completedRun: ChargeRun = { ...chargeResult.run, status: "completed" };
-      nextRuns = [completedRun, ...chargeRuns.filter((item) => item.targetDate !== chargeResult.targetDate)].slice(0, 400);
+    if (repairRun || chargeResult.run) {
+      const completedRunIds = new Set([repairRun?.id, chargeResult.run?.id].filter((id): id is string => Boolean(id)));
+      nextRuns = nextRuns.map((run) => completedRunIds.has(run.id) ? { ...run, status: "completed" } : run);
       await persistChargeRuns(nextRuns);
     }
 
@@ -657,9 +733,12 @@ async function handleCloseCashForDate(): Promise<void> {
     const lateFeeInfo = chargeResult.lateFeeClients > 0
       ? ` Recargos por tardanza: ${chargeResult.lateFeeClients} cliente(s), total ${formatCurrency(chargeResult.lateFeeTotal)}.`
       : "";
+    const repairInfo = sameDayRepair.chargedClients > 0
+      ? ` Se repararon ${sameDayRepair.chargedClients} cargo(s) pendiente(s) de ${date}, total ${formatCurrency(sameDayRepair.chargedTotal)}.`
+      : "";
     setCashClosingError("");
     setCashClosingInfo(
-      `Caja cerrada para ${date}. Pagos del dia: ${paymentsOfDay.length}. Total del dia: ${formatCurrency(dayTotal)}. ${chargeInfo}${lateFeeInfo}`
+      `Caja cerrada para ${date}. Pagos del dia: ${paymentsOfDay.length}. Total del dia: ${formatCurrency(dayTotal)}.${repairInfo} ${chargeInfo}${lateFeeInfo}`
     );
     onCashClose?.();
   } catch (error) {

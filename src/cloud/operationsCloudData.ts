@@ -157,7 +157,7 @@ export type InsuranceClaimRecord = {
   updatedAt: string;
 };
 
-export type CollisionTrialStatus = "PENDIENTE" | "NUEVA FECHA" | "ABSUELTO" | "CULPABLE";
+export type CollisionTrialStatus = "PENDIENTE" | "NUEVA FECHA" | "ABSUELTO" | "CULPABLE" | "CIERRE ADMINISTRATIVO";
 export type CollisionPhotoAttachment = {
   name: string;
   path: string;
@@ -229,6 +229,12 @@ export type CollisionCaseEditEvent = {
   changedFields: string[];
 };
 
+export type CollisionAdministrativeClosureEvent = {
+  action: "CERRADO" | "REABIERTO";
+  reason: string;
+  occurredAt: string;
+};
+
 export type CollisionCaseRecord = {
   id: string;
   incidentDate: string;
@@ -265,6 +271,9 @@ export type CollisionCaseRecord = {
   expenseInvoice: CollisionExpenseInvoice | null;
   clientReturnedBeforeClosure?: boolean;
   clientReturnedBeforeClosureAt?: string | null;
+  administrativeClosureReason?: string;
+  administrativelyClosedAt?: string | null;
+  administrativeClosureHistory?: CollisionAdministrativeClosureEvent[];
   createdAt: string;
   updatedAt: string;
 };
@@ -569,7 +578,9 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
       ? "CULPABLE"
       : rawStatus === "NUEVA FECHA"
         ? "NUEVA FECHA"
-        : "PENDIENTE";
+        : rawStatus === "CIERRE ADMINISTRATIVO" || rawStatus === "CERRADO ADMINISTRATIVAMENTE"
+          ? "CIERRE ADMINISTRATIVO"
+          : "PENDIENTE";
   const legacyPhotos = Array.isArray(legacy.photos)
     ? legacy.photos.filter((photo): photo is CollisionPhotoAttachment => Boolean(photo && typeof photo === "object" && "path" in photo))
     : [];
@@ -677,7 +688,17 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
         }
       : null,
     clientReturnedBeforeClosure: item.clientReturnedBeforeClosure === true,
-    clientReturnedBeforeClosureAt: typeof item.clientReturnedBeforeClosureAt === "string" ? item.clientReturnedBeforeClosureAt : null
+    clientReturnedBeforeClosureAt: typeof item.clientReturnedBeforeClosureAt === "string" ? item.clientReturnedBeforeClosureAt : null,
+    administrativeClosureReason: typeof item.administrativeClosureReason === "string" ? item.administrativeClosureReason : "",
+    administrativelyClosedAt: typeof item.administrativelyClosedAt === "string" ? item.administrativelyClosedAt : null,
+    administrativeClosureHistory: Array.isArray(item.administrativeClosureHistory)
+      ? item.administrativeClosureHistory.filter((entry): entry is CollisionAdministrativeClosureEvent => Boolean(
+          entry && typeof entry === "object"
+          && (entry.action === "CERRADO" || entry.action === "REABIERTO")
+          && typeof entry.reason === "string"
+          && typeof entry.occurredAt === "string"
+        ))
+      : []
   };
 }
 
@@ -1228,7 +1249,7 @@ function leadDecisionValue(value: unknown): LeadEvaluation["decision"] {
   return value === "aplica_con_abono" || value === "no_aplica" ? value : "aplica";
 }
 
-function leadSummaryFromRow(row: LeadEvaluationSummaryRow): LeadEvaluation {
+export function normalizeLeadEvaluationSummary(row: LeadEvaluationSummaryRow): LeadEvaluation {
   const id = stringValue(row.id);
   const now = new Date().toISOString();
   return {
@@ -1253,53 +1274,6 @@ function leadSummaryFromRow(row: LeadEvaluationSummaryRow): LeadEvaluation {
     createdAt: stringValue(row.createdAt) || now,
     updatedAt: stringValue(row.updatedAt) || now
   };
-}
-
-export async function loadCloudLeadEvaluationSummaries(userId: string): Promise<LeadEvaluation[]> {
-  const client = getCloudClient();
-  const allRows: LeadEvaluationSummaryRow[] = [];
-  let lastId = "";
-  const select = [
-    "id",
-    "data->cedula",
-    "data->birthDate",
-    "data->age",
-    "data->attachmentName",
-    "data->noCases",
-    "data->hasGpsTamperingReport",
-    "data->hasLegalCases",
-    "data->hasViolenceReports",
-    "data->hasDuiReports",
-    "data->hasPiracyReports",
-    "data->collisionReports",
-    "data->pendingDailyReports",
-    "data->decision",
-    "data->extraDeposit",
-    "data->blockers",
-    "data->extraDepositReasons",
-    "data->sellerRequestId",
-    "data->createdAt",
-    "data->updatedAt"
-  ].join(",");
-  while (true) {
-    let query = client
-      .from("lead_evaluations_cloud")
-      .select(select)
-      .eq("user_id", userId)
-      .order("id", { ascending: true })
-      .limit(PAGE_SIZE);
-    if (lastId) query = query.gt("id", lastId);
-    const { data, error } = await query;
-    if (error) throw error;
-    const batch = (data ?? []) as LeadEvaluationSummaryRow[];
-    allRows.push(...batch);
-    if (batch.length < PAGE_SIZE) break;
-    lastId = stringValue(batch[batch.length - 1]?.id) || lastId;
-    if (!lastId) break;
-  }
-  return allRows
-    .map(leadSummaryFromRow)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export async function loadCloudLeadEvaluation(userId: string, evaluationId: string): Promise<LeadEvaluation | null> {

@@ -42,15 +42,36 @@ function fromRow(row: SellerLeadRequestRow): SellerLeadRequest {
 
 const requestColumns = "id,user_id,token,status,cedula,birth_date,attachment_name,attachment_data_url,correction_note,evaluation_id,expires_at,submitted_at,reviewed_at,created_at,updated_at";
 
-export async function loadSellerLeadRequests(userId: string): Promise<SellerLeadRequest[]> {
+export const SELLER_LEAD_REQUESTS_CHANGED_EVENT = "rentautos:seller-lead-requests-changed";
+
+export async function countPendingSellerLeadReviews(userId: string): Promise<number> {
+  const { count, error } = await getCloudClient().from("seller_lead_requests")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("status", "pending_review");
+  if (error) throw error;
+  if (count === null) throw new Error("No se pudo obtener el total de licencias pendientes.");
+  return count;
+}
+
+export async function loadSellerLeadRequests(userId: string, offset = 0): Promise<SellerLeadRequest[]> {
   const client = getCloudClient();
   const { data, error } = await client
     .from("seller_lead_requests")
-    .select(requestColumns)
+    .select(requestColumns.split(",").filter(column => column !== "attachment_data_url" && column !== "token").join(","))
     .eq("user_id", userId)
-    .order("updated_at", { ascending: false });
+    .order("updated_at", { ascending: false })
+    .order("id", { ascending: false })
+    .range(offset, offset + 20);
   if (error) throw error;
-  return ((data ?? []) as SellerLeadRequestRow[]).map(fromRow);
+  return ((data ?? []) as unknown as SellerLeadRequestRow[]).map(fromRow);
+}
+
+export async function loadSellerLeadRequest(userId: string, id: string): Promise<SellerLeadRequest> {
+  const { data, error } = await getCloudClient().from("seller_lead_requests")
+    .select(requestColumns).eq("user_id", userId).eq("id", id).single();
+  if (error) throw error;
+  return fromRow(data as SellerLeadRequestRow);
 }
 
 export async function createSellerLeadRequest(userId: string): Promise<SellerLeadRequest> {
@@ -71,16 +92,33 @@ export async function markSellerLeadRequestIncomplete(requestId: string, correct
     .update({ status: "incomplete", correction_note: correctionNote, updated_at: new Date().toISOString() })
     .eq("id", requestId);
   if (error) throw error;
+  window.dispatchEvent(new Event(SELLER_LEAD_REQUESTS_CHANGED_EVENT));
 }
 
-export async function markSellerLeadRequestReviewed(requestId: string, evaluationId: string): Promise<void> {
+type SellerLeadInformation = { cedula: string; birthDate: string; attachmentName: string; attachmentDataUrl: string };
+
+export async function correctSellerLeadRequest(userId: string, request: SellerLeadRequest, input: SellerLeadInformation): Promise<SellerLeadRequest> {
+  const { data, error } = await getCloudClient().from("seller_lead_requests")
+    .update({ cedula: input.cedula, birth_date: input.birthDate, attachment_name: input.attachmentName,
+      attachment_data_url: input.attachmentDataUrl, updated_at: new Date().toISOString() })
+    .eq("user_id", userId).eq("id", request.id).eq("status", "pending_review").eq("updated_at", request.updatedAt)
+    .select(requestColumns).single();
+  if (error) throw error;
+  window.dispatchEvent(new Event(SELLER_LEAD_REQUESTS_CHANGED_EVENT));
+  return fromRow(data as SellerLeadRequestRow);
+}
+
+export async function markSellerLeadRequestReviewed(requestId: string, evaluationId: string, information?: SellerLeadInformation): Promise<void> {
   const client = getCloudClient();
   const now = new Date().toISOString();
   const { error } = await client
     .from("seller_lead_requests")
-    .update({ status: "reviewed", evaluation_id: evaluationId, correction_note: null, reviewed_at: now, updated_at: now })
-    .eq("id", requestId);
+    .update({ status: "reviewed", evaluation_id: evaluationId, correction_note: null, reviewed_at: now, updated_at: now,
+      ...(information ? { cedula: information.cedula, birth_date: information.birthDate,
+        attachment_name: information.attachmentName, attachment_data_url: information.attachmentDataUrl } : {}) })
+    .eq("id", requestId).select("id").single();
   if (error) throw error;
+  window.dispatchEvent(new Event(SELLER_LEAD_REQUESTS_CHANGED_EVENT));
 }
 
 function normalizePublicPayload(value: unknown): PublicSellerLeadRequest {

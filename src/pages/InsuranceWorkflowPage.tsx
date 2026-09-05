@@ -122,6 +122,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   const [fudCompletionForm, setFudCompletionForm] = useState<FudCompletionForm>(EMPTY_FUD_COMPLETION_FORM);
   const [fudCompletionFile, setFudCompletionFile] = useState<File | null>(null);
   const [fudCompletionSavingId, setFudCompletionSavingId] = useState<string>("");
+  const [fudUploadingId, setFudUploadingId] = useState<string>("");
   const [damagePhotosUploadingId, setDamagePhotosUploadingId] = useState<string>("");
   const [settlementDates, setSettlementDates] = useState<Record<string, string>>({});
   const [followUpSavingId, setFollowUpSavingId] = useState<string>("");
@@ -215,8 +216,9 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       else if (claim.closureOutcome === "Pagado") summary.paidAmount += amount;
       else if (claim.closureOutcome === "Declinado") summary.declinedAmount += amount;
       if (!claim.claimNumber.trim()) summary.withoutClaimNumber += 1;
+      if (!claim.amount.trim()) summary.withoutAmount += 1;
       return summary;
-    }, { totalAmount: 0, followUpAmount: 0, paidAmount: 0, declinedAmount: 0, withoutClaimNumber: 0 });
+    }, { totalAmount: 0, followUpAmount: 0, paidAmount: 0, declinedAmount: 0, withoutClaimNumber: 0, withoutAmount: 0 });
   }, [filteredClaims]);
 
   const hasActiveClaimFilters = Boolean(
@@ -449,6 +451,10 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       setMessage("No se puede finalizar un reclamo sin número de reclamo.");
       return;
     }
+    if (!claim.amount.trim()) {
+      setMessage("Completa el monto reclamado desde “Editar reclamo” antes de finalizar.");
+      return;
+    }
     if (!closureOutcome) {
       setMessage("Selecciona si el reclamo fue pagado o declinado.");
       return;
@@ -593,8 +599,8 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
     const hasClaimNumber = fudCompletionForm.hasClaimNumber === "yes";
     const claimNumber = hasClaimNumber ? fudCompletionForm.claimNumber.trim() : "";
     const amount = fudCompletionForm.amount.trim();
-    if (!insurer || !fudCompletionForm.hasClaimNumber || !amount || !fudCompletionForm.deliveryDate || !fudCompletionForm.managementNote.trim()) {
-      setMessage("Completa aseguradora, monto, disponibilidad del número, fecha de entrega y registro de la gestión.");
+    if (!insurer || !fudCompletionForm.hasClaimNumber || !fudCompletionForm.deliveryDate || !fudCompletionForm.managementNote.trim()) {
+      setMessage("Completa aseguradora, disponibilidad del número, fecha de entrega y registro de la gestión.");
       return;
     }
     if (hasClaimNumber && !claimNumber) {
@@ -605,11 +611,6 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       setMessage("Confirma que el FUD original fue recibido presencialmente.");
       return;
     }
-    if (!claim.fudAttachment && !fudCompletionFile) {
-      setMessage("Adjunta una copia digital del FUD entregado presencialmente.");
-      return;
-    }
-
     setFudCompletionSavingId(claim.id);
     setMessage("");
     let uploadedAttachment = null as InsuranceClaimRecord["fudAttachment"];
@@ -643,9 +644,11 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
         try { await removeInsuranceSettlement(claim.fudAttachment.path); } catch { /* Limpieza de mejor esfuerzo. */ }
       }
       cancelFudCompletion();
-      setMessage(claimNumber
-        ? "Datos del FUD completados. El reclamo quedó en gestión con la aseguradora. Siguiente paso: registra cada novedad en Notas."
-        : "Datos del FUD completados. Todavía falta el número de reclamo; agrégalo cuando la aseguradora lo asigne.");
+      setMessage(!updatedClaim.fudAttachment
+        ? "Datos del FUD completados. Alerta activa: falta adjuntar la copia digital del FUD."
+        : claimNumber
+          ? "Datos del FUD completados. El reclamo quedó en gestión con la aseguradora. Siguiente paso: registra cada novedad en Notas."
+          : "Datos del FUD completados. Todavía falta el número de reclamo; agrégalo cuando la aseguradora lo asigne.");
     } catch (error) {
       if (uploadedAttachment?.path) {
         try { await removeInsuranceSettlement(uploadedAttachment.path); } catch { /* Limpieza de mejor esfuerzo. */ }
@@ -667,6 +670,42 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       previewWindow?.close();
       console.error("No se pudo abrir el finiquito.", error);
       setMessage("No se pudo abrir el finiquito adjunto.");
+    }
+  }
+
+  async function handleFudAttachmentUpload(claim: InsuranceClaimRecord, file: File | undefined): Promise<void> {
+    if (!file || !dataOwnerUserId || readOnly || fudUploadingId) return;
+    if ((file.type !== "application/pdf" && !file.type.startsWith("image/")) || file.size > MAX_SETTLEMENT_FILE_SIZE) {
+      setMessage("El FUD debe ser un PDF o una imagen de 10 MB o menos.");
+      return;
+    }
+    setFudUploadingId(claim.id);
+    setMessage("");
+    let uploadedPath = "";
+    try {
+      const attachment = await uploadInsuranceSettlement(dataOwnerUserId, claim.id, file);
+      uploadedPath = attachment.path;
+      const now = new Date().toISOString();
+      const updatedClaim: InsuranceClaimRecord = {
+        ...claim,
+        fudAttachment: attachment,
+        editHistory: [...claim.editHistory, { editedAt: now, justification: "Copia digital del FUD adjuntada al expediente." }],
+        updatedAt: now
+      };
+      await saveInsuranceClaim(dataOwnerUserId, updatedClaim);
+      setClaims((current) => current.map((item) => item.id === claim.id ? updatedClaim : item));
+      if (claim.fudAttachment?.path) {
+        try { await removeInsuranceSettlement(claim.fudAttachment.path); } catch { /* Limpieza de mejor esfuerzo. */ }
+      }
+      setMessage("Copia digital del FUD adjuntada. La alerta fue retirada.");
+    } catch (error) {
+      if (uploadedPath) {
+        try { await removeInsuranceSettlement(uploadedPath); } catch { /* Limpieza de mejor esfuerzo. */ }
+      }
+      console.error("No se pudo adjuntar la copia digital del FUD.", error);
+      setMessage("No se pudo guardar la copia digital del FUD en la nube.");
+    } finally {
+      setFudUploadingId("");
     }
   }
 
@@ -973,7 +1012,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
             </label>
 
             <label>
-              Monto
+              Monto <small>Opcional por ahora</small>
               <input
                 type="number"
                 name="amount"
@@ -984,6 +1023,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                 onChange={(event) => patchForm({ amount: event.target.value })}
                 disabled={readOnly}
               />
+              <span className="hint">Puedes completarlo después desde “Editar reclamo”.</span>
             </label>
 
             <label className="workflow-form-notes">
@@ -1053,6 +1093,11 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
               <span>Sin número de reclamo</span>
               <strong>{claimKpis.withoutClaimNumber}</strong>
               <small>Requieren completar</small>
+            </div>
+            <div className={claimKpis.withoutAmount > 0 ? "attention" : ""}>
+              <span>Sin monto reclamado</span>
+              <strong>{claimKpis.withoutAmount}</strong>
+              <small>No incluidos en los totales</small>
             </div>
           </div>}
           {!focusedClaimId && <div className="workflow-claim-filters">
@@ -1142,6 +1187,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                       </span>
                       {claim.followUps.length > 0 && <span className="complete">Con notas</span>}
                       {!claim.claimNumber && <span className="missing">Sin número</span>}
+                      {!claim.amount.trim() && <span className="missing">Monto pendiente</span>}
                       {claim.status === "Finalizado" && claim.closureOutcome && (
                         <span className={claim.closureOutcome === "Pagado" ? "complete" : "declined"}>{claim.closureOutcome}</span>
                       )}
@@ -1166,24 +1212,37 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                 {expanded && (
                 <div className="workflow-claim-details">
                 {claim.documentationPending && <div className="workflow-finalization-panel insurance-documentation-pending">
-                  <div><strong>Datos del FUD pendientes</strong><span>El reclamo no avanzará hasta completar los datos del FUD, recibir presencialmente el original y adjuntar su copia digital.</span></div>
+                  <div><strong>Datos del FUD pendientes</strong><span>El reclamo no avanzará hasta completar los datos del FUD y recibir presencialmente el original. La copia digital puede adjuntarse después.</span></div>
                   {completingFudClaimId !== claim.id ? (
                     <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => startCompletingFud(claim)} disabled={readOnly || Boolean(fudCompletionSavingId)}>Completar FUD</button></div>
                   ) : (
                     <div className="workflow-claim-edit-panel">
                       <div className="workflow-claim-edit-grid">
                         <label className={!fudCompletionForm.insurer.trim() ? "workflow-required-field" : ""}>Aseguradora<input list={`fud-insurers-${claim.id}`} value={fudCompletionForm.insurer} onChange={(event) => setFudCompletionForm((current) => ({ ...current, insurer: event.target.value }))} /><datalist id={`fud-insurers-${claim.id}`}>{insurers.map((insurer) => <option key={insurer} value={insurer} />)}</datalist></label>
-                        <label className={!fudCompletionForm.amount.trim() ? "workflow-required-field" : ""}>Monto del reclamo<input type="number" min="0" step="0.01" placeholder="0.00" value={fudCompletionForm.amount} onChange={(event) => setFudCompletionForm((current) => ({ ...current, amount: event.target.value }))} /></label>
+                        <label>Monto del reclamo <small>Opcional por ahora</small><input type="number" min="0" step="0.01" placeholder="Puedes completarlo después" value={fudCompletionForm.amount} onChange={(event) => setFudCompletionForm((current) => ({ ...current, amount: event.target.value }))} /><span className="hint">Podrás agregarlo desde “Editar reclamo”.</span></label>
                         <label className={!fudCompletionForm.deliveryDate ? "workflow-required-field" : ""}>Fecha de entrega presencial<input type="date" value={fudCompletionForm.deliveryDate} onChange={(event) => setFudCompletionForm((current) => ({ ...current, deliveryDate: event.target.value }))} /></label>
                         <label className={!fudCompletionForm.hasClaimNumber ? "workflow-required-field" : ""}>¿Tienes el número de reclamo?<select value={fudCompletionForm.hasClaimNumber} onChange={(event) => { const hasClaimNumber = event.target.value as FudCompletionForm["hasClaimNumber"]; setFudCompletionForm((current) => ({ ...current, hasClaimNumber, ...(hasClaimNumber !== "yes" ? { claimNumber: "" } : {}) })); }}><option value="">Seleccionar Sí o No</option><option value="yes">Sí, tengo el número</option><option value="no">No, todavía no lo tengo</option></select></label>
                         {fudCompletionForm.hasClaimNumber === "yes" && <label className={!fudCompletionForm.claimNumber.trim() ? "workflow-required-field" : ""}>Número de reclamo<input value={fudCompletionForm.claimNumber} placeholder="Escribe el número" onChange={(event) => setFudCompletionForm((current) => ({ ...current, claimNumber: event.target.value }))} /></label>}
-                        <label className={`workflow-claim-edit-wide${!claim.fudAttachment && !fudCompletionFile ? " workflow-required-field" : ""}`}>Copia digital del FUD<input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => selectFudCompletionFile(event.target.files?.[0])} /><span className="hint">{fudCompletionFile ? `Seleccionado: ${fudCompletionFile.name}` : claim.fudAttachment ? `Adjunto actual: ${claim.fudAttachment.name}` : "PDF o imagen · máximo 10 MB"}</span></label>
+                        <label className="workflow-claim-edit-wide">Copia digital del FUD <small>Opcional temporalmente</small><input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => selectFudCompletionFile(event.target.files?.[0])} /><span className="hint">{fudCompletionFile ? `Seleccionado: ${fudCompletionFile.name}` : claim.fudAttachment ? `Adjunto actual: ${claim.fudAttachment.name}` : "Puedes continuar sin archivo; quedará una alerta activa. PDF o imagen · máximo 10 MB"}</span></label>
                         <label className="workflow-claim-edit-wide collision-client-returned-option"><input type="checkbox" checked={fudCompletionForm.physicalDeliveryConfirmed} onChange={(event) => setFudCompletionForm((current) => ({ ...current, physicalDeliveryConfirmed: event.target.checked }))} /><span><strong>Confirmo que el FUD original fue recibido presencialmente</strong><small>Una foto, PDF o envío digital no sustituye la entrega física.</small></span></label>
                         <label className={`workflow-claim-edit-wide${!fudCompletionForm.managementNote.trim() ? " workflow-required-field" : ""}`}>Registro de la gestión<textarea value={fudCompletionForm.managementNote} placeholder="Ej. FUD original recibido y datos verificados" onChange={(event) => setFudCompletionForm((current) => ({ ...current, managementNote: event.target.value }))} /></label>
                       </div>
                       <div className="workflow-claim-edit-actions"><button type="button" className="button" onClick={cancelFudCompletion} disabled={fudCompletionSavingId === claim.id}>Cancelar</button><button type="button" className="button primary" onClick={() => void completeFudDocumentation(claim)} disabled={fudCompletionSavingId === claim.id}>{fudCompletionSavingId === claim.id ? "Guardando..." : "Completar FUD"}</button></div>
                     </div>
                   )}
+                </div>}
+                {!claim.documentationPending && claim.fudPhysicalDeliveryConfirmed && !claim.fudAttachment && <div className="workflow-finalization-panel insurance-documentation-pending">
+                  <div><strong>Copia digital del FUD no adjunta</strong><span>El reclamo puede continuar, pero esta alerta permanecerá hasta agregar una foto o PDF del documento entregado.</span></div>
+                  <div className="workflow-finalization-actions">
+                    <label className="button primary">
+                      {fudUploadingId === claim.id ? "Adjuntando..." : "Adjuntar FUD"}
+                      <input type="file" accept="application/pdf,image/*,.pdf" hidden disabled={readOnly || Boolean(fudUploadingId)} onChange={(event) => { void handleFudAttachmentUpload(claim, event.target.files?.[0]); event.target.value = ""; }} />
+                    </label>
+                  </div>
+                </div>}
+                {!claim.amount.trim() && claim.status !== "Finalizado" && <div className="workflow-finalization-panel insurance-documentation-pending">
+                  <div><strong>Monto reclamado pendiente</strong><span>El reclamo puede continuar. Completa el monto después desde “Editar reclamo”; será obligatorio antes de finalizar.</span></div>
+                  <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => startEditingClaim(claim)} disabled={readOnly || editingClaimId === claim.id}>Completar monto</button></div>
                 </div>}
                 <div className="workflow-claim-detail-head">
                   <div>
@@ -1236,7 +1295,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                     )}
                     <div className="workflow-finalization-actions">
                       <button type="button" className="button" onClick={() => setFinalizingClaimId(null)}>Cancelar</button>
-                      <button type="button" className="button primary" onClick={() => void finalizeClaim(claim)} disabled={!closureOutcome || (closureOutcome === "Declinado" && !closureJustification.trim()) || statusSavingId === claim.id}>
+                      <button type="button" className="button primary" onClick={() => void finalizeClaim(claim)} disabled={!claim.amount.trim() || !closureOutcome || (closureOutcome === "Declinado" && !closureJustification.trim()) || statusSavingId === claim.id}>
                         {statusSavingId === claim.id ? "Finalizando..." : "Confirmar finalización"}
                       </button>
                     </div>
@@ -1302,7 +1361,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                   <div><dt>Fotos de daños</dt><dd>{claim.damagePhotos.length || claim.damagePhotoNames.length || "-"}</dd></div>
                   <div><dt>Fecha de creación</dt><dd>{claim.createdAt ? new Date(claim.createdAt).toLocaleDateString("es-PA") : "-"}</dd></div>
                   <div><dt>Entrega presencial del FUD</dt><dd>{claim.fudPhysicalDeliveryConfirmed ? `Confirmada${claim.fudPhysicalDeliveryDate ? ` · ${claim.fudPhysicalDeliveryDate}` : ""}` : "Pendiente de confirmar"}</dd></div>
-                  <div><dt>Copia digital del FUD</dt><dd>{claim.fudAttachment ? <><span>{claim.fudAttachment.name}</span><button type="button" className="button small" onClick={() => void viewSettlement(claim.fudAttachment!.path)}>Ver FUD</button></> : "No adjunta"}</dd></div>
+                  <div><dt>Copia digital del FUD</dt><dd>{claim.fudAttachment ? <><span>{claim.fudAttachment.name}</span><button type="button" className="button small" onClick={() => void viewSettlement(claim.fudAttachment!.path)}>Ver FUD</button></> : <strong className="workflow-claim-number-warning">No adjunta · alerta activa</strong>}</dd></div>
                   {claim.status === "Finalizado" && <div><dt>Resultado final</dt><dd>{claim.closureOutcome || "-"}</dd></div>}
                   {claim.closureOutcome === "Declinado" && <div className="workflow-claim-damage"><dt>Justificación del rechazo</dt><dd>{claim.closureJustification}</dd></div>}
                   <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{claim.vehicleDamage || "Sin descripción"}</dd></div>

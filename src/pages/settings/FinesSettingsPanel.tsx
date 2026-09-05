@@ -17,7 +17,7 @@ type Props = {
 export default function FinesSettingsPanel({ clients, onClientsChange }: Props) {
   const [unitInput, setUnitInput] = useState("");
   const [type, setType] = useState<FineType>("NEGATIVE_PANAPASS_BALANCE");
-  const [panapassAmount, setPanapassAmount] = useState<string>("5");
+  const [amountChoice, setAmountChoice] = useState("5");
   const [customAmount, setCustomAmount] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
 
@@ -39,9 +39,7 @@ export default function FinesSettingsPanel({ clients, onClientsChange }: Props) 
   }, [clients]);
 
   function resolveAmount(): number {
-    if (type !== "NEGATIVE_PANAPASS_BALANCE") return 1;
-    if (panapassAmount !== "custom") return Number(panapassAmount);
-    return Number(customAmount);
+    return Number(amountChoice === "custom" ? customAmount : amountChoice);
   }
 
   async function addFine(): Promise<void> {
@@ -51,9 +49,8 @@ export default function FinesSettingsPanel({ clients, onClientsChange }: Props) 
     const client = activeClientsByUnit.get(unit);
     if (!unit) nextErrors.push("Debes indicar una unidad.");
     if (!client) nextErrors.push("No se encontro un cliente activo para esa unidad.");
-    if (!Number.isFinite(amount) || amount <= 0) nextErrors.push("El monto de la multa debe ser mayor a 0.");
-    if (type === "NEGATIVE_PANAPASS_BALANCE" && panapassAmount === "custom" && amount <= 30) {
-      nextErrors.push("Para Panapass mayor, el monto debe ser superior a 30.");
+    if (!Number.isSafeInteger(amount) || amount < 1 || !Number.isSafeInteger(amount * 100)) {
+      nextErrors.push("El monto de la multa debe ser un número entero mayor a 0, sin centavos.");
     }
     if (nextErrors.length > 0 || !client) {
       setErrors(nextErrors);
@@ -97,27 +94,27 @@ export default function FinesSettingsPanel({ clients, onClientsChange }: Props) 
           <input type="text" placeholder="Ej. A02" value={unitInput} onChange={(event) => setUnitInput(event.target.value.trim().toUpperCase())} />
         </label>
         <label>Tipo de multa
-          <select value={type} onChange={(event) => setType(event.target.value as FineType)}>
+          <select value={type} onChange={(event) => {
+            const nextType = event.target.value as FineType;
+            setType(nextType);
+            setAmountChoice(nextType === "NEGATIVE_PANAPASS_BALANCE" ? "5" : "1");
+            setCustomAmount("");
+            setErrors([]);
+          }}>
             <option value="NEGATIVE_PANAPASS_BALANCE">Saldo negativo Panapass</option>
             <option value="NO_ACH_XPRESS">No generar ACH Xpress</option>
             <option value="MISSING_UNIT_CENTS">No colocar centavos de unidad</option>
           </select>
         </label>
-        {type === "NEGATIVE_PANAPASS_BALANCE" ? (
-          <label>Monto Panapass
-            <select value={panapassAmount} onChange={(event) => setPanapassAmount(event.target.value)}>
-              {PANAPASS_AMOUNTS.map((amount) => <option key={amount} value={String(amount)}>{formatCurrency(amount)}</option>)}
-              <option value="custom">Mayor</option>
-            </select>
-          </label>
-        ) : (
-          <label>Monto
-            <input type="number" value="1" disabled readOnly />
-          </label>
-        )}
-        {type === "NEGATIVE_PANAPASS_BALANCE" && panapassAmount === "custom" && (
-          <label>Monto mayor
-            <input type="number" min="30.01" step="0.01" placeholder="Ej. 35" value={customAmount} onChange={(event) => setCustomAmount(event.target.value)} />
+        <label>Monto de la multa
+          <select value={amountChoice} onChange={(event) => { setAmountChoice(event.target.value); setErrors([]); }}>
+            {(type === "NEGATIVE_PANAPASS_BALANCE" ? PANAPASS_AMOUNTS : [1]).map((amount) => <option key={amount} value={String(amount)}>{formatCurrency(amount)}</option>)}
+            <option value="custom">Ingresar monto manual</option>
+          </select>
+        </label>
+        {amountChoice === "custom" && (
+          <label>Monto manual sin centavos ($)
+            <input type="number" min="1" step="1" inputMode="numeric" placeholder="Ej. 12" value={customAmount} onChange={(event) => setCustomAmount(event.target.value)} />
           </label>
         )}
         <div style={{ display: "flex", alignItems: "end" }}>

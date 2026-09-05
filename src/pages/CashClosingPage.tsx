@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { BUSINESS_TIME_ZONE, getBusinessDateKey } from "../billing";
+import { getCashClosingDateError } from "../cashClosingRules";
 import { formatCurrency } from "../format";
 import type { Client, Payment } from "../types";
 import PaymentReceipt from "../components/PaymentReceipt";
@@ -382,6 +383,11 @@ export default function CashClosingPage({
   }
 
   async function handleCloseDay(): Promise<void> {
+    const dateError = getCashClosingDateError(cashDate);
+    if (dateError) {
+      setSyncMessage(dateError);
+      return;
+    }
     if (!isAdmin) {
       setSyncMessage("Solo admin puede cerrar caja.");
       return;

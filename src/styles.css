@@ -4308,12 +4308,109 @@ select.control-op-badge {
 
 /* -- Ingresos del día -- */
 .income-day-panel { display: grid; gap: 18px; }
+.income-day-panel, #income-view-panel { min-width: 0; }
+#income-view-panel { display: grid; gap: 18px; }
+.income-view-tabs { display: flex; gap: 6px; padding: 5px; border: 1px solid var(--color-border); border-radius: var(--radius); background: #f8fafc; }
+.income-view-tabs button { flex: 1; min-width: 0; border: 0; border-radius: var(--radius-sm); padding: 12px; background: transparent; color: var(--color-text-muted); font: inherit; font-weight: 700; cursor: pointer; }
+.income-view-tabs button[aria-selected="true"] { background: var(--color-primary); color: #fff; }
+.income-view-tabs button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.income-edit-form .income-edit-audit { max-height: 180px; overflow-y: auto; }
+.income-report-options summary, .income-cash-teams > summary, .income-cash-more summary { cursor: pointer; color: var(--color-primary); font-size: .85rem; font-weight: 600; padding: 8px 0; }
+.income-report-options > div, .income-cash-more > div { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
+.income-cash-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.income-cash-summary > button { display: grid; gap: 5px; padding: 18px; border-style: solid; border-width: 2px; border-radius: var(--radius); font: inherit; text-align: left; cursor: pointer; }
+.income-cash-summary > button[aria-selected="true"] { border-color: currentColor; box-shadow: inset 0 -5px currentColor; }
+.income-cash-summary > button:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 3px; }
+.income-cash-status-panel { display: grid; gap: 14px; min-width: 0; }
+.income-cash-status-panel[hidden] { display: none; }
+.income-cash-summary-pending { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+.income-cash-summary-delivered { background: #f0fdf4; border-color: #86efac; color: #166534; }
+.income-cash-summary span { font-weight: 700; }
+.income-cash-summary strong { font-size: 1.8rem; }
+.income-cash-summary small { font-size: .8rem; }
+.income-cash-filters { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
+.income-cash-filters label { display: grid; gap: 6px; font-size: .85rem; font-weight: 600; }
+.income-cash-filters label:first-child { flex: 1; min-width: min(100%, 240px); }
+.income-cash-filters input, .income-cash-filters select { min-width: 0; width: 100%; padding: 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: #fff; font: inherit; }
+.income-cash-teams { border-bottom: 1px solid var(--color-border); padding-bottom: 10px; }
+.income-cash-teams .income-team-closing { margin-top: 10px; }
+.income-other-cash { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 18px; border-top: 1px solid var(--color-border); background: #fff; }
+.income-other-cash > div { flex: 1; min-width: 180px; }
+.income-other-cash h4 { margin: 0 0 4px; }
+.income-other-cash p { margin: 0; color: var(--color-text-muted); font-size: .82rem; }
+.income-other-cash > strong { font-size: 1.15rem; }
+.income-missing-team-alert { border: 2px solid #dc2626; border-radius: var(--radius); background: #fef2f2; color: #991b1b; }
+.income-missing-team-alert h4 { font-size: 1rem; font-weight: 800; }
+.income-missing-team-alert p { color: #991b1b; }
+.income-no-team-badge { display: inline-block; padding: 3px 8px; border: 1px solid #dc2626; border-radius: 4px; background: #fee2e2; color: #991b1b; font-weight: 800; }
+.income-team-badge, .income-team-card-filter .income-team-badge { display: inline-flex; justify-self: start; align-items: center; width: fit-content; padding: 7px 12px; border-radius: 7px; color: #fff; font-size: 1rem; font-weight: 900; line-height: 1.25; letter-spacing: .035em; }
+.income-team-badge--pty { background: #1d4ed8; }
+.income-team-badge--wc { background: #9a3412; }
+.income-cash-receipt--no-team { border: 2px solid #dc2626; background: #fff7f7; }
+.income-cash-selection { margin: 0 0 12px; padding: 14px; border: 1px solid var(--color-border); border-radius: var(--radius); background: #f0fdfa; }
+.income-cash-selection p { margin: 0 0 10px; font-size: .85rem; }
+.income-cash-selection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.income-cash-selection-actions > span { font-size: .85rem; font-weight: 600; }
+.income-cash-select { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; padding: 4px 0; margin-bottom: 10px; font-size: .85rem; font-weight: 600; text-transform: none; letter-spacing: normal; cursor: pointer; }
+.income-cash-select input { width: 20px; height: 20px; margin: 0; accent-color: var(--color-primary); }
+.income-cash-receipt--selected { box-shadow: 0 0 0 2px var(--color-primary); }
+.income-cash-list { min-width: 0; padding: 18px; border: 2px solid; border-radius: 16px; }
+.income-cash-list--pending { border-color: #eab308; background: #fffbeb; }
+.income-cash-list--delivered { border-color: #22c55e; background: #f0fdf4; }
+.income-cash-list--pending .income-zone-heading { color: #854d0e; }
+.income-cash-list--delivered .income-zone-heading { color: #166534; }
+.income-zone-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid currentColor; }
+.income-zone-heading > strong { display: grid; gap: 3px; white-space: nowrap; font-size: 1.4rem; text-align: right; }
+.income-zone-heading small { font-size: .75rem; font-weight: 600; }
+.income-zone-filters { display: grid; gap: 10px; padding: 12px; margin-bottom: 14px; border: 1px solid var(--color-border); border-radius: 10px; background: #fff; }
+.income-zone-filter-fields { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; }
+.income-zone-filter-fields label { min-width: 0; flex: 1; }
+.income-zone-filter-fields input, .income-zone-filter-fields select { width: 100%; min-width: 0; padding: 9px; border: 1px solid var(--color-border); border-radius: 6px; background: #fff; color: var(--color-text); font: inherit; text-transform: none; }
+.income-zone-team-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.income-zone-team-filter { padding: 8px 14px; border: 1px solid #94a3b8; border-radius: 7px; background: #fff; color: #334155; font: inherit; font-size: .82rem; font-weight: 800; cursor: pointer; }
+.income-zone-team-filter[aria-pressed="true"] { background: #334155; color: #fff; border-color: #334155; }
+.income-zone-team-filter--pty[aria-pressed="true"] { background: #1d4ed8; border-color: #1d4ed8; }
+.income-zone-team-filter--wc[aria-pressed="true"] { background: #9a3412; border-color: #9a3412; }
+.income-zone-team-filter:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+@media (max-width: 600px) {
+  .income-cash-list { padding: 12px; }
+  .income-zone-heading { flex-direction: column; gap: 8px; }
+  .income-zone-heading > strong { text-align: left; }
+  .income-zone-filter-fields { flex-direction: column; align-items: stretch; }
+  .income-zone-filter-fields label { width: 100%; }
+  .income-zone-team-filter { flex: 1; }
+}
+.income-cash-list header { margin-bottom: 12px; }
+.income-cash-list h3 { margin: 0 0 5px; }
+.income-cash-list header p, .income-cash-empty { color: var(--color-text-muted); font-size: .85rem; margin: 0; }
+.income-cash-empty { padding: 16px; border-radius: var(--radius-sm); background: #f8fafc; }
+.income-cash-receipts { display: grid; gap: 10px; }
+.income-cash-receipt { padding: 16px; border: 1px solid var(--color-border); border-radius: var(--radius); min-width: 0; }
+.income-cash-receipt--pty { border-left: 6px solid #1d4ed8; background: #f5f9ff; }
+.income-cash-receipt--wc { border-left: 6px solid #c2410c; background: #fff8f3; }
+.income-cash-receipt-main .income-no-team-badge { justify-self: start; }
+.income-cash-receipt-main { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.income-cash-receipt-main > div { display: grid; gap: 4px; overflow-wrap: anywhere; min-width: 0; }
+.income-cash-receipt-main small, .income-cash-receipt-dates { color: var(--color-text-muted); font-size: .8rem; }
+.income-cash-amount { white-space: nowrap; font-size: 1.15rem; }
+.income-cash-receipt-dates { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; }
+.income-cash-receipt-actions { display: flex; align-items: start; flex-wrap: wrap; gap: 10px 18px; margin-top: 12px; }
+.income-cash-comment { font-size: .85rem; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .income-cash-summary { gap: 8px; }
+  .income-cash-summary > button { padding: 12px; }
+  .income-cash-summary strong { font-size: 1.5rem; }
+  .income-cash-summary small { font-size: .75rem; }
+  .income-cash-filters label { width: 100%; }
+  .income-cash-receipt { padding: 12px; }
+}
 .income-day-header, .income-day-actions, .income-day-group-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .income-day-header h2 { margin: 0 0 4px; }
 .income-day-header p { margin: 0; }
 .income-day-actions label { display: grid; gap: 4px; font-size: .8rem; font-weight: 700; color: var(--color-text-muted); }
 .income-day-actions input, .income-day-search input, .income-edit-form input, .income-edit-form select, .income-edit-form textarea { border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 9px 11px; background: var(--color-surface); color: var(--color-text); font: inherit; }
 .income-day-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.income-day-kpis--cash { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .income-team-closing { overflow: hidden; border: 1px solid #99d8d0; border-radius: var(--radius); background: linear-gradient(135deg, #f0fdfa 0%, #ecfeff 100%); box-shadow: 0 8px 24px rgba(15, 118, 110, .08); }
 .income-team-closing-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 16px 18px; border-bottom: 1px solid #bde7e1; }
 .income-team-closing-head h3, .income-team-closing-head p { margin: 0; }
@@ -11815,6 +11912,7 @@ button.ar-route-publish-copy.is-active {
 
 .lead-page {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
 }
 
@@ -12051,6 +12149,42 @@ button.ar-route-publish-copy.is-active {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.lead-content-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.lead-content-tabs [role="tab"] {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lead-content-tabs [aria-selected="true"] {
+  background: var(--color-primary);
+  color: white;
+}
+
+.lead-content-tabs [role="tab"]:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.lead-page [role="tabpanel"][hidden] {
+  display: none;
 }
 
 .lead-seller-requests .panel-head > div {
@@ -13080,6 +13214,11 @@ button.ar-route-publish-copy.is-active {
   color: #991b1b;
 }
 
+.unified-incident-judicial-status.status-administrative {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
 .unified-incident-identity,
 .unified-incident-action {
   display: grid;
@@ -13199,25 +13338,37 @@ button.ar-route-publish-copy.is-active {
 
 .unified-incident-latest-note {
   display: grid;
-  gap: 3px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
   width: 100%;
   margin-top: 7px;
   border: 1px solid #dbeafe;
   border-radius: 8px;
   background: #ffffff;
   color: inherit;
-  padding: 8px 10px;
+  padding: 5px 6px 5px 10px;
+  text-align: left;
+}
+
+.unified-incident-latest-note-open {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 3px 0;
   text-align: left;
   cursor: pointer;
 }
 
-.unified-incident-latest-note span {
+.unified-incident-latest-note-open span {
   color: #64748b;
   font-size: 0.7rem;
   font-weight: 800;
 }
 
-.unified-incident-latest-note strong {
+.unified-incident-latest-note-open strong {
   overflow: hidden;
   color: #334155;
   font-size: 0.8rem;
@@ -13230,6 +13381,43 @@ button.ar-route-publish-copy.is-active {
 .unified-incident-latest-note:hover {
   border-color: #93c5fd;
   background: #f8fbff;
+}
+
+.unified-incident-latest-note.is-complete {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.unified-incident-note-complete-button,
+.unified-incident-note-completed {
+  border-radius: 7px;
+  padding: 6px 9px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.unified-incident-note-complete-button {
+  border: 1px solid #fdba74;
+  background: #fff7ed;
+  color: #9a3412;
+  cursor: pointer;
+}
+
+.unified-incident-note-complete-button:hover:not(:disabled) {
+  border-color: #f97316;
+  background: #ffedd5;
+}
+
+.unified-incident-note-complete-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.unified-incident-note-completed {
+  border: 1px solid #86efac;
+  background: #dcfce7;
+  color: #166534;
 }
 
 .unified-incident-action.follow-up-due,
@@ -13589,6 +13777,11 @@ button.ar-route-publish-copy.is-active {
   color: #991b1b;
 }
 
+.judicial-focused-status.status-administrative strong {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
 .insurance-workflow-header {
   display: flex;
   align-items: flex-start;
@@ -13820,6 +14013,53 @@ button.ar-route-publish-copy.is-active {
   margin: 0;
   font-weight: 700;
 }
+
+.lead-document-open {
+  display: grid;
+  gap: 8px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+  cursor: zoom-in;
+  text-align: left;
+  font: inherit;
+}
+
+.lead-document-open span { justify-content: flex-start; font-weight: 700; }
+.lead-document-open:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 4px; }
+
+.lead-document-dialog {
+  width: min(1200px, calc(100vw - 24px));
+  height: min(900px, calc(100dvh - 24px));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 24px 80px #0006;
+  overflow: hidden;
+}
+
+.lead-document-dialog[open] { display: flex; flex-direction: column; }
+.lead-document-dialog::backdrop { background: #0f172ad9; }
+.lead-document-dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 18px 10px; }
+.lead-document-dialog-head > div { min-width: 0; }
+.lead-document-dialog-head h2 { margin: 0; font-size: 1.1rem; }
+.lead-document-dialog-head p { margin: 4px 0 0; font-size: .8rem; overflow-wrap: anywhere; }
+.lead-document-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 18px; }
+.lead-document-toolbar output { min-width: 50px; text-align: center; font-variant-numeric: tabular-nums; }
+.lead-document-toolbar .button { min-width: 40px; min-height: 40px; }
+.lead-document-help { margin: 8px 18px 12px; font-size: .8rem; color: #475569; }
+.lead-document-viewport { flex: 1; min-height: 0; overflow: auto; background: #1e293b; overscroll-behavior: contain; }
+.lead-document-viewport.is-zoomed { cursor: grab; touch-action: none; }
+.lead-document-viewport.is-zoomed:active { cursor: grabbing; }
+.lead-document-canvas { position: relative; }
+.lead-document-canvas img { position: absolute; display: block; max-width: none; max-height: none; user-select: none; }
+.lead-document-image-error { padding: 24px; color: #fff; }
 
 .workflow-checklist {
   display: grid;
@@ -14277,6 +14517,49 @@ button.ar-route-publish-copy.is-active {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.administrative-closure-entry {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #fecaca;
+  border-radius: 9px;
+  background: #fff7f7;
+  padding: 13px;
+}
+
+.administrative-closure-entry > div {
+  display: grid;
+  gap: 3px;
+}
+
+.administrative-closure-entry span,
+.administrative-closure-panel > p {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.administrative-closure-panel {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.administrative-closure-panel.is-closed {
+  border-color: #c7d2fe;
+  background: #f5f7ff;
+}
+
+.administrative-closure-panel label,
+.administrative-closure-panel > p {
+  grid-column: 1 / -1;
+}
+
+.administrative-closure-panel textarea {
+  min-height: 88px;
+  resize: vertical;
 }
 
 .workflow-claim-edit-grid {
@@ -15765,25 +16048,11 @@ button.ar-route-publish-copy.is-active {
   color: #b91c1c;
 }
 
-.ar-card-workflow.is-incident-blocked {
-  position: relative;
-  border-color: #fecaca;
-  background: #fffafa;
-}
-
-.ar-card-workflow.is-incident-blocked select:disabled,
-.ar-card-workflow.is-incident-blocked input:disabled,
-.ar-card-workflow.is-incident-blocked textarea:disabled,
-.ar-card-workflow.is-incident-blocked button:disabled {
-  cursor: not-allowed;
-  opacity: .58;
-}
-
-.ar-route-incident-blocked {
+.ar-route-incident-alert {
   box-shadow: inset 4px 0 0 #dc2626;
 }
 
-.ar-incident-route-block {
+.ar-incident-route-note {
   display: block;
   margin-top: 4px;
   color: #b91c1c;

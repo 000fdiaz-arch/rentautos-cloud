@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { loadPublicSellerLeadRequest, lookupPublicSellerLead, submitPublicSellerLeadRequest, submitSharedSellerLead } from "../cloud/sellerLeadRequestCloudData";
 import type { PublicSellerLeadRequest } from "../types";
-import { SELLER_PENDING_MESSAGE, sellerDecisionMessage, validSellerBirthDate, validSellerCedula } from "../sellerLeadPortalRules";
+import { SELLER_PENDING_MESSAGE, sellerDecisionMessage, validSellerBirthDate, validSellerCedula, validSellerCedulaInput } from "../sellerLeadPortalRules";
 
 type Props = { token?: string; portalId?: string };
 
@@ -35,6 +35,11 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
   }, [token]);
 
   function changeCedula(value: string): void {
+    if (!validSellerCedulaInput(value)) {
+      setError("La cédula solo permite números y guiones (-).");
+      return;
+    }
+    setError("");
     setCedula(value);
     if (!portalId) return;
     operation.current += 1;
@@ -140,7 +145,7 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
           <form className="seller-lead-search" onSubmit={(event) => void consult(event)}>
             <p>Vendedor: introduce la cédula de la persona para conocer el siguiente paso.</p>
             <label>Cédula de la persona
-              <input autoComplete="off" maxLength={32} value={cedula} onChange={(event) => changeCedula(event.target.value)}
+              <input autoComplete="off" inputMode="tel" pattern={"[0-9\\-]*"} title="Solo números y guiones (-)" maxLength={32} value={cedula} onChange={(event) => changeCedula(event.target.value)}
                 placeholder="Ej. 8-888-888" disabled={locked} />
             </label>
             <button type="submit" className="button primary seller-lead-submit" disabled={locked || loading}>
@@ -164,7 +169,7 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
               <div className="warning-banner"><strong>Corrección solicitada:</strong> {request.correctionNote}</div>
             )}
             <div className="form-grid seller-lead-form-grid">
-              {!portalId && <label>Cédula de la persona<input value={cedula} maxLength={32} onChange={(event) => changeCedula(event.target.value)} disabled={locked} /></label>}
+              {!portalId && <label>Cédula de la persona<input value={cedula} inputMode="tel" pattern={"[0-9\\-]*"} title="Solo números y guiones (-)" maxLength={32} onChange={(event) => changeCedula(event.target.value)} disabled={locked} /></label>}
               <label>Fecha de nacimiento<input required type="date" min="1900-01-01" max={new Date().toISOString().slice(0, 10)}
                 value={birthDate} onChange={(event) => setBirthDate(event.target.value)} disabled={locked} /></label>
               <label className="seller-lead-file">Foto de cédula o licencia

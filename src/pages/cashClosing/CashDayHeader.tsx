@@ -1,4 +1,5 @@
 import { formatCurrency } from "../../format";
+import { getCashClosingDateError } from "../../cashClosingRules";
 
 export type CashViewTab = "operacion" | "conteo" | "reportes" | "auditoria";
 
@@ -47,6 +48,7 @@ export default function CashDayHeader({
   onClose,
   onReopen
 }: Props) {
+  const closingDateError = getCashClosingDateError(cashDate);
   return (
     <>
       <section className="panel cash-kpi-sticky">
@@ -78,6 +80,7 @@ export default function CashDayHeader({
         </div>
         {loadingDay && <p className="hint">Cargando jornada...</p>}
         {syncMessage && <p className="hint">{syncMessage}</p>}
+        {closingDateError && <p className="hint error-text" role="alert">{closingDateError}</p>}
         {!isDayInitialized && (
           <div className="cash-subpanel" style={{ marginTop: 10 }}>
             <h3>Apertura de jornada</h3>
@@ -96,7 +99,7 @@ export default function CashDayHeader({
               <div className="cash-movement-row cash-movement-row--three">
                 <input type="text" placeholder="Nota de cierre (opcional)" value={closingNote} onChange={(event) => setClosingNote(event.target.value)} />
                 <button type="button" className="button ghost" onClick={onSave} disabled={loadingDay}>Guardar cambios</button>
-                <button type="button" className="button primary" onClick={onClose} disabled={!isAdmin || loadingDay}>Cerrar caja del dia</button>
+                <button type="button" className="button primary" onClick={onClose} disabled={!isAdmin || loadingDay || Boolean(closingDateError)}>Cerrar caja del dia</button>
               </div>
             ) : (
               <div className="cash-movement-row cash-movement-row--three">

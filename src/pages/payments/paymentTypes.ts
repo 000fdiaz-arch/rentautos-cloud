@@ -5,6 +5,7 @@ export type PaymentForm = {
   dateApplied: string;
   paymentMethod: PaymentMethod;
   cashDeliveryStatus: "" | "delivered" | "pending";
+  collectionTeam?: CollectionTeam | "";
   reference: string;
   amountReceived: string;
 };

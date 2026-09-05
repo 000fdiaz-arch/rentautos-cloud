@@ -1,4 +1,5 @@
 import { supabase } from "./lib/supabase";
+import { getCashClosingDateError } from "./cashClosingRules";
 
 export type CashSummary = {
   opening_date: string;
@@ -66,6 +67,8 @@ export async function openCashDay(date: string, seedOpeningBalance?: number | nu
 }
 
 export async function closeCashDay(date: string, countedBalance: number, note?: string): Promise<void> {
+  const dateError = getCashClosingDateError(date);
+  if (dateError) throw new Error(dateError);
   const client = ensureSupabase();
   const { error } = await client.rpc("close_cash_day", {
     p_opening_date: date,

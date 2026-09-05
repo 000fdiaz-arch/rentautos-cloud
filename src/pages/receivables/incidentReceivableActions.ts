@@ -8,10 +8,6 @@ export type IncidentReceivableAction = {
   urgent: boolean;
 };
 
-export function incidentActionBlocksManagement(action: IncidentReceivableAction | undefined): boolean {
-  return Boolean(action?.urgent);
-}
-
 function shiftDateKey(dateKey: string, days: number): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return "";
   const date = new Date(`${dateKey}T12:00:00Z`);
