@@ -72,6 +72,19 @@ if (guiltyTabs.includes("attendance") || guiltyTabs.includes("follow_up") || gui
   throw new Error("Un expediente culpable no debe mostrar pasos que ya no están habilitados.");
 }
 
+const administrativeClosureTabs = availableJudicialCaseTabs(judicialCase({
+  status: "CIERRE ADMINISTRATIVO",
+  documentationPending: true,
+  trialDate: "",
+  vehicleInspectedAt: null,
+  expenseInvoice: null
+}), "2026-08-15");
+if (administrativeClosureTabs.join(",") !== "summary,history") {
+  throw new Error("Un cierre administrativo solo debe permitir consultar Resumen e Historial.");
+}
+assertEqual(defaultJudicialCaseTab(judicialCase({ status: "CIERRE ADMINISTRATIVO" }), "2026-08-15"), "summary", "cierre administrativo abre Resumen");
+assertEqual(daysUntilAttendanceConfirmation(judicialCase({ status: "CIERRE ADMINISTRATIVO", clientWillAttend: null }), "2026-08-15"), null, "cierre administrativo no agenda asistencia");
+
 const settledTabs = availableJudicialCaseTabs(judicialCase({
   status: "ABSUELTO",
   judicialResolutionEvidence: { path: "resolution.jpg" }

@@ -1,6 +1,7 @@
 import type { Client, LateFeeSettings, OtherChargesRetentionByClient, Payment, PendingCardItem } from "../../types";
 import { extractFoliosFromReference } from "./bankPaymentRules";
 import type { PaymentForm } from "./paymentTypes";
+import { CASH_TEAM_REQUIRED_MESSAGE, hasCollectionTeam } from "../../cashTeamRules";
 import {
   applyPaymentToProvisionalRental,
   getCollectibleProvisionalRental,
@@ -56,6 +57,10 @@ export function buildManualPaymentTransaction({
   receiptNumber,
   currentActor
 }: BuildManualPaymentParams): ManualPaymentTransaction {
+  if (form.paymentMethod === "Efectivo" && !form.cashDeliveryStatus) throw new Error("Indica si el efectivo está entregado o pendiente.");
+  if (form.paymentMethod === "Efectivo" && form.cashDeliveryStatus === "pending" && !hasCollectionTeam(form.collectionTeam)) {
+    throw new Error(CASH_TEAM_REQUIRED_MESSAGE);
+  }
   const amountReceived = roundMoney(Number(form.amountReceived));
   const collectibleRental = getCollectibleProvisionalRental(selectedClient);
   if (collectibleRental) {
@@ -96,6 +101,7 @@ export function buildManualPaymentTransaction({
       paymentMethod: form.paymentMethod,
       reference,
       moneyDelivered: cashWasDelivered,
+      collectionTeam: isCash && hasCollectionTeam(form.collectionTeam) ? form.collectionTeam : undefined,
       moneyDeliveryDate: cashWasDelivered ? operationalDateKey : undefined,
       moneyDeliveryUpdatedAt: isCash ? createdAt : undefined,
       moneyDeliveryUpdatedBy: isCash ? currentActor : undefined,
@@ -177,6 +183,7 @@ export function buildManualPaymentTransaction({
     paymentMethod: form.paymentMethod,
     reference,
     moneyDelivered: cashWasDelivered,
+    collectionTeam: isCash && hasCollectionTeam(form.collectionTeam) ? form.collectionTeam : undefined,
     moneyDeliveryDate: cashWasDelivered ? operationalDateKey : undefined,
     moneyDeliveryUpdatedAt: isCash ? createdAt : undefined,
     moneyDeliveryUpdatedBy: isCash ? currentActor : undefined,

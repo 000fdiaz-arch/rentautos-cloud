@@ -20,13 +20,21 @@ assertIncludes(workflow, "Datos del FUD pendientes", "El expediente debe identif
 assertIncludes(workflow, "Completar FUD", "Debe existir una acción equivalente a Completar colilla.");
 assertIncludes(workflow, "Aseguradora", "Completar FUD debe solicitar la aseguradora.");
 assertIncludes(workflow, "Monto del reclamo", "Completar FUD debe solicitar el monto.");
+assertIncludes(workflow, "Monto reclamado pendiente", "El expediente debe alertar cuando el monto aún no fue informado.");
+assertIncludes(workflow, "Completa el monto reclamado", "El monto debe exigirse antes de finalizar el reclamo.");
+assertIncludes(workflow, "Sin monto reclamado", "Los indicadores deben contar los reclamos que todavía no tienen monto.");
 assertIncludes(workflow, "¿Tienes el número de reclamo?", "Completar FUD debe registrar la disponibilidad del número.");
 assertIncludes(workflow, "Registro de la gestión", "Completar FUD debe dejar trazabilidad de la gestión.");
 assertIncludes(workflow, "Confirmo que el FUD original fue recibido presencialmente", "La revisión debe exigir confirmación explícita.");
 assertIncludes(workflow, "documentationPending: false", "Completar el FUD debe retirar el pendiente documental.");
 assertIncludes(workflow, "insuranceClaimStatusAfterFudCompletion(claim.status, claimNumber)", "El estado debe depender de la existencia del número de reclamo.");
+assertIncludes(workflow, "Copia digital del FUD no adjunta", "El expediente debe alertar cuando falta la copia digital.");
+assertIncludes(workflow, "Adjuntar FUD", "El expediente debe permitir cargar posteriormente la copia digital.");
+assertIncludes(workflow, "La alerta fue retirada", "La carga posterior debe confirmar que la alerta desapareció.");
 
 assertIncludes(cloud, "claim.documentationPending === true || !fudPhysicalDeliveryConfirmed", "Los reclamos anteriores sin confirmación deben normalizarse como pendientes.");
 assertIncludes(followUp, "Coordinar entrega presencial del FUD", "Las alertas deben describir la acción presencial correcta.");
+assertIncludes(followUp, "Copia digital del FUD no adjunta", "Control de siniestros debe alertar por la copia digital faltante.");
+assertIncludes(followUp, "Monto reclamado pendiente", "Control de siniestros debe alertar por el monto faltante.");
 
 console.log("OK FUD: entrega presencial, copia digital y expedientes anteriores pendientes.");

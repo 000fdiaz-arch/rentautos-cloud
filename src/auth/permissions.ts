@@ -160,6 +160,10 @@ export function canEditScreen(permissions: AppPermissions, screen: AppScreen): b
   return permissions[screen]?.view === true && permissions[screen]?.edit === true;
 }
 
+export function canReportRoutePayment(role: AppRole, permissions: AppPermissions): boolean {
+  return canViewScreen(permissions, "route_search") && (role === "buscador" || canEditScreen(permissions, "route_search"));
+}
+
 export function canWriteOperationalData(role: AppRole, permissions = getRoleScreenPermissions(role)): boolean {
   return hasPermission(role, "operational.write") && (
     canEditScreen(permissions, "clients") ||

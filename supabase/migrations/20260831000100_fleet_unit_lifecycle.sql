@@ -193,7 +193,7 @@ begin
   from public.collision_cases_cloud c
   where c.user_id = p_owner_user_id
     and upper(btrim(coalesce(c.data->>'unit', ''))) = v_old_unit
-    and upper(coalesce(c.data->>'status', 'PENDIENTE')) not in ('ABSUELTO', 'CULPABLE');
+    and upper(coalesce(c.data->>'status', 'PENDIENTE')) not in ('ABSUELTO', 'CULPABLE', 'CIERRE ADMINISTRATIVO');
 
   if v_next_unit <> '' then
     select exists (
@@ -354,7 +354,7 @@ begin
   set data = jsonb_set(data, '{unit}', to_jsonb(v_next_unit), true), updated_at = now()
   where user_id = p_owner_user_id
     and upper(btrim(coalesce(data->>'unit', ''))) = v_old_unit
-    and upper(coalesce(data->>'status', 'PENDIENTE')) not in ('ABSUELTO', 'CULPABLE');
+    and upper(coalesce(data->>'status', 'PENDIENTE')) not in ('ABSUELTO', 'CULPABLE', 'CIERRE ADMINISTRATIVO');
   get diagnostics v_collisions = row_count;
 
   update public.late_fee_settings_cloud s

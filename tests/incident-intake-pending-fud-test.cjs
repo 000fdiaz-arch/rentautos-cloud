@@ -18,7 +18,7 @@ if (requiresInsuranceFud("no")) {
   throw new Error("Un reclamo con FUD pendiente no debe exigir el documento para guardarse.");
 }
 if (!requiresInsuranceFud("yes")) {
-  throw new Error("Un reclamo que ya recibió el FUD debe exigir el documento.");
+  throw new Error("Un reclamo que ya recibió el FUD debe exigir sus datos y la confirmación presencial.");
 }
 if (requiresInsuranceClaimDetails("no")) {
   throw new Error("Un reclamo con FUD pendiente no debe exigir todavía aseguradora, monto ni número de reclamo.");
@@ -49,8 +49,20 @@ if (formSource.includes('if (!fudFile) throw new Error("Falta el documento FUD."
 if (!formSource.includes("shouldUploadInsuranceFud(form.documentationAvailable, Boolean(fudFile))")) {
   throw new Error("El formulario debe aplicar la regla de carga condicional del FUD.");
 }
+if (formSource.includes('requiresInsuranceFud(form.documentationAvailable) && !fudFile')) {
+  throw new Error("La copia digital del FUD no debe bloquear el registro del reclamo.");
+}
+if (!formSource.includes("Opcional temporalmente") || !formSource.includes("Alerta activa: falta adjuntar la copia digital del FUD")) {
+  throw new Error("El formulario debe explicar la carga opcional y la alerta resultante.");
+}
 if (!formSource.includes("requiresInsuranceClaimDetails(form.documentationAvailable)")) {
   throw new Error("El formulario debe aplicar la regla condicional a los datos del reclamo.");
+}
+if (formSource.includes("!form.hasClaimNumber || !form.amount.trim()")) {
+  throw new Error("El monto reclamado no debe bloquear el registro inicial del siniestro.");
+}
+if (!formSource.includes("Monto reclamado <small>Opcional por ahora</small>")) {
+  throw new Error("El formulario debe explicar que el monto puede completarse después.");
 }
 if (!formSource.includes("Datos del FUD pendientes") || !formSource.includes("Completar FUD")) {
   throw new Error("El registro debe explicar que los datos del FUD se completarán posteriormente.");

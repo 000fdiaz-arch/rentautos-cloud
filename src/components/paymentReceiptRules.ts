@@ -92,6 +92,9 @@ export function isDebtChargeDayForReceipt(payment: Payment, date: Date): boolean
   const day = date.getDay();
   if (day >= 1 && day <= 6) return true;
   if (day !== 0) return false;
+  // A stored first-Sunday date must not bypass the paid-installment lock
+  // when reconstructing the receipt's remaining debt dates.
+  if ((payment.installmentsPaidAfter ?? 0) > 7) return false;
   const firstSunday = payment.firstSundayChargedAt ? parseDateKey(payment.firstSundayChargedAt) : null;
   if (firstSunday) return sameDate(date, firstSunday);
   return (payment.installmentsPaidAfter ?? 0) <= 7;

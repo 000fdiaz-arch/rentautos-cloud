@@ -2,6 +2,7 @@ import type {
   BankRule,
   BillingFrequency,
   Client,
+  ClientFine,
   ClientStatus,
   LateFeeLedgerEntry,
   LateFeeReason,
@@ -138,6 +139,24 @@ function normalizeOtherCharges(raw: Record<string, unknown>): OtherCharge[] {
   return [];
 }
 
+function normalizeClientFines(value: unknown): ClientFine[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((item): item is ClientFine => {
+    if (!item || typeof item !== "object") return false;
+    const fine = item as Record<string, unknown>;
+    return typeof fine.id === "string" && fine.id.length > 0 &&
+      typeof fine.label === "string" && typeof fine.createdAt === "string" &&
+      (fine.type === "NEGATIVE_PANAPASS_BALANCE" || fine.type === "NO_ACH_XPRESS" || fine.type === "MISSING_UNIT_CENTS") &&
+      typeof fine.amount === "number" && Number.isFinite(fine.amount) && fine.amount >= 0 &&
+      typeof fine.amountPaid === "number" && Number.isFinite(fine.amountPaid) && fine.amountPaid >= 0 &&
+      (fine.status === "pending" || fine.status === "partial" || fine.status === "paid");
+  }).map(fine => ({
+    id: fine.id, type: fine.type, label: fine.label, amount: fine.amount,
+    amountPaid: fine.amountPaid, status: fine.status, createdAt: fine.createdAt,
+    ...(typeof fine.paidAt === "string" ? { paidAt: fine.paidAt } : {})
+  }));
+}
+
 function normalizeClient(item: unknown): Client | null {
   if (!item || typeof item !== "object") {
     return null;
@@ -215,6 +234,7 @@ function normalizeClient(item: unknown): Client | null {
     installmentsRemaining: parseNonNegativeInteger(raw.installmentsRemaining),
     installmentsPaid: parseNonNegativeInteger(raw.installmentsPaid),
     otherCharges: normalizeOtherCharges(raw),
+    fines: normalizeClientFines(raw.fines),
     createdAt,
     firstChargeDate:
       typeof raw.firstChargeDate === "string" && raw.firstChargeDate.trim()
@@ -329,7 +349,9 @@ function normalizePaymentIncomeEdits(value: unknown): PaymentIncomeEdit[] | unde
       previousCollectionTeam: raw.previousCollectionTeam === "PTY" || raw.previousCollectionTeam === "WC" ? raw.previousCollectionTeam : undefined,
       nextCollectionTeam: raw.nextCollectionTeam === "PTY" || raw.nextCollectionTeam === "WC" ? raw.nextCollectionTeam : undefined,
       previousMoneyDelivered: typeof raw.previousMoneyDelivered === "boolean" ? raw.previousMoneyDelivered : undefined,
-      nextMoneyDelivered: typeof raw.nextMoneyDelivered === "boolean" ? raw.nextMoneyDelivered : undefined
+      nextMoneyDelivered: typeof raw.nextMoneyDelivered === "boolean" ? raw.nextMoneyDelivered : undefined,
+      previousMoneyDeliveryDate: optionalText(raw.previousMoneyDeliveryDate),
+      nextMoneyDeliveryDate: optionalText(raw.nextMoneyDeliveryDate)
     }];
   });
   return edits.length > 0 ? edits : undefined;
@@ -451,6 +473,7 @@ function normalizePayment(item: unknown): Payment | null {
         ? raw.incomeComment.trim()
         : undefined,
     incomeEdits: normalizePaymentIncomeEdits(raw.incomeEdits),
+    collectionTeam: raw.collectionTeam === "PTY" || raw.collectionTeam === "WC" ? raw.collectionTeam : undefined,
     moneyDelivered: typeof raw.moneyDelivered === "boolean" ? raw.moneyDelivered : undefined,
     moneyDeliveryDate:
       typeof raw.moneyDeliveryDate === "string" && raw.moneyDeliveryDate.trim()

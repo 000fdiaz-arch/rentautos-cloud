@@ -40,6 +40,18 @@ export function isMoneyDelivered(payment: Payment): boolean {
   return payment.moneyDelivered !== false;
 }
 
+export function validateCashDeliveryDate(payments: Payment[], date: string, today: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T12:00:00Z`)) ||
+    new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date) {
+    return "Selecciona una fecha de entrega válida.";
+  }
+  if (date > today) return "La entrega no puede registrarse en una fecha futura.";
+  if (payments.some(payment => date < getIncomeDate(payment))) {
+    return "La fecha de entrega no puede ser anterior al cobro. Revisa los recibos seleccionados.";
+  }
+  return null;
+}
+
 export function buildPendingDeliveryRows(payments: Payment[], dateKey: string): Payment[] {
   return payments
     .filter((payment) => (
@@ -61,14 +73,14 @@ export function buildDeliveredFromPreviousRows(payments: Payment[], dateKey: str
     .sort((left, right) => getIncomeDate(left).localeCompare(getIncomeDate(right)) || left.createdAt.localeCompare(right.createdAt));
 }
 
+export function buildPendingCashRows(payments: Payment[], dateKey: string): Payment[] {
+  return payments.filter(payment => payment.paymentMethod === "Efectivo"
+    && !isMoneyDelivered(payment) && getIncomeDate(payment) <= dateKey);
+}
+
 export function buildPendingCashRowsByTeam(payments: Payment[], dateKey: string): Record<"PTY" | "WC" | "unassigned", Payment[]> {
   const rows: Record<"PTY" | "WC" | "unassigned", Payment[]> = { PTY: [], WC: [], unassigned: [] };
-  for (const payment of payments) {
-    if (
-      payment.paymentMethod !== "Efectivo" ||
-      payment.moneyDelivered !== false ||
-      getIncomeDate(payment) > dateKey
-    ) continue;
+  for (const payment of buildPendingCashRows(payments, dateKey)) {
     const team = payment.collectionTeam === "PTY" || payment.collectionTeam === "WC"
       ? payment.collectionTeam
       : "unassigned";

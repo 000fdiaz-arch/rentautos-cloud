@@ -10,7 +10,7 @@ const output = ts.transpileModule(source, {
 }).outputText;
 const target = path.join(os.tmpdir(), `incident-receivable-actions-${Date.now()}.cjs`);
 fs.writeFileSync(target, output);
-const { buildIncidentActionsByUnit, incidentActionBlocksManagement } = require(target);
+const { buildIncidentActionsByUnit } = require(target);
 
 function collision(id, unit, trialDate) {
   return {
@@ -45,15 +45,6 @@ if (actions.T08?.date !== "2026-08-21" || actions.T08.urgent) {
 }
 if (actions.B17.destination !== "judicial" || actions.B17.targetId !== "b17-case") {
   throw new Error("La acción de B17 no abre el expediente judicial correcto.");
-}
-if (!incidentActionBlocksManagement(actions.B17)) {
-  throw new Error("B17 debe bloquear la clasificación y gestión de cobro por estar urgente.");
-}
-if (incidentActionBlocksManagement(actions.T08)) {
-  throw new Error("T08 todavía debe permitir la gestión antes de su fecha límite.");
-}
-if (incidentActionBlocksManagement(undefined)) {
-  throw new Error("Una unidad sin acción de siniestros no debe quedar bloqueada.");
 }
 
 const completedFollowUp = collision("completed-case", "C30", "2026-09-10");
@@ -120,4 +111,4 @@ if (pendingStubActions.B23?.label !== "Obtener y registrar la colilla" || pendin
   throw new Error("La colilla pendiente debe mostrarse sin bloquear antes de las 48 horas.");
 }
 
-console.log("OK acciones de siniestros: B17 bloquea la gestión urgente y T08 permanece como aviso futuro.");
+console.log("OK información de siniestros: conserva acciones, fechas, urgencia y expediente de destino.");

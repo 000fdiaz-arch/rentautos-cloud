@@ -1,5 +1,6 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { formatCurrency, formatDate } from "../../format";
+import { hasCollectionTeam } from "../../cashTeamRules";
 import type { Client, LateFeeSettings, OtherChargesRetentionCycle, PaymentMethod } from "../../types";
 import {
   getOtherChargeKey,
@@ -268,6 +269,12 @@ export default function RegisterPaymentPanel({
                       Pendiente
                     </button>
                   </div>
+                  {form.cashDeliveryStatus === "pending" && <label className="payment-label">Equipo responsable (obligatorio)
+                    <select className="payment-input" value={form.collectionTeam ?? ""} required aria-invalid={!hasCollectionTeam(form.collectionTeam)} onChange={event => setForm(current => ({ ...current, collectionTeam: event.target.value as "" | "PTY" | "WC" }))}>
+                      <option value="">Selecciona PTY o WC</option><option value="PTY">PTY</option><option value="WC">WC</option>
+                    </select>
+                    <span className="payment-inline-hint">Indica qué equipo tiene el efectivo pendiente de entrega.</span>
+                  </label>}
                 </div>
               )}
 
@@ -521,7 +528,7 @@ export default function RegisterPaymentPanel({
                 type="button"
                 className="button primary"
                 onClick={() => void handleConfirmPaymentClick()}
-                disabled={!form.clientId || !preview || (form.paymentMethod === "Efectivo" && !form.cashDeliveryStatus) || isDateClosed(operationalDateKey) || isConfirmingPayment}
+                disabled={!form.clientId || !preview || (form.paymentMethod === "Efectivo" && (!form.cashDeliveryStatus || (form.cashDeliveryStatus === "pending" && !hasCollectionTeam(form.collectionTeam)))) || isDateClosed(operationalDateKey) || isConfirmingPayment}
               >
                 {isConfirmingPayment ? "Guardando pago..." : "Confirmar pago y generar recibo"}
               </button>

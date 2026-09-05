@@ -113,6 +113,7 @@ Ejecutar en SQL Editor (orden recomendado):
 27. `supabase/63-provisional-rental-workflow.sql`
 28. `supabase/64-provisional-rental-payment-balance.sql`
 29. `supabase/66-shared-seller-lead-portal.sql`
+30. `supabase/67-seller-cedula-digits-only.sql`
 
 ### Consulta pública de vendedores
 
@@ -122,7 +123,12 @@ Luego desplegar la aplicación. En **Leads → Zona de vendedores → Copiar enl
 se obtiene un enlace estable por dataset, compartido por todos los vendedores sin login.
 Copiarlo otra vez no genera una solicitud ni cambia el enlace.
 
-La consulta por cédula reconoce guiones, espacios y mayúsculas. Si hay una revisión
+Aplicar también la migración 67 para restringir las cédulas a números y guiones
+en el servidor (consulta pública, envío y enlaces privados anteriores).
+La interfaz rechaza letras, espacios y caracteres especiales, incluso al pegar.
+No se transforman los identificadores históricos almacenados.
+
+La consulta por cédula reconoce el número con o sin guiones. Si hay una revisión
 pendiente tiene prioridad sobre un dictamen anterior. Si no hay registro se habilita
 el formulario; el registro se crea solamente al enviarlo. Las correcciones reutilizan
 la solicitud y requieren volver a introducir fecha y documento: estos datos nunca
@@ -141,12 +147,17 @@ Pruebas locales (sin acceder a producción):
 npm install --prefix .tmp/lead-portal-tests --no-package-lock --no-save @electric-sql/pglite@0.5.8
 node tests/shared-seller-lead-db-test.mjs
 node tests/shared-seller-lead-ui-test.mjs
+node tests/lead-document-zoom-ui-test.mjs
 npm run build
 ```
 
 La prueba SQL usa PostgreSQL en memoria y un contexto de autenticación de prueba;
 la prueba de navegador simula las respuestas Supabase. No sustituyen una prueba
 contra Supabase después de aplicar la nueva migración.
+
+En la revisión administrativa, pulsa la foto o **Ampliar documento** para abrir el
+visor. Permite zoom hasta 400 %, desplazamiento por arrastre, ajuste a pantalla y
+cierre con Escape. Usa la imagen original sin modificarla y no requiere migración.
 
 Despues:
 - Crear usuario desde UI de login/registro.

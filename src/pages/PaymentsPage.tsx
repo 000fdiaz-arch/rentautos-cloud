@@ -31,6 +31,7 @@ import usePendingBankWorkflow from "./payments/usePendingBankWorkflow";
 import usePaymentsNavigation from "./payments/usePaymentsNavigation";
 import { getPaymentSaveErrorMessage } from "./payments/paymentPersistenceErrors";
 import { buildManualPaymentTransaction } from "./payments/manualPaymentWorkflow";
+import { CASH_TEAM_REQUIRED_MESSAGE, hasCollectionTeam } from "../cashTeamRules";
 import {
   buildPendingBankPreview,
   buildTakenFolioSet,
@@ -376,9 +377,10 @@ export default function PaymentsPage({
     const amount = parseFloat(form.amountReceived);
     if (!Number.isFinite(amount) || amount <= 0) return;
     if (form.paymentMethod === "Efectivo" && !form.cashDeliveryStatus) return;
+    if (form.paymentMethod === "Efectivo" && form.cashDeliveryStatus === "pending" && !hasCollectionTeam(form.collectionTeam)) return;
     void handleConfirmPaymentClick();
     setPendingQuickCashSubmitToken(null);
-  }, [pendingQuickCashSubmitToken, selectedClient, form.amountReceived, form.paymentMethod, form.cashDeliveryStatus]);
+  }, [pendingQuickCashSubmitToken, selectedClient, form.amountReceived, form.paymentMethod, form.cashDeliveryStatus, form.collectionTeam]);
 
 
   async function handleConfirmPaymentClick(): Promise<void> {
@@ -629,6 +631,7 @@ export default function PaymentsPage({
     if (form.paymentMethod === "Efectivo" && !form.cashDeliveryStatus) {
       errs.push("Debes indicar si el dinero en efectivo ya fue entregado o está pendiente de entrega.");
     }
+    if (form.paymentMethod === "Efectivo" && form.cashDeliveryStatus === "pending" && !hasCollectionTeam(form.collectionTeam)) errs.push(CASH_TEAM_REQUIRED_MESSAGE);
     if (form.paymentMethod === "Tarjeta") {
       const enteredFolios = extractFoliosFromReference(form.reference);
       if (enteredFolios.length > 0) {

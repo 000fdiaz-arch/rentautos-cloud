@@ -15,6 +15,17 @@ export function hasPendingPartialRouteDecision(payments: Payment[], item: Active
     || Math.abs(item.partialDecisionRentAmount - confirmedRentAmount) >= 0.005;
 }
 
+export function hasAcknowledgedPartialRouteDecision(payments: Payment[], item: ActiveRouteItem, dateKey: string): boolean {
+  const confirmedRentAmount = routeRentAmountForDay(payments, item, dateKey);
+  return confirmedRentAmount > 0 && confirmedRentAmount < item.releaseAmount
+    && typeof item.partialDecisionRentAmount === "number"
+    && Math.abs(item.partialDecisionRentAmount - confirmedRentAmount) < 0.005;
+}
+
 export function countActiveRouteReviewItems(items: ActiveRouteItem[], payments: Payment[], dateKey: string): number {
-  return items.filter((item) => !item.removedAt && hasPendingPartialRouteDecision(payments, item, dateKey)).length;
+  return getActiveRouteReviewItems(items, payments, dateKey).length;
+}
+
+export function getActiveRouteReviewItems(items: ActiveRouteItem[], payments: Payment[], dateKey: string): ActiveRouteItem[] {
+  return items.filter((item) => !item.removedAt && hasPendingPartialRouteDecision(payments, item, dateKey));
 }

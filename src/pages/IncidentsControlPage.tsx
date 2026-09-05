@@ -98,6 +98,7 @@ export default function IncidentsControlPage({
         dataOwnerUserId={dataOwnerUserId}
         canViewJudicial={canViewIncidents}
         canViewInsurance={canViewIncidents}
+        canEditIncidents={canEditIncidents}
         refreshKey={refreshKey}
         onAlertCountChange={onAlertCountChange}
         onOpen={(destination, target) => setManagementTarget({ destination, ...target })}

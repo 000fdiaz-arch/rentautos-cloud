@@ -67,6 +67,16 @@ export function buildJudicialCaseTimeline(item: CollisionCaseRecord): JudicialCa
     });
   }
 
+  for (const closure of item.administrativeClosureHistory ?? []) {
+    events.push({
+      id: `administrative-closure-${closure.occurredAt}-${closure.action}`,
+      occurredAt: eventTimestamp(closure.occurredAt, fallback),
+      title: closure.action === "CERRADO" ? "Cierre administrativo" : "Expediente reabierto",
+      description: closure.reason,
+      tone: closure.action === "CERRADO" ? "warning" : "info"
+    });
+  }
+
   if (item.vehicleInspectedAt) {
     events.push({
       id: `workshop-${item.vehicleInspectedAt}`,

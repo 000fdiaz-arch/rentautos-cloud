@@ -303,6 +303,8 @@ export type PaymentIncomeEdit = {
   nextCollectionTeam?: CollectionTeam;
   previousMoneyDelivered?: boolean;
   nextMoneyDelivered?: boolean;
+  previousMoneyDeliveryDate?: string;
+  nextMoneyDeliveryDate?: string;
 };
 
 export type Payment = {

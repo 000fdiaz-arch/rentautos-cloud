@@ -1,0 +1,11 @@
+# Ingresos del día: efectivo separado
+
+La vista de ingresos abre siempre en Efectivo, incluso al regresar desde otra sección. Tiene dos pestañas internas: Efectivo y Bancos y otros medios. Los filtros se reinician al cambiar de pestaña o al volver a ingresos. Los totales, listados y exportaciones Excel corresponden a la vista seleccionada. Reportes y descargas reúne las acciones de exportar y compartir. El reporte para compartir abre con los filtros actuales; permite seleccionar explícitamente un reporte completo.
+
+La pantalla de efectivo muestra dos resúmenes y listas: Falta entregar y Ya entregado. Cada recibo aparece una sola vez, con su monto, fechas y botón Registrar entrega o Cambiar fecha de entrega. Los pendientes de hoy y de días anteriores están juntos. Solo se muestran búsqueda y equipo como filtros. Los detalles por equipo y las opciones secundarias de cada recibo se despliegan cuando se necesitan. Las fechas muestran el nombre del mes para evitar confundir día y mes.
+
+La vista Efectivo reúne entregas, pendientes y equipos PTY/WC. El total pendiente incluye los recibos sin equipo. Las entregas individuales y por equipo abren una ventana para elegir su fecha. En un recibo entregado, Cambiar fecha de entrega permite corregirla con un motivo obligatorio. No admite fechas inexistentes, futuras ni anteriores al cobro.
+
+La fecha original del cobro y los importes permanecen intactos. La fecha de entrega determina en qué día se cuenta el efectivo en este informe. Cada corrección registra actor, instante, motivo y fechas anterior/nueva en incomeEdits. El almacenamiento conserva estos campos y collectionTeam al recargar. Se usa la persistencia existente de pagos; no requiere SQL adicional. Este cambio no recalcula cierres de caja ya guardados.
+
+Validación: `node tests/daily-income-cash-ui-test.mjs` — 14 escenarios con datos sintéticos: efectivo al entrar y regresar; listas sin duplicados; separación y totales; corrección y auditoría; persistencia IndexedDB; entrega individual y por equipo; fechas inválidas; cancelación; reportes y Excel; teclado; móvil; modo consulta. También se compila TypeScript y el build de producción aislado. Las pruebas de UI se ejecutan localmente, sin modificar pagos reales. La verificación posterior de producción comprueba rutas y archivos publicados; no sustituye una prueba con sesión real de usuario.

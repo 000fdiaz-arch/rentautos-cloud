@@ -15,6 +15,7 @@ type Props = {
   canViewControlUnits: boolean;
   canViewSettings: boolean;
   incidentAlertCount?: number;
+  pendingLeadReviewCount?: number;
   routeReviewCount?: number;
   showCoreSyncStatus?: boolean;
   syncStatus: "idle" | "syncing" | "ok" | "error";
@@ -37,6 +38,7 @@ export default function AppNavigation({
   canViewControlUnits,
   canViewSettings,
   incidentAlertCount = 0,
+  pendingLeadReviewCount = 0,
   routeReviewCount = 0,
   showCoreSyncStatus = true,
   syncStatus,
@@ -49,7 +51,7 @@ export default function AppNavigation({
 }: Props) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const tabs: Array<{ page: AppPage; label: string; mobileLabel: string; mobileIcon: string; visible: boolean; badge?: number }> = [
-    { page: "leads", label: "Leads", mobileLabel: "Leads", mobileIcon: "◎", visible: canViewLeads },
+    { page: "leads", label: "Leads", mobileLabel: "Leads", mobileIcon: "◎", visible: canViewLeads, badge: pendingLeadReviewCount },
     { page: "control_units", label: "Autos", mobileLabel: "Autos", mobileIcon: "◆", visible: canViewControlUnits },
     { page: "clients", label: "Clientes", mobileLabel: "Clientes", mobileIcon: "●", visible: canViewClients },
     { page: "payments", label: "Pagos", mobileLabel: "Pagos", mobileIcon: "$", visible: canViewPayments },
@@ -59,6 +61,10 @@ export default function AppNavigation({
     { page: "settings", label: "Configuraciones", mobileLabel: "Config.", mobileIcon: "⚙", visible: canViewSettings }
   ];
   const visibleTabs = tabs.filter((tab) => tab.visible);
+  function badgeLabel(tab: (typeof tabs)[number]): string {
+    if (tab.page === "leads") return `${tab.badge} ${tab.badge === 1 ? "licencia pendiente" : "licencias pendientes"} de revisión`;
+    return tab.page === "route_search" ? `${tab.badge} unidades pendientes de revision` : `${tab.badge} expedientes con alertas activas`;
+  }
   const primaryOrder: AppPage[] = ["clients", "payments", "receivables", "route_search"];
   const primaryTabs = primaryOrder
     .map((primaryPage) => visibleTabs.find((tab) => tab.page === primaryPage))
@@ -107,8 +113,8 @@ export default function AppNavigation({
               {Boolean(tab.badge) && (
                 <span
                   className="nav-tab-badge nav-tab-badge--alert"
-                  aria-label={tab.page === "route_search" ? `${tab.badge} unidades pendientes de revision` : `${tab.badge} expedientes con alertas activas`}
-                  title={tab.page === "route_search" ? `${tab.badge} unidades requieren una decision` : `${tab.badge} expedientes requieren seguimiento`}
+                  aria-label={badgeLabel(tab)}
+                  title={badgeLabel(tab)}
                 >
                   {tab.badge! > 99 ? "99+" : tab.badge}
                 </span>
@@ -130,7 +136,7 @@ export default function AppNavigation({
                 >
                   <span aria-hidden="true">{tab.mobileIcon}</span>
                   <b>{tab.mobileLabel}</b>
-                  {Boolean(tab.badge) ? <em>{tab.badge! > 99 ? "99+" : tab.badge}</em> : null}
+                  {Boolean(tab.badge) ? <em aria-label={badgeLabel(tab)} title={badgeLabel(tab)}>{tab.badge! > 99 ? "99+" : tab.badge}</em> : null}
                 </a>
               ))}
             </div>
@@ -150,7 +156,7 @@ export default function AppNavigation({
             >
               <span className="app-nav-mobile-icon" aria-hidden="true">{tab.mobileIcon}</span>
               <b>{tab.mobileLabel}</b>
-              {Boolean(tab.badge) ? <em>{tab.badge! > 99 ? "99+" : tab.badge}</em> : null}
+              {Boolean(tab.badge) ? <em aria-label={badgeLabel(tab)} title={badgeLabel(tab)}>{tab.badge! > 99 ? "99+" : tab.badge}</em> : null}
             </a>
           ))}
           {(moreTabs.length > 0 || canSignOut) ? (

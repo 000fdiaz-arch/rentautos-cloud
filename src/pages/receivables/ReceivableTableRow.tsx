@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { inlineComputedStylesForCanvas } from "../../canvasExportStyles";
 import { formatCurrency, formatDate } from "../../format";
 import { PLAN_LABEL, STATE_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivables";
-import { incidentActionBlocksManagement, type IncidentReceivableAction } from "./incidentReceivableActions";
+import type { IncidentReceivableAction } from "./incidentReceivableActions";
 import type { CollectionStatus, CollectionStatusRecord, FieldManagementType, RouteUrgency } from "./receivablesTypes";
 import {
   COLLECTION_CUT_OPTIONS,
@@ -512,7 +512,6 @@ function ReceivableTableRowComponent({
   const totalDue = row.overdueBalance + row.totalOtherCharges;
   const isRouteHighlighted = !!statusRecord?.isRouteTagged;
   const isRouteWorkflow = workflowTab === "route";
-  const isIncidentManagementBlocked = incidentActionBlocksManagement(incidentAction);
   const groupedWhatsAppRows = whatsAppGroupRows?.filter((item) => item.id !== row.id) ?? [];
   const groupedWhatsAppUnits = groupedWhatsAppRows.map((item) => item.unitId).filter(Boolean);
   const [contactTimeDraft, setContactTimeDraft] = useState(statusRecord?.contactTime ?? "");
@@ -542,10 +541,6 @@ function ReceivableTableRowComponent({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isRouteModalOpen]);
-
-  useEffect(() => {
-    if (isIncidentManagementBlocked) setIsRouteModalOpen(false);
-  }, [isIncidentManagementBlocked]);
 
   function handleConfirmWhatsAppSent(): void {
     onWhatsAppMessageSent(row.id, whatsAppMessage);
@@ -604,7 +599,7 @@ function ReceivableTableRowComponent({
             title={selectedStatusHelp}
             aria-label={selectedStatusHelp ? `Gestion: ${selectedStatusHelp}` : "Gestion"}
             onChange={(event) => onCollectionCutStatusChange(cutKey, row.id, event.target.value)}
-            disabled={isTodayCollectionClosed || isRouteTagged || isIncidentManagementBlocked}
+            disabled={isTodayCollectionClosed || isRouteTagged}
           >
             {statusOptions.map((option) => (
               <option key={option.value} value={option.value} title={option.description}>{option.label}</option>
@@ -629,7 +624,7 @@ function ReceivableTableRowComponent({
                       type="button"
                       className={`button small ar-route-details-button ${isRoutePreparationComplete ? "is-complete" : "needs-action"}`}
                       onClick={() => setIsRouteModalOpen(true)}
-                      disabled={isTodayCollectionClosed || isIncidentManagementBlocked}
+                      disabled={isTodayCollectionClosed}
                     >
                       {isRoutePreparationComplete ? "Ver detalles" : "Completar ruta"}
                     </button>
@@ -647,7 +642,7 @@ function ReceivableTableRowComponent({
                     onRouteTagChange(row.id, true);
                     setIsRouteModalOpen(true);
                   }}
-                  disabled={isTodayCollectionClosed || isIncidentManagementBlocked}
+                  disabled={isTodayCollectionClosed}
                   aria-pressed="false"
                 >
                   Enviar a ruta
@@ -788,9 +783,7 @@ function ReceivableTableRowComponent({
               <strong>{incidentAction.label}</strong>
               {incidentAction.date && <span>Fecha de acción: {incidentAction.date}</span>}
               <span className="ar-incident-action-rule">
-                {incidentAction.urgent
-                  ? "Obligatoria: complétala antes de clasificar o gestionar el cobro. Recibir pagos permanece disponible."
-                  : "Pendiente próxima: todavía no bloquea la gestión."}
+                Información de seguimiento. Puedes continuar con la gestión de cobro.
               </span>
             </div>
             <button type="button" className="button small" onClick={() => {
@@ -801,7 +794,7 @@ function ReceivableTableRowComponent({
             }}>Abrir expediente</button>
           </div> : null}
 
-          <div className={`ar-card-workflow${isIncidentManagementBlocked ? " is-incident-blocked" : ""}`} aria-disabled={isIncidentManagementBlocked}>
+          <div className="ar-card-workflow">
             <div className="ar-card-management ar-cut-cell ar-cut-cell--stacked">
               <div className="ar-cut-stack">
                 {visibleCutOptions.map((option) => (
@@ -824,7 +817,7 @@ function ReceivableTableRowComponent({
                       value={contactTimeDraft}
                       onChange={(event) => handleContactTimeDraftChange(event.target.value)}
                       onBlur={handleContactTimeDraftBlur}
-                      disabled={isTodayCollectionClosed || isIncidentManagementBlocked}
+                      disabled={isTodayCollectionClosed}
                       placeholder="8:30 AM"
                       maxLength={8}
                       aria-label={`Hora de contacto de ${row.unitId}`}
@@ -844,7 +837,7 @@ function ReceivableTableRowComponent({
                 placeholder="Escribe una nota rapida..."
                 maxLength={300}
                 rows={3}
-                disabled={isTodayCollectionClosed || isIncidentManagementBlocked}
+                disabled={isTodayCollectionClosed}
               />
             </div>
           </div>
@@ -886,7 +879,7 @@ function ReceivableTableRowComponent({
                       value={routeReleaseAmount ?? ""}
                       onChange={(event) => onRouteReleaseAmountChange(row.id, event.target.value)}
                       placeholder={row.overdueBalance > 0 ? row.overdueBalance.toFixed(2) : "0.00"}
-                      disabled={isTodayCollectionClosed || isIncidentManagementBlocked}
+                      disabled={isTodayCollectionClosed}
                       aria-label={`Saldo para liberar de ${row.unitId}`}
                     />
                   </label>
@@ -904,7 +897,7 @@ function ReceivableTableRowComponent({
                         }}
                         placeholder="Escribe ruta"
                         maxLength={12}
-                        disabled={isTodayCollectionClosed || isIncidentManagementBlocked}
+                        disabled={isTodayCollectionClosed}
                       />
                     ) : (
                       <select
@@ -917,7 +910,7 @@ function ReceivableTableRowComponent({
                           }
                           onRouteAssignmentChange(row.id, event.target.value);
                         }}
-                        disabled={isTodayCollectionClosed || isIncidentManagementBlocked}
+                        disabled={isTodayCollectionClosed}
                       >
                         <option value="">Sin ruta</option>
                         {ROUTE_ASSIGNMENT_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
@@ -930,7 +923,7 @@ function ReceivableTableRowComponent({
                     <select
                       value={statusRecord?.managementType ?? "solo_cobrar"}
                       onChange={(event) => onRouteManagementTypeChange(row.id, event.target.value as FieldManagementType)}
-                      disabled={isTodayCollectionClosed || isIncidentManagementBlocked}
+                      disabled={isTodayCollectionClosed}
                     >
                       <option value="solo_cobrar">Solo cobrar</option>
                       <option value="cobrar_o_quitar">Cobrar o quitar</option>
@@ -943,7 +936,7 @@ function ReceivableTableRowComponent({
                     <select
                       value={routeUrgency}
                       onChange={(event) => onRouteUrgencyChange(row.id, event.target.value as RouteUrgency)}
-                      disabled={isTodayCollectionClosed || isIncidentManagementBlocked}
+                      disabled={isTodayCollectionClosed}
                     >
                       {ROUTE_URGENCY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
@@ -956,7 +949,7 @@ function ReceivableTableRowComponent({
                       placeholder="Comentario para el cobrador..."
                       maxLength={25}
                       rows={3}
-                      disabled={isTodayCollectionClosed || isIncidentManagementBlocked}
+                      disabled={isTodayCollectionClosed}
                     />
                   </label>
                 </div>

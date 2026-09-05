@@ -1,5 +1,7 @@
 import { useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { formatCurrency, formatDate } from "../../format";
+import { getBusinessDateKey } from "../../billing";
+import { getCashClosingDateError, getLastClosableDateKey } from "../../cashClosingRules";
 import { downloadChargeCloseReportCsv } from "./chargeCloseReport";
 import type {
   CashClosing,
@@ -36,7 +38,6 @@ export default function CashClosingPanel({
   setCashClosingActor,
   cashClosingDate,
   setCashClosingDate,
-  operationalDateKey,
   handleCloseCashForDate,
   isClosingCash,
   cashClosingInfo,
@@ -48,6 +49,9 @@ export default function CashClosingPanel({
   openReopenDialog
 }: Props) {
   const [activeCashTab, setActiveCashTab] = useState<CashPanelTab>("cierre");
+  const todayDateKey = getBusinessDateKey();
+  const lastClosableDateKey = getLastClosableDateKey();
+  const dateError = getCashClosingDateError(cashClosingDate);
 
   const cashTabs: Array<{ id: CashPanelTab; label: string; visible: boolean }> = [
     { id: "cierre", label: "Cierre", visible: true },
@@ -97,11 +101,13 @@ export default function CashClosingPanel({
                     type="date"
                     className="payment-input"
                     value={cashClosingDate}
+                    max={lastClosableDateKey}
                     onChange={(e) => setCashClosingDate(e.target.value)}
                   />
-                  {cashClosingDate !== operationalDateKey && (
+                  {dateError && <p className="hint error-text" role="alert">{dateError}</p>}
+                  {!dateError && cashClosingDate < todayDateKey && (
                     <p className="hint" style={{ marginTop: 6 }}>
-                      Hoy operativo: {operationalDateKey}. Hay dias pendientes antes de llegar a hoy.
+                      Hoy en Panamá: {todayDateKey}. Hay días pendientes antes de llegar a hoy.
                     </p>
                   )}
                 </div>
@@ -110,7 +116,7 @@ export default function CashClosingPanel({
                     type="button"
                     className="button primary"
                     onClick={() => void handleCloseCashForDate()}
-                    disabled={isClosingCash}
+                    disabled={isClosingCash || Boolean(dateError)}
                   >
                     {isClosingCash ? "Cerrando..." : "Cerrar caja del dia"}
                   </button>

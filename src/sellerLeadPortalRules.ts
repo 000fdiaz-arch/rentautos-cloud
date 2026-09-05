@@ -5,7 +5,12 @@ export function sellerCedulaKey(value: string): string {
 }
 
 export function validSellerCedula(value: string): boolean {
-  return /^[A-Za-z0-9 -]{4,32}$/.test(value.trim()) && sellerCedulaKey(value).length >= 4;
+  return value.length >= 4 && value.length <= 32 && validSellerCedulaInput(value) && value.replace(/-/g, "").length >= 4;
+}
+
+// Reject invalid edits instead of silently converting a pasted identifier.
+export function validSellerCedulaInput(value: string): boolean {
+  return !/[^0-9-]/.test(value);
 }
 
 export function sellerDecisionMessage(decision: LeadDecision): string {

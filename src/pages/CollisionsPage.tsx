@@ -118,7 +118,7 @@ function parseAmount(value: string): number {
   const parsed = Number.parseFloat(value.replace(/,/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
 }
-function isFinalStatus(status: CollisionTrialStatus): boolean { return status === "ABSUELTO" || status === "CULPABLE"; }
+function isFinalStatus(status: CollisionTrialStatus): boolean { return status === "ABSUELTO" || status === "CULPABLE" || status === "CIERRE ADMINISTRATIVO"; }
 function workspaceTabFromCaseTab(tab?: JudicialCaseTab): JudicialWorkspaceTab {
   if (tab === "follow_up" || tab === "history" || tab === "summary") return tab;
   return "management";
@@ -192,6 +192,10 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [caseEditIncidentPhotoFiles, setCaseEditIncidentPhotoFiles] = useState<File[]>([]);
   const [caseEditRemovedIncidentPhotoPaths, setCaseEditRemovedIncidentPhotoPaths] = useState<string[]>([]);
   const [photoGallery, setPhotoGallery] = useState<{ photos: CollisionPhotoAttachment[]; index: number; title: string; onDelete?: (photo: CollisionPhotoAttachment) => Promise<boolean> } | null>(null);
+  const [administrativeClosureOpenId, setAdministrativeClosureOpenId] = useState<string | null>(null);
+  const [administrativeClosureReasons, setAdministrativeClosureReasons] = useState<Record<string, string>>({});
+  const [administrativeReopenOpenId, setAdministrativeReopenOpenId] = useState<string | null>(null);
+  const [administrativeReopenReasons, setAdministrativeReopenReasons] = useState<Record<string, string>>({});
 
   const fleetUnitsByUnit = useMemo(() => new Map(fleetUnits.map((row) => [normalizeUnit(row.unit_id), row])), [fleetUnits]);
   const clientsByUnit = useMemo(() => {
@@ -382,6 +386,9 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       expenseInvoice: null,
       clientReturnedBeforeClosure: false,
       clientReturnedBeforeClosureAt: null,
+      administrativeClosureReason: "",
+      administrativelyClosedAt: null,
+      administrativeClosureHistory: [],
       createdAt: now,
       updatedAt: now
     };
@@ -401,6 +408,65 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     await saveCollisionCase(dataOwnerUserId, updated);
     setCases((current) => current.map((item) => item.id === updated.id ? updated : item));
     setMessage(success);
+  }
+
+  async function closeCaseAdministratively(item: CollisionCaseRecord): Promise<void> {
+    if (readOnly || busyId || !dataOwnerUserId || isFinalStatus(item.status)) return;
+    const reason = administrativeClosureReasons[item.id]?.trim() ?? "";
+    if (!reason) { setMessage("Escribe la razón del cierre administrativo."); return; }
+    const now = new Date().toISOString();
+    setBusyId(item.id); setMessage("");
+    try {
+      if (item.insuranceClaim) {
+        const linkedClaim = (await loadInsuranceClaims(dataOwnerUserId)).find((claim) => (
+          claim.id === item.insuranceClaim?.insuranceClaimId
+          || (Boolean(item.insuranceClaim?.claimNumber)
+            && claim.claimNumber.trim().toLocaleUpperCase("es") === item.insuranceClaim?.claimNumber.trim().toLocaleUpperCase("es")
+            && claim.unit.trim().toLocaleUpperCase("es") === item.unit.trim().toLocaleUpperCase("es")
+            && claim.incidentDate === item.incidentDate)
+        ));
+        if (!linkedClaim || linkedClaim.status !== "Finalizado") {
+          setMessage("No se puede cerrar administrativamente mientras el reclamo al seguro esté abierto.");
+          return;
+        }
+      }
+      await persistCase({
+        ...item,
+        status: "CIERRE ADMINISTRATIVO",
+        administrativeClosureReason: reason,
+        administrativelyClosedAt: now,
+        administrativeClosureHistory: [...(item.administrativeClosureHistory ?? []), { action: "CERRADO", reason, occurredAt: now }],
+        updatedAt: now
+      }, "Caso cerrado administrativamente.");
+      setAdministrativeClosureOpenId(null);
+      setAdministrativeClosureReasons((current) => ({ ...current, [item.id]: "" }));
+    } catch (error) {
+      console.error("No se pudo cerrar administrativamente el caso.", error);
+      setMessage("No se pudo guardar el cierre administrativo.");
+    } finally { setBusyId(""); }
+  }
+
+  async function reopenAdministrativeCase(item: CollisionCaseRecord): Promise<void> {
+    if (readOnly || busyId || !dataOwnerUserId || item.status !== "CIERRE ADMINISTRATIVO") return;
+    const reason = administrativeReopenReasons[item.id]?.trim() ?? "";
+    if (!reason) { setMessage("Escribe la razón para reabrir el expediente."); return; }
+    const now = new Date().toISOString();
+    setBusyId(item.id); setMessage("");
+    try {
+      await persistCase({
+        ...item,
+        status: "PENDIENTE",
+        administrativeClosureReason: "",
+        administrativelyClosedAt: null,
+        administrativeClosureHistory: [...(item.administrativeClosureHistory ?? []), { action: "REABIERTO", reason, occurredAt: now }],
+        updatedAt: now
+      }, "Expediente reabierto correctamente.");
+      setAdministrativeReopenOpenId(null);
+      setAdministrativeReopenReasons((current) => ({ ...current, [item.id]: "" }));
+    } catch (error) {
+      console.error("No se pudo reabrir el expediente.", error);
+      setMessage("No se pudo reabrir el expediente.");
+    } finally { setBusyId(""); }
   }
 
   function startEditingCase(item: CollisionCaseRecord): void {
@@ -1441,14 +1507,14 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
         {!focusedCaseId && <div className="workflow-claim-filters">
           <label className="workflow-claim-search">Buscar<input type="search" value={search} placeholder="Unidad, chofer, placa, colilla o juzgado" onChange={(event) => setSearch(event.target.value)} /></label>
           <label>Fecha de juicio<select value={dateFilter} onChange={(event) => setDateFilter(event.target.value as DateFilter)}><option value="all">Todas las fechas</option><option value="upcoming">Próximos casos</option><option value="today">Hoy</option><option value="last_week">Semana pasada</option><option value="overdue">Vencidos</option></select></label>
-          <label>Estado<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as CollisionTrialStatus | "all")}><option value="all">Todos</option><option>PENDIENTE</option><option>NUEVA FECHA</option><option>ABSUELTO</option><option>CULPABLE</option></select></label>
+          <label>Estado<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as CollisionTrialStatus | "all")}><option value="all">Todos</option><option>PENDIENTE</option><option>NUEVA FECHA</option><option>ABSUELTO</option><option>CULPABLE</option><option>CIERRE ADMINISTRATIVO</option></select></label>
           <button type="button" className="button workflow-clear-filters" onClick={() => { setSearch(""); setDateFilter("all"); setStatusFilter("all"); }}>Limpiar filtros</button>
         </div>}
         {focusedCase && <div className="judicial-focused-context">
           <span className="judicial-focused-unit"><small>Unidad / placa</small><strong>{focusedCase.unit || "Sin unidad"} · {focusedCase.plate || "Sin placa"}</strong></span>
           <span className="judicial-focused-driver-at-incident"><small>Conductor al momento del incidente</small><strong>{focusedCase.driver || "Sin conductor"}</strong></span>
           <span className="judicial-focused-trial"><small>Fecha de juicio</small><strong>{focusedCase.trialDate || "Sin fecha"}</strong></span>
-          <span className={`judicial-focused-status status-${focusedCase.status === "ABSUELTO" ? "absolved" : focusedCase.status === "CULPABLE" ? "guilty" : "pending"}`}><small>Estado</small><strong>{focusedCase.status}</strong></span>
+          <span className={`judicial-focused-status status-${focusedCase.status === "ABSUELTO" ? "absolved" : focusedCase.status === "CULPABLE" ? "guilty" : focusedCase.status === "CIERRE ADMINISTRATIVO" ? "administrative" : "pending"}`}><small>Estado</small><strong>{focusedCase.status}</strong></span>
         </div>}
         <div className="workflow-claims-list">
           {!loading && !cases.length && <p className="hint">Todavía no hay juicios guardados.</p>}
@@ -1488,8 +1554,11 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
               + (item.insuranceClaim?.photos.length ?? 0);
             const resolutionPending = item.status === "ABSUELTO" && !item.judicialResolutionEvidence;
             const insuranceManagementPending = item.status === "ABSUELTO" && Boolean(item.judicialResolutionEvidence);
+            const administrativelyClosed = item.status === "CIERRE ADMINISTRATIVO";
             const summaryActionTab: JudicialCaseTab = resolutionPending ? "outcome" : insuranceManagementPending ? "insurance" : defaultJudicialCaseTab(item, today);
-            const summaryActionLabel = item.documentationPending
+            const summaryActionLabel = administrativelyClosed
+              ? "Caso cerrado administrativamente"
+              : item.documentationPending
               ? "Completar la documentación de la colilla"
               : resolutionPending
                 ? "Retirar y adjuntar la resolución judicial"
@@ -1498,7 +1567,9 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   : item.status === "CULPABLE"
                     ? "Expediente judicial finalizado"
                     : judicialStepLabel(summaryActionTab);
-            const summaryActionDetail = resolutionPending
+            const summaryActionDetail = administrativelyClosed
+              ? item.administrativeClosureReason || "Cierre registrado sin resultado judicial."
+              : resolutionPending
               ? item.judicialResolutionSearchDate ? `Retiro programado para el ${item.judicialResolutionSearchDate}.` : "Define la fecha de retiro y adjunta la resolución cuando esté disponible."
               : insuranceManagementPending
                 ? item.insuranceClaim ? "La resolución está adjunta; el reclamo al seguro continúa en gestión." : "La resolución está adjunta y ya puedes iniciar el reclamo al seguro."
@@ -1510,7 +1581,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
             const caseTabOptions: Array<[JudicialWorkspaceTab, string, string]> = [
               ["summary", "Resumen", ""],
               ["documents", "Documentos", String(documentCount)],
-              ["management", "Gestión", !managementTabOptions.length ? "Bloqueada" : item.status === "CULPABLE" ? "Cerrado" : "En curso"],
+              ["management", "Gestión", !managementTabOptions.length ? "Bloqueada" : isFinalStatus(item.status) ? "Cerrado" : "En curso"],
               ["follow_up", "Notas", String(item.judicialFollowUps.length)],
               ["history", "Historial", String(timelineEvents.length)]
             ];
@@ -1521,7 +1592,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   <span className="workflow-claim-reference"><strong>{item.court || "Sin juzgado"}</strong><small>Colilla: {item.ticketStub || "-"}</small></span>
                   <span className="workflow-claim-summary-value"><small>Fecha de juicio</small><strong>{item.trialDate || "Sin fecha"}</strong></span>
                   <span className="workflow-claim-summary-value"><small>Hora</small><strong>{item.placeTime || "-"}</strong></span>
-                  <span className="workflow-claim-indicators"><span className={item.status === "ABSUELTO" ? "complete" : item.status === "CULPABLE" || requiresOutcome ? "missing" : "pending"}>{item.status}</span>{requiresOutcome && <span className="missing">Resultado requerido</span>}<span className={item.collisionAndRun ? "collision-runaway-yes" : "collision-runaway-no"}>Fuga: {item.collisionAndRun ? "Sí" : "No"}</span></span>
+                  <span className="workflow-claim-indicators"><span className={item.status === "ABSUELTO" || item.status === "CIERRE ADMINISTRATIVO" ? "complete" : item.status === "CULPABLE" || requiresOutcome ? "missing" : "pending"}>{item.status}</span>{requiresOutcome && <span className="missing">Resultado requerido</span>}<span className={item.collisionAndRun ? "collision-runaway-yes" : "collision-runaway-no"}>Fuga: {item.collisionAndRun ? "Sí" : "No"}</span></span>
                   <span className="workflow-claim-chevron" aria-hidden="true">{expanded ? "−" : "+"}</span>
                 </button>
               </div>}
@@ -1538,11 +1609,14 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   ))}
                 </div>
                 {activeWorkspaceTab === "summary" && <div className="judicial-case-tab-panel judicial-case-tab-panel--summary" role="tabpanel" id={`judicial-summary-panel-${item.id}`} aria-labelledby={`judicial-summary-tab-${item.id}`}>
-                  <div className={`judicial-summary-next-action${requiresOutcome || item.documentationPending || resolutionPending ? " is-urgent" : ""}`}><div><small>{item.status === "CULPABLE" ? "Estado del expediente" : "Lo que debes hacer ahora"}</small><strong>{summaryActionLabel}</strong><span>{summaryActionDetail}</span></div><button type="button" className="button primary" onClick={() => { if (item.documentationPending) { startEditingCase(item); return; } if (item.status === "CULPABLE") { setJudicialWorkspaceTabs((current) => ({ ...current, [item.id]: "history" })); return; } setJudicialCaseTabs((current) => ({ ...current, [item.id]: summaryActionTab })); setJudicialWorkspaceTabs((current) => ({ ...current, [item.id]: workspaceTabFromCaseTab(summaryActionTab) })); }}>{item.documentationPending ? "Completar datos" : item.status === "CULPABLE" ? "Ver historial" : resolutionPending ? "Gestionar resolución" : summaryActionTab === "attendance" ? "Confirmar asistencia" : summaryActionTab === "workshop" ? "Confirmar revisión" : summaryActionTab === "balance" ? "Registrar saldo" : summaryActionTab === "outcome" ? "Registrar resultado" : summaryActionTab === "insurance" ? "Gestionar reclamo" : "Ver paso pendiente"}</button></div>
-                  {item.documentationPending && <div className="workflow-finalization-panel collision-documentation-pending"><div><strong>Colilla pendiente</strong><span>Este expediente está guardado, pero no avanzará hasta registrar los datos de la colilla. Usa “Completar colilla” y agrega cada novedad en Notas.</span></div></div>}
+                  <div className={`judicial-summary-next-action${requiresOutcome || item.documentationPending || resolutionPending ? " is-urgent" : ""}`}><div><small>{isFinalStatus(item.status) ? "Estado del expediente" : "Lo que debes hacer ahora"}</small><strong>{summaryActionLabel}</strong><span>{summaryActionDetail}</span></div><button type="button" className="button primary" onClick={() => { if (item.documentationPending && !administrativelyClosed) { startEditingCase(item); return; } if (isFinalStatus(item.status)) { setJudicialWorkspaceTabs((current) => ({ ...current, [item.id]: "history" })); return; } setJudicialCaseTabs((current) => ({ ...current, [item.id]: summaryActionTab })); setJudicialWorkspaceTabs((current) => ({ ...current, [item.id]: workspaceTabFromCaseTab(summaryActionTab) })); }}>{administrativelyClosed || item.status === "CULPABLE" ? "Ver historial" : item.documentationPending ? "Completar datos" : resolutionPending ? "Gestionar resolución" : summaryActionTab === "attendance" ? "Confirmar asistencia" : summaryActionTab === "workshop" ? "Confirmar revisión" : summaryActionTab === "balance" ? "Registrar saldo" : summaryActionTab === "outcome" ? "Registrar resultado" : summaryActionTab === "insurance" ? "Gestionar reclamo" : "Ver paso pendiente"}</button></div>
+                  {!administrativelyClosed && !isFinalStatus(item.status) && administrativeClosureOpenId !== item.id && <div className="administrative-closure-entry"><div><strong>¿Este caso no puede continuar?</strong><span>Ciérralo administrativamente sin registrarlo como absuelto o culpable.</span></div><button type="button" className="button danger" onClick={() => { setAdministrativeClosureOpenId(item.id); setAdministrativeReopenOpenId(null); }} disabled={readOnly || busyId === item.id}>Cierre administrativo</button></div>}
+                  {!administrativelyClosed && administrativeClosureOpenId === item.id && <div className="workflow-finalization-panel administrative-closure-panel"><div><strong>Cierre administrativo</strong><span>La razón quedará guardada en el historial y el caso dejará de generar acciones pendientes.</span></div><label className="workflow-required-field">Razón del cierre<textarea value={administrativeClosureReasons[item.id] ?? ""} placeholder="Ej. No fue posible presentar la denuncia porque el vehículo fue retirado al conductor." onChange={(event) => setAdministrativeClosureReasons((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /></label><div className="workflow-finalization-actions"><button type="button" className="button" onClick={() => setAdministrativeClosureOpenId(null)} disabled={busyId === item.id}>Cancelar</button><button type="button" className="button danger" onClick={() => void closeCaseAdministratively(item)} disabled={readOnly || busyId === item.id || !administrativeClosureReasons[item.id]?.trim()}>{busyId === item.id ? "Cerrando..." : "Confirmar cierre"}</button></div></div>}
+                  {administrativelyClosed && <div className="workflow-finalization-panel administrative-closure-panel is-closed"><div><strong>Cierre administrativo registrado</strong><span>{item.administrativelyClosedAt ? new Date(item.administrativelyClosedAt).toLocaleString("es-PA") : "Fecha no disponible"}</span></div><p><strong>Razón:</strong> {item.administrativeClosureReason || "Sin razón registrada"}</p>{administrativeReopenOpenId !== item.id ? <div className="workflow-finalization-actions"><button type="button" className="button" onClick={() => { setAdministrativeReopenOpenId(item.id); setAdministrativeClosureOpenId(null); }} disabled={readOnly || busyId === item.id}>Reabrir expediente</button></div> : <><label className="workflow-required-field">Razón de la reapertura<textarea value={administrativeReopenReasons[item.id] ?? ""} placeholder="Explica por qué debe continuar la gestión del caso." onChange={(event) => setAdministrativeReopenReasons((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /></label><div className="workflow-finalization-actions"><button type="button" className="button" onClick={() => setAdministrativeReopenOpenId(null)} disabled={busyId === item.id}>Cancelar</button><button type="button" className="button primary" onClick={() => void reopenAdministrativeCase(item)} disabled={readOnly || busyId === item.id || !administrativeReopenReasons[item.id]?.trim()}>{busyId === item.id ? "Reabriendo..." : "Confirmar reapertura"}</button></div></>}</div>}
+                  {item.documentationPending && !administrativelyClosed && <div className="workflow-finalization-panel collision-documentation-pending"><div><strong>Colilla pendiente</strong><span>Este expediente está guardado, pero no avanzará hasta registrar los datos de la colilla. Usa “Completar colilla” y agrega cada novedad en Notas.</span></div></div>}
                   <div className="workflow-claim-detail-head">
                     <div><strong>Datos registrados del siniestro</strong><small>{item.documentationPending ? "Completa la información cuando recibas la colilla." : "Corrige aquí la información ingresada por error."}</small></div>
-                    {editingCaseId !== item.id && <button type="button" className={`button${item.documentationPending ? " primary" : ""}`} onClick={() => startEditingCase(item)} disabled={readOnly || busyId === item.id || Boolean(caseEditSavingId)}>{item.documentationPending ? "Completar colilla" : "Editar siniestro"}</button>}
+                    {editingCaseId !== item.id && !administrativelyClosed && <button type="button" className={`button${item.documentationPending ? " primary" : ""}`} onClick={() => startEditingCase(item)} disabled={readOnly || busyId === item.id || Boolean(caseEditSavingId)}>{item.documentationPending ? "Completar colilla" : "Editar siniestro"}</button>}
                   </div>
                   {editingCaseId === item.id ? <div className="workflow-claim-edit-panel">
                     <div className="workflow-claim-edit-grid">
@@ -1576,7 +1650,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   </div> : <>
                   <dl className="workflow-claim-detail-grid">
                   <div><dt>Fecha del incidente</dt><dd>{item.incidentDate}</dd></div><div><dt>Fecha de juicio</dt><dd>{item.trialDate}</dd></div>
-                  <div><dt>Número de colilla</dt><dd className="judicial-ticket-stub-editor"><div><input aria-label="Número de colilla" value={ticketStubDrafts[item.id] ?? item.ticketStub} onChange={(event) => setTicketStubDrafts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /><button type="button" className="button small" onClick={() => void saveTicketStub(item)} disabled={readOnly || busyId === item.id || !(ticketStubDrafts[item.id] ?? item.ticketStub).trim() || (ticketStubDrafts[item.id] ?? item.ticketStub).trim() === item.ticketStub}>{busyId === item.id ? "Guardando..." : "Guardar"}</button></div>{item.ticketStubPhoto && <button type="button" className="button small" onClick={() => setPhotoGallery({ photos: [item.ticketStubPhoto!], index: 0, title: "Foto de la colilla" })}>Ver foto original</button>}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
+                  <div><dt>Número de colilla</dt><dd className="judicial-ticket-stub-editor"><div><input aria-label="Número de colilla" value={ticketStubDrafts[item.id] ?? item.ticketStub} onChange={(event) => setTicketStubDrafts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id || administrativelyClosed} /><button type="button" className="button small" onClick={() => void saveTicketStub(item)} disabled={readOnly || busyId === item.id || administrativelyClosed || !(ticketStubDrafts[item.id] ?? item.ticketStub).trim() || (ticketStubDrafts[item.id] ?? item.ticketStub).trim() === item.ticketStub}>{busyId === item.id ? "Guardando..." : "Guardar"}</button></div>{item.ticketStubPhoto && <button type="button" className="button small" onClick={() => setPhotoGallery({ photos: [item.ticketStubPhoto!], index: 0, title: "Foto de la colilla" })}>Ver foto original</button>}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
                   <div><dt>Colisión y fuga</dt><dd><span className={`collision-runaway-status ${item.collisionAndRun ? "collision-runaway-status--yes" : "collision-runaway-status--no"}`}>{item.collisionAndRun ? "Sí" : "No"}</span></dd></div>
                   <div><dt>Conductor al momento del incidente</dt><dd>{item.driver || "-"}</dd></div>
                    <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>

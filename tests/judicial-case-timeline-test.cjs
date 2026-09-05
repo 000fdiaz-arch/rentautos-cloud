@@ -111,3 +111,29 @@ for (let index = 1; index < events.length; index += 1) {
 }
 
 console.log("OK historial judicial: reúne todos los eventos y los ordena del más reciente al más antiguo.");
+
+const administrativeEvents = buildJudicialCaseTimeline({
+  id: "case-administrative",
+  unit: "D21",
+  createdAt: "2026-09-01T08:00:00Z",
+  updatedAt: "2026-09-04T10:00:00Z",
+  trialDate: "",
+  trialDateHistory: [],
+  ticketStubHistory: [],
+  editHistory: [],
+  judicialFollowUps: [],
+  expenseInvoice: null,
+  status: "CIERRE ADMINISTRATIVO",
+  judicialOutcomeEvidence: null,
+  judicialResolutionEvidence: null,
+  insuranceClaim: null,
+  administrativeClosureHistory: [{
+    action: "CERRADO",
+    reason: "No fue posible presentar la denuncia porque el vehículo fue retirado al conductor.",
+    occurredAt: "2026-09-04T10:00:00Z"
+  }]
+});
+const administrativeEvent = administrativeEvents.find((event) => event.title === "Cierre administrativo");
+if (!administrativeEvent || !administrativeEvent.description.includes("vehículo fue retirado")) {
+  throw new Error("El historial debe conservar la razón del cierre administrativo.");
+}

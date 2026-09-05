@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import RoutePendingCashPanel from "./RoutePendingCashPanel";
+import { changeRouteAssignment, cancelRoutePaymentReport, loadRoutePaymentReports, reportRoutePayment, type RoutePaymentReport } from "../cloud/routeReportCloudData";
 import {
   ALL_ACTIVE_ROUTE_FILTER,
   activeRouteFilterLabel,
@@ -18,13 +20,16 @@ import {
 } from "../cloudData";
 import { formatCurrency, formatDate } from "../format";
 import { supabase } from "../lib/supabase";
-import { hasPendingPartialRouteDecision, routeRentAmountForDay } from "../routeReviewRules";
+import { getActiveRouteReviewItems, hasAcknowledgedPartialRouteDecision, routeRentAmountForDay } from "../routeReviewRules";
 import type { Client, CollectionTeam, Payment } from "../types";
 import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentStorage";
 import type { NotifiedPayment } from "./payments/paymentTypes";
 import { fieldManagementLabel, type FieldManagementType } from "./receivables/receivablesTypes";
 
 type Props = {
+  paymentsLoading?: boolean;
+  currentUserId?: string;
+  canReportPayment?: boolean;
   dataOwnerUserId?: string | null;
   clients: Client[];
   payments: Payment[];
@@ -116,6 +121,9 @@ function routeImageFileName(routeLabel: string, zoneLabel?: string): string {
 }
 
 export default function RouteSearchPage({
+  paymentsLoading = false,
+  currentUserId,
+  canReportPayment = false,
   dataOwnerUserId,
   clients,
   payments,
@@ -125,13 +133,86 @@ export default function RouteSearchPage({
 }: Props) {
   const businessDateKey = getBusinessDateKey();
   const [items, setItems] = useState<ActiveRouteItem[]>([]);
+  const [reports, setReports] = useState<RoutePaymentReport[]>([]);
+  const [workflowView, setWorkflowView] = useState<"work" | "review" | "partial" | "confirmed">("work");
+  const [reportTarget, setReportTarget] = useState<ActiveRouteItem | null>(null);
+  const [reportAmount, setReportAmount] = useState("");
+  const [reportMethod, setReportMethod] = useState<"" | "cash" | "bank" | "mixed">("");
+  const [reportCashAmount, setReportCashAmount] = useState("");
+  const [reportBankAmount, setReportBankAmount] = useState("");
+  const [reportSaving, setReportSaving] = useState(false);
+  const [reportError, setReportError] = useState("");
+  const [reportsError, setReportsError] = useState("");
+  const [reportsReady, setReportsReady] = useState(false);
+
+  async function reloadReports(): Promise<void> {
+    if (!dataOwnerUserId) return;
+    try {
+      setReports(await loadRoutePaymentReports(dataOwnerUserId));
+      setReportsError("");
+      setReportsReady(true);
+    } catch (cause) {
+      setReportsReady(false);
+      setReportsError(buildCloudErrorMessage("No se pudieron cargar los reportes de pago.", cause));
+    }
+  }
+
+  async function submitReport(event: React.FormEvent): Promise<void> {
+    event.preventDefault();
+    const cashAmount = reportMethod === "mixed" ? Number(reportCashAmount) : reportMethod === "cash" ? Number(reportAmount) : 0;
+    const bankAmount = reportMethod === "mixed" ? Number(reportBankAmount) : reportMethod === "bank" ? Number(reportAmount) : 0;
+    const amount = cashAmount + bankAmount;
+    if (!canReportPayment || !dataOwnerUserId || !reportTarget || reportSaving || !reportMethod) return;
+    if (![cashAmount, bankAmount].every((part) => Number.isFinite(part) && part >= 0 && Math.abs(part * 100 - Math.round(part * 100)) < 0.00001)
+      || amount <= 0 || amount > 9999999999.99 || (reportMethod === "mixed" && (cashAmount <= 0 || bankAmount <= 0))) {
+      setReportError("Indica un monto mayor a cero, con hasta dos decimales.");
+      return;
+    }
+    setReportSaving(true);
+    setReportError("");
+    try {
+      await reportRoutePayment(dataOwnerUserId, reportTarget, cashAmount, bankAmount);
+      setRouteActionMessage(`${reportTarget.unitId} pasó a En revisión.`);
+      setReportTarget(null);
+      await reloadReports();
+    } catch (cause) {
+      setReportError(buildCloudErrorMessage("No se pudo reportar el pago.", cause, { includeRawFallback: true }));
+    } finally { setReportSaving(false); }
+  }
+
+  async function returnReport(report: RoutePaymentReport): Promise<void> {
+    if (!canReportPayment || reportSaving) return;
+    setReportSaving(true);
+    try {
+      await cancelRoutePaymentReport(report.id);
+      setRouteActionMessage(`Reporte de ${report.snapshot.unitId} devuelto. La unidad aparecerá en Trabajo si sigue activa.`);
+      await reloadReports();
+    } catch (cause) {
+      setReportsError(buildCloudErrorMessage("No se pudo devolver el reporte.", cause, { includeRawFallback: true }));
+    } finally { setReportSaving(false); }
+  }
+  const [changingRoute, setChangingRoute] = useState<string | null>(null);
+  const [changeRouteError, setChangeRouteError] = useState("");
+  async function changeTeam(item: ActiveRouteItem, route: "WC" | "PTY"): Promise<void> {
+    if (!canReportPayment || !dataOwnerUserId || changingRoute || route === item.routeAssignment) return;
+    setChangingRoute(item.clientId);
+    setChangeRouteError("");
+    setRouteActionMessage("");
+    try {
+      await changeRouteAssignment(dataOwnerUserId, item, route);
+      setItems(current => current.map(row => row.clientId === item.clientId && row.publishedAt === item.publishedAt
+        ? { ...row, routeAssignment: route } : row));
+      setRouteActionMessage(item.unitId + " cambió a " + route + ".");
+    } catch (cause) {
+      setChangeRouteError(buildCloudErrorMessage("No se pudo cambiar la ruta.", cause, { includeRawFallback: true }));
+    } finally { setChangingRoute(null); }
+  }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [routeFilter, setRouteFilter] = useState(ALL_ACTIVE_ROUTE_FILTER);
   const [zoneFilter, setZoneFilter] = useState(ALL_ACTIVE_ZONE_FILTER);
   const [zoneFilterLabel, setZoneFilterLabel] = useState("");
-  const [paymentFilter, setPaymentFilter] = useState<"all" | "review">("all");
   const [zoneDrafts, setZoneDrafts] = useState<Record<string, string>>({});
   const [zoneSavingByClient, setZoneSavingByClient] = useState<Record<string, boolean>>({});
   const [zoneError, setZoneError] = useState("");
@@ -206,6 +287,9 @@ export default function RouteSearchPage({
   useEffect(() => {
     void reload();
     void reloadBankNotices();
+    setReports([]);
+    setReportsReady(false);
+    void reloadReports();
   }, [dataOwnerUserId]);
 
   useEffect(() => {
@@ -213,6 +297,9 @@ export default function RouteSearchPage({
     const client = supabase;
     const channel = client
       .channel(`route-search-${dataOwnerUserId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "route_payment_reports", filter: `user_id=eq.${dataOwnerUserId}` }, () => {
+        void reloadReports();
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "active_route_items_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, () => {
         void reload();
       })
@@ -225,11 +312,25 @@ export default function RouteSearchPage({
     };
   }, [dataOwnerUserId]);
 
-  const activeItems = useMemo(() => (
+  const workItems = useMemo(() => (
     items
       .filter((item) => !item.removedAt)
       .filter((item) => item.releaseAmount <= 0 || routeRentAmountForDay(payments, item, businessDateKey) < item.releaseAmount)
-  ), [businessDateKey, items, payments]);
+      .filter((item) => !reports.some((report) => report.client_id === item.clientId && report.published_at === item.publishedAt)
+        || hasAcknowledgedPartialRouteDecision(payments, item, businessDateKey))
+  ), [businessDateKey, items, payments, reports]);
+
+  const partialReviewItems = useMemo(() => (
+    getActiveRouteReviewItems(items, payments, businessDateKey).map((item) => ({
+      ...item,
+      report: reports.find((report) => report.client_id === item.clientId && report.published_at === item.publishedAt)
+    }))
+  ), [items, payments, businessDateKey, reports]);
+
+  const activeItems = useMemo<Array<ActiveRouteItem & { report?: RoutePaymentReport }>>(() => (
+    workflowView === "work" ? workItems : workflowView === "partial" ? partialReviewItems : reports.filter((report) => report.status === workflowView)
+      .map((report) => ({ ...report.snapshot, report }))
+  ), [workflowView, workItems, partialReviewItems, reports]);
 
   const bankNoticesByClient = useMemo(() => {
     const grouped = new Map<string, NotifiedPayment[]>();
@@ -304,7 +405,6 @@ export default function RouteSearchPage({
     return activeItems
       .filter((item) => routeFilter === ALL_ACTIVE_ROUTE_FILTER || activeRouteFilterValue(item.routeAssignment) === routeFilter)
       .filter((item) => zoneFilter === ALL_ACTIVE_ZONE_FILTER || activeZoneFilterValue(item.zone) === zoneFilter)
-      .filter((item) => paymentFilter === "all" || hasPendingPartialRouteDecision(payments, item, businessDateKey))
       .filter((item) => {
         if (!normalizedQuery) return true;
         return [
@@ -318,12 +418,7 @@ export default function RouteSearchPage({
         ].some((value) => value.toLowerCase().includes(normalizedQuery));
       })
       .sort(compareActiveRouteItems);
-  }, [activeItems, businessDateKey, payments, paymentFilter, query, routeFilter, zoneFilter]);
-
-  const reviewUnitCount = useMemo(
-    () => activeItems.filter((item) => hasPendingPartialRouteDecision(payments, item, businessDateKey)).length,
-    [activeItems, businessDateKey, payments]
-  );
+  }, [activeItems, query, routeFilter, zoneFilter]);
 
   const selectedZoneLabel = useMemo(() => {
     if (zoneFilter === ALL_ACTIVE_ZONE_FILTER) return "";
@@ -338,7 +433,7 @@ export default function RouteSearchPage({
 
   const visibleRouteGroups = useMemo(() => {
     const groups = new Map<string, ActiveRouteItem[]>();
-    visibleItems.forEach((item) => {
+    visibleItems.filter((item) => !item.report).forEach((item) => {
       const routeValue = activeRouteFilterValue(item.routeAssignment);
       const current = groups.get(routeValue) ?? [];
       current.push(item);
@@ -601,22 +696,33 @@ export default function RouteSearchPage({
       <header className="route-search-header">
         <div>
           <h1>Cobro en Ruta</h1>
-          <p>{visibleItems.length} activo{visibleItems.length === 1 ? "" : "s"}{publishedAt ? ` | Publicada ${publishedAt}` : ""}</p>
+          <p>{visibleItems.length} unidades · {workflowView === "work" ? "Trabajo" : workflowView === "review" ? "En revisión" : workflowView === "partial" ? "Pagos parciales a revisar" : "Pagos confirmados"}{publishedAt ? ` | Publicada ${publishedAt}` : ""}</p>
         </div>
         <div className="route-search-header-actions">
-          <button
+          {workflowView === "work" ? <button
             type="button"
             className="button primary small route-search-share-button"
             onClick={() => void shareRouteImage()}
             disabled={loading || sharing || visibleItems.length === 0}
           >
             {sharing ? "Creando fotos..." : "Compartir por ruta"}
-          </button>
-          <button type="button" className="button ghost small" onClick={() => void reload()} disabled={loading || sharing}>
+          </button> : null}
+          <button type="button" className="button ghost small" onClick={() => { void reload(); void reloadReports(); void reloadBankNotices(); }} disabled={loading || sharing}>
             {loading ? "Actualizando..." : "Actualizar"}
           </button>
         </div>
       </header>
+
+      <RoutePendingCashPanel payments={payments} dateKey={businessDateKey} loading={paymentsLoading} />
+      <div className="route-search-workflow-tabs" aria-label="Estado de las unidades">
+        {([['work', 'Trabajo', workItems.length], ['review', 'En revisión', reports.filter((r) => r.status === 'review').length], ['partial', 'Pagos parciales a revisar', partialReviewItems.length], ['confirmed', 'Pagos confirmados', reports.filter((r) => r.status === 'confirmed').length]] as const).map(([view, label, count]) => (
+          <button type="button" key={view} className={`button ${workflowView === view ? 'primary' : 'ghost'}`} aria-pressed={workflowView === view}
+            onClick={() => { setWorkflowView(view); setQuery(""); setRouteFilter(ALL_ACTIVE_ROUTE_FILTER); setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel(""); setRouteActionMessage(""); }}>
+            {label} ({count})
+          </button>
+        ))}
+      </div>
+      {reportsError ? <p className="error-text" role="alert">{reportsError}</p> : null}
 
       <label className="route-search-box">
         <span>Buscar</span>
@@ -629,21 +735,8 @@ export default function RouteSearchPage({
       </label>
 
       {lastRefreshAt ? <p className="route-search-refresh">Ultima actualizacion: {lastRefreshAt}</p> : null}
-      <div className="route-search-filter-block route-search-payment-filter-block">
-        <span className="route-search-filter-label">Estado de pago</span>
-        <div className="route-search-filters" aria-label="Filtrar por estado de pago">
-          <button type="button" className={paymentFilter === "all" ? "is-active" : ""} onClick={() => setPaymentFilter("all")}>Todos</button>
-          <button
-            type="button"
-            className={`route-search-review-filter ${reviewUnitCount > 0 ? "has-items" : ""} ${paymentFilter === "review" ? "is-active" : ""}`}
-            onClick={() => setPaymentFilter("review")}
-            aria-label={`${reviewUnitCount} unidades pendientes de revisión`}
-          >
-            Unidades a revisar ({reviewUnitCount})
-          </button>
-        </div>
-      </div>
       {error ? <p className="error-text">{error}</p> : null}
+      {changeRouteError ? <p className="error-text" role="alert">{changeRouteError}</p> : null}
       {zoneError ? <p className="error-text" role="alert">{zoneError}</p> : null}
       {commentError ? <p className="error-text" role="alert">{commentError}</p> : null}
       {shareMessage ? <p className="route-search-share-message" role="status">{shareMessage}</p> : null}
@@ -716,7 +809,7 @@ export default function RouteSearchPage({
       {loading && visibleItems.length === 0 ? (
         <div className="route-search-empty">Cargando ruta...</div>
       ) : visibleItems.length === 0 ? (
-        <div className="route-search-empty">No hay clientes activos en Cobro en Ruta.</div>
+        <div className="route-search-empty">{workflowView === "work" ? "No hay unidades pendientes con estos filtros." : workflowView === "review" ? "No hay pagos reportados pendientes de confirmar con estos filtros." : workflowView === "partial" ? "No hay pagos parciales pendientes de decisión con estos filtros." : "No hay pagos confirmados con estos filtros."}</div>
       ) : (
         <div className="route-search-list">
           {visibleItems.map((item, itemIndex) => {
@@ -732,15 +825,25 @@ export default function RouteSearchPage({
               .filter((option) => option.value !== EMPTY_ACTIVE_ZONE_FILTER);
             const zoneListId = `route-zone-options-${itemIndex}`;
             return (
-              <article className={`route-search-card route-search-card--${itemManagementTone} ${item.urgency && item.urgency !== "normal" ? `route-search-card--${item.urgency}` : ""}`} key={item.clientId}>
+              <article className={`route-search-card route-search-card--${itemManagementTone} ${item.urgency && item.urgency !== "normal" ? `route-search-card--${item.urgency}` : ""}`} key={item.report?.id ?? item.clientId}>
                 <div className="route-search-card-head">
                   <div className="route-search-identity">
                     <strong>{item.unitId}</strong>
                     <span>{firstName(item.clientName)}</span>
                   </div>
                   <div className="route-search-card-head-actions">
-                    <span className="route-search-route">{item.routeAssignment || "Sin ruta"}</span>
-                    {canRemoveFromRoute ? (
+                    {canReportPayment && !item.report && (item.routeAssignment === "WC" || item.routeAssignment === "PTY") ? (
+                      <label className="route-search-team-picker">
+                        <span>Ruta</span>
+                        <select aria-label={"Ruta de " + item.unitId} value={item.routeAssignment}
+                          disabled={changingRoute !== null}
+                          onChange={event => void changeTeam(item, event.target.value as "WC" | "PTY")}>
+                          <option value="WC">WC</option><option value="PTY">PTY</option>
+                        </select>
+                        {changingRoute === item.clientId ? <small role="status">Guardando…</small> : null}
+                      </label>
+                    ) : <span className="route-search-route">{item.routeAssignment || "Sin ruta"}</span>}
+                    {canRemoveFromRoute && (!item.report || workflowView === "partial") ? (
                       <button
                         type="button"
                         className="button route-search-remove-button route-search-remove-button--head"
@@ -775,7 +878,7 @@ export default function RouteSearchPage({
                       maxLength={40}
                       placeholder="Sin zona"
                       autoComplete="off"
-                      disabled={zoneSavingByClient[item.clientId] || !dataOwnerUserId}
+                      disabled={Boolean(item.report) || zoneSavingByClient[item.clientId] || !dataOwnerUserId}
                       aria-label={`Zona de ${item.unitId}`}
                     />
                     <span className="route-search-zone-status" aria-live="polite">
@@ -801,7 +904,7 @@ export default function RouteSearchPage({
                     <strong>{formatCurrency(currentBalance(item))}</strong>
                   </div>
                 </div>
-                {hasPartialPayment ? (
+                {hasPartialPayment && (!item.report || workflowView === "partial") ? (
                   <div className={`route-search-payment-alert route-search-payment-alert--partial ${partialDecisionRequired ? "route-search-payment-alert--decision" : ""}`}>
                     <strong>{partialDecisionRequired ? "Pago parcial · Decisión pendiente" : partialDecisionAcknowledged ? "Decisión: Debe pagar más" : "Pago parcial aplicado"}</strong>
                     <span>Pago parcial: {formatCurrency(confirmedRentAmount)} · Faltan {formatCurrency(remainingToRelease)}</span>
@@ -820,7 +923,7 @@ export default function RouteSearchPage({
                     ) : null}
                   </div>
                 ) : null}
-                {itemBankNotices.map((notice) => (
+                {!item.report && itemBankNotices.map((notice) => (
                   <div className="route-search-payment-alert route-search-payment-alert--hold" key={notice.id}>
                     Por confirmar banca: {formatCurrency(notice.amount)}{notice.collectionTeam ? ` · Equipo ${notice.collectionTeam}` : ""}
                   </div>
@@ -834,7 +937,7 @@ export default function RouteSearchPage({
                   </span>
                   <span className="route-search-added-at">En ruta · {formatRouteStartedAt(item.publishedAt)}</span>
                 </div>
-                {!readOnly ? (
+                {!readOnly && !item.report ? (
                   <label className="route-search-comment-field">
                     <span>Comentario</span>
                     <div>
@@ -860,7 +963,26 @@ export default function RouteSearchPage({
                     </div>
                   </label>
                 ) : item.comment ? <p className="route-search-comment">{item.comment}</p> : null}
-                {!readOnly && onRegisterPayment ? (
+                {item.report ? (
+                  <div className={`route-search-report-status route-search-report-status--${item.report.status}`}>
+                    <strong>{item.report.status === "confirmed" ? "Pago confirmado" : "Pago reportado · Pendiente de confirmar"}</strong>
+                    <span>{formatCurrency(item.report.amount)} · {item.report.method === "mixed" ? "Mixto" : item.report.method === "cash" ? "Efectivo" : "Banca"}</span>
+                    {item.report.method === "mixed" ? <>
+                      <span>Efectivo: {formatCurrency(item.report.cash_amount)} · {item.report.confirmed_cash_amount >= item.report.cash_amount ? "Confirmado" : "Pendiente"}</span>
+                      <span>Banca: {formatCurrency(item.report.bank_amount)} · {item.report.confirmed_bank_amount >= item.report.bank_amount ? "Confirmado" : "Pendiente"}</span>
+                    </> : null}
+                    <span>Reportado por {item.report.reporter_name} · {formatPublishedAt(item.report.reported_at)}</span>
+                    {item.report.confirmed_at ? <span>Confirmado · {formatPublishedAt(item.report.confirmed_at)}</span> : null}
+                    {item.report.status === "review" && canReportPayment && (item.report.reported_by === currentUserId || canRemoveFromRoute) ? (
+                      <button type="button" className="button ghost" disabled={reportSaving} onClick={() => void returnReport(item.report!)}>Devolver a Trabajo</button>
+                    ) : null}
+                  </div>
+                ) : canReportPayment && !reports.some((report) => report.client_id === item.clientId && report.published_at === item.publishedAt) ? (
+                  <button type="button" className="button primary route-search-report-button" disabled={!reportsReady || reportSaving} onClick={() => {
+                    setReportTarget(item); setReportAmount(""); setReportMethod(""); setReportCashAmount(""); setReportBankAmount(""); setReportError("");
+                  }}>Reportar que pagó</button>
+                ) : null}
+                {!readOnly && onRegisterPayment && !item.report ? (
                   <div className="route-search-card-actions">
                     <button type="button" className="button primary route-search-payment-button" onClick={() => openPaymentDialog(item)}>
                       Registrar pago
@@ -873,6 +995,26 @@ export default function RouteSearchPage({
         </div>
       )}
 
+      {reportTarget ? (
+        <div className="modal-overlay route-search-payment-overlay">
+          <form className="modal route-search-payment-modal" role="dialog" aria-modal="true" aria-labelledby="route-report-title" onSubmit={(event) => void submitReport(event)}>
+            <div className="modal-header"><div><h2 id="route-report-title">Reportar pago</h2><p>{reportTarget.unitId} · {reportTarget.clientName}</p></div></div>
+            <div className="route-search-payment-form">
+              <label><span>Cómo pagó</span><select value={reportMethod} onChange={(event) => setReportMethod(event.target.value as "" | "cash" | "bank" | "mixed")} required autoFocus disabled={reportSaving}>
+                <option value="">Seleccionar</option><option value="cash">Efectivo</option><option value="bank">Banca</option><option value="mixed">Mixto (efectivo + banca)</option>
+              </select></label>
+              {reportMethod === "mixed" ? <>
+                <label><span>Cuánto en efectivo ($)</span><input type="number" min="0.01" max="9999999999.99" step="0.01" inputMode="decimal" value={reportCashAmount} onChange={(event) => setReportCashAmount(event.target.value)} required disabled={reportSaving} /></label>
+                <label><span>Cuánto por banca ($)</span><input type="number" min="0.01" max="9999999999.99" step="0.01" inputMode="decimal" value={reportBankAmount} onChange={(event) => setReportBankAmount(event.target.value)} required disabled={reportSaving} /></label>
+                <strong aria-live="polite">Total reportado: {formatCurrency((Number(reportCashAmount) || 0) + (Number(reportBankAmount) || 0))}</strong>
+              </> : <label><span>Cuánto pagó ($)</span><input type="number" min="0.01" max="9999999999.99" step="0.01" inputMode="decimal" value={reportAmount} onChange={(event) => setReportAmount(event.target.value)} required disabled={reportSaving} /></label>}
+              <p className="hint">Se moverá a En revisión. El saldo cambia cuando se aplique el pago.</p>
+              {reportError ? <p className="error-text" role="alert">{reportError}</p> : null}
+            </div>
+            <div className="modal-actions"><button type="button" className="button ghost" disabled={reportSaving} onClick={() => setReportTarget(null)}>Cancelar</button><button type="submit" className="button primary" disabled={reportSaving}>{reportSaving ? "Enviando..." : "Enviar a revisión"}</button></div>
+          </form>
+        </div>
+      ) : null}
       {paymentTarget ? (
         <div className="modal-overlay route-search-payment-overlay" onMouseDown={() => !paymentSaving && setPaymentTarget(null)}>
           <div className="modal route-search-payment-modal" role="dialog" aria-modal="true" aria-labelledby="route-payment-title" onMouseDown={(event) => event.stopPropagation()}>

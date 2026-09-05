@@ -3,10 +3,14 @@ import type { ChangeEvent, FormEvent } from "react";
 import {
   getSellerLeadPortalId,
   loadSellerLeadRequests,
+  loadSellerLeadRequest,
+  correctSellerLeadRequest,
   markSellerLeadRequestIncomplete,
   markSellerLeadRequestReviewed
 } from "../cloudData";
 import type { LeadDecision, LeadEvaluation, SellerLeadRequest, SellerLeadRequestStatus } from "../types";
+import { sellerCedulaKey, validSellerCedula, validSellerCedulaInput, validSellerBirthDate } from "../sellerLeadPortalRules";
+import LeadDocumentPreview from "../components/LeadDocumentPreview";
 
 type LeadForm = {
   cedula: string;
@@ -34,14 +38,20 @@ type LeadVerdict = {
 type Props = {
   evaluations: LeadEvaluation[];
   onEvaluationsChange: (next: LeadEvaluation[]) => Promise<void>;
+  onEvaluationSave?: (item: LeadEvaluation) => Promise<void>;
+  onEvaluationDelete?: (id: string) => Promise<void>;
   onEvaluationLoad?: (evaluationId: string) => Promise<LeadEvaluation | null>;
+  onEvaluationFind?: (cedula: string) => Promise<LeadEvaluation | null>;
+  onLoadMore?: () => Promise<void>;
+  onRefresh?: () => void;
+  hasMore?: boolean;
   loading: boolean;
   cloudError: string;
   readOnly?: boolean;
   ownerUserId?: string;
 };
 
-type LeadFlowMode = "idle" | "creating" | "viewing";
+type LeadFlowMode = "idle" | "creating" | "viewing" | "editing";
 
 const initialForm: LeadForm = {
   cedula: "",
@@ -155,16 +165,26 @@ function buildFormFromEvaluation(evaluation: LeadEvaluation): LeadForm {
   };
 }
 
-export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluationLoad, loading, cloudError, readOnly = false, ownerUserId }: Props) {
+export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluationSave, onEvaluationDelete, onEvaluationLoad, onEvaluationFind, onLoadMore, onRefresh, hasMore = false, loading, cloudError, readOnly = false, ownerUserId }: Props) {
   const [form, setForm] = useState<LeadForm>(initialForm);
   const [queryCedula, setQueryCedula] = useState("");
   const [flowMode, setFlowMode] = useState<LeadFlowMode>("idle");
+  const [activeListTab, setActiveListTab] = useState<"sellers" | "recent">("sellers");
   const [includeDetails, setIncludeDetails] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [consulting, setConsulting] = useState(false);
+  const [documentLoading, setDocumentLoading] = useState(false);
+  const [openedEvaluationId, setOpenedEvaluationId] = useState<string | null>(null);
+  const [editingEvaluation, setEditingEvaluation] = useState<LeadEvaluation | null>(null);
+  const [sellerEditSnapshot, setSellerEditSnapshot] = useState<LeadForm | null>(null);
+  const requestVersion = useRef(0);
+  const sellerVersion = useRef(0);
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
   const [sellerRequests, setSellerRequests] = useState<SellerLeadRequest[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestsError, setRequestsError] = useState("");
+  const [requestsHasMore, setRequestsHasMore] = useState(false);
   const [publicPortalUrl, setPublicPortalUrl] = useState("");
   const [portalError, setPortalError] = useState("");
   const [activeSellerRequest, setActiveSellerRequest] = useState<SellerLeadRequest | null>(null);
@@ -172,28 +192,41 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   const verdict = useMemo(() => buildVerdict(form), [form]);
   const normalizedQuery = normalizeCedula(queryCedula || form.cedula);
   const matchingEvaluation = useMemo(
-    () => evaluations.find((evaluation) => normalizeCedula(evaluation.cedula) === normalizedQuery) ?? null,
+    () => evaluations.find((evaluation) => sellerCedulaKey(evaluation.cedula) === sellerCedulaKey(normalizedQuery)) ?? null,
     [evaluations, normalizedQuery]
   );
   const displayedEvaluations = useMemo(() => {
     const focusedCedula = normalizeCedula(form.cedula || queryCedula);
     if (!focusedCedula) return evaluations;
-    return evaluations.filter((evaluation) => normalizeCedula(evaluation.cedula) === focusedCedula);
+    return evaluations.filter((evaluation) => sellerCedulaKey(evaluation.cedula) === sellerCedulaKey(focusedCedula));
   }, [evaluations, form.cedula, queryCedula]);
 
-  async function refreshSellerRequests(): Promise<void> {
+  async function refreshSellerRequests(append = false): Promise<void> {
     if (!ownerUserId) return;
+    const version = ++sellerVersion.current;
     setRequestsLoading(true);
+    setRequestsError("");
     try {
-      setSellerRequests(await loadSellerLeadRequests(ownerUserId));
+      const rows = await loadSellerLeadRequests(ownerUserId, append ? sellerRequests.length : 0);
+      if (version !== sellerVersion.current) return;
+      setRequestsHasMore(rows.length > 20);
+      setSellerRequests(current => append
+        ? [...new Map([...current, ...rows.slice(0, 20)].map(row => [row.id, row])).values()]
+        : rows.slice(0, 20));
     } catch {
-      setErrors(["No se pudieron cargar las solicitudes de vendedores."]);
+      if (version === sellerVersion.current) setRequestsError("No se pudieron cargar las solicitudes de vendedores. Intenta actualizar nuevamente.");
     } finally {
-      setRequestsLoading(false);
+      if (version === sellerVersion.current) setRequestsLoading(false);
     }
   }
 
-  useEffect(() => { void refreshSellerRequests(); }, [ownerUserId]);
+  useEffect(() => {
+    setSellerRequests([]);
+    setRequestsHasMore(false);
+    handleNewEvaluation();
+    void refreshSellerRequests();
+    return () => { sellerVersion.current++; requestVersion.current++; };
+  }, [ownerUserId]);
 
   async function handleCreateSellerRequest(): Promise<void> {
     if (!ownerUserId || readOnly) return;
@@ -216,20 +249,37 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     }
   }
 
-  function openSellerRequest(request: SellerLeadRequest): void {
-    if (request.status !== "pending_review") return;
-    setActiveSellerRequest(request);
+  async function openSellerRequest(request: SellerLeadRequest): Promise<void> {
+    if (request.status !== "pending_review" || !ownerUserId || consulting) return;
+    const version = ++requestVersion.current;
+    setConsulting(true);
+    try {
+    const full = await loadSellerLeadRequest(ownerUserId, request.id);
+    if (version !== requestVersion.current) return;
+    if (full.status !== "pending_review") {
+      setErrors(["La solicitud ya cambió. Actualiza la lista de vendedores."]);
+      return;
+    }
+    setActiveSellerRequest(full);
+    setSellerEditSnapshot(null);
+    setEditingEvaluation(null);
+    setOpenedEvaluationId(null);
     setForm({
       ...initialForm,
-      cedula: request.cedula,
-      birthDate: request.birthDate,
-      attachmentName: request.attachmentName ?? "",
-      attachmentDataUrl: request.attachmentDataUrl ?? ""
+      cedula: full.cedula,
+      birthDate: full.birthDate,
+      attachmentName: full.attachmentName ?? "",
+      attachmentDataUrl: full.attachmentDataUrl ?? ""
     });
-    setQueryCedula(request.cedula);
+    setQueryCedula(full.cedula);
     setFlowMode("creating");
     setMessage("Informacion del vendedor cargada. Completa la revision interna.");
     setErrors([]);
+    } catch {
+      if (version === requestVersion.current) setErrors(["No se pudo abrir la solicitud. Intenta nuevamente."]);
+    } finally {
+      if (version === requestVersion.current) setConsulting(false);
+    }
   }
 
   async function handleRequestCorrection(request: SellerLeadRequest): Promise<void> {
@@ -271,7 +321,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       pendingDailyReports: checked ? "0" : form.pendingDailyReports
     };
     setForm(nextForm);
-    if (!checked || activeSellerRequest) return;
+    if (!checked || activeSellerRequest || editingEvaluation) return;
     const nextVerdict = buildVerdict(nextForm);
     const nextErrors = validate(nextForm, nextVerdict);
     if (nextErrors.length > 0) {
@@ -283,43 +333,128 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   }
 
   async function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
-    if (readOnly) return;
+    if (readOnly || saving || consulting) return;
     const file = event.target.files?.[0];
     if (!file) return;
+    const version = requestVersion.current;
+    setDocumentLoading(true);
+    try {
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result ?? ""));
       reader.onerror = () => reject(reader.error ?? new Error("No se pudo leer el adjunto."));
       reader.readAsDataURL(file);
     });
-    setForm((current) => ({ ...current, attachmentName: file.name, attachmentDataUrl: dataUrl }));
+    if (version === requestVersion.current) setForm((current) => ({ ...current, attachmentName: file.name, attachmentDataUrl: dataUrl }));
+    } catch {
+      if (version === requestVersion.current) setErrors(["No se pudo leer el documento. Intenta adjuntarlo nuevamente."]);
+    } finally {
+      if (version === requestVersion.current) setDocumentLoading(false);
+    }
   }
 
-  async function loadEvaluationForViewing(evaluation: LeadEvaluation): Promise<LeadEvaluation> {
-    if (evaluation.attachmentDataUrl || !onEvaluationLoad) return evaluation;
-    return await onEvaluationLoad(evaluation.id) ?? evaluation;
-  }
-
-  async function openEvaluation(evaluation: LeadEvaluation): Promise<void> {
-    const fullEvaluation = await loadEvaluationForViewing(evaluation);
-    setForm(buildFormFromEvaluation(fullEvaluation));
-    setQueryCedula(fullEvaluation.cedula);
+  function openEvaluation(evaluation: LeadEvaluation): void {
+    setEditingEvaluation(null);
+    setSellerEditSnapshot(null);
+    requestVersion.current++;
+    setConsulting(false);
+    setDocumentLoading(false);
+    setOpenedEvaluationId(evaluation.id);
+    setForm(buildFormFromEvaluation(evaluation));
+    setQueryCedula(evaluation.cedula);
     setFlowMode("viewing");
     setActiveSellerRequest(null);
     setMessage("Esta registrado. Se cargo el dictamen anterior.");
     setErrors([]);
   }
 
-  function handleConsultCedula(): void {
+  async function handleEditEvaluation(evaluationId: string): Promise<void> {
+    if (readOnly || saving || consulting) return;
+    const version = ++requestVersion.current;
+    setConsulting(true);
+    setErrors([]);
+    try {
+      const full = onEvaluationLoad ? await onEvaluationLoad(evaluationId) : evaluations.find(item => item.id === evaluationId);
+      if (version !== requestVersion.current) return;
+      if (!full || (full.attachmentName && !full.attachmentDataUrl)) throw new Error("Documento no disponible");
+      setEditingEvaluation(full);
+      setSellerEditSnapshot(null);
+      setActiveSellerRequest(null);
+      setOpenedEvaluationId(full.id);
+      setForm(buildFormFromEvaluation(full));
+      setQueryCedula(full.cedula);
+      setFlowMode("editing");
+      setMessage("Corrige los datos y pulsa Guardar cambios. El dictamen se recalculará con la información corregida.");
+      document.querySelector(".lead-query-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch {
+      if (version === requestVersion.current) setErrors(["No se pudo cargar el Lead completo para editar. Intenta nuevamente."]);
+    } finally {
+      if (version === requestVersion.current) setConsulting(false);
+    }
+  }
+
+  async function handleSaveSellerCorrection(): Promise<void> {
+    if (readOnly || saving || documentLoading || !ownerUserId || !activeSellerRequest || !sellerEditSnapshot) return;
+    const nextErrors = validate();
+    if (nextErrors.length) { setErrors(nextErrors); return; }
+    setSaving(true);
+    setErrors([]);
+    try {
+      const cedula = normalizeCedula(form.cedula);
+      if (sellerCedulaKey(cedula) !== sellerCedulaKey(activeSellerRequest.cedula)) {
+        const existing = onEvaluationFind ? await onEvaluationFind(cedula) : evaluations.find(item => sellerCedulaKey(item.cedula) === sellerCedulaKey(cedula));
+        if (existing) { setErrors(["Esa cédula ya tiene un dictamen. Abre ese Lead para corregirlo."]); return; }
+      }
+      const corrected = await correctSellerLeadRequest(ownerUserId, activeSellerRequest, {
+        cedula, birthDate: form.birthDate, attachmentName: form.attachmentName, attachmentDataUrl: form.attachmentDataUrl
+      });
+      setActiveSellerRequest(corrected);
+      setSellerEditSnapshot(null);
+      setQueryCedula(cedula);
+      await refreshSellerRequests();
+      setMessage("Datos corregidos y guardados. La solicitud sigue pendiente de revisión.");
+    } catch {
+      setErrors(["No se pudieron guardar las correcciones. La solicitud puede haber cambiado; vuelve a abrirla antes de reintentar."]);
+    } finally { setSaving(false); }
+  }
+
+  async function handleLoadDocument(): Promise<void> {
+    if (!openedEvaluationId || !onEvaluationLoad || documentLoading) return;
+    const version = requestVersion.current;
+    setDocumentLoading(true);
+    setErrors([]);
+    try {
+      const full = await onEvaluationLoad(openedEvaluationId);
+      if (version !== requestVersion.current) return;
+      if (!full?.attachmentDataUrl) throw new Error("Documento no disponible");
+      setForm(current => ({ ...current, attachmentName: full.attachmentName ?? "", attachmentDataUrl: full.attachmentDataUrl ?? "" }));
+    } catch {
+      if (version === requestVersion.current) setErrors(["No se pudo cargar el documento. Intenta nuevamente."]);
+    } finally {
+      if (version === requestVersion.current) setDocumentLoading(false);
+    }
+  }
+
+  async function handleConsultCedula(): Promise<void> {
     setActiveSellerRequest(null);
     const cedula = normalizeCedula(queryCedula);
-    if (!cedula) {
-      setErrors(["Coloca una cedula para consultar."]);
+    if (!validSellerCedula(queryCedula)) {
+      setErrors(["Coloca una cédula válida: solo números y guiones (-)."]);
       setMessage("");
       setFlowMode("idle");
       return;
     }
-    const match = evaluations.find((evaluation) => normalizeCedula(evaluation.cedula) === cedula);
+    const version = ++requestVersion.current;
+    setConsulting(true);
+    setErrors([]);
+    setMessage("");
+    setFlowMode("idle");
+    setForm(initialForm);
+    setOpenedEvaluationId(null);
+    try {
+    const match = onEvaluationFind ? await onEvaluationFind(cedula)
+      : evaluations.find((evaluation) => sellerCedulaKey(evaluation.cedula) === sellerCedulaKey(cedula));
+    if (version !== requestVersion.current) return;
     if (!match) {
       setForm({ ...initialForm, cedula });
       setFlowMode("creating");
@@ -327,7 +462,12 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       setErrors([]);
       return;
     }
-    void openEvaluation(match);
+    openEvaluation(match);
+    } catch {
+      if (version === requestVersion.current) setErrors(["No se pudo consultar la cédula. Intenta nuevamente antes de crear un Lead."]);
+    } finally {
+      if (version === requestVersion.current) setConsulting(false);
+    }
   }
 
   function buildDictamenText(targetForm: LeadForm, targetVerdict: LeadVerdict, withDetails = false): string {
@@ -382,9 +522,9 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
 
   function validate(targetForm: LeadForm = form, targetVerdict: LeadVerdict = verdict): string[] {
     const nextErrors: string[] = [];
-    if (!targetForm.cedula.trim()) nextErrors.push("La cedula es obligatoria.");
+    if (!validSellerCedula(targetForm.cedula)) nextErrors.push("La cédula debe contener solo números y guiones (-).");
     if (!targetForm.birthDate) nextErrors.push("La fecha de nacimiento es obligatoria.");
-    if (targetVerdict.age === null) nextErrors.push("La fecha de nacimiento no es valida.");
+    if (targetVerdict.age === null || !validSellerBirthDate(targetForm.birthDate)) nextErrors.push("La fecha de nacimiento no es valida.");
     if (!targetForm.attachmentName) nextErrors.push("Debes adjuntar foto de cedula o licencia.");
     const collisionReports = Number(targetForm.collisionReports);
     if (!targetForm.noCases && (!Number.isInteger(collisionReports) || collisionReports < 0)) {
@@ -398,10 +538,19 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   }
 
   async function saveEvaluation(targetForm: LeadForm, targetVerdict: LeadVerdict, successMessage?: string): Promise<void> {
-    if (readOnly) return;
+    if (readOnly || saving || documentLoading || sellerEditSnapshot) return;
     if (targetVerdict.age === null) return;
+    setSaving(true);
+    let evaluationSaved = false;
+    try {
     const normalizedCedula = normalizeCedula(targetForm.cedula);
-    const previous = evaluations.find((evaluation) => normalizeCedula(evaluation.cedula) === normalizedCedula);
+    const match = onEvaluationFind ? await onEvaluationFind(normalizedCedula)
+      : evaluations.find((evaluation) => sellerCedulaKey(evaluation.cedula) === sellerCedulaKey(normalizedCedula));
+    if (editingEvaluation && match && match.id !== editingEvaluation.id) {
+      setErrors(["Esa cédula ya pertenece a otro Lead. No se guardaron los cambios."]);
+      return;
+    }
+    const previous = editingEvaluation ?? match;
     const now = new Date().toISOString();
     const nextEvaluation: LeadEvaluation = {
       id: previous?.id ?? crypto.randomUUID(),
@@ -430,19 +579,26 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       nextEvaluation,
       ...evaluations.filter((evaluation) => evaluation.id !== nextEvaluation.id)
     ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    setSaving(true);
-    try {
-      await onEvaluationsChange(next);
-      if (activeSellerRequest) {
-        await markSellerLeadRequestReviewed(activeSellerRequest.id, nextEvaluation.id);
+      if (onEvaluationSave) await onEvaluationSave(nextEvaluation);
+      else await onEvaluationsChange(next);
+      evaluationSaved = true;
+      if (editingEvaluation) setEditingEvaluation(nextEvaluation);
+      if (activeSellerRequest || (editingEvaluation && nextEvaluation.sellerRequestId)) {
+        await markSellerLeadRequestReviewed(activeSellerRequest?.id ?? nextEvaluation.sellerRequestId!, nextEvaluation.id, {
+          cedula: nextEvaluation.cedula, birthDate: nextEvaluation.birthDate,
+          attachmentName: targetForm.attachmentName, attachmentDataUrl: targetForm.attachmentDataUrl
+        });
         await refreshSellerRequests();
       }
+      setEditingEvaluation(null);
+      setActiveSellerRequest(null);
       setQueryCedula(normalizedCedula);
+      setOpenedEvaluationId(nextEvaluation.id);
       setFlowMode("viewing");
       setMessage(successMessage ?? `Dictamen guardado: ${decisionLabel[nextEvaluation.decision]}.`);
       setErrors([]);
     } catch {
-      setErrors(["No se pudo guardar el Lead en nube. Intenta nuevamente."]);
+      setErrors([evaluationSaved ? "El dictamen se guardó, pero no se pudo actualizar la solicitud del vendedor. Guarda nuevamente para completar la actualización." : "No se pudo guardar el Lead en nube. Intenta nuevamente."]);
     } finally {
       setSaving(false);
     }
@@ -457,6 +613,12 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   }
 
   function handleNewEvaluation(): void {
+    requestVersion.current++;
+    setConsulting(false);
+    setDocumentLoading(false);
+    setOpenedEvaluationId(null);
+    setEditingEvaluation(null);
+    setSellerEditSnapshot(null);
     setForm(initialForm);
     setQueryCedula("");
     setFlowMode("idle");
@@ -473,7 +635,8 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     const next = evaluations.filter((evaluation) => evaluation.id !== evaluationId);
     setSaving(true);
     try {
-      await onEvaluationsChange(next);
+      if (onEvaluationDelete) await onEvaluationDelete(evaluationId);
+      else await onEvaluationsChange(next);
       if (matchingEvaluation?.id === evaluationId) {
         handleNewEvaluation();
       }
@@ -495,17 +658,17 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       <section className="panel lead-query-panel">
         <div className="panel-head">
           <h2>Consulta por cedula</h2>
-          <button type="button" className="button ghost small" onClick={handleNewEvaluation} disabled={readOnly || saving || loading}>
+          <button type="button" className="button ghost small" onClick={handleNewEvaluation} disabled={saving}>
             Nuevo
           </button>
         </div>
         <div className="lead-query-row">
           <label>
             Cedula
-            <input value={queryCedula} onChange={(event) => setQueryCedula(event.target.value)} placeholder="Ej. 8-888-888" disabled={saving || loading} />
+            <input value={queryCedula} inputMode="tel" pattern={"[0-9\\-]*"} maxLength={32} title="Solo números y guiones (-)" onChange={(event) => { if (validSellerCedulaInput(event.target.value)) { handleNewEvaluation(); setQueryCedula(event.target.value); } }} placeholder="Ej. 8-888-888" disabled={saving} />
           </label>
-          <button type="button" className="button primary" onClick={handleConsultCedula} disabled={saving || loading || Boolean(cloudError)}>
-            Consultar
+          <button type="button" className="button primary" onClick={() => void handleConsultCedula()} disabled={saving || consulting}>
+            {consulting ? "Consultando..." : "Consultar"}
           </button>
         </div>
         {matchingEvaluation && (
@@ -513,74 +676,44 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
             Ultimo dictamen guardado: <strong>{decisionLabel[matchingEvaluation.decision]}</strong> - {formatDateTime(matchingEvaluation.updatedAt)}
           </p>
         )}
-        {errors.length > 0 && flowMode === "idle" && (
+        {errors.length > 0 && flowMode !== "creating" && flowMode !== "editing" && (
           <ul className="error-list">
             {errors.map((error) => <li key={error}>{error}</li>)}
           </ul>
         )}
-        {message && flowMode !== "creating" && <p className="success-banner">{message}</p>}
+        {message && flowMode !== "creating" && flowMode !== "editing" && <p className="success-banner">{message}</p>}
         {loading && <p className="hint">Cargando Leads desde nube...</p>}
         {cloudError && <p className="error-banner">{cloudError}</p>}
       </section>
 
-      <section className="panel lead-seller-requests">
-        <div className="panel-head">
-          <div>
-            <h2>Zona de vendedores</h2>
-            <p className="hint">Un solo enlace público para todos los vendedores: consulta por cédula y envío de personas nuevas a verificación.</p>
-          </div>
-          <div className="lead-row-actions">
-            <button type="button" className="button ghost small" onClick={() => void refreshSellerRequests()} disabled={!ownerUserId || requestsLoading}>Actualizar</button>
-            <button type="button" className="button primary small" onClick={() => void handleCreateSellerRequest()} disabled={!ownerUserId || readOnly || saving}>
-              Copiar enlace público
-            </button>
-          </div>
-        </div>
-        {portalError && <p role="status" className="hint">{portalError}</p>}
-        {publicPortalUrl && <label className="seller-shared-link">Enlace para todos los vendedores<input readOnly value={publicPortalUrl} onFocus={(event) => event.target.select()} /></label>}
-        {requestsLoading && <p className="hint">Cargando solicitudes...</p>}
-        <div className="lead-request-list">
-          {sellerRequests.length === 0 && !requestsLoading && <p className="hint">Aun no hay solicitudes enviadas a vendedores.</p>}
-          {sellerRequests.map((request) => (
-            <article className="lead-request-item" key={request.id}>
-              <div>
-                <strong>{request.cedula || "Vendedor pendiente de completar"}</strong>
-                <span>{requestStatusLabel[request.status]} · {formatDateTime(request.updatedAt)}</span>
-              </div>
-              <div className="lead-row-actions">
-                {request.status === "pending_review" && <button type="button" className="button primary small" onClick={() => openSellerRequest(request)}>Revisar</button>}
-                {request.status === "pending_review" && <button type="button" className="button ghost small" disabled={readOnly || saving} onClick={() => void handleRequestCorrection(request)}>Solicitar correccion</button>}
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
       {flowMode !== "idle" && (
       <div className={`lead-workspace ${flowMode === "viewing" ? "lead-workspace--result-only" : ""}`}>
-        {flowMode === "creating" && (
+        {(flowMode === "creating" || flowMode === "editing") && (
         <form className="panel lead-form-panel" onSubmit={handleSubmit}>
           <div className="panel-head">
-            <h2>Revision</h2>
+            <h2>{flowMode === "editing" ? "Editar Lead" : "Revision"}</h2>
             <span className={`lead-decision-pill lead-decision-pill--${verdict.decision}`}>
               {decisionLabel[verdict.decision]}
             </span>
           </div>
 
-          {activeSellerRequest && <p className="success-banner">Datos enviados por el vendedor. Los campos personales estan protegidos durante la revision.</p>}
+          {activeSellerRequest && <div className="success-banner">
+            <p>{sellerEditSnapshot ? "Corrige los datos del vendedor y guarda los cambios antes de publicar el dictamen." : "Datos enviados por el vendedor. Puedes corregirlos si tienen algún error."}</p>
+            {!readOnly && !sellerEditSnapshot && <button type="button" className="button ghost small" disabled={saving || consulting} onClick={() => { setSellerEditSnapshot({ ...form }); setErrors([]); setMessage(""); }}>Editar datos</button>}
+          </div>}
 
           <div className="form-grid lead-form-grid">
             <label>
               Cedula
-              <input value={form.cedula} onChange={(event) => setForm((current) => ({ ...current, cedula: event.target.value }))} disabled={Boolean(activeSellerRequest) || readOnly || saving || loading} />
+              <input value={form.cedula} inputMode="tel" pattern={"[0-9\\-]*"} maxLength={32} title="Solo números y guiones (-)" onChange={(event) => { if (validSellerCedulaInput(event.target.value)) setForm((current) => ({ ...current, cedula: event.target.value })); }} disabled={(Boolean(activeSellerRequest) && !sellerEditSnapshot) || readOnly || saving || consulting} />
             </label>
             <label>
               Fecha de nacimiento
-              <input type="date" value={form.birthDate} onChange={(event) => setForm((current) => ({ ...current, birthDate: event.target.value }))} disabled={Boolean(activeSellerRequest) || readOnly || saving || loading} />
+              <input type="date" value={form.birthDate} onChange={(event) => setForm((current) => ({ ...current, birthDate: event.target.value }))} disabled={(Boolean(activeSellerRequest) && !sellerEditSnapshot) || readOnly || saving || consulting} />
             </label>
             <label>
               Foto de cedula o licencia
-              <input type="file" accept="image/*,.pdf" onChange={(event) => void handleAttachmentChange(event)} disabled={Boolean(activeSellerRequest) || readOnly || saving || loading} />
+              <input type="file" accept="image/*,.pdf" onChange={(event) => void handleAttachmentChange(event)} disabled={(Boolean(activeSellerRequest) && !sellerEditSnapshot) || readOnly || saving || consulting} />
             </label>
             <label>
               Reportes de colision/choque
@@ -589,7 +722,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
                 min="0"
                 step="1"
                 value={form.collisionReports}
-                disabled={readOnly || form.noCases || saving || loading}
+                disabled={readOnly || form.noCases || saving || consulting}
                 onChange={(event) => setForm((current) => ({ ...current, noCases: false, collisionReports: event.target.value }))}
               />
             </label>
@@ -600,7 +733,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
                 min="0"
                 step="1"
                 value={form.pendingDailyReports}
-                disabled={readOnly || form.noCases || saving || loading}
+                disabled={readOnly || form.noCases || saving || consulting}
                 onChange={(event) => setForm((current) => ({ ...current, noCases: false, pendingDailyReports: event.target.value }))}
               />
             </label>
@@ -610,27 +743,27 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
 
           <div className="lead-report-grid">
             <label className="lead-check lead-check--clean">
-              <input type="checkbox" checked={form.noCases} disabled={readOnly || saving || loading} onChange={(event) => void handleNoCasesChange(event.target.checked)} />
+              <input type="checkbox" checked={form.noCases} disabled={readOnly || saving || consulting || documentLoading} onChange={(event) => void handleNoCasesChange(event.target.checked)} />
               Sin casos
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasGpsTamperingReport} disabled={readOnly || form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasGpsTamperingReport", event.target.checked)} />
+              <input type="checkbox" checked={form.hasGpsTamperingReport} disabled={readOnly || form.noCases || saving || consulting} onChange={(event) => updateReportFlag("hasGpsTamperingReport", event.target.checked)} />
               Quitar/manipular GPS
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasLegalCases} disabled={readOnly || form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasLegalCases", event.target.checked)} />
+              <input type="checkbox" checked={form.hasLegalCases} disabled={readOnly || form.noCases || saving || consulting} onChange={(event) => updateReportFlag("hasLegalCases", event.target.checked)} />
               Casos legales
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasViolenceReports} disabled={readOnly || form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasViolenceReports", event.target.checked)} />
+              <input type="checkbox" checked={form.hasViolenceReports} disabled={readOnly || form.noCases || saving || consulting} onChange={(event) => updateReportFlag("hasViolenceReports", event.target.checked)} />
               Reportes de violencia
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasDuiReports} disabled={readOnly || form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasDuiReports", event.target.checked)} />
+              <input type="checkbox" checked={form.hasDuiReports} disabled={readOnly || form.noCases || saving || consulting} onChange={(event) => updateReportFlag("hasDuiReports", event.target.checked)} />
               Alcoholemia
             </label>
             <label className="lead-check">
-              <input type="checkbox" checked={form.hasPiracyReports} disabled={readOnly || form.noCases || saving || loading} onChange={(event) => updateReportFlag("hasPiracyReports", event.target.checked)} />
+              <input type="checkbox" checked={form.hasPiracyReports} disabled={readOnly || form.noCases || saving || consulting} onChange={(event) => updateReportFlag("hasPiracyReports", event.target.checked)} />
               Pirateria
             </label>
           </div>
@@ -643,9 +776,16 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
           {message && <p className="success-banner">{message}</p>}
 
           <div className="modal-actions">
-            <button type="submit" className="button primary" disabled={readOnly || saving || loading || Boolean(cloudError)}>
-              {saving ? "Guardando..." : activeSellerRequest ? "Guardar y publicar dictamen" : "Procesar y guardar dictamen"}
-            </button>
+            {sellerEditSnapshot ? <button type="button" className="button primary" disabled={readOnly || saving || consulting || documentLoading} onClick={() => void handleSaveSellerCorrection()}>{saving ? "Guardando..." : "Guardar cambios"}</button> :
+              <button type="submit" className="button primary" disabled={readOnly || saving || consulting || documentLoading}>
+                {saving ? "Guardando..." : editingEvaluation ? "Guardar cambios" : activeSellerRequest ? "Guardar y publicar dictamen" : "Procesar y guardar dictamen"}
+              </button>}
+            {(editingEvaluation || sellerEditSnapshot) && <button type="button" className="button ghost" disabled={saving || consulting} onClick={() => {
+              requestVersion.current++;
+              setDocumentLoading(false);
+              if (editingEvaluation) openEvaluation(editingEvaluation);
+              else if (sellerEditSnapshot) { setForm(sellerEditSnapshot); setSellerEditSnapshot(null); setErrors([]); setMessage(""); }
+            }}>Cancelar edición</button>}
           </div>
         </form>
         )}
@@ -655,6 +795,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
             <h2>Dictamen</h2>
             {flowMode === "viewing" && (
               <div className="lead-result-actions">
+                {!readOnly && openedEvaluationId && <button type="button" className="button primary small" disabled={saving || consulting || documentLoading} onClick={() => void handleEditEvaluation(openedEvaluationId)}>{consulting ? "Cargando..." : "Editar datos"}</button>}
                 <label className="lead-detail-toggle">
                   <input type="checkbox" checked={includeDetails} onChange={(event) => setIncludeDetails(event.target.checked)} />
                   Incluir detalle
@@ -704,8 +845,10 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
           {form.attachmentName && (
             <div className="lead-dictamen-section">
               <h3>Documento adjunto</h3>
-              {form.attachmentDataUrl.startsWith("data:image/") ? (
-                <img className="lead-document-preview" src={form.attachmentDataUrl} alt={`Documento adjunto ${form.attachmentName}`} />
+              {!form.attachmentDataUrl && openedEvaluationId && onEvaluationLoad ? (
+                <button type="button" className="button ghost small" disabled={documentLoading} onClick={() => void handleLoadDocument()}>{documentLoading ? "Cargando documento..." : "Ver documento"}</button>
+              ) : form.attachmentDataUrl.startsWith("data:image/") ? (
+                <LeadDocumentPreview key={form.attachmentDataUrl} src={form.attachmentDataUrl} name={form.attachmentName} />
               ) : (
                 <p className="lead-document-file">{form.attachmentName}</p>
               )}
@@ -715,9 +858,72 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       </div>
       )}
 
-      <section className="panel">
+      <div className="lead-content-tabs" role="tablist" aria-label="Secciones de Leads">
+        {([
+          { id: "sellers", label: "Zona de vendedores" },
+          { id: "recent", label: "Dictámenes recientes" }
+        ] as const).map((tab, index) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            id={`lead-tab-${tab.id}`}
+            aria-controls={`lead-panel-${tab.id}`}
+            aria-selected={activeListTab === tab.id}
+            tabIndex={activeListTab === tab.id ? 0 : -1}
+            onClick={() => setActiveListTab(tab.id)}
+            onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              event.preventDefault();
+              const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? 1 : 1 - index;
+              const nextTab = nextIndex === 0 ? "sellers" : "recent";
+              setActiveListTab(nextTab);
+              document.getElementById(`lead-tab-${nextTab}`)?.focus();
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <section className="panel lead-seller-requests" role="tabpanel" id="lead-panel-sellers" aria-labelledby="lead-tab-sellers" hidden={activeListTab !== "sellers"}>
         <div className="panel-head">
-          <h2>Dictamenes recientes</h2>
+          <div>
+            <h2>Zona de vendedores</h2>
+            <p className="hint">Un solo enlace público para todos los vendedores: consulta por cédula y envío de personas nuevas a verificación.</p>
+          </div>
+          <div className="lead-row-actions">
+            <button type="button" className="button ghost small" onClick={() => void refreshSellerRequests()} disabled={!ownerUserId || requestsLoading}>Actualizar</button>
+            <button type="button" className="button primary small" onClick={() => void handleCreateSellerRequest()} disabled={!ownerUserId || readOnly || saving}>
+              Copiar enlace público
+            </button>
+          </div>
+        </div>
+        {portalError && <p role="status" className="hint">{portalError}</p>}
+        {publicPortalUrl && <label className="seller-shared-link">Enlace para todos los vendedores<input readOnly value={publicPortalUrl} onFocus={(event) => event.target.select()} /></label>}
+        {requestsLoading && <p className="hint">Cargando solicitudes...</p>}
+        {requestsError && <p role="alert" className="error-banner">{requestsError}</p>}
+        <div className="lead-request-list">
+          {sellerRequests.length === 0 && !requestsLoading && !requestsError && <p className="hint">Aun no hay solicitudes enviadas a vendedores.</p>}
+          {sellerRequests.map((request) => (
+            <article className="lead-request-item" key={request.id}>
+              <div>
+                <strong>{request.cedula || "Vendedor pendiente de completar"}</strong>
+                <span>{requestStatusLabel[request.status]} · {formatDateTime(request.updatedAt)}</span>
+              </div>
+              <div className="lead-row-actions">
+                {request.status === "pending_review" && <button type="button" className="button primary small" disabled={consulting || saving} onClick={() => void openSellerRequest(request)}>Revisar</button>}
+                {request.status === "pending_review" && <button type="button" className="button ghost small" disabled={readOnly || saving} onClick={() => void handleRequestCorrection(request)}>Solicitar correccion</button>}
+              </div>
+            </article>
+          ))}
+        </div>
+        {requestsHasMore && <button type="button" className="button ghost small" disabled={requestsLoading} onClick={() => void refreshSellerRequests(true)}>Ver más solicitudes</button>}
+      </section>
+
+      <section className="panel" role="tabpanel" id="lead-panel-recent" aria-labelledby="lead-tab-recent" hidden={activeListTab !== "recent"}>
+        <div className="panel-head">
+          <h2>Dictámenes recientes</h2>
+          {onRefresh && <button type="button" className="button ghost small" onClick={onRefresh} disabled={loading || saving}>Actualizar dictámenes</button>}
         </div>
         <div className="table-scroll lead-table-scroll">
           <table className="lead-table">
@@ -734,7 +940,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
             <tbody>
               {displayedEvaluations.length === 0 && (
                 <tr>
-                  <td colSpan={6}>Aun no hay dictamenes guardados.</td>
+                  <td colSpan={6}>{loading ? "Cargando dictámenes recientes..." : cloudError ? "No se pudo cargar la lista de dictámenes." : normalizedQuery ? "Sin dictámenes en esta lista para la cédula. Pulsa Consultar para buscar en todo el historial." : "Aun no hay dictamenes guardados."}</td>
                 </tr>
               )}
               {displayedEvaluations.map((evaluation) => (
@@ -749,14 +955,16 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
                     <button
                       type="button"
                       className="button ghost small"
+                      disabled={saving || consulting}
                       onClick={() => void openEvaluation(evaluation)}
                     >
                       Abrir
                     </button>
+                    {!readOnly && <button type="button" className="button primary small" disabled={saving || consulting || documentLoading} onClick={() => void handleEditEvaluation(evaluation.id)}>Editar datos</button>}
                     <button
                       type="button"
                       className="button danger small"
-                      disabled={readOnly || saving || loading}
+                      disabled={readOnly || saving || consulting || documentLoading}
                       onClick={() => void handleDeleteEvaluation(evaluation.id)}
                     >
                       Borrar
@@ -768,6 +976,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
             </tbody>
           </table>
         </div>
+        {hasMore && !normalizedQuery && <button type="button" className="button ghost small" disabled={loading || saving} onClick={() => void onLoadMore?.()}>{loading ? "Cargando..." : "Ver más dictámenes"}</button>}
       </section>
     </div>
   );

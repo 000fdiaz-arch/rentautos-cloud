@@ -30,6 +30,11 @@ try {
   assert.equal(migration, readFileSync("supabase/migrations/20260901000200_shared_seller_lead_portal.sql", "utf8"));
   await db.exec(migration);
   await db.exec(migration);
+  const digitsMigration = readFileSync("supabase/67-seller-cedula-digits-only.sql", "utf8");
+  assert.equal(digitsMigration, readFileSync("supabase/migrations/20260901000300_seller_cedula_digits_only.sql", "utf8"));
+  await db.exec(digitsMigration);
+  await db.exec(digitsMigration);
+  await db.exec(readFileSync("supabase/68-leads-fast-read.sql", "utf8"));
   check("migration compiles and is repeatable");
 
   await db.exec(`set role authenticated; set request.jwt.claim.sub = '${owner}';`);
@@ -59,7 +64,7 @@ try {
   check("lookup creates no request and rejects bad input / unknown portal");
 
   assert.deepEqual(await submit("8-888-888"), { status: "pending_review" });
-  assert.deepEqual(await lookup("8 888 888"), { status: "pending_review" });
+  assert.deepEqual(await lookup("8888888"), { status: "pending_review" });
   assert.deepEqual(await submit("8888888"), { status: "pending_review" });
   await db.exec("reset role");
   assert.equal(Number((await db.query("select count(*) as n from seller_lead_requests")).rows[0].n), 1);
@@ -69,7 +74,13 @@ try {
   await db.query("update seller_lead_requests set status='incomplete', correction_note='PRIVATE NOTE' where id=$1", [row.id]);
   await db.exec("set role anon");
   assert.deepEqual(await lookup("8888888"), { status: "incomplete" });
-  assert.deepEqual(await submit("8 888 888"), { status: "pending_review" });
+  for (const invalid of ["PE-1234", "8 888 888", "1234@", "１２３４", "1234\n", "1234\t", "1234 ", "----"]) {
+    await assert.rejects(lookup(invalid), /Cedula no valida/);
+    await assert.rejects(submit(invalid), /Cedula no valida/);
+    await assert.rejects(db.query("select submit_seller_lead_request($1,$2,$3,$4,$5)", [row.token, invalid, "1990-01-01", "test.png", "data:image/png;base64,iVBORw0KGgo="]), /Cedula y fecha/);
+  }
+  check("shared lookup, shared submission and legacy links reject letters, spaces and special characters");
+  assert.deepEqual(await submit("8-888-888"), { status: "pending_review" });
   await db.exec("reset role");
   assert.equal(Number((await db.query("select count(*) as n from seller_lead_requests")).rows[0].n), 1);
   check("correction updates existing request without leaking note");
@@ -87,10 +98,10 @@ try {
   }
   check("all decisions expose only allowlisted fields, including historical evaluations");
 
-  await db.query("insert into lead_evaluations_cloud values($1,'historical',$2,now())", [owner, JSON.stringify({cedula:"PE-1234",decision:"aplica_con_abono",extraDeposit:200})]);
+  await db.query("insert into lead_evaluations_cloud values($1,'historical',$2,now())", [owner, JSON.stringify({cedula:"7-1234",decision:"aplica_con_abono",extraDeposit:200})]);
   await db.exec("set role anon");
-  assert.deepEqual(await lookup("pe 1234"), {status:"reviewed",decision:"aplica_con_abono",extraDeposit:200});
-  assert.deepEqual(await submit("pe1234"), {status:"reviewed",decision:"aplica_con_abono",extraDeposit:200});
+  assert.deepEqual(await lookup("71234"), {status:"reviewed",decision:"aplica_con_abono",extraDeposit:200});
+  assert.deepEqual(await submit("7-1234"), {status:"reviewed",decision:"aplica_con_abono",extraDeposit:200});
   await db.exec("reset role");
   assert.equal(Number((await db.query("select count(*) as n from seller_lead_requests")).rows[0].n), 1);
   await db.exec(`set role authenticated; set request.jwt.claim.sub = '${owner}'; set test.edit = 'no'`);
