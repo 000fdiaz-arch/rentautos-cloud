@@ -50,3 +50,11 @@ export async function cancelRoutePaymentReport(reportId: string): Promise<void> 
   const { error } = await getCloudClient().rpc("cancel_route_payment_report", { p_report_id: reportId });
   if (error) throw error;
 }
+
+export async function changeRouteAssignment(ownerId: string, item: ActiveRouteItem, route: "WC" | "PTY"): Promise<void> {
+  const { error } = await getCloudClient().rpc("change_active_route_assignment", {
+    p_user_id: ownerId, p_client_id: item.clientId, p_published_at: item.publishedAt,
+    p_previous_route: item.routeAssignment, p_route: route
+  });
+  if (error) throw error;
+}

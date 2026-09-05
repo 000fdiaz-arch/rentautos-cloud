@@ -18251,3 +18251,6 @@ button.ar-route-publish-copy.is-active {
   color: var(--text);
   font: inherit;
 }
+
+.route-search-team-picker { display: flex; align-items: center; gap: 6px; font-size: .85rem; }
+.route-search-team-picker select { min-height: 44px; padding: 6px 10px; border: 1px solid var(--color-border); border-radius: 8px; background: white; color: var(--color-text); font: inherit; font-weight: 700; }

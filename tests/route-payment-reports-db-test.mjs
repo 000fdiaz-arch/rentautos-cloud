@@ -119,4 +119,29 @@ try {
   await db.exec("update payments_cloud set data=jsonb_set(data,'{amountReceived}','55') where id='mixed-bank'");
   mixed=(await rows()).find(x=>x.id===mixed.id);assert.equal(mixed.status,'review');assert.equal(Number(mixed.confirmed_bank_amount),0);
   console.log('OK: upgrade keeps existing confirmations; split validation; both parts required; duplicate/old payments ignored; deleting or correcting one part reopens report');
+
+  await db.exec('reset role; alter table active_route_items_cloud add column updated_at timestamptz;');
+  const routeSql=readFileSync('supabase/71-route-assignment-change.sql','utf8');
+  assert.equal(routeSql,readFileSync('supabase/migrations/20260904000300_route_assignment_change.sql','utf8'));
+  await db.exec(routeSql);await db.exec(routeSql);
+  await db.query("update active_route_items_cloud set data=$1 where client_id='c1'",[JSON.stringify({clientId:'c1',publishedAt:pub,routeAssignment:'PTY',releaseAmount:60,zone:'Centro'})]);
+  const change=(route='WC',previous='PTY',o=owner,p=pub)=>db.query('select change_active_route_assignment($1,$2,$3,$4,$5)',[o,'c1',p,previous,route]);
+  await login(seeker);await change();
+  await assert.rejects(change(),/cambió/);
+  await assert.rejects(change('invalid','WC'),/Solo puedes/);
+  await assert.rejects(change(null,'WC'),/Solo puedes/);
+  await assert.rejects(change('PTY','WC',other),/permiso/);
+  await assert.rejects(change('PTY','WC',owner,'old'),/cambió/);
+  await db.exec('reset role');
+  const changed=(await db.query("select data from active_route_items_cloud where client_id='c1'")).rows[0].data;
+  assert.equal(changed.routeAssignment,'WC');assert.equal(changed.releaseAmount,60);assert.equal(changed.zone,'Centro');assert.equal(changed.routeChangedBy,seeker);
+  for(const state of ["is_active=false","is_active=true,view_route=false","view_route=true,role='lectura'"]){
+    await db.exec('reset role');await db.exec("update user_profiles set "+state+" where id='"+seeker+"'");
+    await login(seeker);await assert.rejects(change('PTY','WC'),/permiso/);
+  }
+  await db.exec('reset role');await db.exec("update user_profiles set role='buscador' where id='"+seeker+"'");
+  await login(seeker);await change('PTY','WC');
+  await db.exec('reset role');await db.exec("update active_route_items_cloud set data=jsonb_set(data,'{removedAt}',to_jsonb('removed'::text))");
+  await login(seeker);await assert.rejects(change(),/cambió/);
+  console.log('OK: route switch permits active seeker only, validates owner and WC/PTY, rejects stale/removed routes, preserves other data and records author');
 } finally { await db.close(); }

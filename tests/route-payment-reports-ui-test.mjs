@@ -6,7 +6,7 @@ const base='http://127.0.0.1:4197';
 const owner='11111111-1111-4111-8111-111111111111';
 const seeker='22222222-2222-4222-8222-222222222222';
 const item={clientId:'c1',unitId:'RA-042',clientName:'Carlos',routeAssignment:'PTY',zone:'Centro',releaseAmount:60,pendingAmount:120,overdueBalance:120,rentAmount:30,daysLate:4,publishedAt:'2026-09-04T12:00:00Z',routeStartedAt:'2026-09-04T12:00:00Z'};
-let reports=[],fail=false,writes=[];
+let reports=[],fail=false,writes=[],routeChanges=[];
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4197','--strictPort'],{windowsHide:true,stdio:'pipe',env:{...process.env,VITE_SUPABASE_URL:'https://route-tests.invalid',VITE_SUPABASE_ANON_KEY:'synthetic-test-key'}});
 let browser;
 try {
@@ -25,6 +25,11 @@ try {
     if(url.pathname.endsWith('/active_route_items_cloud'))return route.fulfill({json:[{client_id:'c1',data:item}]});
     if(url.pathname.endsWith('/notified_payments_cloud'))return route.fulfill({json:[]});
     if(url.pathname.endsWith('/route_payment_reports'))return route.fulfill({json:reports});
+    if(url.pathname.endsWith('/rpc/change_active_route_assignment')){
+      const input=req.postDataJSON();routeChanges.push(input);
+      if(fail)return route.fulfill({status:400,json:{message:'La ruta cambió. Actualiza.'}});
+      item.routeAssignment=input.p_route;return route.fulfill({status:204});
+    }
     if(url.pathname.endsWith('/rpc/report_route_payment_split')){
       const input=req.postDataJSON();writes.push(input);
       if(fail)return route.fulfill({status:400,json:{message:'La unidad cambió. Actualiza la ruta.'}});
@@ -37,6 +42,12 @@ try {
     throw Error('Unexpected request: '+req.method()+' '+url.pathname);
   });
   await page.goto(base+'/__route-test');
+  const picker=page.getByRole('combobox',{name:'Ruta de RA-042'});
+  await picker.selectOption('WC');await page.getByRole('status').filter({hasText:'RA-042 cambió a WC.'}).waitFor();
+  assert.equal(routeChanges.at(-1).p_previous_route,'PTY');assert.equal(await picker.inputValue(),'WC');
+  fail=true;await picker.selectOption('PTY');await page.getByRole('alert').filter({hasText:'No se pudo cambiar la ruta.'}).waitFor();
+  assert.equal(await picker.inputValue(),'WC');fail=false;
+  await picker.selectOption('PTY');await page.getByRole('status').filter({hasText:'RA-042 cambió a PTY.'}).waitFor();
   const cashPanel=page.getByRole('region',{name:'Efectivo pendiente de entrega'});
   await cashPanel.locator('summary').getByText('$45.25',{exact:true}).waitFor();
   await cashPanel.locator('summary').getByText('$30.00',{exact:true}).waitFor();
@@ -99,5 +110,6 @@ try {
   await page.goto(base+'/__route-test?readonly');
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Reportar que pagó',exact:true}).count(),0);
+  assert.equal(await page.getByRole('combobox',{name:'Ruta de RA-042'}).count(),0);
   assert.deepEqual(errors,[]);console.log('OK: WC/PTY from shared payments, zero extra queries, historical receipts, live delivered removal, read-only; report form, mixed split and confirmation');
 } finally {await browser?.close();server.kill();}

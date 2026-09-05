@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import RoutePendingCashPanel from "./RoutePendingCashPanel";
-import { cancelRoutePaymentReport, loadRoutePaymentReports, reportRoutePayment, type RoutePaymentReport } from "../cloud/routeReportCloudData";
+import { changeRouteAssignment, cancelRoutePaymentReport, loadRoutePaymentReports, reportRoutePayment, type RoutePaymentReport } from "../cloud/routeReportCloudData";
 import {
   ALL_ACTIVE_ROUTE_FILTER,
   activeRouteFilterLabel,
@@ -190,6 +190,22 @@ export default function RouteSearchPage({
     } catch (cause) {
       setReportsError(buildCloudErrorMessage("No se pudo devolver el reporte.", cause, { includeRawFallback: true }));
     } finally { setReportSaving(false); }
+  }
+  const [changingRoute, setChangingRoute] = useState<string | null>(null);
+  const [changeRouteError, setChangeRouteError] = useState("");
+  async function changeTeam(item: ActiveRouteItem, route: "WC" | "PTY"): Promise<void> {
+    if (!canReportPayment || !dataOwnerUserId || changingRoute || route === item.routeAssignment) return;
+    setChangingRoute(item.clientId);
+    setChangeRouteError("");
+    setRouteActionMessage("");
+    try {
+      await changeRouteAssignment(dataOwnerUserId, item, route);
+      setItems(current => current.map(row => row.clientId === item.clientId && row.publishedAt === item.publishedAt
+        ? { ...row, routeAssignment: route } : row));
+      setRouteActionMessage(item.unitId + " cambió a " + route + ".");
+    } catch (cause) {
+      setChangeRouteError(buildCloudErrorMessage("No se pudo cambiar la ruta.", cause, { includeRawFallback: true }));
+    } finally { setChangingRoute(null); }
   }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -733,6 +749,7 @@ export default function RouteSearchPage({
         </div>
       </div> : null}
       {error ? <p className="error-text">{error}</p> : null}
+      {changeRouteError ? <p className="error-text" role="alert">{changeRouteError}</p> : null}
       {zoneError ? <p className="error-text" role="alert">{zoneError}</p> : null}
       {commentError ? <p className="error-text" role="alert">{commentError}</p> : null}
       {shareMessage ? <p className="route-search-share-message" role="status">{shareMessage}</p> : null}
@@ -828,7 +845,17 @@ export default function RouteSearchPage({
                     <span>{firstName(item.clientName)}</span>
                   </div>
                   <div className="route-search-card-head-actions">
-                    <span className="route-search-route">{item.routeAssignment || "Sin ruta"}</span>
+                    {canReportPayment && !item.report && (item.routeAssignment === "WC" || item.routeAssignment === "PTY") ? (
+                      <label className="route-search-team-picker">
+                        <span>Ruta</span>
+                        <select aria-label={"Ruta de " + item.unitId} value={item.routeAssignment}
+                          disabled={changingRoute !== null}
+                          onChange={event => void changeTeam(item, event.target.value as "WC" | "PTY")}>
+                          <option value="WC">WC</option><option value="PTY">PTY</option>
+                        </select>
+                        {changingRoute === item.clientId ? <small role="status">Guardando…</small> : null}
+                      </label>
+                    ) : <span className="route-search-route">{item.routeAssignment || "Sin ruta"}</span>}
                     {canRemoveFromRoute && !item.report ? (
                       <button
                         type="button"
