@@ -34,5 +34,5 @@ export function countActiveRouteReviewItems(items: ActiveRouteItem[], payments: 
 }
 
 export function getActiveRouteReviewItems(items: ActiveRouteItem[], payments: Payment[], dateKey: string): ActiveRouteItem[] {
-  return items.filter((item) => !item.removedAt && hasPendingPartialRouteDecision(payments, item, dateKey));
+  return items.filter((item) => !item.removedAt && !item.inCustody && hasPendingPartialRouteDecision(payments, item, dateKey));
 }

@@ -1684,6 +1684,9 @@ export type ActiveRouteItem = {
   comment?: string;
   partialDecisionRentAmount?: number;
   partialDecisionAt?: string;
+  inCustody?: boolean;
+  custodySince?: string;
+  custodyChangedAt?: string;
   publishedAt: string;
   routeStartedAt: string;
   removedAt?: string;
@@ -1727,6 +1730,9 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
       ? row.partialDecisionRentAmount
       : undefined,
     partialDecisionAt: typeof row.partialDecisionAt === "string" ? row.partialDecisionAt : undefined,
+    inCustody: row.inCustody === true,
+    custodySince: typeof row.custodySince === "string" ? row.custodySince : undefined,
+    custodyChangedAt: typeof row.custodyChangedAt === "string" ? row.custodyChangedAt : undefined,
     publishedAt,
     routeStartedAt,
     removedAt: typeof row.removedAt === "string" ? row.removedAt : undefined,
@@ -1738,11 +1744,11 @@ export async function loadCloudActiveRouteItems(userId: string): Promise<ActiveR
   const client = getCloudClient();
   const { data, error } = await client
     .from("active_route_items_cloud")
-    .select("client_id,data")
+    .select("client_id,data,in_custody,custody_since,custody_changed_at")
     .eq("user_id", userId);
   if (error) throw error;
-  return ((data ?? []) as Array<{ client_id?: unknown; data?: unknown }>)
-    .map((row) => normalizeActiveRouteItem(row.data))
+  return ((data ?? []) as Array<{ client_id?: unknown; data?: unknown; in_custody?: boolean; custody_since?: string; custody_changed_at?: string }>)
+    .map((row) => normalizeActiveRouteItem({ ...(row.data && typeof row.data === "object" ? row.data : {}), inCustody: row.in_custody === true, custodySince: row.custody_since, custodyChangedAt: row.custody_changed_at }))
     .filter((item): item is ActiveRouteItem => item !== null);
 }
 

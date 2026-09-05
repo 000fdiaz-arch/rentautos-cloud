@@ -8,7 +8,7 @@ function assert(condition, message) {
 const source = fs.readFileSync(path.resolve(__dirname, "..", "src", "pages", "RouteSearchPage.tsx"), "utf8");
 const rules = fs.readFileSync(path.resolve(__dirname, "..", "src", "routeReviewRules.ts"), "utf8");
 
-assert(source.includes('useState<"work" | "review" | "partial" | "confirmed">("work")'), "Los pagos parciales deben tener su propia pestaña.");
+assert(source.includes('useState<RouteWorkflowView>("work")'), "Los pagos parciales deben tener su propia pestaña.");
 assert(rules.includes("payment.dateApplied === dateKey"), "El filtro debe considerar solamente pagos aplicados en el dia.");
 assert(rules.includes("payment.clientId === item.clientId"), "La suma diaria debe pertenecer al cliente de la ruta.");
 assert(rules.includes("sum + Math.max(0, payment.appliedToRent)"), "El filtro debe sumar solamente lo aplicado a renta.");

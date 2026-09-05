@@ -20,3 +20,6 @@ for (const patch of [{status:'confirmed'},{status:'cancelled'},{method:'bank'},{
 assert.equal(countActiveRouteReviewItems([{...item,partialDecisionRentAmount:20}],payments,day,[cash]),1);
 assert.equal(countActiveRouteReviewItems([{...item,partialDecisionRentAmount:20}],payments,day,[{...cash,status:'confirmed'}]),0);
 console.log('OK cash badge: actionable reports, partial decisions, deduplication and clearing after confirmation');
+
+assert.equal(countActiveRouteReviewItems([{...item,inCustody:true}],payments,day,[]),0);
+assert.equal(countActiveRouteReviewItems([{...item,inCustody:true}],payments,day,[cash]),1,'Custody must not discard cash awaiting a receipt');

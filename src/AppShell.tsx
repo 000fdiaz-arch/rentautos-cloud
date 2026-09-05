@@ -600,7 +600,7 @@ export default function AppShell({
     method: "cash" | "bank";
     team: CollectionTeam;
     fundsReceivedDate?: string;
-  }): Promise<{ kind: "cash" | "bank"; receiptNumber?: string }> {
+  }): Promise<{ kind: "cash" | "bank"; receiptNumber?: string; payment?: Payment }> {
     if (!canEditRouteSearch) {
       throw new Error("No tienes permiso para registrar pagos desde Ruta en calle.");
     }
@@ -664,7 +664,7 @@ export default function AppShell({
     transaction.payment.incomeComment = `Cobro en Ruta · Equipo ${input.team}`;
     const saved = await persistClientsAndPayments(transaction.updatedClients, [...payments, transaction.payment], "route");
     if (!saved) throw new Error("No se pudo guardar el pago.");
-    return { kind: "cash", receiptNumber };
+    return { kind: "cash", receiptNumber, payment: transaction.payment };
   }
 
   async function persistDeletedPayments(nextClients: Client[], nextPayments: Payment[], deletedPaymentIds: string[]): Promise<boolean> {

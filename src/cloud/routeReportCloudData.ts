@@ -1,5 +1,6 @@
 import { getCloudClient, PAGE_SIZE } from "./cloudClient";
 import type { ActiveRouteItem } from "./operationsCloudData";
+import type { Payment } from "../types";
 
 export type RoutePaymentReport = {
   id: string;
@@ -59,4 +60,18 @@ export async function changeRouteAssignment(ownerId: string, item: ActiveRouteIt
     p_previous_route: item.routeAssignment, p_route: route
   });
   if (error) throw error;
+}
+
+export async function setRouteCustody(ownerId: string, item: ActiveRouteItem, inCustody: boolean): Promise<void> {
+  const { error } = await getCloudClient().rpc("set_active_route_custody", {
+    p_user_id: ownerId, p_client_id: item.clientId, p_published_at: item.publishedAt,
+    p_in_custody: inCustody, p_expected_in_custody: item.inCustody === true
+  });
+  if (error) throw error;
+}
+
+export async function loadRouteReportReceipts(ownerId: string, report: RoutePaymentReport): Promise<Payment[]> {
+  const { data, error } = await getCloudClient().rpc("read_route_report_receipts", { p_user_id: ownerId, p_report_id: report.id });
+  if (error) throw error;
+  return (data ?? []) as Payment[];
 }

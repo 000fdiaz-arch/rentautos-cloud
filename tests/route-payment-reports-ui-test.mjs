@@ -6,7 +6,8 @@ const base='http://127.0.0.1:4197';
 const owner='11111111-1111-4111-8111-111111111111';
 const seeker='22222222-2222-4222-8222-222222222222';
 const item={clientId:'c1',unitId:'RA-042',clientName:'Carlos',routeAssignment:'PTY',zone:'Centro',releaseAmount:60,pendingAmount:120,overdueBalance:120,rentAmount:30,daysLate:4,publishedAt:'2026-09-04T12:00:00Z',routeStartedAt:'2026-09-04T12:00:00Z'};
-let reports=[],fail=false,writes=[],routeChanges=[],cashRegistrations=[];
+const receipt={id:'receipt-55',receiptNumber:'REC-CASH-55',clientId:'c1',clientName:'Carlos',clientUnit:'RA-042',dateApplied:'2026-09-05',paymentMethod:'Efectivo',collectionTeam:'WC',amountReceived:55,appliedToRent:55,centavosAhorro:0,installmentsDeducted:1,balanceBefore:120,balanceAfter:65,savingsBefore:0,savingsAfter:0,installmentsPaidAfter:1,installmentsRemainingAfter:2,rentAmount:30,frequency:'daily',createdAt:'2026-09-05T12:00:00Z'};
+let reports=[],fail=false,writes=[],routeChanges=[],cashRegistrations=[],custody=false,custodyWrites=[];
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4197','--strictPort'],{windowsHide:true,stdio:'pipe',env:{...process.env,VITE_SUPABASE_URL:'https://route-tests.invalid',VITE_SUPABASE_ANON_KEY:'synthetic-test-key'}});
 let browser;
 try {
@@ -20,18 +21,24 @@ try {
       if(url.pathname==='/__register-cash'){
         cashRegistrations.push(JSON.parse(req.postData()));
         reports[0].status='confirmed';reports[0].confirmed_cash_amount=reports[0].cash_amount;
-        return route.fulfill({json:{kind:'cash',receiptNumber:'REC-CASH-55'}});
+        return route.fulfill({json:{kind:'cash',receiptNumber:'REC-CASH-55',payment:receipt}});
       }
       if(url.pathname==='/__route-test')return route.fulfill({contentType:'text/html',body:`<meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script type="module">import RefreshRuntime from '/@react-refresh';RefreshRuntime.injectIntoGlobalHook(window);window.$RefreshReg$=()=>{};window.$RefreshSig$=()=>type=>type;window.__vite_plugin_react_preamble_installed__=true;</script><script type="module" src="/tests/fixtures/route-reports.tsx"></script>`});
       return route.continue();
     }
     if(url.hostname!=='route-tests.invalid')return route.abort();
     if(url.pathname.endsWith('/payments_cloud') || url.pathname.endsWith('/rpc/read_route_pending_cash_page')) throw Error('El resumen debe reutilizar los pagos compartidos, sin consultas adicionales.');
-    if(url.pathname.endsWith('/active_route_items_cloud'))return route.fulfill({json:[{client_id:'c1',data:item}]});
+    if(url.pathname.endsWith('/active_route_items_cloud'))return route.fulfill({json:[{client_id:'c1',data:item,in_custody:custody,custody_since:custody?'2026-09-05T12:00:00Z':null}]});
     if(url.pathname.endsWith('/rpc/keep_active_route_item_after_partial_payment')){
       item.partialDecisionRentAmount=req.postDataJSON().p_confirmed_rent_amount;
       return route.fulfill({status:204});
     }
+    if(url.pathname.endsWith('/rpc/set_active_route_custody')) {
+      const input=req.postDataJSON();custodyWrites.push(input);
+      if(fail)return route.fulfill({status:400,json:{message:'La unidad cambió. Actualiza.'}});
+      custody=input.p_in_custody;return route.fulfill({status:204});
+    }
+    if(url.pathname.endsWith('/rpc/read_route_report_receipts'))return route.fulfill({json:[receipt]});
     if(url.pathname.endsWith('/notified_payments_cloud'))return route.fulfill({json:[]});
     if(url.pathname.endsWith('/route_payment_reports'))return route.fulfill({json:reports});
     if(url.pathname.endsWith('/rpc/change_active_route_assignment')){
@@ -51,12 +58,14 @@ try {
     throw Error('Unexpected request: '+req.method()+' '+url.pathname);
   });
   await page.goto(base+'/__route-test');
+  await page.locator('.route-collection-details summary').click();
   const picker=page.getByRole('combobox',{name:'Ruta de RA-042'});
   await picker.selectOption('WC');await page.getByRole('status').filter({hasText:'RA-042 cambió a WC.'}).waitFor();
   assert.equal(routeChanges.at(-1).p_previous_route,'PTY');assert.equal(await picker.inputValue(),'WC');
   fail=true;await picker.selectOption('PTY');await page.getByRole('alert').filter({hasText:'No se pudo cambiar la ruta.'}).waitFor();
   assert.equal(await picker.inputValue(),'WC');fail=false;
   await picker.selectOption('PTY');await page.getByRole('status').filter({hasText:'RA-042 cambió a PTY.'}).waitFor();
+  await page.locator('.route-collection-cash-summary > summary').click();
   const cashPanel=page.getByRole('region',{name:'Efectivo pendiente de entrega'});
   await cashPanel.locator('summary').getByText('$45.25',{exact:true}).waitFor();
   await cashPanel.locator('summary').getByText('$30.00',{exact:true}).waitFor();
@@ -76,7 +85,7 @@ try {
   assert.equal(writes.at(-1).p_bank_amount,75.25);assert.equal(writes.at(-1).p_cash_amount,0);
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
   await page.getByRole('button',{name:'En revisión (1)',exact:true}).click();
-  await page.getByText('Pago reportado · Pendiente de confirmar',{exact:true}).waitFor();
+  await page.locator('.route-collection-details summary').click();await page.getByText('Pago reportado · Pendiente de confirmar',{exact:true}).waitFor();
   assert.match(await page.locator('.route-search-report-status').innerText(),/75.25.*Banca/);
   assert.equal(await page.getByRole('button',{name:'Registrar pago',exact:true}).count(),0);
   assert.equal(await page.getByRole('button',{name:'Sacar de ruta',exact:true}).count(),0);
@@ -91,7 +100,7 @@ try {
   item.removedAt=new Date().toISOString();
   await page.getByRole('button',{name:'Actualizar',exact:true}).click();
   await page.getByRole('button',{name:'Pagos confirmados (1)',exact:true}).click();
-  await page.getByText('Pago confirmado',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Devolver a Trabajo',exact:true}).count(),0);
+  await page.locator('.route-collection-tag--confirmed').waitFor();assert.equal(await page.getByRole('button',{name:'Devolver a Trabajo',exact:true}).count(),0);
   await page.setViewportSize({width:1280,height:900});await page.screenshot({path:'.tmp/route-reports/desktop-confirmed.png',fullPage:true});
   reports=[];delete item.removedAt;
   await page.goto(base+'/__route-test');
@@ -124,11 +133,10 @@ try {
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
   const partialTab=page.getByRole('button',{name:'Pagos parciales a revisar (1)',exact:true});
   await partialTab.waitFor();
-  assert.equal(await page.locator('.route-search-workflow-tabs button').count(),4);
+  assert.equal(await page.locator('.route-search-workflow-tabs button').count(),5);
   await page.getByPlaceholder('Unidad, cliente, cedula, telefono o zona...').fill('no-match');
   await partialTab.click();
-  await page.getByText('Pago parcial: $32.00 · Faltan $8.00',{exact:true}).waitFor();
-  await page.getByText('Pago confirmado',{exact:true}).waitFor();
+  await page.getByText('Faltan $8.00 para liberar',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Reportar que pagó',exact:true}).count(),0);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.screenshot({path:'.tmp/route-reports/mobile-partial-review.png',fullPage:true});
@@ -138,14 +146,14 @@ try {
   await page.getByRole('button',{name:'Pagos parciales a revisar (0)',exact:true}).waitFor();
   assert.equal(item.partialDecisionRentAmount,32);
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).click();
-  await page.getByText('Decisión: Debe pagar más',{exact:true}).waitFor();
-  await page.getByText('Pago parcial: $32.00 · Faltan $8.00',{exact:true}).waitFor();
+  await page.locator('.route-collection-tag').filter({hasText:'Debe pagar más'}).waitFor();
+  await page.getByText('Pendiente para liberar',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Reportar que pagó',exact:true}).count(),0);
   await page.getByRole('button',{name:'Actualizar',exact:true}).click();
-  await page.getByText('Decisión: Debe pagar más',{exact:true}).waitFor();
+  await page.locator('.route-collection-tag').filter({hasText:'Debe pagar más'}).waitFor();
   await page.screenshot({path:'.tmp/route-reports/desktop-returned-to-work.png',fullPage:true});
   await page.getByRole('button',{name:'Pagos confirmados (1)',exact:true}).click();
-  await page.getByText('Pago confirmado',{exact:true}).waitFor();
+  await page.locator('.route-collection-tag--confirmed').waitFor();
   // B79 regression: a later pending report takes precedence over an acknowledged partial decision.
   reports[0].status='review';reports[0].reported_at=new Date(Date.now()+1000).toISOString();
   await page.getByRole('button',{name:'Actualizar',exact:true}).click();
@@ -153,7 +161,7 @@ try {
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).click();
   assert.equal(await page.locator('.route-search-card').count(),0);
   await page.getByRole('button',{name:'En revisión (1)',exact:true}).click();
-  await page.getByText('Pago reportado · Pendiente de confirmar',{exact:true}).waitFor();
+  await page.locator('.route-collection-details summary').click();await page.getByText('Pago reportado · Pendiente de confirmar',{exact:true}).waitFor();
   // Reopening an existing report (for example after correcting a payment) must also exclude Work.
   reports[0].reported_at='2026-09-04T12:00:00Z';
   await page.getByRole('button',{name:'Actualizar',exact:true}).click();
@@ -162,9 +170,9 @@ try {
   reports[0].status='confirmed';
   await page.getByRole('button',{name:'Actualizar',exact:true}).click();
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).click();
-  await page.getByText('Decisión: Debe pagar más',{exact:true}).waitFor();
+  await page.locator('.route-collection-tag').filter({hasText:'Debe pagar más'}).waitFor();
   await page.getByRole('button',{name:'Pagos confirmados (1)',exact:true}).click();
-  await page.getByText('Pago confirmado',{exact:true}).waitFor();
+  await page.locator('.route-collection-tag--confirmed').waitFor();
   // A changed partial payment needs a fresh decision; a fully paid or removed unit must not return.
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('test:change-partial',{detail:36})));
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
@@ -186,16 +194,16 @@ try {
   await page.goto(base+'/__route-test?cashregister');
   await page.getByRole('button',{name:'En revisión (2)',exact:true}).click();
   assert.match(await page.locator('.route-search-card').first().innerText(),/RA-042/);
-  await page.getByRole('button',{name:/Efectivo por registrar \(1\)/}).click();
+  await page.getByRole('button',{name:'Efectivo pendiente (1)',exact:true}).click();
   assert.equal(await page.locator('.route-search-card').count(),1);
-  await page.getByText('Efectivo pendiente de registrar · $55.00',{exact:true}).waitFor();
+  await page.getByText('Pagó $55.00',{exact:true}).waitFor();
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:'.tmp/route-reports/mobile-cash-priority.png',fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   reports=[cashReport];
   await page.getByRole('button',{name:'Actualizar',exact:true}).click();
   await page.getByRole('button',{name:'En revisión (1)',exact:true}).waitFor();
-  await page.getByRole('button',{name:'Registrar pago',exact:true}).click();
+  await page.getByRole('button',{name:'Generar recibo',exact:true}).click();
   assert.equal(await modal.getByLabel('Monto pagado').inputValue(),'55');
   assert.equal(await modal.getByLabel('Monto pagado').getAttribute('readonly'),'');
   assert.equal(await modal.getByLabel('Cómo pagó').isDisabled(),true);
@@ -210,16 +218,22 @@ try {
   await modal.getByRole('button',{name:'Cerrar',exact:true}).click();
   reports[0].status='review';
   await page.getByRole('button',{name:'Actualizar',exact:true}).click();
-  await page.getByRole('button',{name:'Registrar pago',exact:true}).click();
+  await page.getByRole('button',{name:'Generar recibo',exact:true}).click();
   await modal.getByRole('combobox',{name:/^Equipo/}).selectOption('WC');
   await modal.getByRole('button',{name:'Generar recibo',exact:true}).evaluate(button=>{button.click();button.click();});
   await modal.waitFor({state:'hidden'});
   assert.deepEqual(cashRegistrations,[{clientId:'c1',amount:55,method:'cash',team:'WC',fundsReceivedDate:'2026-09-04'}]);
   await page.getByText('Pago en efectivo registrado en REC-CASH-55 · pendiente de entrega.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Ver recibo',exact:true}).click();
+  await page.getByRole('button',{name:'Cerrar vista previa',exact:true}).click();
+  await page.getByRole('button',{name:'Siguiente pendiente',exact:true}).click();
+  await page.getByText('No quedan pagos en efectivo pendientes de recibo.',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Pagos confirmados (1)',exact:true}).click();
-  await page.getByText('Pago confirmado',{exact:true}).waitFor();
+  await page.locator('.route-collection-tag--confirmed').waitFor();
   assert.equal(await page.getByRole('button',{name:'Registrar pago',exact:true}).count(),0);
   assert.equal(await page.getByRole('button',{name:/Efectivo por registrar/}).count(),0);
+  await page.getByRole('button',{name:'Ver recibo',exact:true}).click();
+  await page.getByRole('button',{name:'Cerrar vista previa',exact:true}).click();
   for(const method of ['bank','mixed']){
     reports[0].method=method;reports[0].status='review';
     await page.getByRole('button',{name:'Actualizar',exact:true}).click();
@@ -235,5 +249,26 @@ try {
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Reportar que pagó',exact:true}).count(),0);
   assert.equal(await page.getByRole('combobox',{name:'Ruta de RA-042'}).count(),0);
+  assert.equal(await page.getByRole('button',{name:'Vehículo en custodia',exact:true}).count(),0);
+  await page.goto(base+'/__route-test');
+  await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
+  assert.equal(await page.getByLabel('Zona de RA-042').isVisible(),false);
+  await page.getByRole('button',{name:'Vehículo en custodia',exact:true}).click();
+  await modal.getByRole('button',{name:'Cancelar',exact:true}).click();assert.equal(custodyWrites.length,0);
+  await page.getByRole('button',{name:'Vehículo en custodia',exact:true}).click();
+  fail=true;await modal.getByRole('button',{name:'Confirmar',exact:true}).click();await modal.getByRole('alert').waitFor();assert.equal(custody,false);
+  fail=false;await modal.getByRole('button',{name:'Confirmar',exact:true}).click();await modal.waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Vehículo en custodia (1)',exact:true}).click();
+  await page.getByRole('button',{name:'Sacar de custodia',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Reportar que pagó',exact:true}).count(),0);
+  await page.reload();await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Vehículo en custodia (1)',exact:true}).click();
+  await page.screenshot({path:'.tmp/route-reports/mobile-custody.png',fullPage:true});
+  await page.getByRole('button',{name:'Sacar de custodia',exact:true}).click();
+  await modal.getByRole('button',{name:'Confirmar',exact:true}).click();await modal.waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'Trabajo (1)',exact:true}).click();
+  assert.equal(custody,false);assert.equal(custodyWrites.at(-1).p_expected_in_custody,true);
+  await page.screenshot({path:'.tmp/route-reports/mobile-clean-work.png',fullPage:true});
   assert.deepEqual(errors,[]);console.log('OK: WC/PTY from shared payments, zero extra queries, historical receipts, live delivered removal, read-only; report form, mixed split and confirmation');
 } finally {await browser?.close();server.kill();}

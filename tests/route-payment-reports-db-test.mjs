@@ -144,4 +144,44 @@ try {
   await db.exec('reset role');await db.exec("update active_route_items_cloud set data=jsonb_set(data,'{removedAt}',to_jsonb('removed'::text))");
   await login(seeker);await assert.rejects(change(),/cambió/);
   console.log('OK: route switch permits active seeker only, validates owner and WC/PTY, rejects stale/removed routes, preserves other data and records author');
+  await db.exec('reset role');
+  const custodySql=readFileSync('supabase/migrations/20260905000100_route_vehicle_custody.sql','utf8');
+  await db.exec(custodySql); await db.exec(custodySql);
+  await db.exec("update active_route_items_cloud set data=data-'removedAt'");
+  const financialSnapshot=async()=> (await db.query('select (select jsonb_agg(c) from clients_cloud c) clients, (select jsonb_agg(p order by id) from payments_cloud p) payments')).rows;
+  const beforeCustody=await financialSnapshot();
+  const originalData=(await db.query('select data from active_route_items_cloud')).rows[0].data;
+  const custodyChange=(held,expected,o=owner,p=pub)=>db.query('select set_active_route_custody($1,$2,$3,$4,$5)',[o,'c1',p,held,expected]);
+  await login(seeker); await custodyChange(true,false);
+  await assert.rejects(custodyChange(true,false),/cambió/);
+  await assert.rejects(custodyChange(false,true,owner,'stale'),/cambió/);
+  await assert.rejects(custodyChange(false,true,other),/permiso/);
+  await assert.rejects(custodyChange(null,true),/válido/);
+  await db.exec('reset role');
+  let held=(await db.query('select * from active_route_items_cloud')).rows[0];
+  assert.equal(held.in_custody,true);assert.ok(held.custody_since);assert.deepEqual(held.data,originalData);
+  assert.equal(held.custody_history[0].by,seeker);
+  // Republish only JSON data, as Receivables does: custody must survive.
+  await db.query('insert into active_route_items_cloud(user_id,client_id,data) values($1,$2,$3) on conflict(user_id,client_id) do update set data=excluded.data',[owner,'c1',JSON.stringify({...originalData,zone:'Nueva zona'})]);
+  assert.equal((await db.query('select in_custody from active_route_items_cloud')).rows[0].in_custody,true);
+  await db.exec("update active_route_items_cloud set data=jsonb_set(data,'{removedAt}','\"paid\"')");
+  await login(seeker);await custodyChange(false,true);
+  await assert.rejects(custodyChange(true,false),/cambió/);
+  for(const state of ["is_active=false","is_active=true,view_route=false","view_route=true,role='lectura'"]){
+    await db.exec('reset role');await db.exec("update user_profiles set "+state+" where id='"+seeker+"'");
+    await login(seeker);await assert.rejects(custodyChange(true,false),/permiso/);
+  }
+  await db.exec('reset role');
+  held=(await db.query('select * from active_route_items_cloud')).rows[0];
+  assert.equal(held.in_custody,false);assert.equal(held.custody_since,null);assert.equal(held.custody_history.length,2);
+  assert.deepEqual(await financialSnapshot(),beforeCustody);
+  await db.exec("update user_profiles set role='buscador' where id='"+seeker+"'");
+  await login(seeker);
+  await assert.rejects(db.query('select read_route_report_receipts($1,$2)',[other,mixed.id]),/permiso/);
+  assert.equal((await db.query('select read_route_report_receipts($1,$2)',[owner,mixed.id])).rows.length,0);
+  await payment('mixed-final-bank',{amountReceived:60,paymentMethod:'Transferencia Bancaria'});
+  await login(seeker);
+  assert.equal((await db.query('select read_route_report_receipts($1,$2)',[owner,mixed.id])).rows.length,2);
+  await assert.rejects(db.exec('select * from route_report_payment_links'),/permission denied/);
+  console.log('OK: custody permissions, stale guards, audit, republish persistence, release after payment; financial data unchanged; scoped mixed receipts');
 } finally { await db.close(); }
