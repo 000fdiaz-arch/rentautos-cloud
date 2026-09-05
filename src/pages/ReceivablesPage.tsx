@@ -16,7 +16,6 @@ import {
   loadCollisionCases,
   loadControlUnits,
   loadInsuranceClaims,
-  publishCloudActiveRouteItems,
   removeCloudActiveRouteItem,
   saveCloudActiveRouteItem,
   saveCloudCollectionClosures,
@@ -300,14 +299,6 @@ function routeMissingAmountMessage(rows: ReceivableRow[]): string {
   return `Falta Min. liberar en ${rows.length} unidad(es) en cobro en ruta.${unitText}`;
 }
 
-function routeMissingAssignmentMessage(rows: ReceivableRow[]): string {
-  const units = rows.map((row) => row.unitId).filter(Boolean);
-  const visibleUnits = units.slice(0, 8).join(", ");
-  const extraCount = Math.max(0, units.length - 8);
-  const unitText = visibleUnits ? ` Unidad${units.length === 1 ? "" : "es"}: ${visibleUnits}${extraCount > 0 ? ` y ${extraCount} mas` : ""}.` : "";
-  return `Falta asignar Ruta en ${rows.length} unidad(es) en cobro en ruta.${unitText}`;
-}
-
 function formatActiveRouteAddedAt(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -415,11 +406,11 @@ export default function ReceivablesPage({
   const [clearManagementConfirmation, setClearManagementConfirmation] = useState<string>("");
   const [isExportConfigOpen, setIsExportConfigOpen] = useState<boolean>(false);
   const [routeExportFormat, setRouteExportFormat] = useState<RouteExportFormat>("jpg");
-  const [publishedRouteDownload, setPublishedRouteDownload] = useState<{
-    rows: ReceivableRow[];
-    statusByClient: Record<string, CollectionStatusRecord>;
-    publishedCount: number;
-  } | null>(null);
+  const [autoRouteSending, setAutoRouteSending] = useState(false);
+  const [autoRouteErrors, setAutoRouteErrors] = useState<Record<string, string>>({});
+  const [autoRouteRetry, setAutoRouteRetry] = useState(0);
+  const autoRouteAttempted = useRef(new Set<string>());
+  const autoRouteBusy = useRef(false);
   const [isRouteExportMenuOpen, setIsRouteExportMenuOpen] = useState<boolean>(false);
   const [exportFields, setExportFields] = useState<ExportField[]>(INITIAL_EXPORT_FIELDS);
   const [fieldManagementModalClientId, setFieldManagementModalClientId] = useState<string | null>(null);
@@ -1117,7 +1108,58 @@ export default function ReceivablesPage({
     () => baseRows.filter((row) => isRouteReadyToSendRow(row)).length,
     [activeVisibleRouteClientIds, baseRows, blockingRemovedRouteClientIds, collectionStatusByClient, todayCollectionCuts]
   );
-  const canDownloadPublishedRoute = publishedRouteDownload !== null && routeWorkflowRowsCount === 0;
+  const canDownloadPublishedRoute = activeVisibleRouteItems.length > 0;
+  useEffect(() => {
+    if (!dataOwnerUserId || !supabase || !clients.length || readOnly || isCollectionLocked || activeRouteLoading || activeRouteError || autoRouteBusy.current || !streetManagementLoadedRef.current) return;
+    const candidates = baseRows.filter(row => {
+      const record = collectionStatusByClient[row.id];
+      return hasActiveOperationalClient(row) && record?.isRouteTagged && hasRouteReleaseAmount(record)
+        && !!record.routeAssignment?.trim() && !statusSavingByClient[row.id]
+        && !activeRouteItems.some(item => item.clientId === row.id && !item.removedAt)
+        && !routeRemovalBlocksRecord(record, removedRouteItemByClient.get(row.id))
+        && !autoRouteAttempted.current.has(JSON.stringify([dataOwnerUserId, row.id, record.updatedAt, autoRouteRetry]));
+    });
+    if (!candidates.length) return;
+    const timer = window.setTimeout(() => {
+      autoRouteBusy.current = true; setAutoRouteSending(true);
+      void (async () => {
+        try {
+          for (const row of candidates) {
+            const record = collectionStatusByClient[row.id];
+            const key = JSON.stringify([dataOwnerUserId, row.id, record.updatedAt, autoRouteRetry]);
+            autoRouteAttempted.current.add(key);
+            const item = buildActiveRouteItem(row, record, new Date().toISOString());
+            if (!item) continue;
+            try {
+              const { error } = await supabase!.rpc("publish_prepared_route_item", { p_user_id: dataOwnerUserId, p_item: item, p_expected_updated_at: record.updatedAt });
+              if (error) throw error;
+              setAutoRouteErrors(current => { const next = { ...current }; delete next[row.id]; return next; });
+              setRouteExportMessage(row.unitId + " · Enviada a ruta.");
+            } catch (cause) {
+              console.error("No se pudo enviar la unidad a ruta.", cause);
+              setAutoRouteErrors(current => ({ ...current, [row.id]: row.unitId }));
+            }
+          }
+          await loadActiveRouteFromCloud();
+        } finally { autoRouteBusy.current = false; setAutoRouteSending(false); }
+      })();
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [dataOwnerUserId, clients.length, readOnly, isCollectionLocked, activeRouteLoading, activeRouteError, baseRows, collectionStatusByClient, statusSavingByClient, activeRouteItems, removedRouteItemByClient, autoRouteRetry, autoRouteSending, loadActiveRouteFromCloud]);
+
+  async function retryAutoRoutePublication(): Promise<void> {
+    if (!dataOwnerUserId || readOnly || autoRouteBusy.current) return;
+    autoRouteBusy.current = true; setAutoRouteSending(true);
+    try {
+      const cloud = await loadCloudStreetManagement(dataOwnerUserId);
+      await syncCloudStreetManagementDelta(dataOwnerUserId, cloud, { ...cloud, ...latestCollectionStatusByClientRef.current });
+      await loadStreetManagementFromCloud();
+      await loadActiveRouteFromCloud();
+      autoRouteAttempted.current.clear(); setAutoRouteErrors({}); setAutoRouteRetry(value => value + 1);
+    } catch (cause) { console.error("No se pudo reintentar el envío.", cause); }
+    finally { autoRouteBusy.current = false; setAutoRouteSending(false); }
+  }
+
   const publishedRouteAddRows = useMemo(
     () => baseRows.filter((row) => hasActiveOperationalClient(row) && !activeVisibleRouteClientIds.has(row.id)),
     [activeVisibleRouteClientIds, baseRows]
@@ -2597,182 +2639,27 @@ export default function ReceivablesPage({
     }
   }
 
-  async function handlePublishCobroEnRuta(): Promise<void> {
-    setExportError(null);
-    setRouteExportMessage("");
-    setIsExporting(true);
-    setPublishedRouteDownload(null);
-    let publishedCount = 0;
-    let publicationAttempted = false;
-    let publicationConfirmed = false;
-    try {
-      let statusByClientForRoute = { ...collectionStatusByClient };
-      let activeRouteItemsForSend = activeRouteItemsRef.current;
-      if (dataOwnerUserId) {
-        const [cloudStreetManagement, cloudActiveRouteItems] = await Promise.all([
-          loadCloudStreetManagement(dataOwnerUserId),
-          loadCloudActiveRouteItems(dataOwnerUserId)
-        ]);
-        statusByClientForRoute = parseCollectionStatusMapFromStorage(JSON.stringify(cloudStreetManagement));
-        activeRouteItemsForSend = cloudActiveRouteItems;
-      }
-      const activeClientIdsForSend = new Set(activeRouteItemsForSend
-        .filter((item) => !item.removedAt)
-        .filter((item) => !activeRouteItemReleasedByPayment(item, payments))
-        .map((item) => item.clientId));
-      const removedItemByClientForSend = new Map(activeRouteItemsForSend
-        .filter((item) => !!item.removedAt)
-        .map((item) => [item.clientId, item] as const));
-      const isRouteRowFromMap = (row: ReceivableRow): boolean => {
-        const record = statusByClientForRoute[row.id];
-        return (
-          hasActiveOperationalClient(row) &&
-          record?.isRouteTagged === true &&
-          !activeClientIdsForSend.has(row.id) &&
-          !routeRemovalBlocksRecord(record, removedItemByClientForSend.get(row.id))
-        );
-      };
-      const hasRouteCollectionFromMap = (row: ReceivableRow): boolean => {
-        const management = statusByClientForRoute[row.id];
-        const hasType = management?.managementType === "solo_cobrar" || management?.managementType === "cobrar_o_quitar" || management?.managementType === "desiste" || management?.managementType === "quitar";
-        return hasType && !!management?.managementAmount && management.managementAmount > 0;
-      };
-      const routeRowsForSend = baseRows.filter((row) => isRouteRowFromMap(row));
-      if (routeRowsForSend.length === 0) {
-        activeRouteItemsRef.current = activeRouteItemsForSend;
-        setActiveRouteItems(activeRouteItemsForSend);
-        setRouteExportMessage("Las unidades seleccionadas ya estaban publicadas. Se actualizo Ruta en calle.");
-        return;
-      }
-      const routeRowsMissingAmount = routeRowsForSend.filter((row) => !hasRouteReleaseAmount(statusByClientForRoute[row.id]));
-      if (routeRowsMissingAmount.length > 0) {
-        setExportError(routeMissingAmountMessage(routeRowsMissingAmount));
-        return;
-      }
-      const routeRowsMissingAssignment = routeRowsForSend.filter((row) => {
-        const routeAssignment = statusByClientForRoute[row.id]?.routeAssignment;
-        return !routeAssignment || routeAssignment.trim().length === 0;
-      });
-      if (routeRowsMissingAssignment.length > 0) {
-        setExportError(routeMissingAssignmentMessage(routeRowsMissingAssignment));
-        return;
-      }
-      const previousStatusByClientForRoute = { ...statusByClientForRoute };
-      const exportedAt = new Date().toISOString();
-      for (const row of routeRowsForSend) {
-        if (hasRouteCollectionFromMap(row)) continue;
-        const previous = statusByClientForRoute[row.id];
-        const routeReleaseAmount = previous?.routeReleaseAmount ?? previous?.managementAmount;
-        statusByClientForRoute[row.id] = {
-          status: "pending",
-          isRouteTagged: true,
-          routeTaggedAt: previous?.routeTaggedAt ?? exportedAt,
-          comment: previous?.comment ?? "",
-          updatedAt: exportedAt,
-          managementType: previous?.managementType ?? "solo_cobrar",
-          managementAmount: routeReleaseAmount,
-          managementComment: previous?.managementComment || "Ruta",
-          managementUpdatedAt: previous?.managementUpdatedAt ?? exportedAt,
-          routeReleaseAmount,
-          routeReleaseUpdatedAt: previous?.routeReleaseUpdatedAt ?? exportedAt,
-          routeAssignment: previous?.routeAssignment,
-          routeAssignmentUpdatedAt: previous?.routeAssignmentUpdatedAt,
-          routeUrgency: previous?.routeUrgency ?? "normal",
-          routeUrgencyUpdatedAt: previous?.routeUrgencyUpdatedAt,
-          whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
-          whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
-          whatsAppMessageText: previous?.whatsAppMessageText,
-          supportNote: previous?.supportNote,
-          supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
-          paymentPromiseDate: previous?.paymentPromiseDate,
-          paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
-        };
-      }
-      if (dataOwnerUserId) {
-        await syncCloudStreetManagementDelta(
-          dataOwnerUserId,
-          previousStatusByClientForRoute as Record<string, unknown>,
-          statusByClientForRoute as Record<string, unknown>
-        );
-        applyStreetManagementData(statusByClientForRoute as Record<string, unknown>);
-      } else if (onStreetManagementPersist) {
-        const ok = await onStreetManagementPersist(statusByClientForRoute as Record<string, unknown>);
-        if (ok === false) throw new Error("No se pudo guardar Cobro en Ruta.");
-        applyStreetManagementData(statusByClientForRoute as Record<string, unknown>);
-      }
-      if (dataOwnerUserId) {
-        const activeRouteItemsToPublish = routeRowsForSend
-          .map((row) => {
-            const record = statusByClientForRoute[row.id];
-            if (!record) return null;
-            return buildActiveRouteItem(row, record, exportedAt);
-          })
-          .filter((item): item is ActiveRouteItem => item !== null);
-        publicationAttempted = true;
-        await publishCloudActiveRouteItems(dataOwnerUserId, activeRouteItemsToPublish);
-        const verifiedActiveRouteItems = await loadCloudActiveRouteItems(dataOwnerUserId);
-        const verifiedByClient = new Map(verifiedActiveRouteItems.map((item) => [item.clientId, item] as const));
-        const unverifiedUnits = activeRouteItemsToPublish
-          .filter((item) => {
-            const verified = verifiedByClient.get(item.clientId);
-            return !verified || !!verified.removedAt || verified.publishedAt !== exportedAt;
-          })
-          .map((item) => item.unitId);
-        if (unverifiedUnits.length > 0) {
-          throw new Error(`No se confirmo la publicacion de: ${unverifiedUnits.join(", ")}`);
-        }
-        activeRouteItemsRef.current = verifiedActiveRouteItems;
-        setActiveRouteItems(verifiedActiveRouteItems);
-        publishedCount = activeRouteItemsToPublish.length;
-        publicationConfirmed = true;
-      }
-      setPublishedRouteDownload({
-        rows: routeRowsForSend,
-        statusByClient: statusByClientForRoute,
-        publishedCount: dataOwnerUserId ? publishedCount : routeRowsForSend.length
-      });
-      setRouteReadyFilter(false);
-      const unitLabel = routeRowsForSend.length === 1 ? "unidad" : "unidades";
-      setRouteExportMessage(
-        dataOwnerUserId
-          ? `Ruta publicada: ${publishedCount} ${unitLabel}. Ya puedes descargarla.`
-          : `Ruta preparada: ${routeRowsForSend.length} ${unitLabel}. Ya puedes descargarla.`
-      );
-    } catch (error) {
-      console.error("No se pudo enviar Cobro en Ruta.", error);
-      setExportError(
-        publicationConfirmed
-          ? `La ruta se publico con ${publishedCount} unidad(es), pero no se pudo preparar la descarga.`
-          : publicationAttempted
-            ? "No se pudo confirmar la publicacion de la ruta; puedes volver a intentar."
-            : "No se pudo preparar la publicacion de la ruta; puedes volver a intentar."
-      );
-    } finally {
-      setIsExporting(false);
-    }
-  }
-
   async function handleDownloadPublishedRoute(): Promise<void> {
-    if (!publishedRouteDownload) return;
-    setExportError(null);
-    setRouteExportMessage("");
-    setIsExporting(true);
+    if (!canDownloadPublishedRoute) return;
+    setExportError(null); setRouteExportMessage(""); setIsExporting(true);
     try {
-      const exported = await exportRouteCollection({
-        rows: publishedRouteDownload.rows,
-        statusByClient: publishedRouteDownload.statusByClient,
-        format: routeExportFormat,
-        now
-      });
-      if (!exported) throw new Error("No hay registros publicados para descargar.");
-      const unitLabel = publishedRouteDownload.publishedCount === 1 ? "unidad" : "unidades";
-      setRouteExportMessage(`Ruta descargada: ${publishedRouteDownload.publishedCount} ${unitLabel}.`);
+      const rows: ReceivableRow[] = [];
+      const statusByClient: Record<string, CollectionStatusRecord> = {};
+      for (const item of activeVisibleRouteItems) {
+        const row = baseRows.find(candidate => candidate.id === item.clientId);
+        if (!row) continue;
+        rows.push({ ...row, unitId: item.unitId, name: item.clientName });
+        statusByClient[item.clientId] = { status: "pending", isRouteTagged: true, updatedAt: item.publishedAt,
+          routeAssignment: item.routeAssignment, routeReleaseAmount: item.releaseAmount, managementAmount: item.releaseAmount,
+          managementType: item.managementType, routeUrgency: item.urgency, managementComment: item.comment, comment: "" };
+      }
+      const exported = await exportRouteCollection({ rows, statusByClient, format: routeExportFormat, now });
+      if (!exported) throw new Error("No hay unidades en ruta para descargar.");
+      setRouteExportMessage('Ruta descargada: ' + rows.length + ' unidades.');
     } catch (error) {
-      console.error("No se pudo descargar la ruta publicada.", error);
-      setExportError("La ruta esta publicada, pero no se pudo descargar el archivo. Puedes volver a intentar.");
-    } finally {
-      setIsExporting(false);
-    }
+      console.error("No se pudo descargar la ruta.", error);
+      setExportError("No se pudo descargar la ruta. Puedes volver a intentar.");
+    } finally { setIsExporting(false); }
   }
 
   async function handleSaveCollectionCut(cutKey: CollectionCutKey): Promise<void> {
@@ -2983,30 +2870,28 @@ export default function ReceivablesPage({
                   setWhatsAppContactFilter("all");
                 }}
               >
-                {routeWorkflowRowsCount} {routeWorkflowRowsCount === 1 ? "unidad lista" : "unidades listas"}
+                {autoRouteSending ? "Enviando a ruta…" : routeWorkflowRowsCount + " por completar o enviar"}
               </button>
             ) : (
               <span className="ar-route-publish-copy">
-                {canDownloadPublishedRoute ? "Ruta publicada" : "Sin unidades nuevas"}
+                {canDownloadPublishedRoute ? "Enviada a ruta" : "Envío automático al completar monto y ruta"}
               </span>
             )}
             <button
               type="button"
               className="button ar-route-publish-button"
-              onClick={() => void (canDownloadPublishedRoute ? handleDownloadPublishedRoute() : handlePublishCobroEnRuta())}
-              disabled={isExporting || (!canDownloadPublishedRoute && routeWorkflowRowsCount === 0)}
+              onClick={() => void handleDownloadPublishedRoute()}
+              disabled={isExporting || !canDownloadPublishedRoute}
             >
-              {isExporting
-                ? canDownloadPublishedRoute ? "Descargando..." : "Publicando..."
-                : canDownloadPublishedRoute ? "Descargar ruta" : "Publicar ruta"}
-              {!isExporting ? <strong>{canDownloadPublishedRoute ? publishedRouteDownload?.publishedCount : routeWorkflowRowsCount}</strong> : null}
+              {isExporting ? "Descargando..." : "Descargar ruta"}
+              {!isExporting ? <strong>{activeVisibleRouteItems.length}</strong> : null}
             </button>
             <select
               className="ar-route-export-format ar-route-export-format--prominent"
               value={routeExportFormat}
               onChange={(event) => setRouteExportFormat(event.target.value as RouteExportFormat)}
               disabled={isExporting}
-              aria-label="Formato para publicar cobro en ruta"
+              aria-label="Formato para descargar cobro en ruta"
             >
               <option value="jpg">JPG</option>
               <option value="pdf">PDF</option>
@@ -3112,7 +2997,8 @@ export default function ReceivablesPage({
         ) : null}
 
         {collectionCutMessage ? <p className="hint">{collectionCutMessage}</p> : null}
-        {routeExportMessage ? <p className="hint">{routeExportMessage}</p> : null}
+        {routeExportMessage ? <p className="hint" role="status">{routeExportMessage}</p> : null}
+        {activeRouteError || Object.keys(autoRouteErrors).length > 0 ? <div role="alert" className="error-text">{activeRouteError || "No se pudo confirmar el envío de " + Object.values(autoRouteErrors).join(", ") + ". Revisa la conexión y reintenta."} <button type="button" className="button ghost small" disabled={autoRouteSending} onClick={() => void retryAutoRoutePublication()}>Reintentar envío</button></div> : null}
         {exportError ? <p className="hint error-text">{exportError}</p> : null}
         {workflowTab === "route" ? (
           <div className="ar-active-route-panel ar-active-route-panel--tab">

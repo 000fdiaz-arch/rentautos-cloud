@@ -860,10 +860,10 @@ function ReceivableTableRowComponent({
               </div>
               <div className="ar-route-modal-body">
                 <div className={`ar-route-modal-readiness ${isRoutePreparationComplete ? "is-complete" : "needs-action"}`}>
-                  <strong>{isRoutePreparationComplete ? "Ruta preparada" : "Falta completar la ruta"}</strong>
+                  <strong>{isRoutePreparationComplete ? "Lista para envío automático" : "Falta completar la ruta"}</strong>
                   <span>
                     {isRoutePreparationComplete
-                      ? "Ya puede incluirse al publicar la ruta."
+                      ? "Se enviará automáticamente a Ruta en calle al guardar."
                       : `Falta: ${missingRouteRequirements.join(" y ")}.`}
                   </span>
                 </div>
