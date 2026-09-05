@@ -184,4 +184,30 @@ try {
   assert.equal((await db.query('select read_route_report_receipts($1,$2)',[owner,mixed.id])).rows.length,2);
   await assert.rejects(db.exec('select * from route_report_payment_links'),/permission denied/);
   console.log('OK: custody permissions, stale guards, audit, republish persistence, release after payment; financial data unchanged; scoped mixed receipts');
+  await db.exec('reset role');
+  const followupSql=readFileSync('supabase/73-route-followup-payment-reports.sql','utf8');
+  assert.equal(followupSql,readFileSync('supabase/migrations/20260905000200_route_followup_payment_reports.sql','utf8'));
+  await db.exec(followupSql);await db.exec(followupSql);
+  await db.exec("update active_route_items_cloud set data=jsonb_set(data-'removedAt','{unitId}','\"RA-042\"')");
+  await login(seeker);await split(32,0);
+  const firstAbono=(await rows()).find(x=>x.status==='review');
+  await payment('abono32',{amountReceived:32});
+  await login(seeker);await split(8,0);
+  const secondAbono=(await rows()).find(x=>x.status==='review');
+  assert.notEqual(firstAbono.id,secondAbono.id);
+  assert.equal((await rows()).find(x=>x.id===firstAbono.id).status,'confirmed');
+  await assert.rejects(split(8,0),/ya tiene un reporte en revisión/);
+  await login(peer);await assert.rejects(split(8,0),/ya tiene un reporte en revisión/);
+  await assert.rejects(split(8,0,other),/permiso/);
+  // A correction must reopen the old report without rejecting a real payment edit.
+  await db.exec("reset role; delete from payments_cloud where id='abono32'");
+  assert.equal((await rows()).filter(x=>x.status==='review').length,2);
+  await payment('abono8',{amountReceived:8});
+  assert.equal((await rows()).find(x=>x.id===secondAbono.id).status,'confirmed');
+  assert.equal((await rows()).find(x=>x.id===firstAbono.id).status,'review');
+  await payment('abono32-corrected',{amountReceived:32});
+  assert.equal((await rows()).find(x=>x.id===firstAbono.id).status,'confirmed');
+  await login(seeker);await split(5,0);
+  assert.equal((await rows()).filter(x=>x.status==='confirmed').length,3);
+  console.log('OK: successive partial reports preserve receipts and history, block pending duplicates, and reopen old corrections independently');
 } finally { await db.close(); }

@@ -18289,7 +18289,10 @@ button.ar-route-publish-copy.is-active {
 .route-collection-route-picker:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .route-collection-tag { display: inline-block; width: fit-content; font-size: .76rem; font-weight: 700; padding: 4px 8px; border-radius: 6px; color: #854d0e; background: #fef3c7; margin: 0 5px 4px 0; }
 .route-collection-tag--confirmed { color: #065f46; background: #d1fae5; }
-.route-collection-tag--urgent { color: #991b1b; background: #fee2e2; }
+.route-search-page--compact .route-collection-card--urgent { border: 2px solid #c2410c; border-top-width: 5px; background: #fff7ed; box-shadow: 0 3px 12px #c2410c18; }
+.route-search-page--compact .route-collection-card--very_urgent { border: 2px solid #b91c1c; border-top-width: 5px; background: #fff1f2; box-shadow: 0 3px 14px #b91c1c24; }
+.route-collection-urgency { display: flex; align-items: center; gap: 8px; padding: 10px 12px; margin: -4px -4px 16px; border-radius: 7px; background: #c2410c; color: #fff; font-size: .95rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.route-collection-urgency--very_urgent { background: #b91c1c; }
 .route-collection-card--custody .route-collection-tag { color: #5b21b6; background: #ede9fe; }
 .route-collection-amount { margin: 12px 0 4px; font-size: 1.75rem; font-weight: 800; color: var(--color-text); }
 .route-collection-context { margin: 4px 0 12px; color: var(--color-text-muted); font-size: .85rem; line-height: 1.5; }

@@ -902,7 +902,7 @@ export default function RouteSearchPage({
             return <RouteCollectionCard key={workflowView + '-' + (item.report?.id ?? item.clientId)} item={item} view={workflowView}
               paidRent={paidRent} balance={currentBalance(item)} canReport={canReportPayment} canEdit={!readOnly}
               canRemove={canRemoveFromRoute} canRegister={!readOnly && Boolean(onRegisterPayment) && (!item.report || (isPendingCashRouteReport(item.report) && !registeredReportIds.includes(item.report.id)))}
-              hasReport={reports.some(report => report.client_id === item.clientId && report.published_at === item.publishedAt)}
+              hasPendingReport={reports.some(report => report.status === "review" && report.client_id === item.clientId && report.published_at === item.publishedAt)}
               hasActiveRoute={Boolean(activeRoute && !activeRoute.removedAt)} reportDisabled={!reportsReady}
               saving={reportSaving || paymentSaving || custodySaving || Boolean(partialDecisionSavingByClient[item.clientId]) || removeSaving}
               receiptLoading={receiptLoading === item.report?.id}

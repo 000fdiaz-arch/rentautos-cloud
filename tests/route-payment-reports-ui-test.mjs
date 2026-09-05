@@ -49,7 +49,7 @@ try {
     if(url.pathname.endsWith('/rpc/report_route_payment_split')){
       const input=req.postDataJSON();writes.push(input);
       if(fail)return route.fulfill({status:400,json:{message:'La unidad cambió. Actualiza la ruta.'}});
-      reports=[{id:'r1',user_id:owner,client_id:'c1',published_at:item.publishedAt,snapshot:item,amount:input.p_cash_amount+input.p_bank_amount,
+      reports=[...reports,{id:'r'+(writes.length),user_id:owner,client_id:'c1',published_at:item.publishedAt,snapshot:item,amount:input.p_cash_amount+input.p_bank_amount,
         method:input.p_cash_amount>0&&input.p_bank_amount>0?'mixed':input.p_cash_amount>0?'cash':'bank',cash_amount:input.p_cash_amount,bank_amount:input.p_bank_amount,confirmed_cash_amount:0,confirmed_bank_amount:0,
         status:'review',reported_by:seeker,reporter_name:'Ana',reported_at:new Date().toISOString(),confirmed_at:null}];
       return route.fulfill({status:204});
@@ -149,7 +149,7 @@ try {
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).click();
   await page.locator('.route-collection-tag').filter({hasText:'Debe pagar más'}).waitFor();
   await page.getByText('Pendiente para liberar',{exact:true}).waitFor();
-  assert.equal(await page.getByRole('button',{name:'Reportar que pagó',exact:true}).count(),0);
+  await page.getByRole('button',{name:'Reportar que pagó',exact:true}).waitFor();
   await page.getByRole('button',{name:'Actualizar',exact:true}).click();
   await page.locator('.route-collection-tag').filter({hasText:'Debe pagar más'}).waitFor();
   await page.screenshot({path:'.tmp/route-reports/desktop-returned-to-work.png',fullPage:true});
@@ -271,5 +271,25 @@ try {
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).click();
   assert.equal(custody,false);assert.equal(custodyWrites.at(-1).p_expected_in_custody,true);
   await page.screenshot({path:'.tmp/route-reports/mobile-clean-work.png',fullPage:true});
+  for(const urgency of ['urgent','very_urgent']) {
+    item.urgency=urgency;await page.getByRole('button',{name:'Actualizar',exact:true}).click();
+    await page.locator('.route-collection-card--'+urgency).waitFor();
+    assert.match(await page.locator('.route-collection-urgency').innerText(),urgency==='urgent'?/Urgente/i:/Muy urgente/i);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    await page.screenshot({path:'.tmp/route-reports/mobile-'+urgency+'.png',fullPage:true});
+  }
+  // A10: confirmed 32, instruction to collect the remaining 8, then a second report.
+  item.releaseAmount=40;item.partialDecisionRentAmount=32;
+  reports=[{id:'prior-confirmed',user_id:owner,client_id:'c1',published_at:item.publishedAt,snapshot:{...item},status:'confirmed',amount:32,cash_amount:32,bank_amount:0,confirmed_cash_amount:32,confirmed_bank_amount:0,method:'cash',reported_by:seeker,reporter_name:'Ana',reported_at:new Date().toISOString()}];
+  await page.getByRole('button',{name:'Actualizar',exact:true}).click();
+  await page.evaluate(()=>window.dispatchEvent(new Event('test:partial')));
+  await page.getByRole('button',{name:'Trabajo (1)',exact:true}).click();
+  await page.getByRole('button',{name:'Reportar que pagó',exact:true}).click();
+  await modal.getByLabel('Cómo pagó').selectOption('cash');await modal.getByLabel('Cuánto pagó ($)').fill('8');
+  await modal.getByRole('button',{name:'Enviar a revisión'}).click();await modal.waitFor({state:'hidden'});
+  assert.equal(writes.at(-1).p_cash_amount,8);
+  await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
+  await page.getByRole('button',{name:'En revisión (1)',exact:true}).waitFor();
+  assert.equal(reports.filter(report=>report.status==='confirmed').length,1);
   assert.deepEqual(errors,[]);console.log('OK: WC/PTY from shared payments, zero extra queries, historical receipts, live delivered removal, read-only; report form, mixed split and confirmation');
 } finally {await browser?.close();server.kill();}

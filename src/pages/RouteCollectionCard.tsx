@@ -17,7 +17,7 @@ type Props = {
   canEdit: boolean;
   canRemove: boolean;
   canRegister: boolean;
-  hasReport: boolean;
+  hasPendingReport: boolean;
   hasActiveRoute: boolean;
   reportDisabled: boolean;
   saving: boolean;
@@ -58,7 +58,9 @@ export default function RouteCollectionCard(props: Props) {
   const acknowledged = typeof item.partialDecisionRentAmount === "number" && Math.abs(item.partialDecisionRentAmount - paidRent) < 0.005;
   const pendingCash = view === "review" && isPendingCashRouteReport(report);
   const tone = view === "custody" ? "custody" : view === "confirmed" ? "confirmed" : pendingCash || view === "partial" ? "attention" : "normal";
-  return <article className={`route-search-card route-collection-card route-collection-card--${tone}`} aria-label={`${item.unitId} · ${item.clientName}`}>
+  const urgency = (view === "work" || view === "partial") && item.urgency && item.urgency !== "normal" ? item.urgency : null;
+  return <article className={`route-search-card route-collection-card route-collection-card--${tone}${urgency ? ` route-collection-card--${urgency}` : ""}`} aria-label={`${item.unitId} · ${item.clientName}`}>
+    {urgency ? <div className={`route-collection-urgency route-collection-urgency--${urgency}`}><span aria-hidden="true">⚠</span> {urgency === "very_urgent" ? "Muy urgente" : "Urgente"}</div> : null}
     <div className="route-collection-identity">
       <h2>{item.unitId} <span>· {item.clientName.trim().split(/\s+/)[0]}</span></h2>
       {canReport && !report && (item.routeAssignment === "WC" || item.routeAssignment === "PTY") ? (
@@ -67,7 +69,6 @@ export default function RouteCollectionCard(props: Props) {
         </select>
       ) : <span className="route-collection-route">{item.routeAssignment || "Sin ruta"}</span>}
     </div>
-    {item.urgency && item.urgency !== "normal" && (view === "work" || view === "partial") ? <span className="route-collection-tag route-collection-tag--urgent">{item.urgency === "very_urgent" ? "Muy urgente" : "Urgente"}</span> : null}
     {view === "custody" ? <>
       <span className="route-collection-tag">Vehículo en custodia</span>
       <p className="route-collection-context">Desde {when(item.custodySince)}</p>
@@ -85,7 +86,7 @@ export default function RouteCollectionCard(props: Props) {
       {pendingCash && canRegister ? <button type="button" className="button primary" disabled={saving} onClick={props.onRegister}>Generar recibo</button> : null}
       {view === "confirmed" && report ? <button type="button" className="button primary" disabled={props.receiptLoading} onClick={props.onReceipt}>{props.receiptLoading ? "Abriendo…" : "Ver recibo"}</button> : null}
       {view === "partial" && canRemove && !acknowledged ? <button type="button" className="button primary" disabled={saving} onClick={props.onKeep}>Debe pagar más</button> : null}
-      {view === "work" && canReport && !props.hasReport ? <button type="button" className="button primary" disabled={props.reportDisabled || saving} onClick={props.onReport}>Reportar que pagó</button> : null}
+      {view === "work" && canReport && !props.hasPendingReport ? <button type="button" className="button primary" disabled={props.reportDisabled || saving} onClick={props.onReport}>Reportar que pagó</button> : null}
       {view === "work" && canRegister ? <button type="button" className="button ghost" disabled={saving} onClick={props.onRegister}>Registrar pago</button> : null}
       {view === "custody" && canReport ? <button type="button" className="button primary" disabled={saving} onClick={props.onCustody}>Sacar de custodia</button> : null}
       {view !== "confirmed" && view !== "custody" && canReport && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button ghost" disabled={saving} onClick={props.onCustody}>Vehículo en custodia</button> : null}
