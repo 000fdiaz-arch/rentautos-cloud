@@ -18284,6 +18284,9 @@ button.ar-route-publish-copy.is-active {
 .route-collection-identity h2 { margin: 0; font-size: 1.35rem; overflow-wrap: anywhere; }
 .route-collection-identity h2 span { font-size: .92rem; font-weight: 500; color: var(--color-text-muted); }
 .route-collection-route { font-size: .75rem; padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 6px; }
+.route-collection-route-picker { width: auto; min-width: 72px; min-height: 44px; flex-shrink: 0; background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+.route-collection-route-picker:disabled { cursor: wait; opacity: .6; }
+.route-collection-route-picker:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .route-collection-tag { display: inline-block; width: fit-content; font-size: .76rem; font-weight: 700; padding: 4px 8px; border-radius: 6px; color: #854d0e; background: #fef3c7; margin: 0 5px 4px 0; }
 .route-collection-tag--confirmed { color: #065f46; background: #d1fae5; }
 .route-collection-tag--urgent { color: #991b1b; background: #fee2e2; }

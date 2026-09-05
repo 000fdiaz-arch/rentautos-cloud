@@ -61,7 +61,11 @@ export default function RouteCollectionCard(props: Props) {
   return <article className={`route-search-card route-collection-card route-collection-card--${tone}`} aria-label={`${item.unitId} · ${item.clientName}`}>
     <div className="route-collection-identity">
       <h2>{item.unitId} <span>· {item.clientName.trim().split(/\s+/)[0]}</span></h2>
-      <span className="route-collection-route">{item.routeAssignment || "Sin ruta"}</span>
+      {canReport && !report && (item.routeAssignment === "WC" || item.routeAssignment === "PTY") ? (
+        <select className="route-collection-route route-collection-route-picker" aria-label={`Ruta de ${item.unitId}`} value={item.routeAssignment} disabled={props.changingRoute || saving} onChange={event => props.onRoute(event.target.value as "WC" | "PTY")}>
+          <option value="PTY">PTY</option><option value="WC">WC</option>
+        </select>
+      ) : <span className="route-collection-route">{item.routeAssignment || "Sin ruta"}</span>}
     </div>
     {item.urgency && item.urgency !== "normal" && (view === "work" || view === "partial") ? <span className="route-collection-tag route-collection-tag--urgent">{item.urgency === "very_urgent" ? "Muy urgente" : "Urgente"}</span> : null}
     {view === "custody" ? <>
@@ -90,7 +94,6 @@ export default function RouteCollectionCard(props: Props) {
       <summary>Ver detalles</summary>
       <dl><dt>Cliente</dt><dd>{item.clientName}</dd><dt>Mínimo para liberar</dt><dd>{formatCurrency(item.releaseAmount)}</dd><dt>Saldo vencido</dt><dd>{formatCurrency(balance)}</dd><dt>Atraso</dt><dd>{item.daysLate} días</dd><dt>En ruta</dt><dd>{when(item.publishedAt)}</dd></dl>
       {partial ? <p className="route-collection-context">Pago parcial: {formatCurrency(paidRent)} · Faltan {formatCurrency(remaining)}{acknowledged ? <><br />Decisión: Debe pagar más</> : null}</p> : null}
-      {canReport && !report && (item.routeAssignment === "WC" || item.routeAssignment === "PTY") ? <label>Ruta<select aria-label={`Ruta de ${item.unitId}`} value={item.routeAssignment} disabled={props.changingRoute} onChange={event => props.onRoute(event.target.value as "WC" | "PTY")}><option value="WC">WC</option><option value="PTY">PTY</option></select></label> : null}
       <label>Zona<input aria-label={`Zona de ${item.unitId}`} list={zoneListId} value={props.zone} maxLength={40} disabled={Boolean(report) || props.zoneSaving} onChange={event => props.onZone(event.target.value)} onBlur={props.onSaveZone} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></label>
       <datalist id={zoneListId}>{props.zoneOptions.map(zone => <option key={zone} value={zone} />)}</datalist>
       {canEdit && !report ? <label>Comentario<input aria-label={`Comentario de ${item.unitId}`} value={props.comment} maxLength={25} disabled={props.commentSaving} onChange={event => props.onComment(event.target.value)} onBlur={props.onSaveComment} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></label> : item.comment ? <p>{item.comment}</p> : null}

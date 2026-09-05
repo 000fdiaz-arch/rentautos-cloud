@@ -58,8 +58,9 @@ try {
     throw Error('Unexpected request: '+req.method()+' '+url.pathname);
   });
   await page.goto(base+'/__route-test');
-  await page.locator('.route-collection-details summary').click();
   const picker=page.getByRole('combobox',{name:'Ruta de RA-042'});
+  await picker.waitFor({state:'visible'});
+  assert.equal(await page.locator('.route-collection-details').getAttribute('open'),null);
   await picker.selectOption('WC');await page.getByRole('status').filter({hasText:'RA-042 cambió a WC.'}).waitFor();
   assert.equal(routeChanges.at(-1).p_previous_route,'PTY');assert.equal(await picker.inputValue(),'WC');
   fail=true;await picker.selectOption('PTY');await page.getByRole('alert').filter({hasText:'No se pudo cambiar la ruta.'}).waitFor();
