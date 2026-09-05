@@ -593,6 +593,7 @@ export default function AppShell({
     amount: number;
     method: "cash" | "bank";
     team: CollectionTeam;
+    fundsReceivedDate?: string;
   }): Promise<{ kind: "cash" | "bank"; receiptNumber?: string }> {
     if (!canEditRouteSearch) {
       throw new Error("No tienes permiso para registrar pagos desde Ruta en calle.");
@@ -652,6 +653,7 @@ export default function AppShell({
       currentActor: userEmail || userId || "Usuario"
     });
     transaction.payment.collectionTeam = input.team;
+    if (input.fundsReceivedDate) transaction.payment.fundsReceivedDate = input.fundsReceivedDate;
     transaction.payment.source = "route";
     transaction.payment.incomeComment = `Cobro en Ruta · Equipo ${input.team}`;
     const saved = await persistClientsAndPayments(transaction.updatedClients, [...payments, transaction.payment], "route");

@@ -40,6 +40,7 @@ type Props = {
     amount: number;
     method: "cash" | "bank";
     team: CollectionTeam;
+    fundsReceivedDate?: string;
   }) => Promise<{ kind: "cash" | "bank"; receiptNumber?: string }>;
 };
 
@@ -229,6 +230,9 @@ export default function RouteSearchPage({
   const [shareMessage, setShareMessage] = useState("");
   const [bankNotices, setBankNotices] = useState<NotifiedPayment[]>(() => loadNotifiedPayments());
   const [paymentTarget, setPaymentTarget] = useState<ActiveRouteItem | null>(null);
+  const [paymentReport, setPaymentReport] = useState<RoutePaymentReport | null>(null);
+  const [registeredReportIds, setRegisteredReportIds] = useState<string[]>([]);
+  const paymentSubmitLock = useRef(false);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank">("cash");
   const [paymentTeam, setPaymentTeam] = useState<"" | CollectionTeam>("");
@@ -578,16 +582,17 @@ export default function RouteSearchPage({
     }
   }
 
-  function openPaymentDialog(item: ActiveRouteItem): void {
+  function openPaymentDialog(item: ActiveRouteItem, report?: RoutePaymentReport): void {
     setPaymentTarget(item);
-    setPaymentAmount(item.releaseAmount > 0 ? String(item.releaseAmount) : "");
+    setPaymentReport(report ?? null);
+    setPaymentAmount(report ? String(report.amount) : item.releaseAmount > 0 ? String(item.releaseAmount) : "");
     setPaymentMethod("cash");
     setPaymentTeam("");
     setPaymentError("");
   }
 
   async function submitRoutePayment(): Promise<void> {
-    if (!paymentTarget || !onRegisterPayment || paymentSaving) return;
+    if (!paymentTarget || !onRegisterPayment || readOnly || paymentSubmitLock.current) return;
     const amount = Number.parseFloat(paymentAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       setPaymentError("Indica un monto mayor a cero.");
@@ -597,26 +602,41 @@ export default function RouteSearchPage({
       setPaymentError("Selecciona el equipo PTY o WC.");
       return;
     }
+    paymentSubmitLock.current = true;
     setPaymentSaving(true);
     setPaymentError("");
     try {
+      if (paymentReport) {
+        if (!dataOwnerUserId || registeredReportIds.includes(paymentReport.id)) throw new Error("Este reporte ya fue registrado. Actualiza la ruta.");
+        const latestReports = await loadRoutePaymentReports(dataOwnerUserId);
+        setReports(latestReports);
+        const latest = latestReports.find((report) => report.id === paymentReport.id);
+        if (!latest || latest.status !== "review" || latest.method !== "cash" || latest.confirmed_cash_amount > 0
+          || latest.amount !== amount || paymentMethod !== "cash") {
+          throw new Error("El reporte cambió o ya fue confirmado. Cierra esta ventana y actualiza la ruta.");
+        }
+      }
       const result = await onRegisterPayment({
         clientId: paymentTarget.clientId,
         amount,
         method: paymentMethod,
-        team: paymentTeam
+        team: paymentTeam,
+        ...(paymentReport ? { fundsReceivedDate: getBusinessDateKey(new Date(paymentReport.reported_at)) } : {})
       });
       if (result.kind === "bank") {
         setBankNotices(loadNotifiedPayments());
         setPaymentMessage(`Pago bancario de ${formatCurrency(amount)} en hold · Equipo ${paymentTeam}.`);
       } else {
         setPaymentMessage(`Pago en efectivo registrado en ${result.receiptNumber ?? "recibo"} · pendiente de entrega.`);
+        if (paymentReport) setRegisteredReportIds((current) => [...current, paymentReport.id]);
       }
       setPaymentTarget(null);
+      if (paymentReport) await reloadReports();
     } catch (saveError) {
       console.error("No se pudo registrar el pago desde Ruta en calle.", saveError);
       setPaymentError(buildCloudErrorMessage("No se pudo registrar el pago.", saveError, { includeRawFallback: true }));
     } finally {
+      paymentSubmitLock.current = false;
       setPaymentSaving(false);
     }
   }
@@ -985,9 +1005,9 @@ export default function RouteSearchPage({
                     setReportTarget(item); setReportAmount(""); setReportMethod(""); setReportCashAmount(""); setReportBankAmount(""); setReportError("");
                   }}>Reportar que pagó</button>
                 ) : null}
-                {!readOnly && onRegisterPayment && !item.report ? (
+                {!readOnly && onRegisterPayment && (!item.report || (workflowView === "review" && item.report.status === "review" && item.report.method === "cash" && item.report.confirmed_cash_amount === 0 && !registeredReportIds.includes(item.report.id))) ? (
                   <div className="route-search-card-actions">
-                    <button type="button" className="button primary route-search-payment-button" onClick={() => openPaymentDialog(item)}>
+                    <button type="button" className="button primary route-search-payment-button" disabled={paymentSaving} onClick={() => openPaymentDialog(item, item.report)}>
                       Registrar pago
                     </button>
                   </div>
@@ -1031,18 +1051,18 @@ export default function RouteSearchPage({
             <div className="route-search-payment-form">
               <label>
                 <span>Monto pagado</span>
-                <input type="number" min="0.01" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} autoFocus />
+                <input type="number" min="0.01" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} readOnly={Boolean(paymentReport)} disabled={paymentSaving} autoFocus />
               </label>
               <label>
                 <span>Cómo pagó</span>
-                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as "cash" | "bank")}>
+                <select value={paymentMethod} disabled={Boolean(paymentReport) || paymentSaving} onChange={(event) => setPaymentMethod(event.target.value as "cash" | "bank")}>
                   <option value="cash">Efectivo</option>
                   <option value="bank">Banca</option>
                 </select>
               </label>
               <label>
                 <span>Equipo</span>
-                <select value={paymentTeam} onChange={(event) => setPaymentTeam(event.target.value as "" | CollectionTeam)}>
+                <select value={paymentTeam} disabled={paymentSaving} onChange={(event) => setPaymentTeam(event.target.value as "" | CollectionTeam)}>
                   <option value="">Seleccionar</option>
                   <option value="PTY">PTY</option>
                   <option value="WC">WC</option>

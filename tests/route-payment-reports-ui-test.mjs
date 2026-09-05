@@ -6,7 +6,7 @@ const base='http://127.0.0.1:4197';
 const owner='11111111-1111-4111-8111-111111111111';
 const seeker='22222222-2222-4222-8222-222222222222';
 const item={clientId:'c1',unitId:'RA-042',clientName:'Carlos',routeAssignment:'PTY',zone:'Centro',releaseAmount:60,pendingAmount:120,overdueBalance:120,rentAmount:30,daysLate:4,publishedAt:'2026-09-04T12:00:00Z',routeStartedAt:'2026-09-04T12:00:00Z'};
-let reports=[],fail=false,writes=[],routeChanges=[];
+let reports=[],fail=false,writes=[],routeChanges=[],cashRegistrations=[];
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4197','--strictPort'],{windowsHide:true,stdio:'pipe',env:{...process.env,VITE_SUPABASE_URL:'https://route-tests.invalid',VITE_SUPABASE_ANON_KEY:'synthetic-test-key'}});
 let browser;
 try {
@@ -17,6 +17,11 @@ try {
   await page.route('**/*',async route=>{
     const req=route.request(),url=new URL(req.url());
     if(url.origin===base){
+      if(url.pathname==='/__register-cash'){
+        cashRegistrations.push(JSON.parse(req.postData()));
+        reports[0].status='confirmed';reports[0].confirmed_cash_amount=reports[0].cash_amount;
+        return route.fulfill({json:{kind:'cash',receiptNumber:'REC-CASH-55'}});
+      }
       if(url.pathname==='/__route-test')return route.fulfill({contentType:'text/html',body:`<meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script type="module">import RefreshRuntime from '/@react-refresh';RefreshRuntime.injectIntoGlobalHook(window);window.$RefreshReg$=()=>{};window.$RefreshSig$=()=>type=>type;window.__vite_plugin_react_preamble_installed__=true;</script><script type="module" src="/tests/fixtures/route-reports.tsx"></script>`});
       return route.continue();
     }
@@ -174,6 +179,44 @@ try {
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
   await page.getByRole('button',{name:'Pagos confirmados (1)',exact:true}).waitFor();
   delete item.removedAt;
+  // Only cash reports can generate a receipt from review, using the reported amount rather than the release minimum.
+  Object.assign(reports[0],{status:'review',amount:55,cash_amount:55,bank_amount:0,method:'cash',confirmed_cash_amount:0,reported_at:'2026-09-04T18:00:00Z'});
+  await page.goto(base+'/__route-test?cashregister');
+  await page.getByRole('button',{name:'En revisión (1)',exact:true}).click();
+  await page.getByRole('button',{name:'Registrar pago',exact:true}).click();
+  assert.equal(await modal.getByLabel('Monto pagado').inputValue(),'55');
+  assert.equal(await modal.getByLabel('Monto pagado').getAttribute('readonly'),'');
+  assert.equal(await modal.getByLabel('Cómo pagó').isDisabled(),true);
+  await modal.getByRole('button',{name:'Generar recibo',exact:true}).click();
+  await modal.getByText('Selecciona el equipo PTY o WC.',{exact:true}).waitFor();
+  assert.equal(cashRegistrations.length,0);
+  await modal.getByRole('combobox',{name:/^Equipo/}).selectOption('WC');
+  reports[0].status='confirmed';
+  await modal.getByRole('button',{name:'Generar recibo',exact:true}).click();
+  await modal.getByRole('alert').filter({hasText:'El reporte cambió o ya fue confirmado'}).waitFor();
+  assert.equal(cashRegistrations.length,0);
+  await modal.getByRole('button',{name:'Cerrar',exact:true}).click();
+  reports[0].status='review';
+  await page.getByRole('button',{name:'Actualizar',exact:true}).click();
+  await page.getByRole('button',{name:'Registrar pago',exact:true}).click();
+  await modal.getByRole('combobox',{name:/^Equipo/}).selectOption('WC');
+  await modal.getByRole('button',{name:'Generar recibo',exact:true}).evaluate(button=>{button.click();button.click();});
+  await modal.waitFor({state:'hidden'});
+  assert.deepEqual(cashRegistrations,[{clientId:'c1',amount:55,method:'cash',team:'WC',fundsReceivedDate:'2026-09-04'}]);
+  await page.getByText('Pago en efectivo registrado en REC-CASH-55 · pendiente de entrega.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Pagos confirmados (1)',exact:true}).click();
+  await page.getByText('Pago confirmado',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Registrar pago',exact:true}).count(),0);
+  for(const method of ['bank','mixed']){
+    reports[0].method=method;reports[0].status='review';
+    await page.getByRole('button',{name:'Actualizar',exact:true}).click();
+    await page.getByRole('button',{name:'En revisión (1)',exact:true}).click();
+    assert.equal(await page.getByRole('button',{name:'Registrar pago',exact:true}).count(),0);
+  }
+  reports[0].method='cash';reports[0].confirmed_cash_amount=0;
+  await page.goto(base+'/__route-test?readonly');
+  await page.getByRole('button',{name:'En revisión (1)',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'Registrar pago',exact:true}).count(),0);
   reports=[];delete item.partialDecisionRentAmount;
   await page.goto(base+'/__route-test?readonly');
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
