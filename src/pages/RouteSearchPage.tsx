@@ -316,8 +316,11 @@ export default function RouteSearchPage({
     items
       .filter((item) => !item.removedAt)
       .filter((item) => item.releaseAmount <= 0 || routeRentAmountForDay(payments, item, businessDateKey) < item.releaseAmount)
-      .filter((item) => !reports.some((report) => report.client_id === item.clientId && report.published_at === item.publishedAt)
-        || hasAcknowledgedPartialRouteDecision(payments, item, businessDateKey))
+      .filter((item) => {
+        const currentReports = reports.filter((report) => report.client_id === item.clientId && report.published_at === item.publishedAt);
+        if (currentReports.some((report) => report.status === "review")) return false;
+        return currentReports.length === 0 || hasAcknowledgedPartialRouteDecision(payments, item, businessDateKey);
+      })
   ), [businessDateKey, items, payments, reports]);
 
   const partialReviewItems = useMemo(() => (

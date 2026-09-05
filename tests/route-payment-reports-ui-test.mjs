@@ -141,6 +141,25 @@ try {
   await page.screenshot({path:'.tmp/route-reports/desktop-returned-to-work.png',fullPage:true});
   await page.getByRole('button',{name:'Pagos confirmados (1)',exact:true}).click();
   await page.getByText('Pago confirmado',{exact:true}).waitFor();
+  // B79 regression: a later pending report takes precedence over an acknowledged partial decision.
+  reports[0].status='review';reports[0].reported_at=new Date(Date.now()+1000).toISOString();
+  await page.getByRole('button',{name:'Actualizar',exact:true}).click();
+  await page.getByRole('button',{name:'En revisión (1)',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Trabajo (0)',exact:true}).click();
+  assert.equal(await page.locator('.route-search-card').count(),0);
+  await page.getByRole('button',{name:'En revisión (1)',exact:true}).click();
+  await page.getByText('Pago reportado · Pendiente de confirmar',{exact:true}).waitFor();
+  // Reopening an existing report (for example after correcting a payment) must also exclude Work.
+  reports[0].reported_at='2026-09-04T12:00:00Z';
+  await page.getByRole('button',{name:'Actualizar',exact:true}).click();
+  await page.getByRole('button',{name:'Actualizar',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
+  reports[0].status='confirmed';
+  await page.getByRole('button',{name:'Actualizar',exact:true}).click();
+  await page.getByRole('button',{name:'Trabajo (1)',exact:true}).click();
+  await page.getByText('Decisión: Debe pagar más',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Pagos confirmados (1)',exact:true}).click();
+  await page.getByText('Pago confirmado',{exact:true}).waitFor();
   // A changed partial payment needs a fresh decision; a fully paid or removed unit must not return.
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('test:change-partial',{detail:36})));
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
