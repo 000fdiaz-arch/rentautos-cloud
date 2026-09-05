@@ -44,7 +44,8 @@ try {
   const panelSource = fs.readFileSync(path.join(root, "src", "pages", "payments", "DailyIncomePanel.tsx"), "utf8");
   assert(panelSource.includes("filterPendingCashByTeam(item.team)"), "La tarjeta del equipo debe activar su filtro.");
   assert(panelSource.includes("markTeamCashDelivered(item.team)"), "Cada equipo debe permitir marcar todos sus cobros como entregados.");
-  assert(panelSource.includes("new Set(pendingCashByTeam[team].map"), "La entrega masiva debe limitarse al efectivo pendiente del equipo.");
+  assert(panelSource.includes("openDelivery(pendingCashByTeam[team])"), "La entrega masiva debe limitarse al efectivo pendiente del equipo.");
+  assert(panelSource.includes("buildPendingCashRows(filteredPayments, dateKey)"), "Falta entregar debe usar la misma regla de pendientes que Ruta en calle.");
   console.log("OK ingresos por equipo: PTY, WC y efectivo sin asignar quedan consolidados.");
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });

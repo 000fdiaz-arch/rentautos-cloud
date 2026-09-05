@@ -9,6 +9,7 @@ import {
   buildDailyIncomeGroups,
   buildDeliveredFromPreviousRows,
   buildPendingCashRowsByTeam,
+  buildPendingCashRows,
   buildPendingDeliveryRows,
   getDailyIncomeStatus,
   getDailyIncomeReportDate,
@@ -197,9 +198,7 @@ export default function DailyIncomePanel({
   const bankPaymentCount = bankGroups.reduce((sum, group) => sum + group.payments.length, 0);
   const pendingDeliveries = useMemo(() => buildPendingDeliveryRows(filteredPayments, dateKey), [filteredPayments, dateKey]);
   const pendingDeliveriesTotal = pendingDeliveries.reduce((sum, payment) => sum + payment.amountReceived, 0);
-  const cashPendingRows = useMemo(() => sortCashRows(filteredPayments.filter(payment =>
-    payment.paymentMethod === "Efectivo" && !isMoneyDelivered(payment) && getIncomeDate(payment) <= dateKey
-  ), pendingFilters.sort), [filteredPayments, dateKey, pendingFilters.sort]);
+  const cashPendingRows = useMemo(() => sortCashRows(buildPendingCashRows(filteredPayments, dateKey), pendingFilters.sort), [filteredPayments, dateKey, pendingFilters.sort]);
   const cashDeliveredRows = sortCashRows(groups.filter(group => group.key === "cash").flatMap(group => group.payments), deliveredFilters.sort);
   const selectedCashSet = useMemo(() => new Set(selectedCashIds), [selectedCashIds]);
   const selectedCashRows = cashPendingRows.filter(payment => selectedCashSet.has(payment.id));

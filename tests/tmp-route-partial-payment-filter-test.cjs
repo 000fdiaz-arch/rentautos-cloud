@@ -16,7 +16,7 @@ assert(rules.includes("confirmedRentAmount <= 0 || confirmedRentAmount >= item.r
 assert(source.includes("routeRentAmountForDay(payments, item, businessDateKey) < item.releaseAmount"), "La salida debe comparar el minimo con la suma diaria aplicada a renta.");
 assert(!rules.includes("sum + payment.amountReceived"), "El total recibido no debe contar como renta.");
 assert(source.includes('paymentFilter === "all" || hasPendingPartialRouteDecision(payments, item, businessDateKey)'), "El filtro debe limitar la lista a decisiones pendientes.");
-assert(source.includes("Unidades a revisar ({reviewUnitCount})"), "El boton debe indicar claramente las unidades que requieren accion.");
+assert(source.includes("Pagos parciales a revisar ({reviewUnitCount})"), "El boton debe distinguir las decisiones de pagos parciales de los reportes del buscador.");
 assert(rules.includes("item.partialDecisionRentAmount"), "Una decision ya tomada debe sacar la unidad del conteo de revision.");
 assert(source.includes('aria-label="Filtrar por estado de pago"'), "El filtro debe ser accesible.");
 

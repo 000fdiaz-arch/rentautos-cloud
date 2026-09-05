@@ -124,6 +124,7 @@ const SETTINGS_MIRROR_KEYS = [
 
 type AppShellProps = {
   userId?: string;
+  canReportRoutePayments?: boolean;
   userEmail?: string;
   dataOwnerUserId?: string | null;
   effectiveOwnerUserId?: string;
@@ -158,6 +159,7 @@ function getFirstVisiblePage(visibility: {
 
 export default function AppShell({
   userId,
+  canReportRoutePayments = false,
   userEmail,
   dataOwnerUserId,
   effectiveOwnerUserId,
@@ -1065,6 +1067,9 @@ export default function AppShell({
         )}
         {page === "route_search" && canViewRouteSearch && (
           <RouteSearchPage
+            paymentsLoading={!cloudReady}
+            currentUserId={userId}
+            canReportPayment={canReportRoutePayments}
             dataOwnerUserId={cloudDataUserId}
             clients={clients}
             payments={payments}

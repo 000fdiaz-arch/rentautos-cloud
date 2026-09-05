@@ -18208,6 +18208,38 @@ button.ar-route-publish-copy.is-active {
   font-weight: 700;
 }
 
+.route-search-workflow-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+.route-pending-cash { margin: 12px 0; }
+.route-pending-cash-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.route-pending-cash-teams { display: grid; gap: 0; }
+.route-pending-cash-team { border-bottom: 1px solid var(--color-border); min-width: 0; }
+.route-pending-cash-team summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 12px; overflow-wrap: anywhere; }
+.route-pending-cash-team summary > span:first-child { width: 30px; }
+.route-pending-cash-team summary::after { content: "▸"; margin-left: auto; }
+.route-pending-cash-team[open] summary::after { content: "▾"; }
+.route-pending-cash-team ul { list-style: none; margin: 8px 0 0; padding: 0; }
+.route-pending-cash-team li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; border-top: 1px solid var(--color-border); padding: 10px 0; overflow-wrap: anywhere; }
+.route-pending-cash-team li div { display: grid; gap: 4px; min-width: 0; }
+.route-pending-cash-team li span { font-size: 0.8rem; }
+.route-search-workflow-tabs button { min-height: 44px; flex: 1 1 140px; }
+.route-search-report-button { width: 100%; min-height: 44px; margin-top: 12px; }
+.route-search-report-status {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  border-left: 4px solid #b77913;
+  overflow-wrap: anywhere;
+}
+.route-search-report-status--confirmed { border-left-color: #228457; }
+
 .route-search-payment-form input,
 .route-search-payment-form select {
   width: 100%;

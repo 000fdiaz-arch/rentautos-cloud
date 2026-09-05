@@ -73,14 +73,14 @@ export function buildDeliveredFromPreviousRows(payments: Payment[], dateKey: str
     .sort((left, right) => getIncomeDate(left).localeCompare(getIncomeDate(right)) || left.createdAt.localeCompare(right.createdAt));
 }
 
+export function buildPendingCashRows(payments: Payment[], dateKey: string): Payment[] {
+  return payments.filter(payment => payment.paymentMethod === "Efectivo"
+    && !isMoneyDelivered(payment) && getIncomeDate(payment) <= dateKey);
+}
+
 export function buildPendingCashRowsByTeam(payments: Payment[], dateKey: string): Record<"PTY" | "WC" | "unassigned", Payment[]> {
   const rows: Record<"PTY" | "WC" | "unassigned", Payment[]> = { PTY: [], WC: [], unassigned: [] };
-  for (const payment of payments) {
-    if (
-      payment.paymentMethod !== "Efectivo" ||
-      payment.moneyDelivered !== false ||
-      getIncomeDate(payment) > dateKey
-    ) continue;
+  for (const payment of buildPendingCashRows(payments, dateKey)) {
     const team = payment.collectionTeam === "PTY" || payment.collectionTeam === "WC"
       ? payment.collectionTeam
       : "unassigned";
