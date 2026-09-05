@@ -62,6 +62,7 @@ import { usePendingLeadReviewCount } from "./app/usePendingLeadReviewCount";
 import { getBusinessDateKey, withResolvedInstallmentIssuance } from "./billing";
 import { supabase } from "./lib/supabase";
 import { countActiveRouteReviewItems } from "./routeReviewRules";
+import { loadRoutePaymentReports, type RoutePaymentReport } from "./cloud/routeReportCloudData";
 import { stableEqual } from "./stableSerialize";
 import { buildManualPaymentTransaction } from "./pages/payments/manualPaymentWorkflow";
 import { getPendingCashChangeError } from "./cashTeamRules";
@@ -248,9 +249,10 @@ export default function AppShell({
   const [signOutSyncError, setSignOutSyncError] = useState("");
   const [incidentAlertCount, setIncidentAlertCount] = useState(0);
   const [routeReviewItems, setRouteReviewItems] = useState<ActiveRouteItem[]>([]);
+  const [routeCashReports, setRouteCashReports] = useState<RoutePaymentReport[]>([]);
   const routeReviewCount = useMemo(
-    () => countActiveRouteReviewItems(routeReviewItems, payments, getBusinessDateKey()),
-    [payments, routeReviewItems]
+    () => countActiveRouteReviewItems(routeReviewItems, payments, getBusinessDateKey(), routeCashReports),
+    [payments, routeReviewItems, routeCashReports]
   );
 
   useEffect(() => {
@@ -371,6 +373,7 @@ export default function AppShell({
     let cancelled = false;
     if (!canViewRouteSearch || !cloudDataUserId) {
       setRouteReviewItems([]);
+      setRouteCashReports([]);
       return () => {
         cancelled = true;
       };
@@ -378,8 +381,8 @@ export default function AppShell({
 
     const reloadRouteReviewItems = async (): Promise<void> => {
       try {
-        const items = await loadCloudActiveRouteItems(cloudDataUserId);
-        if (!cancelled) setRouteReviewItems(items);
+        const [items, cashReports] = await Promise.all([loadCloudActiveRouteItems(cloudDataUserId), loadRoutePaymentReports(cloudDataUserId, true)]);
+        if (!cancelled) { setRouteReviewItems(items); setRouteCashReports(cashReports); }
       } catch (error) {
         console.warn("No se pudo actualizar la notificacion de Ruta en calle.", error);
       }
@@ -393,6 +396,9 @@ export default function AppShell({
     const client = supabase;
     const channel = client
       .channel(`route-review-nav-${cloudDataUserId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "route_payment_reports", filter: `user_id=eq.${cloudDataUserId}` }, () => {
+        void reloadRouteReviewItems();
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "active_route_items_cloud", filter: `user_id=eq.${cloudDataUserId}` }, () => {
         void reloadRouteReviewItems();
       })

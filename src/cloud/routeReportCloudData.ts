@@ -21,12 +21,14 @@ export type RoutePaymentReport = {
   confirmed_at: string | null;
 };
 
-export async function loadRoutePaymentReports(ownerId: string): Promise<RoutePaymentReport[]> {
+export async function loadRoutePaymentReports(ownerId: string, pendingCashOnly = false): Promise<RoutePaymentReport[]> {
   const rows: RoutePaymentReport[] = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
-    const { data, error } = await getCloudClient().from("route_payment_reports").select("*")
+    let query = getCloudClient().from("route_payment_reports").select("*")
       .eq("user_id", ownerId).neq("status", "cancelled").order("reported_at", { ascending: false })
       .order("id").range(offset, offset + PAGE_SIZE - 1);
+    if (pendingCashOnly) query = query.eq("status", "review").eq("method", "cash").eq("confirmed_cash_amount", 0);
+    const { data, error } = await query;
     if (error) throw error;
     rows.push(...(data ?? []).map((row) => ({ ...row, amount: Number(row.amount),
       cash_amount: Number(row.cash_amount ?? (row.method === "cash" ? row.amount : 0)),

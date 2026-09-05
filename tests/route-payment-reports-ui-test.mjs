@@ -181,8 +181,20 @@ try {
   delete item.removedAt;
   // Only cash reports can generate a receipt from review, using the reported amount rather than the release minimum.
   Object.assign(reports[0],{status:'review',amount:55,cash_amount:55,bank_amount:0,method:'cash',confirmed_cash_amount:0,reported_at:'2026-09-04T18:00:00Z'});
+  const cashReport = reports[0];
+  reports.unshift({...cashReport,id:'bank-extra',client_id:'bank-extra',method:'bank',cash_amount:0,bank_amount:55,snapshot:{...item,clientId:'bank-extra',unitId:'A00',clientName:'Bank first alphabetically'}});
   await page.goto(base+'/__route-test?cashregister');
-  await page.getByRole('button',{name:'En revisión (1)',exact:true}).click();
+  await page.getByRole('button',{name:'En revisión (2)',exact:true}).click();
+  assert.match(await page.locator('.route-search-card').first().innerText(),/RA-042/);
+  await page.getByRole('button',{name:/Efectivo por registrar \(1\)/}).click();
+  assert.equal(await page.locator('.route-search-card').count(),1);
+  await page.getByText('Efectivo pendiente de registrar · $55.00',{exact:true}).waitFor();
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:'.tmp/route-reports/mobile-cash-priority.png',fullPage:true});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  reports=[cashReport];
+  await page.getByRole('button',{name:'Actualizar',exact:true}).click();
+  await page.getByRole('button',{name:'En revisión (1)',exact:true}).waitFor();
   await page.getByRole('button',{name:'Registrar pago',exact:true}).click();
   assert.equal(await modal.getByLabel('Monto pagado').inputValue(),'55');
   assert.equal(await modal.getByLabel('Monto pagado').getAttribute('readonly'),'');
@@ -207,6 +219,7 @@ try {
   await page.getByRole('button',{name:'Pagos confirmados (1)',exact:true}).click();
   await page.getByText('Pago confirmado',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Registrar pago',exact:true}).count(),0);
+  assert.equal(await page.getByRole('button',{name:/Efectivo por registrar/}).count(),0);
   for(const method of ['bank','mixed']){
     reports[0].method=method;reports[0].status='review';
     await page.getByRole('button',{name:'Actualizar',exact:true}).click();

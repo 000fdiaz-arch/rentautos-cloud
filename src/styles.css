@@ -18227,6 +18227,25 @@ button.ar-route-publish-copy.is-active {
 .route-pending-cash-team li div { display: grid; gap: 4px; min-width: 0; }
 .route-pending-cash-team li span { font-size: 0.8rem; }
 .route-search-workflow-tabs button { min-height: 44px; flex: 1 1 140px; }
+.route-search-cash-pending-banner,
+.route-search-cash-pending-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e3a126;
+  border-left: 4px solid #c47b08;
+  border-radius: 12px;
+  background: #fff7e6;
+  color: #713f12;
+  margin-bottom: 14px;
+}
+.route-search-cash-pending-banner { width: 100%; text-align: left; cursor: pointer; font: inherit; }
+.route-search-cash-pending-banner span { font-size: 0.85rem; }
+.route-search-cash-pending-banner:focus-visible { outline: 3px solid #0f766e; outline-offset: 3px; }
+.route-search-cash-pending-card .button { min-height: 44px; }
 .route-search-report-button { width: 100%; min-height: 44px; margin-top: 12px; }
 .route-search-report-status {
   display: grid;

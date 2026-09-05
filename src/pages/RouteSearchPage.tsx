@@ -20,7 +20,7 @@ import {
 } from "../cloudData";
 import { formatCurrency, formatDate } from "../format";
 import { supabase } from "../lib/supabase";
-import { getActiveRouteReviewItems, hasAcknowledgedPartialRouteDecision, routeRentAmountForDay } from "../routeReviewRules";
+import { getActiveRouteReviewItems, hasAcknowledgedPartialRouteDecision, isPendingCashRouteReport, routeRentAmountForDay } from "../routeReviewRules";
 import type { Client, CollectionTeam, Payment } from "../types";
 import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentStorage";
 import type { NotifiedPayment } from "./payments/paymentTypes";
@@ -136,6 +136,7 @@ export default function RouteSearchPage({
   const [items, setItems] = useState<ActiveRouteItem[]>([]);
   const [reports, setReports] = useState<RoutePaymentReport[]>([]);
   const [workflowView, setWorkflowView] = useState<"work" | "review" | "partial" | "confirmed">("work");
+  const [cashReviewOnly, setCashReviewOnly] = useState(false);
   const [reportTarget, setReportTarget] = useState<ActiveRouteItem | null>(null);
   const [reportAmount, setReportAmount] = useState("");
   const [reportMethod, setReportMethod] = useState<"" | "cash" | "bank" | "mixed">("");
@@ -338,6 +339,12 @@ export default function RouteSearchPage({
     workflowView === "work" ? workItems : workflowView === "partial" ? partialReviewItems : reports.filter((report) => report.status === workflowView)
       .map((report) => ({ ...report.snapshot, report }))
   ), [workflowView, workItems, partialReviewItems, reports]);
+  const pendingCashCount = reports.filter(isPendingCashRouteReport).length;
+
+  function showPendingCash(): void {
+    setWorkflowView("review"); setCashReviewOnly(true); setQuery("");
+    setRouteFilter(ALL_ACTIVE_ROUTE_FILTER); setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel("");
+  }
 
   const bankNoticesByClient = useMemo(() => {
     const grouped = new Map<string, NotifiedPayment[]>();
@@ -410,6 +417,7 @@ export default function RouteSearchPage({
   const visibleItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return activeItems
+      .filter((item) => workflowView !== "review" || !cashReviewOnly || isPendingCashRouteReport(item.report))
       .filter((item) => routeFilter === ALL_ACTIVE_ROUTE_FILTER || activeRouteFilterValue(item.routeAssignment) === routeFilter)
       .filter((item) => zoneFilter === ALL_ACTIVE_ZONE_FILTER || activeZoneFilterValue(item.zone) === zoneFilter)
       .filter((item) => {
@@ -424,8 +432,8 @@ export default function RouteSearchPage({
           item.comment ?? ""
         ].some((value) => value.toLowerCase().includes(normalizedQuery));
       })
-      .sort(compareActiveRouteItems);
-  }, [activeItems, query, routeFilter, zoneFilter]);
+      .sort((left, right) => (workflowView === "review" ? Number(isPendingCashRouteReport(right.report)) - Number(isPendingCashRouteReport(left.report)) : 0) || compareActiveRouteItems(left, right));
+  }, [activeItems, query, routeFilter, zoneFilter, workflowView, cashReviewOnly]);
 
   const selectedZoneLabel = useMemo(() => {
     if (zoneFilter === ALL_ACTIVE_ZONE_FILTER) return "";
@@ -740,11 +748,19 @@ export default function RouteSearchPage({
       <div className="route-search-workflow-tabs" aria-label="Estado de las unidades">
         {([['work', 'Trabajo', workItems.length], ['review', 'En revisión', reports.filter((r) => r.status === 'review').length], ['partial', 'Pagos parciales a revisar', partialReviewItems.length], ['confirmed', 'Pagos confirmados', reports.filter((r) => r.status === 'confirmed').length]] as const).map(([view, label, count]) => (
           <button type="button" key={view} className={`button ${workflowView === view ? 'primary' : 'ghost'}`} aria-pressed={workflowView === view}
-            onClick={() => { setWorkflowView(view); setQuery(""); setRouteFilter(ALL_ACTIVE_ROUTE_FILTER); setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel(""); setRouteActionMessage(""); }}>
+            onClick={() => { setWorkflowView(view); setCashReviewOnly(false); setQuery(""); setRouteFilter(ALL_ACTIVE_ROUTE_FILTER); setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel(""); setRouteActionMessage(""); }}>
             {label} ({count})
           </button>
         ))}
       </div>
+      {pendingCashCount > 0 ? <button type="button" className="route-search-cash-pending-banner" onClick={showPendingCash}>
+        <strong>Efectivo por registrar ({pendingCashCount})</strong>
+        <span>Ver pagos pendientes de recibo →</span>
+      </button> : null}
+      {workflowView === "review" ? <div className="route-search-filters" aria-label="Filtrar pagos en revisión">
+        <button type="button" className={!cashReviewOnly ? "is-active" : ""} aria-pressed={!cashReviewOnly} onClick={() => setCashReviewOnly(false)}>Todos</button>
+        <button type="button" className={cashReviewOnly ? "is-active" : ""} aria-pressed={cashReviewOnly} onClick={showPendingCash}>Efectivo pendiente ({pendingCashCount})</button>
+      </div> : null}
       {reportsError ? <p className="error-text" role="alert">{reportsError}</p> : null}
 
       <label className="route-search-box">
@@ -836,6 +852,7 @@ export default function RouteSearchPage({
       ) : (
         <div className="route-search-list">
           {visibleItems.map((item, itemIndex) => {
+            const pendingCash = workflowView === "review" && isPendingCashRouteReport(item.report);
             const itemManagementTone = managementTone(item.managementType);
             const confirmedRentAmount = routeRentAmountForDay(payments, item, businessDateKey);
             const remainingToRelease = Math.max(0, item.releaseAmount - confirmedRentAmount);
@@ -881,6 +898,10 @@ export default function RouteSearchPage({
                     ) : null}
                   </div>
                 </div>
+                {pendingCash ? <div className="route-search-cash-pending-card">
+                  <strong>Efectivo pendiente de registrar · {formatCurrency(item.report!.amount)}</strong>
+                  {!readOnly && onRegisterPayment && !registeredReportIds.includes(item.report!.id) ? <button type="button" className="button primary" disabled={paymentSaving} onClick={() => openPaymentDialog(item, item.report)}>Registrar pago</button> : null}
+                </div> : null}
                 <label className="route-search-zone-field">
                   <span>Zona</span>
                   <div>
@@ -1005,7 +1026,7 @@ export default function RouteSearchPage({
                     setReportTarget(item); setReportAmount(""); setReportMethod(""); setReportCashAmount(""); setReportBankAmount(""); setReportError("");
                   }}>Reportar que pagó</button>
                 ) : null}
-                {!readOnly && onRegisterPayment && (!item.report || (workflowView === "review" && item.report.status === "review" && item.report.method === "cash" && item.report.confirmed_cash_amount === 0 && !registeredReportIds.includes(item.report.id))) ? (
+                {!readOnly && onRegisterPayment && !item.report ? (
                   <div className="route-search-card-actions">
                     <button type="button" className="button primary route-search-payment-button" disabled={paymentSaving} onClick={() => openPaymentDialog(item, item.report)}>
                       Registrar pago

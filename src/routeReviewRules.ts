@@ -1,5 +1,10 @@
 import type { ActiveRouteItem } from "./cloudData";
 import type { Payment } from "./types";
+import type { RoutePaymentReport } from "./cloud/routeReportCloudData";
+
+export function isPendingCashRouteReport(report?: RoutePaymentReport): boolean {
+  return report?.status === "review" && report.method === "cash" && report.confirmed_cash_amount === 0;
+}
 
 export function routeRentAmountForDay(payments: Payment[], item: ActiveRouteItem, dateKey: string): number {
   const total = payments
@@ -22,8 +27,10 @@ export function hasAcknowledgedPartialRouteDecision(payments: Payment[], item: A
     && Math.abs(item.partialDecisionRentAmount - confirmedRentAmount) < 0.005;
 }
 
-export function countActiveRouteReviewItems(items: ActiveRouteItem[], payments: Payment[], dateKey: string): number {
-  return getActiveRouteReviewItems(items, payments, dateKey).length;
+export function countActiveRouteReviewItems(items: ActiveRouteItem[], payments: Payment[], dateKey: string, reports: RoutePaymentReport[] = []): number {
+  const pending = new Set(getActiveRouteReviewItems(items, payments, dateKey).map((item) => JSON.stringify([item.clientId, item.publishedAt])));
+  reports.filter(isPendingCashRouteReport).forEach((report) => pending.add(JSON.stringify([report.client_id, report.published_at])));
+  return pending.size;
 }
 
 export function getActiveRouteReviewItems(items: ActiveRouteItem[], payments: Payment[], dateKey: string): ActiveRouteItem[] {
