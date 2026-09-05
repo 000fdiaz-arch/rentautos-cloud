@@ -1,3 +1,7 @@
+import RouteSearchPage, { type RouteSearchPageProps } from "./RouteSearchPage";
+import { getBusinessDateKey } from "../billing";
+import { getRouteWorkItems, routeRentAmountForDay } from "../routeReviewRules";
+import { loadRoutePaymentReports } from "../cloud/routeReportCloudData";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ALL_ACTIVE_ROUTE_FILTER,
@@ -95,6 +99,7 @@ import {
 } from "./receivables/receivablesPageRules";
 
 type Props = {
+  routePermissions?: Pick<RouteSearchPageProps, "currentUserId" | "canReportPayment" | "readOnly" | "canRemoveFromRoute" | "onRegisterPayment" | "paymentsLoading">;
   clients: Client[];
   payments: Payment[];
   onClientsChange?: (next: Client[]) => void | Promise<void>;
@@ -248,13 +253,6 @@ function dateFromDateKey(dateKey: string, fallback: Date): Date {
   return Number.isNaN(date.getTime()) ? fallback : date;
 }
 
-function paymentReleasesRoute(payment: Payment, clientId: string, releaseAmount: number, routeStartedAt: number, routeDateKey: string): boolean {
-  if (releaseAmount <= 0 || payment.clientId !== clientId || payment.amountReceived < releaseAmount) return false;
-  const createdTimestamp = toTimestamp(payment.createdAt);
-  if (createdTimestamp > 0) return createdTimestamp >= routeStartedAt;
-  return !!routeDateKey && payment.dateApplied >= routeDateKey;
-}
-
 function hasRouteReleaseAmount(record: CollectionStatusRecord | undefined): boolean {
   const amount = record?.routeReleaseAmount ?? record?.managementAmount;
   return typeof amount === "number" && amount > 0;
@@ -286,9 +284,7 @@ function buildActiveRouteItem(row: ReceivableRow, record: CollectionStatusRecord
 }
 
 function activeRouteItemReleasedByPayment(item: ActiveRouteItem, payments: Payment[]): boolean {
-  const routeStartedAt = toTimestamp(item.routeStartedAt);
-  const routeDateKey = dateKeyFromTimestampValue(item.routeStartedAt);
-  return payments.some((payment) => paymentReleasesRoute(payment, item.clientId, item.releaseAmount, routeStartedAt, routeDateKey));
+  return item.releaseAmount > 0 && routeRentAmountForDay(payments, item, getBusinessDateKey()) >= item.releaseAmount;
 }
 
 function routeMissingAmountMessage(rows: ReceivableRow[]): string {
@@ -365,6 +361,7 @@ function routeRemovalBlocksRecord(
 }
 
 export default function ReceivablesPage({
+  routePermissions,
   clients,
   payments,
   onClientsChange,
@@ -388,8 +385,6 @@ export default function ReceivablesPage({
   const [pendingContactPrompt, setPendingContactPrompt] = useState<PendingContactPrompt | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
   const [workflowTab, setWorkflowTab] = useState<ReceivablesWorkflowTab>("management");
-  const [activeRouteFilter, setActiveRouteFilter] = useState<string>(ALL_ACTIVE_ROUTE_FILTER);
-  const [activeRouteSearchQuery, setActiveRouteSearchQuery] = useState<string>("");
   const viewMode: ReceivablesViewMode = "cartera";
   const [collectionClosuresByDate, setCollectionClosuresByDate] = useState<CollectionClosuresByDate>({});
   const [collectionClosuresLoaded, setCollectionClosuresLoaded] = useState<boolean>(false);
@@ -427,7 +422,6 @@ export default function ReceivablesPage({
   const [activeRouteLoading, setActiveRouteLoading] = useState<boolean>(false);
   const [activeRouteError, setActiveRouteError] = useState<string>("");
   const [activeRouteMessage, setActiveRouteMessage] = useState<string>("");
-  const [publishedCustomRouteEditorByClient, setPublishedCustomRouteEditorByClient] = useState<Record<string, boolean>>({});
   const [publishedRouteAmountDraftByClient, setPublishedRouteAmountDraftByClient] = useState<Record<string, string>>({});
   const [publishedRouteCommentDraftByClient, setPublishedRouteCommentDraftByClient] = useState<Record<string, string>>({});
   const [isPublishedRouteDraftCustomRouteOpen, setIsPublishedRouteDraftCustomRouteOpen] = useState<boolean>(false);
@@ -912,12 +906,7 @@ export default function ReceivablesPage({
     const releasedClientIds = new Set<string>();
     for (const [clientId, record] of routeEntries) {
       const releaseAmount = record.routeReleaseAmount ?? 0;
-      const routeStartedValue = record.routeReleaseUpdatedAt ?? record.managementUpdatedAt ?? record.updatedAt;
-      const routeStartedAt = toTimestamp(routeStartedValue);
-      const routeDateKey = dateKeyFromTimestampValue(routeStartedValue);
-      const hasReleasePayment = payments.some((payment) => (
-        paymentReleasesRoute(payment, clientId, releaseAmount, routeStartedAt, routeDateKey)
-      ));
+      const hasReleasePayment = releaseAmount > 0 && routeRentAmountForDay(payments, { clientId }, getBusinessDateKey()) >= releaseAmount;
       if (hasReleasePayment) releasedClientIds.add(clientId);
     }
     if (releasedClientIds.size === 0) return;
@@ -1018,34 +1007,6 @@ export default function ReceivablesPage({
       return !!row && !hasActiveOperationalClient(row);
     })
   ), [activeRouteItems, baseRows]);
-  const activeRouteFilterOptions = useMemo(() => (
-    Array.from(new Set(activeVisibleRouteItems.map((item) => activeRouteFilterValue(item.routeAssignment))))
-      .sort(compareActiveRouteFilterValues)
-  ), [activeVisibleRouteItems]);
-  useEffect(() => {
-    if (activeRouteFilter !== ALL_ACTIVE_ROUTE_FILTER && !activeRouteFilterOptions.includes(activeRouteFilter)) {
-      setActiveRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
-    }
-  }, [activeRouteFilter, activeRouteFilterOptions]);
-  const activeFilteredRouteItems = useMemo(() => {
-    const normalizedQuery = activeRouteSearchQuery.trim().toLowerCase();
-    return activeVisibleRouteItems
-      .filter((item) => (
-        activeRouteFilter === ALL_ACTIVE_ROUTE_FILTER ||
-        activeRouteFilterValue(item.routeAssignment) === activeRouteFilter
-      ))
-      .filter((item) => {
-        if (!normalizedQuery) return true;
-        return [
-          item.unitId,
-          item.clientName,
-          item.clientCedula ?? "",
-          item.whatsAppPhone ?? "",
-          item.routeAssignment ?? "",
-          item.comment ?? ""
-        ].some((value) => value.toLowerCase().includes(normalizedQuery));
-      });
-  }, [activeRouteFilter, activeRouteSearchQuery, activeVisibleRouteItems]);
   const activeVisibleRouteClientIds = useMemo(
     () => new Set(activeVisibleRouteItems.map((item) => item.clientId)),
     [activeVisibleRouteItems]
@@ -2645,7 +2606,9 @@ export default function ReceivablesPage({
     try {
       const rows: ReceivableRow[] = [];
       const statusByClient: Record<string, CollectionStatusRecord> = {};
-      for (const item of activeVisibleRouteItems) {
+      const [latestItems, latestReports] = dataOwnerUserId ? await Promise.all([loadCloudActiveRouteItems(dataOwnerUserId), loadRoutePaymentReports(dataOwnerUserId)]) : [activeRouteItems, []];
+      const workItems = getRouteWorkItems(latestItems, payments, getBusinessDateKey(), latestReports);
+      for (const item of workItems) {
         const row = baseRows.find(candidate => candidate.id === item.clientId);
         if (!row) continue;
         rows.push({ ...row, unitId: item.unitId, name: item.clientName });
@@ -2853,7 +2816,7 @@ export default function ReceivablesPage({
                 setRouteReadyFilter(false);
               }}
             >
-              Ruta en calle <strong>{activeVisibleRouteItems.length}</strong>
+              Ruta en calle
             </button>
           </div>
           <div className={`ar-route-publish-cta ${routeWorkflowRowsCount > 0 ? "has-ready-items" : ""} ${canDownloadPublishedRoute ? "is-ready-to-download" : ""}`}>
@@ -2884,7 +2847,7 @@ export default function ReceivablesPage({
               disabled={isExporting || !canDownloadPublishedRoute}
             >
               {isExporting ? "Descargando..." : "Descargar ruta"}
-              {!isExporting ? <strong>{activeVisibleRouteItems.length}</strong> : null}
+
             </button>
             <select
               className="ar-route-export-format ar-route-export-format--prominent"
@@ -3006,7 +2969,7 @@ export default function ReceivablesPage({
               <div>
                 <strong>Ruta en calle</strong>
                 <span>
-                  {activeFilteredRouteItems.length} de {activeVisibleRouteItems.length} activo{activeVisibleRouteItems.length === 1 ? "" : "s"} en calle
+                  Seguimiento y gestión
                 </span>
               </div>
               <div className="ar-active-route-actions">
@@ -3040,349 +3003,19 @@ export default function ReceivablesPage({
             </div>
             {activeRouteError ? <p className="error-text">{activeRouteError}</p> : null}
             {activeRouteMessage ? <p className="hint">{activeRouteMessage}</p> : null}
-            {activeVisibleRouteItems.length > 0 ? (
-              <label className="ar-active-route-search">
-                <span>Buscar en Ruta en calle</span>
-                <input
-                  type="search"
-                  value={activeRouteSearchQuery}
-                  onChange={(event) => setActiveRouteSearchQuery(event.target.value)}
-                  placeholder="Unidad, cliente, cedula, telefono, comentario..."
-                  autoComplete="off"
-                />
-              </label>
-            ) : null}
-            {activeRouteFilterOptions.length > 0 ? (
-              <div className="ar-active-route-filters" aria-label="Filtrar Ruta en calle">
-                <button
-                  type="button"
-                  className={activeRouteFilter === ALL_ACTIVE_ROUTE_FILTER ? "is-active" : ""}
-                  onClick={() => setActiveRouteFilter(ALL_ACTIVE_ROUTE_FILTER)}
-                >
-                  Todas
-                </button>
-                {activeRouteFilterOptions.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    className={activeRouteFilter === option ? "is-active" : ""}
-                    onClick={() => setActiveRouteFilter(option)}
-                  >
-                    {activeRouteFilterLabel(option)}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            {activeFilteredRouteItems.length > 0 ? (
-              <>
-                <div className="table-scroll ar-active-route-scroll">
-                  <table className="ar-table ar-active-route-table">
-                    <thead>
-                      <tr>
-                        <th>Unidad</th>
-                        <th>Cliente</th>
-                        <th>Atraso</th>
-                        <th>Renta vencida</th>
-                        <th>Tipo</th>
-                        <th>Min. liberar</th>
-                        <th>Comentario</th>
-                        <th>Ruta</th>
-                        <th>Alarma</th>
-                        <th>Accion</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activeFilteredRouteItems.map((item) => {
-                        const routeAssignment = item.routeAssignment ?? "";
-                        const routeUrgency = item.urgency ?? "normal";
-                        const isCustomRouteAssignment = !!routeAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(routeAssignment);
-                        const isCustomRouteEditorOpen = isCustomRouteAssignment || !!publishedCustomRouteEditorByClient[item.clientId];
-                        const incidentAction = incidentActionsByUnit[item.unitId.trim().toUpperCase()];
-                        return (
-                          <tr key={item.clientId} className={`${routeUrgency !== "normal" ? `ar-route-urgency-row ar-route-urgency-row--${routeUrgency}` : ""}${incidentAction?.urgent ? " ar-route-incident-alert" : ""}`.trim() || undefined}>
-                            <td><strong className="ar-unit-id">{item.unitId}</strong></td>
-                            <td>
-                              <span className="client-name ar-route-client-name" title={item.clientName}>{item.clientName}</span>
-                              <span className="ar-route-added-at">En calle {formatActiveRouteAddedAt(item.publishedAt)}</span>
-                              {incidentAction ? <span className="ar-incident-route-note">Siniestro: {incidentAction.label}{incidentAction.date ? ` · ${incidentAction.date}` : ""}</span> : null}
-                            </td>
-                            <td>{item.daysLate > 0 ? `${item.daysLate} dias` : "Sin atraso"}</td>
-                            <td className="amount-debt">
-                              <strong className="ar-overdue-chip-amount">{formatCurrency(item.overdueBalance)}</strong>
-                              <small className="ar-overdue-chip-installments">{overdueInstallmentsText(item.overdueBalance, item.rentAmount)}</small>
-                            </td>
-                            <td>
-                              <select
-                                className="ar-route-list-type"
-                                value={item.managementType ?? "solo_cobrar"}
-                                onChange={(event) => handlePublishedRouteTypeChange(item.clientId, event.target.value as FieldManagementType)}
-                                disabled={readOnly}
-                              >
-                                <option value="solo_cobrar">Solo cobrar</option>
-                                <option value="cobrar_o_quitar">Cobrar o quitar</option>
-                                <option value="desiste">Desiste</option>
-                                <option value="quitar">Quitar</option>
-                              </select>
-                            </td>
-                            <td>
-                              <input
-                                className="ar-route-list-amount"
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                inputMode="decimal"
-                                value={publishedRouteAmountDraftByClient[item.clientId] ?? (item.releaseAmount > 0 ? String(item.releaseAmount) : "")}
-                                onChange={(event) => handlePublishedRouteReleaseAmountChange(item.clientId, event.target.value)}
-                                onBlur={() => commitPublishedRouteReleaseAmount(item.clientId)}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter") event.currentTarget.blur();
-                                }}
-                                disabled={readOnly}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                className="ar-route-list-comment"
-                                type="text"
-                                value={publishedRouteCommentDraftByClient[item.clientId] ?? item.comment ?? ""}
-                                onChange={(event) => handlePublishedRouteCommentChange(item.clientId, event.target.value)}
-                                onBlur={() => commitPublishedRouteComment(item.clientId)}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter") event.currentTarget.blur();
-                                }}
-                                placeholder="Comentario..."
-                                maxLength={25}
-                                disabled={readOnly}
-                              />
-                            </td>
-                            <td>
-                              {isCustomRouteEditorOpen ? (
-                                <input
-                                  className="ar-route-list-route-custom"
-                                  type="text"
-                                  value={routeAssignment}
-                                  onChange={(event) => handlePublishedRouteAssignmentChange(item.clientId, event.target.value)}
-                                  onBlur={(event) => {
-                                    const normalized = normalizeRouteAssignment(event.target.value);
-                                    if (event.target.value !== (normalized ?? "")) handlePublishedRouteAssignmentChange(item.clientId, normalized ?? "");
-                                    if (!normalized) setPublishedCustomRouteEditorByClient((current) => ({ ...current, [item.clientId]: false }));
-                                  }}
-                                  placeholder="Escribe ruta"
-                                  maxLength={12}
-                                  disabled={readOnly}
-                                />
-                              ) : (
-                                <select
-                                  className="ar-route-list-route"
-                                  value={routeAssignment}
-                                  onChange={(event) => {
-                                    const selected = event.target.value;
-                                    if (selected === "__custom") {
-                                      setPublishedCustomRouteEditorByClient((current) => ({ ...current, [item.clientId]: true }));
-                                      handlePublishedRouteAssignmentChange(item.clientId, "");
-                                      return;
-                                    }
-                                    setPublishedCustomRouteEditorByClient((current) => ({ ...current, [item.clientId]: false }));
-                                    handlePublishedRouteAssignmentChange(item.clientId, selected);
-                                  }}
-                                  disabled={readOnly}
-                                >
-                                  <option value="">Sin ruta</option>
-                                  {ROUTE_ASSIGNMENT_OPTIONS.map((option) => (
-                                    <option key={option} value={option}>{option}</option>
-                                  ))}
-                                  <option value="__custom">Otra</option>
-                                </select>
-                              )}
-                            </td>
-                            <td>
-                              <select
-                                className={`ar-route-urgency-select ar-route-urgency-select--${routeUrgency}`}
-                                value={routeUrgency}
-                                onChange={(event) => handlePublishedRouteUrgencyChange(item.clientId, event.target.value as RouteUrgency)}
-                                disabled={readOnly}
-                              >
-                                {ROUTE_URGENCY_OPTIONS.map((option) => (
-                                  <option key={option.value} value={option.value}>{option.label}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td>
-                              <button
-                                type="button"
-                                className="button ghost small ar-route-list-remove"
-                                onClick={() => void handleRemoveFromPublishedRoute(item.clientId)}
-                                disabled={readOnly}
-                                title={readOnly ? "No tienes permiso para editar cuentas por cobrar." : undefined}
-                              >
-                                Sacar
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="ar-active-route-mobile-list" aria-label="Ruta en calle editable">
-                  {activeFilteredRouteItems.map((item) => {
-                    const routeAssignment = item.routeAssignment ?? "";
-                    const routeUrgency = item.urgency ?? "normal";
-                    const isCustomRouteAssignment = !!routeAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(routeAssignment);
-                    const isCustomRouteEditorOpen = isCustomRouteAssignment || !!publishedCustomRouteEditorByClient[item.clientId];
-                    const incidentAction = incidentActionsByUnit[item.unitId.trim().toUpperCase()];
-                    return (
-                      <article className={`ar-route-mobile-card ${routeUrgency !== "normal" ? `ar-route-mobile-card--${routeUrgency}` : ""}${incidentAction?.urgent ? " ar-route-incident-alert" : ""}`} key={`published-mobile-${item.clientId}`}>
-                        <div className="ar-route-mobile-head">
-                          <div className="ar-route-mobile-unit">
-                            <strong className="ar-unit-id">{item.unitId}</strong>
-                            <span title={item.clientName}>{item.clientName}</span>
-                          </div>
-                          <div className="ar-route-mobile-amount">
-                            <small>Min. liberar</small>
-                            <strong>{item.releaseAmount > 0 ? formatCurrency(item.releaseAmount) : "Monto pendiente"}</strong>
-                          </div>
-                        </div>
-                        {routeUrgency !== "normal" ? (
-                          <div className={`ar-route-alarm ar-route-alarm--${routeUrgency}`}>
-                            {routeUrgency === "very_urgent" ? "Muy urgente" : "Urgente"}
-                          </div>
-                        ) : null}
-                        {incidentAction ? <div className="ar-incident-route-note">Siniestro: {incidentAction.label}{incidentAction.date ? ` · ${incidentAction.date}` : ""}</div> : null}
-                        <div className="ar-route-mobile-meta">
-                          <span>{item.daysLate > 0 ? `${item.daysLate} dias de atraso` : "Sin atraso"}</span>
-                          <span>
-                            Vencido {formatCurrency(item.overdueBalance)}
-                            <small className="ar-overdue-chip-installments">{overdueInstallmentsText(item.overdueBalance, item.rentAmount)}</small>
-                          </span>
-                          <span>En calle {formatActiveRouteAddedAt(item.publishedAt)}</span>
-                        </div>
-                        <div className="ar-route-mobile-controls">
-                          <label>
-                            <span>Tipo</span>
-                            <select
-                              className="ar-route-list-type"
-                              value={item.managementType ?? "solo_cobrar"}
-                              onChange={(event) => handlePublishedRouteTypeChange(item.clientId, event.target.value as FieldManagementType)}
-                              disabled={readOnly}
-                            >
-                              <option value="solo_cobrar">Solo cobrar</option>
-                              <option value="cobrar_o_quitar">Cobrar o quitar</option>
-                              <option value="desiste">Desiste</option>
-                              <option value="quitar">Quitar</option>
-                            </select>
-                          </label>
-                          <label>
-                            <span>Min. liberar</span>
-                            <input
-                              className="ar-route-list-amount"
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              inputMode="decimal"
-                              value={publishedRouteAmountDraftByClient[item.clientId] ?? (item.releaseAmount > 0 ? String(item.releaseAmount) : "")}
-                              onChange={(event) => handlePublishedRouteReleaseAmountChange(item.clientId, event.target.value)}
-                              onBlur={() => commitPublishedRouteReleaseAmount(item.clientId)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter") event.currentTarget.blur();
-                              }}
-                              disabled={readOnly}
-                            />
-                          </label>
-                          <label>
-                            <span>Ruta</span>
-                            {isCustomRouteEditorOpen ? (
-                              <input
-                                className="ar-route-list-route-custom"
-                                type="text"
-                                value={routeAssignment}
-                                onChange={(event) => handlePublishedRouteAssignmentChange(item.clientId, event.target.value)}
-                                onBlur={(event) => {
-                                  const normalized = normalizeRouteAssignment(event.target.value);
-                                  if (event.target.value !== (normalized ?? "")) handlePublishedRouteAssignmentChange(item.clientId, normalized ?? "");
-                                  if (!normalized) setPublishedCustomRouteEditorByClient((current) => ({ ...current, [item.clientId]: false }));
-                                }}
-                                placeholder="Escribe ruta"
-                                maxLength={12}
-                                disabled={readOnly}
-                              />
-                            ) : (
-                              <select
-                                className="ar-route-list-route"
-                                value={routeAssignment}
-                                onChange={(event) => {
-                                  const selected = event.target.value;
-                                  if (selected === "__custom") {
-                                    setPublishedCustomRouteEditorByClient((current) => ({ ...current, [item.clientId]: true }));
-                                    handlePublishedRouteAssignmentChange(item.clientId, "");
-                                    return;
-                                  }
-                                  setPublishedCustomRouteEditorByClient((current) => ({ ...current, [item.clientId]: false }));
-                                  handlePublishedRouteAssignmentChange(item.clientId, selected);
-                                }}
-                                disabled={readOnly}
-                              >
-                                <option value="">Sin ruta</option>
-                                {ROUTE_ASSIGNMENT_OPTIONS.map((option) => (
-                                  <option key={option} value={option}>{option}</option>
-                                ))}
-                                <option value="__custom">Otra</option>
-                              </select>
-                            )}
-                          </label>
-                          <label className="ar-route-mobile-comment">
-                            <span>Comentario</span>
-                            <input
-                              className="ar-route-list-comment"
-                              type="text"
-                              value={publishedRouteCommentDraftByClient[item.clientId] ?? item.comment ?? ""}
-                              onChange={(event) => handlePublishedRouteCommentChange(item.clientId, event.target.value)}
-                              onBlur={() => commitPublishedRouteComment(item.clientId)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter") event.currentTarget.blur();
-                              }}
-                              placeholder="Comentario..."
-                              maxLength={25}
-                              disabled={readOnly}
-                            />
-                          </label>
-                          <label>
-                            <span>Alarma</span>
-                            <select
-                              className={`ar-route-urgency-select ar-route-urgency-select--${routeUrgency}`}
-                              value={routeUrgency}
-                              onChange={(event) => handlePublishedRouteUrgencyChange(item.clientId, event.target.value as RouteUrgency)}
-                              disabled={readOnly}
-                            >
-                              {ROUTE_URGENCY_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
-                              ))}
-                            </select>
-                          </label>
-                        </div>
-                        <button
-                          type="button"
-                          className="button ghost small ar-route-list-remove ar-route-mobile-remove"
-                          onClick={() => void handleRemoveFromPublishedRoute(item.clientId)}
-                          disabled={readOnly}
-                          title={readOnly ? "No tienes permiso para editar cuentas por cobrar." : undefined}
-                        >
-                          Sacar de Ruta en calle
-                        </button>
-                      </article>
-                    );
-                  })}
-                </div>
-              </>
-            ) : (
-              <p className="hint">
-                {activeRouteLoading
-                  ? "Cargando ruta en calle..."
-                  : activeVisibleRouteItems.length > 0
-                  ? "No hay clientes en esa ruta."
-                  : "No hay clientes activos en Ruta en calle."}
-              </p>
-            )}
+            <RouteSearchPage dataOwnerUserId={dataOwnerUserId} clients={clients} payments={payments}
+              {...routePermissions} readOnly={routePermissions?.readOnly ?? readOnly}
+              renderManagementFields={readOnly ? undefined : (item) => <div className="route-collection-management-fields">
+                <label className="route-collection-field">Ruta asignada<input key={item.routeAssignment} defaultValue={item.routeAssignment ?? ""} maxLength={12} onBlur={event => handlePublishedRouteAssignmentChange(item.clientId, event.target.value)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label>
+                <label className="route-collection-field">Tipo de gestión<select value={item.managementType ?? "solo_cobrar"} onChange={event => handlePublishedRouteTypeChange(item.clientId, event.target.value as FieldManagementType)}>
+                  <option value="solo_cobrar">Solo cobrar</option><option value="cobrar_o_quitar">Cobrar o quitar</option><option value="desiste">Desiste</option><option value="quitar">Quitar</option>
+                </select></label>
+                <label className="route-collection-field">Mínimo original para liberar<input type="number" min="0" step="0.01" value={publishedRouteAmountDraftByClient[item.clientId] ?? item.releaseAmount}
+                  onChange={event => handlePublishedRouteReleaseAmountChange(item.clientId, event.target.value)} onBlur={() => commitPublishedRouteReleaseAmount(item.clientId)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label>
+                <label className="route-collection-field">Prioridad<select value={item.urgency ?? "normal"} onChange={event => handlePublishedRouteUrgencyChange(item.clientId, event.target.value as RouteUrgency)}>
+                  <option value="normal">Normal</option><option value="urgent">Urgente</option><option value="very_urgent">Muy urgente</option>
+                </select></label>
+              </div>} />
           </div>
         ) : (
           <ReceivablesLedgerTable

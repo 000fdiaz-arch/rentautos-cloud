@@ -23,3 +23,11 @@ console.log('OK cash badge: actionable reports, partial decisions, deduplication
 
 assert.equal(countActiveRouteReviewItems([{...item,inCustody:true}],payments,day,[]),0);
 assert.equal(countActiveRouteReviewItems([{...item,inCustody:true}],payments,day,[cash]),1,'Custody must not discard cash awaiting a receipt');
+
+const {getRouteWorkItems,getActiveRouteReviewItems}=rulesModule.exports;
+const paid=[{clientId:'b79',dateApplied:day,appliedToRent:34,amountReceived:34.79},{clientId:'b79',dateApplied:day,appliedToRent:34,amountReceived:34.79}];
+assert.equal(getRouteWorkItems([{clientId:'b79',publishedAt:'p',releaseAmount:68}],paid,day,[]).length,0);
+assert.equal(getRouteWorkItems([{...item,partialDecisionRentAmount:20}],payments,day,[]).length,1);
+assert.equal(getActiveRouteReviewItems([item],payments,day,[cash]).length,0,'A pending report takes precedence over a partial decision');
+assert.equal(getRouteWorkItems([item],payments,day,[cash]).length,0);
+assert.equal(getRouteWorkItems([{...item,inCustody:true}],[],day,[]).length,0);

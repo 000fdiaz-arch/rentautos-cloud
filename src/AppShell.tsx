@@ -381,7 +381,7 @@ export default function AppShell({
 
     const reloadRouteReviewItems = async (): Promise<void> => {
       try {
-        const [items, cashReports] = await Promise.all([loadCloudActiveRouteItems(cloudDataUserId), loadRoutePaymentReports(cloudDataUserId, true)]);
+        const [items, cashReports] = await Promise.all([loadCloudActiveRouteItems(cloudDataUserId), loadRoutePaymentReports(cloudDataUserId)]);
         if (!cancelled) { setRouteReviewItems(items); setRouteCashReports(cashReports); }
       } catch (error) {
         console.warn("No se pudo actualizar la notificacion de Ruta en calle.", error);
@@ -1066,6 +1066,8 @@ export default function AppShell({
             isPaymentHistoryLoaded={fullPaymentHistoryLoaded}
             onRefreshPayments={refreshPaymentsFromSource}
             streetManagementData={parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>}
+            routePermissions={{ paymentsLoading: !cloudReady, currentUserId: userId, canReportPayment: canReportRoutePayments,
+              readOnly: !canEditRouteSearch, canRemoveFromRoute: canEditRouteSearch, onRegisterPayment: registerRoutePayment }}
             onStreetManagementPersist={async (value) => {
               localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(value));
               setHasPendingChanges(true);

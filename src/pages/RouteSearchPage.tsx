@@ -22,13 +22,14 @@ import {
 } from "../cloudData";
 import { formatCurrency, formatDate } from "../format";
 import { supabase } from "../lib/supabase";
-import { getActiveRouteReviewItems, hasAcknowledgedPartialRouteDecision, hasPendingPartialRouteDecision, isPendingCashRouteReport, routeRentAmountForDay } from "../routeReviewRules";
+import { getActiveRouteReviewItems, getRouteWorkItems, isPendingCashRouteReport, routeRentAmountForDay } from "../routeReviewRules";
 import type { Client, CollectionTeam, Payment } from "../types";
 import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentStorage";
 import type { NotifiedPayment } from "./payments/paymentTypes";
 import { fieldManagementLabel, type FieldManagementType } from "./receivables/receivablesTypes";
 
-type Props = {
+export type RouteSearchPageProps = {
+  renderManagementFields?: (item: ActiveRouteItem) => React.ReactNode;
   paymentsLoading?: boolean;
   currentUserId?: string;
   canReportPayment?: boolean;
@@ -111,6 +112,7 @@ function routeImageFileName(routeLabel: string, zoneLabel?: string): string {
 }
 
 export default function RouteSearchPage({
+  renderManagementFields,
   paymentsLoading = false,
   currentUserId,
   canReportPayment = false,
@@ -120,7 +122,7 @@ export default function RouteSearchPage({
   readOnly = true,
   canRemoveFromRoute = false,
   onRegisterPayment
-}: Props) {
+}: RouteSearchPageProps) {
   const businessDateKey = getBusinessDateKey();
   const [items, setItems] = useState<ActiveRouteItem[]>([]);
   const [reports, setReports] = useState<RoutePaymentReport[]>([]);
@@ -314,22 +316,11 @@ export default function RouteSearchPage({
     };
   }, [dataOwnerUserId]);
 
-  const workItems = useMemo(() => (
-    items
-      .filter((item) => !item.removedAt)
-      .filter((item) => !item.inCustody)
-      .filter((item) => !hasPendingPartialRouteDecision(payments, item, businessDateKey))
-      .filter((item) => item.releaseAmount <= 0 || routeRentAmountForDay(payments, item, businessDateKey) < item.releaseAmount)
-      .filter((item) => {
-        const currentReports = reports.filter((report) => report.client_id === item.clientId && report.published_at === item.publishedAt);
-        if (currentReports.some((report) => report.status === "review")) return false;
-        return currentReports.length === 0 || hasAcknowledgedPartialRouteDecision(payments, item, businessDateKey);
-      })
-  ), [businessDateKey, items, payments, reports]);
+  const workItems = useMemo(() => getRouteWorkItems(items, payments, businessDateKey, reports), [items, payments, businessDateKey, reports]);
   const custodyItems = useMemo(() => items.filter((item) => item.inCustody), [items]);
 
   const partialReviewItems = useMemo(() => (
-    getActiveRouteReviewItems(items, payments, businessDateKey).map((item) => ({
+    getActiveRouteReviewItems(items, payments, businessDateKey, reports).map((item) => ({
       ...item,
       report: reports.find((report) => report.client_id === item.clientId && report.published_at === item.publishedAt)
     }))
@@ -900,6 +891,7 @@ export default function RouteSearchPage({
             const activeRoute = items.find(active => active.clientId === item.clientId && active.publishedAt === item.publishedAt);
             const paidRent = routeRentAmountForDay(payments, item, businessDateKey);
             return <RouteCollectionCard key={workflowView + '-' + (item.report?.id ?? item.clientId)} item={item} view={workflowView}
+              managementFields={activeRoute && !activeRoute.removedAt && workflowView !== "review" && workflowView !== "confirmed" ? renderManagementFields?.(activeRoute) : undefined}
               paidRent={paidRent} balance={currentBalance(item)} canReport={canReportPayment} canEdit={!readOnly}
               canRemove={canRemoveFromRoute} canRegister={!readOnly && Boolean(onRegisterPayment) && (!item.report || (isPendingCashRouteReport(item.report) && !registeredReportIds.includes(item.report.id)))}
               hasPendingReport={reports.some(report => report.status === "review" && report.client_id === item.clientId && report.published_at === item.publishedAt)}

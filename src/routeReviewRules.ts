@@ -6,7 +6,7 @@ export function isPendingCashRouteReport(report?: RoutePaymentReport): boolean {
   return report?.status === "review" && report.method === "cash" && report.confirmed_cash_amount === 0;
 }
 
-export function routeRentAmountForDay(payments: Payment[], item: ActiveRouteItem, dateKey: string): number {
+export function routeRentAmountForDay(payments: Payment[], item: Pick<ActiveRouteItem, "clientId">, dateKey: string): number {
   const total = payments
     .filter((payment) => payment.clientId === item.clientId && payment.dateApplied === dateKey)
     .reduce((sum, payment) => sum + Math.max(0, payment.appliedToRent), 0);
@@ -28,11 +28,22 @@ export function hasAcknowledgedPartialRouteDecision(payments: Payment[], item: A
 }
 
 export function countActiveRouteReviewItems(items: ActiveRouteItem[], payments: Payment[], dateKey: string, reports: RoutePaymentReport[] = []): number {
-  const pending = new Set(getActiveRouteReviewItems(items, payments, dateKey).map((item) => JSON.stringify([item.clientId, item.publishedAt])));
+  const pending = new Set(getActiveRouteReviewItems(items, payments, dateKey, reports).map((item) => JSON.stringify([item.clientId, item.publishedAt])));
   reports.filter(isPendingCashRouteReport).forEach((report) => pending.add(JSON.stringify([report.client_id, report.published_at])));
   return pending.size;
 }
 
-export function getActiveRouteReviewItems(items: ActiveRouteItem[], payments: Payment[], dateKey: string): ActiveRouteItem[] {
-  return items.filter((item) => !item.removedAt && !item.inCustody && hasPendingPartialRouteDecision(payments, item, dateKey));
+export function getActiveRouteReviewItems(items: ActiveRouteItem[], payments: Payment[], dateKey: string, reports: RoutePaymentReport[] = []): ActiveRouteItem[] {
+  return items.filter((item) => !item.removedAt && !item.inCustody && hasPendingPartialRouteDecision(payments, item, dateKey)
+    && !reports.some(report => report.client_id === item.clientId && report.published_at === item.publishedAt && report.status === "review"));
+}
+
+export function getRouteWorkItems(items: ActiveRouteItem[], payments: Payment[], dateKey: string, reports: RoutePaymentReport[]): ActiveRouteItem[] {
+  return items.filter(item => {
+    if (item.removedAt || item.inCustody || hasPendingPartialRouteDecision(payments, item, dateKey)) return false;
+    if (item.releaseAmount > 0 && routeRentAmountForDay(payments, item, dateKey) >= item.releaseAmount) return false;
+    const currentReports = reports.filter(report => report.client_id === item.clientId && report.published_at === item.publishedAt);
+    return !currentReports.some(report => report.status === "review")
+      && (currentReports.length === 0 || hasAcknowledgedPartialRouteDecision(payments, item, dateKey));
+  });
 }

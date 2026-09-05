@@ -12,7 +12,7 @@ assert(shell.includes('table: "active_route_items_cloud"'), "La notificacion deb
 assert(shell.includes("routeReviewCount={routeReviewCount}"), "AppShell debe entregar el contador al menu.");
 assert(navigation.includes('badge: routeReviewCount'), "Ruta en calle debe mostrar una insignia en el menu.");
 assert(navigation.includes("unidades pendientes de revision"), "La insignia debe explicar la accion pendiente.");
-assert(routePage.includes("getActiveRouteReviewItems(items, payments, businessDateKey)"), "La pestaña debe usar la misma selección de pendientes que el menú.");
+assert(routePage.includes("getActiveRouteReviewItems(items, payments, businessDateKey, reports)"), "La pestaña debe usar la misma selección de pendientes que el menú.");
 assert(routePage.includes("'Pagos parciales a revisar', partialReviewItems.length"), "La revisión debe ser una pestaña con su conteo.");
 
 console.log("tmp-route-review-navigation-badge-test: ok");

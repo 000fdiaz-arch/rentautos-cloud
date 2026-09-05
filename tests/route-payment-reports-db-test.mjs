@@ -210,4 +210,18 @@ try {
   await login(seeker);await split(5,0);
   assert.equal((await rows()).filter(x=>x.status==='confirmed').length,3);
   console.log('OK: successive partial reports preserve receipts and history, block pending duplicates, and reopen old corrections independently');
+  await db.exec('reset role');
+  const sharedRead=readFileSync('supabase/75-shared-route-report-read.sql','utf8');
+  assert.equal(sharedRead,readFileSync('supabase/migrations/20260905000400_shared_route_report_read.sql','utf8'));
+  await db.exec(sharedRead);await db.exec(sharedRead);
+  await db.exec(`create or replace function public.can_view_owner_screen(o uuid,s text) returns boolean language sql security definer as
+    $$select exists(select 1 from public.user_profiles where id=auth.uid() and is_active and owner_id=o and view_route and s='receivables')$$;`);
+  await login(seeker);
+  assert.ok((await rows()).length>0,'Receivables readers see the same report states');
+  assert.equal((await db.query('select read_route_report_receipts($1,$2)',[owner,firstAbono.id])).rows.length,1);
+  await assert.rejects(split(5,0),/permiso/,'Read access must not grant reporting access');
+  await assert.rejects(db.exec("update route_payment_reports set amount=1"),/permission denied/);
+  await login(other);assert.equal((await rows()).length,0);
+  await assert.rejects(db.query('select read_route_report_receipts($1,$2)',[owner,firstAbono.id]),/permiso/);
+  console.log('OK: shared receivables report/receipt visibility with unchanged write permissions and owner isolation');
 } finally { await db.close(); }

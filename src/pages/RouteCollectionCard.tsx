@@ -9,6 +9,7 @@ export type RouteWorkflowView = "work" | "review" | "partial" | "confirmed" | "c
 export type RouteCardItem = ActiveRouteItem & { report?: RoutePaymentReport };
 
 type Props = {
+  managementFields?: React.ReactNode;
   item: RouteCardItem;
   view: RouteWorkflowView;
   paidRent: number;
@@ -85,6 +86,7 @@ export default function RouteCollectionCard(props: Props) {
       {view === "work" ? <p className="route-collection-instruction">{fieldManagementLabel(item.managementType)}</p> : null}
     </>}
       {canEdit && !report ? <label className="route-collection-field route-collection-comment">Comentario<input aria-label={`Comentario de ${item.unitId}`} value={props.comment} maxLength={25} placeholder="Agregar comentario…" disabled={props.commentSaving} onChange={event => props.onComment(event.target.value)} onBlur={props.onSaveComment} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></label> : item.comment ? <p>{item.comment}</p> : null}
+    {props.managementFields}
     <div className="route-collection-actions">
       {pendingCash && canRegister ? <button type="button" className="button primary" disabled={saving} onClick={props.onRegister}>Generar recibo</button> : null}
       {view === "confirmed" && report ? <button type="button" className="button primary" disabled={props.receiptLoading} onClick={props.onReceipt}>{props.receiptLoading ? "Abriendo…" : "Ver recibo"}</button> : null}

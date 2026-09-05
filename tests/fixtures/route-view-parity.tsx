@@ -1,0 +1,12 @@
+import React from "react";
+import { createRoot } from "react-dom/client";
+import ReceivablesPage from "../../src/pages/ReceivablesPage";
+import RouteSearchPage from "../../src/pages/RouteSearchPage";
+import { getBusinessDateKey } from "../../src/billing";
+import type { Client, Payment } from "../../src/types";
+import "../../src/styles.css";
+const units=['A10','B79','C10','D92','T18'];
+const clients=units.map(unit=>({id:unit,unitId:unit,name:unit+' Cliente',rentAmount:34,frequency:'daily',status:'activo',balance:200,advanceBalance:0,savings:0,otherCharges:[],installmentsAgreed:100,installmentsRemaining:90,installmentsPaid:10,createdAt:'2026-08-01T12:00:00Z'} as Client));
+const payments=[['A10',32],['B79',34],['B79',34],['D92',50]].map(([clientId,amount],index)=>({id:String(index),clientId,clientUnit:clientId,dateApplied:getBusinessDateKey(),appliedToRent:amount,amountReceived:amount,createdAt:new Date().toISOString(),paymentMethod:'Efectivo'} as Payment));
+const props={dataOwnerUserId:'11111111-1111-4111-8111-111111111111',clients,payments,readOnly:!location.search.includes("editor")};
+createRoot(document.getElementById('root')!).render(location.search.includes('accounts')?<ReceivablesPage {...props}/>:<RouteSearchPage {...props}/>);
