@@ -6,7 +6,7 @@ const base='http://127.0.0.1:4197';
 const owner='11111111-1111-4111-8111-111111111111';
 const seeker='22222222-2222-4222-8222-222222222222';
 const item={clientId:'c1',unitId:'RA-042',clientName:'Carlos',routeAssignment:'PTY',zone:'Centro',releaseAmount:60,pendingAmount:120,overdueBalance:120,rentAmount:30,daysLate:4,publishedAt:'2026-09-04T12:00:00Z',routeStartedAt:'2026-09-04T12:00:00Z'};
-let reports=[],fail=false,writes=[],routeChanges=[];
+let reports=[],fail=false,writes=[],routeChanges=[],inactiveChanges=[];
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4197','--strictPort'],{windowsHide:true,stdio:'pipe',env:{...process.env,VITE_SUPABASE_URL:'https://route-tests.invalid',VITE_SUPABASE_ANON_KEY:'synthetic-test-key'}});
 let browser;
 try {
@@ -30,6 +30,13 @@ try {
       if(fail)return route.fulfill({status:400,json:{message:'La ruta cambió. Actualiza.'}});
       item.routeAssignment=input.p_route;return route.fulfill({status:204});
     }
+    if(url.pathname.endsWith('/rpc/set_active_route_inactive_status')){
+      const input=req.postDataJSON();inactiveChanges.push(input);
+      if(fail)return route.fulfill({status:400,json:{message:'La unidad cambió. Actualiza.'}});
+      const declared=input.p_inactive?'2026-09-06T15:30:00Z':null;
+      if(declared)item.routeInactiveAt=declared;else delete item.routeInactiveAt;
+      return route.fulfill({json:declared});
+    }
     if(url.pathname.endsWith('/rpc/report_route_payment_split')){
       const input=req.postDataJSON();writes.push(input);
       if(fail)return route.fulfill({status:400,json:{message:'La unidad cambió. Actualiza la ruta.'}});
@@ -45,9 +52,22 @@ try {
   const picker=page.getByRole('combobox',{name:'Ruta de RA-042'});
   await picker.selectOption('WC');await page.getByRole('status').filter({hasText:'RA-042 cambió a WC.'}).waitFor();
   assert.equal(routeChanges.at(-1).p_previous_route,'PTY');assert.equal(await picker.inputValue(),'WC');
-  fail=true;await picker.selectOption('PTY');await page.getByRole('alert').filter({hasText:'No se pudo cambiar la ruta.'}).waitFor();
-  assert.equal(await picker.inputValue(),'WC');fail=false;
-  await picker.selectOption('PTY');await page.getByRole('status').filter({hasText:'RA-042 cambió a PTY.'}).waitFor();
+  await page.getByRole('button',{name:'Deshacer'}).click();await page.getByRole('status').filter({hasText:'RA-042 volvió a PTY.'}).waitFor();
+  assert.equal(routeChanges.at(-1).p_previous_route,'WC');assert.equal(await picker.inputValue(),'PTY');
+  fail=true;await picker.selectOption('WC');await page.getByRole('alert').filter({hasText:'No se pudo cambiar la ruta.'}).waitFor();
+  assert.equal(await picker.inputValue(),'PTY');fail=false;
+  await page.getByRole('button',{name:'Marcar Inactivo'}).click();
+  await page.getByText('Inactivo · no está encendido',{exact:true}).waitFor();
+  await page.getByText(/Declarado 06 sept 2026/).waitFor();
+  await page.getByText(/^Hace /).waitFor();
+  assert.equal(await page.getByRole('alert').count(),0);
+  assert.equal(inactiveChanges.at(-1).p_inactive,true);
+  const teamSummary=page.getByRole('region',{name:'Resumen del equipo'});
+  assert.match(await teamSummary.innerText(),/PTY[\s\S]*0[\s\S]*Por visitar[\s\S]*1[\s\S]*Inactivos/);
+  mkdirSync('.tmp/route-reports',{recursive:true});await page.screenshot({path:'.tmp/route-reports/mobile-inactive-summary.png',fullPage:true});
+  await page.getByRole('button',{name:'Marcar como disponible'}).click();
+  await page.getByRole('status').filter({hasText:'RA-042 volvió a estar disponible.'}).waitFor();
+  assert.equal(inactiveChanges.at(-1).p_inactive,false);
   const cashPanel=page.getByRole('region',{name:'Efectivo pendiente de entrega'});
   await cashPanel.locator('summary').getByText('$45.25',{exact:true}).waitFor();
   await cashPanel.locator('summary').getByText('$30.00',{exact:true}).waitFor();
@@ -71,7 +91,7 @@ try {
   assert.match(await page.locator('.route-search-report-status').innerText(),/75.25.*Banca/);
   assert.equal(await page.getByRole('button',{name:'Registrar pago',exact:true}).count(),0);
   assert.equal(await page.getByRole('button',{name:'Sacar de ruta',exact:true}).count(),0);
-  mkdirSync('.tmp/route-reports',{recursive:true});await page.screenshot({path:'.tmp/route-reports/mobile-review.png',fullPage:true});
+  await page.screenshot({path:'.tmp/route-reports/mobile-review.png',fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.getByRole('button',{name:'Devolver a Trabajo',exact:true}).click();
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).click();
@@ -111,5 +131,6 @@ try {
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Reportar que pagó',exact:true}).count(),0);
   assert.equal(await page.getByRole('combobox',{name:'Ruta de RA-042'}).count(),0);
+  assert.equal(await page.getByRole('button',{name:'Marcar Inactivo'}).count(),0);
   assert.deepEqual(errors,[]);console.log('OK: WC/PTY from shared payments, zero extra queries, historical receipts, live delivered removal, read-only; report form, mixed split and confirmation');
 } finally {await browser?.close();server.kill();}

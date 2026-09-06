@@ -58,3 +58,14 @@ export async function changeRouteAssignment(ownerId: string, item: ActiveRouteIt
   });
   if (error) throw error;
 }
+
+export async function setRouteInactiveStatus(ownerId: string, item: ActiveRouteItem, inactive: boolean): Promise<string | null> {
+  const { data, error } = await getCloudClient().rpc("set_active_route_inactive_status", {
+    p_user_id: ownerId,
+    p_client_id: item.clientId,
+    p_published_at: item.publishedAt,
+    p_inactive: inactive
+  });
+  if (error) throw error;
+  return typeof data === "string" ? data : null;
+}

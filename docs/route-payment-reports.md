@@ -38,3 +38,9 @@ Las pruebas no escriben en Supabase remoto. La prueba de BD ejecuta realmente la
 ## Cambio de ruta WC/PTY
 
 El buscador activo o editor de Ruta puede cambiar WC/PTY en las tarjetas de Trabajo mediante `change_active_route_assignment` (migración 71). La RPC valida propietario, acceso, rol, publicación vigente y ruta anterior para evitar sobrescribir cambios concurrentes. Solo modifica la asignación activa y registra autor y fecha; conserva zona, importes, pagos y snapshots de reportes. El selector muestra errores sin cambiar la ruta local cuando falla el guardado. No concede escritura directa ni edición general.
+
+## Estado Inactivo, deshacer y resumen
+
+En Trabajo, el buscador puede marcar una unidad como `Inactivo · no está encendido`. La migración 72 guarda la hora del servidor y el autor en la unidad activa; la tarjeta muestra la fecha, hora y el tiempo transcurrido, actualizado cada 30 segundos. Marcarla como disponible elimina únicamente esos dos campos. La RPC vuelve a comprobar propietario, publicación vigente, acceso y rol, sin conceder escritura directa.
+
+Después de cambiar WC/PTY aparece `Deshacer`. La reversión usa la misma validación de concurrencia y solo funciona si la ruta aún coincide con el cambio que acaba de realizarse. El resumen del equipo separa WC y PTY y presenta unidades por visitar, inactivas, en revisión y confirmadas.

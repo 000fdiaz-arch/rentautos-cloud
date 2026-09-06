@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import RoutePendingCashPanel from "./RoutePendingCashPanel";
-import { changeRouteAssignment, cancelRoutePaymentReport, loadRoutePaymentReports, reportRoutePayment, type RoutePaymentReport } from "../cloud/routeReportCloudData";
+import RouteTeamSummary from "./RouteTeamSummary";
+import { changeRouteAssignment, cancelRoutePaymentReport, loadRoutePaymentReports, reportRoutePayment, setRouteInactiveStatus, type RoutePaymentReport } from "../cloud/routeReportCloudData";
 import {
   ALL_ACTIVE_ROUTE_FILTER,
   activeRouteFilterLabel,
@@ -95,6 +96,32 @@ function formatRouteStartedAt(value: string): string {
   }).replace(/\./g, "");
   const timeLabel = date.toLocaleTimeString("es-PA", { hour: "numeric", minute: "2-digit" });
   return `${dateLabel} · ${timeLabel}`;
+}
+
+function formatInactiveAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Hora no disponible";
+  return date.toLocaleString("es-PA", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).replace(/\./g, "");
+}
+
+function formatElapsed(value: string, now: number): string {
+  const started = Date.parse(value);
+  if (!Number.isFinite(started)) return "Tiempo no disponible";
+  const minutes = Math.max(0, Math.floor((now - started) / 60_000));
+  if (minutes < 1) return "Hace menos de 1 min";
+  if (minutes < 60) return `Hace ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours < 24) return `Hace ${hours} h${remainingMinutes ? ` ${remainingMinutes} min` : ""}`;
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+  return `Hace ${days} d${remainingHours ? ` ${remainingHours} h` : ""}`;
 }
 
 function canvasToJpegBlob(canvas: HTMLCanvasElement): Promise<Blob> {
@@ -193,19 +220,27 @@ export default function RouteSearchPage({
   }
   const [changingRoute, setChangingRoute] = useState<string | null>(null);
   const [changeRouteError, setChangeRouteError] = useState("");
-  async function changeTeam(item: ActiveRouteItem, route: "WC" | "PTY"): Promise<void> {
+  const [routeUndo, setRouteUndo] = useState<{ item: ActiveRouteItem; previous: "WC" | "PTY"; current: "WC" | "PTY" } | null>(null);
+  async function changeTeam(item: ActiveRouteItem, route: "WC" | "PTY", isUndo = false): Promise<void> {
     if (!canReportPayment || !dataOwnerUserId || changingRoute || route === item.routeAssignment) return;
+    const previous = item.routeAssignment as "WC" | "PTY";
     setChangingRoute(item.clientId);
     setChangeRouteError("");
+    setInactiveError("");
     setRouteActionMessage("");
     try {
       await changeRouteAssignment(dataOwnerUserId, item, route);
       setItems(current => current.map(row => row.clientId === item.clientId && row.publishedAt === item.publishedAt
         ? { ...row, routeAssignment: route } : row));
-      setRouteActionMessage(item.unitId + " cambió a " + route + ".");
+      setRouteUndo(isUndo ? null : { item: { ...item, routeAssignment: route }, previous, current: route });
+      setRouteActionMessage(isUndo ? `${item.unitId} volvió a ${route}.` : `${item.unitId} cambió a ${route}.`);
     } catch (cause) {
       setChangeRouteError(buildCloudErrorMessage("No se pudo cambiar la ruta.", cause, { includeRawFallback: true }));
     } finally { setChangingRoute(null); }
+  }
+  async function undoRouteChange(): Promise<void> {
+    if (!routeUndo) return;
+    await changeTeam(routeUndo.item, routeUndo.previous, true);
   }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -225,6 +260,9 @@ export default function RouteSearchPage({
   const [removeError, setRemoveError] = useState("");
   const [partialDecisionSavingByClient, setPartialDecisionSavingByClient] = useState<Record<string, boolean>>({});
   const [routeActionMessage, setRouteActionMessage] = useState("");
+  const [inactiveSavingByClient, setInactiveSavingByClient] = useState<Record<string, boolean>>({});
+  const [inactiveError, setInactiveError] = useState("");
+  const [elapsedNow, setElapsedNow] = useState(() => Date.now());
   const [lastRefreshAt, setLastRefreshAt] = useState("");
   const [sharing, setSharing] = useState(false);
   const [shareMessage, setShareMessage] = useState("");
@@ -237,6 +275,28 @@ export default function RouteSearchPage({
   const [paymentError, setPaymentError] = useState("");
   const [paymentMessage, setPaymentMessage] = useState("");
   const shareSheetRefs = useRef(new Map<string, HTMLDivElement>());
+
+  async function toggleInactive(item: ActiveRouteItem): Promise<void> {
+    if (!canReportPayment || !dataOwnerUserId || inactiveSavingByClient[item.clientId]) return;
+    const inactive = !item.routeInactiveAt;
+    setInactiveSavingByClient((current) => ({ ...current, [item.clientId]: true }));
+    setInactiveError("");
+    setChangeRouteError("");
+    setRouteUndo(null);
+    try {
+      const changedAt = await setRouteInactiveStatus(dataOwnerUserId, item, inactive);
+      setItems((current) => current.map((row) => row.clientId === item.clientId && row.publishedAt === item.publishedAt
+        ? { ...row, routeInactiveAt: inactive ? (changedAt ?? new Date().toISOString()) : undefined,
+          routeInactiveBy: inactive ? currentUserId : undefined }
+        : row));
+      setElapsedNow(Date.now());
+      setRouteActionMessage(inactive ? `${item.unitId} quedó marcado como Inactivo.` : `${item.unitId} volvió a estar disponible.`);
+    } catch (cause) {
+      setInactiveError(buildCloudErrorMessage("No se pudo cambiar el estado Inactivo.", cause, { includeRawFallback: true }));
+    } finally {
+      setInactiveSavingByClient((current) => ({ ...current, [item.clientId]: false }));
+    }
+  }
 
   const currentBalanceByClient = useMemo(
     () => new Map(clients.map((client) => [client.id, Math.max(0, client.balance)] as const)),
@@ -292,6 +352,17 @@ export default function RouteSearchPage({
     setReportsReady(false);
     void reloadReports();
   }, [dataOwnerUserId]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setElapsedNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!routeUndo) return;
+    const timer = window.setTimeout(() => setRouteUndo((current) => current === routeUndo ? null : current), 15_000);
+    return () => window.clearTimeout(timer);
+  }, [routeUndo]);
 
   useEffect(() => {
     if (!dataOwnerUserId || !supabase) return;
@@ -712,11 +783,12 @@ export default function RouteSearchPage({
         </div>
       </header>
 
+      <RouteTeamSummary workItems={workItems} reports={reports} />
       <RoutePendingCashPanel payments={payments} dateKey={businessDateKey} loading={paymentsLoading} />
       <div className="route-search-workflow-tabs" aria-label="Estado de las unidades">
         {([['work', 'Trabajo', workItems.length], ['review', 'En revisión', reports.filter((r) => r.status === 'review').length], ['confirmed', 'Pagos confirmados', reports.filter((r) => r.status === 'confirmed').length]] as const).map(([view, label, count]) => (
           <button type="button" key={view} className={`button ${workflowView === view ? 'primary' : 'ghost'}`} aria-pressed={workflowView === view}
-            onClick={() => { setWorkflowView(view); setPaymentFilter("all"); setRouteActionMessage(""); }}>
+            onClick={() => { setWorkflowView(view); setPaymentFilter("all"); setRouteActionMessage(""); setRouteUndo(null); }}>
             {label} ({count})
           </button>
         ))}
@@ -750,11 +822,17 @@ export default function RouteSearchPage({
       </div> : null}
       {error ? <p className="error-text">{error}</p> : null}
       {changeRouteError ? <p className="error-text" role="alert">{changeRouteError}</p> : null}
+      {inactiveError ? <p className="error-text" role="alert">{inactiveError}</p> : null}
       {zoneError ? <p className="error-text" role="alert">{zoneError}</p> : null}
       {commentError ? <p className="error-text" role="alert">{commentError}</p> : null}
       {shareMessage ? <p className="route-search-share-message" role="status">{shareMessage}</p> : null}
       {paymentMessage ? <p className="route-search-payment-message" role="status">{paymentMessage}</p> : null}
-      {routeActionMessage ? <p className="route-search-action-message" role="status">{routeActionMessage}</p> : null}
+      {routeActionMessage ? <div className="route-search-action-message" role="status">
+        <span>{routeActionMessage}</span>
+        {routeUndo && routeActionMessage === `${routeUndo.item.unitId} cambió a ${routeUndo.current}.` ? <button type="button" className="button ghost small" disabled={changingRoute !== null} onClick={() => void undoRouteChange()}>
+          {changingRoute ? "Deshaciendo…" : "Deshacer"}
+        </button> : null}
+      </div> : null}
       {routeFilterOptions.length > 0 ? (
         <div className="route-search-filter-block">
           <span className="route-search-filter-label">Ruta</span>
@@ -838,7 +916,7 @@ export default function RouteSearchPage({
               .filter((option) => option.value !== EMPTY_ACTIVE_ZONE_FILTER);
             const zoneListId = `route-zone-options-${itemIndex}`;
             return (
-              <article className={`route-search-card route-search-card--${itemManagementTone} ${item.urgency && item.urgency !== "normal" ? `route-search-card--${item.urgency}` : ""}`} key={item.report?.id ?? item.clientId}>
+              <article className={`route-search-card route-search-card--${itemManagementTone} ${item.urgency && item.urgency !== "normal" ? `route-search-card--${item.urgency}` : ""} ${item.routeInactiveAt ? "route-search-card--inactive" : ""}`} key={item.report?.id ?? item.clientId}>
                 <div className="route-search-card-head">
                   <div className="route-search-identity">
                     <strong>{item.unitId}</strong>
@@ -907,6 +985,10 @@ export default function RouteSearchPage({
                     {item.urgency === "very_urgent" ? "Muy urgente" : "Urgente"}
                   </div>
                 ) : null}
+                {item.routeInactiveAt && !item.report ? <div className="route-search-inactive-status" aria-label={`Estado inactivo de ${item.unitId}`}>
+                  <div><strong>Inactivo · no está encendido</strong><span>Declarado {formatInactiveAt(item.routeInactiveAt)}</span></div>
+                  <b>{formatElapsed(item.routeInactiveAt, elapsedNow)}</b>
+                </div> : null}
                 <div className="route-search-amounts">
                   <div className="route-search-release-amount">
                     <small>Min. liberar</small>
@@ -976,6 +1058,14 @@ export default function RouteSearchPage({
                     </div>
                   </label>
                 ) : item.comment ? <p className="route-search-comment">{item.comment}</p> : null}
+                {canReportPayment && !item.report ? <button type="button"
+                  className={`button route-search-inactive-button ${item.routeInactiveAt ? "is-inactive" : "ghost"}`}
+                  disabled={inactiveSavingByClient[item.clientId]}
+                  onClick={() => void toggleInactive(item)}>
+                  {inactiveSavingByClient[item.clientId]
+                    ? "Guardando…"
+                    : item.routeInactiveAt ? "Marcar como disponible" : "Marcar Inactivo"}
+                </button> : null}
                 {item.report ? (
                   <div className={`route-search-report-status route-search-report-status--${item.report.status}`}>
                     <strong>{item.report.status === "confirmed" ? "Pago confirmado" : "Pago reportado · Pendiente de confirmar"}</strong>

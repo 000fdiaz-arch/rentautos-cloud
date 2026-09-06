@@ -1684,6 +1684,8 @@ export type ActiveRouteItem = {
   comment?: string;
   partialDecisionRentAmount?: number;
   partialDecisionAt?: string;
+  routeInactiveAt?: string;
+  routeInactiveBy?: string;
   publishedAt: string;
   routeStartedAt: string;
   removedAt?: string;
@@ -1727,6 +1729,8 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
       ? row.partialDecisionRentAmount
       : undefined,
     partialDecisionAt: typeof row.partialDecisionAt === "string" ? row.partialDecisionAt : undefined,
+    routeInactiveAt: typeof row.routeInactiveAt === "string" ? row.routeInactiveAt : undefined,
+    routeInactiveBy: typeof row.routeInactiveBy === "string" ? row.routeInactiveBy : undefined,
     publishedAt,
     routeStartedAt,
     removedAt: typeof row.removedAt === "string" ? row.removedAt : undefined,
