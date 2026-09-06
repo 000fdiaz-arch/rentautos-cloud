@@ -135,6 +135,17 @@ try {
   await db.exec('reset role');
   const changed=(await db.query("select data from active_route_items_cloud where client_id='c1'")).rows[0].data;
   assert.equal(changed.routeAssignment,'WC');assert.equal(changed.releaseAmount,60);assert.equal(changed.zone,'Centro');assert.equal(changed.routeChangedBy,seeker);
+  const inactiveSql=readFileSync('supabase/76-route-inactive-status.sql','utf8');
+  assert.equal(inactiveSql,readFileSync('supabase/migrations/20260906000100_route_inactive_status.sql','utf8'));
+  await db.exec(inactiveSql);await db.exec(inactiveSql);
+  const setInactive=(inactive=true,o=owner,p=pub)=>db.query('select set_active_route_inactive_status($1,$2,$3,$4) as changed_at',[o,'c1',p,inactive]);
+  await login(seeker);assert((await setInactive()).rows[0].changed_at);
+  await db.exec('reset role');let routeStatus=(await db.query("select data from active_route_items_cloud where client_id='c1'")).rows[0].data;
+  assert(routeStatus.routeInactiveAt);assert.equal(routeStatus.routeInactiveBy,seeker);assert.equal(routeStatus.routeAssignment,'WC');assert.equal(routeStatus.releaseAmount,60);
+  await login(seeker);assert.equal((await setInactive(false)).rows[0].changed_at,null);
+  await db.exec('reset role');routeStatus=(await db.query("select data from active_route_items_cloud where client_id='c1'")).rows[0].data;
+  assert.equal(routeStatus.routeInactiveAt,undefined);assert.equal(routeStatus.routeInactiveBy,undefined);
+  await login(seeker);await assert.rejects(setInactive(true,other),/permiso/);await assert.rejects(setInactive(true,owner,'old'),/cambio/);
   for(const state of ["is_active=false","is_active=true,view_route=false","view_route=true,role='lectura'"]){
     await db.exec('reset role');await db.exec("update user_profiles set "+state+" where id='"+seeker+"'");
     await login(seeker);await assert.rejects(change('PTY','WC'),/permiso/);
@@ -144,6 +155,8 @@ try {
   await db.exec('reset role');await db.exec("update active_route_items_cloud set data=jsonb_set(data,'{removedAt}',to_jsonb('removed'::text))");
   await login(seeker);await assert.rejects(change(),/cambió/);
   console.log('OK: route switch permits active seeker only, validates owner and WC/PTY, rejects stale/removed routes, preserves other data and records author');
+  await assert.rejects(setInactive(),/cambio/);
+  console.log('OK: inactive status stores server date and author, restores availability, preserves route data and rejects unauthorized, stale or removed units');
   await db.exec('reset role');
   const custodySql=readFileSync('supabase/migrations/20260905000100_route_vehicle_custody.sql','utf8');
   await db.exec(custodySql); await db.exec(custodySql);

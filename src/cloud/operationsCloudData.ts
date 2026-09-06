@@ -1687,6 +1687,8 @@ export type ActiveRouteItem = {
   inCustody?: boolean;
   custodySince?: string;
   custodyChangedAt?: string;
+  routeInactiveAt?: string;
+  routeInactiveBy?: string;
   publishedAt: string;
   routeStartedAt: string;
   removedAt?: string;
@@ -1733,6 +1735,8 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
     inCustody: row.inCustody === true,
     custodySince: typeof row.custodySince === "string" ? row.custodySince : undefined,
     custodyChangedAt: typeof row.custodyChangedAt === "string" ? row.custodyChangedAt : undefined,
+    routeInactiveAt: typeof row.routeInactiveAt === "string" ? row.routeInactiveAt : undefined,
+    routeInactiveBy: typeof row.routeInactiveBy === "string" ? row.routeInactiveBy : undefined,
     publishedAt,
     routeStartedAt,
     removedAt: typeof row.removedAt === "string" ? row.removedAt : undefined,

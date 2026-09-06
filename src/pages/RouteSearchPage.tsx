@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import RoutePendingCashPanel from "./RoutePendingCashPanel";
 import RouteCollectionCard, { type RouteWorkflowView } from "./RouteCollectionCard";
+import RouteTeamSummary from "./RouteTeamSummary";
 import { PaymentPreviewDialog } from "./payments/PaymentDialogs";
-import { changeRouteAssignment, cancelRoutePaymentReport, loadRoutePaymentReports, loadRouteReportReceipts, reportRoutePayment, setRouteCustody, type RoutePaymentReport } from "../cloud/routeReportCloudData";
+import { changeRouteAssignment, cancelRoutePaymentReport, loadRoutePaymentReports, loadRouteReportReceipts, reportRoutePayment, setRouteCustody, setRouteInactiveStatus, type RoutePaymentReport } from "../cloud/routeReportCloudData";
 import {
   ALL_ACTIVE_ROUTE_FILTER,
   activeRouteFilterLabel,
@@ -201,19 +202,48 @@ export default function RouteSearchPage({
   }
   const [changingRoute, setChangingRoute] = useState<string | null>(null);
   const [changeRouteError, setChangeRouteError] = useState("");
-  async function changeTeam(item: ActiveRouteItem, route: "WC" | "PTY"): Promise<void> {
+  const [routeUndo, setRouteUndo] = useState<{ item: ActiveRouteItem; previous: "WC" | "PTY"; current: "WC" | "PTY" } | null>(null);
+  const [inactiveSavingByClient, setInactiveSavingByClient] = useState<Record<string, boolean>>({});
+  const [inactiveError, setInactiveError] = useState("");
+  const [elapsedNow, setElapsedNow] = useState(() => Date.now());
+  async function changeTeam(item: ActiveRouteItem, route: "WC" | "PTY", isUndo = false): Promise<void> {
     if (!canReportPayment || !dataOwnerUserId || changingRoute || route === item.routeAssignment) return;
+    const previous = item.routeAssignment as "WC" | "PTY";
     setChangingRoute(item.clientId);
     setChangeRouteError("");
+    setInactiveError("");
     setRouteActionMessage("");
     try {
       await changeRouteAssignment(dataOwnerUserId, item, route);
       setItems(current => current.map(row => row.clientId === item.clientId && row.publishedAt === item.publishedAt
         ? { ...row, routeAssignment: route } : row));
-      setRouteActionMessage(item.unitId + " cambió a " + route + ".");
+      setRouteUndo(isUndo ? null : { item: { ...item, routeAssignment: route }, previous, current: route });
+      setRouteActionMessage(isUndo ? `${item.unitId} volvió a ${route}.` : `${item.unitId} cambió a ${route}.`);
     } catch (cause) {
       setChangeRouteError(buildCloudErrorMessage("No se pudo cambiar la ruta.", cause, { includeRawFallback: true }));
     } finally { setChangingRoute(null); }
+  }
+  async function undoRouteChange(): Promise<void> {
+    if (routeUndo) await changeTeam(routeUndo.item, routeUndo.previous, true);
+  }
+  async function toggleInactive(item: ActiveRouteItem): Promise<void> {
+    if (!canReportPayment || !dataOwnerUserId || inactiveSavingByClient[item.clientId]) return;
+    const inactive = !item.routeInactiveAt;
+    setInactiveSavingByClient(current => ({ ...current, [item.clientId]: true }));
+    setInactiveError(""); setChangeRouteError(""); setRouteUndo(null);
+    try {
+      const changedAt = await setRouteInactiveStatus(dataOwnerUserId, item, inactive);
+      setItems(current => current.map(row => row.clientId === item.clientId && row.publishedAt === item.publishedAt
+        ? { ...row, routeInactiveAt: inactive ? (changedAt ?? new Date().toISOString()) : undefined,
+          routeInactiveBy: inactive ? currentUserId : undefined }
+        : row));
+      setElapsedNow(Date.now());
+      setRouteActionMessage(inactive ? `${item.unitId} quedó marcado como Inactivo.` : `${item.unitId} volvió a estar disponible.`);
+    } catch (cause) {
+      setInactiveError(buildCloudErrorMessage("No se pudo cambiar el estado Inactivo.", cause, { includeRawFallback: true }));
+    } finally {
+      setInactiveSavingByClient(current => ({ ...current, [item.clientId]: false }));
+    }
   }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -304,6 +334,17 @@ export default function RouteSearchPage({
   }, [dataOwnerUserId]);
 
   useEffect(() => {
+    const timer = window.setInterval(() => setElapsedNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!routeUndo) return;
+    const timer = window.setTimeout(() => setRouteUndo(current => current === routeUndo ? null : current), 15_000);
+    return () => window.clearTimeout(timer);
+  }, [routeUndo]);
+
+  useEffect(() => {
     if (!dataOwnerUserId || !supabase) return;
     const client = supabase;
     const channel = client
@@ -349,7 +390,7 @@ export default function RouteSearchPage({
   const reviewCounts = { cash: reports.filter((report) => report.status === "review" && report.method === "cash").length, bank: reports.filter((report) => report.status === "review" && report.method === "bank").length, mixed: reports.filter((report) => report.status === "review" && report.method === "mixed").length };
 
   function openWorkflow(view: RouteWorkflowView): void {
-    setWorkflowView(view); setConfirmedPeriod("today"); setQuery(""); setCompletedCash(null); setRouteActionMessage("");
+    setWorkflowView(view); setConfirmedPeriod("today"); setQuery(""); setCompletedCash(null); setRouteActionMessage(""); setRouteUndo(null);
     if (view === "review") setReviewMethod(pendingCashCount > 0 ? "cash" : reviewCounts.bank > 0 ? "bank" : reviewCounts.mixed > 0 ? "mixed" : "cash");
     setRouteFilter(ALL_ACTIVE_ROUTE_FILTER); setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel("");
   }
@@ -792,6 +833,7 @@ export default function RouteSearchPage({
         </div>
       </header>
 
+      {workflowView === "work" ? <RouteTeamSummary workItems={workItems} reports={reports} confirmedToday={confirmedToday} /> : null}
       <details className="route-collection-cash-summary"><summary>Efectivo pendiente de entrega</summary><RoutePendingCashPanel payments={payments} dateKey={businessDateKey} loading={paymentsLoading} /></details>
       <div className="route-search-workflow-tabs" aria-label="Estado de las unidades">
         {([['work', 'Trabajo', workItems.length], ['review', 'En revisión', reports.filter((r) => r.status === 'review').length], ['partial', 'Pagos parciales a revisar', partialReviewItems.length], ['confirmed', 'Pagos confirmados', confirmedToday.length], ['custody', 'Vehículo en custodia', custodyItems.length]] as const).map(([view, label, count]) => (
@@ -829,11 +871,15 @@ export default function RouteSearchPage({
       {lastRefreshAt ? <p className="route-search-refresh">Ultima actualizacion: {lastRefreshAt}</p> : null}
       {error ? <p className="error-text">{error}</p> : null}
       {changeRouteError ? <p className="error-text" role="alert">{changeRouteError}</p> : null}
+      {inactiveError ? <p className="error-text" role="alert">{inactiveError}</p> : null}
       {zoneError ? <p className="error-text" role="alert">{zoneError}</p> : null}
       {commentError ? <p className="error-text" role="alert">{commentError}</p> : null}
       {shareMessage ? <p className="route-search-share-message" role="status">{shareMessage}</p> : null}
       {paymentMessage ? <p className="route-search-payment-message" role="status">{paymentMessage}</p> : null}
-      {routeActionMessage ? <p className="route-search-action-message" role="status">{routeActionMessage}</p> : null}
+      {routeActionMessage ? <div className="route-search-action-message" role="status">
+        <span>{routeActionMessage}</span>
+        {routeUndo && routeActionMessage === `${routeUndo.item.unitId} cambió a ${routeUndo.current}.` ? <button type="button" className="button ghost small" disabled={changingRoute !== null} onClick={() => void undoRouteChange()}>{changingRoute ? "Deshaciendo…" : "Deshacer"}</button> : null}
+      </div> : null}
       <details className="route-collection-filters"><summary>Filtrar por ruta y zona{routeFilter !== ALL_ACTIVE_ROUTE_FILTER ? ' · ' + activeRouteFilterLabel(routeFilter) + (zoneFilterLabel ? ' · ' + zoneFilterLabel : '') : ''}</summary>
       {routeFilterOptions.length > 0 ? (
         <div className="route-search-filter-block">
@@ -921,6 +967,7 @@ export default function RouteSearchPage({
               zoneOptions={(zoneOptionsByRoute.get(activeRouteFilterValue(item.routeAssignment)) ?? []).filter(option => option.value !== EMPTY_ACTIVE_ZONE_FILTER).map(option => option.label)}
               comment={commentDrafts[item.clientId] ?? item.comment ?? ""} commentSaving={Boolean(commentSavingByClient[item.clientId]) || !dataOwnerUserId}
               changingRoute={changingRoute !== null}
+              inactiveSaving={Boolean(inactiveSavingByClient[item.clientId])} elapsedNow={elapsedNow}
               canReturnReport={Boolean(item.report?.status === "review" && canReportPayment && (item.report.reported_by === currentUserId || canRemoveFromRoute))}
               bankNotices={!item.report ? bankNoticesByClient.get(item.clientId) ?? [] : []}
               onReport={() => { setReportTarget(item); setReportAmount(""); setReportMethod(""); setReportCashAmount(""); setReportBankAmount(""); setReportError(""); }}
@@ -932,7 +979,7 @@ export default function RouteSearchPage({
               onReturnReport={() => { if (item.report) void returnReport(item.report); }}
               onZone={value => { setZoneError(""); setZoneDrafts(current => ({ ...current, [item.clientId]: value })); }} onSaveZone={() => void commitZone(item)}
               onComment={value => { setCommentError(""); setCommentDrafts(current => ({ ...current, [item.clientId]: value.slice(0, 25) })); }} onSaveComment={() => void commitComment(item)}
-              onRoute={route => void changeTeam(item, route)} />;
+              onRoute={route => void changeTeam(item, route)} onInactive={() => void toggleInactive(item)} />;
           })}
         </div>
       )}
