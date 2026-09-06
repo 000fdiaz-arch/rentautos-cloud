@@ -123,7 +123,14 @@ export default function RouteSearchPage({
   canRemoveFromRoute = false,
   onRegisterPayment
 }: RouteSearchPageProps) {
-  const businessDateKey = getBusinessDateKey();
+  const [businessDateKey, setBusinessDateKey] = useState(() => getBusinessDateKey());
+  useEffect(() => {
+    const updateDay = () => setBusinessDateKey(getBusinessDateKey());
+    const timer = window.setInterval(updateDay, 30000);
+    window.addEventListener("focus", updateDay);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", updateDay); };
+  }, []);
+  const [confirmedPeriod, setConfirmedPeriod] = useState<"today" | "previous">("today");
   const [items, setItems] = useState<ActiveRouteItem[]>([]);
   const [reports, setReports] = useState<RoutePaymentReport[]>([]);
   const [workflowView, setWorkflowView] = useState<RouteWorkflowView>("work");
@@ -326,15 +333,23 @@ export default function RouteSearchPage({
     }))
   ), [items, payments, businessDateKey, reports]);
 
+  const confirmedReports = useMemo(() => reports.filter(report => report.status === "confirmed"), [reports]);
+  const confirmedToday = useMemo(() => confirmedReports.filter(report => {
+    const date = new Date(report.confirmed_at || report.reported_at);
+    return !Number.isNaN(date.getTime()) && getBusinessDateKey(date) === businessDateKey;
+  }), [confirmedReports, businessDateKey]);
+  const confirmedPrevious = useMemo(() => confirmedReports.filter(report => !confirmedToday.includes(report)), [confirmedReports, confirmedToday]);
+  const visibleConfirmedReports = confirmedPeriod === "today" ? confirmedToday : confirmedPrevious;
+
   const activeItems = useMemo<Array<ActiveRouteItem & { report?: RoutePaymentReport }>>(() => (
-    workflowView === "work" ? workItems : workflowView === "custody" ? custodyItems : workflowView === "partial" ? partialReviewItems : reports.filter((report) => report.status === workflowView)
+    workflowView === "work" ? workItems : workflowView === "custody" ? custodyItems : workflowView === "partial" ? partialReviewItems : (workflowView === "confirmed" ? visibleConfirmedReports : reports.filter((report) => report.status === workflowView))
       .map((report) => ({ ...report.snapshot, inCustody: items.some((item) => item.clientId === report.client_id && item.publishedAt === report.published_at && item.inCustody), report }))
-  ), [workflowView, workItems, partialReviewItems, reports, custodyItems, items]);
+  ), [workflowView, workItems, partialReviewItems, reports, custodyItems, items, visibleConfirmedReports]);
   const pendingCashCount = reports.filter(isPendingCashRouteReport).length;
   const reviewCounts = { cash: reports.filter((report) => report.status === "review" && report.method === "cash").length, bank: reports.filter((report) => report.status === "review" && report.method === "bank").length, mixed: reports.filter((report) => report.status === "review" && report.method === "mixed").length };
 
   function openWorkflow(view: RouteWorkflowView): void {
-    setWorkflowView(view); setQuery(""); setCompletedCash(null); setRouteActionMessage("");
+    setWorkflowView(view); setConfirmedPeriod("today"); setQuery(""); setCompletedCash(null); setRouteActionMessage("");
     if (view === "review") setReviewMethod(pendingCashCount > 0 ? "cash" : reviewCounts.bank > 0 ? "bank" : reviewCounts.mixed > 0 ? "mixed" : "cash");
     setRouteFilter(ALL_ACTIVE_ROUTE_FILTER); setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel("");
   }
@@ -779,7 +794,7 @@ export default function RouteSearchPage({
 
       <details className="route-collection-cash-summary"><summary>Efectivo pendiente de entrega</summary><RoutePendingCashPanel payments={payments} dateKey={businessDateKey} loading={paymentsLoading} /></details>
       <div className="route-search-workflow-tabs" aria-label="Estado de las unidades">
-        {([['work', 'Trabajo', workItems.length], ['review', 'En revisión', reports.filter((r) => r.status === 'review').length], ['partial', 'Pagos parciales a revisar', partialReviewItems.length], ['confirmed', 'Pagos confirmados', reports.filter((r) => r.status === 'confirmed').length], ['custody', 'Vehículo en custodia', custodyItems.length]] as const).map(([view, label, count]) => (
+        {([['work', 'Trabajo', workItems.length], ['review', 'En revisión', reports.filter((r) => r.status === 'review').length], ['partial', 'Pagos parciales a revisar', partialReviewItems.length], ['confirmed', 'Pagos confirmados', confirmedToday.length], ['custody', 'Vehículo en custodia', custodyItems.length]] as const).map(([view, label, count]) => (
           <button type="button" key={view} className={`button ${workflowView === view ? 'primary' : 'ghost'}`} aria-pressed={workflowView === view}
             onClick={() => openWorkflow(view)}>
             {label} ({count})
@@ -788,6 +803,10 @@ export default function RouteSearchPage({
       </div>
       {workflowView === "review" ? <div className="route-search-filters route-collection-methods" aria-label="Filtrar pagos en revisión">
         {([["cash", "Efectivo pendiente"], ["bank", "Banca"], ["mixed", "Mixtos"]] as const).map(([method, label]) => <button key={method} type="button" className={reviewMethod === method ? "is-active" : ""} aria-pressed={reviewMethod === method} onClick={() => { setReviewMethod(method); setQuery(""); }}>{label} ({reviewCounts[method]})</button>)}
+      </div> : null}
+      {workflowView === "confirmed" ? <div className="route-search-filters route-collection-methods" aria-label="Fecha de confirmación">
+        {([["today", "Hoy", confirmedToday.length], ["previous", "Ver anteriores", confirmedPrevious.length]] as const).map(([period, label, count]) => <button key={period} type="button" className={confirmedPeriod === period ? "is-active" : ""} aria-pressed={confirmedPeriod === period} onClick={() => { setConfirmedPeriod(period); setQuery(""); setRouteFilter(ALL_ACTIVE_ROUTE_FILTER); setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel(""); }}>{label} ({count})</button>)}
+        <span>{confirmedPeriod === "today" ? "Confirmados hoy · Hora de Panamá" : "Historial de confirmaciones anteriores · Recibos disponibles"}</span>
       </div> : null}
       {reportsError ? <p className="error-text" role="alert">{reportsError}</p> : null}
 

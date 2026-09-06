@@ -5,7 +5,8 @@ import { chromium } from 'playwright';
 const base='http://127.0.0.1:4203',pub='2026-09-05T12:00:00Z';
 const amounts={A10:40,B79:68,C10:90,D92:204,T18:55};
 const active=Object.entries(amounts).map(([unit,amount])=>({client_id:unit,in_custody:unit==='T18',custody_since:pub,data:{clientId:unit,unitId:unit,clientName:unit+' Cliente',releaseAmount:amount,routeAssignment:'PTY',publishedAt:pub,routeStartedAt:pub,overdueBalance:200,daysLate:2,rentAmount:34,partialDecisionRentAmount:unit==='A10'?32:undefined}}));
-const reports=['A10','B79','C10','D92'].map(unit=>({id:unit,client_id:unit,published_at:pub,snapshot:active.find(x=>x.client_id===unit).data,status:['A10','B79'].includes(unit)?'confirmed':'review',method:'cash',amount:amounts[unit],cash_amount:amounts[unit],confirmed_cash_amount:['A10','B79'].includes(unit)?amounts[unit]:0,bank_amount:0,confirmed_bank_amount:0,reported_at:pub}));
+const reports=['A10','B79','C10','D92'].map(unit=>({id:unit,client_id:unit,published_at:pub,snapshot:active.find(x=>x.client_id===unit).data,status:['A10','B79'].includes(unit)?'confirmed':'review',method:'cash',amount:amounts[unit],cash_amount:amounts[unit],confirmed_cash_amount:['A10','B79'].includes(unit)?amounts[unit]:0,bank_amount:0,confirmed_bank_amount:0,reported_at:pub,confirmed_at:['A10','B79'].includes(unit)?new Date().toISOString():null}));
+reports.push({...reports[1],id:'historical',client_id:'OLD',snapshot:{...reports[1].snapshot,clientId:'OLD',unitId:'OLD'},confirmed_at:'2020-01-01T12:00:00Z'});
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4203','--strictPort'],{windowsHide:true,stdio:'pipe',env:{...process.env,VITE_SUPABASE_URL:'https://tests.invalid',VITE_SUPABASE_ANON_KEY:'synthetic'}});
 let browser;
 try{
@@ -33,6 +34,15 @@ try{
       await panel.getByRole('button',{name:label,exact:true}).click();
       snapshot.views[label]=await panel.locator('.route-collection-card').allInnerTexts();
     }
+    await panel.getByRole('button',{name:'Pagos confirmados (2)',exact:true}).click();
+    assert.equal(await panel.locator('.route-collection-card').count(),2);
+    await panel.getByRole('button',{name:'Ver anteriores (1)',exact:true}).click();
+    assert.equal(await panel.locator('.route-collection-card').count(),1);
+    assert.match(await panel.locator('.route-collection-card').innerText(),/OLD/);
+    await panel.getByRole('button',{name:'Ver recibo',exact:true}).waitFor();
+    await panel.getByRole('button',{name:'Trabajo (1)',exact:true}).click();
+    await panel.getByRole('button',{name:'Pagos confirmados (2)',exact:true}).click();
+    assert.equal(await panel.locator('.route-collection-card').count(),2);
     snapshots.push(snapshot);
     mkdirSync('.tmp/route-parity',{recursive:true});
     await panel.getByRole('button',{name:'Trabajo (1)',exact:true}).click();
@@ -48,5 +58,12 @@ try{
   assert.equal(await page.getByLabel('Mínimo original para liberar',{exact:true}).inputValue(),'40');
   await page.getByText('$8.00',{exact:true}).waitFor();
   await page.screenshot({path:'.tmp/route-parity/accounts-editor.png',fullPage:true});
+  await page.clock.install({time:new Date()});
+  await page.clock.setSystemTime(new Date(Date.now()+24*60*60*1000));
+  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+  await page.getByRole('button',{name:'Pagos confirmados (0)',exact:true}).click();
+  assert.equal(await page.locator('.route-collection-card').count(),0);
+  await page.getByRole('button',{name:'Ver anteriores (3)',exact:true}).click();
+  assert.equal(await page.locator('.route-collection-card').count(),3);
   assert.deepEqual(errors,[]);console.log('OK: both screens have identical tabs, units, amounts, review precedence and custody; B79 released by two partials, A10 remaining $8');
 }finally{await browser?.close();server.kill();}
