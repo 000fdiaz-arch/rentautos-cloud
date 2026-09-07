@@ -205,6 +205,17 @@ export async function loadCloudPaymentsRecent(userId: string, limit = 300): Prom
   return dedupeLoad(`payments-recent:${userId}:${safeLimit}`, () => loadCloudPaymentsRecentUncached(userId, safeLimit));
 }
 
+export async function loadCloudPendingCashPayments(userId: string, throughDate: string): Promise<Payment[]> {
+  return dedupeLoad(`payments-pending-cash:${userId}:${throughDate}`, async () => {
+    const { data, error } = await getCloudClient().rpc("read_pending_cash_payments", {
+      p_user_id: userId,
+      p_through_date: throughDate
+    });
+    if (error) throw error;
+    return (data ?? []) as Payment[];
+  });
+}
+
 async function loadCloudPaymentsRecentUncached(userId: string, safeLimit: number): Promise<Payment[]> {
   const client = getCloudClient();
   let rows: PaymentDataRow[];

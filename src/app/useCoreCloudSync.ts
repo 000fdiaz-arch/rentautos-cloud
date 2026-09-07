@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
   loadCloudClients,
+  loadCloudPendingCashPayments,
   loadCloudPayments,
   loadCloudPaymentsRecent,
   normalizeCloudClient,
@@ -9,6 +10,7 @@ import {
   syncCloudClientsDelta,
   syncCloudPaymentsDelta
 } from "../cloudData";
+import { getBusinessDateKey } from "../billing";
 import { disableCloudMirror, initializeCloudMirror } from "../cloudMirror";
 import { supabase } from "../lib/supabase";
 import { isSupabaseOnlyMode } from "../persistenceMode";
@@ -76,6 +78,14 @@ async function measureAsync<T>(label: string, task: () => Promise<T>): Promise<T
   } finally {
     console.info(`[Rentautos perf] ${label}: ${Math.round(performance.now() - startedAt)}ms`);
   }
+}
+
+async function loadRecentAndPendingCloudPayments(ownerUserId: string): Promise<Payment[]> {
+  const [recentPayments, pendingCashPayments] = await Promise.all([
+    loadCloudPaymentsRecent(ownerUserId, INITIAL_PAYMENTS_LIMIT),
+    loadCloudPendingCashPayments(ownerUserId, getBusinessDateKey())
+  ]);
+  return mergeById(recentPayments, pendingCashPayments);
 }
 
 export function useCoreCloudSync({
@@ -316,7 +326,7 @@ export function useCoreCloudSync({
         setSyncStatus("syncing");
         const [cloudClients, cloudPayments] = await measureAsync("initial cloud core load", () => Promise.all([
           measureAsync("load clients", () => loadCloudClients(ownerUserId)),
-          measureAsync("load recent payments", () => loadCloudPaymentsRecent(ownerUserId, INITIAL_PAYMENTS_LIMIT))
+          measureAsync("load recent and pending payments", () => loadRecentAndPendingCloudPayments(ownerUserId))
         ]));
         if (cancelled) return;
         const bootstrapClients = isSupabaseOnlyMode
@@ -370,7 +380,7 @@ export function useCoreCloudSync({
       try {
         const [cloudClients, cloudPayments] = await Promise.all([
           loadCloudClients(ownerUserId),
-          loadCloudPaymentsRecent(ownerUserId, INITIAL_PAYMENTS_LIMIT)
+          loadRecentAndPendingCloudPayments(ownerUserId)
         ]);
         if (cancelled) return;
         const repaired = isReadOnly
@@ -445,7 +455,7 @@ export function useCoreCloudSync({
           setFullPaymentHistoryLoaded(true);
         } catch (error) {
           console.error("No se pudo cargar historial completo; se intentara cargar pagos recientes.", error);
-          refreshedPayments = await loadCloudPaymentsRecent(ownerUserId, INITIAL_PAYMENTS_LIMIT);
+          refreshedPayments = await loadRecentAndPendingCloudPayments(ownerUserId);
           usedRecentFallback = true;
           setFullPaymentHistoryLoaded(false);
         }
