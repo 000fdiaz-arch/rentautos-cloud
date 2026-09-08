@@ -2,6 +2,19 @@ import type { ActiveRouteItem } from "./cloudData";
 import type { Payment } from "./types";
 import type { RoutePaymentReport } from "./cloud/routeReportCloudData";
 
+function routeReportBusinessDateKey(value: string): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Panama",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
 export function isPendingCashRouteReport(report?: RoutePaymentReport): boolean {
   return report?.status === "review" && report.method === "cash" && report.confirmed_cash_amount === 0;
 }
@@ -43,7 +56,14 @@ export function getRouteWorkItems(items: ActiveRouteItem[], payments: Payment[],
     if (item.removedAt || item.inCustody || hasPendingPartialRouteDecision(payments, item, dateKey)) return false;
     if (item.releaseAmount > 0 && routeRentAmountForDay(payments, item, dateKey) >= item.releaseAmount) return false;
     const currentReports = reports.filter(report => report.client_id === item.clientId && report.published_at === item.publishedAt);
-    return !currentReports.some(report => report.status === "review")
-      && (currentReports.length === 0 || hasAcknowledgedPartialRouteDecision(payments, item, dateKey));
+    if (currentReports.some(report => report.status === "review")) return false;
+    const hasConfirmedReportToday = currentReports.some(report => {
+      if (report.status !== "confirmed") return false;
+      const confirmedAt = report.confirmed_at || report.reported_at;
+      if (!confirmedAt) return true;
+      const confirmedDateKey = routeReportBusinessDateKey(confirmedAt);
+      return confirmedDateKey === null || confirmedDateKey === dateKey;
+    });
+    return !hasConfirmedReportToday || hasAcknowledgedPartialRouteDecision(payments, item, dateKey);
   });
 }

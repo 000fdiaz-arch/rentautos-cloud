@@ -31,3 +31,7 @@ assert.equal(getRouteWorkItems([{...item,partialDecisionRentAmount:20}],payments
 assert.equal(getActiveRouteReviewItems([item],payments,day,[cash]).length,0,'A pending report takes precedence over a partial decision');
 assert.equal(getRouteWorkItems([item],payments,day,[cash]).length,0);
 assert.equal(getRouteWorkItems([{...item,inCustody:true}],[],day,[]).length,0);
+const confirmedToday = {...cash,status:'confirmed',confirmed_at:'2026-09-05T15:00:00Z'};
+const confirmedPreviousDay = {...confirmedToday,confirmed_at:'2026-09-04T15:00:00Z'};
+assert.equal(getRouteWorkItems([item],[],day,[confirmedToday]).length,0,'A confirmation from today remains outside Work while payments synchronize');
+assert.equal(getRouteWorkItems([item],[],day,[confirmedPreviousDay]).length,1,'A prior-day confirmation must not hide a unit that is still active in route');
