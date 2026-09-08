@@ -14,9 +14,9 @@ import {
   getPartialMissingLabel,
   diffDays,
   findDebtStartDateForReceipt,
-  findNextPaymentDateForReceipt,
   getPaymentInstallmentsAgreedSnapshot,
   roundMoney,
+  resolveFutureAdvanceReceiptState,
   type CoveredPaymentRow
 } from "./paymentReceiptRules";
 
@@ -220,12 +220,12 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
   const hasMoroseBalance = moroseBalanceToday > 0;
   const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
   const nextChargeDate = normalizedRent > 0 ? findNextChargeDay(minimalClientWithoutAdvance, paymentDate) : null;
-  const matchingAccountClient = accountClient && accountClient.id === payment.clientId ? accountClient : undefined;
-  const nextPaymentDate = normalizedRent > 0
-    ? matchingAccountClient
-      ? findNextChargeDay(matchingAccountClient, paymentDate)
-      : findNextPaymentDateForReceipt(payment)
-    : null;
+  const matchingAccountClient = accountClient && (
+    accountClient.id === payment.clientId ||
+    accountClient.unitId.trim().toUpperCase() === payment.clientUnit.trim().toUpperCase()
+  ) ? accountClient : undefined;
+  const futureAdvanceState = resolveFutureAdvanceReceiptState(payment, matchingAccountClient);
+  const nextPaymentDate = normalizedRent > 0 ? futureAdvanceState.targetDate : null;
   const debtStartDate = normalizedRent > 0 && hasMoroseBalance ? findDebtStartDateForReceipt(payment, paymentDate) : null;
   const badgeDate = hasMoroseBalance ? debtStartDate : nextPaymentDate;
   const badgeDaysDelta = badgeDate ? diffDays(paymentDate, badgeDate) : null;
@@ -242,20 +242,18 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
       : (badgeDaysDelta !== null && badgeDaysDelta <= 3 ? "warning" : "success");
   const badgeLabel = hasMoroseBalance ? "Pago vencido desde" : "Próximo pago";
   const badgeText = badgeDate ? `${badgeLabel}: ${formatDate(badgeDate)}` : `${badgeLabel}: por definir`;
-  const advanceAppliedToNextInstallment = normalizedRent > 0 ? roundMoney(Math.min(advanceBalanceAfter, normalizedRent)) : 0;
-  const advanceRemainingForNextInstallment = normalizedRent > 0
-    ? roundMoney(Math.max(0, normalizedRent - advanceAppliedToNextInstallment))
-    : 0;
-  const currentAdvanceRemainder = matchingAccountClient && normalizedRent > 0
-    ? roundMoney(Math.max(0, matchingAccountClient.advanceBalance ?? 0) % normalizedRent)
-    : 0;
-  const currentFuturePendingAmount = matchingAccountClient && matchingAccountClient.balance <= 0 && currentAdvanceRemainder > 0
-    ? roundMoney(normalizedRent - currentAdvanceRemainder)
-    : 0;
+  const advanceAppliedToNextInstallment = futureAdvanceState.hasPartial
+    ? futureAdvanceState.accumulated
+    : normalizedRent > 0 ? roundMoney(Math.min(advanceBalanceAfter, normalizedRent)) : 0;
+  const advanceRemainingForNextInstallment = futureAdvanceState.hasPartial
+    ? futureAdvanceState.remaining
+    : normalizedRent > 0 ? roundMoney(Math.max(0, normalizedRent - advanceAppliedToNextInstallment)) : 0;
+  const currentFuturePendingAmount = futureAdvanceState.hasPartial ? futureAdvanceState.remaining : 0;
+  const advanceTargetDate = futureAdvanceState.hasPartial ? futureAdvanceState.targetDate : nextChargeDate;
   const hasAdvancePanel = advanceApplied > 0 && normalizedRent > 0;
   const hasAdvancePendingForNextInstallment = hasAdvancePanel && advanceRemainingForNextInstallment > 0;
   const appliedToCurrentRent = roundMoney(Math.max(0, payment.appliedToRent));
-  const advanceDaysBeforeDue = nextChargeDate ? diffDays(paymentDate, nextChargeDate) : null;
+  const advanceDaysBeforeDue = advanceTargetDate ? diffDays(paymentDate, advanceTargetDate) : null;
   const isFutureAdvancePayment = hasAdvancePanel && advanceDaysBeforeDue !== null && advanceDaysBeforeDue > 0;
   const isAdvanceOnlyRentPayment = isFutureAdvancePayment && appliedToCurrentRent <= 0 && !hasMoroseBalance;
   const hasPartialForOneAccount =
@@ -350,7 +348,7 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
   }
 
   if (format === "history") {
-    const coveredRows = buildCoveredPaymentRows(payment);
+    const coveredRows = buildCoveredPaymentRows(payment, matchingAccountClient);
     const partialRow = coveredRows.find((row) => row.status === "partial");
     const isAccountFutureAdvancePartial = !hasPending && currentFuturePendingAmount > 0;
     const missingForPartial = partialRow?.amount && normalizedRent > 0
@@ -481,14 +479,14 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
           </div>
         </div>
 
-        {isFutureAdvancePayment && nextChargeDate && (
+        {isFutureAdvancePayment && advanceTargetDate && (
           <div className="receipt-history-advance-banner">
             <div className="receipt-history-advance-head">
               <span>PAGO ADELANTADO</span>
               <strong>{advanceDaysBeforeDue} {advanceDaysBeforeDue === 1 ? "DÍA" : "DÍAS"} ANTES</strong>
             </div>
             <div className="receipt-history-advance-detail">
-              Aplicado por adelantado a la cuota del {formatDateSpanishSingleLine(nextChargeDate).toLowerCase()}.
+              Aplicado por adelantado a la cuota del {formatDateSpanishSingleLine(advanceTargetDate).toLowerCase()}.
             </div>
           </div>
         )}
@@ -753,10 +751,10 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
       {hasAdvancePanel && (
         <div className="receipt-advance-panel">
           <div className="receipt-advance-title">PAGO ADELANTADO</div>
-          {nextChargeDate && (
+          {advanceTargetDate && (
             <div className="receipt-advance-row">
               <span>Próxima letra</span>
-              <strong>{formatDate(nextChargeDate)}</strong>
+              <strong>{formatDate(advanceTargetDate)}</strong>
             </div>
           )}
           <div className="receipt-advance-row">

@@ -29,24 +29,26 @@ const { findNextChargeDay } = loadSource("src/billing.ts");
 const { ReceiptCardContent } = loadSource("src/components/PaymentReceipt.tsx");
 const client = {
   id: "739bf7e3-5dbb-4425-9d89-0a596b8b0d63", unitId: "B01", name: "JEREMY JAMYR OSORIO ARCIA",
-  rentAmount: 299, frequency: "biweekly", balance: 0, advanceBalance: 419, savings: 0.2,
+  rentAmount: 299, frequency: "biweekly", balance: 0, advanceBalance: 429, savings: 0.2,
   installmentsAgreed: 74, installmentsIssued: 12, installmentsPaid: 11, installmentsRemaining: 63,
   otherCharges: [], status: "activo", createdAt: "2026-04-29T09:40:47.468Z"
 };
 const payment = {
-  id: "f9847611-16aa-4c64-b931-006192ccccdb", receiptNumber: "REC-31128", clientId: client.id,
-  clientName: client.name, clientUnit: "B01", dateApplied: "2026-09-07", paymentMethod: "Transferencia Bancaria",
-  amountReceived: 162, appliedToRent: 0, centavosAhorro: 0, balanceBefore: 0, balanceAfter: 0,
-  advanceBalanceAfter: 419, savingsBefore: 0.2, savingsAfter: 0.2, installmentsDeducted: 0,
+  id: "b01-rec-31334", receiptNumber: "REC-31334", clientId: client.id,
+  clientName: client.name, clientUnit: "B01", dateApplied: "2026-09-08", paymentMethod: "Transferencia Bancaria",
+  amountReceived: 10, appliedToRent: 0, centavosAhorro: 0, balanceBefore: 0, balanceAfter: 0,
+  advanceApplied: 10, advanceBalanceAfter: 429, savingsBefore: 0.2, savingsAfter: 0.2, installmentsDeducted: 0,
   installmentsFromDebt: 0, installmentsFromAdvance: 0, installmentsPaidAfter: 11,
-  installmentsRemainingAfter: 63, rentAmount: 299, frequency: "biweekly", createdAt: "2026-09-07T21:25:03.931Z",
-  otherChargesApplied: [{ id: "parts", label: "PIEZAS", amount: 162, createdAt: "2026-09-07" }]
+  installmentsRemainingAfter: 63, rentAmount: 299, frequency: "biweekly", createdAt: "2026-09-08T15:31:00.000Z"
 };
 
-assert.equal(findNextChargeDay(client, new Date("2026-09-07T12:00:00")).toISOString().slice(0, 10), "2026-10-15");
+assert.equal(findNextChargeDay(client, new Date("2026-09-08T12:00:00")).toISOString().slice(0, 10), "2026-10-15");
 const text = renderToStaticMarkup(React.createElement(ReceiptCardContent, { payment, accountClient: client, format: "history" }))
   .replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-assert.ok(text.includes("Restante de la cuota futura Aún no está vencida $179.00"), text);
+assert.ok(text.includes("Aplicado por adelantado a la cuota del jueves 15 de octubre."), text);
+assert.ok(text.includes("Cuota futura · Quincena 15 de octubre Abono adelantado parcial Acumulado $130.00"), text);
+assert.ok(text.includes("Restante de la cuota futura Aún no está vencida $169.00"), text);
 assert.ok(text.includes("Fecha límite de esta cuota Jueves 15 de octubre"), text);
+assert.ok(!text.includes("Quincena 15 de septiembre"), text);
 assert.ok(!text.includes("Saldo pendiente $0.00"), text);
-console.log("OK B01: $419 cubre la cuota emitida y una cuota completa; quedan $179 para el 15 de octubre.");
+console.log("OK B01 REC-31334: aplicación, acumulado, restante y límite coinciden en la cuota del 15 de octubre.");

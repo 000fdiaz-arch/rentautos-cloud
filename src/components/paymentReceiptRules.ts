@@ -3,6 +3,12 @@ import type { Client, Payment } from "../types";
 
 export type CoveredPaymentRow = { dateLabel: string; status: "complete" | "partial"; amount?: number };
 export type PaymentBreakdownRow = { label: string; amount: number };
+export type FutureAdvanceReceiptState = {
+  targetDate: Date | null;
+  accumulated: number;
+  remaining: number;
+  hasPartial: boolean;
+};
 
 export function formatDateSpanish(dateStr: string): string {
   const parts = dateStr.split("-");
@@ -87,6 +93,43 @@ export function findNextPaymentDateForReceipt(payment: Payment): Date | null {
   return findNextChargeDay(asClient(payment, payment.balanceAfter, advanceBalanceAfter), paymentDate);
 }
 
+export function resolveFutureAdvanceReceiptState(payment: Payment, accountClient?: Client): FutureAdvanceReceiptState {
+  const rent = roundMoney(Math.max(0, payment.rentAmount));
+  if (rent <= 0) return { targetDate: null, accumulated: 0, remaining: 0, hasPartial: false };
+
+  const paymentDate = startOfDay(new Date(`${payment.dateApplied}T12:00:00`));
+  const matchingAccountClient = accountClient && (
+    accountClient.id === payment.clientId ||
+    accountClient.unitId.trim().toUpperCase() === payment.clientUnit.trim().toUpperCase()
+  ) ? accountClient : undefined;
+  const effectiveAdvance = roundMoney(Math.max(
+    0,
+    matchingAccountClient?.advanceBalance ?? payment.advanceBalanceAfter ?? payment.advanceApplied ?? 0
+  ));
+  const effectiveBalance = roundMoney(Math.max(0, matchingAccountClient?.balance ?? payment.balanceAfter));
+  const scheduleClient: Client = matchingAccountClient
+    ? {
+      ...matchingAccountClient,
+      rentAmount: rent,
+      frequency: payment.frequency,
+      weeklyChargeDay: payment.weeklyChargeDay ?? matchingAccountClient.weeklyChargeDay,
+      monthlyChargeDay: payment.monthlyChargeDay ?? matchingAccountClient.monthlyChargeDay,
+      chargeFirstSunday: payment.chargeFirstSunday ?? matchingAccountClient.chargeFirstSunday,
+      firstSundayChargedAt: payment.firstSundayChargedAt ?? matchingAccountClient.firstSundayChargedAt,
+      advanceBalance: effectiveAdvance
+    }
+    : asClient(payment, payment.balanceAfter, effectiveAdvance);
+  const remainder = roundMoney(effectiveAdvance % rent);
+  const hasPartial = effectiveBalance <= 0 && remainder > 0;
+
+  return {
+    targetDate: findNextChargeDay(scheduleClient, paymentDate),
+    accumulated: hasPartial ? remainder : 0,
+    remaining: hasPartial ? roundMoney(rent - remainder) : 0,
+    hasPartial
+  };
+}
+
 export function isDebtChargeDayForReceipt(payment: Payment, date: Date): boolean {
   if (payment.frequency !== "daily") return isChargeDay(asClient(payment), date);
   const day = date.getDay();
@@ -131,7 +174,7 @@ function chargeDates(startDate: Date | null, count: number, payment: Payment): D
   return dates;
 }
 
-export function buildCoveredPaymentRows(payment: Payment): CoveredPaymentRow[] {
+export function buildCoveredPaymentRows(payment: Payment, accountClient?: Client): CoveredPaymentRow[] {
   const rent = roundMoney(Math.max(0, payment.rentAmount));
   if (rent <= 0) return [];
   const fromDebt = Math.max(0, payment.installmentsFromDebt ?? payment.installmentsDeducted ?? 0);
@@ -150,11 +193,11 @@ export function buildCoveredPaymentRows(payment: Payment): CoveredPaymentRow[] {
     const date = debtStart(payment, payment.balanceAfter, paymentDate);
     rows.push({ dateLabel: date ? formatCycle(date, payment) : "Cuenta pendiente", status: "partial", amount: roundMoney(rent - partialDebt) });
   } else {
-    const advanceApplied = roundMoney(Math.max(0, payment.advanceApplied ?? 0));
-    const remainder = roundMoney(Math.max(0, payment.advanceBalanceAfter ?? advanceApplied) % rent);
-    if (advanceApplied > 0 && remainder > 0) {
-      const date = findNextChargeDay(client, paymentDate);
-      rows.push({ dateLabel: date ? formatCycle(date, payment) : "Próxima cuenta", status: "partial", amount: remainder });
+    const receiptAdvanceApplied = roundMoney(Math.max(0, payment.advanceApplied ?? 0));
+    const futureAdvance = resolveFutureAdvanceReceiptState(payment, accountClient);
+    if (receiptAdvanceApplied > 0 && futureAdvance.hasPartial) {
+      const date = futureAdvance.targetDate ?? nextAdvanceDate ?? findNextChargeDay(client, paymentDate);
+      rows.push({ dateLabel: date ? formatCycle(date, payment) : "Próxima cuenta", status: "partial", amount: futureAdvance.accumulated });
     }
   }
   return rows.slice(0, 4);
