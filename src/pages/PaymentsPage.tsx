@@ -131,7 +131,7 @@ export default function PaymentsPage({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [historyFocusRequest, setHistoryFocusRequest] = useState<HistoryFocusRequest | null>(null);
-  const [historyPreviewPayment, setHistoryPreviewPayment] = useState<Payment | null>(null);
+  const [historyPreview, setHistoryPreview] = useState<{ payment: Payment; accountClient?: Client } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
   const [bulkDeleteTargets, setBulkDeleteTargets] = useState<Payment[]>([]);
   const {
@@ -949,15 +949,16 @@ export default function PaymentsPage({
         isDateClosed={isDateClosed}
         getGroupCode={extractGroupCodeFromUnit}
         focusRequest={historyFocusRequest}
-        onPreviewPayment={setHistoryPreviewPayment}
+        onPreviewPayment={(payment, accountClient) => setHistoryPreview({ payment, accountClient })}
         onDeletePayment={readOnly ? undefined : setDeleteTarget}
         onDeletePayments={readOnly ? undefined : setBulkDeleteTargets}
         readOnly={readOnly}
       />
 
       <PaymentPreviewDialog
-        payment={historyPreviewPayment}
-        onClose={() => setHistoryPreviewPayment(null)}
+        payment={historyPreview?.payment ?? null}
+        accountClient={historyPreview?.accountClient}
+        onClose={() => setHistoryPreview(null)}
       />
 
       {!readOnly && <ReopenCashDialog

@@ -40,7 +40,7 @@ type Props = {
   isDateClosed: (dateKey: string) => boolean;
   getGroupCode: (unitId: string) => string;
   focusRequest: HistoryFocusRequest | null;
-  onPreviewPayment: (payment: Payment) => void;
+  onPreviewPayment: (payment: Payment, accountClient?: Client) => void;
   onDeletePayment?: (payment: Payment) => void;
   onDeletePayments?: (payments: Payment[]) => void;
   readOnly?: boolean;
@@ -385,6 +385,11 @@ function toggleSelectAllHistoryRows(): void {
   setHistorySelectedPaymentIds(historyRows.map((row) => row.id));
 }
 
+function findAccountClient(payment: Payment): Client | undefined {
+  return activeClients.find((client) => client.id === payment.clientId)
+    ?? activeClients.find((client) => client.unitId.trim().toUpperCase() === payment.clientUnit.trim().toUpperCase());
+}
+
 async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
   if (historyCopyingPaymentId) return;
 
@@ -397,7 +402,7 @@ async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
   });
 
   try {
-    await copyHistoryPaymentReceiptImage(payment);
+    await copyHistoryPaymentReceiptImage(payment, findAccountClient(payment));
     setHistoryCopiedPaymentIds((previous) => {
       if (previous.has(payment.id)) return previous;
       const next = new Set(previous);
@@ -782,7 +787,7 @@ function handleRepairTodayPaymentDates(): void {
                             type="button"
                             className="action-btn action-btn--edit"
                             title="Vista previa del recibo"
-                            onClick={() => onPreviewPayment(p)}
+                            onClick={() => onPreviewPayment(p, findAccountClient(p))}
                           >Ver</button>
                         </td>
                         <td className="history-send-cell">

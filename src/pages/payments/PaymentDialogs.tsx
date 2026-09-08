@@ -1,20 +1,22 @@
 import type { Dispatch, SetStateAction } from "react";
 import PaymentReceipt from "../../components/PaymentReceipt";
 import { formatCurrency } from "../../format";
-import type { Payment } from "../../types";
+import type { Client, Payment } from "../../types";
 
 type PaymentPreviewDialogProps = {
   payment: Payment | null;
+  accountClient?: Client;
   onClose: () => void;
 };
 
-export function PaymentPreviewDialog({ payment, onClose }: PaymentPreviewDialogProps) {
+export function PaymentPreviewDialog({ payment, accountClient, onClose }: PaymentPreviewDialogProps) {
   if (!payment) return null;
   return (
     <div className="modal-overlay">
       <div className="modal payment-receipt-modal">
         <PaymentReceipt
           payment={payment}
+          accountClient={accountClient}
           onClose={onClose}
           closeLabel="Cerrar vista previa"
           receiptFormat="history"

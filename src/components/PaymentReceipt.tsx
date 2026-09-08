@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { inlineComputedStylesForCanvas } from "../canvasExportStyles";
 import { formatCurrency, formatDate } from "../format";
 import { findNextChargeDay, startOfDay } from "../billing";
-import type { Payment } from "../types";
+import type { Client, Payment } from "../types";
 import {
   buildCoveredPaymentRows,
   buildReceiptFileName,
@@ -22,6 +22,7 @@ import {
 
 type Props = {
   payment: Payment;
+  accountClient?: Client;
   onClose: () => void;
   closeLabel?: string;
   receiptFormat?: ReceiptFormat;
@@ -31,6 +32,7 @@ export type ReceiptFormat = "standard" | "history";
 
 type ReceiptRenderOptions = {
   format?: ReceiptFormat;
+  accountClient?: Client;
 };
 
 const RECEIPT_IMAGE_SCALE = 3;
@@ -56,7 +58,7 @@ async function renderReceiptCanvasFromPayment(payment: Payment, options: Receipt
       <div className="receipt-page">
         <div className={options.format === "history" ? "receipt-export-frame" : undefined}>
           <div className={options.format === "history" ? "receipt-card receipt-card--history receipt-card--image-export" : "receipt-card"}>
-            <ReceiptCardContent payment={payment} format={options.format ?? "standard"} />
+            <ReceiptCardContent payment={payment} format={options.format ?? "standard"} accountClient={options.accountClient} />
           </div>
         </div>
       </div>
@@ -148,11 +150,11 @@ export async function copyPaymentReceiptImage(payment: Payment, options: Receipt
   ]);
 }
 
-export async function copyHistoryPaymentReceiptImage(payment: Payment): Promise<void> {
-  await copyPaymentReceiptImage(payment, { format: "history" });
+export async function copyHistoryPaymentReceiptImage(payment: Payment, accountClient?: Client): Promise<void> {
+  await copyPaymentReceiptImage(payment, { format: "history", accountClient });
 }
 
-export function ReceiptCardContent({ payment, format = "standard" }: { payment: Payment; format?: ReceiptFormat }) {
+export function ReceiptCardContent({ payment, format = "standard", accountClient }: { payment: Payment; format?: ReceiptFormat; accountClient?: Client }) {
   const isProvisionalRental = payment.paymentContext === "provisional_rental";
   const weeklyDayLabel =
     payment.weeklyChargeDay === "monday"
@@ -218,7 +220,12 @@ export function ReceiptCardContent({ payment, format = "standard" }: { payment: 
   const hasMoroseBalance = moroseBalanceToday > 0;
   const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
   const nextChargeDate = normalizedRent > 0 ? findNextChargeDay(minimalClientWithoutAdvance, paymentDate) : null;
-  const nextPaymentDate = normalizedRent > 0 ? findNextPaymentDateForReceipt(payment) : null;
+  const matchingAccountClient = accountClient && accountClient.id === payment.clientId ? accountClient : undefined;
+  const nextPaymentDate = normalizedRent > 0
+    ? matchingAccountClient
+      ? findNextChargeDay(matchingAccountClient, paymentDate)
+      : findNextPaymentDateForReceipt(payment)
+    : null;
   const debtStartDate = normalizedRent > 0 && hasMoroseBalance ? findDebtStartDateForReceipt(payment, paymentDate) : null;
   const badgeDate = hasMoroseBalance ? debtStartDate : nextPaymentDate;
   const badgeDaysDelta = badgeDate ? diffDays(paymentDate, badgeDate) : null;
@@ -238,6 +245,12 @@ export function ReceiptCardContent({ payment, format = "standard" }: { payment: 
   const advanceAppliedToNextInstallment = normalizedRent > 0 ? roundMoney(Math.min(advanceBalanceAfter, normalizedRent)) : 0;
   const advanceRemainingForNextInstallment = normalizedRent > 0
     ? roundMoney(Math.max(0, normalizedRent - advanceAppliedToNextInstallment))
+    : 0;
+  const currentAdvanceRemainder = matchingAccountClient && normalizedRent > 0
+    ? roundMoney(Math.max(0, matchingAccountClient.advanceBalance ?? 0) % normalizedRent)
+    : 0;
+  const currentFuturePendingAmount = matchingAccountClient && matchingAccountClient.balance <= 0 && currentAdvanceRemainder > 0
+    ? roundMoney(normalizedRent - currentAdvanceRemainder)
     : 0;
   const hasAdvancePanel = advanceApplied > 0 && normalizedRent > 0;
   const hasAdvancePendingForNextInstallment = hasAdvancePanel && advanceRemainingForNextInstallment > 0;
@@ -339,6 +352,7 @@ export function ReceiptCardContent({ payment, format = "standard" }: { payment: 
   if (format === "history") {
     const coveredRows = buildCoveredPaymentRows(payment);
     const partialRow = coveredRows.find((row) => row.status === "partial");
+    const isAccountFutureAdvancePartial = !hasPending && currentFuturePendingAmount > 0;
     const missingForPartial = partialRow?.amount && normalizedRent > 0
       ? roundMoney(Math.max(0, normalizedRent - partialRow.amount))
       : saldoParaBajarCuenta;
@@ -355,7 +369,9 @@ export function ReceiptCardContent({ payment, format = "standard" }: { payment: 
       : 0;
     const rentCompletePendingLabel = rentCompletePendingInstallments === 1 ? "1 cta" : `${rentCompletePendingInstallments} ctas`;
     const shouldShowPartialMissing = partialRow && missingForPartial > 0 && Math.abs(missingForPartial - rentPendingAmount) > 0.009;
-    const partialFuturePendingAmount = !hasPending && partialRow && missingForPartial > 0 ? missingForPartial : 0;
+    const partialFuturePendingAmount = currentFuturePendingAmount > 0
+      ? currentFuturePendingAmount
+      : !hasPending && partialRow && missingForPartial > 0 ? missingForPartial : 0;
     const rentBreakdownQueue = buildRentPaymentBreakdownRows(payment);
     const takeRentAmountForCycle = (row: CoveredPaymentRow): number => {
       const index = rentBreakdownQueue.findIndex((item) => item.label === row.dateLabel);
@@ -573,7 +589,7 @@ export function ReceiptCardContent({ payment, format = "standard" }: { payment: 
           </>
         ) : (
           <>
-            {isAdvanceOnlyRentPayment ? (
+            {isAdvanceOnlyRentPayment || isAccountFutureAdvancePartial ? (
               <div className={`receipt-history-alert ${partialFuturePendingAmount > 0 ? "receipt-history-alert--advance" : "receipt-history-alert--ok"}`}>
                 <span>
                   {partialFuturePendingAmount > 0 ? "Restante de la cuota futura" : "Cuota futura pagada"}
@@ -598,7 +614,7 @@ export function ReceiptCardContent({ payment, format = "standard" }: { payment: 
 
         {!hasPending && (
           <div className="receipt-history-next-date">
-            <span>{isAdvanceOnlyRentPayment && partialFuturePendingAmount > 0 ? "Fecha límite de esta cuota" : "Próxima fecha de pago"}</span>
+            <span>{(isAdvanceOnlyRentPayment || isAccountFutureAdvancePartial) && partialFuturePendingAmount > 0 ? "Fecha límite de esta cuota" : "Próxima fecha de pago"}</span>
             <strong>{nextPaymentDate ? formatDateSpanishSingleLine(nextPaymentDate) : "Por definir"}</strong>
           </div>
         )}
@@ -864,7 +880,7 @@ export function ReceiptCardContent({ payment, format = "standard" }: { payment: 
   );
 }
 
-export default function PaymentReceipt({ payment, onClose, closeLabel = "Registrar otro pago", receiptFormat = "standard" }: Props) {
+export default function PaymentReceipt({ payment, accountClient, onClose, closeLabel = "Registrar otro pago", receiptFormat = "standard" }: Props) {
   const [isCopying, setIsCopying] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -873,7 +889,7 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
     setIsCopying(true);
     setCopyFeedback(null);
     try {
-      await copyPaymentReceiptImage(payment, { format: receiptFormat }, cardRef.current);
+      await copyPaymentReceiptImage(payment, { format: receiptFormat, accountClient }, cardRef.current);
       setCopyFeedback("Imagen copiada.");
     } catch {
       setCopyFeedback("No se pudo copiar la imagen en este navegador.");
@@ -897,12 +913,12 @@ export default function PaymentReceipt({ payment, onClose, closeLabel = "Registr
       {receiptFormat === "history" ? (
         <div ref={cardRef} className="receipt-export-frame">
           <div className="receipt-card receipt-card--history receipt-card--image-export">
-            <ReceiptCardContent payment={payment} format={receiptFormat} />
+            <ReceiptCardContent payment={payment} format={receiptFormat} accountClient={accountClient} />
           </div>
         </div>
       ) : (
         <div ref={cardRef} className="receipt-card">
-          <ReceiptCardContent payment={payment} format={receiptFormat} />
+          <ReceiptCardContent payment={payment} format={receiptFormat} accountClient={accountClient} />
         </div>
       )}
     </div>

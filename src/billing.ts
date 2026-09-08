@@ -243,11 +243,18 @@ export function findNextChargeDay(client: Client, fromDate: Date): Date | null {
   const issuance = resolveInstallmentIssuance(client);
   const agreed = Math.max(0, Math.floor(client.installmentsAgreed));
   if (issuance.issued >= agreed) return null;
+  const paid = Math.max(0, Math.floor(client.installmentsPaid ?? 0));
+  const debtCycles = client.rentAmount > 0
+    ? Math.ceil(Math.max(0, client.balance) / client.rentAmount)
+    : 0;
+  // An issued installment with no matching debt is already accounted for by
+  // the client's available credit. Do not offer that cycle as the next date.
+  const issuedCoveredCharges = Math.max(0, issuance.issued - paid - debtCycles);
   const coveredCharges = Number.isFinite(client.advanceBalance) && client.rentAmount > 0
     ? Math.floor((client.advanceBalance ?? 0) / client.rentAmount)
     : 0;
   if (issuance.issued + coveredCharges >= agreed) return null;
-  let remainingSkips = Math.max(0, coveredCharges);
+  let remainingSkips = Math.max(0, coveredCharges + issuedCoveredCharges);
   const firstChargeDate = client.firstChargeDate ? parseDateKey(client.firstChargeDate) : null;
   const searchStart = firstChargeDate && firstChargeDate > startOfDay(fromDate)
     ? addDays(firstChargeDate, -1)
