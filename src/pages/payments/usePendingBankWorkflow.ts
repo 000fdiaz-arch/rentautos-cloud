@@ -34,6 +34,7 @@ type Options = {
   retentionByClient: OtherChargesRetentionByClient;
   lateFeeSettings?: LateFeeSettings;
   operationalDateKey: string;
+  currentActor: string;
   dataOwnerUserId?: string | null;
   replacePendingBankItems: (items: PendingBankItem[]) => void;
   replaceNotifiedPayments: (items: NotifiedPayment[]) => void;
@@ -59,6 +60,7 @@ export default function usePendingBankWorkflow(options: Options) {
     retentionByClient,
     lateFeeSettings,
     operationalDateKey,
+    currentActor,
     dataOwnerUserId,
     replacePendingBankItems,
     replaceNotifiedPayments,
@@ -207,6 +209,7 @@ export default function usePendingBankWorkflow(options: Options) {
       retentionByClient,
       lateFeeSettings,
       receiptNumber,
+      createdBy: currentActor,
       referenceTag: "AUTO-ALTA-SIMILITUD"
     });
   }
@@ -240,6 +243,7 @@ export default function usePendingBankWorkflow(options: Options) {
         retentionByClient,
         lateFeeSettings,
         receiptNumber,
+        createdBy: currentActor,
         referenceTag: "CLASIFICADO-MANUAL",
         manualOtherChargesInput: pendingOtherChargesInput,
         allowManualOverrideForForcedRule: pendingManualOverrideForcedOtherCharges

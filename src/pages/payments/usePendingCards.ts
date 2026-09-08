@@ -25,6 +25,7 @@ type Options = {
   payments: Payment[];
   pendingBankItems: PendingBankItem[];
   operationalDateKey: string;
+  currentActor: string;
   retentionByClient: OtherChargesRetentionByClient;
   lateFeeSettings?: LateFeeSettings;
   onPaymentsChange: (payments: Payment[]) => void;
@@ -40,6 +41,7 @@ export default function usePendingCards({
   payments,
   pendingBankItems,
   operationalDateKey,
+  currentActor,
   retentionByClient,
   lateFeeSettings,
   onPaymentsChange,
@@ -204,6 +206,7 @@ export default function usePendingCards({
     const projectedClient = allocation.projectedClient;
     const payment: Payment = {
       id: crypto.randomUUID(),
+      createdBy: currentActor,
       receiptNumber: `T-PEND-${Date.now()}`,
       receiptDeliveryStatus: "pending",
       clientId: client.id,

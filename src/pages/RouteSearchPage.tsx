@@ -6,6 +6,7 @@ import { PaymentPreviewDialog } from "./payments/PaymentDialogs";
 import { changeRouteAssignment, cancelRoutePaymentReport, loadRoutePaymentReports, loadRouteReportReceipts, reportRoutePayment, setRouteCustody, setRouteInactiveStatus, type RoutePaymentReport } from "../cloud/routeReportCloudData";
 import {
   ALL_ACTIVE_ROUTE_FILTER,
+  EMPTY_ACTIVE_ROUTE_FILTER,
   activeRouteFilterLabel,
   activeRouteFilterValue,
   compareActiveRouteFilterValues,
@@ -50,6 +51,7 @@ export type RouteSearchPageProps = {
 
 const ALL_ACTIVE_ZONE_FILTER = "__all_zones__";
 const EMPTY_ACTIVE_ZONE_FILTER = "__empty_zone__";
+const STANDARD_ACTIVE_ROUTES = new Set(["PTY", "WC"]);
 
 type ZoneOption = {
   value: string;
@@ -390,9 +392,8 @@ export default function RouteSearchPage({
   const reviewCounts = { cash: reports.filter((report) => report.status === "review" && report.method === "cash").length, bank: reports.filter((report) => report.status === "review" && report.method === "bank").length, mixed: reports.filter((report) => report.status === "review" && report.method === "mixed").length };
 
   function openWorkflow(view: RouteWorkflowView): void {
-    setWorkflowView(view); setConfirmedPeriod("today"); setQuery(""); setCompletedCash(null); setRouteActionMessage(""); setRouteUndo(null);
+    setWorkflowView(view); setConfirmedPeriod("today"); setCompletedCash(null); setRouteActionMessage(""); setRouteUndo(null);
     if (view === "review") setReviewMethod(pendingCashCount > 0 ? "cash" : reviewCounts.bank > 0 ? "bank" : reviewCounts.mixed > 0 ? "mixed" : "cash");
-    setRouteFilter(ALL_ACTIVE_ROUTE_FILTER); setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel("");
   }
 
   const bankNoticesByClient = useMemo(() => {
@@ -403,10 +404,30 @@ export default function RouteSearchPage({
     return grouped;
   }, [bankNotices]);
 
-  const routeFilterOptions = useMemo(() => (
-    Array.from(new Set(activeItems.map((item) => activeRouteFilterValue(item.routeAssignment))))
-      .sort(compareActiveRouteFilterValues)
-  ), [activeItems]);
+  const routeFilterOptions = useMemo(() => {
+    const options = new Set(activeItems.map((item) => activeRouteFilterValue(item.routeAssignment)));
+    if (routeFilter !== ALL_ACTIVE_ROUTE_FILTER) options.add(routeFilter);
+    return Array.from(options).sort(compareActiveRouteFilterValues);
+  }, [activeItems, routeFilter]);
+
+  const extraRouteOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    activeItems
+      .filter((item) => workflowView !== "review" || item.report?.method === reviewMethod)
+      .forEach((item) => {
+        const routeValue = activeRouteFilterValue(item.routeAssignment);
+        if (routeValue === EMPTY_ACTIVE_ROUTE_FILTER || STANDARD_ACTIVE_ROUTES.has(routeValue)) return;
+        counts.set(routeValue, (counts.get(routeValue) ?? 0) + 1);
+      });
+    return Array.from(counts.entries())
+      .sort(([left], [right]) => compareActiveRouteFilterValues(left, right))
+      .map(([value, count]) => ({ value, count }));
+  }, [activeItems, workflowView, reviewMethod]);
+
+  const extraRouteItemCount = useMemo(
+    () => extraRouteOptions.reduce((total, option) => total + option.count, 0),
+    [extraRouteOptions]
+  );
 
   const zoneOptionsByRoute = useMemo(() => {
     const byRoute = new Map<string, Map<string, ZoneOption>>();
@@ -449,12 +470,6 @@ export default function RouteSearchPage({
     }
     return options;
   }, [routeFilter, zoneFilter, zoneFilterLabel, zoneOptionsByRoute]);
-
-  useEffect(() => {
-    if (routeFilter !== ALL_ACTIVE_ROUTE_FILTER && !routeFilterOptions.includes(routeFilter)) {
-      setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
-    }
-  }, [routeFilter, routeFilterOptions]);
 
   useEffect(() => {
     if (routeFilter === ALL_ACTIVE_ROUTE_FILTER) {
@@ -834,6 +849,33 @@ export default function RouteSearchPage({
       </header>
 
       {workflowView === "work" ? <RouteTeamSummary workItems={workItems} reports={reports} confirmedToday={confirmedToday} /> : null}
+      {extraRouteOptions.length > 0 ? <section className="route-search-extra-routes" aria-label="Rutas extra">
+        <div className="route-search-extra-routes-copy">
+          <strong>Rutas extra · {extraRouteItemCount} unidad{extraRouteItemCount === 1 ? "" : "es"}</strong>
+          <span>Fuera de WC y PTY</span>
+        </div>
+        <div className="route-search-extra-route-options">
+          {extraRouteOptions.map((option) => <button
+            key={option.value}
+            type="button"
+            className={routeFilter === option.value ? "is-active" : ""}
+            aria-pressed={routeFilter === option.value}
+            onClick={() => {
+              setRouteFilter(option.value);
+              setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
+              setZoneFilterLabel("");
+            }}
+          >
+            <span>{activeRouteFilterLabel(option.value)}</span>
+            <strong>{option.count}</strong>
+          </button>)}
+        </div>
+        <button type="button" className="route-search-extra-routes-all" onClick={() => {
+          setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
+          setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
+          setZoneFilterLabel("");
+        }}>Ver todas →</button>
+      </section> : null}
       <details className="route-collection-cash-summary"><summary>Efectivo pendiente de entrega</summary><RoutePendingCashPanel payments={payments} dateKey={businessDateKey} loading={paymentsLoading} /></details>
       <div className="route-search-workflow-tabs" aria-label="Estado de las unidades">
         {([['work', 'Trabajo', workItems.length], ['review', 'En revisión', reports.filter((r) => r.status === 'review').length], ['partial', 'Pagos parciales a revisar', partialReviewItems.length], ['confirmed', 'Pagos confirmados', confirmedToday.length], ['custody', 'Vehículo en custodia', custodyItems.length]] as const).map(([view, label, count]) => (
@@ -888,6 +930,7 @@ export default function RouteSearchPage({
             <button
               type="button"
               className={routeFilter === ALL_ACTIVE_ROUTE_FILTER ? "is-active" : ""}
+              aria-pressed={routeFilter === ALL_ACTIVE_ROUTE_FILTER}
               onClick={() => {
                 setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
                 setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
@@ -901,6 +944,7 @@ export default function RouteSearchPage({
                 key={option}
                 type="button"
                 className={routeFilter === option ? "is-active" : ""}
+                aria-pressed={routeFilter === option}
                 onClick={() => {
                   setRouteFilter(option);
                   setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
@@ -921,6 +965,7 @@ export default function RouteSearchPage({
             <button
               type="button"
               className={zoneFilter === ALL_ACTIVE_ZONE_FILTER ? "is-active" : ""}
+              aria-pressed={zoneFilter === ALL_ACTIVE_ZONE_FILTER}
               onClick={() => {
                 setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
                 setZoneFilterLabel("");
@@ -933,6 +978,7 @@ export default function RouteSearchPage({
                 key={option.value}
                 type="button"
                 className={zoneFilter === option.value ? "is-active" : ""}
+                aria-pressed={zoneFilter === option.value}
                 onClick={() => {
                   setZoneFilter(option.value);
                   setZoneFilterLabel(option.label);

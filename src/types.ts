@@ -310,6 +310,7 @@ export type PaymentIncomeEdit = {
 export type Payment = {
   id: string;
   source?: "route";
+  createdBy?: string;
   receiptNumber: string;
   receiptDeliveryStatus?: "pending" | "sent";
   otherChargesApplied?: OtherCharge[];

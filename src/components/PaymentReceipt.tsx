@@ -40,6 +40,13 @@ const HISTORY_RECEIPT_IMAGE_SCALE = 1;
 const STANDARD_RECEIPT_RENDER_WIDTH = "760px";
 const HISTORY_RECEIPT_RENDER_WIDTH = "528px";
 
+function formatReceiptCreator(value?: string): string {
+  const actor = value?.trim();
+  if (!actor) return "Administración";
+  const internalLogin = actor.match(/^([^@]+)@auth\.rentautos\.local$/i);
+  return internalLogin?.[1] ?? actor;
+}
+
 async function renderReceiptCanvasFromPayment(payment: Payment, options: ReceiptRenderOptions = {}): Promise<HTMLCanvasElement> {
   const host = document.createElement("div");
   host.style.position = "fixed";
@@ -155,6 +162,7 @@ export async function copyHistoryPaymentReceiptImage(payment: Payment, accountCl
 }
 
 export function ReceiptCardContent({ payment, format = "standard", accountClient }: { payment: Payment; format?: ReceiptFormat; accountClient?: Client }) {
+  const receiptCreator = formatReceiptCreator(payment.createdBy);
   const isProvisionalRental = payment.paymentContext === "provisional_rental";
   const weeklyDayLabel =
     payment.weeklyChargeDay === "monday"
@@ -342,6 +350,7 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
         </div>
         {credit > 0 && <div className="receipt-history-alert receipt-history-alert--travel"><span>Saldo a favor del alquiler</span><strong>{formatCurrency(credit)}</strong></div>}
         <div className="receipt-history-panel receipt-history-panel--paid"><span>Estado del alquiler</span><strong>{rentalStatusLabel}</strong></div>
+        <div className="receipt-history-created-by">Realizado por <strong>{receiptCreator}</strong></div>
         <div className="receipt-history-powered"><span>Powered by <strong>flotapp</strong></span></div>
       </>
     );
@@ -350,7 +359,7 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
   if (format === "history") {
     const coveredRows = buildCoveredPaymentRows(payment, matchingAccountClient);
     const partialRow = coveredRows.find((row) => row.status === "partial");
-    const isAccountFutureAdvancePartial = !hasPending && currentFuturePendingAmount > 0;
+    const isFutureAdvancePartial = !hasPending && ((!!partialRow && advanceApplied > 0) || currentFuturePendingAmount > 0);
     const missingForPartial = partialRow?.amount && normalizedRent > 0
       ? roundMoney(Math.max(0, normalizedRent - partialRow.amount))
       : saldoParaBajarCuenta;
@@ -366,7 +375,7 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
       ? Math.floor((rentCompletePendingAmount + Number.EPSILON) / normalizedRent)
       : 0;
     const rentCompletePendingLabel = rentCompletePendingInstallments === 1 ? "1 cta" : `${rentCompletePendingInstallments} ctas`;
-    const shouldShowPartialMissing = partialRow && missingForPartial > 0 && Math.abs(missingForPartial - rentPendingAmount) > 0.009;
+    const shouldShowPartialMissing = partialRow && !isFutureAdvancePartial && missingForPartial > 0 && Math.abs(missingForPartial - rentPendingAmount) > 0.009;
     const partialFuturePendingAmount = currentFuturePendingAmount > 0
       ? currentFuturePendingAmount
       : !hasPending && partialRow && missingForPartial > 0 ? missingForPartial : 0;
@@ -385,11 +394,11 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
       amount: number;
       value: string;
       isAdvanceRent?: boolean;
-    }> = coveredRows.map((row) => {
-      const isAdvanceRent = isAdvanceOnlyRentPayment;
-      const amount = isAdvanceRent && row.status === "partial"
-        ? advanceAppliedToNextInstallment
-        : takeRentAmountForCycle(row);
+    }> = coveredRows.map((row, index) => {
+      const isAdvanceRent = isAdvanceOnlyRentPayment ||
+        (row.status === "partial" && isFutureAdvancePartial) ||
+        (row.status === "complete" && index >= installmentsFromDebt);
+      const amount = takeRentAmountForCycle(row);
       return {
         label: isAdvanceRent ? `Cuota futura · ${row.dateLabel}` : row.dateLabel,
         status: row.status,
@@ -587,7 +596,7 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
           </>
         ) : (
           <>
-            {isAdvanceOnlyRentPayment || isAccountFutureAdvancePartial ? (
+            {isFutureAdvancePartial ? (
               <div className={`receipt-history-alert ${partialFuturePendingAmount > 0 ? "receipt-history-alert--advance" : "receipt-history-alert--ok"}`}>
                 <span>
                   {partialFuturePendingAmount > 0 ? "Restante de la cuota futura" : "Cuota futura pagada"}
@@ -612,7 +621,7 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
 
         {!hasPending && (
           <div className="receipt-history-next-date">
-            <span>{(isAdvanceOnlyRentPayment || isAccountFutureAdvancePartial) && partialFuturePendingAmount > 0 ? "Fecha límite de esta cuota" : "Próxima fecha de pago"}</span>
+            <span>{isFutureAdvancePartial && partialFuturePendingAmount > 0 ? "Fecha límite de esta cuota" : "Próxima fecha de pago"}</span>
             <strong>{nextPaymentDate ? formatDateSpanishSingleLine(nextPaymentDate) : "Por definir"}</strong>
           </div>
         )}
@@ -622,6 +631,7 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
           <strong>{installmentsPaidIncludingAdvance}</strong>
         </div>
 
+        <div className="receipt-history-created-by">Realizado por <strong>{receiptCreator}</strong></div>
         <div className="receipt-history-powered" aria-label="Powered by flotapp">
           <span className="receipt-history-logo-icon" aria-hidden="true">
             <span className="receipt-history-logo-car" />
@@ -871,7 +881,7 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
       </div>
 
       <div className="receipt-footer">
-        Emitido por Administración
+        Realizado por {receiptCreator}
       </div>
       {!isProvisionalRental && <div className="receipt-installments-corner"><strong>{payment.installmentsRemainingAfter}</strong></div>}
     </>

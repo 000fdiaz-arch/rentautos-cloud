@@ -183,7 +183,10 @@ export function buildCoveredPaymentRows(payment: Payment, accountClient?: Client
   const rows: CoveredPaymentRow[] = chargeDates(debtStart(payment, payment.balanceBefore, paymentDate), fromDebt, payment)
     .map((date) => ({ dateLabel: formatCycle(date, payment), status: "complete" as const }));
   const client = asClient(payment, payment.balanceAfter, 0);
-  let nextAdvanceDate = fromAdvance > 0 ? findNextChargeDay(client, paymentDate) : null;
+  const advanceApplied = roundMoney(Math.max(0, payment.advanceApplied ?? 0));
+  let nextAdvanceDate = fromAdvance > 0 || advanceApplied > 0
+    ? findNextChargeDay(client, paymentDate)
+    : null;
   for (let index = 0; index < fromAdvance && nextAdvanceDate; index += 1) {
     rows.push({ dateLabel: formatCycle(nextAdvanceDate, payment), status: "complete" });
     nextAdvanceDate = findNextChargeDay(client, new Date(nextAdvanceDate));

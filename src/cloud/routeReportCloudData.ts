@@ -14,6 +14,8 @@ export type RoutePaymentReport = {
   bank_amount: number;
   confirmed_cash_amount: number;
   confirmed_bank_amount: number;
+  confirmed_bank_received_amount: number;
+  confirmed_bank_savings_amount: number;
   status: "review" | "confirmed";
   reported_by: string;
   reporter_name: string;
@@ -35,7 +37,9 @@ export async function loadRoutePaymentReports(ownerId: string, pendingCashOnly =
       cash_amount: Number(row.cash_amount ?? (row.method === "cash" ? row.amount : 0)),
       bank_amount: Number(row.bank_amount ?? (row.method === "bank" ? row.amount : 0)),
       confirmed_cash_amount: Number(row.confirmed_cash_amount ?? 0),
-      confirmed_bank_amount: Number(row.confirmed_bank_amount ?? 0)
+      confirmed_bank_amount: Number(row.confirmed_bank_amount ?? 0),
+      confirmed_bank_received_amount: Number(row.confirmed_bank_received_amount ?? 0),
+      confirmed_bank_savings_amount: Number(row.confirmed_bank_savings_amount ?? 0)
     }) as RoutePaymentReport));
     if (!data || data.length < PAGE_SIZE) return rows;
   }

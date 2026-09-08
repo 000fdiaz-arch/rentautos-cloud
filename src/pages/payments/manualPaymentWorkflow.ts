@@ -79,6 +79,7 @@ export function buildManualPaymentTransaction({
     const savingsAfter = roundMoney(savingsBefore + centsPart);
     const payment: Payment = {
       id: crypto.randomUUID(),
+      createdBy: currentActor,
       receiptNumber,
       receiptDeliveryStatus: "pending",
       clientId: selectedClient.id,
@@ -173,6 +174,7 @@ export function buildManualPaymentTransaction({
 
   const payment: Payment = {
     id: crypto.randomUUID(),
+    createdBy: currentActor,
     receiptNumber,
     receiptDeliveryStatus: "pending",
     clientId: selectedClient.id,

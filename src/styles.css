@@ -6092,6 +6092,21 @@ select.control-op-badge {
   min-width: 54px;
 }
 
+.receipt-history-created-by {
+  margin: 9px 8px 0;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.receipt-history-created-by strong {
+  color: #0b3f78;
+  font-weight: 900;
+}
+
 .receipt-history-powered {
   position: absolute;
   left: 50%;
@@ -18227,6 +18242,59 @@ button.ar-route-publish-copy.is-active {
 .route-team-summary-row > span strong { line-height: 1; }
 .route-team-summary-row > span small { color: var(--color-text-muted); font-size: .68rem; }
 .route-team-summary-row > span.has-inactive { background: #fff4d6; color: #8a4b00; }
+.route-search-extra-routes {
+  display: grid;
+  grid-template-columns: minmax(145px, .9fr) minmax(220px, 1.4fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #fdba74;
+  border-radius: 12px;
+  background: #fff7ed;
+}
+.route-search-extra-routes-copy { display: grid; gap: 2px; }
+.route-search-extra-routes-copy strong { color: #9a3412; }
+.route-search-extra-routes-copy span { color: var(--color-text-muted); font-size: .78rem; }
+.route-search-extra-route-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.route-search-extra-route-options button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 7px 11px;
+  border: 1px solid #fdba74;
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 800;
+}
+.route-search-extra-route-options button strong {
+  color: #9a3412;
+  font-size: .76rem;
+}
+.route-search-extra-route-options button.is-active {
+  border-color: #c2410c;
+  background: #ffedd5;
+  color: #9a3412;
+}
+.route-search-extra-routes-all {
+  min-height: 38px;
+  padding: 6px 4px;
+  border: 0;
+  background: transparent;
+  color: #9a3412;
+  cursor: pointer;
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.route-search-extra-route-options button:focus-visible,
+.route-search-extra-routes-all:focus-visible { outline: 3px solid #0f766e; outline-offset: 2px; }
 .route-pending-cash { margin: 12px 0; }
 .route-pending-cash-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .route-pending-cash-teams { display: grid; gap: 0; }
@@ -18292,6 +18360,7 @@ button.ar-route-publish-copy.is-active {
 .route-search-page--compact .route-search-workflow-tabs .button { flex: 1 1 160px; min-height: 48px; transition: none; }
 .route-search-page--compact .route-collection-card { min-width: 0; padding: 20px; border: 1px solid var(--color-border); border-top: 3px solid #0f766e; border-radius: 14px; box-shadow: 0 3px 12px #0f172a08; }
 .route-search-page--compact .route-collection-card--attention { border-top-color: #d97706; }
+.route-search-page--compact .route-collection-card--confirmed { border-top-color: #16a34a; }
 .route-search-page--compact .route-collection-card--custody { border-top-color: #7c3aed; }
 .route-search-page--compact .route-collection-card--inactive { border-color: #d89a20; border-top-color: #d89a20; background: #fffdf7; }
 .route-collection-inactive { display: grid; gap: 3px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid #edc86a; border-radius: 8px; background: #fff4d6; color: #724000; }
@@ -18306,6 +18375,24 @@ button.ar-route-publish-copy.is-active {
 .route-collection-route-picker:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .route-collection-tag { display: inline-block; width: fit-content; font-size: .76rem; font-weight: 700; padding: 4px 8px; border-radius: 6px; color: #854d0e; background: #fef3c7; margin: 0 5px 4px 0; }
 .route-collection-tag--confirmed { color: #065f46; background: #d1fae5; }
+.route-collection-accepted-difference {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 5px 12px;
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #86efac;
+  border-radius: 9px;
+  background: #f0fdf4;
+  color: #14532d;
+  font-size: .82rem;
+}
+.route-collection-accepted-difference span { display: contents; }
+.route-collection-accepted-difference span strong { text-align: right; }
+.route-collection-accepted-difference b,
+.route-collection-accepted-difference small { grid-column: 1 / -1; }
+.route-collection-accepted-difference b { color: #15803d; }
+.route-collection-accepted-difference small { color: #166534; font-size: .75rem; }
 .route-search-page--compact .route-collection-card--urgent { border: 2px solid #c2410c; border-top-width: 5px; background: #fff7ed; box-shadow: 0 3px 12px #c2410c18; }
 .route-search-page--compact .route-collection-card--very_urgent { border: 2px solid #b91c1c; border-top-width: 5px; background: #fff1f2; box-shadow: 0 3px 14px #b91c1c24; }
 .route-collection-urgency { display: flex; align-items: center; gap: 8px; padding: 10px 12px; margin: -4px -4px 16px; border-radius: 7px; background: #c2410c; color: #fff; font-size: .95rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
@@ -18334,6 +18421,8 @@ button.ar-route-publish-copy.is-active {
   .route-team-summary-row { grid-template-columns: 38px repeat(2, minmax(0, 1fr)); }
   .route-team-summary-row > span:nth-of-type(3) { grid-column: 2; }
   .route-team-summary-row > span:nth-of-type(4) { grid-column: 3; }
+  .route-search-extra-routes { grid-template-columns: minmax(0, 1fr); }
+  .route-search-extra-routes-all { justify-self: start; padding-left: 0; }
   .route-search-page--compact .route-search-list { grid-template-columns: minmax(0, 1fr); }
   .route-search-page--compact .route-search-workflow-tabs .button { flex-basis: 130px; font-size: .8rem; }
   .route-search-page--compact .route-search-header { flex-wrap: wrap; }

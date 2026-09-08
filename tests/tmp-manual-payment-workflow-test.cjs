@@ -9,7 +9,10 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+const transpiled = new Set();
 function transpile(relativePath) {
+  if (transpiled.has(relativePath)) return;
+  transpiled.add(relativePath);
   const sourcePath = path.join(ROOT, "src", relativePath);
   const outputPath = path.join(TMP, "src", relativePath.replace(/\.ts$/, ".js"));
   const output = ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
@@ -18,6 +21,10 @@ function transpile(relativePath) {
   }).outputText;
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, output, "utf8");
+  for (const match of output.matchAll(/require\("(\.[^"]+)"\)/g)) {
+    const dependency = path.resolve(path.dirname(sourcePath), match[1] + ".ts");
+    if (fs.existsSync(dependency)) transpile(path.relative(path.join(ROOT, "src"), dependency));
+  }
 }
 
 function makeClient() {
@@ -68,8 +75,9 @@ function makeClient() {
 
   const cash = buildManualPaymentTransaction({
     ...base,
-    form: { clientId: "client-1", dateApplied: "2026-07-09", paymentMethod: "Efectivo", cashDeliveryStatus: "pending", reference: "", amountReceived: "30" }
+    form: { clientId: "client-1", dateApplied: "2026-07-09", paymentMethod: "Efectivo", cashDeliveryStatus: "pending", collectionTeam: "PTY", reference: "", amountReceived: "30" }
   });
+  assert(cash.payment.createdBy === base.currentActor, "El pago debe conservar quién lo registró.");
   assert(cash.payment.amountReceived === 30, "El pago efectivo debe conservar el monto recibido.");
   assert(cash.updatedClients[0].balance === 70, `El saldo efectivo debe quedar en 70, recibido ${cash.updatedClients[0].balance}.`);
   assert(!cash.pendingCard, "El efectivo no debe crear pendiente de tarjeta.");

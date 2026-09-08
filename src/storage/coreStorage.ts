@@ -421,6 +421,10 @@ function normalizePayment(item: unknown): Payment | null {
 
   return {
     id: raw.id,
+    createdBy:
+      typeof raw.createdBy === "string" && raw.createdBy.trim()
+        ? raw.createdBy.trim()
+        : undefined,
     receiptNumber: raw.receiptNumber,
     receiptDeliveryStatus:
       raw.receiptDeliveryStatus === "pending" || raw.receiptDeliveryStatus === "sent"

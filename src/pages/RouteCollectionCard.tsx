@@ -75,6 +75,13 @@ export default function RouteCollectionCard(props: Props) {
   const partial = paidRent > 0 && remaining > 0;
   const acknowledged = typeof item.partialDecisionRentAmount === "number" && Math.abs(item.partialDecisionRentAmount - paidRent) < 0.005;
   const pendingCash = view === "review" && isPendingCashRouteReport(report);
+  const acceptedBankSavings = report && view === "confirmed"
+    && report.confirmed_bank_savings_amount > 0
+    && report.confirmed_bank_received_amount > 0
+    && Math.abs(report.confirmed_bank_received_amount - report.confirmed_bank_savings_amount - report.bank_amount) < 0.005;
+  const confirmedReceivedAmount = report
+    ? report.cash_amount + (report.bank_amount > 0 ? report.confirmed_bank_received_amount : 0)
+    : 0;
   const tone = view === "custody" ? "custody" : view === "confirmed" ? "confirmed" : pendingCash || view === "partial" ? "attention" : "normal";
   const urgency = (view === "work" || view === "partial") && item.urgency && item.urgency !== "normal" ? item.urgency : null;
   return <article className={`route-search-card route-collection-card route-collection-card--${tone}${urgency ? ` route-collection-card--${urgency}` : ""}${item.routeInactiveAt && view === "work" ? " route-collection-card--inactive" : ""}`} aria-label={`${item.unitId} · ${item.clientName}`}>
@@ -98,8 +105,14 @@ export default function RouteCollectionCard(props: Props) {
       <span className="route-collection-tag">Vehículo en custodia</span>
       <p className="route-collection-context">Desde {when(item.custodySince)}</p>
     </> : report && (view === "review" || view === "confirmed") ? <>
-      <span className={`route-collection-tag ${view === "confirmed" ? "route-collection-tag--confirmed" : ""}`}>{view === "confirmed" ? "Pago confirmado" : report.method === "cash" ? "Efectivo" : report.method === "mixed" ? "Pago mixto por confirmar" : "Banca por confirmar"}</span>
+      <span className={`route-collection-tag ${view === "confirmed" ? "route-collection-tag--confirmed" : ""}`}>{acceptedBankSavings ? "Pago confirmado con diferencia" : view === "confirmed" ? "Pago confirmado" : report.method === "cash" ? "Efectivo" : report.method === "mixed" ? "Pago mixto por confirmar" : "Banca por confirmar"}</span>
       <p className="route-collection-amount">{report.method === "cash" || view === "confirmed" ? "Pagó" : "Reportó"} {formatCurrency(report.amount)}</p>
+      {acceptedBankSavings ? <div className="route-collection-accepted-difference" aria-label="Diferencia bancaria aceptada">
+        <span>Reportó <strong>{formatCurrency(report.amount)}</strong></span>
+        <span>Recibido <strong>{formatCurrency(confirmedReceivedAmount)}</strong></span>
+        <b>{formatCurrency(report.confirmed_bank_savings_amount)} aplicado a ahorro</b>
+        <small>Coincide con unidad, fecha y método bancario</small>
+      </div> : null}
       {report.method === "mixed" ? <p className="route-collection-context"><span>Efectivo: {formatCurrency(report.cash_amount)} · {report.confirmed_cash_amount >= report.cash_amount ? "Confirmado" : "Pendiente"}</span><br /><span>Banca: {formatCurrency(report.bank_amount)} · {report.confirmed_bank_amount >= report.bank_amount ? "Confirmado" : "Pendiente"}</span></p> : null}
     </> : <>
       <span className="route-collection-tag">{view === "partial" ? "Decisión pendiente" : partial && acknowledged ? "Debe pagar más" : "Por cobrar"}</span>
@@ -126,8 +139,8 @@ export default function RouteCollectionCard(props: Props) {
       <dl><dt>Cliente</dt><dd>{item.clientName}</dd><dt>Mínimo para liberar</dt><dd>{formatCurrency(item.releaseAmount)}</dd><dt>Saldo vencido</dt><dd>{formatCurrency(balance)}</dd><dt>Atraso</dt><dd>{item.daysLate} días</dd><dt>En ruta</dt><dd>{when(item.publishedAt)}</dd></dl>
       {partial ? <p className="route-collection-context">Pago parcial: {formatCurrency(paidRent)} · Faltan {formatCurrency(remaining)}{acknowledged ? <><br />Decisión: Debe pagar más</> : null}</p> : null}
       {props.bankNotices.map(notice => <p className="route-collection-context" key={notice.id}>Por confirmar banca: {formatCurrency(notice.amount)}{notice.collectionTeam ? ` · Equipo ${notice.collectionTeam}` : ""}</p>)}
-      {report ? <div className="route-search-report-status">
-        <strong>{report.status === "confirmed" ? "Pago confirmado" : "Pago reportado · Pendiente de confirmar"}</strong>
+      {report ? <div className={`route-search-report-status ${report.status === "confirmed" ? "route-search-report-status--confirmed" : ""}`}>
+        <strong>{acceptedBankSavings ? "Pago confirmado con diferencia aceptada" : report.status === "confirmed" ? "Pago confirmado" : "Pago reportado · Pendiente de confirmar"}</strong>
         <span>{formatCurrency(report.amount)} · {report.method === "mixed" ? "Mixto" : report.method === "cash" ? "Efectivo" : "Banca"}</span>
         <span>Reportado por {report.reporter_name} · {when(report.reported_at)}</span>
         {report.confirmed_at ? <span>Confirmado · {when(report.confirmed_at)}</span> : null}

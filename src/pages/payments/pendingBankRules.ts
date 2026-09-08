@@ -171,6 +171,7 @@ type ApplicationOptions = {
   payments: Payment[];
   retentionByClient: OtherChargesRetentionByClient;
   receiptNumber: string;
+  createdBy: string;
   referenceTag: "AUTO-ALTA-SIMILITUD" | "CLASIFICADO-MANUAL";
   manualOtherChargesInput?: Record<string, string>;
   allowManualOverrideForForcedRule?: boolean;
@@ -184,6 +185,7 @@ export function buildPendingPaymentApplication(
     payments,
     retentionByClient,
     receiptNumber,
+    createdBy,
     referenceTag,
     manualOtherChargesInput = {},
     allowManualOverrideForForcedRule = false,
@@ -200,6 +202,7 @@ export function buildPendingPaymentApplication(
     const savingsAfter = roundMoney(savingsBefore + centavosAhorro);
     const payment: Payment = {
       id: crypto.randomUUID(),
+      createdBy,
       receiptNumber,
       receiptDeliveryStatus: "pending",
       clientId: client.id,
@@ -300,6 +303,7 @@ export function buildPendingPaymentApplication(
 
   const payment: Payment = {
     id: crypto.randomUUID(),
+    createdBy,
     receiptNumber,
     receiptDeliveryStatus: "pending",
     clientId: client.id,
