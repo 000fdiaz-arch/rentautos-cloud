@@ -4,7 +4,10 @@ import { mkdirSync } from 'node:fs';
 import { chromium } from 'playwright';
 const base='http://127.0.0.1:4201';
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4201','--strictPort'],{windowsHide:true,stdio:'pipe',env:{...process.env,VITE_SUPABASE_URL:'https://tests.invalid',VITE_SUPABASE_ANON_KEY:'synthetic'}});
-let browser,page;let sent=[],active=[],fail=false;
+let browser,page;let sent=[],active=[{
+  client_id:'c2',
+  data:{clientId:'c2',unitId:'T02',publishedAt:'2026-09-04T12:00:00Z',routeStartedAt:'2026-09-04T12:00:00Z',releaseAmount:7,routeAssignment:'WC',removedAt:'2026-09-05T11:00:00Z',removedReason:'paid'}
+}],fail=false;
 let records={c1:{status:'pending',comment:'',isRouteTagged:true,updatedAt:'2026-09-05T12:00:00Z',routeReleaseAmount:40,managementAmount:40,routeAssignment:'PTY',managementType:'solo_cobrar'},c2:{status:'pending',comment:'',isRouteTagged:true,updatedAt:'2026-09-05T12:00:00Z'}};
 try {
   await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Vite timeout')),15000);server.stdout.on('data',data=>{if(data.toString().includes('4201')){clearTimeout(timer);resolve();}});});
@@ -22,24 +25,28 @@ try {
       if(fail)return route.fulfill({status:500,json:{message:'Test network failure'}});
       assert.equal(input.p_expected_updated_at,records[input.p_item.clientId].updatedAt,'Must use saved record');
       let item=active.find(item=>item.client_id===input.p_item.clientId);
-      if(!item){item={client_id:input.p_item.clientId,data:{...input.p_item,publishedAt:new Date().toISOString()}};active.push(item);}
+      if(!item||item.data.removedAt){
+        const published={client_id:input.p_item.clientId,data:{...input.p_item,publishedAt:new Date().toISOString()}};
+        if(item)active[active.indexOf(item)]=published;else active.push(published);
+        item=published;
+      }
       return route.fulfill({json:item.data});
     }
     if(url.pathname.endsWith('/street_management_items_cloud')){
       if(req.method()==='POST'){for(const row of req.postDataJSON())records[row.client_id]=row.data;return route.fulfill({status:201});}
       return route.fulfill({json:Object.entries(records).map(([client_id,data])=>({client_id,data}))});
     }
-    if(url.pathname.endsWith('/active_route_items_cloud')){assert.equal(req.method(),'GET','No direct republish');return route.fulfill({json:active});}
+    if(url.pathname.endsWith('/active_route_items_cloud')){assert.equal(req.method(),'GET','Removed route history must not be updated directly');return route.fulfill({json:active});}
     if(req.method()==='GET'||url.pathname.includes('/rpc/'))return route.fulfill({json:[]});
     throw Error('Unexpected mutation '+url.pathname);
   });
   await page.goto(base+'/test?readonly');await page.getByRole('heading',{name:'Cuentas por cobrar',exact:true}).waitFor();await page.waitForTimeout(1100);assert.equal(sent.length,0);
   await page.goto(base+'/test');await page.getByRole('status').filter({hasText:'T01 · Enviada a ruta.'}).waitFor();
-  assert.equal(sent.length,1);assert.equal(active.length,1,'Incomplete unit remains unpublished');
+  assert.equal(sent.length,1);assert.equal(active.length,2,'Incomplete unit remains unpublished and its removed route stays as history');
   assert.equal(await page.getByRole('button',{name:/Publicar ruta/}).count(),0);
   await page.getByRole('button',{name:/Descargar ruta/}).waitFor();
-  const publishedAt=active[0].data.publishedAt;
-  await page.reload();await page.waitForTimeout(1100);assert.equal(sent.length,1);assert.equal(active[0].data.publishedAt,publishedAt);
+  const publishedAt=active.find(item=>item.client_id==='c1').data.publishedAt;
+  await page.reload();await page.waitForTimeout(1100);assert.equal(sent.length,1);assert.equal(active.find(item=>item.client_id==='c1').data.publishedAt,publishedAt);
   await page.getByRole('button',{name:'Completar ruta',exact:true}).click();
   const modal=page.getByRole('dialog');await modal.getByLabel('Saldo para liberar de T02').fill('55');
   await page.waitForTimeout(1100);assert.equal(sent.length,1);
@@ -49,11 +56,11 @@ try {
   await modal.getByRole('button',{name:'Cerrar',exact:true}).click();
   fail=false;await page.getByRole('button',{name:'Reintentar envío',exact:true}).click();
   await page.getByRole('status').filter({hasText:'T02 · Enviada a ruta.'}).waitFor();
-  assert.equal(active.length,2);assert.equal(active[1].data.releaseAmount,55);assert.equal(active[1].data.routeAssignment,'WC');
+  assert.equal(active.length,2);assert.equal(active.find(item=>item.client_id==='c2').data.releaseAmount,55);assert.equal(active.find(item=>item.client_id==='c2').data.routeAssignment,'WC');assert.equal(active.find(item=>item.client_id==='c2').data.removedAt,undefined);
   const beforeDownload=sent.length;
   await page.getByRole('combobox',{name:'Formato para descargar cobro en ruta'}).selectOption('excel');
   const downloaded=page.waitForEvent('download');await page.getByRole('button',{name:/Descargar ruta/}).click();await downloaded;
   assert.equal(sent.length,beforeDownload,'Download never publishes');
   mkdirSync('.tmp/route-auto',{recursive:true});await page.screenshot({path:'.tmp/route-auto/desktop.png',fullPage:true});
-  assert.deepEqual(errors,[]);console.log('OK: automatic ready-only send, saved fields, read-only guard, reload idempotency, failed send and retry, download only');
+  assert.deepEqual(errors,[]);console.log('OK: automatic ready-only send, saved fields, removed-history resend, read-only guard, reload idempotency, failed send and retry, download only');
 }catch(error){console.error((await page?.locator('body').innerText())?.slice(0,3500));throw error;}finally{await browser?.close();server.kill();}

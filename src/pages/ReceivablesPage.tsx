@@ -2113,7 +2113,10 @@ export default function ReceivablesPage({
   function updatePublishedRouteItem(clientId: string, updater: (item: ActiveRouteItem) => ActiveRouteItem): void {
     if (readOnly || !dataOwnerUserId) return;
     setActiveRouteMessage("");
-    const currentItem = activeRouteItemsRef.current.find((item) => item.clientId === clientId);
+    // A removed item is route history, not the route currently being edited.
+    // Updating it while preparing a new route preserves its old start time and
+    // can make an earlier same-day payment remove the new route immediately.
+    const currentItem = activeRouteItemsRef.current.find((item) => item.clientId === clientId && !item.removedAt);
     const updatedItem = currentItem ? updater(currentItem) : null;
     if (!updatedItem) return;
     activeRouteItemsRef.current = activeRouteItemsRef.current.map((item) => (
