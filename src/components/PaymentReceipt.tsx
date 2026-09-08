@@ -4,6 +4,7 @@ import { inlineComputedStylesForCanvas } from "../canvasExportStyles";
 import { formatCurrency, formatDate } from "../format";
 import { findNextChargeDay, startOfDay } from "../billing";
 import type { Client, Payment } from "../types";
+import { formatUserLogin } from "../pages/settings/userSettingsRules";
 import {
   buildCoveredPaymentRows,
   buildReceiptFileName,
@@ -43,8 +44,8 @@ const HISTORY_RECEIPT_RENDER_WIDTH = "528px";
 function formatReceiptCreator(value?: string): string {
   const actor = value?.trim();
   if (!actor) return "Administración";
-  const internalLogin = actor.match(/^([^@]+)@auth\.rentautos\.local$/i);
-  return internalLogin?.[1] ?? actor;
+  if (actor.toLowerCase() === "000f.diaz@gmail.com") return "Fernando";
+  return formatUserLogin(actor);
 }
 
 async function renderReceiptCanvasFromPayment(payment: Payment, options: ReceiptRenderOptions = {}): Promise<HTMLCanvasElement> {
