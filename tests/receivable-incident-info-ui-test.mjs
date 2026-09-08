@@ -18,6 +18,7 @@ try {
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.setDefaultTimeout(8000);
+  page.setDefaultNavigationTimeout(30000);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => {
@@ -45,21 +46,24 @@ try {
   check('siniestro urgente conserva información y fecha mientras permite clasificar y escribir notas');
   await page.getByRole('button', { name: 'Enviar a ruta', exact: true }).click();
   const dialog = page.getByRole('dialog'); await dialog.waitFor();
-  assert.equal((await state()).isRouteTagged, true);
+  assert.notEqual((await state()).isRouteTagged, true);
   await dialog.getByLabel('Saldo para liberar de T99').fill('50');
   await dialog.getByLabel(/^Ruta/).selectOption('PTY');
   await dialog.getByLabel('Tipo de gestión').selectOption('cobrar_o_quitar');
   await dialog.getByLabel(/^Urgencia/).selectOption('urgent');
   await dialog.getByPlaceholder('Comentario para el cobrador...').fill('Cobrar hoy');
+  assert.notEqual((await state()).isRouteTagged, true);
+  check('abrir y completar el modal no activa la ruta antes de confirmar');
+  await page.getByRole('button', { name: 'Alternar urgencia' }).evaluate(button => button.click());
+  await page.getByRole('button', { name: 'Alternar urgencia' }).evaluate(button => button.click());
+  assert.equal(await dialog.isVisible(), true);
+  await dialog.getByRole('button', { name: 'Listo', exact: true }).click();
+  assert.equal((await state()).isRouteTagged, true);
   assert.equal((await state()).routeReleaseAmount, 50);
   assert.equal((await state()).routeAssignment, 'PTY');
   assert.equal((await state()).managementType, 'cobrar_o_quitar');
   assert.equal((await state()).managementComment, 'Cobrar hoy');
   check('preparación de ruta permite monto, zona, tipo, urgencia y comentario con siniestro pendiente');
-  await page.getByRole('button', { name: 'Alternar urgencia' }).evaluate(button => button.click());
-  await page.getByRole('button', { name: 'Alternar urgencia' }).evaluate(button => button.click());
-  assert.equal(await dialog.isVisible(), true);
-  await dialog.getByRole('button', { name: 'Listo', exact: true }).click();
   await page.getByRole('button', { name: 'Ver detalles', exact: true }).click();
   await dialog.getByRole('button', { name: 'Quitar de ruta', exact: true }).click();
   assert.equal((await state()).isRouteTagged, false);

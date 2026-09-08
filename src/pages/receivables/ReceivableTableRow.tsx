@@ -54,6 +54,14 @@ type Props = {
   incidentAction?: IncidentReceivableAction;
 };
 
+type RoutePreparationDraft = {
+  releaseAmount: string;
+  routeAssignment: string;
+  managementType: FieldManagementType;
+  urgency: RouteUrgency;
+  comment: string;
+};
+
 function safeFilenamePart(value: string): string {
   return value.trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "cliente";
 }
@@ -517,6 +525,7 @@ function ReceivableTableRowComponent({
   const [contactTimeDraft, setContactTimeDraft] = useState(statusRecord?.contactTime ?? "");
   const [customRouteEditorOpen, setCustomRouteEditorOpen] = useState(false);
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
+  const [routePreparationDraft, setRoutePreparationDraft] = useState<RoutePreparationDraft | null>(null);
   const routeReleaseAmount = statusRecord?.routeReleaseAmount ?? statusRecord?.managementAmount;
   const routeAssignment = statusRecord?.routeAssignment ?? "";
   const routeUrgency = statusRecord?.routeUrgency ?? "normal";
@@ -528,6 +537,53 @@ function ReceivableTableRowComponent({
     isRouteAssignmentMissing ? "ruta asignada" : null
   ].filter((item): item is string => !!item);
   const isRoutePreparationComplete = missingRouteRequirements.length === 0;
+  const modalReleaseAmount = routePreparationDraft?.releaseAmount ?? (routeReleaseAmount ?? "");
+  const modalRouteAssignment = routePreparationDraft?.routeAssignment ?? routeAssignment;
+  const modalManagementType = routePreparationDraft?.managementType ?? statusRecord?.managementType ?? "solo_cobrar";
+  const modalUrgency = routePreparationDraft?.urgency ?? routeUrgency;
+  const modalComment = routePreparationDraft?.comment ?? statusRecord?.managementComment ?? "";
+  const modalMissingRouteRequirements = [
+    !(Number(modalReleaseAmount) > 0) ? "saldo para liberar" : null,
+    !modalRouteAssignment ? "ruta asignada" : null
+  ].filter((item): item is string => !!item);
+  const isModalRoutePreparationComplete = modalMissingRouteRequirements.length === 0;
+
+  function closeRoutePreparationModal(): void {
+    setIsRouteModalOpen(false);
+    setRoutePreparationDraft(null);
+    setCustomRouteEditorOpen(false);
+  }
+
+  function openExistingRoutePreparation(): void {
+    setRoutePreparationDraft(null);
+    setIsRouteModalOpen(true);
+  }
+
+  function openNewRoutePreparation(): void {
+    setRoutePreparationDraft({
+      releaseAmount: routeReleaseAmount ? String(routeReleaseAmount) : "",
+      routeAssignment,
+      managementType: statusRecord?.managementType ?? "solo_cobrar",
+      urgency: routeUrgency,
+      comment: statusRecord?.managementComment ?? ""
+    });
+    setIsRouteModalOpen(true);
+  }
+
+  function finishRoutePreparation(): void {
+    if (!routePreparationDraft) {
+      closeRoutePreparationModal();
+      return;
+    }
+    if (!isModalRoutePreparationComplete) return;
+    onRouteTagChange(row.id, true);
+    onRouteReleaseAmountChange(row.id, routePreparationDraft.releaseAmount);
+    onRouteAssignmentChange(row.id, routePreparationDraft.routeAssignment);
+    onRouteManagementTypeChange(row.id, routePreparationDraft.managementType);
+    onRouteUrgencyChange(row.id, routePreparationDraft.urgency);
+    onRouteManagementCommentChange(row.id, routePreparationDraft.comment);
+    closeRoutePreparationModal();
+  }
 
   useEffect(() => {
     setContactTimeDraft(statusRecord?.contactTime ?? "");
@@ -536,7 +592,7 @@ function ReceivableTableRowComponent({
   useEffect(() => {
     if (!isRouteModalOpen) return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsRouteModalOpen(false);
+      if (event.key === "Escape") closeRoutePreparationModal();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -623,7 +679,7 @@ function ReceivableTableRowComponent({
                     <button
                       type="button"
                       className={`button small ar-route-details-button ${isRoutePreparationComplete ? "is-complete" : "needs-action"}`}
-                      onClick={() => setIsRouteModalOpen(true)}
+                      onClick={openExistingRoutePreparation}
                       disabled={isTodayCollectionClosed}
                     >
                       {isRoutePreparationComplete ? "Ver detalles" : "Completar ruta"}
@@ -638,10 +694,7 @@ function ReceivableTableRowComponent({
                 <button
                   type="button"
                   className="button ghost small ar-route-tag-toggle"
-                  onClick={() => {
-                    onRouteTagChange(row.id, true);
-                    setIsRouteModalOpen(true);
-                  }}
+                  onClick={openNewRoutePreparation}
                   disabled={isTodayCollectionClosed}
                   aria-pressed="false"
                 >
@@ -842,8 +895,8 @@ function ReceivableTableRowComponent({
             </div>
           </div>
         </article>
-        {isRouteModalOpen && statusRecord?.isRouteTagged && typeof document !== "undefined" ? createPortal(
-          <div className="modal-overlay ar-route-modal-overlay" onClick={() => setIsRouteModalOpen(false)}>
+        {isRouteModalOpen && typeof document !== "undefined" ? createPortal(
+          <div className="modal-overlay ar-route-modal-overlay" onClick={closeRoutePreparationModal}>
             <div
               className="modal ar-route-preparation-modal"
               role="dialog"
@@ -856,43 +909,50 @@ function ReceivableTableRowComponent({
                   <span className="ar-route-modal-kicker">Preparación de cobro</span>
                   <h2 id={`route-modal-title-${row.id}`}>{row.unitId} · {row.name}</h2>
                 </div>
-                <button type="button" className="modal-close" onClick={() => setIsRouteModalOpen(false)} aria-label="Cerrar">×</button>
+                <button type="button" className="modal-close" onClick={closeRoutePreparationModal} aria-label="Cerrar">×</button>
               </div>
               <div className="ar-route-modal-body">
-                <div className={`ar-route-modal-readiness ${isRoutePreparationComplete ? "is-complete" : "needs-action"}`}>
-                  <strong>{isRoutePreparationComplete ? "Lista para envío automático" : "Falta completar la ruta"}</strong>
+                <div className={`ar-route-modal-readiness ${isModalRoutePreparationComplete ? "is-complete" : "needs-action"}`}>
+                  <strong>{isModalRoutePreparationComplete ? "Lista para envío automático" : "Falta completar la ruta"}</strong>
                   <span>
-                    {isRoutePreparationComplete
+                    {isModalRoutePreparationComplete
                       ? "Se enviará automáticamente a Ruta en calle al guardar."
-                      : `Falta: ${missingRouteRequirements.join(" y ")}.`}
+                      : `Falta: ${modalMissingRouteRequirements.join(" y ")}.`}
                   </span>
                 </div>
                 <div className="ar-route-modal-grid">
-                  <label className={isRouteReleaseAmountMissing ? "is-required-missing" : undefined}>
-                    <span>Libera con {isRouteReleaseAmountMissing ? "· Requerido" : ""}</span>
+                  <label className={!(Number(modalReleaseAmount) > 0) ? "is-required-missing" : undefined}>
+                    <span>Libera con {!(Number(modalReleaseAmount) > 0) ? "· Requerido" : ""}</span>
                     <input
                       className="ar-route-release-input"
                       type="number"
                       min="0.01"
                       step="0.01"
                       inputMode="decimal"
-                      value={routeReleaseAmount ?? ""}
-                      onChange={(event) => onRouteReleaseAmountChange(row.id, event.target.value)}
+                      value={modalReleaseAmount}
+                      onChange={(event) => routePreparationDraft
+                        ? setRoutePreparationDraft((current) => current ? { ...current, releaseAmount: event.target.value } : current)
+                        : onRouteReleaseAmountChange(row.id, event.target.value)}
                       placeholder={row.overdueBalance > 0 ? row.overdueBalance.toFixed(2) : "0.00"}
                       disabled={isTodayCollectionClosed}
                       aria-label={`Saldo para liberar de ${row.unitId}`}
                     />
                   </label>
-                  <label className={isRouteAssignmentMissing ? "is-required-missing" : undefined}>
-                    <span>Ruta {isRouteAssignmentMissing ? "· Requerida" : ""}</span>
-                    {customRouteEditorOpen || (!!routeAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(routeAssignment)) ? (
+                  <label className={!modalRouteAssignment ? "is-required-missing" : undefined}>
+                    <span>Ruta {!modalRouteAssignment ? "· Requerida" : ""}</span>
+                    {customRouteEditorOpen || (!!modalRouteAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(modalRouteAssignment)) ? (
                       <input
                         type="text"
-                        value={routeAssignment}
-                        onChange={(event) => onRouteAssignmentChange(row.id, event.target.value)}
+                        value={modalRouteAssignment}
+                        onChange={(event) => routePreparationDraft
+                          ? setRoutePreparationDraft((current) => current ? { ...current, routeAssignment: event.target.value } : current)
+                          : onRouteAssignmentChange(row.id, event.target.value)}
                         onBlur={(event) => {
                           const normalized = normalizeRouteAssignment(event.target.value);
-                          if (event.target.value !== (normalized ?? "")) onRouteAssignmentChange(row.id, normalized ?? "");
+                          if (event.target.value !== (normalized ?? "")) {
+                            if (routePreparationDraft) setRoutePreparationDraft((current) => current ? { ...current, routeAssignment: normalized ?? "" } : current);
+                            else onRouteAssignmentChange(row.id, normalized ?? "");
+                          }
                           if (!normalized) setCustomRouteEditorOpen(false);
                         }}
                         placeholder="Escribe ruta"
@@ -901,14 +961,16 @@ function ReceivableTableRowComponent({
                       />
                     ) : (
                       <select
-                        value={routeAssignment}
+                        value={modalRouteAssignment}
                         onChange={(event) => {
                           if (event.target.value === "__custom") {
                             setCustomRouteEditorOpen(true);
-                            onRouteAssignmentChange(row.id, "");
+                            if (routePreparationDraft) setRoutePreparationDraft((current) => current ? { ...current, routeAssignment: "" } : current);
+                            else onRouteAssignmentChange(row.id, "");
                             return;
                           }
-                          onRouteAssignmentChange(row.id, event.target.value);
+                          if (routePreparationDraft) setRoutePreparationDraft((current) => current ? { ...current, routeAssignment: event.target.value } : current);
+                          else onRouteAssignmentChange(row.id, event.target.value);
                         }}
                         disabled={isTodayCollectionClosed}
                       >
@@ -921,8 +983,10 @@ function ReceivableTableRowComponent({
                   <label>
                     <span>Tipo de gestión</span>
                     <select
-                      value={statusRecord?.managementType ?? "solo_cobrar"}
-                      onChange={(event) => onRouteManagementTypeChange(row.id, event.target.value as FieldManagementType)}
+                      value={modalManagementType}
+                      onChange={(event) => routePreparationDraft
+                        ? setRoutePreparationDraft((current) => current ? { ...current, managementType: event.target.value as FieldManagementType } : current)
+                        : onRouteManagementTypeChange(row.id, event.target.value as FieldManagementType)}
                       disabled={isTodayCollectionClosed}
                     >
                       <option value="solo_cobrar">Solo cobrar</option>
@@ -934,8 +998,10 @@ function ReceivableTableRowComponent({
                   <label>
                     <span>Urgencia</span>
                     <select
-                      value={routeUrgency}
-                      onChange={(event) => onRouteUrgencyChange(row.id, event.target.value as RouteUrgency)}
+                      value={modalUrgency}
+                      onChange={(event) => routePreparationDraft
+                        ? setRoutePreparationDraft((current) => current ? { ...current, urgency: event.target.value as RouteUrgency } : current)
+                        : onRouteUrgencyChange(row.id, event.target.value as RouteUrgency)}
                       disabled={isTodayCollectionClosed}
                     >
                       {ROUTE_URGENCY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -944,8 +1010,10 @@ function ReceivableTableRowComponent({
                   <label className="ar-route-modal-comment">
                     <span>Comentario</span>
                     <textarea
-                      value={statusRecord?.managementComment ?? ""}
-                      onChange={(event) => onRouteManagementCommentChange(row.id, event.target.value)}
+                      value={modalComment}
+                      onChange={(event) => routePreparationDraft
+                        ? setRoutePreparationDraft((current) => current ? { ...current, comment: event.target.value } : current)
+                        : onRouteManagementCommentChange(row.id, event.target.value)}
                       placeholder="Comentario para el cobrador..."
                       maxLength={25}
                       rows={3}
@@ -955,10 +1023,16 @@ function ReceivableTableRowComponent({
                 </div>
               </div>
               <div className="ar-route-modal-actions">
-                <button type="button" className="button ghost" onClick={() => onRouteTagChange(row.id, false)} disabled={isTodayCollectionClosed}>
-                  Quitar de ruta
+                <button type="button" className="button ghost" onClick={() => {
+                  if (routePreparationDraft) closeRoutePreparationModal();
+                  else {
+                    onRouteTagChange(row.id, false);
+                    closeRoutePreparationModal();
+                  }
+                }} disabled={isTodayCollectionClosed}>
+                  {routePreparationDraft ? "Cancelar" : "Quitar de ruta"}
                 </button>
-                <button type="button" className="button primary" onClick={() => setIsRouteModalOpen(false)}>
+                <button type="button" className="button primary" onClick={finishRoutePreparation} disabled={!isModalRoutePreparationComplete}>
                   Listo
                 </button>
               </div>

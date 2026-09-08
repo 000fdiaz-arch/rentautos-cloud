@@ -19,9 +19,19 @@ export function isPendingCashRouteReport(report?: RoutePaymentReport): boolean {
   return report?.status === "review" && report.method === "cash" && report.confirmed_cash_amount === 0;
 }
 
-export function routeRentAmountForDay(payments: Payment[], item: Pick<ActiveRouteItem, "clientId">, dateKey: string): number {
+export function routeRentAmountForDay(
+  payments: Payment[],
+  item: Pick<ActiveRouteItem, "clientId"> & Partial<Pick<ActiveRouteItem, "routeStartedAt">>,
+  dateKey: string
+): number {
+  const routeStartedAt = item.routeStartedAt ? Date.parse(item.routeStartedAt) : Number.NaN;
   const total = payments
-    .filter((payment) => payment.clientId === item.clientId && payment.dateApplied === dateKey)
+    .filter((payment) => {
+      if (!(payment.clientId === item.clientId && payment.dateApplied === dateKey)) return false;
+      if (!Number.isFinite(routeStartedAt)) return true;
+      const paymentCreatedAt = Date.parse(payment.createdAt);
+      return !Number.isFinite(paymentCreatedAt) || paymentCreatedAt >= routeStartedAt;
+    })
     .reduce((sum, payment) => sum + Math.max(0, payment.appliedToRent), 0);
   return Math.round(total * 100) / 100;
 }

@@ -35,3 +35,8 @@ const confirmedToday = {...cash,status:'confirmed',confirmed_at:'2026-09-05T15:0
 const confirmedPreviousDay = {...confirmedToday,confirmed_at:'2026-09-04T15:00:00Z'};
 assert.equal(getRouteWorkItems([item],[],day,[confirmedToday]).length,0,'A confirmation from today remains outside Work while payments synchronize');
 assert.equal(getRouteWorkItems([item],[],day,[confirmedPreviousDay]).length,1,'A prior-day confirmation must not hide a unit that is still active in route');
+const sameDayBeforeRoute = {clientId:'c1',dateApplied:day,appliedToRent:40,createdAt:'2026-09-05T14:00:00Z'};
+const sameDayAfterRoute = {...sameDayBeforeRoute,createdAt:'2026-09-05T16:00:00Z'};
+const restartedItem = {...item,routeStartedAt:'2026-09-05T15:00:00Z'};
+assert.equal(getRouteWorkItems([restartedItem],[sameDayBeforeRoute],day,[]).length,1,'A payment made before restarting route must not release the new route');
+assert.equal(getRouteWorkItems([restartedItem],[sameDayAfterRoute],day,[]).length,0,'A payment made after restarting route still releases the unit');

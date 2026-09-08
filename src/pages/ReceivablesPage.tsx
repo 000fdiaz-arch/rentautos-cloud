@@ -906,7 +906,8 @@ export default function ReceivablesPage({
     const releasedClientIds = new Set<string>();
     for (const [clientId, record] of routeEntries) {
       const releaseAmount = record.routeReleaseAmount ?? 0;
-      const hasReleasePayment = releaseAmount > 0 && routeRentAmountForDay(payments, { clientId }, getBusinessDateKey()) >= releaseAmount;
+      const routeStartedAt = record.routeTaggedAt ?? record.routeReleaseUpdatedAt ?? record.managementUpdatedAt ?? record.updatedAt;
+      const hasReleasePayment = releaseAmount > 0 && routeRentAmountForDay(payments, { clientId, routeStartedAt }, getBusinessDateKey()) >= releaseAmount;
       if (hasReleasePayment) releasedClientIds.add(clientId);
     }
     if (releasedClientIds.size === 0) return;
