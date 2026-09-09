@@ -18,7 +18,6 @@ export type CollisionDocumentationRequirement = {
 
 export const COLLISION_DOCUMENTATION_REQUIREMENTS: CollisionDocumentationRequirement[] = [
   { key: "incidentDate", label: "Fecha de la colisión" },
-  { key: "incidentLocation", label: "Lugar de la colisión" },
   { key: "unit", label: "Unidad" },
   { key: "driver", label: "Conductor" },
   { key: "plate", label: "Placa" },

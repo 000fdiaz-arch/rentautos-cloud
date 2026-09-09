@@ -625,7 +625,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       court: normalizeCourtName(caseEditForm.court)
     };
     const fieldLabels: Array<[keyof TrialForm, string]> = [
-      ["incidentDate", "Fecha del incidente"], ["incidentLocation", "Lugar de la colisión"], ["unit", "Unidad"], ["driver", "Nombre completo"],
+      ["incidentDate", "Fecha del incidente"], ["unit", "Unidad"], ["driver", "Nombre completo"],
       ["plate", "Placa"], ["trialDate", "Fecha de juicio"], ["vehicleDamage", "Daños del auto"],
       ["ticketStub", "Número de colilla"], ["placeTime", "Hora del juicio"], ["court", "Juzgado"],
       ["collisionAndRun", "Colisión y fuga"]
@@ -1518,7 +1518,6 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
           <label>Fecha de juicio<input type="date" value={form.trialDate} onChange={(event) => patchForm({ trialDate: event.target.value })} disabled={readOnly} /></label>
           <label>Colilla<input value={form.ticketStub} placeholder="Número o referencia de colilla" onChange={(event) => patchForm({ ticketStub: event.target.value })} disabled={readOnly} /></label>
           <label>Hora<input type="time" value={form.placeTime} onChange={(event) => patchForm({ placeTime: event.target.value })} disabled={readOnly} /></label>
-          <label>Lugar de la colisión<input value={form.incidentLocation} placeholder="Ej. Vía España, frente a..." onChange={(event) => patchForm({ incidentLocation: event.target.value })} disabled={readOnly} /></label>
           <label>Juzgado<select value={form.court} onChange={(event) => event.target.value === "__new__" ? addCourt() : patchForm({ court: event.target.value })} disabled={readOnly}><option value="">Seleccionar juzgado</option>{courts.map((court) => <option key={court}>{court}</option>)}<option value="__new__">+ Nuevo juzgado</option></select></label>
           <label className="workflow-form-notes">Daños del auto<textarea value={form.vehicleDamage} placeholder="Describe los daños del auto" onChange={(event) => patchForm({ vehicleDamage: event.target.value })} disabled={readOnly} /></label>
           <label className={`collision-runaway-option ${form.collisionAndRun ? "collision-runaway-option--yes" : "collision-runaway-option--no"}`}><input type="checkbox" checked={form.collisionAndRun} onChange={(event) => patchForm({ collisionAndRun: event.target.checked })} disabled={readOnly} /><span><strong>Colisión y fuga: {form.collisionAndRun ? "Sí" : "No"}</strong><small>{form.collisionAndRun ? "El conductor abandonó el lugar." : "El conductor permaneció en el lugar."}</small></span></label>
@@ -1651,7 +1650,6 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   {editingCaseId === item.id ? <div className="workflow-claim-edit-panel">
                     <div className="workflow-claim-edit-grid">
                       <label>Fecha del incidente<input type="date" value={caseEditForm.incidentDate} onChange={(event) => setCaseEditForm((current) => ({ ...current, incidentDate: event.target.value }))} /></label>
-                      <label>Lugar de la colisión<input value={caseEditForm.incidentLocation} placeholder="Ej. Vía España, frente a..." onChange={(event) => setCaseEditForm((current) => ({ ...current, incidentLocation: event.target.value }))} /></label>
                       <label>Unidad<input list="collision-edit-unit-options" value={caseEditForm.unit} onChange={(event) => setCaseEditForm((current) => ({ ...current, unit: event.target.value }))} /></label>
                       <label>Conductor al momento del incidente<input value={caseEditForm.driver} onChange={(event) => setCaseEditForm((current) => ({ ...current, driver: event.target.value }))} /></label>
                       <label>Placa<input value={caseEditForm.plate} onChange={(event) => setCaseEditForm((current) => ({ ...current, plate: event.target.value }))} /></label>
@@ -1680,7 +1678,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                     </div>
                   </div> : <>
                   <dl className="workflow-claim-detail-grid">
-                  <div><dt>Fecha del incidente</dt><dd>{item.incidentDate || "-"}</dd></div><div><dt>Lugar de la colisión</dt><dd>{item.incidentLocation || "-"}</dd></div>
+                  <div><dt>Fecha del incidente</dt><dd>{item.incidentDate || "-"}</dd></div>
                   <div><dt>Fecha de juicio</dt><dd>{item.trialDate || "-"}</dd></div><div><dt>Hora del juicio</dt><dd>{item.placeTime || "-"}</dd></div>
                   <div><dt>Número de colilla</dt><dd className="judicial-ticket-stub-editor"><div><input aria-label="Número de colilla" value={ticketStubDrafts[item.id] ?? item.ticketStub} onChange={(event) => setTicketStubDrafts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id || administrativelyClosed} /><button type="button" className="button small" onClick={() => void saveTicketStub(item)} disabled={readOnly || busyId === item.id || administrativelyClosed || !(ticketStubDrafts[item.id] ?? item.ticketStub).trim() || (ticketStubDrafts[item.id] ?? item.ticketStub).trim() === item.ticketStub}>{busyId === item.id ? "Guardando..." : "Guardar"}</button></div>{item.ticketStubPhoto && <button type="button" className="button small" onClick={() => setPhotoGallery({ photos: [item.ticketStubPhoto!], index: 0, title: "Foto de la colilla" })}>Ver foto original</button>}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
                   <div><dt>Colisión y fuga</dt><dd><span className={`collision-runaway-status ${item.collisionAndRun ? "collision-runaway-status--yes" : "collision-runaway-status--no"}`}>{item.collisionAndRun ? "Sí" : "No"}</span></dd></div>

@@ -30,16 +30,16 @@ if (getMissingCollisionDocumentation(completeCase).length !== 0) {
 }
 
 const missingLocation = getMissingCollisionDocumentation({ ...completeCase, incidentLocation: "  " });
-if (missingLocation.length !== 1 || missingLocation[0].label !== "Lugar de la colisión") {
-  throw new Error("La app debe identificar exactamente que falta el lugar de la colisión.");
+if (missingLocation.length !== 0) {
+  throw new Error("El lugar de la colisión no debe ser obligatorio.");
 }
 
 const intake = fs.readFileSync(path.join(root, "src/pages/IncidentIntakeForm.tsx"), "utf8");
 const control = fs.readFileSync(path.join(root, "src/pages/IncidentsControlPage.tsx"), "utf8");
 const collisions = fs.readFileSync(path.join(root, "src/pages/CollisionsPage.tsx"), "utf8");
 const navigation = fs.readFileSync(path.join(root, "src/pages/incidents/judicialCaseNavigation.ts"), "utf8");
-const manualSql = fs.readFileSync(path.join(root, "supabase/79-collision-documentation-readiness.sql"), "utf8");
-const migrationSql = fs.readFileSync(path.join(root, "supabase/migrations/20260909000100_collision_documentation_readiness.sql"), "utf8");
+const manualSql = fs.readFileSync(path.join(root, "supabase/81-remove-collision-location-requirement.sql"), "utf8");
+const migrationSql = fs.readFileSync(path.join(root, "supabase/migrations/20260909000300_remove_collision_location_requirement.sql"), "utf8");
 
 if (!intake.includes("Información pendiente para avanzar") || !intake.includes("incidentLocation")) {
   throw new Error("El registro inicial debe permitir guardar y mostrar la lista exacta de datos pendientes.");
@@ -53,7 +53,7 @@ if (!collisions.includes("No se puede concluir. Falta completar:") || !collision
 if (navigation.includes('if (item.documentationPending) return ["summary", "follow_up", "history"]')) {
   throw new Error("La documentación pendiente no debe bloquear las gestiones intermedias del expediente.");
 }
-if (manualSql !== migrationSql || !manualSql.includes("collision_case_completion_guard") || !manualSql.includes("incidentLocation")) {
+if (manualSql !== migrationSql || !manualSql.includes("collision_case_completion_guard") || manualSql.includes("incidentLocation")) {
   throw new Error("La base de datos debe aplicar la misma barrera de conclusión y conservar copias SQL idénticas.");
 }
 
