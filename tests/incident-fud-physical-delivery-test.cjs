@@ -17,6 +17,7 @@ assertIncludes(intake, "Fecha de entrega presencial", "La entrega presencial deb
 assertIncludes(intake, "fudPhysicalDeliveryConfirmed: !documentationPending", "Los reclamos nuevos deben guardar la confirmación presencial explícita.");
 
 assertIncludes(workflow, "Datos del FUD pendientes", "El expediente debe identificar claramente la documentación pendiente.");
+assertIncludes(workflow, "Guardar avance", "Debe ser posible guardar información parcial sin completar el FUD.");
 assertIncludes(workflow, "Completar FUD", "Debe existir una acción equivalente a Completar colilla.");
 assertIncludes(workflow, "Aseguradora", "Completar FUD debe solicitar la aseguradora.");
 assertIncludes(workflow, "Monto del reclamo", "Completar FUD debe solicitar el monto.");

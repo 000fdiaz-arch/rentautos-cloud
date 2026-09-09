@@ -100,6 +100,16 @@ function parseClaimAmount(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function missingFudCompletionRequirements(form: FudCompletionForm): string[] {
+  const missing: string[] = [];
+  if (!form.insurer.trim()) missing.push("Aseguradora");
+  if (!form.hasClaimNumber) missing.push("Indicar si ya existe número de reclamo");
+  if (form.hasClaimNumber === "yes" && !form.claimNumber.trim()) missing.push("Número de reclamo");
+  if (!form.deliveryDate) missing.push("Fecha de entrega presencial");
+  if (!form.physicalDeliveryConfirmed) missing.push("Confirmación de recepción presencial del FUD");
+  return missing;
+}
+
 function localDateKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -562,11 +572,11 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
     setCompletingFudClaimId(claim.id);
     setFudCompletionForm({
       insurer: claim.insurer,
-      hasClaimNumber: claim.claimNumber.trim() ? "yes" : "",
+      hasClaimNumber: claim.claimNumber.trim() ? "yes" : "no",
       claimNumber: claim.claimNumber,
       amount: claim.amount,
       deliveryDate: claim.fudPhysicalDeliveryDate ?? "",
-      physicalDeliveryConfirmed: false,
+      physicalDeliveryConfirmed: claim.fudPhysicalDeliveryConfirmed === true,
       managementNote: ""
     });
     setFudCompletionFile(null);
@@ -593,22 +603,84 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
     setMessage("");
   }
 
+  async function saveFudProgress(claim: InsuranceClaimRecord): Promise<void> {
+    if (!dataOwnerUserId || readOnly || fudCompletionSavingId) return;
+    if (!fudCompletionForm.managementNote.trim()) {
+      setMessage("Escribe el registro de la gestión para guardar el avance.");
+      return;
+    }
+    const insurer = normalizeInsurer(fudCompletionForm.insurer);
+    const hasClaimNumber = fudCompletionForm.hasClaimNumber === "yes";
+    const claimNumber = hasClaimNumber ? fudCompletionForm.claimNumber.trim() : "";
+    if (hasClaimNumber && !claimNumber) {
+      setMessage("Escribe el número de reclamo o selecciona que todavía no lo tienes.");
+      return;
+    }
+    const amount = fudCompletionForm.amount.trim();
+    const confirmsPhysicalDelivery = fudCompletionForm.physicalDeliveryConfirmed && Boolean(fudCompletionForm.deliveryDate);
+    const physicalDeliveryConfirmed = claim.fudPhysicalDeliveryConfirmed === true || confirmsPhysicalDelivery;
+    const deliveryDate = physicalDeliveryConfirmed
+      ? fudCompletionForm.deliveryDate || claim.fudPhysicalDeliveryDate || null
+      : null;
+    setFudCompletionSavingId(claim.id);
+    setMessage("");
+    let uploadedAttachment = null as InsuranceClaimRecord["fudAttachment"];
+    try {
+      if (fudCompletionFile) uploadedAttachment = await uploadInsuranceSettlement(dataOwnerUserId, claim.id, fudCompletionFile);
+      if (insurer) await saveInsuranceInsurer(dataOwnerUserId, insurer);
+      const now = new Date().toISOString();
+      const updatedClaim: InsuranceClaimRecord = {
+        ...claim,
+        insurer,
+        hasClaimNumber,
+        claimNumber,
+        amount,
+        fudAttachment: uploadedAttachment ?? claim.fudAttachment,
+        fudPhysicalDeliveryConfirmed: physicalDeliveryConfirmed,
+        fudPhysicalDeliveryDate: deliveryDate,
+        fudPhysicalDeliveryConfirmedAt: physicalDeliveryConfirmed ? claim.fudPhysicalDeliveryConfirmedAt ?? now : null,
+        documentationPending: true,
+        documentationPendingSince: claim.documentationPendingSince ?? now,
+        documentationReceivedAt: null,
+        status: claim.status === "Finalizado" ? "Finalizado" : "Inactivo",
+        editHistory: [...claim.editHistory, { editedAt: now, justification: fudCompletionForm.managementNote.trim() }],
+        updatedAt: now
+      };
+      await saveInsuranceClaim(dataOwnerUserId, updatedClaim);
+      setClaims((current) => current.map((item) => item.id === claim.id ? updatedClaim : item));
+      if (insurer) setInsurers((current) => Array.from(new Set([...current, insurer])).sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" })));
+      if (uploadedAttachment && claim.fudAttachment?.path) {
+        try { await removeInsuranceSettlement(claim.fudAttachment.path); } catch { /* Limpieza de mejor esfuerzo. */ }
+      }
+      const missing = missingFudCompletionRequirements({
+        ...fudCompletionForm,
+        insurer,
+        claimNumber,
+        physicalDeliveryConfirmed
+      });
+      cancelFudCompletion();
+      setMessage(`Avance guardado.${missing.length > 0 ? ` Falta completar: ${missing.join(", ")}.` : " Ya puedes completar el FUD."}${claimNumber ? "" : " El número de reclamo seguirá pendiente."}`);
+    } catch (error) {
+      if (uploadedAttachment?.path) {
+        try { await removeInsuranceSettlement(uploadedAttachment.path); } catch { /* Limpieza de mejor esfuerzo. */ }
+      }
+      console.error("No se pudo guardar el avance del FUD.", error);
+      setMessage(error instanceof DuplicateInsuranceClaimNumberError ? error.message : "No se pudo guardar el avance del FUD en la nube.");
+    } finally {
+      setFudCompletionSavingId("");
+    }
+  }
+
   async function completeFudDocumentation(claim: InsuranceClaimRecord): Promise<void> {
     if (!dataOwnerUserId || readOnly || fudCompletionSavingId) return;
     const insurer = normalizeInsurer(fudCompletionForm.insurer);
     const hasClaimNumber = fudCompletionForm.hasClaimNumber === "yes";
     const claimNumber = hasClaimNumber ? fudCompletionForm.claimNumber.trim() : "";
     const amount = fudCompletionForm.amount.trim();
-    if (!insurer || !fudCompletionForm.hasClaimNumber || !fudCompletionForm.deliveryDate || !fudCompletionForm.managementNote.trim()) {
-      setMessage("Completa aseguradora, disponibilidad del número, fecha de entrega y registro de la gestión.");
-      return;
-    }
-    if (hasClaimNumber && !claimNumber) {
-      setMessage("Escribe el número de reclamo.");
-      return;
-    }
-    if (!fudCompletionForm.physicalDeliveryConfirmed) {
-      setMessage("Confirma que el FUD original fue recibido presencialmente.");
+    const missing = missingFudCompletionRequirements(fudCompletionForm);
+    if (!fudCompletionForm.managementNote.trim()) missing.push("Registro de la gestión");
+    if (missing.length > 0) {
+      setMessage(`No se puede completar el FUD. Falta: ${missing.join(", ")}. Puedes usar “Guardar avance” mientras tanto.`);
       return;
     }
     setFudCompletionSavingId(claim.id);
@@ -1154,6 +1226,9 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
             {filteredClaims.map((claim) => {
               const expanded = expandedClaimId === claim.id;
               const activeClaimDetailTab = claimDetailTabs[claim.id] ?? "management";
+              const fudCompletionMissing = completingFudClaimId === claim.id
+                ? missingFudCompletionRequirements(fudCompletionForm)
+                : [];
               return (
               <article key={claim.id} className={`workflow-claim-card${expanded ? " expanded" : ""}`}>
                 <div className="workflow-claim-summary">
@@ -1214,7 +1289,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                 {claim.documentationPending && <div className="workflow-finalization-panel insurance-documentation-pending">
                   <div><strong>Datos del FUD pendientes</strong><span>El reclamo no avanzará hasta completar los datos del FUD y recibir presencialmente el original. La copia digital puede adjuntarse después.</span></div>
                   {completingFudClaimId !== claim.id ? (
-                    <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => startCompletingFud(claim)} disabled={readOnly || Boolean(fudCompletionSavingId)}>Completar FUD</button></div>
+                    <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => startCompletingFud(claim)} disabled={readOnly || Boolean(fudCompletionSavingId)}>Gestionar FUD</button></div>
                   ) : (
                     <div className="workflow-claim-edit-panel">
                       <div className="workflow-claim-edit-grid">
@@ -1225,9 +1300,10 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                         {fudCompletionForm.hasClaimNumber === "yes" && <label className={!fudCompletionForm.claimNumber.trim() ? "workflow-required-field" : ""}>Número de reclamo<input value={fudCompletionForm.claimNumber} placeholder="Escribe el número" onChange={(event) => setFudCompletionForm((current) => ({ ...current, claimNumber: event.target.value }))} /></label>}
                         <label className="workflow-claim-edit-wide">Copia digital del FUD <small>Opcional temporalmente</small><input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => selectFudCompletionFile(event.target.files?.[0])} /><span className="hint">{fudCompletionFile ? `Seleccionado: ${fudCompletionFile.name}` : claim.fudAttachment ? `Adjunto actual: ${claim.fudAttachment.name}` : "Puedes continuar sin archivo; quedará una alerta activa. PDF o imagen · máximo 10 MB"}</span></label>
                         <label className="workflow-claim-edit-wide collision-client-returned-option"><input type="checkbox" checked={fudCompletionForm.physicalDeliveryConfirmed} onChange={(event) => setFudCompletionForm((current) => ({ ...current, physicalDeliveryConfirmed: event.target.checked }))} /><span><strong>Confirmo que el FUD original fue recibido presencialmente</strong><small>Una foto, PDF o envío digital no sustituye la entrega física.</small></span></label>
+                        <div className={`workflow-claim-edit-wide fud-completion-readiness${fudCompletionMissing.length > 0 ? " is-incomplete" : " is-complete"}`}><strong>{fudCompletionMissing.length > 0 ? "Información pendiente para completar el FUD" : "Información del FUD completa"}</strong>{fudCompletionMissing.length > 0 ? <ul>{fudCompletionMissing.map((requirement) => <li key={requirement}>{requirement}</li>)}</ul> : <span>Ya puedes completar el FUD. Si solo deseas conservar los cambios, usa “Guardar avance”.</span>}</div>
                         <label className={`workflow-claim-edit-wide${!fudCompletionForm.managementNote.trim() ? " workflow-required-field" : ""}`}>Registro de la gestión<textarea value={fudCompletionForm.managementNote} placeholder="Ej. FUD original recibido y datos verificados" onChange={(event) => setFudCompletionForm((current) => ({ ...current, managementNote: event.target.value }))} /></label>
                       </div>
-                      <div className="workflow-claim-edit-actions"><button type="button" className="button" onClick={cancelFudCompletion} disabled={fudCompletionSavingId === claim.id}>Cancelar</button><button type="button" className="button primary" onClick={() => void completeFudDocumentation(claim)} disabled={fudCompletionSavingId === claim.id}>{fudCompletionSavingId === claim.id ? "Guardando..." : "Completar FUD"}</button></div>
+                      <div className="workflow-claim-edit-actions"><button type="button" className="button" onClick={cancelFudCompletion} disabled={fudCompletionSavingId === claim.id}>Cancelar</button><button type="button" className="button" onClick={() => void saveFudProgress(claim)} disabled={fudCompletionSavingId === claim.id}>{fudCompletionSavingId === claim.id ? "Guardando..." : "Guardar avance"}</button><button type="button" className="button primary" onClick={() => void completeFudDocumentation(claim)} disabled={fudCompletionSavingId === claim.id || fudCompletionMissing.length > 0 || !fudCompletionForm.managementNote.trim()} title={fudCompletionMissing.length > 0 ? `Falta: ${fudCompletionMissing.join(", ")}` : undefined}>{fudCompletionSavingId === claim.id ? "Guardando..." : "Completar FUD"}</button></div>
                     </div>
                   )}
                 </div>}
