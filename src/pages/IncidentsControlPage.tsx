@@ -31,11 +31,13 @@ export default function IncidentsControlPage({
   const [refreshKey, setRefreshKey] = useState(0);
   const [pageMessage, setPageMessage] = useState("");
 
-  function handleIncidentSaved(destination: IncidentDestination): void {
+  function handleIncidentSaved(destination: IncidentDestination, missingDocumentation: string[] = []): void {
     setRefreshKey((current) => current + 1);
     setRegistrationOpen(false);
     setPageMessage(destination === "judicial"
-      ? "Siniestro guardado. Siguiente paso: abre el expediente judicial y revisa la acción indicada en “Lo que debes hacer ahora”."
+      ? missingDocumentation.length > 0
+        ? `Siniestro guardado. Falta completar: ${missingDocumentation.join(", ")}. Podrás guardar avances, pero no concluir el caso hasta completarlo.`
+        : "Siniestro guardado con la información requerida completa."
       : "Siniestro guardado. Siguiente paso: abre el reclamo y revisa la acción pendiente indicada por el sistema.");
   }
 

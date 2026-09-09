@@ -9,6 +9,7 @@ import {
   type ControlUnitRow,
   type InsuranceClaimRecord
 } from "../cloudData";
+import { formatMissingCollisionDocumentation, getMissingCollisionDocumentation } from "../collisionDocumentation";
 import type { IncidentDestination } from "./IncidentIntakeForm";
 import { daysUntilAttendanceConfirmation, nextPendingJudicialStep } from "./incidents/judicialCaseNavigation";
 import { documentationAlertState } from "./incidents/incidentDocumentation";
@@ -105,9 +106,10 @@ function incidentMatchesFilter(incident: UnifiedIncident, filter: AreaFilter): b
 
 function nextActionCategory(incident: UnifiedIncident): NextActionCategory | null {
   if (incident.finalized) return null;
-  if (incident.collision?.documentationPending || incident.claim?.documentationPending || (incident.claim?.fudPhysicalDeliveryConfirmed && !incident.claim.fudAttachment)) return "documentation";
   const collision = incident.collision;
   const claim = incident.claim;
+  const collisionDocumentationPending = Boolean(collision && !isCollisionFinal(collision.status) && getMissingCollisionDocumentation(collision).length > 0);
+  if (collisionDocumentationPending || claim?.documentationPending || (claim?.fudPhysicalDeliveryConfirmed && !claim.fudAttachment)) return "documentation";
   if (collision?.status === "ABSUELTO" && !collision.judicialResolutionEvidence) return "judicial_resolution";
   if (collision?.status === "ABSUELTO" && collision.judicialResolutionEvidence && !claim) return "start_claim";
   if (collision && !isCollisionFinal(collision.status)) {
@@ -248,7 +250,7 @@ type JudicialTrialReadiness = {
 
 function judicialTrialReadiness(collision: CollisionCaseRecord): JudicialTrialReadiness {
   const missing: string[] = [];
-  if (collision.documentationPending) missing.push("Completar documentación");
+  missing.push(...getMissingCollisionDocumentation(collision).map((requirement) => requirement.label));
   if (typeof collision.clientWillAttend !== "boolean") missing.push("Confirmar asistencia del cliente");
   if (typeof collision.legalAssistanceRequested !== "boolean") missing.push("Definir asistencia legal");
   if (!collision.vehicleInspectedAt && !collision.expenseInvoice) missing.push("Revisar el vehículo");
@@ -281,9 +283,10 @@ function incidentActionSchedule(incident: UnifiedIncident): IncidentActionSchedu
   const today = localDateKey();
   const collision = incident.collision;
   const claim = incident.claim;
-  if (collision?.documentationPending || claim?.documentationPending) {
-    const pendingSince = collision?.documentationPending
-      ? collision.documentationPendingSince
+  const collisionDocumentationPending = Boolean(collision && !isCollisionFinal(collision.status) && getMissingCollisionDocumentation(collision).length > 0);
+  if (collisionDocumentationPending || claim?.documentationPending) {
+    const pendingSince = collisionDocumentationPending
+      ? collision?.documentationPendingSince
       : claim?.documentationPendingSince;
     const date = pendingSince ? dateKeyFromTimestamp(pendingSince) : incident.incidentDate || today;
     return { date: date || today, label: actionScheduleLabel(date || today) };
@@ -366,31 +369,28 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
     if (incident.finalized) return;
     const collision = incident.collision;
     const claim = incident.claim;
-    const pendingDocument = collision?.documentationPending ? "colilla" : claim?.documentationPending ? "FUD" : "";
+    const missingCollisionDocumentation = collision && !isCollisionFinal(collision.status) ? getMissingCollisionDocumentation(collision) : [];
+    const pendingDocument = missingCollisionDocumentation.length > 0 ? "collision" : claim?.documentationPending ? "FUD" : "";
     if (pendingDocument) {
       const insuranceFudPending = pendingDocument === "FUD";
-      const pendingSince = collision?.documentationPending ? collision.documentationPendingSince : claim?.documentationPendingSince;
+      const pendingSince = !insuranceFudPending ? collision?.documentationPendingSince : claim?.documentationPendingSince;
       const alertState = documentationAlertState(pendingSince ?? incident.updatedAt);
       const overdue = alertState.hoursPending >= 48;
       const delayed = alertState.hoursPending >= 24;
       addAlert(incident, {
-        id: `${incident.id}:documentation-pending`, kind: collision?.documentationPending ? "judicial" : "insurance",
+        id: `${incident.id}:documentation-pending`, kind: !insuranceFudPending ? "judicial" : "insurance",
         severity: alertState.severity, priority: overdue ? 0 : delayed ? 1 : 7,
         title: insuranceFudPending
           ? overdue ? "Entrega presencial del FUD vencida" : delayed ? "Entrega presencial del FUD sin confirmar" : "Entrega presencial del FUD pendiente"
-          : alertState.title === "Pendiente" ? "Colilla pendiente" : alertState.title,
+          : alertState.title === "Pendiente" ? "Información pendiente del siniestro" : alertState.title,
         message: insuranceFudPending
           ? overdue
             ? `Han pasado ${alertState.hoursPending} horas sin confirmar la entrega presencial del FUD original. Requiere seguimiento urgente.`
             : delayed
               ? "Han pasado al menos 24 horas. Contacta nuevamente para coordinar la entrega presencial del FUD original."
               : "Coordina la entrega presencial del FUD original y agrega cada novedad en Notas. Una copia digital no sustituye la entrega física."
-          : overdue
-            ? `Han pasado ${alertState.hoursPending} horas sin recibir la colilla. Requiere seguimiento urgente.`
-            : delayed
-              ? "Han pasado al menos 24 horas. Contacta nuevamente para obtener la colilla."
-              : "Solicita la colilla y agrega cada novedad en Notas.",
-        actionLabel: insuranceFudPending ? "Confirmar entrega presencial" : "Completar documentación", destination: collision?.documentationPending ? "judicial" : "insurance", targetId: collision?.id ?? claim!.id
+          : `${overdue ? `Han pasado ${alertState.hoursPending} horas. Requiere seguimiento urgente. ` : delayed ? "Han pasado al menos 24 horas. " : ""}Falta completar: ${formatMissingCollisionDocumentation(missingCollisionDocumentation)}.`,
+        actionLabel: insuranceFudPending ? "Confirmar entrega presencial" : "Completar datos", destination: !insuranceFudPending ? "judicial" : "insurance", targetId: collision?.id ?? claim!.id
       });
       return;
     }
@@ -573,7 +573,8 @@ function claimNextAction(claim: InsuranceClaimRecord): { label: string; finalize
 
 function collisionNextAction(collision: CollisionCaseRecord, claim: InsuranceClaimRecord | null): { label: string; finalized: boolean; requiresAction: boolean } {
   if (collision.status === "CIERRE ADMINISTRATIVO") return { label: "Cierre administrativo", finalized: true, requiresAction: false };
-  if (collision.documentationPending) return { label: "Obtener y registrar la colilla", finalized: false, requiresAction: true };
+  const missingDocumentation = isCollisionFinal(collision.status) ? [] : getMissingCollisionDocumentation(collision);
+  if (missingDocumentation.length > 0) return { label: `Completar: ${formatMissingCollisionDocumentation(missingDocumentation)}`, finalized: false, requiresAction: true };
   if (collision.status === "CULPABLE") return {
     label: collision.clientReturnedBeforeClosure ? "Cliente dejó el carro antes del cierre" : "Expediente judicial finalizado",
     finalized: true,
@@ -853,7 +854,8 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
 
   function openNextAction(incident: UnifiedIncident): void {
     const category = nextActionCategory(incident);
-    if ((category === "documentation" || category === "claim_number" || category === "insurance_follow_up" || category === "finalize_claim") && incident.claim && !incident.collision?.documentationPending) {
+    const collisionDocumentationPending = Boolean(incident.collision && !isCollisionFinal(incident.collision.status) && getMissingCollisionDocumentation(incident.collision).length > 0);
+    if ((category === "documentation" || category === "claim_number" || category === "insurance_follow_up" || category === "finalize_claim") && incident.claim && !collisionDocumentationPending) {
       onOpen("insurance", { id: incident.claim.id, search: incident.unit });
       return;
     }

@@ -1,4 +1,5 @@
 import type { CollisionCaseRecord } from "../../cloudData";
+import { formatMissingCollisionDocumentation, getMissingCollisionDocumentation } from "../../collisionDocumentation";
 
 export type JudicialCaseTimelineEvent = {
   id: string;
@@ -16,21 +17,24 @@ function eventTimestamp(value: string | null | undefined, fallback: string): str
 
 export function buildJudicialCaseTimeline(item: CollisionCaseRecord): JudicialCaseTimelineEvent[] {
   const fallback = item.updatedAt || item.createdAt;
+  const missingDocumentation = item.status === "ABSUELTO" || item.status === "CULPABLE" || item.status === "CIERRE ADMINISTRATIVO"
+    ? []
+    : getMissingCollisionDocumentation(item);
   const events: JudicialCaseTimelineEvent[] = [{
     id: `created-${item.id}`,
     occurredAt: eventTimestamp(item.createdAt, fallback),
     title: "Expediente creado",
     description: `Colisión de la unidad ${item.unit || "sin unidad"} registrada para gestión judicial.`,
-    detail: item.documentationPending ? "Colilla pendiente de recibir." : item.trialDate ? `Juicio programado para ${item.trialDate}.` : "Fecha de juicio pendiente.",
-    tone: item.documentationPending ? "warning" : "neutral"
+    detail: missingDocumentation.length > 0 ? `Falta completar: ${formatMissingCollisionDocumentation(missingDocumentation)}.` : item.trialDate ? `Juicio programado para ${item.trialDate}.` : "Fecha de juicio pendiente.",
+    tone: missingDocumentation.length > 0 ? "warning" : "neutral"
   }];
 
   if (item.documentationReceivedAt) {
     events.push({
       id: `documentation-${item.id}`,
       occurredAt: eventTimestamp(item.documentationReceivedAt, fallback),
-      title: "Colilla recibida",
-      description: "La documentación judicial fue completada y el expediente quedó habilitado.",
+      title: "Documentación completada",
+      description: "La información judicial fue completada y el expediente quedó habilitado para concluir cuando correspondiera.",
       tone: "success"
     });
   }

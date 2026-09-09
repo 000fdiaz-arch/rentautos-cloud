@@ -5,10 +5,16 @@ const ts = require("typescript");
 
 const root = path.resolve(__dirname, "..");
 const source = fs.readFileSync(path.join(root, "src/pages/incidents/judicialCaseTimeline.ts"), "utf8");
+const documentationSource = fs.readFileSync(path.join(root, "src/collisionDocumentation.ts"), "utf8");
 const output = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
 }).outputText;
-const target = path.join(os.tmpdir(), `judicial-case-timeline-${Date.now()}.cjs`);
+const tempRoot = path.join(os.tmpdir(), `judicial-case-timeline-${Date.now()}`);
+const target = path.join(tempRoot, "pages/incidents/judicialCaseTimeline.js");
+fs.mkdirSync(path.dirname(target), { recursive: true });
+fs.writeFileSync(path.join(tempRoot, "collisionDocumentation.js"), ts.transpileModule(documentationSource, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
+}).outputText);
 fs.writeFileSync(target, output);
 const { buildJudicialCaseTimeline } = require(target);
 

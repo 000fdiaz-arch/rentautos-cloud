@@ -5,17 +5,32 @@ const ts = require("typescript");
 
 const root = path.resolve(__dirname, "..");
 const source = fs.readFileSync(path.join(root, "src/pages/incidents/judicialCaseNavigation.ts"), "utf8");
+const documentationSource = fs.readFileSync(path.join(root, "src/collisionDocumentation.ts"), "utf8");
 const output = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
 }).outputText;
-const target = path.join(os.tmpdir(), `judicial-case-navigation-${Date.now()}.cjs`);
+const tempRoot = path.join(os.tmpdir(), `judicial-case-navigation-${Date.now()}`);
+const target = path.join(tempRoot, "pages/incidents/judicialCaseNavigation.js");
+fs.mkdirSync(path.dirname(target), { recursive: true });
+fs.writeFileSync(path.join(tempRoot, "collisionDocumentation.js"), ts.transpileModule(documentationSource, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
+}).outputText);
 fs.writeFileSync(target, output);
 const { availableJudicialCaseTabs, daysUntilAttendanceConfirmation, defaultJudicialCaseTab, nextPendingJudicialStep } = require(target);
 
 function judicialCase(overrides = {}) {
   return {
     status: "PENDIENTE",
+    incidentDate: "2026-08-01",
+    incidentLocation: "Vía España",
+    unit: "B17",
+    driver: "Cliente de prueba",
+    plate: "AB1234",
+    vehicleDamage: "Puerta delantera",
     trialDate: "2026-08-31",
+    ticketStub: "COL-123",
+    placeTime: "09:00",
+    court: "Juzgado de Tránsito",
     clientWillAttend: true,
     legalAssistanceRequested: true,
     judicialFollowUps: [],
@@ -58,11 +73,13 @@ assertEqual(defaultJudicialCaseTab(judicialCase({
 
 assertEqual(defaultJudicialCaseTab(judicialCase(), "2026-08-15"), "summary", "expediente al día abre Resumen");
 
-const documentationPendingCase = judicialCase({ documentationPending: true, trialDate: "", vehicleInspectedAt: null, expenseInvoice: null });
-assertEqual(nextPendingJudicialStep(documentationPendingCase, "2026-08-15"), "documentation", "la colilla pendiente bloquea los pasos posteriores");
-assertEqual(defaultJudicialCaseTab(documentationPendingCase, "2026-08-15"), "summary", "la colilla pendiente abre Resumen");
+const documentationPendingCase = judicialCase({ documentationPending: true, incidentLocation: "", trialDate: "", vehicleInspectedAt: null, expenseInvoice: null });
+assertEqual(nextPendingJudicialStep(documentationPendingCase, "2026-08-15"), "documentation", "la documentación pendiente es la siguiente acción");
+assertEqual(defaultJudicialCaseTab(documentationPendingCase, "2026-08-15"), "summary", "la documentación pendiente abre Resumen");
 const documentationTabs = availableJudicialCaseTabs(documentationPendingCase, "2026-08-15");
-if (documentationTabs.join(",") !== "summary,follow_up,history") throw new Error("Con colilla pendiente solo deben aparecer Resumen, Seguimiento e Historial.");
+if (!documentationTabs.includes("attendance") || !documentationTabs.includes("workshop") || !documentationTabs.includes("follow_up")) {
+  throw new Error("La documentación pendiente no debe ocultar las gestiones intermedias.");
+}
 
 const pendingTabs = availableJudicialCaseTabs(judicialCase(), "2026-08-15");
 if (pendingTabs.includes("insurance")) throw new Error("Seguro no debe aparecer antes de estar habilitado.");

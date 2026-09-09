@@ -8,6 +8,7 @@ import type {
 } from "../pages/payments/paymentTypes";
 import { stableEqual } from "../stableSerialize";
 import { normalizeCourtName } from "../courtNames";
+import { getMissingCollisionDocumentation } from "../collisionDocumentation";
 
 export async function registerCloudRouteBankNotice(
   userId: string,
@@ -238,6 +239,7 @@ export type CollisionAdministrativeClosureEvent = {
 export type CollisionCaseRecord = {
   id: string;
   incidentDate: string;
+  incidentLocation?: string;
   unit: string;
   driver: string;
   clientId?: string;
@@ -602,13 +604,29 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
       })()
     : null;
+  const trialDate = typeof item.trialDate === "string"
+    ? item.trialDate
+    : typeof legacy.nextFollowUpDate === "string" ? legacy.nextFollowUpDate : "";
+  const ticketStub = typeof item.ticketStub === "string" ? item.ticketStub : "";
+  const incidentLocation = typeof item.incidentLocation === "string" ? item.incidentLocation : "";
+  const placeTime = typeof item.placeTime === "string" ? item.placeTime : "";
+  const court = typeof item.court === "string" ? normalizeCourtName(item.court) : "";
+  const finalStatus = status === "ABSUELTO" || status === "CULPABLE" || status === "CIERRE ADMINISTRATIVO";
+  const missingDocumentation = getMissingCollisionDocumentation({
+    ...item,
+    incidentLocation,
+    trialDate,
+    ticketStub,
+    placeTime,
+    court
+  });
+  const documentationPending = !finalStatus && missingDocumentation.length > 0;
   return {
     ...item,
     status,
-    trialDate: typeof item.trialDate === "string"
-      ? item.trialDate
-      : typeof legacy.nextFollowUpDate === "string" ? legacy.nextFollowUpDate : "",
-    ticketStub: typeof item.ticketStub === "string" ? item.ticketStub : "",
+    incidentLocation,
+    trialDate,
+    ticketStub,
     ticketStubHistory: Array.isArray(item.ticketStubHistory)
       ? item.ticketStubHistory.filter((entry): entry is CollisionTicketStubEvent => Boolean(
           entry && typeof entry === "object"
@@ -628,11 +646,15 @@ function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord 
     ticketStubPhoto: item.ticketStubPhoto && typeof item.ticketStubPhoto === "object" && typeof item.ticketStubPhoto.path === "string"
       ? item.ticketStubPhoto
       : null,
-    documentationPending: item.documentationPending === true,
-    documentationPendingSince: typeof item.documentationPendingSince === "string" ? item.documentationPendingSince : null,
-    documentationReceivedAt: typeof item.documentationReceivedAt === "string" ? item.documentationReceivedAt : null,
-    placeTime: typeof item.placeTime === "string" ? item.placeTime : "",
-    court: typeof item.court === "string" ? normalizeCourtName(item.court) : "",
+    documentationPending,
+    documentationPendingSince: documentationPending
+      ? typeof item.documentationPendingSince === "string" ? item.documentationPendingSince : item.updatedAt || item.createdAt || null
+      : null,
+    documentationReceivedAt: documentationPending
+      ? null
+      : typeof item.documentationReceivedAt === "string" ? item.documentationReceivedAt : null,
+    placeTime,
+    court,
     collisionAndRun: item.collisionAndRun === true,
     vehicleInspectionDate: typeof item.vehicleInspectionDate === "string" ? item.vehicleInspectionDate : null,
     vehicleInspectedAt: typeof item.vehicleInspectedAt === "string" ? item.vehicleInspectedAt : null,

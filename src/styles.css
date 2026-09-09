@@ -15960,6 +15960,42 @@ button.ar-route-publish-copy.is-active {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.collision-documentation-pending {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.collision-documentation-pending.is-complete,
+.collision-documentation-checklist.is-complete {
+  border-color: #22c55e;
+  background: #f0fdf4;
+}
+
+.collision-documentation-pending ul,
+.collision-documentation-checklist ul {
+  margin: 0.65rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.collision-documentation-pending li + li {
+  margin-top: 0.25rem;
+}
+
+.collision-outcome-blocker {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.8rem;
+  border: 1px solid #f59e0b;
+  border-radius: 0.7rem;
+  background: #fffbeb;
+}
+
+.collision-outcome-blocker .button {
+  justify-self: start;
+  margin-top: 0.25rem;
+}
+
 .collision-attendance-panel.is-pending {
   border-color: #f59e0b;
   background: #fffbeb;

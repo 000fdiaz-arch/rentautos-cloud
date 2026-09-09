@@ -1,4 +1,5 @@
 import type { CollisionCaseRecord } from "../../cloudData";
+import { getMissingCollisionDocumentation } from "../../collisionDocumentation";
 
 export type JudicialCaseTab = "summary" | "attendance" | "follow_up" | "history" | "workshop" | "balance" | "outcome" | "insurance";
 export type PendingJudicialStep = "documentation" | "workshop" | "balance" | "attendance" | "outcome" | "management";
@@ -11,6 +12,10 @@ function workshopStepComplete(item: CollisionCaseRecord): boolean {
   return Boolean(item.vehicleInspectedAt || item.expenseInvoice);
 }
 
+function collisionDocumentationMissing(item: CollisionCaseRecord): boolean {
+  return !isFinalStatus(item.status) && getMissingCollisionDocumentation(item).length > 0;
+}
+
 function calendarDayOffsetFromKeys(value: string, todayDateKey: string): number | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !/^\d{4}-\d{2}-\d{2}$/.test(todayDateKey)) return null;
   const target = Date.parse(`${value}T12:00:00Z`);
@@ -20,7 +25,7 @@ function calendarDayOffsetFromKeys(value: string, todayDateKey: string): number 
 }
 
 export function nextPendingJudicialStep(item: CollisionCaseRecord, todayDateKey: string): PendingJudicialStep {
-  if (item.documentationPending) return "documentation";
+  if (collisionDocumentationMissing(item)) return "documentation";
   const trialDue = Boolean(item.trialDate && item.trialDate <= todayDateKey);
   if (trialDue) {
     if (!workshopStepComplete(item)) return "workshop";
@@ -48,7 +53,6 @@ export function availableJudicialCaseTabs(item: CollisionCaseRecord, todayDateKe
   const workshopComplete = workshopStepComplete(item);
   const tabs: JudicialCaseTab[] = ["summary"];
   if (item.status === "CIERRE ADMINISTRATIVO") return ["summary", "history"];
-  if (item.documentationPending) return ["summary", "follow_up", "history"];
   if (!finalStatus) tabs.push("attendance", "follow_up");
   tabs.push("history");
   if (!finalStatus || workshopComplete) tabs.push("workshop");
@@ -59,7 +63,7 @@ export function availableJudicialCaseTabs(item: CollisionCaseRecord, todayDateKe
 }
 
 export function defaultJudicialCaseTab(item: CollisionCaseRecord, todayDateKey: string): JudicialCaseTab {
-  if (item.documentationPending) return "summary";
+  if (collisionDocumentationMissing(item)) return "summary";
   if (!isFinalStatus(item.status)) {
     const pendingStep = nextPendingJudicialStep(item, todayDateKey);
     if (pendingStep === "outcome") return "outcome";
