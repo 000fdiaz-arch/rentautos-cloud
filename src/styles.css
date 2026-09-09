@@ -6092,6 +6092,119 @@ select.control-op-badge {
   min-width: 54px;
 }
 
+/* Destino pendiente: alerta persistente y gestión obligatoria. */
+.pending-destination-global-alert {
+  position: sticky;
+  top: 8px;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+  border: 2px solid #f59e0b;
+  border-radius: 12px;
+  background: #fffbeb;
+  color: #78350f;
+  padding: 14px 16px;
+  box-shadow: 0 10px 28px rgba(146, 64, 14, 0.18);
+}
+
+.pending-destination-global-alert.level-urgent,
+.pending-destination-global-alert.level-supervisor {
+  border-color: #dc2626;
+  background: #fff1f2;
+  color: #7f1d1d;
+  box-shadow: 0 12px 32px rgba(153, 27, 27, 0.24);
+}
+
+.pending-destination-global-alert > div,
+.pending-destination-super-alert {
+  display: grid;
+  gap: 4px;
+}
+
+.pending-destination-global-alert small {
+  font-weight: 950;
+  letter-spacing: 0.06em;
+}
+
+.pending-destination-global-alert strong {
+  font-size: 1.05rem;
+}
+
+.pending-destination-management {
+  display: grid;
+  gap: 18px;
+  padding: 4px;
+}
+
+.pending-destination-super-alert {
+  border: 2px solid #f59e0b;
+  border-radius: 12px;
+  background: #fffbeb;
+  color: #78350f;
+  padding: 16px;
+}
+
+.pending-destination-super-alert.level-urgent,
+.pending-destination-super-alert.level-supervisor {
+  border-color: #dc2626;
+  background: #fff1f2;
+  color: #7f1d1d;
+}
+
+.pending-destination-attempts,
+.pending-destination-form,
+.pending-destination-resolution {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.pending-destination-attempts h3,
+.pending-destination-form h3,
+.pending-destination-resolution h3,
+.pending-destination-resolution p {
+  margin: 0 0 10px;
+}
+
+.pending-destination-attempts ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.pending-destination-attempts li {
+  display: grid;
+  gap: 3px;
+}
+
+.pending-destination-attempts small {
+  color: var(--color-text-muted);
+}
+
+.pending-destination-resolution {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.pending-destination-resolution > div {
+  flex: 1;
+}
+
+@media (max-width: 800px) {
+  .pending-destination-global-alert,
+  .pending-destination-resolution {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .receipt-history-created-by {
   margin: 9px 8px 0;
   color: #475569;
@@ -12569,6 +12682,23 @@ button.ar-route-publish-copy.is-active {
   background: #eff6ff;
 }
 
+.incident-destination-guided .incident-destination-options button.incident-destination-pending {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.incident-destination-guided .incident-destination-options button.incident-destination-pending.active {
+  border-color: #dc2626;
+  background: #fff1f2;
+  color: #991b1b;
+}
+
+.pending-destination-warning {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  color: #92400e;
+}
+
 .incident-destination-guided .incident-destination-options small {
   color: var(--color-text-muted);
   line-height: 1.45;
@@ -13184,6 +13314,20 @@ button.ar-route-publish-copy.is-active {
 
 .unified-incident-card.status-finished {
   border-left-color: #334155;
+}
+
+.unified-incident-card.status-destination-pending {
+  border: 2px solid #f59e0b;
+  border-left: 7px solid #f59e0b;
+  background: #fffbeb;
+}
+
+.unified-incident-card.status-destination-pending.pending-level-urgent,
+.unified-incident-card.status-destination-pending.pending-level-supervisor {
+  border-color: #dc2626;
+  border-left-color: #991b1b;
+  background: #fff1f2;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1), 0 12px 28px rgba(127, 29, 29, 0.14);
 }
 
 .unified-incident-card.expanded {
@@ -15957,7 +16101,7 @@ button.ar-route-publish-copy.is-active {
 }
 
 .collision-outcome-panel {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .collision-documentation-pending {

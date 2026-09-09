@@ -3,6 +3,7 @@ import type { Client, Payment } from "../types";
 import CollisionsPage from "./CollisionsPage";
 import IncidentIntakeForm, { type IncidentDestination } from "./IncidentIntakeForm";
 import InsuranceWorkflowPage from "./InsuranceWorkflowPage";
+import PendingIncidentDestinationPage from "./PendingIncidentDestinationPage";
 import UnifiedIncidentsFollowUp from "./UnifiedIncidentsFollowUp";
 
 type Props = {
@@ -34,7 +35,9 @@ export default function IncidentsControlPage({
   function handleIncidentSaved(destination: IncidentDestination, missingDocumentation: string[] = []): void {
     setRefreshKey((current) => current + 1);
     setRegistrationOpen(false);
-    setPageMessage(destination === "judicial"
+    setPageMessage(destination === "pending"
+      ? "Siniestro guardado con SUPER ALERTA. Permanecerá visible hasta definir si continúa por juicio o seguro."
+      : destination === "judicial"
       ? missingDocumentation.length > 0
         ? `Siniestro guardado. Falta completar: ${missingDocumentation.join(", ")}. Podrás guardar avances, pero no concluir el caso hasta completarlo.`
         : "Siniestro guardado con la información requerida completa."
@@ -131,10 +134,22 @@ export default function IncidentsControlPage({
         <div className="incident-claim-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeManagement(); }}>
           <section className={`incident-claim-modal incident-management-modal--${managementTarget.destination}`} role="dialog" aria-modal="true" aria-labelledby="incident-management-modal-title">
             <div className="incident-claim-modal-head">
-              <div><span className="workflow-eyebrow">Gestión del expediente</span><h2 id="incident-management-modal-title">{managementTarget.destination === "judicial" ? "Juicio" : "Reclamo al seguro"}</h2></div>
+              <div><span className="workflow-eyebrow">Gestión del expediente</span><h2 id="incident-management-modal-title">{managementTarget.destination === "judicial" ? "Juicio" : managementTarget.destination === "insurance" ? "Reclamo al seguro" : "Destino pendiente"}</h2></div>
               <button type="button" className="button" aria-label="Cerrar gestión del expediente" autoFocus onClick={closeManagement}>Cerrar</button>
             </div>
-            {managementTarget.destination === "judicial" ? (
+            {managementTarget.destination === "pending" ? (
+              <PendingIncidentDestinationPage
+                key={`pending-${managementTarget.id}`}
+                dataOwnerUserId={dataOwnerUserId}
+                incidentId={managementTarget.id}
+                readOnly={!canEditIncidents}
+                onResolved={(destination, id) => {
+                  setRefreshKey((current) => current + 1);
+                  setPageMessage(`Destino definido: ${destination === "judicial" ? "juicio" : "seguro"}. La super alerta fue cerrada.`);
+                  setManagementTarget({ destination, id, search: managementTarget.search });
+                }}
+              />
+            ) : managementTarget.destination === "judicial" ? (
               <CollisionsPage
                 key={`judicial-${managementTarget.id}`}
                 clients={clients}

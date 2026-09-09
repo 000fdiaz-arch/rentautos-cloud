@@ -3,17 +3,20 @@ import {
   loadCollisionCases,
   loadControlUnits,
   loadInsuranceClaims,
+  loadPendingIncidents,
   saveCollisionCase,
   saveInsuranceClaim,
   type CollisionCaseRecord,
   type ControlUnitRow,
-  type InsuranceClaimRecord
+  type InsuranceClaimRecord,
+  type PendingIncidentRecord
 } from "../cloudData";
 import { formatMissingCollisionDocumentation, getMissingCollisionDocumentation } from "../collisionDocumentation";
 import type { IncidentDestination } from "./IncidentIntakeForm";
 import { daysUntilAttendanceConfirmation, nextPendingJudicialStep } from "./incidents/judicialCaseNavigation";
 import { documentationAlertState } from "./incidents/incidentDocumentation";
 import { dateMatchesRange } from "./incidents/incidentFilterRules";
+import { pendingDestinationEscalation } from "./incidents/pendingDestinationRules";
 import "./incidents/incidentFilters.css";
 
 type Props = {
@@ -27,8 +30,8 @@ type Props = {
 };
 
 type AreaFilter = "pending" | "judicial" | "insurance" | "finalized";
-type NextActionCategory = "documentation" | "judicial_management" | "judicial_workshop" | "judicial_balance" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim";
-type NextActionGroupKey = "insurance_follow_up" | "claim_number" | "documentation" | "claim_lifecycle" | "workshop" | "judicial_resolution" | "judicial_attendance" | "judicial_balance" | "custom";
+type NextActionCategory = "destination_resolution" | "documentation" | "judicial_management" | "judicial_workshop" | "judicial_balance" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim";
+type NextActionGroupKey = "destination_resolution" | "insurance_follow_up" | "claim_number" | "documentation" | "claim_lifecycle" | "workshop" | "judicial_resolution" | "judicial_attendance" | "judicial_balance" | "custom";
 type ActionTimingFilter = "all" | "overdue" | "today" | "upcoming";
 type DateFieldFilter = "incident" | "next_action";
 type IncidentSort = "action_asc" | "incident_desc" | "updated_desc" | "unit_asc";
@@ -38,7 +41,7 @@ type IncidentsWorkspaceView = "incidents" | "agenda";
 type IncidentAlert = {
   id: string;
   incidentId: string;
-  kind: "judicial" | "insurance";
+  kind: "judicial" | "insurance" | "pending";
   severity: IncidentAlertSeverity;
   title: string;
   message: string;
@@ -60,6 +63,7 @@ type UnifiedIncident = {
   vehicleDamage: string;
   collision: CollisionCaseRecord | null;
   claim: InsuranceClaimRecord | null;
+  pendingDestination: PendingIncidentRecord | null;
   nextAction: string;
   finalized: boolean;
   requiresAction: boolean;
@@ -76,6 +80,7 @@ type IncidentNoteSummary = {
 };
 
 const NEXT_ACTION_GROUPS: Array<{ value: NextActionGroupKey; label: string }> = [
+  { value: "destination_resolution", label: "Definir juicio o seguro" },
   { value: "insurance_follow_up", label: "Gestión con aseguradora" },
   { value: "claim_number", label: "Número de reclamo" },
   { value: "documentation", label: "Documentación / FUD" },
@@ -98,7 +103,7 @@ function isCollisionFinal(status: CollisionCaseRecord["status"]): boolean {
 function incidentMatchesFilter(incident: UnifiedIncident, filter: AreaFilter): boolean {
   const resolutionPending = incident.collision?.status === "ABSUELTO" && !incident.collision.judicialResolutionEvidence;
   if (filter === "pending") return !incident.finalized;
-  if (filter === "judicial") return !incident.finalized && Boolean(incident.collision && (!incident.claim || resolutionPending));
+  if (filter === "judicial") return !incident.finalized && !incident.pendingDestination && Boolean(incident.collision && (!incident.claim || resolutionPending));
   if (filter === "insurance") return !incident.finalized && !resolutionPending && Boolean(incident.claim);
   if (filter === "finalized") return incident.finalized;
   return false;
@@ -106,6 +111,7 @@ function incidentMatchesFilter(incident: UnifiedIncident, filter: AreaFilter): b
 
 function nextActionCategory(incident: UnifiedIncident): NextActionCategory | null {
   if (incident.finalized) return null;
+  if (incident.pendingDestination) return "destination_resolution";
   const collision = incident.collision;
   const claim = incident.claim;
   const collisionDocumentationPending = Boolean(collision && !isCollisionFinal(collision.status) && getMissingCollisionDocumentation(collision).length > 0);
@@ -128,6 +134,7 @@ function nextActionCategory(incident: UnifiedIncident): NextActionCategory | nul
 
 function nextActionButtonLabel(incident: UnifiedIncident): string {
   switch (nextActionCategory(incident)) {
+    case "destination_resolution": return "Definir destino";
     case "documentation": return "Completar documentación";
     case "judicial_workshop": return "Confirmar revisión";
     case "judicial_balance": return "Registrar saldo";
@@ -225,6 +232,7 @@ function nextActionGroup(incident: UnifiedIncident): { value: NextActionGroupKey
   if (incident.finalized) return null;
   const value: NextActionGroupKey = (() => {
       const category = nextActionCategory(incident);
+      if (category === "destination_resolution") return "destination_resolution";
       if (category === "insurance_follow_up") return "insurance_follow_up";
       if (category === "claim_number") return "claim_number";
       if (category === "documentation") return "documentation";
@@ -280,6 +288,10 @@ function actionScheduleLabel(date: string): string {
 
 function incidentActionSchedule(incident: UnifiedIncident): IncidentActionSchedule | null {
   if (incident.finalized) return null;
+  if (incident.pendingDestination) {
+    const date = incident.pendingDestination.nextContactDate || localDateKey();
+    return { date, label: actionScheduleLabel(date) };
+  }
   const today = localDateKey();
   const collision = incident.collision;
   const claim = incident.claim;
@@ -313,6 +325,12 @@ function incidentActionSchedule(incident: UnifiedIncident): IncidentActionSchedu
 }
 
 function compareByActionDate(left: UnifiedIncident, right: UnifiedIncident): number {
+  if (Boolean(left.pendingDestination) !== Boolean(right.pendingDestination)) return left.pendingDestination ? -1 : 1;
+  if (left.pendingDestination && right.pendingDestination) {
+    const order = { supervisor: 0, urgent: 1, attention: 2, new: 3 };
+    const levelOrder = order[pendingDestinationEscalation(left.pendingDestination).level] - order[pendingDestinationEscalation(right.pendingDestination).level];
+    if (levelOrder !== 0) return levelOrder;
+  }
   const leftSchedule = incidentActionSchedule(left);
   const rightSchedule = incidentActionSchedule(right);
   if (leftSchedule && rightSchedule) {
@@ -367,6 +385,20 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
 
   incidents.forEach((incident) => {
     if (incident.finalized) return;
+    if (incident.pendingDestination) {
+      const escalation = pendingDestinationEscalation(incident.pendingDestination);
+      const supervisor = escalation.level === "supervisor";
+      const urgent = escalation.level === "urgent";
+      addAlert(incident, {
+        id: `${incident.id}:destination-pending`, kind: "pending",
+        severity: supervisor || urgent ? "urgent" : "attention",
+        priority: supervisor ? -20 : urgent ? -10 : escalation.level === "attention" ? -5 : 0,
+        title: escalation.title,
+        message: escalation.message,
+        actionLabel: "Definir destino", destination: "pending", targetId: incident.pendingDestination.id
+      });
+      return;
+    }
     const collision = incident.collision;
     const claim = incident.claim;
     const missingCollisionDocumentation = collision && !isCollisionFinal(collision.status) ? getMissingCollisionDocumentation(collision) : [];
@@ -609,7 +641,7 @@ function collisionNextAction(collision: CollisionCaseRecord, claim: InsuranceCla
   return { label: collision.trialDate ? `Esperar juicio del ${collision.trialDate}` : "Asignar fecha de juicio", finalized: false, requiresAction: !collision.trialDate };
 }
 
-function mergeIncidents(collisions: CollisionCaseRecord[], claims: InsuranceClaimRecord[], fleetUnits: ControlUnitRow[]): UnifiedIncident[] {
+function mergeIncidents(collisions: CollisionCaseRecord[], claims: InsuranceClaimRecord[], fleetUnits: ControlUnitRow[], pendingDestinations: PendingIncidentRecord[] = []): UnifiedIncident[] {
   const claimsById = new Map(claims.map((claim) => [claim.id, claim]));
   const linkedClaimIds = new Set<string>();
   const fleetByUnit = new Map(fleetUnits.map((unit) => [normalizeLookupValue(unit.unit_id), unit]));
@@ -637,6 +669,7 @@ function mergeIncidents(collisions: CollisionCaseRecord[], claims: InsuranceClai
       vehicleDamage: collision.vehicleDamage,
       collision,
       claim,
+      pendingDestination: null,
       nextAction: action.label,
       finalized: action.finalized,
       requiresAction: action.requiresAction,
@@ -657,10 +690,30 @@ function mergeIncidents(collisions: CollisionCaseRecord[], claims: InsuranceClai
       vehicleDamage: claim.vehicleDamage,
       collision: null,
       claim,
+      pendingDestination: null,
       nextAction: action.label,
       finalized: action.finalized,
       requiresAction: action.requiresAction,
       updatedAt: claim.updatedAt
+    });
+  });
+
+  pendingDestinations.filter((item) => item.status === "PENDING_DESTINATION").forEach((item) => {
+    incidents.push({
+      id: `pending:${item.id}`,
+      incidentDate: item.incidentDate,
+      unit: item.unit,
+      driver: item.driver,
+      plate: item.plate,
+      vehicleYear: findVehicleYear(item.unit, item.plate),
+      vehicleDamage: item.vehicleDamage,
+      collision: null,
+      claim: null,
+      pendingDestination: item,
+      nextAction: "Definir si continúa por juicio o seguro",
+      finalized: false,
+      requiresAction: true,
+      updatedAt: item.updatedAt
     });
   });
 
@@ -670,15 +723,17 @@ function mergeIncidents(collisions: CollisionCaseRecord[], claims: InsuranceClai
 export function countIncidentAlerts(
   collisions: CollisionCaseRecord[],
   claims: InsuranceClaimRecord[],
-  _canViewInsurance: boolean
+  _canViewInsurance: boolean,
+  pendingDestinations: PendingIncidentRecord[] = []
 ): number {
-  const incidents = mergeIncidents(collisions, claims, []);
+  const incidents = mergeIncidents(collisions, claims, [], pendingDestinations);
   return countImmediateIncidentActions(incidents);
 }
 
 export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudicial, canViewInsurance, canEditIncidents, refreshKey, onOpen, onAlertCountChange }: Props) {
   const [collisions, setCollisions] = useState<CollisionCaseRecord[]>([]);
   const [claims, setClaims] = useState<InsuranceClaimRecord[]>([]);
+  const [pendingDestinations, setPendingDestinations] = useState<PendingIncidentRecord[]>([]);
   const [fleetUnits, setFleetUnits] = useState<ControlUnitRow[]>([]);
   const [filter, setFilter] = useState<AreaFilter>("pending");
   const [actionTimingFilter, setActionTimingFilter] = useState<ActionTimingFilter>("all");
@@ -705,14 +760,16 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     Promise.all([
       canViewJudicial ? loadCollisionCases(dataOwnerUserId) : Promise.resolve([]),
       canViewInsurance ? loadInsuranceClaims(dataOwnerUserId) : Promise.resolve([]),
+      loadPendingIncidents(dataOwnerUserId),
       loadControlUnits(dataOwnerUserId).catch((error) => {
         console.error("No se pudo cargar el año de las unidades para los expedientes.", error);
         return [];
       })
-    ]).then(([nextCollisions, nextClaims, nextFleetUnits]) => {
+    ]).then(([nextCollisions, nextClaims, nextPendingDestinations, nextFleetUnits]) => {
       if (cancelled) return;
       setCollisions(nextCollisions);
       setClaims(nextClaims);
+      setPendingDestinations(nextPendingDestinations);
       setFleetUnits(nextFleetUnits);
     }).catch((error) => {
       if (cancelled) return;
@@ -762,7 +819,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     }
   }
 
-  const incidents = useMemo(() => mergeIncidents(collisions, claims, fleetUnits), [claims, collisions, fleetUnits]);
+  const incidents = useMemo(() => mergeIncidents(collisions, claims, fleetUnits, pendingDestinations), [claims, collisions, fleetUnits, pendingDestinations]);
   const alerts = useMemo(() => buildIncidentAlerts(incidents, canViewInsurance), [canViewInsurance, incidents]);
   const immediateIncidentCount = useMemo(() => countImmediateIncidentActions(incidents), [incidents]);
   const trialOverview = useMemo(() => {
@@ -810,7 +867,8 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
       }
       if (!needle) return true;
       return [incident.unit, incident.driver, incident.plate, incident.vehicleYear, incident.vehicleDamage, visibleNextAction(incident) ?? "",
-        incident.claim?.claimNumber ?? "", incident.claim?.insurer ?? "", incident.claim?.status ?? ""]
+        incident.claim?.claimNumber ?? "", incident.claim?.insurer ?? "", incident.claim?.status ?? "",
+        incident.pendingDestination?.reason ?? "", ...(incident.pendingDestination?.contactAttempts.map((attempt) => attempt.comment) ?? [])]
         .some((value) => value.toLocaleLowerCase("es").includes(needle));
     });
   }, [actionTimingFilter, dateFieldFilter, dateFrom, dateTo, filter, incidents, insurerFilter, search]);
@@ -847,12 +905,24 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     Boolean(dateFrom || dateTo),
     sort !== "action_asc"
   ].filter(Boolean).length;
+  const unresolvedDestinations = useMemo(() => incidents
+    .filter((incident) => Boolean(incident.pendingDestination))
+    .sort((left, right) => {
+      const order = { supervisor: 0, urgent: 1, attention: 2, new: 3 };
+      const leftLevel = pendingDestinationEscalation(left.pendingDestination!).level;
+      const rightLevel = pendingDestinationEscalation(right.pendingDestination!).level;
+      return order[leftLevel] - order[rightLevel] || left.updatedAt.localeCompare(right.updatedAt);
+    }), [incidents]);
 
   function openAlert(alert: IncidentAlert): void {
     onOpen(alert.destination, { id: alert.targetId, search: alert.unit });
   }
 
   function openNextAction(incident: UnifiedIncident): void {
+    if (incident.pendingDestination) {
+      onOpen("pending", { id: incident.pendingDestination.id, search: incident.unit });
+      return;
+    }
     const category = nextActionCategory(incident);
     const collisionDocumentationPending = Boolean(incident.collision && !isCollisionFinal(incident.collision.status) && getMissingCollisionDocumentation(incident.collision).length > 0);
     if ((category === "documentation" || category === "claim_number" || category === "insurance_follow_up" || category === "finalize_claim") && incident.claim && !collisionDocumentationPending) {
@@ -907,6 +977,14 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
       {loading && <p className="hint workflow-message">Cargando expedientes...</p>}
       {loadError && <p className="hint workflow-message">{loadError}</p>}
       {actionMessage && <p className="hint workflow-message" role="status">{actionMessage}</p>}
+      {!loading && !loadError && unresolvedDestinations.length > 0 && (() => {
+        const first = unresolvedDestinations[0];
+        const escalation = pendingDestinationEscalation(first.pendingDestination!);
+        return <section className={`pending-destination-global-alert level-${escalation.level}`} role="alert" aria-live="assertive">
+          <div><small>SUPER ALERTA · NO SE PUEDE DESCARTAR</small><strong>{unresolvedDestinations.length} {unresolvedDestinations.length === 1 ? "siniestro necesita" : "siniestros necesitan"} definir destino</strong><span>{first.unit} · {first.driver}: {escalation.message}</span></div>
+          <button type="button" className="button primary" onClick={() => onOpen("pending", { id: first.pendingDestination!.id, search: first.unit })}>Resolver ahora</button>
+        </section>;
+      })()}
       {!loading && !loadError && canViewJudicial && <div className="incident-workspace-tabs" role="tablist" aria-label="Vistas de control de siniestros">
         <button type="button" role="tab" aria-selected={workspaceView === "incidents"} className={workspaceView === "incidents" ? "active" : ""} onClick={() => setWorkspaceView("incidents")}>Expedientes <b>{filterCounts.pending}</b></button>
         <button type="button" role="tab" aria-selected={workspaceView === "agenda"} className={workspaceView === "agenda" ? "active" : ""} onClick={() => setWorkspaceView("agenda")}>Agenda judicial <b>{trialOverview.upcomingCount}</b></button>
@@ -1018,9 +1096,11 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
         {filteredIncidents.map((incident) => {
           const expanded = expandedId === incident.id;
           const resolutionPending = incident.collision?.status === "ABSUELTO" && !incident.collision.judicialResolutionEvidence;
-          const claimState = resolutionPending || !incident.claim ? "none" : incident.claim.status === "Activo" ? "active" : incident.claim.status === "Inactivo" ? "inactive" : "finished";
+          const claimState = incident.pendingDestination ? "destination-pending" : resolutionPending || !incident.claim ? "none" : incident.claim.status === "Activo" ? "active" : incident.claim.status === "Inactivo" ? "inactive" : "finished";
           const administrativelyClosed = incident.collision?.status === "CIERRE ADMINISTRATIVO";
-          const claimStateLabel = administrativelyClosed
+          const claimStateLabel = incident.pendingDestination
+            ? "DESTINO SIN DEFINIR"
+            : administrativelyClosed
             ? "Caso finalizado"
             : resolutionPending
               ? "Resolución pendiente"
@@ -1050,7 +1130,8 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           const latestIncidentNote = incidentLatestNote(incident);
           const actionGroup = nextActionGroup(incident);
           const actionSchedule = incidentActionSchedule(incident);
-          return <article key={incident.id} className={`unified-incident-card status-${claimState}${expanded ? " expanded" : ""}`}>
+          const pendingEscalation = incident.pendingDestination ? pendingDestinationEscalation(incident.pendingDestination) : null;
+          return <article key={incident.id} className={`unified-incident-card status-${claimState}${pendingEscalation ? ` pending-level-${pendingEscalation.level}` : ""}${expanded ? " expanded" : ""}`}>
             <div className="unified-incident-summary" onClick={() => setExpandedId(expanded ? null : incident.id)}>
               <div className="unified-incident-identity">
                 <strong>{incident.unit || "Sin unidad"} · {incident.driver || "Sin chofer"}</strong>
@@ -1088,7 +1169,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
                 </div>}
                 <div className="unified-incident-action-buttons">
                   {!incident.finalized && <button type="button" className="button primary" onClick={(event) => { event.stopPropagation(); openNextAction(incident); }}>{nextActionButtonLabel(incident)}</button>}
-                  <button type="button" className="button ghost" onClick={(event) => { event.stopPropagation(); if (incident.collision) onOpen("judicial", { id: incident.collision.id, search: incident.unit }); else if (incident.claim) onOpen("insurance", { id: incident.claim.id, search: incident.unit }); }}>Ver expediente</button>
+                  <button type="button" className="button ghost" onClick={(event) => { event.stopPropagation(); if (incident.pendingDestination) onOpen("pending", { id: incident.pendingDestination.id, search: incident.unit }); else if (incident.collision) onOpen("judicial", { id: incident.collision.id, search: incident.unit }); else if (incident.claim) onOpen("insurance", { id: incident.claim.id, search: incident.unit }); }}>Ver expediente</button>
                 </div>
               </div>
               <button type="button" className="workflow-claim-chevron" aria-label={expanded ? "Contraer expediente" : "Expandir expediente"} aria-expanded={expanded} onClick={(event) => { event.stopPropagation(); setExpandedId(expanded ? null : incident.id); }}>{expanded ? "−" : "+"}</button>
@@ -1099,6 +1180,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
                 <div><dt>Unidad / Placa</dt><dd>{incident.unit || "-"} / {incident.plate || "-"}</dd></div>
                 <div><dt>Año del vehículo</dt><dd>{incident.vehicleYear || "-"}</dd></div>
                 <div><dt>Chofer</dt><dd>{incident.driver || "-"}</dd></div>
+                {incident.pendingDestination && <><div><dt>Intentos de contacto</dt><dd>{incident.pendingDestination.contactAttempts.length}</dd></div><div><dt>Próxima gestión</dt><dd>{incident.pendingDestination.nextContactDate || "Hoy"}</dd></div></>}
                 {incident.collision?.status === "ABSUELTO" && !incident.collision.judicialResolutionEvidence && <div><dt>Buscar resolución</dt><dd>{incident.collision.judicialResolutionSearchDate ? shortCalendarDate(incident.collision.judicialResolutionSearchDate) : "Fecha pendiente"}</dd></div>}
                 <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{incident.vehicleDamage || "Sin descripción"}</dd></div>
               </dl>

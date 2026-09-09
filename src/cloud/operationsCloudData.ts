@@ -280,6 +280,35 @@ export type CollisionCaseRecord = {
   updatedAt: string;
 };
 
+export type PendingIncidentContactAttempt = {
+  id: string;
+  occurredAt: string;
+  channel: "Llamada" | "WhatsApp" | "SMS" | "Correo" | "Otro";
+  outcome: "No responde" | "Contactado, pendiente de confirmar" | "Número inválido" | "Otro";
+  comment: string;
+  nextContactDate: string;
+};
+
+export type PendingIncidentRecord = {
+  id: string;
+  incidentDate: string;
+  incidentLocation?: string;
+  unit: string;
+  driver: string;
+  plate: string;
+  vehicleDamage: string;
+  reason: string;
+  contactAttempts: PendingIncidentContactAttempt[];
+  nextContactDate: string;
+  incidentPhotos: CollisionPhotoAttachment[];
+  status: "PENDING_DESTINATION" | "ROUTED";
+  resolvedDestination?: "judicial" | "insurance" | null;
+  resolvedTargetId?: string | null;
+  resolvedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 const INSURANCE_SETTLEMENTS_BUCKET = "insurance-settlements";
 const INSURANCE_DAMAGE_PHOTOS_BUCKET = INSURANCE_SETTLEMENTS_BUCKET;
 const COLLISION_PHOTOS_BUCKET = "collision-photos";
@@ -737,6 +766,45 @@ export async function saveCollisionCase(userId: string, item: CollisionCaseRecor
   const { error } = await client
     .from("collision_cases_cloud")
     .upsert({ user_id: userId, id: item.id, data: normalizedItem, updated_at: item.updatedAt }, { onConflict: "user_id,id" });
+  if (error) throw error;
+}
+
+function normalizePendingIncident(item: PendingIncidentRecord): PendingIncidentRecord {
+  const contactAttempts = Array.isArray(item.contactAttempts)
+    ? item.contactAttempts.filter((entry): entry is PendingIncidentContactAttempt => Boolean(
+        entry && typeof entry === "object" && typeof entry.id === "string"
+        && typeof entry.occurredAt === "string" && typeof entry.channel === "string"
+        && typeof entry.outcome === "string" && typeof entry.comment === "string"
+        && typeof entry.nextContactDate === "string"
+      ))
+    : [];
+  return {
+    ...item,
+    incidentLocation: typeof item.incidentLocation === "string" ? item.incidentLocation : "",
+    reason: typeof item.reason === "string" && item.reason.trim() ? item.reason : "Cliente no ha confirmado si procede por juicio o seguro.",
+    contactAttempts,
+    nextContactDate: typeof item.nextContactDate === "string" ? item.nextContactDate : contactAttempts[contactAttempts.length - 1]?.nextContactDate ?? "",
+    incidentPhotos: Array.isArray(item.incidentPhotos) ? item.incidentPhotos : [],
+    status: item.status === "ROUTED" ? "ROUTED" : "PENDING_DESTINATION",
+    resolvedDestination: item.resolvedDestination === "judicial" || item.resolvedDestination === "insurance" ? item.resolvedDestination : null,
+    resolvedTargetId: typeof item.resolvedTargetId === "string" ? item.resolvedTargetId : null,
+    resolvedAt: typeof item.resolvedAt === "string" ? item.resolvedAt : null
+  };
+}
+
+export async function loadPendingIncidents(userId: string, includeRouted = false): Promise<PendingIncidentRecord[]> {
+  const rows = await loadCloudArrayRows<PendingIncidentRecord>(userId, "pending_incidents_cloud");
+  return rows
+    .map(normalizePendingIncident)
+    .filter((item) => includeRouted || item.status === "PENDING_DESTINATION")
+    .sort((left, right) => (right.createdAt || "").localeCompare(left.createdAt || ""));
+}
+
+export async function savePendingIncident(userId: string, item: PendingIncidentRecord): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("pending_incidents_cloud")
+    .upsert({ user_id: userId, id: item.id, data: item, updated_at: item.updatedAt }, { onConflict: "user_id,id" });
   if (error) throw error;
 }
 

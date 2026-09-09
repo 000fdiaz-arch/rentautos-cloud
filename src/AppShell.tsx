@@ -35,6 +35,7 @@ import {
   loadCollisionCases,
   loadControlUnits,
   loadInsuranceClaims,
+  loadPendingIncidents,
   registerCloudPaymentDeltas,
   registerCloudRouteBankNotice,
   reserveCloudReceiptNumber,
@@ -264,9 +265,10 @@ export default function AppShell({
     Promise.all([
       loadCollisionCases(cloudDataUserId),
       loadInsuranceClaims(cloudDataUserId),
+      loadPendingIncidents(cloudDataUserId),
       import("./pages/UnifiedIncidentsFollowUp")
-    ]).then(([collisions, claims, incidentRules]) => {
-      if (!cancelled) setIncidentAlertCount(incidentRules.countIncidentAlerts(collisions, claims, true));
+    ]).then(([collisions, claims, pendingDestinations, incidentRules]) => {
+      if (!cancelled) setIncidentAlertCount(incidentRules.countIncidentAlerts(collisions, claims, true, pendingDestinations));
     }).catch((error) => {
       console.error("No se pudo cargar el contador de alertas de siniestros.", error);
     });
