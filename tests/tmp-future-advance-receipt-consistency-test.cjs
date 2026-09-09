@@ -29,10 +29,10 @@ const { ReceiptCardContent } = loadSource("src/components/PaymentReceipt.tsx");
 const { resolveFutureAdvanceReceiptState } = loadSource("src/components/paymentReceiptRules.ts");
 
 const cases = [
-  { name: "diario", frequency: "daily", expectedDate: "2026-09-11", cycle: "Viernes 11 de septiembre", single: "Viernes 11 de septiembre" },
-  { name: "semanal", frequency: "weekly", weeklyChargeDay: "tuesday", expectedDate: "2026-09-29", cycle: "Martes 29 de septiembre", single: "Martes 29 de septiembre" },
-  { name: "quincenal", frequency: "biweekly", expectedDate: "2026-10-15", cycle: "Quincena 15 de octubre", single: "Jueves 15 de octubre" },
-  { name: "mensual", frequency: "monthly", monthlyChargeDay: 15, expectedDate: "2026-11-16", cycle: "Mensualidad 16 de noviembre", single: "Lunes 16 de noviembre" }
+  { name: "diario", frequency: "daily", expectedDate: "2026-09-10", cycle: "Jueves 10 de septiembre", single: "Jueves 10 de septiembre" },
+  { name: "semanal", frequency: "weekly", weeklyChargeDay: "tuesday", expectedDate: "2026-09-22", cycle: "Martes 22 de septiembre", single: "Martes 22 de septiembre" },
+  { name: "quincenal", frequency: "biweekly", expectedDate: "2026-09-30", cycle: "Quincena 30 de septiembre", single: "Miércoles 30 de septiembre" },
+  { name: "mensual", frequency: "monthly", monthlyChargeDay: 15, expectedDate: "2026-10-15", cycle: "Mensualidad 15 de octubre", single: "Jueves 15 de octubre" }
 ];
 
 for (const fixture of cases) {
