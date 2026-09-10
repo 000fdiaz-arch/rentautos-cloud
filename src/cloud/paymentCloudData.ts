@@ -754,6 +754,32 @@ export async function registerCloudPaymentDeltas(
   }
 }
 
+export async function registerCloudPaymentWithReceipt(
+  userId: string,
+  nextClient: Client,
+  payment: Payment
+): Promise<{ client: Client; payment: Payment }> {
+  const { data } = await withCloudRetry(async () => {
+    const result = await getCloudClient().rpc("register_client_payment_with_receipt", {
+      p_owner_user_id: userId,
+      p_client_id: payment.clientId,
+      p_expected_balance_before: payment.balanceBefore,
+      p_next_client: nextClient,
+      p_payment: payment
+    });
+    if (result.error) throw result.error;
+    return result;
+  });
+  const payload = data as { client?: unknown; payment?: unknown } | null;
+  if (!payload?.client || !payload.payment) {
+    throw new Error("Supabase no devolvio el pago guardado con su recibo.");
+  }
+  return {
+    client: payload.client as Client,
+    payment: payload.payment as Payment
+  };
+}
+
 export async function deleteCloudPayment(userId: string, paymentId: string): Promise<void> {
   const client = getCloudClient();
   const { error } = await client

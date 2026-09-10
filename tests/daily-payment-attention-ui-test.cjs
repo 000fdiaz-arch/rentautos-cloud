@@ -64,9 +64,9 @@ function payment(id, receiptNumber, dateApplied, paymentMethod, amountReceived, 
   await page.getByRole("tab", { name: "Historial pagos" }).click();
 
   const panel = page.getByRole("tabpanel", { name: "Historial pagos" });
-  const filter = panel.getByRole("button", { name: /Sin centavos de hoy 2/ });
+  const filter = panel.getByRole("button", { name: /Sin centavos pendientes hoy 2/ });
   await filter.click();
-  await panel.getByText("2 pagos bancarios sin centavos de hoy").waitFor();
+  await panel.getByText("2 pagos pendientes de llamado").waitFor();
 
   assert.equal(await panel.locator("tbody > tr").count(), 2, "Solo deben mostrarse los pagos bancarios de hoy con monto entero.");
   await panel.getByText("REC-WHOLE-1", { exact: true }).waitFor();
@@ -76,14 +76,23 @@ function payment(id, receiptNumber, dateApplied, paymentMethod, amountReceived, 
   assert.equal(await panel.getByText("REC-YESTERDAY", { exact: true }).count(), 0, "Debe excluir pagos de días anteriores.");
 
   const firstRow = panel.locator("tbody > tr").filter({ has: page.getByText("REC-WHOLE-1", { exact: true }) });
-  await firstRow.getByRole("checkbox", { name: "Marcar llamado para A57 Cliente A57" }).check();
-  await firstRow.getByText("Llamado", { exact: true }).waitFor();
+  await firstRow.getByRole("checkbox", { name: "Marcar llamado para A57 Cliente A57" }).click();
+  await firstRow.waitFor({ state: "detached" });
   await panel.getByText(/Pendientes de llamado:\s*1\s*·\s*Llamados:\s*1/).waitFor();
+  assert.equal(await panel.locator("tbody > tr").count(), 1, "Un pago llamado debe desaparecer inmediatamente de los pendientes.");
+  assert.equal(await panel.getByText("REC-WHOLE-1", { exact: true }).count(), 0);
 
-  await filter.click();
+  await panel.getByRole("button", { name: /Ver llamados 1/ }).click();
+  await panel.getByText("1 pago llamado de hoy").waitFor();
+  const calledRow = panel.locator("tbody > tr").filter({ has: page.getByText("REC-WHOLE-1", { exact: true }) });
+  await calledRow.getByRole("checkbox", { name: "Desmarcar llamado para A57 Cliente A57" }).click();
+  await calledRow.waitFor({ state: "detached" });
+  await panel.getByText(/Pendientes de llamado:\s*2\s*·\s*Llamados:\s*0/).waitFor();
+
+  await panel.getByRole("button", { name: "Limpiar filtros", exact: true }).click();
   assert.equal(await panel.locator("tbody > tr").count(), 5, "Al quitar el filtro debe regresar el historial normal.");
 
-  console.log("OK historial UI: filtro diario bancario sin centavos y ganchito por pago funcionan sin alterar el historial.");
+  console.log("OK historial UI: al marcar un llamado desaparece de pendientes y puede revisarse o desmarcarse en Ver llamados.");
   await browser.close();
 })().catch((error) => {
   console.error("FALLO HISTORIAL SIN CENTAVOS UI:", error?.message ?? error);

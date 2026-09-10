@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { formatCurrency } from "../../format";
 import { reserveCloudReceiptNumbers } from "../../cloudData";
+import { isSupabaseOnlyMode } from "../../persistenceMode";
 import {
   loadManualBankAssignmentAudit,
   loadManualBankAssignmentAuditFromIndexedDb,
@@ -210,7 +211,9 @@ export default function usePendingBankWorkflow(options: Options) {
   }
 
   async function applyPendingItem(item: PendingBankItem, client: Client, reservedReceipt?: string) {
-    const receiptNumber = reservedReceipt ?? await reserveReceiptNumber();
+    const receiptNumber = reservedReceipt ?? (
+      dataOwnerUserId && isSupabaseOnlyMode ? "" : await reserveReceiptNumber()
+    );
     return buildPendingPaymentApplication(item, client, {
       payments,
       retentionByClient,
@@ -244,7 +247,7 @@ export default function usePendingBankWorkflow(options: Options) {
         setPendingClassifyError(`No se puede registrar el folio ${folio}: ya fue utilizado.`);
         return;
       }
-      const receiptNumber = await reserveReceiptNumber();
+      const receiptNumber = dataOwnerUserId && isSupabaseOnlyMode ? "" : await reserveReceiptNumber();
       const { updatedClient, payment } = buildPendingPaymentApplication(pendingClassifyTarget, client, {
         payments,
         retentionByClient,

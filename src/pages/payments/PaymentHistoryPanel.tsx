@@ -82,6 +82,7 @@ export default function PaymentHistoryPanel({
   const [historySortDirection, setHistorySortDirection] = useState<SortDirection>("desc");
   const [historyVisibleLimit, setHistoryVisibleLimit] = useState(PAYMENT_HISTORY_LIMIT);
   const [historyNoCentsTodayOnly, setHistoryNoCentsTodayOnly] = useState(false);
+  const [historyAttentionView, setHistoryAttentionView] = useState<"pending" | "called">("pending");
   const [dailyAttentionPaymentIds, setDailyAttentionPaymentIds] = useState<Set<string>>(() => new Set());
   const [dailyAttentionSavingIds, setDailyAttentionSavingIds] = useState<Set<string>>(() => new Set());
   const [isDailyAttentionLoading, setIsDailyAttentionLoading] = useState(false);
@@ -119,6 +120,7 @@ export default function PaymentHistoryPanel({
     setHistoryDateFrom("");
     setHistoryDateTo("");
     setHistoryNoCentsTodayOnly(false);
+    setHistoryAttentionView("pending");
     setHistoryColumnFilters({ ...EMPTY_HISTORY_COLUMN_FILTERS });
     setHistorySortField("date");
     setHistorySortDirection("desc");
@@ -196,6 +198,7 @@ function clearHistoryFilters(): void {
   setHistoryDateFrom("");
   setHistoryDateTo("");
   setHistoryNoCentsTodayOnly(false);
+  setHistoryAttentionView("pending");
   clearHistoryColumnFilters();
   setHistorySelectedPaymentIds([]);
 }
@@ -247,6 +250,7 @@ const todayNoCentsAttendedCount = useMemo(
   () => todayNoCentsPayments.filter((payment) => dailyAttentionPaymentIds.has(payment.id)).length,
   [dailyAttentionPaymentIds, todayNoCentsPayments]
 );
+const todayNoCentsPendingCount = todayNoCentsPayments.length - todayNoCentsAttendedCount;
 
 const historyDeliveryCounts = useMemo(() => {
   return payments.reduce(
@@ -264,7 +268,10 @@ const filteredHistoryRows = useMemo(() => {
   if (historyDateRangeError) return [];
 
   const byNoCents = historyNoCentsTodayOnly
-    ? payments.filter((payment) => isBankPaymentWithoutCentsOnDate(payment, operationalDateKey))
+    ? payments.filter((payment) => (
+        isBankPaymentWithoutCentsOnDate(payment, operationalDateKey) &&
+        (historyAttentionView === "called") === dailyAttentionPaymentIds.has(payment.id)
+      ))
     : payments;
   const byClient = historyClientId === "all"
     ? byNoCents
@@ -322,7 +329,7 @@ const filteredHistoryRows = useMemo(() => {
     return b.createdAt.localeCompare(a.createdAt);
   });
   return sorted;
-}, [payments, operationalDateKey, historyNoCentsTodayOnly, historyClientId, historyGroupFilter, historyDeliveryFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
+}, [payments, operationalDateKey, historyNoCentsTodayOnly, historyAttentionView, dailyAttentionPaymentIds, historyClientId, historyGroupFilter, historyDeliveryFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
 
 const historyRows = useMemo(
   () => filteredHistoryRows.slice(0, historyVisibleLimit),
@@ -638,14 +645,27 @@ async function handleRefreshHistory(): Promise<void> {
             <div className="history-delivery-summary" aria-label="Resumen de envio de recibos">
               <button
                 type="button"
-                className={`history-delivery-chip history-delivery-chip--pending ${historyNoCentsTodayOnly ? "is-active" : ""}`}
+                className={`history-delivery-chip history-delivery-chip--pending ${historyNoCentsTodayOnly && historyAttentionView === "pending" ? "is-active" : ""}`}
                 onClick={() => {
-                  setHistoryNoCentsTodayOnly((current) => !current);
+                  setHistoryNoCentsTodayOnly(true);
+                  setHistoryAttentionView("pending");
                   setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
                   setHistorySelectedPaymentIds([]);
                 }}
               >
-                Sin centavos de hoy <strong>{todayNoCentsPayments.length}</strong>
+                Sin centavos pendientes hoy <strong>{todayNoCentsPendingCount}</strong>
+              </button>
+              <button
+                type="button"
+                className={`history-delivery-chip history-delivery-chip--sent ${historyNoCentsTodayOnly && historyAttentionView === "called" ? "is-active" : ""}`}
+                onClick={() => {
+                  setHistoryNoCentsTodayOnly(true);
+                  setHistoryAttentionView("called");
+                  setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
+                  setHistorySelectedPaymentIds([]);
+                }}
+              >
+                Ver llamados <strong>{todayNoCentsAttendedCount}</strong>
               </button>
               <button
                 type="button"
@@ -671,8 +691,9 @@ async function handleRefreshHistory(): Promise<void> {
 
             {historyNoCentsTodayOnly && (
               <p className="hint" role="status">
-                Pendientes de llamado: <strong>{todayNoCentsPayments.length - todayNoCentsAttendedCount}</strong>
+                Pendientes de llamado: <strong>{todayNoCentsPendingCount}</strong>
                 {" · "}Llamados: <strong>{todayNoCentsAttendedCount}</strong>
+                {" · "}{historyAttentionView === "called" ? "Mostrando llamados" : "Mostrando pendientes"}
                 {isDailyAttentionLoading ? " · Sincronizando..." : ""}
               </p>
             )}
@@ -739,7 +760,9 @@ async function handleRefreshHistory(): Promise<void> {
               <div className="history-bulk-bar">
                 <div className="history-bulk-summary">
                   {historyNoCentsTodayOnly
-                    ? `${historyRows.length} pagos bancarios sin centavos de hoy`
+                    ? historyAttentionView === "called"
+                      ? `${filteredHistoryRows.length} ${filteredHistoryRows.length === 1 ? "pago llamado" : "pagos llamados"} de hoy`
+                      : `${filteredHistoryRows.length} ${filteredHistoryRows.length === 1 ? "pago pendiente" : "pagos pendientes"} de llamado`
                     : historySelectedRows.length > 0
                     ? `${historySelectedRows.length} seleccionados de ${historyRows.length}`
                     : `${historyRows.length} visibles de ${filteredHistoryRows.length} filtrados`}

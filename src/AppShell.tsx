@@ -37,6 +37,7 @@ import {
   loadInsuranceClaims,
   loadPendingIncidents,
   registerCloudPaymentDeltas,
+  registerCloudPaymentWithReceipt,
   registerCloudRouteBankNotice,
   reserveCloudReceiptNumber,
   saveCloudBankRules,
@@ -550,18 +551,32 @@ export default function AppShell({
     const previousPayments = payments;
     const normalizedNextClients = nextClients.map(withResolvedInstallmentIssuance);
     const previousPaymentIds = new Set(previousPayments.map((payment) => payment.id));
-    const hasNewPayments = nextPayments.some((payment) => !previousPaymentIds.has(payment.id));
+    const newPayments = nextPayments.filter((payment) => !previousPaymentIds.has(payment.id));
+    const hasNewPayments = newPayments.length > 0;
+    const nextPaymentsById = new Map(nextPayments.map((payment) => [payment.id, payment]));
     const isAppendOnlyPaymentChange =
       hasNewPayments &&
       previousPayments.every((previousPayment) => {
-        const nextPayment = nextPayments.find((payment) => payment.id === previousPayment.id);
+        const nextPayment = nextPaymentsById.get(previousPayment.id);
         return Boolean(nextPayment) && stableEqual(previousPayment, nextPayment);
       });
 
     if (cloudDataUserId && isSupabaseOnlyMode) {
       setSyncStatus("syncing");
+      let persistedClients = normalizedNextClients;
+      let persistedPayments = nextPayments;
       try {
-        if (isAppendOnlyPaymentChange) {
+        const singlePaymentNeedingReceipt = newPayments.length === 1 && !newPayments[0].receiptNumber.trim()
+          ? newPayments[0]
+          : null;
+        if (isAppendOnlyPaymentChange && singlePaymentNeedingReceipt) {
+          const nextClient = normalizedNextClients.find((client) => client.id === singlePaymentNeedingReceipt.clientId);
+          if (!nextClient) throw new Error("No se encontro el cliente del pago pendiente.");
+          const saved = await registerCloudPaymentWithReceipt(cloudDataUserId, nextClient, singlePaymentNeedingReceipt);
+          Object.assign(singlePaymentNeedingReceipt, saved.payment);
+          persistedClients = normalizedNextClients.map((client) => client.id === saved.client.id ? saved.client : client);
+          persistedPayments = nextPayments.map((payment) => payment.id === saved.payment.id ? saved.payment : payment);
+        } else if (isAppendOnlyPaymentChange) {
           await registerCloudPaymentDeltas(cloudDataUserId, previousClients, normalizedNextClients, previousPayments, nextPayments);
         } else {
           await syncCoreDeltaOrQueue(previousClients, normalizedNextClients, previousPayments, nextPayments);
@@ -572,8 +587,8 @@ export default function AppShell({
         setPayments(previousPayments);
         throw error;
       }
-      setClients(normalizedNextClients);
-      setPayments(nextPayments);
+      setClients(persistedClients);
+      setPayments(persistedPayments);
       setHasPendingChanges(true);
       return true;
     }
