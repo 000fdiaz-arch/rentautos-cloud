@@ -4,7 +4,7 @@ import CollisionsPage from "./CollisionsPage";
 import IncidentIntakeForm, { type IncidentDestination } from "./IncidentIntakeForm";
 import InsuranceWorkflowPage from "./InsuranceWorkflowPage";
 import PendingIncidentDestinationPage from "./PendingIncidentDestinationPage";
-import UnifiedIncidentsFollowUp from "./UnifiedIncidentsFollowUp";
+import UnifiedIncidentsFollowUp, { type IncidentManagementAction } from "./UnifiedIncidentsFollowUp";
 
 type Props = {
   clients: Client[];
@@ -16,7 +16,7 @@ type Props = {
   onAlertCountChange?: (count: number) => void;
 };
 
-type ManagementTarget = { destination: IncidentDestination; id: string; search: string; section?: "follow_up" };
+type ManagementTarget = { destination: IncidentDestination; id: string; search: string; section?: "follow_up"; action?: IncidentManagementAction };
 
 export default function IncidentsControlPage({
   clients,
@@ -166,7 +166,7 @@ export default function IncidentsControlPage({
               />
             ) : (
               <InsuranceWorkflowPage
-                key={`insurance-${managementTarget.id}`}
+                key={`insurance-${managementTarget.id}-${managementTarget.action ?? "details"}`}
                 clients={clients}
                 dataOwnerUserId={dataOwnerUserId}
                 readOnly={!canEditIncidents}
@@ -175,6 +175,7 @@ export default function IncidentsControlPage({
                 initialExpandedId={managementTarget.id}
                 focusedClaimId={managementTarget.id}
                 initialDetailTab={managementTarget.section}
+                initialAction={managementTarget.action}
               />
             )}
           </section>

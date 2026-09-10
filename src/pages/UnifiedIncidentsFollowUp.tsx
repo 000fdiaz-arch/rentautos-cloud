@@ -25,9 +25,11 @@ type Props = {
   canViewInsurance: boolean;
   canEditIncidents: boolean;
   refreshKey: number;
-  onOpen: (destination: IncidentDestination, target: { id: string; search: string; section?: "follow_up" }) => void;
+  onOpen: (destination: IncidentDestination, target: { id: string; search: string; section?: "follow_up"; action?: IncidentManagementAction }) => void;
   onAlertCountChange?: (count: number) => void;
 };
+
+export type IncidentManagementAction = "finalize_claim";
 
 type AreaFilter = "pending" | "judicial" | "insurance" | "finalized";
 type NextActionCategory = "destination_resolution" | "documentation" | "judicial_management" | "judicial_workshop" | "judicial_balance" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim";
@@ -48,6 +50,7 @@ type IncidentAlert = {
   actionLabel: string;
   destination: IncidentDestination;
   targetId: string;
+  action?: IncidentManagementAction;
   unit: string;
   plate: string;
   priority: number;
@@ -569,7 +572,7 @@ function buildIncidentAlerts(incidents: UnifiedIncident[], canViewInsurance: boo
       addAlert(incident, {
         id: `${incident.id}:settlement-active`, kind: "insurance", severity: "urgent", priority: 3,
         title: "Finiquito entregado con reclamo activo", message: "El finiquito ya fue entregado, pero el reclamo todavía no se ha finalizado.",
-        actionLabel: "Finalizar reclamo", destination: "insurance", targetId: claim.id
+        actionLabel: "Finalizar reclamo", destination: "insurance", targetId: claim.id, action: "finalize_claim"
       });
     }
 
@@ -915,7 +918,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     }), [incidents]);
 
   function openAlert(alert: IncidentAlert): void {
-    onOpen(alert.destination, { id: alert.targetId, search: alert.unit });
+    onOpen(alert.destination, { id: alert.targetId, search: alert.unit, action: alert.action });
   }
 
   function openNextAction(incident: UnifiedIncident): void {
@@ -926,7 +929,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     const category = nextActionCategory(incident);
     const collisionDocumentationPending = Boolean(incident.collision && !isCollisionFinal(incident.collision.status) && getMissingCollisionDocumentation(incident.collision).length > 0);
     if ((category === "documentation" || category === "claim_number" || category === "insurance_follow_up" || category === "finalize_claim") && incident.claim && !collisionDocumentationPending) {
-      onOpen("insurance", { id: incident.claim.id, search: incident.unit });
+      onOpen("insurance", { id: incident.claim.id, search: incident.unit, action: category === "finalize_claim" ? "finalize_claim" : undefined });
       return;
     }
     if (incident.collision) {

@@ -32,6 +32,7 @@ type Props = {
   initialSearch?: string;
   focusedClaimId?: string;
   initialDetailTab?: ClaimDetailTab;
+  initialAction?: "finalize_claim";
 };
 
 type ClaimForm = {
@@ -114,7 +115,7 @@ function localDateKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOnly = false, embedded = false, hideCreateForm = false, initialExpandedId = "", initialSearch = "", focusedClaimId = "", initialDetailTab }: Props) {
+export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOnly = false, embedded = false, hideCreateForm = false, initialExpandedId = "", initialSearch = "", focusedClaimId = "", initialDetailTab, initialAction }: Props) {
   const { rows: fleetUnits, loading: fleetLoading, loadError: fleetLoadError } = useControlUnitsRows(hideCreateForm ? null : dataOwnerUserId);
   const [form, setForm] = useState<ClaimForm>(EMPTY_FORM);
   const [insurers, setInsurers] = useState<string[]>([]);
@@ -146,7 +147,9 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   const [insurerFilter, setInsurerFilter] = useState<string>("all");
   const [settlementFilter, setSettlementFilter] = useState<SettlementFilter>("all");
   const [claimNumberFilter, setClaimNumberFilter] = useState<ClaimNumberFilter>("all");
-  const [finalizingClaimId, setFinalizingClaimId] = useState<string | null>(null);
+  const [finalizingClaimId, setFinalizingClaimId] = useState<string | null>(
+    initialAction === "finalize_claim" ? focusedClaimId || initialExpandedId || null : null
+  );
   const [closureOutcome, setClosureOutcome] = useState<InsuranceClaimClosureOutcome | "">("");
   const [closureJustification, setClosureJustification] = useState<string>("");
   const [editingClaimId, setEditingClaimId] = useState<string | null>(null);
@@ -1345,7 +1348,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                   <button type="button" role="tab" id={`claim-follow-up-tab-${claim.id}`} aria-selected={activeClaimDetailTab === "follow_up"} aria-controls={`claim-follow-up-panel-${claim.id}`} className={activeClaimDetailTab === "follow_up" ? "active" : ""} onClick={() => setClaimDetailTabs((current) => ({ ...current, [claim.id]: "follow_up" }))}>Notas <span>{claim.followUps.length}</span></button>
                 </div>
                 {activeClaimDetailTab === "management" && <div className="workflow-record-tab-panel workflow-record-tab-panel--management" role="tabpanel" id={`claim-management-panel-${claim.id}`} aria-labelledby={`claim-management-tab-${claim.id}`}>
-                {finalizingClaimId === claim.id && (
+                {finalizingClaimId === claim.id && claim.status !== "Finalizado" && (
                   <div className="workflow-finalization-panel">
                     <div>
                       <strong>Finalizar reclamo</strong>
@@ -1558,6 +1561,23 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                       <span className="hint">Sin finiquito adjunto</span>
                     )}
                   </div>
+                  {claim.settlementDelivered && claim.status !== "Finalizado" && finalizingClaimId !== claim.id && (
+                    <div className="workflow-finalization-actions">
+                      <button
+                        type="button"
+                        className="button primary"
+                        onClick={() => {
+                          setClosureOutcome("");
+                          setClosureJustification("");
+                          setClaimDetailTabs((current) => ({ ...current, [claim.id]: "management" }));
+                          setFinalizingClaimId(claim.id);
+                        }}
+                        disabled={readOnly || statusSavingId === claim.id}
+                      >
+                        Finalizar reclamo
+                      </button>
+                    </div>
+                  )}
                 </div>
                 </div>}
                 {activeClaimDetailTab === "follow_up" && <section className="insurance-follow-up-panel workflow-record-tab-panel" role="tabpanel" id={`claim-follow-up-panel-${claim.id}`} aria-labelledby={`claim-follow-up-tab-${claim.id}`}>
