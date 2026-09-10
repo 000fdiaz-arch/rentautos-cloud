@@ -27,6 +27,7 @@ type Props = {
   isPendingOpen: boolean;
   pendingBankItems: PendingBankItem[];
   pendingImportError: string;
+  isPendingImporting?: boolean;
   clients: Client[];
   activeClients: Client[];
   getSimilaritySignals: (item: PendingBankItem) => SimilaritySignals;
@@ -46,11 +47,42 @@ type Props = {
   renderPendingInlineReview: (item: PendingBankItem) => ReactNode;
 };
 
+type PendingBaseRowModel = {
+  item: PendingBankItem;
+  assignedClient: Client | null;
+  hasOtherCharges: boolean;
+  hasFines: boolean;
+  hasTickets: boolean;
+  signals: SimilaritySignals;
+  actionLabels: string;
+  unitLabel: string;
+  groupLabel: string;
+  nameLabel: string;
+  similarityLabel: string;
+};
+
+type PendingRowModel = PendingBaseRowModel & {
+  pendingPreview: PendingBankPreview | null;
+  previewLabel: string;
+};
+
+const PENDING_PAGE_SIZE = 50;
+const CLIENT_MATCH_LIMIT = 20;
+
+function getPreviewFilterLabel(preview: PendingBankPreview | null): string {
+  if (!preview) return "Sin vista previa";
+  if (preview.isProvisionalRental) {
+    return `Alquiler provisional Renta ${formatCurrency(preview.rentAmount)} ${preview.frequencyLabel} Pendientes antes ${preview.installmentsPendingBefore ?? 0} Pendientes despues ${preview.installmentsRemainingAfter} Cobro ${formatCurrency(preview.balanceAfter)}`;
+  }
+  return `Renta ${formatCurrency(preview.rentAmount)} ${preview.frequencyLabel} Multas ${formatCurrency(preview.totalFines)} Boletas ${formatCurrency(preview.totalTickets)} Recargos ${formatCurrency(preview.totalLateFees)} Otros cargos ${formatCurrency(Math.max(0, preview.totalOtherCharges - preview.totalLateFees))} Pactadas ${preview.installmentsAgreed} Cuotas ${preview.installmentsRemainingAfter} Impacto ${preview.installmentsDeducted} Cobro ${formatCurrency(preview.balanceAfter)}`;
+}
+
 export default function PendingBankPanel({
   pendingSectionRef,
   isPendingOpen,
   pendingBankItems,
   pendingImportError,
+  isPendingImporting = false,
   clients,
   activeClients,
   getSimilaritySignals,
@@ -74,13 +106,60 @@ export default function PendingBankPanel({
   const pendingTopInnerRef = useRef<HTMLDivElement>(null);
   const pendingBottomScrollRef = useRef<HTMLDivElement>(null);
   const clientById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
+  const [pendingPage, setPendingPage] = useState(1);
+  const [assignmentEditorFolio, setAssignmentEditorFolio] = useState<string | null>(null);
+  const [assignmentSearch, setAssignmentSearch] = useState("");
 
 const hasPendingColumnFilters = useMemo(
   () => Object.values(pendingFilters).some((value) => value.trim().length > 0),
   [pendingFilters]
 );
 
-const filteredPendingBankItems = useMemo(() => {
+const preparedPendingRows = useMemo<PendingBaseRowModel[]>(() => {
+  if (!isPendingOpen) return [];
+  return pendingBankItems.map((item) => {
+    const assignedClient = item.suggestedClientId ? (clientById.get(item.suggestedClientId) ?? null) : null;
+    const hasOtherCharges = !!(assignedClient?.otherCharges?.length);
+    const hasFines = assignedClient ? getPendingFines(assignedClient).length > 0 : false;
+    const hasTickets = assignedClient ? getPendingTickets(assignedClient).length > 0 : false;
+    const signals = getSimilaritySignals(item);
+    const isHighSim = signals.score >= 2 && !!assignedClient;
+    const unitProbability = signals.score >= 3 ? "Alta" : signals.score === 2 ? "Media" : signals.score === 1 ? "Baja" : "Sin datos";
+    const actionLabels = [
+      assignedClient ? (hasOtherCharges || hasFines || hasTickets ? "Aplicar auto" : "Aplicar") : "",
+      assignedClient && hasOtherCharges ? "Revisar cargos" : "",
+      "Ignorar"
+    ].filter(Boolean).join(" ");
+    const unitLabel = assignedClient ? `${assignedClient.activeProvisionalRental?.unitId ?? assignedClient.unitId} ${assignedClient.name}` : "Sin asignar";
+    const groupLabel = item.mappedGroup ? `Grupo ${item.mappedGroup}` : "";
+    const nameLabel = item.suggestedClientName || item.extractedName || "";
+    const similarityLabel = [
+      isHighSim ? "Alta similitud" : "Sin alta similitud",
+      `Probabilidad ${unitProbability}`,
+      signals.nombre ? "nombre" : "",
+      signals.centavos ? "centavos" : "",
+      signals.notificado ? "notificado" : "",
+      hasFines ? "multas" : "",
+      hasTickets ? "boletas" : "",
+      hasOtherCharges ? "otros cargos" : ""
+    ].filter(Boolean).join(" ");
+    return {
+      item,
+      assignedClient,
+      hasOtherCharges,
+      hasFines,
+      hasTickets,
+      signals,
+      actionLabels,
+      unitLabel,
+      groupLabel,
+      nameLabel,
+      similarityLabel
+    };
+  });
+}, [clientById, getSimilaritySignals, isPendingOpen, pendingBankItems]);
+
+const filteredPendingRows = useMemo(() => {
   const normalize = (value: string): string => value.trim().toLowerCase();
   const includesFilter = (target: string, filterValue: string): boolean => {
     const query = normalize(filterValue);
@@ -90,39 +169,7 @@ const filteredPendingBankItems = useMemo(() => {
 
   const asAmountLabel = (value: number): string => `${value.toFixed(2)} ${formatCurrency(value)}`;
 
-  return pendingBankItems.filter((item) => {
-    const assignedClient = item.suggestedClientId ? (clientById.get(item.suggestedClientId) ?? null) : null;
-    const hasOtherCharges = !!(assignedClient?.otherCharges?.length);
-    const hasFines = assignedClient ? getPendingFines(assignedClient).length > 0 : false;
-    const hasTickets = assignedClient ? getPendingTickets(assignedClient).length > 0 : false;
-    const { nombre, centavos, notificado, score } = getSimilaritySignals(item);
-    const isHighSim = score >= 2 && !!assignedClient;
-    const unitProbability = score >= 3 ? "Alta" : score === 2 ? "Media" : score === 1 ? "Baja" : "Sin datos";
-    const pendingPreview = getPendingBankPreview(item, assignedClient);
-    const actionLabels = [
-      assignedClient ? (hasOtherCharges || hasFines || hasTickets ? "Aplicar auto" : "Aplicar") : "",
-      assignedClient && hasOtherCharges ? "Revisar cargos" : "",
-      "Ignorar"
-    ].filter(Boolean).join(" ");
-    const previewLabel = pendingPreview
-      ? pendingPreview.isProvisionalRental
-        ? `Alquiler provisional Renta ${formatCurrency(pendingPreview.rentAmount)} ${pendingPreview.frequencyLabel} Pendientes antes ${pendingPreview.installmentsPendingBefore ?? 0} Pendientes despues ${pendingPreview.installmentsRemainingAfter} Cobro ${formatCurrency(pendingPreview.balanceAfter)}`
-        : `Renta ${formatCurrency(pendingPreview.rentAmount)} ${pendingPreview.frequencyLabel} Multas ${formatCurrency(pendingPreview.totalFines)} Boletas ${formatCurrency(pendingPreview.totalTickets)} Recargos ${formatCurrency(pendingPreview.totalLateFees)} Otros cargos ${formatCurrency(Math.max(0, pendingPreview.totalOtherCharges - pendingPreview.totalLateFees))} Pactadas ${pendingPreview.installmentsAgreed} Cuotas ${pendingPreview.installmentsRemainingAfter} Impacto ${pendingPreview.installmentsDeducted} Cobro ${formatCurrency(pendingPreview.balanceAfter)}`
-      : "Sin vista previa";
-    const unitLabel = assignedClient ? `${assignedClient.activeProvisionalRental?.unitId ?? assignedClient.unitId} ${assignedClient.name}` : "Sin asignar";
-    const groupLabel = item.mappedGroup ? `Grupo ${item.mappedGroup}` : "";
-    const nameLabel = item.suggestedClientName || item.extractedName || "";
-    const similarityLabel = [
-      isHighSim ? "Alta similitud" : "Sin alta similitud",
-      `Probabilidad ${unitProbability}`,
-      nombre ? "nombre" : "",
-      centavos ? "centavos" : "",
-      notificado ? "notificado" : "",
-      hasFines ? "multas" : "",
-      hasTickets ? "boletas" : "",
-      hasOtherCharges ? "otros cargos" : ""
-    ].filter(Boolean).join(" ");
-
+  return preparedPendingRows.filter(({ item, actionLabels, unitLabel, groupLabel, nameLabel, similarityLabel }) => {
     return (
       includesFilter(item.folio, pendingFilters.folio) &&
       includesFilter(item.accountNumber ?? "", pendingFilters.account) &&
@@ -132,19 +179,65 @@ const filteredPendingBankItems = useMemo(() => {
       includesFilter(nameLabel, pendingFilters.name) &&
       includesFilter(similarityLabel, pendingFilters.similarity) &&
       includesFilter(unitLabel, pendingFilters.unit) &&
-      includesFilter(previewLabel, pendingFilters.preview) &&
       includesFilter(item.description, pendingFilters.description) &&
       includesFilter(actionLabels, pendingFilters.actions)
     );
   });
-}, [clientById, pendingBankItems, pendingFilters, getSimilaritySignals, getPendingBankPreview]);
+}, [pendingFilters, preparedPendingRows]);
+
+const previewFilteredPendingRows = useMemo<Array<PendingBaseRowModel | PendingRowModel>>(() => {
+  const query = pendingFilters.preview.trim().toLowerCase();
+  if (!query) return filteredPendingRows;
+  return filteredPendingRows
+    .map((row): PendingRowModel => {
+      const pendingPreview = getPendingBankPreview(row.item, row.assignedClient);
+      return { ...row, pendingPreview, previewLabel: getPreviewFilterLabel(pendingPreview) };
+    })
+    .filter((row) => row.previewLabel.toLowerCase().includes(query));
+}, [filteredPendingRows, getPendingBankPreview, pendingFilters.preview]);
+
+const totalPendingPages = Math.max(1, Math.ceil(previewFilteredPendingRows.length / PENDING_PAGE_SIZE));
+const visiblePendingPage = Math.min(pendingPage, totalPendingPages);
+const pagedPendingRows = useMemo<PendingRowModel[]>(() => {
+  const pageRows = previewFilteredPendingRows.slice(
+    (visiblePendingPage - 1) * PENDING_PAGE_SIZE,
+    visiblePendingPage * PENDING_PAGE_SIZE
+  );
+  return pageRows.map((row) => {
+    if ("pendingPreview" in row) return row;
+    const pendingPreview = getPendingBankPreview(row.item, row.assignedClient);
+    return { ...row, pendingPreview, previewLabel: getPreviewFilterLabel(pendingPreview) };
+  });
+}, [getPendingBankPreview, previewFilteredPendingRows, visiblePendingPage]);
+
+const assignmentMatches = useMemo(() => {
+  if (!assignmentEditorFolio) return [];
+  const query = assignmentSearch.trim().toLowerCase();
+  if (!query) return [];
+  return activeClients
+    .filter((client) => `${client.activeProvisionalRental?.unitId ?? client.unitId} ${client.name} ${client.cedula ?? ""}`.toLowerCase().includes(query))
+    .slice(0, CLIENT_MATCH_LIMIT);
+}, [activeClients, assignmentEditorFolio, assignmentSearch]);
 
 function updatePendingFilter(field: keyof PendingColumnFilters, value: string): void {
+  setPendingPage(1);
   setPendingFilters((prev) => ({ ...prev, [field]: value }));
 }
 
 function clearPendingFilters(): void {
+  setPendingPage(1);
   setPendingFilters({ ...EMPTY_PENDING_FILTERS });
+}
+
+function toggleAssignmentEditor(folio: string): void {
+  setAssignmentEditorFolio((current) => current === folio ? null : folio);
+  setAssignmentSearch("");
+}
+
+function selectPendingClient(item: PendingBankItem, clientId: string): void {
+  handlePendingUnitChange(item, clientId);
+  setAssignmentEditorFolio(null);
+  setAssignmentSearch("");
 }
 
 useEffect(() => {
@@ -206,12 +299,7 @@ useEffect(() => {
                 )}
               </h2>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {pendingBankItems.some((item) => {
-                  const { score } = getSimilaritySignals(item);
-                  if (score < 2) return false;
-                  const c = clients.find((cl) => cl.id === item.suggestedClientId);
-                  return !!c;
-                }) && (
+                {preparedPendingRows.some((row) => row.signals.score >= 2 && !!row.assignedClient) && (
                   <button type="button" className="button primary small" onClick={() => void handleApplyAllHighSimilarity()}>
                     Aplicar alta similitud
                   </button>
@@ -227,6 +315,12 @@ useEffect(() => {
             {pendingImportError && (
               <p className={`hint ${pendingImportError.startsWith("Error") || pendingImportError.startsWith("No se") ? "error-text" : "recon-info"}`} style={{ marginTop: 8 }}>
                 {pendingImportError}
+              </p>
+            )}
+
+            {isPendingImporting && (
+              <p className="hint recon-info" role="status" aria-live="polite" style={{ marginTop: 8 }}>
+                Validando folios y preparando movimientos pendientes...
               </p>
             )}
 
@@ -280,17 +374,12 @@ useEffect(() => {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredPendingBankItems.map((item) => {
-                          const assignedClient = item.suggestedClientId ? clients.find((c) => c.id === item.suggestedClientId) ?? null : null;
-                          const hasOtherCharges = !!(assignedClient?.otherCharges?.length);
-                          const hasFines = assignedClient ? getPendingFines(assignedClient).length > 0 : false;
-                          const hasTickets = assignedClient ? getPendingTickets(assignedClient).length > 0 : false;
+                        {pagedPendingRows.map(({ item, assignedClient, hasOtherCharges, hasFines, hasTickets, signals, pendingPreview }) => {
                           const isPreMatched = !!item.suggestedClientId;
-                          const { nombre, centavos, notificado, score } = getSimilaritySignals(item);
+                          const { nombre, centavos, notificado, score } = signals;
                           const isHighSim = score >= 2 && !!assignedClient;
                           const unitProbability = score >= 3 ? "Alta" : score === 2 ? "Media" : score === 1 ? "Baja" : "Sin datos";
                           const rowClass = isHighSim ? "pending-row--high-sim" : (hasOtherCharges || hasFines || hasTickets) ? "pending-row--other-charges" : isPreMatched ? "pending-row--ready" : "";
-                          const pendingPreview = getPendingBankPreview(item, assignedClient);
                           const upToDateUntilDate = pendingPreview?.upToDateUntil
                             ? parseDateKey(pendingPreview.upToDateUntil)
                             : null;
@@ -327,21 +416,54 @@ useEffect(() => {
                                 {assignedClient && (
                                   <div className="unit-preview">{assignedClient.activeProvisionalRental?.unitId ?? assignedClient.unitId} - {assignedClient.name}</div>
                                 )}
-                                <select
-                                  className="payment-input pending-unit-select"
-                                  value={item.suggestedClientId ?? ""}
-                                  onChange={(e) => {
-                                    if (isInlineReviewOpen) handleOpenClassify(item);
-                                    handlePendingUnitChange(item, e.target.value);
-                                  }}
+                                <button
+                                  type="button"
+                                  className="button ghost small"
+                                  aria-expanded={assignmentEditorFolio === item.folio}
+                                  onClick={() => toggleAssignmentEditor(item.folio)}
                                 >
-                                  <option value="">Asignar cliente</option>
-                                  {activeClients.map((c) => (
-                                    <option key={c.id} value={c.id}>
-                                      {c.activeProvisionalRental?.unitId ?? c.unitId} - {c.name}
-                                    </option>
-                                  ))}
-                                </select>
+                                  {assignmentEditorFolio === item.folio ? "Cerrar búsqueda" : assignedClient ? "Cambiar cliente" : "Asignar cliente"}
+                                </button>
+                                {assignmentEditorFolio === item.folio && (
+                                  <div style={{ marginTop: 6, display: "grid", gap: 6, minWidth: 240 }}>
+                                    <input
+                                      type="search"
+                                      className="payment-input"
+                                      aria-label={`Buscar cliente para folio ${item.folio}`}
+                                      placeholder="Unidad, nombre o cédula"
+                                      value={assignmentSearch}
+                                      onChange={(event) => setAssignmentSearch(event.target.value)}
+                                      autoFocus
+                                    />
+                                    {assignmentSearch.trim() && (
+                                      <select
+                                        className="payment-input pending-unit-select"
+                                        aria-label={`Resultados de cliente para folio ${item.folio}`}
+                                        value=""
+                                        onChange={(event) => {
+                                          if (!event.target.value) return;
+                                          if (isInlineReviewOpen) handleOpenClassify(item);
+                                          selectPendingClient(item, event.target.value);
+                                        }}
+                                      >
+                                        <option value="">Selecciona un resultado ({assignmentMatches.length})</option>
+                                        {assignmentMatches.map((client) => (
+                                          <option key={client.id} value={client.id}>
+                                            {client.activeProvisionalRental?.unitId ?? client.unitId} - {client.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    )}
+                                    {assignmentSearch.trim() && assignmentMatches.length === 0 && (
+                                      <span className="amount-muted">No se encontraron clientes.</span>
+                                    )}
+                                    {assignedClient && (
+                                      <button type="button" className="button ghost small" onClick={() => selectPendingClient(item, "")}>
+                                        Quitar asignación
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                                 {!item.suggestedClientId && (
                                   <div className="hint" style={{ marginTop: 4, fontSize: 11 }}>Asignar Cliente</div>
                                 )}
@@ -466,7 +588,7 @@ useEffect(() => {
                             ) : null
                           ];
                         })}
-                        {filteredPendingBankItems.length === 0 && (
+                        {previewFilteredPendingRows.length === 0 && (
                           <tr>
                             <td colSpan={11}>
                               <span className="amount-muted">No hay resultados con los filtros actuales.</span>
@@ -476,6 +598,33 @@ useEffect(() => {
                       </tbody>
                     </table>
                   </div>
+                  {previewFilteredPendingRows.length > PENDING_PAGE_SIZE && (
+                    <div
+                      className="pagination"
+                      aria-label="Páginas de pendientes"
+                      style={{ marginTop: 10, display: "flex", justifyContent: "center", alignItems: "center", gap: 10, flexWrap: "wrap" }}
+                    >
+                      <button
+                        type="button"
+                        className="button ghost small"
+                        disabled={visiblePendingPage <= 1}
+                        onClick={() => setPendingPage((current) => Math.max(1, current - 1))}
+                      >
+                        Anterior
+                      </button>
+                      <span>
+                        Página {visiblePendingPage} de {totalPendingPages} · {previewFilteredPendingRows.length} pendientes
+                      </span>
+                      <button
+                        type="button"
+                        className="button ghost small"
+                        disabled={visiblePendingPage >= totalPendingPages}
+                        onClick={() => setPendingPage((current) => Math.min(totalPendingPages, current + 1))}
+                      >
+                        Siguiente
+                      </button>
+                    </div>
+                  )}
                   </>
                 )}
               </>

@@ -81,6 +81,7 @@ export default function usePendingBankWorkflow(options: Options) {
   const [pendingManualOverrideForcedOtherCharges, setPendingManualOverrideForcedOtherCharges] = useState(false);
   const [manualAssignmentAudit, setManualAssignmentAudit] = useState<ManualBankAssignmentAudit[]>(() => loadManualBankAssignmentAudit());
   const [pendingTravelFundInputByFolio, setPendingTravelFundInputByFolio] = useState<Record<string, string>>({});
+  const [isPendingImporting, setIsPendingImporting] = useState(false);
 
   function attachNotifiedRouteMetadata(payment: Payment, item: PendingBankItem, clientId: string): void {
     const notice = notifiedPayments.find((candidate) => (
@@ -125,7 +126,9 @@ export default function usePendingBankWorkflow(options: Options) {
   }
 
   async function handleImportBankCSV(): Promise<void> {
+    if (isPendingImporting) return;
     setPendingImportError("");
+    setIsPendingImporting(true);
     try {
       const picker = window as unknown as Window & {
         showOpenFilePicker: (options: object) => Promise<FileSystemFileHandle[]>;
@@ -141,6 +144,8 @@ export default function usePendingBankWorkflow(options: Options) {
     } catch (error) {
       if ((error as { name?: string }).name === "AbortError") return;
       setPendingImportError("Error al leer el archivo CSV. Verifica que sea el archivo de movimientos del banco.");
+    } finally {
+      setIsPendingImporting(false);
     }
   }
 
@@ -378,6 +383,7 @@ export default function usePendingBankWorkflow(options: Options) {
     setPendingManualOverrideForcedOtherCharges,
     pendingTravelFundInputByFolio,
     setPendingTravelFundInputByFolio,
+    isPendingImporting,
     handleImportBankCSV,
     handleOpenClassify,
     handleDismissPending,

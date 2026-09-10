@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatCurrency, formatDate } from "../format";
 import {
   loadPendingBankItemsFromIndexedDb,
@@ -458,6 +458,7 @@ export default function PaymentsPage({
     setPendingManualOverrideForcedOtherCharges,
     pendingTravelFundInputByFolio,
     setPendingTravelFundInputByFolio,
+    isPendingImporting,
     handleImportBankCSV,
     handleOpenClassify,
     handleDismissPending,
@@ -787,6 +788,21 @@ export default function PaymentsPage({
     void handleImportBankCSV();
   }
 
+  const getPendingSimilarity = useCallback(
+    (item: PendingBankItem) => getPendingSimilaritySignals(item, notifiedPayments),
+    [notifiedPayments]
+  );
+
+  const getPendingPreview = useCallback(
+    (item: PendingBankItem, client: Client | null) => buildPendingBankPreview(item, client, {
+      payments,
+      retentionByClient: otherChargesRetentionByClient,
+      operationalDate,
+      lateFeeSettings
+    }),
+    [lateFeeSettings, operationalDate, otherChargesRetentionByClient, payments]
+  );
+
 
   return (
     <div className="page-inner">
@@ -794,6 +810,7 @@ export default function PaymentsPage({
         activeTab={activePaymentTab}
         onSelect={selectPaymentTab}
         onImportCsv={handleQuickImportCSV}
+        isImportingCsv={isPendingImporting}
         readOnly={readOnly}
       />
 
@@ -912,8 +929,9 @@ export default function PaymentsPage({
         pendingImportError={pendingImportError}
         clients={clients}
         activeClients={activeClients}
-        getSimilaritySignals={(item) => getPendingSimilaritySignals(item, notifiedPayments)}
-        getPendingBankPreview={(item, client) => buildPendingBankPreview(item, client, { payments, retentionByClient: otherChargesRetentionByClient, operationalDate, lateFeeSettings })}
+        getSimilaritySignals={getPendingSimilarity}
+        getPendingBankPreview={getPendingPreview}
+        isPendingImporting={isPendingImporting}
         handleApplyAllHighSimilarity={handleApplyAllHighSimilarity}
         handleDismissAllPending={handleDismissAllPending}
         pendingClassifyTarget={pendingClassifyTarget}

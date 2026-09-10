@@ -11,6 +11,7 @@ type Props = {
   activeTab: PaymentTabId;
   onSelect: (tab: PaymentTabId) => void;
   onImportCsv: () => void;
+  isImportingCsv?: boolean;
   readOnly?: boolean;
 };
 
@@ -24,7 +25,7 @@ const TABS: Array<{ id: PaymentTabId; label: string }> = [
   { id: "cash", label: "Cierre de caja" }
 ];
 
-export default function PaymentsTabs({ activeTab, onSelect, onImportCsv, readOnly = false }: Props) {
+export default function PaymentsTabs({ activeTab, onSelect, onImportCsv, isImportingCsv = false, readOnly = false }: Props) {
   const visibleTabs = readOnly ? TABS.filter((tab) => tab.id === "income" || tab.id === "history") : TABS;
   return (
     <section className="panel payment-tabs-panel" aria-label="Navegación de pagos">
@@ -49,8 +50,8 @@ export default function PaymentsTabs({ activeTab, onSelect, onImportCsv, readOnl
           })}
         </div>
         {!readOnly && (
-          <button type="button" className="button ghost small payment-import-button" onClick={onImportCsv}>
-            Importar CSV
+          <button type="button" className="button ghost small payment-import-button" onClick={onImportCsv} disabled={isImportingCsv}>
+            {isImportingCsv ? "Procesando CSV..." : "Importar CSV"}
           </button>
         )}
       </div>

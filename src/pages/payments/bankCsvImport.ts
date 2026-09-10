@@ -34,6 +34,41 @@ export type BankCsvImportResult = {
   error?: string;
 };
 
+type ClientMatchIndex = {
+  clients: Client[];
+  byReference: Map<string, Client[]>;
+  byName: Map<string, Client[]>;
+};
+
+function addClientMatch(index: Map<string, Client[]>, key: string, client: Client): void {
+  if (!key) return;
+  const matches = index.get(key);
+  if (!matches) {
+    index.set(key, [client]);
+    return;
+  }
+  if (!matches.some((candidate) => candidate.id === client.id)) matches.push(client);
+}
+
+function buildClientMatchIndexes(clients: Client[]): Map<string, ClientMatchIndex> {
+  const byGroup = new Map<string, ClientMatchIndex>();
+  for (const client of clients) {
+    const unitId = client.activeProvisionalRental?.unitId ?? client.unitId;
+    const group = extractGroupCodeFromUnit(unitId);
+    if (!group) continue;
+    let index = byGroup.get(group);
+    if (!index) {
+      index = { clients: [], byReference: new Map(), byName: new Map() };
+      byGroup.set(group, index);
+    }
+    index.clients.push(client);
+    addClientMatch(index.byReference, normalizeBankText(unitId), client);
+    addClientMatch(index.byReference, normalizeBankText(client.cedula ?? ""), client);
+    addClientMatch(index.byName, normalizeBankName(client.name), client);
+  }
+  return byGroup;
+}
+
 export async function importBankCsv(text: string, options: Options): Promise<BankCsvImportResult> {
   const lines = text
     .split(/\r?\n/)
@@ -105,6 +140,7 @@ export async function importBankCsv(text: string, options: Options): Promise<Ban
   }
 
   const existingPendingFolios = new Set(options.pendingItems.map((item) => normalizeFolioToken(item.folio)));
+  const clientIndexesByGroup = buildClientMatchIndexes(options.clients);
   const importedAt = new Date().toISOString();
   const items: PendingBankItem[] = [];
   let autoMatched = 0;
@@ -134,17 +170,16 @@ export async function importBankCsv(text: string, options: Options): Promise<Ban
     const capitalPart = Math.floor(amount);
     const centsPart = Math.round((amount - capitalPart) * 100) / 100;
     const { referenceId, extractedName } = parseBankDescription(description);
-    const candidateClients = options.clients.filter((client) => extractGroupCodeFromUnit(client.activeProvisionalRental?.unitId ?? client.unitId) === mappedGroup);
+    const clientIndex = clientIndexesByGroup.get(mappedGroup);
+    const candidateClients = clientIndex?.clients ?? [];
     let matched: Client | null = null;
 
     if (referenceId) {
-      const matches = candidateClients.filter((client) =>
-        normalizeBankText(client.activeProvisionalRental?.unitId ?? client.unitId) === referenceId || normalizeBankText(client.cedula ?? "") === referenceId
-      );
+      const matches = clientIndex?.byReference.get(referenceId) ?? [];
       if (matches.length === 1) matched = matches[0];
     }
     if (!matched && extractedName) {
-      const matches = candidateClients.filter((client) => normalizeBankName(client.name) === normalizeBankName(extractedName));
+      const matches = clientIndex?.byName.get(normalizeBankName(extractedName)) ?? [];
       if (matches.length === 1) matched = matches[0];
     }
     if (!matched && extractedName) matched = findClientByNamePrefix(extractedName, candidateClients);
