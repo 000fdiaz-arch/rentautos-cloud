@@ -10,7 +10,7 @@ const { chromium } = require("playwright");
   const now = new Date().toISOString();
   const clients = Array.from({ length: 421 }, (_, index) => ({
     id: `pending-client-${index}`,
-    unitId: `T${1000 + index}`,
+    unitId: index === 0 ? "T10" : `T${1000 + index}`,
     name: `CLIENTE PENDIENTE ${index}`,
     cedula: `8-${String(index).padStart(4, "0")}`,
     rentAmount: 20,
@@ -59,11 +59,18 @@ const { chromium } = require("playwright");
 
   const firstUnassignedRow = panel.locator("tbody > tr").filter({ has: page.getByText("PERF-1", { exact: true }) });
   await firstUnassignedRow.getByRole("button", { name: "Asignar cliente" }).click();
-  await firstUnassignedRow.getByRole("searchbox", { name: "Buscar cliente para folio PERF-1" }).fill("T1040");
-  const resultSelect = firstUnassignedRow.getByRole("combobox", { name: "Resultados de cliente para folio PERF-1" });
-  assert.ok(await resultSelect.locator("option").count() <= 21, "El buscador no debe renderizar más de 20 coincidencias y su encabezado.");
-  await resultSelect.selectOption("pending-client-40");
+  await firstUnassignedRow.getByRole("searchbox", { name: "Buscar cliente para folio PERF-1" }).pressSequentially("  t1040 ", { delay: 25 });
   await firstUnassignedRow.getByText("T1040 - CLIENTE PENDIENTE 40").waitFor();
+  assert.equal(await firstUnassignedRow.getByRole("searchbox", { name: "Buscar cliente para folio PERF-1" }).count(), 0,
+    "Una unidad exacta y única debe asignarse inmediatamente y cerrar la búsqueda.");
+
+  const ambiguousRow = panel.locator("tbody > tr").filter({ has: page.getByText("PERF-3", { exact: true }) });
+  await ambiguousRow.getByRole("button", { name: "Asignar cliente" }).click();
+  await ambiguousRow.getByRole("searchbox", { name: "Buscar cliente para folio PERF-3" }).fill("T10");
+  const resultSelect = ambiguousRow.getByRole("combobox", { name: "Resultados de cliente para folio PERF-3" });
+  assert.ok(await resultSelect.locator("option").count() <= 21, "El buscador no debe renderizar más de 20 coincidencias y su encabezado.");
+  await resultSelect.selectOption("pending-client-4");
+  await ambiguousRow.getByText("T1004 - CLIENTE PENDIENTE 4").waitFor();
 
   await panel.getByRole("button", { name: "Siguiente" }).click();
   await page.getByText("Página 2 de 3 · 120 pendientes").waitFor();
@@ -80,7 +87,7 @@ const { chromium } = require("playwright");
     return payments.some((payment) => String(payment.reference || "").includes("FOLIO:PERF-0"));
   });
 
-  console.log(`OK pendientes UI: 120 registros paginados, buscador bajo demanda, aplicación de pago y apertura en ${openElapsed}ms.`);
+  console.log(`OK pendientes UI: asignación inmediata por unidad exacta, resultados ambiguos bajo demanda, 120 registros paginados y apertura en ${openElapsed}ms.`);
   await browser.close();
 })().catch((error) => {
   console.error("FALLO PENDIENTES UI:", error?.message ?? error);

@@ -107,7 +107,19 @@ export default function PendingBankPanel({
   const pendingTopScrollRef = useRef<HTMLDivElement>(null);
   const pendingTopInnerRef = useRef<HTMLDivElement>(null);
   const pendingBottomScrollRef = useRef<HTMLDivElement>(null);
+  const assignmentAutoSelectTimerRef = useRef<number | null>(null);
   const clientById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
+  const clientsByExactUnit = useMemo(() => {
+    const index = new Map<string, Client[]>();
+    for (const client of activeClients) {
+      const unit = (client.activeProvisionalRental?.unitId ?? client.unitId).trim().toLowerCase();
+      if (!unit) continue;
+      const matches = index.get(unit);
+      if (matches) matches.push(client);
+      else index.set(unit, [client]);
+    }
+    return index;
+  }, [activeClients]);
   const [pendingPage, setPendingPage] = useState(1);
   const [assignmentEditorFolio, setAssignmentEditorFolio] = useState<string | null>(null);
   const [assignmentSearch, setAssignmentSearch] = useState("");
@@ -232,15 +244,43 @@ function clearPendingFilters(): void {
 }
 
 function toggleAssignmentEditor(folio: string): void {
+  if (assignmentAutoSelectTimerRef.current !== null) window.clearTimeout(assignmentAutoSelectTimerRef.current);
   setAssignmentEditorFolio((current) => current === folio ? null : folio);
   setAssignmentSearch("");
 }
 
 function selectPendingClient(item: PendingBankItem, clientId: string): void {
+  if (assignmentAutoSelectTimerRef.current !== null) window.clearTimeout(assignmentAutoSelectTimerRef.current);
+  assignmentAutoSelectTimerRef.current = null;
   handlePendingUnitChange(item, clientId);
   setAssignmentEditorFolio(null);
   setAssignmentSearch("");
 }
+
+function updateAssignmentSearch(item: PendingBankItem, value: string, isInlineReviewOpen: boolean): void {
+  if (assignmentAutoSelectTimerRef.current !== null) window.clearTimeout(assignmentAutoSelectTimerRef.current);
+  assignmentAutoSelectTimerRef.current = null;
+  setAssignmentSearch(value);
+  const query = value.trim().toLowerCase();
+  const exactMatches = clientsByExactUnit.get(query) ?? [];
+  if (exactMatches.length !== 1) return;
+
+  const searchMatches = activeClients.filter((client) => (
+    `${client.activeProvisionalRental?.unitId ?? client.unitId} ${client.name} ${client.cedula ?? ""}`
+      .toLowerCase()
+      .includes(query)
+  ));
+  if (searchMatches.length !== 1 || searchMatches[0].id !== exactMatches[0].id) return;
+
+  assignmentAutoSelectTimerRef.current = window.setTimeout(() => {
+    if (isInlineReviewOpen) handleOpenClassify(item);
+    selectPendingClient(item, exactMatches[0].id);
+  }, 250);
+}
+
+useEffect(() => () => {
+  if (assignmentAutoSelectTimerRef.current !== null) window.clearTimeout(assignmentAutoSelectTimerRef.current);
+}, []);
 
 useEffect(() => {
   if (!isPendingOpen) return;
@@ -439,7 +479,7 @@ useEffect(() => {
                                       aria-label={`Buscar cliente para folio ${item.folio}`}
                                       placeholder="Unidad, nombre o cédula"
                                       value={assignmentSearch}
-                                      onChange={(event) => setAssignmentSearch(event.target.value)}
+                                      onChange={(event) => updateAssignmentSearch(item, event.target.value, isInlineReviewOpen)}
                                       autoFocus
                                     />
                                     {assignmentSearch.trim() && (
