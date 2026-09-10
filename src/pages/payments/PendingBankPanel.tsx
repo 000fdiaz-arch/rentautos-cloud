@@ -19,6 +19,8 @@ type SimilaritySignals = {
   nombre: boolean;
   centavos: boolean;
   notificado: boolean;
+  exacto: boolean;
+  aplicable: boolean;
   score: number;
 };
 
@@ -27,6 +29,7 @@ type Props = {
   isPendingOpen: boolean;
   pendingBankItems: PendingBankItem[];
   pendingImportError: string;
+  pendingErrors: string[];
   isPendingImporting?: boolean;
   bulkPendingApplyingCount: number;
   clients: Client[];
@@ -83,6 +86,7 @@ export default function PendingBankPanel({
   isPendingOpen,
   pendingBankItems,
   pendingImportError,
+  pendingErrors,
   isPendingImporting = false,
   bulkPendingApplyingCount,
   clients,
@@ -136,8 +140,8 @@ const preparedPendingRows = useMemo<PendingBaseRowModel[]>(() => {
     const hasFines = assignedClient ? getPendingFines(assignedClient).length > 0 : false;
     const hasTickets = assignedClient ? getPendingTickets(assignedClient).length > 0 : false;
     const signals = getSimilaritySignals(item);
-    const isHighSim = signals.score >= 2 && !!assignedClient;
-    const unitProbability = signals.score >= 3 ? "Alta" : signals.score === 2 ? "Media" : signals.score === 1 ? "Baja" : "Sin datos";
+    const isHighSim = signals.aplicable && !!assignedClient;
+    const unitProbability = signals.exacto || signals.score >= 3 ? "Alta" : signals.score === 2 ? "Media" : signals.score === 1 ? "Baja" : "Sin datos";
     const actionLabels = [
       assignedClient ? (hasOtherCharges || hasFines || hasTickets ? "Aplicar auto" : "Aplicar") : "",
       assignedClient && hasOtherCharges ? "Revisar cargos" : "",
@@ -152,6 +156,7 @@ const preparedPendingRows = useMemo<PendingBaseRowModel[]>(() => {
       signals.nombre ? "nombre" : "",
       signals.centavos ? "centavos" : "",
       signals.notificado ? "notificado" : "",
+      signals.exacto ? "coincidencia exacta" : "",
       hasFines ? "multas" : "",
       hasTickets ? "boletas" : "",
       hasOtherCharges ? "otros cargos" : ""
@@ -329,7 +334,7 @@ useEffect(() => {
                 )}
               </h2>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {preparedPendingRows.some((row) => row.signals.score >= 2 && !!row.assignedClient) && (
+                {preparedPendingRows.some((row) => row.signals.aplicable && !!row.assignedClient) && (
                   <button
                     type="button"
                     className="button primary small"
@@ -351,6 +356,12 @@ useEffect(() => {
               <p className={`hint ${pendingImportError.startsWith("Error") || pendingImportError.startsWith("No se") ? "error-text" : "recon-info"}`} style={{ marginTop: 8 }}>
                 {pendingImportError}
               </p>
+            )}
+
+            {pendingErrors.length > 0 && (
+              <div className="hint error-text" role="alert" aria-live="assertive" style={{ marginTop: 8 }}>
+                {pendingErrors.map((message) => <div key={message}>{message}</div>)}
+              </div>
             )}
 
             {isPendingImporting && (
@@ -411,9 +422,9 @@ useEffect(() => {
                       <tbody>
                         {pagedPendingRows.map(({ item, assignedClient, hasOtherCharges, hasFines, hasTickets, signals, pendingPreview }) => {
                           const isPreMatched = !!item.suggestedClientId;
-                          const { nombre, centavos, notificado, score } = signals;
-                          const isHighSim = score >= 2 && !!assignedClient;
-                          const unitProbability = score >= 3 ? "Alta" : score === 2 ? "Media" : score === 1 ? "Baja" : "Sin datos";
+                          const { nombre, centavos, notificado, exacto, aplicable, score } = signals;
+                          const isHighSim = aplicable && !!assignedClient;
+                          const unitProbability = exacto || score >= 3 ? "Alta" : score === 2 ? "Media" : score === 1 ? "Baja" : "Sin datos";
                           const rowClass = isHighSim ? "pending-row--high-sim" : (hasOtherCharges || hasFines || hasTickets) ? "pending-row--other-charges" : isPreMatched ? "pending-row--ready" : "";
                           const upToDateUntilDate = pendingPreview?.upToDateUntil
                             ? parseDateKey(pendingPreview.upToDateUntil)
@@ -439,13 +450,13 @@ useEffect(() => {
                               </td>
                               <td>
                                 {isHighSim && (
-                                  <span className="badge-sim" title={`Alta similitud: ${[nombre && "nombre", centavos && "centavos", notificado && "notificado"].filter(Boolean).join(", ")}`}>
+                                  <span className="badge-sim" title={`Alta similitud: ${[nombre && "nombre", centavos && "centavos", notificado && "notificado", exacto && "coincidencia exacta"].filter(Boolean).join(", ")}`}>
                                     Alta similitud
                                   </span>
                                 )}
                               </td>
                               <td>
-                                <div className={`unit-prob unit-prob--${score >= 3 ? "high" : score === 2 ? "medium" : "low"}`}>
+                                <div className={`unit-prob unit-prob--${exacto || score >= 3 ? "high" : score === 2 ? "medium" : "low"}`}>
                                   Probabilidad: {unitProbability}
                                 </div>
                                 {assignedClient && (

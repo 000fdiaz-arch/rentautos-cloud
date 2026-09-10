@@ -780,6 +780,48 @@ export async function registerCloudPaymentWithReceipt(
   };
 }
 
+export async function registerCloudPaymentGroupsWithReceipts(
+  userId: string,
+  previousClients: Client[],
+  nextClients: Client[],
+  previousPayments: Payment[],
+  nextPayments: Payment[]
+): Promise<{ clients: Client[]; payments: Payment[] }> {
+  const groups = buildPaymentDeltaGroups(previousClients, nextClients, previousPayments, nextPayments);
+  if (groups.length === 0) return { clients: [], payments: [] };
+
+  const rpcGroups = groups.map((group) => ({
+    clientId: group.clientId,
+    expectedBalanceBefore: group.payments[0]?.balanceBefore ?? group.previousClient.balance,
+    nextClient: group.nextClient,
+    payments: group.payments
+  }));
+  const { data } = await withCloudRetry(async () => {
+    const result = await getCloudClient().rpc("register_client_payment_groups_with_receipts", {
+      p_owner_user_id: userId,
+      p_groups: rpcGroups
+    });
+    if (result.error) throw result.error;
+    return result;
+  });
+
+  const payload = data as { groups?: Array<{ client?: unknown; payments?: unknown }> } | null;
+  if (!Array.isArray(payload?.groups) || payload.groups.length !== groups.length) {
+    throw new Error("Supabase no devolvio todos los pagos guardados con sus recibos.");
+  }
+
+  const savedClients: Client[] = [];
+  const savedPayments: Payment[] = [];
+  for (const savedGroup of payload.groups) {
+    if (!savedGroup?.client || !Array.isArray(savedGroup.payments)) {
+      throw new Error("Supabase devolvio un grupo de pagos incompleto.");
+    }
+    savedClients.push(savedGroup.client as Client);
+    savedPayments.push(...(savedGroup.payments as Payment[]));
+  }
+  return { clients: savedClients, payments: savedPayments };
+}
+
 export async function deleteCloudPayment(userId: string, paymentId: string): Promise<void> {
   const client = getCloudClient();
   const { error } = await client

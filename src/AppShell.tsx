@@ -37,6 +37,7 @@ import {
   loadInsuranceClaims,
   loadPendingIncidents,
   registerCloudPaymentDeltas,
+  registerCloudPaymentGroupsWithReceipts,
   registerCloudPaymentWithReceipt,
   registerCloudRouteBankNotice,
   reserveCloudReceiptNumber,
@@ -569,6 +570,8 @@ export default function AppShell({
         const singlePaymentNeedingReceipt = newPayments.length === 1 && !newPayments[0].receiptNumber.trim()
           ? newPayments[0]
           : null;
+        const paymentBatchNeedingReceipts = newPayments.length > 1 &&
+          newPayments.every((payment) => !payment.receiptNumber.trim());
         if (isAppendOnlyPaymentChange && singlePaymentNeedingReceipt) {
           const nextClient = normalizedNextClients.find((client) => client.id === singlePaymentNeedingReceipt.clientId);
           if (!nextClient) throw new Error("No se encontro el cliente del pago pendiente.");
@@ -576,6 +579,22 @@ export default function AppShell({
           Object.assign(singlePaymentNeedingReceipt, saved.payment);
           persistedClients = normalizedNextClients.map((client) => client.id === saved.client.id ? saved.client : client);
           persistedPayments = nextPayments.map((payment) => payment.id === saved.payment.id ? saved.payment : payment);
+        } else if (isAppendOnlyPaymentChange && paymentBatchNeedingReceipts) {
+          const saved = await registerCloudPaymentGroupsWithReceipts(
+            cloudDataUserId,
+            previousClients,
+            normalizedNextClients,
+            previousPayments,
+            nextPayments
+          );
+          const savedClientsById = new Map(saved.clients.map((client) => [client.id, client]));
+          const savedPaymentsById = new Map(saved.payments.map((payment) => [payment.id, payment]));
+          for (const payment of newPayments) {
+            const savedPayment = savedPaymentsById.get(payment.id);
+            if (savedPayment) Object.assign(payment, savedPayment);
+          }
+          persistedClients = normalizedNextClients.map((client) => savedClientsById.get(client.id) ?? client);
+          persistedPayments = nextPayments.map((payment) => savedPaymentsById.get(payment.id) ?? payment);
         } else if (isAppendOnlyPaymentChange) {
           await registerCloudPaymentDeltas(cloudDataUserId, previousClients, normalizedNextClients, previousPayments, nextPayments);
         } else {

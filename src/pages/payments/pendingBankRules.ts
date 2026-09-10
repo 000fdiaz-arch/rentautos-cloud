@@ -8,9 +8,11 @@ import type {
   PendingCardItem
 } from "../../types";
 import {
+  extractGroupCodeFromUnit,
   extractFoliosFromReference,
   inferBankPaymentMethod,
   isNotifiedCandidateMatch,
+  normalizeBankName,
   normalizeFolioToken
 } from "./bankPaymentRules";
 import { FREQUENCY_LABEL } from "./paymentConstants";
@@ -40,20 +42,54 @@ export type SimilaritySignals = {
   nombre: boolean;
   centavos: boolean;
   notificado: boolean;
+  exacto: boolean;
+  aplicable: boolean;
   score: number;
 };
 
+function getClientExactBankKeys(client: Client): { references: string[]; name: string } {
+  const unitId = client.activeProvisionalRental?.unitId ?? client.unitId;
+  return {
+    references: [unitId, client.cedula ?? ""].map(normalizeBankName).filter(Boolean),
+    name: normalizeBankName(client.name)
+  };
+}
+
+export function hasExactUniquePendingClientMatch(
+  item: PendingBankItem,
+  candidateClients: Client[]
+): boolean {
+  if (!item.suggestedClientId) return false;
+  const reference = normalizeBankName(item.referenceId ?? "");
+  const extractedName = normalizeBankName(item.extractedName ?? "");
+  if (!reference && !extractedName) return false;
+
+  const group = normalizeBankName(item.mappedGroup ?? "");
+  const exactMatches = candidateClients.filter((client) => {
+    const unitId = client.activeProvisionalRental?.unitId ?? client.unitId;
+    if (group && extractGroupCodeFromUnit(unitId) !== group) return false;
+    const keys = getClientExactBankKeys(client);
+    return (reference && keys.references.includes(reference)) ||
+      (extractedName && (keys.references.includes(extractedName) || keys.name === extractedName));
+  });
+
+  return exactMatches.length === 1 && exactMatches[0].id === item.suggestedClientId;
+}
+
 export function getPendingSimilaritySignals(
   item: PendingBankItem,
-  notifiedPayments: NotifiedPayment[]
+  notifiedPayments: NotifiedPayment[],
+  candidateClients: Client[] = []
 ): SimilaritySignals {
   const nombre = !!item.suggestedClientId;
   const centavos = item.centsPart > 0;
   const notificado = !!item.suggestedClientId && notifiedPayments.some((notified) =>
     isNotifiedCandidateMatch(notified, item.suggestedClientId!, item.amountReceived, item.dateApplied)
   );
+  const exacto = hasExactUniquePendingClientMatch(item, candidateClients);
   const score = (nombre ? 1 : 0) + (centavos ? 1 : 0) + (notificado ? 1 : 0);
-  return { nombre, centavos, notificado, score };
+  const aplicable = score >= 2 || (!centavos && exacto);
+  return { nombre, centavos, notificado, exacto, aplicable, score };
 }
 
 type PreviewOptions = {

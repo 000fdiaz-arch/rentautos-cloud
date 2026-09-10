@@ -285,6 +285,7 @@ export default function usePendingBankWorkflow(options: Options) {
 
   async function handleQuickApply(item: PendingBankItem): Promise<void> {
     if (!item.suggestedClientId || pendingApplyingFolio) return;
+    setErrors([]);
     setPendingApplyingFolio(item.folio);
     try {
       const client = clients.find((candidate) => candidate.id === item.suggestedClientId);
@@ -307,6 +308,9 @@ export default function usePendingBankWorkflow(options: Options) {
       replaceNotifiedPayments(removeOneMatchingNotified(notifiedPayments, client.id, item.amountReceived, item.dateApplied));
       replacePendingBankItems(pendingBankItems.filter((candidate) => candidate.folio !== item.folio));
       setPendingImportError(`Pago ${item.folio} aplicado a ${client.unitId} - ${client.name}.`);
+    } catch (error) {
+      console.error("No se pudo aplicar el pago bancario pendiente.", error);
+      setErrors([getPaymentSaveErrorMessage(error)]);
     } finally {
       setPendingApplyingFolio(null);
     }
@@ -315,16 +319,19 @@ export default function usePendingBankWorkflow(options: Options) {
   async function handleApplyAllHighSimilarity(): Promise<void> {
     if (isBulkPendingApplyingRef.current) return;
     const candidates = pendingBankItems.filter((item) =>
-      getPendingSimilaritySignals(item, notifiedPayments).score >= 2 &&
+      getPendingSimilaritySignals(item, notifiedPayments, activeClients).aplicable &&
       clients.some((client) => client.id === item.suggestedClientId)
     );
     if (candidates.length === 0) return;
     isBulkPendingApplyingRef.current = true;
+    setErrors([]);
     setBulkPendingApplyingCount(candidates.length);
     try {
       const updatedClients = new Map(clients.map((client) => [client.id, { ...client }]));
       const newPayments: Payment[] = [];
-      const receipts = dataOwnerUserId ? await reserveCloudReceiptNumbers(dataOwnerUserId, candidates.length) : [];
+      const receipts = dataOwnerUserId && !isSupabaseOnlyMode
+        ? await reserveCloudReceiptNumbers(dataOwnerUserId, candidates.length)
+        : [];
       const candidateFolios = new Set(candidates.map((item) => normalizeFolioToken(item.folio)).filter(Boolean));
       const usedFolios = buildTakenFolioSet(payments, pendingBankItems, pendingCardItems, {
         excludePendingBankFolios: candidateFolios

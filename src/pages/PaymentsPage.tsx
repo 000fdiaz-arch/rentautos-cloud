@@ -790,8 +790,8 @@ export default function PaymentsPage({
   }
 
   const getPendingSimilarity = useCallback(
-    (item: PendingBankItem) => getPendingSimilaritySignals(item, notifiedPayments),
-    [notifiedPayments]
+    (item: PendingBankItem) => getPendingSimilaritySignals(item, notifiedPayments, activeClients),
+    [activeClients, notifiedPayments]
   );
 
   const getPendingPreview = useCallback(
@@ -928,6 +928,7 @@ export default function PaymentsPage({
         isPendingOpen={isPendingOpen}
         pendingBankItems={pendingBankItems}
         pendingImportError={pendingImportError}
+        pendingErrors={errors}
         clients={clients}
         activeClients={activeClients}
         getSimilaritySignals={getPendingSimilarity}
