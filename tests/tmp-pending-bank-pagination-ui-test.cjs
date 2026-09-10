@@ -59,7 +59,7 @@ const { chromium } = require("playwright");
 
   const firstUnassignedRow = panel.locator("tbody > tr").filter({ has: page.getByText("PERF-1", { exact: true }) });
   await firstUnassignedRow.getByRole("button", { name: "Asignar cliente" }).click();
-  await firstUnassignedRow.getByRole("searchbox", { name: "Buscar cliente para folio PERF-1" }).pressSequentially("  t1040 ", { delay: 25 });
+  await firstUnassignedRow.getByRole("searchbox", { name: "Buscar cliente para folio PERF-1" }).pressSequentially("  t1040", { delay: 25 });
   await firstUnassignedRow.getByText("T1040 - CLIENTE PENDIENTE 40").waitFor();
   assert.equal(await firstUnassignedRow.getByRole("searchbox", { name: "Buscar cliente para folio PERF-1" }).count(), 0,
     "Una unidad exacta y única debe asignarse inmediatamente y cerrar la búsqueda.");

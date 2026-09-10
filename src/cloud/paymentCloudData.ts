@@ -15,6 +15,15 @@ export type CloudLatestPaymentTarget = {
   name: string;
   cedula?: string;
 };
+export type DailyPaymentAttention = {
+  workDate: string;
+  paymentIds: string[];
+};
+
+type DailyPaymentAttentionRow = {
+  work_date?: string | null;
+  payment_ids?: string[] | null;
+};
 
 function normalizeCloudFolioToken(value: string): string {
   return value
@@ -216,6 +225,66 @@ export async function loadCloudPendingCashPayments(userId: string, throughDate: 
     if (error) throw error;
     return (data ?? []) as Payment[];
   });
+}
+
+export async function loadCloudDailyPaymentAttention(
+  userId: string,
+  workDate: string
+): Promise<DailyPaymentAttention> {
+  const { data, error } = await getCloudClient()
+    .from("daily_payment_attention_cloud")
+    .select("work_date,payment_ids")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  const row = data as DailyPaymentAttentionRow | null;
+  if (!row || row.work_date !== workDate) return { workDate, paymentIds: [] };
+  return {
+    workDate,
+    paymentIds: Array.isArray(row.payment_ids)
+      ? row.payment_ids.filter((paymentId): paymentId is string => typeof paymentId === "string" && paymentId.length > 0)
+      : []
+  };
+}
+
+export async function setCloudDailyPaymentAttention(
+  userId: string,
+  workDate: string,
+  paymentId: string,
+  checked: boolean
+): Promise<DailyPaymentAttention> {
+  const { data } = await withCloudRetry(async () => {
+    const result = await getCloudClient().rpc("set_daily_payment_attention", {
+      p_owner_user_id: userId,
+      p_work_date: workDate,
+      p_payment_id: paymentId,
+      p_checked: checked
+    });
+    if (result.error) throw result.error;
+    return result;
+  });
+  const payload = data as { workDate?: unknown; paymentIds?: unknown } | null;
+  return {
+    workDate: typeof payload?.workDate === "string" ? payload.workDate : workDate,
+    paymentIds: Array.isArray(payload?.paymentIds)
+      ? payload.paymentIds.filter((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0)
+      : []
+  };
+}
+
+export function subscribeCloudDailyPaymentAttention(userId: string, onChange: () => void): () => void {
+  const client = getCloudClient();
+  const channel = client
+    .channel(`daily-payment-attention-${userId}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "daily_payment_attention_cloud", filter: `user_id=eq.${userId}` },
+      onChange
+    )
+    .subscribe();
+  return () => {
+    void client.removeChannel(channel);
+  };
 }
 
 async function loadCloudPaymentsRecentUncached(userId: string, safeLimit: number): Promise<Payment[]> {

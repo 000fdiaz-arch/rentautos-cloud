@@ -965,6 +965,8 @@ export default function PaymentsPage({
         isHistoryOpen={isHistoryOpen}
         activeClients={activeClients}
         payments={payments}
+        dataOwnerUserId={dataOwnerUserId}
+        operationalDateKey={operationalDateKey}
         onPaymentsChange={readOnly ? () => undefined : onPaymentsChange}
         isPaymentHistoryLoaded={isPaymentHistoryLoaded}
         onRefreshPayments={onRefreshPayments}

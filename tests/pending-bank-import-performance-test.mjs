@@ -76,6 +76,25 @@ assert.equal(result.items[0].suggestedClientId, "client-0");
 assert.equal(result.items[999].suggestedClientId, "client-999");
 assert.ok(elapsed < 1000, `La importación indexada tardó ${Math.round(elapsed)}ms; se esperaba menos de 1000ms.`);
 
+const exactUnitWithoutCents = await importBankCsv(
+  "Cuenta,Folio,Credito,Descripcion\n0116607400,UNIT-1,20.00,CR TRAN ACH XPRESS-A57",
+  {
+    ...options,
+    clients: [{ ...makeClient(57), id: "client-a57", unitId: "A57", name: "CLIENTE A57" }],
+    bankRules: [{
+      id: "rule-a",
+      accountNumber: "0116607400",
+      groupCode: "A",
+      active: true,
+      createdAt: "2026-09-10T00:00:00.000Z",
+      updatedAt: "2026-09-10T00:00:00.000Z"
+    }]
+  }
+);
+assert.equal(exactUnitWithoutCents.items[0]?.centsPart, 0);
+assert.equal(exactUnitWithoutCents.items[0]?.suggestedClientId, "client-a57",
+  "Una unidad exacta en la descripción debe identificarse aunque el pago no tenga centavos.");
+
 const ambiguousClients = [
   { ...makeClient(1), id: "duplicate-a", unitId: "T9000", name: "PERSONA A" },
   { ...makeClient(2), id: "duplicate-b", unitId: "T9000", name: "PERSONA B" }
@@ -86,4 +105,4 @@ const ambiguousResult = await importBankCsv(
 );
 assert.equal(ambiguousResult.items[0]?.suggestedClientId, undefined, "Una referencia duplicada no debe asignarse automáticamente.");
 
-console.log(`OK pendientes: 1000 movimientos y 1000 clientes procesados en ${Math.round(elapsed)}ms, conservando asignaciones ambiguas sin resolver.`);
+console.log(`OK pendientes: 1000 movimientos en ${Math.round(elapsed)}ms, unidad exacta sin centavos identificada y asignaciones ambiguas sin resolver.`);

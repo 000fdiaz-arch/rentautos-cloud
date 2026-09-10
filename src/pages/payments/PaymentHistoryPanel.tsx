@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { getBusinessDateKey, parseDateKey, toDateKey } from "../../billing";
+import {
+  loadCloudDailyPaymentAttention,
+  setCloudDailyPaymentAttention,
+  subscribeCloudDailyPaymentAttention
+} from "../../cloudData";
 import { copyHistoryPaymentReceiptImage } from "../../components/PaymentReceipt";
 import { formatCurrency, formatDate } from "../../format";
 import type { Client, Payment } from "../../types";
 import { EMPTY_HISTORY_COLUMN_FILTERS } from "./paymentConstants";
-import { PAYMENT_HISTORY_LIMIT } from "./paymentHistory";
+import { isBankPaymentWithoutCentsOnDate, PAYMENT_HISTORY_LIMIT } from "./paymentHistory";
 import { getInstallmentsTotalInPayment } from "./paymentRules";
 import type {
   HistoryColumnFilters,
@@ -26,6 +31,8 @@ type Props = {
   isHistoryOpen: boolean;
   activeClients: Client[];
   payments: Payment[];
+  dataOwnerUserId?: string | null;
+  operationalDateKey: string;
   onPaymentsChange: (next: Payment[]) => void;
   isPaymentHistoryLoaded: boolean;
   onRefreshPayments?: () => Promise<void>;
@@ -52,6 +59,8 @@ export default function PaymentHistoryPanel({
   isHistoryOpen,
   activeClients,
   payments,
+  dataOwnerUserId,
+  operationalDateKey,
   onPaymentsChange,
   isPaymentHistoryLoaded,
   onRefreshPayments,
@@ -72,6 +81,11 @@ export default function PaymentHistoryPanel({
   const [historySortField, setHistorySortField] = useState<HistorySortField>("date");
   const [historySortDirection, setHistorySortDirection] = useState<SortDirection>("desc");
   const [historyVisibleLimit, setHistoryVisibleLimit] = useState(PAYMENT_HISTORY_LIMIT);
+  const [historyNoCentsTodayOnly, setHistoryNoCentsTodayOnly] = useState(false);
+  const [dailyAttentionPaymentIds, setDailyAttentionPaymentIds] = useState<Set<string>>(() => new Set());
+  const [dailyAttentionSavingIds, setDailyAttentionSavingIds] = useState<Set<string>>(() => new Set());
+  const [isDailyAttentionLoading, setIsDailyAttentionLoading] = useState(false);
+  const [dailyAttentionError, setDailyAttentionError] = useState("");
   const [historySelectedPaymentIds, setHistorySelectedPaymentIds] = useState<string[]>([]);
   const [historyCopiedPaymentIds, setHistoryCopiedPaymentIds] = useState<Set<string>>(() => new Set());
   const [historyCopyingPaymentId, setHistoryCopyingPaymentId] = useState<string | null>(null);
@@ -104,6 +118,7 @@ export default function PaymentHistoryPanel({
     setHistoryDeliveryFilter("all");
     setHistoryDateFrom("");
     setHistoryDateTo("");
+    setHistoryNoCentsTodayOnly(false);
     setHistoryColumnFilters({ ...EMPTY_HISTORY_COLUMN_FILTERS });
     setHistorySortField("date");
     setHistorySortDirection("desc");
@@ -115,6 +130,40 @@ export default function PaymentHistoryPanel({
     if (!isHistoryOpen || isPaymentHistoryLoaded || !onRefreshPayments) return;
     void handleRefreshHistory();
   }, [isHistoryOpen, isPaymentHistoryLoaded, onRefreshPayments]);
+
+  useEffect(() => {
+    if (!isHistoryOpen) return;
+    let cancelled = false;
+    setDailyAttentionError("");
+    if (!dataOwnerUserId) {
+      setDailyAttentionPaymentIds(new Set());
+      setIsDailyAttentionLoading(false);
+      return;
+    }
+    setIsDailyAttentionLoading(true);
+    void loadCloudDailyPaymentAttention(dataOwnerUserId, operationalDateKey)
+      .then((attention) => {
+        if (!cancelled) setDailyAttentionPaymentIds(new Set(attention.paymentIds));
+      })
+      .catch(() => {
+        if (!cancelled) setDailyAttentionError("No se pudo cargar el seguimiento de llamados.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsDailyAttentionLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dataOwnerUserId, isHistoryOpen, operationalDateKey]);
+
+  useEffect(() => {
+    if (!isHistoryOpen || !dataOwnerUserId) return;
+    return subscribeCloudDailyPaymentAttention(dataOwnerUserId, () => {
+      void loadCloudDailyPaymentAttention(dataOwnerUserId, operationalDateKey)
+        .then((attention) => setDailyAttentionPaymentIds(new Set(attention.paymentIds)))
+        .catch(() => setDailyAttentionError("No se pudo sincronizar el seguimiento de llamados."));
+    });
+  }, [dataOwnerUserId, isHistoryOpen, operationalDateKey]);
 
 function handleSortHistory(field: HistorySortField): void {
   if (historySortField === field) {
@@ -146,6 +195,7 @@ function clearHistoryFilters(): void {
   setHistoryDeliveryFilter("all");
   setHistoryDateFrom("");
   setHistoryDateTo("");
+  setHistoryNoCentsTodayOnly(false);
   clearHistoryColumnFilters();
   setHistorySelectedPaymentIds([]);
 }
@@ -184,8 +234,18 @@ const hasHistoryFilters = useMemo(
     historyDeliveryFilter !== "all" ||
     Boolean(historyDateFrom) ||
     Boolean(historyDateTo) ||
+    historyNoCentsTodayOnly ||
     hasHistoryColumnFilters,
-  [historyClientId, historyGroupFilter, historyDeliveryFilter, historyDateFrom, historyDateTo, hasHistoryColumnFilters]
+  [historyClientId, historyGroupFilter, historyDeliveryFilter, historyDateFrom, historyDateTo, historyNoCentsTodayOnly, hasHistoryColumnFilters]
+);
+
+const todayNoCentsPayments = useMemo(
+  () => payments.filter((payment) => isBankPaymentWithoutCentsOnDate(payment, operationalDateKey)),
+  [operationalDateKey, payments]
+);
+const todayNoCentsAttendedCount = useMemo(
+  () => todayNoCentsPayments.filter((payment) => dailyAttentionPaymentIds.has(payment.id)).length,
+  [dailyAttentionPaymentIds, todayNoCentsPayments]
 );
 
 const historyDeliveryCounts = useMemo(() => {
@@ -203,9 +263,12 @@ const historyDeliveryCounts = useMemo(() => {
 const filteredHistoryRows = useMemo(() => {
   if (historyDateRangeError) return [];
 
+  const byNoCents = historyNoCentsTodayOnly
+    ? payments.filter((payment) => isBankPaymentWithoutCentsOnDate(payment, operationalDateKey))
+    : payments;
   const byClient = historyClientId === "all"
-    ? payments
-    : payments.filter((p) => p.clientId === historyClientId);
+    ? byNoCents
+    : byNoCents.filter((p) => p.clientId === historyClientId);
   const byGroup = historyGroupFilter === "all"
     ? byClient
     : byClient.filter((p) => getValidHistoryGroupCode(p.clientUnit, getGroupCode) === historyGroupFilter);
@@ -259,7 +322,7 @@ const filteredHistoryRows = useMemo(() => {
     return b.createdAt.localeCompare(a.createdAt);
   });
   return sorted;
-}, [payments, historyClientId, historyGroupFilter, historyDeliveryFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
+}, [payments, operationalDateKey, historyNoCentsTodayOnly, historyClientId, historyGroupFilter, historyDeliveryFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
 
 const historyRows = useMemo(
   () => filteredHistoryRows.slice(0, historyVisibleLimit),
@@ -355,6 +418,38 @@ function toggleSelectAllHistoryRows(): void {
     return;
   }
   setHistorySelectedPaymentIds(historyRows.map((row) => row.id));
+}
+
+async function handleToggleDailyAttention(payment: Payment): Promise<void> {
+  if (readOnly || dailyAttentionSavingIds.has(payment.id)) return;
+  const wasChecked = dailyAttentionPaymentIds.has(payment.id);
+  setDailyAttentionError("");
+  setDailyAttentionPaymentIds((previous) => {
+    const next = new Set(previous);
+    if (wasChecked) next.delete(payment.id);
+    else next.add(payment.id);
+    return next;
+  });
+
+  if (!dataOwnerUserId) return;
+  setDailyAttentionSavingIds((previous) => new Set(previous).add(payment.id));
+  try {
+    await setCloudDailyPaymentAttention(dataOwnerUserId, operationalDateKey, payment.id, !wasChecked);
+  } catch {
+    setDailyAttentionPaymentIds((previous) => {
+      const next = new Set(previous);
+      if (wasChecked) next.add(payment.id);
+      else next.delete(payment.id);
+      return next;
+    });
+    setDailyAttentionError("No se pudo guardar el ganchito. Intenta nuevamente.");
+  } finally {
+    setDailyAttentionSavingIds((previous) => {
+      const next = new Set(previous);
+      next.delete(payment.id);
+      return next;
+    });
+  }
 }
 
 function findAccountClient(payment: Payment): Client | undefined {
@@ -543,6 +638,17 @@ async function handleRefreshHistory(): Promise<void> {
             <div className="history-delivery-summary" aria-label="Resumen de envio de recibos">
               <button
                 type="button"
+                className={`history-delivery-chip history-delivery-chip--pending ${historyNoCentsTodayOnly ? "is-active" : ""}`}
+                onClick={() => {
+                  setHistoryNoCentsTodayOnly((current) => !current);
+                  setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
+                  setHistorySelectedPaymentIds([]);
+                }}
+              >
+                Sin centavos de hoy <strong>{todayNoCentsPayments.length}</strong>
+              </button>
+              <button
+                type="button"
                 className={`history-delivery-chip history-delivery-chip--pending ${historyDeliveryFilter === "pending" ? "is-active" : ""}`}
                 onClick={() => {
                   setHistoryDeliveryFilter("pending");
@@ -563,7 +669,16 @@ async function handleRefreshHistory(): Promise<void> {
               </button>
             </div>
 
+            {historyNoCentsTodayOnly && (
+              <p className="hint" role="status">
+                Pendientes de llamado: <strong>{todayNoCentsPayments.length - todayNoCentsAttendedCount}</strong>
+                {" · "}Llamados: <strong>{todayNoCentsAttendedCount}</strong>
+                {isDailyAttentionLoading ? " · Sincronizando..." : ""}
+              </p>
+            )}
+
             {historyDateRangeError && <p className="hint error-text">{historyDateRangeError}</p>}
+            {dailyAttentionError && <p className="hint error-text" role="alert">{dailyAttentionError}</p>}
             {hasHistoryFilters && (
               <div className="history-filter-actions">
                 <button type="button" className="button ghost small" onClick={clearHistoryFilters}>
@@ -623,19 +738,21 @@ async function handleRefreshHistory(): Promise<void> {
               <>
               <div className="history-bulk-bar">
                 <div className="history-bulk-summary">
-                  {historySelectedRows.length > 0
+                  {historyNoCentsTodayOnly
+                    ? `${historyRows.length} pagos bancarios sin centavos de hoy`
+                    : historySelectedRows.length > 0
                     ? `${historySelectedRows.length} seleccionados de ${historyRows.length}`
                     : `${historyRows.length} visibles de ${filteredHistoryRows.length} filtrados`}
                 </div>
                 <div className="history-bulk-actions">
-                  <button
+                  {!historyNoCentsTodayOnly && <button
                     type="button"
                     className="button ghost small"
                     onClick={toggleSelectAllHistoryRows}
                   >
                     {isAllHistoryRowsSelected ? "Limpiar seleccion" : "Seleccionar todo"}
-                  </button>
-                  {!readOnly && onDeletePayments && (
+                  </button>}
+                  {!historyNoCentsTodayOnly && !readOnly && onDeletePayments && (
                     <button
                       type="button"
                       className="button danger small"
@@ -665,13 +782,15 @@ async function handleRefreshHistory(): Promise<void> {
                       <th>Ver</th>
                       <th className="history-send-column">Estado</th>
                       <th>
-                        <input
-                          type="checkbox"
-                          className="history-checkbox"
-                          checked={isAllHistoryRowsSelected}
-                          onChange={toggleSelectAllHistoryRows}
-                          aria-label={isAllHistoryRowsSelected ? "Deseleccionar todos los recibos" : "Seleccionar todos los recibos"}
-                        />
+                        {historyNoCentsTodayOnly ? "Llamado" : (
+                          <input
+                            type="checkbox"
+                            className="history-checkbox"
+                            checked={isAllHistoryRowsSelected}
+                            onChange={toggleSelectAllHistoryRows}
+                            aria-label={isAllHistoryRowsSelected ? "Deseleccionar todos los recibos" : "Seleccionar todos los recibos"}
+                          />
+                        )}
                       </th>
                       <th><button type="button" className="sort-button" onClick={() => handleSortHistory("receipt")}>Recibo <span className={`sort-icon ${historySortField === "receipt" ? "active" : ""}`}>{renderHistorySortIcon("receipt")}</span></button></th>
                       <th><button type="button" className="sort-button" onClick={() => handleSortHistory("date")}>Fecha <span className={`sort-icon ${historySortField === "date" ? "active" : ""}`}>{renderHistorySortIcon("date")}</span></button></th>
@@ -734,13 +853,26 @@ async function handleRefreshHistory(): Promise<void> {
                           )}
                         </td>
                         <td>
-                          <input
-                            type="checkbox"
-                            className="history-checkbox"
-                            checked={historySelectedIdSet.has(p.id)}
-                            onChange={() => toggleHistoryRowSelection(p.id)}
-                            aria-label={`Seleccionar recibo ${p.receiptNumber}`}
-                          />
+                          {historyNoCentsTodayOnly ? (
+                            <label className={`history-attention-check ${dailyAttentionPaymentIds.has(p.id) ? "is-checked" : ""}`}>
+                              <input
+                                type="checkbox"
+                                checked={dailyAttentionPaymentIds.has(p.id)}
+                                disabled={readOnly || isDailyAttentionLoading || dailyAttentionSavingIds.has(p.id)}
+                                onChange={() => void handleToggleDailyAttention(p)}
+                                aria-label={`${dailyAttentionPaymentIds.has(p.id) ? "Desmarcar" : "Marcar"} llamado para ${p.clientUnit} ${p.clientName}`}
+                              />
+                              <span>{dailyAttentionSavingIds.has(p.id) ? "Guardando..." : dailyAttentionPaymentIds.has(p.id) ? "Llamado" : "Pendiente"}</span>
+                            </label>
+                          ) : (
+                            <input
+                              type="checkbox"
+                              className="history-checkbox"
+                              checked={historySelectedIdSet.has(p.id)}
+                              onChange={() => toggleHistoryRowSelection(p.id)}
+                              aria-label={`Seleccionar recibo ${p.receiptNumber}`}
+                            />
+                          )}
                         </td>
                         <td><strong>{p.receiptNumber}</strong></td>
                         <td>{formatDate(new Date(`${p.dateApplied}T12:00:00`))}</td>

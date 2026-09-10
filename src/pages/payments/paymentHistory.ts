@@ -1,6 +1,12 @@
 import type { Payment } from "../../types";
+import { BANK_PAYMENT_METHODS } from "./paymentConstants";
 
 export const PAYMENT_HISTORY_LIMIT = 25;
+
+export function isBankPaymentWithoutCentsOnDate(payment: Payment, dateKey: string): boolean {
+  const cents = Math.abs(Math.round(payment.amountReceived * 100)) % 100;
+  return payment.dateApplied === dateKey && BANK_PAYMENT_METHODS.has(payment.paymentMethod) && cents === 0;
+}
 
 function compareNewestPayment(first: Payment, second: Payment): number {
   const byAppliedDate = second.dateApplied.localeCompare(first.dateApplied);

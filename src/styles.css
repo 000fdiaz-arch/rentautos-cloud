@@ -6092,6 +6092,32 @@ select.control-op-badge {
   min-width: 54px;
 }
 
+.history-attention-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 92px;
+  color: #8a4b08;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.history-attention-check input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--color-primary);
+}
+
+.history-attention-check.is-checked {
+  color: var(--color-primary);
+}
+
+.history-attention-check:has(input:disabled) {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 /* Destino pendiente: alerta persistente y gestión obligatoria. */
 .pending-destination-global-alert {
   position: sticky;

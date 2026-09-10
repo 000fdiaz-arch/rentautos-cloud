@@ -62,8 +62,8 @@ function buildClientMatchIndexes(clients: Client[]): Map<string, ClientMatchInde
       byGroup.set(group, index);
     }
     index.clients.push(client);
-    addClientMatch(index.byReference, normalizeBankText(unitId), client);
-    addClientMatch(index.byReference, normalizeBankText(client.cedula ?? ""), client);
+    addClientMatch(index.byReference, normalizeBankName(unitId), client);
+    addClientMatch(index.byReference, normalizeBankName(client.cedula ?? ""), client);
     addClientMatch(index.byName, normalizeBankName(client.name), client);
   }
   return byGroup;
@@ -175,7 +175,11 @@ export async function importBankCsv(text: string, options: Options): Promise<Ban
     let matched: Client | null = null;
 
     if (referenceId) {
-      const matches = clientIndex?.byReference.get(referenceId) ?? [];
+      const matches = clientIndex?.byReference.get(normalizeBankName(referenceId)) ?? [];
+      if (matches.length === 1) matched = matches[0];
+    }
+    if (!matched && extractedName) {
+      const matches = clientIndex?.byReference.get(normalizeBankName(extractedName)) ?? [];
       if (matches.length === 1) matched = matches[0];
     }
     if (!matched && extractedName) {

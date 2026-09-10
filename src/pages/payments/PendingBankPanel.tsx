@@ -107,7 +107,6 @@ export default function PendingBankPanel({
   const pendingTopScrollRef = useRef<HTMLDivElement>(null);
   const pendingTopInnerRef = useRef<HTMLDivElement>(null);
   const pendingBottomScrollRef = useRef<HTMLDivElement>(null);
-  const assignmentAutoSelectTimerRef = useRef<number | null>(null);
   const clientById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
   const clientsByExactUnit = useMemo(() => {
     const index = new Map<string, Client[]>();
@@ -244,22 +243,17 @@ function clearPendingFilters(): void {
 }
 
 function toggleAssignmentEditor(folio: string): void {
-  if (assignmentAutoSelectTimerRef.current !== null) window.clearTimeout(assignmentAutoSelectTimerRef.current);
   setAssignmentEditorFolio((current) => current === folio ? null : folio);
   setAssignmentSearch("");
 }
 
 function selectPendingClient(item: PendingBankItem, clientId: string): void {
-  if (assignmentAutoSelectTimerRef.current !== null) window.clearTimeout(assignmentAutoSelectTimerRef.current);
-  assignmentAutoSelectTimerRef.current = null;
   handlePendingUnitChange(item, clientId);
   setAssignmentEditorFolio(null);
   setAssignmentSearch("");
 }
 
 function updateAssignmentSearch(item: PendingBankItem, value: string, isInlineReviewOpen: boolean): void {
-  if (assignmentAutoSelectTimerRef.current !== null) window.clearTimeout(assignmentAutoSelectTimerRef.current);
-  assignmentAutoSelectTimerRef.current = null;
   setAssignmentSearch(value);
   const query = value.trim().toLowerCase();
   const exactMatches = clientsByExactUnit.get(query) ?? [];
@@ -272,15 +266,9 @@ function updateAssignmentSearch(item: PendingBankItem, value: string, isInlineRe
   ));
   if (searchMatches.length !== 1 || searchMatches[0].id !== exactMatches[0].id) return;
 
-  assignmentAutoSelectTimerRef.current = window.setTimeout(() => {
-    if (isInlineReviewOpen) handleOpenClassify(item);
-    selectPendingClient(item, exactMatches[0].id);
-  }, 250);
+  if (isInlineReviewOpen) handleOpenClassify(item);
+  selectPendingClient(item, exactMatches[0].id);
 }
-
-useEffect(() => () => {
-  if (assignmentAutoSelectTimerRef.current !== null) window.clearTimeout(assignmentAutoSelectTimerRef.current);
-}, []);
 
 useEffect(() => {
   if (!isPendingOpen) return;
