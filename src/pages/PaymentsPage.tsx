@@ -459,6 +459,7 @@ export default function PaymentsPage({
     pendingTravelFundInputByFolio,
     setPendingTravelFundInputByFolio,
     isPendingImporting,
+    bulkPendingApplyingCount,
     handleImportBankCSV,
     handleOpenClassify,
     handleDismissPending,
@@ -932,6 +933,7 @@ export default function PaymentsPage({
         getSimilaritySignals={getPendingSimilarity}
         getPendingBankPreview={getPendingPreview}
         isPendingImporting={isPendingImporting}
+        bulkPendingApplyingCount={bulkPendingApplyingCount}
         handleApplyAllHighSimilarity={handleApplyAllHighSimilarity}
         handleDismissAllPending={handleDismissAllPending}
         pendingClassifyTarget={pendingClassifyTarget}

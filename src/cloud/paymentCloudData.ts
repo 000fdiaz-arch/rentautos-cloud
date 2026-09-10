@@ -128,6 +128,8 @@ function isMissingRpcFunctionError(error: unknown): boolean {
     normalized.includes("function register_client_payment_delta") ||
     normalized.includes("function public.register_client_payment_deltas") ||
     normalized.includes("function register_client_payment_deltas") ||
+    normalized.includes("function public.register_client_payment_delta_groups") ||
+    normalized.includes("function register_client_payment_delta_groups") ||
     normalized.includes("function public.next_receipt_numbers") ||
     normalized.includes("function next_receipt_numbers")
   );
@@ -641,6 +643,28 @@ export async function registerCloudPaymentDeltas(
   const client = getCloudClient();
   const groups = buildPaymentDeltaGroups(previousClients, nextClients, previousPayments, nextPayments);
   if (groups.length === 0) return;
+
+  const rpcGroups = groups.map((group) => ({
+    clientId: group.clientId,
+    expectedBalanceBefore: group.payments[0]?.balanceBefore ?? group.previousClient.balance,
+    nextClient: group.nextClient,
+    payments: group.payments
+  }));
+
+  try {
+    await withCloudRetry(async () => {
+      const { error } = await client.rpc("register_client_payment_delta_groups", {
+        p_owner_user_id: userId,
+        p_groups: rpcGroups
+      });
+      if (error) throw error;
+    });
+    return;
+  } catch (error) {
+    // Compatibilidad durante el despliegue: si la migración aún no está disponible,
+    // conserva el camino anterior hasta que PostgREST actualice su esquema.
+    if (!isMissingRpcFunctionError(error)) throw error;
+  }
 
   for (const group of groups) {
     const firstPayment = group.payments[0];

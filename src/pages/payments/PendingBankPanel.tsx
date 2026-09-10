@@ -28,6 +28,7 @@ type Props = {
   pendingBankItems: PendingBankItem[];
   pendingImportError: string;
   isPendingImporting?: boolean;
+  bulkPendingApplyingCount: number;
   clients: Client[];
   activeClients: Client[];
   getSimilaritySignals: (item: PendingBankItem) => SimilaritySignals;
@@ -83,6 +84,7 @@ export default function PendingBankPanel({
   pendingBankItems,
   pendingImportError,
   isPendingImporting = false,
+  bulkPendingApplyingCount,
   clients,
   activeClients,
   getSimilaritySignals,
@@ -300,12 +302,17 @@ useEffect(() => {
               </h2>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 {preparedPendingRows.some((row) => row.signals.score >= 2 && !!row.assignedClient) && (
-                  <button type="button" className="button primary small" onClick={() => void handleApplyAllHighSimilarity()}>
-                    Aplicar alta similitud
+                  <button
+                    type="button"
+                    className="button primary small"
+                    disabled={bulkPendingApplyingCount > 0}
+                    onClick={() => void handleApplyAllHighSimilarity()}
+                  >
+                    {bulkPendingApplyingCount > 0 ? `Aplicando ${bulkPendingApplyingCount}...` : "Aplicar alta similitud"}
                   </button>
                 )}
                 {pendingBankItems.length > 0 && (
-                  <button type="button" className="button danger small" onClick={handleDismissAllPending}>
+                  <button type="button" className="button danger small" disabled={bulkPendingApplyingCount > 0} onClick={handleDismissAllPending}>
                     Ignorar todos
                   </button>
                 )}
@@ -565,18 +572,18 @@ useEffect(() => {
                                   <button
                                     type="button"
                                     className="button primary small"
-                                    disabled={pendingApplyingFolio !== null || isPendingClassifySaving}
+                                    disabled={pendingApplyingFolio !== null || isPendingClassifySaving || bulkPendingApplyingCount > 0}
                                     onClick={() => void handleQuickApply(item)}
                                   >
                                     {pendingApplyingFolio === item.folio ? "Aplicando..." : (hasOtherCharges || hasFines || hasTickets) ? "Aplicar auto" : "Aplicar"}
                                   </button>
                                 )}
                                 {assignedClient && hasOtherCharges && (
-                                  <button type="button" className="button ghost small" onClick={() => handleOpenClassify(item)}>
+                                  <button type="button" className="button ghost small" disabled={bulkPendingApplyingCount > 0} onClick={() => handleOpenClassify(item)}>
                                     {isInlineReviewOpen ? "Cerrar revision" : "Revisar cargos"}
                                   </button>
                                 )}
-                                <button type="button" className="button danger small" onClick={() => handleDismissPending(item.folio)}>
+                                <button type="button" className="button danger small" disabled={bulkPendingApplyingCount > 0} onClick={() => handleDismissPending(item.folio)}>
                                   Ignorar
                                 </button>
                               </td>

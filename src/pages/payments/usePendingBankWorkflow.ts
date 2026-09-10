@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatCurrency } from "../../format";
 import { reserveCloudReceiptNumbers } from "../../cloudData";
 import {
@@ -82,6 +82,8 @@ export default function usePendingBankWorkflow(options: Options) {
   const [manualAssignmentAudit, setManualAssignmentAudit] = useState<ManualBankAssignmentAudit[]>(() => loadManualBankAssignmentAudit());
   const [pendingTravelFundInputByFolio, setPendingTravelFundInputByFolio] = useState<Record<string, string>>({});
   const [isPendingImporting, setIsPendingImporting] = useState(false);
+  const [bulkPendingApplyingCount, setBulkPendingApplyingCount] = useState(0);
+  const isBulkPendingApplyingRef = useRef(false);
 
   function attachNotifiedRouteMetadata(payment: Payment, item: PendingBankItem, clientId: string): void {
     const notice = notifiedPayments.find((candidate) => (
@@ -308,56 +310,66 @@ export default function usePendingBankWorkflow(options: Options) {
   }
 
   async function handleApplyAllHighSimilarity(): Promise<void> {
+    if (isBulkPendingApplyingRef.current) return;
     const candidates = pendingBankItems.filter((item) =>
       getPendingSimilaritySignals(item, notifiedPayments).score >= 2 &&
       clients.some((client) => client.id === item.suggestedClientId)
     );
     if (candidates.length === 0) return;
-    const updatedClients = new Map(clients.map((client) => [client.id, { ...client }]));
-    const newPayments: Payment[] = [];
-    const receipts = dataOwnerUserId ? await reserveCloudReceiptNumbers(dataOwnerUserId, candidates.length) : [];
-    const candidateFolios = new Set(candidates.map((item) => normalizeFolioToken(item.folio)).filter(Boolean));
-    const usedFolios = buildTakenFolioSet(payments, pendingBankItems, pendingCardItems, {
-      excludePendingBankFolios: candidateFolios
-    });
-    let skipped = 0;
-    for (const [index, item] of candidates.entries()) {
-      const folio = normalizeFolioToken(item.folio);
-      if (usedFolios.has(folio)) {
-        skipped += 1;
-        continue;
+    isBulkPendingApplyingRef.current = true;
+    setBulkPendingApplyingCount(candidates.length);
+    try {
+      const updatedClients = new Map(clients.map((client) => [client.id, { ...client }]));
+      const newPayments: Payment[] = [];
+      const receipts = dataOwnerUserId ? await reserveCloudReceiptNumbers(dataOwnerUserId, candidates.length) : [];
+      const candidateFolios = new Set(candidates.map((item) => normalizeFolioToken(item.folio)).filter(Boolean));
+      const usedFolios = buildTakenFolioSet(payments, pendingBankItems, pendingCardItems, {
+        excludePendingBankFolios: candidateFolios
+      });
+      let skipped = 0;
+      for (const [index, item] of candidates.entries()) {
+        const folio = normalizeFolioToken(item.folio);
+        if (usedFolios.has(folio)) {
+          skipped += 1;
+          continue;
+        }
+        const client = updatedClients.get(item.suggestedClientId ?? "");
+        if (!client) continue;
+        const result = await applyPendingItem(item, client, receipts[index]);
+        attachNotifiedRouteMetadata(result.payment, item, client.id);
+        updatedClients.set(result.updatedClient.id, result.updatedClient);
+        newPayments.push(result.payment);
+        usedFolios.add(folio);
       }
-      const client = updatedClients.get(item.suggestedClientId ?? "");
-      if (!client) continue;
-      const result = await applyPendingItem(item, client, receipts[index]);
-      attachNotifiedRouteMetadata(result.payment, item, client.id);
-      updatedClients.set(result.updatedClient.id, result.updatedClient);
-      newPayments.push(result.payment);
-      usedFolios.add(folio);
+      if (newPayments.length === 0) {
+        if (skipped > 0) setErrors([`No se aplicaron pagos en lote: ${skipped} folio(s) ya existian.`]);
+        return;
+      }
+      if (skipped > 0) setErrors([`Se omitieron ${skipped} pago(s) en lote porque su folio ya existia.`]);
+      const appliedFolios = new Set(newPayments.flatMap((payment) => extractFoliosFromReference(payment.reference ?? "")));
+      if (!await persistClientPaymentState([...updatedClients.values()], [...payments, ...newPayments])) {
+        setErrors(["No se pudo guardar pagos en nube. No se aplicaron cambios."]);
+        return;
+      }
+      newPayments.forEach(finalizePayment);
+      let remainingNotified = [...notifiedPayments];
+      for (const item of candidates) {
+        if (!item.suggestedClientId || !appliedFolios.has(normalizeFolioToken(item.folio))) continue;
+        remainingNotified = removeOneMatchingNotified(
+          remainingNotified,
+          item.suggestedClientId,
+          item.amountReceived,
+          item.dateApplied
+        );
+      }
+      replaceNotifiedPayments(remainingNotified);
+      replacePendingBankItems(pendingBankItems.filter((item) => !appliedFolios.has(normalizeFolioToken(item.folio))));
+    } catch (error) {
+      setErrors([getPaymentSaveErrorMessage(error)]);
+    } finally {
+      isBulkPendingApplyingRef.current = false;
+      setBulkPendingApplyingCount(0);
     }
-    if (newPayments.length === 0) {
-      if (skipped > 0) setErrors([`No se aplicaron pagos en lote: ${skipped} folio(s) ya existian.`]);
-      return;
-    }
-    if (skipped > 0) setErrors([`Se omitieron ${skipped} pago(s) en lote porque su folio ya existia.`]);
-    const appliedFolios = new Set(newPayments.flatMap((payment) => extractFoliosFromReference(payment.reference ?? "")));
-    if (!await persistClientPaymentState([...updatedClients.values()], [...payments, ...newPayments])) {
-      setErrors(["No se pudo guardar pagos en nube. No se aplicaron cambios."]);
-      return;
-    }
-    newPayments.forEach(finalizePayment);
-    let remainingNotified = [...notifiedPayments];
-    for (const item of candidates) {
-      if (!item.suggestedClientId || !appliedFolios.has(normalizeFolioToken(item.folio))) continue;
-      remainingNotified = removeOneMatchingNotified(
-        remainingNotified,
-        item.suggestedClientId,
-        item.amountReceived,
-        item.dateApplied
-      );
-    }
-    replaceNotifiedPayments(remainingNotified);
-    replacePendingBankItems(pendingBankItems.filter((item) => !appliedFolios.has(normalizeFolioToken(item.folio))));
   }
 
   function handleSavePendingClientTravelFund(client: Client, folio: string): void {
@@ -384,6 +396,7 @@ export default function usePendingBankWorkflow(options: Options) {
     pendingTravelFundInputByFolio,
     setPendingTravelFundInputByFolio,
     isPendingImporting,
+    bulkPendingApplyingCount,
     handleImportBankCSV,
     handleOpenClassify,
     handleDismissPending,
