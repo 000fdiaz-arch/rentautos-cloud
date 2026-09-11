@@ -36,7 +36,7 @@ type Props = {
   activeClients: Client[];
   getSimilaritySignals: (item: PendingBankItem) => SimilaritySignals;
   getPendingBankPreview: (item: PendingBankItem, client: Client | null) => PendingBankPreview | null;
-  handleApplyAllHighSimilarity: () => Promise<void>;
+  handleApplyAllAssigned: () => Promise<void>;
   handleDismissAllPending: () => void;
   pendingClassifyTarget: PendingBankItem | null;
   handleOpenClassify: (item: PendingBankItem) => void;
@@ -93,7 +93,7 @@ export default function PendingBankPanel({
   activeClients,
   getSimilaritySignals,
   getPendingBankPreview,
-  handleApplyAllHighSimilarity,
+  handleApplyAllAssigned,
   handleDismissAllPending,
   pendingClassifyTarget,
   handleOpenClassify,
@@ -126,6 +126,10 @@ export default function PendingBankPanel({
   const [pendingPage, setPendingPage] = useState(1);
   const [assignmentEditorFolio, setAssignmentEditorFolio] = useState<string | null>(null);
   const [assignmentSearch, setAssignmentSearch] = useState("");
+  const assignedPendingCount = useMemo(
+    () => pendingBankItems.filter((item) => !!item.suggestedClientId && clientById.has(item.suggestedClientId)).length,
+    [clientById, pendingBankItems]
+  );
 
 const hasPendingColumnFilters = useMemo(
   () => Object.values(pendingFilters).some((value) => value.trim().length > 0),
@@ -334,14 +338,16 @@ useEffect(() => {
                 )}
               </h2>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {preparedPendingRows.some((row) => row.signals.aplicable && !!row.assignedClient) && (
+                {assignedPendingCount > 0 && (
                   <button
                     type="button"
                     className="button primary small"
                     disabled={bulkPendingApplyingCount > 0}
-                    onClick={() => void handleApplyAllHighSimilarity()}
+                    onClick={() => void handleApplyAllAssigned()}
                   >
-                    {bulkPendingApplyingCount > 0 ? `Aplicando ${bulkPendingApplyingCount}...` : "Aplicar alta similitud"}
+                    {bulkPendingApplyingCount > 0
+                      ? `Aplicando ${bulkPendingApplyingCount}...`
+                      : `Aplicar todos los asignados (${assignedPendingCount})`}
                   </button>
                 )}
                 {pendingBankItems.length > 0 && (

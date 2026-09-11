@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import esbuild from "esbuild";
 
 const bundle = await esbuild.build({
@@ -69,5 +70,11 @@ const ambiguous = getPendingSimilaritySignals(pending(), [], [luis, duplicate, o
 assert.equal(ambiguous.exacto, false);
 assert.equal(ambiguous.aplicable, false, "Un nombre exacto duplicado no debe aplicarse automaticamente.");
 
-console.log("OK pagos .00: solo coincidencias exactas y unicas entran al lote automatico.");
+const workflowSource = readFileSync("src/pages/payments/usePendingBankWorkflow.ts", "utf8");
+const panelSource = readFileSync("src/pages/payments/PendingBankPanel.tsx", "utf8");
+assert.match(workflowSource, /const candidates = pendingBankItems\.filter\(\(item\) =>\s*!!item\.suggestedClientId && clientIds\.has\(item\.suggestedClientId\)/,
+  "El lote debe tomar toda unidad valida asignada, sin filtrar por similitud.");
+assert.match(panelSource, /Aplicar todos los asignados \(\$\{assignedPendingCount\}\)/,
+  "El boton debe explicar la nueva accion e indicar cuantos pagos procesara.");
 
+console.log("OK asignacion: se detectan coincidencias exactas y el lote toma toda unidad valida seleccionada.");

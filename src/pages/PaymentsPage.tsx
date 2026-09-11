@@ -467,7 +467,7 @@ export default function PaymentsPage({
     handlePendingUnitChange,
     handleConfirmClassify,
     handleQuickApply,
-    handleApplyAllHighSimilarity,
+    handleApplyAllAssigned,
     handleSavePendingClientTravelFund
   } = usePendingBankWorkflow({
     clients,
@@ -935,7 +935,7 @@ export default function PaymentsPage({
         getPendingBankPreview={getPendingPreview}
         isPendingImporting={isPendingImporting}
         bulkPendingApplyingCount={bulkPendingApplyingCount}
-        handleApplyAllHighSimilarity={handleApplyAllHighSimilarity}
+        handleApplyAllAssigned={handleApplyAllAssigned}
         handleDismissAllPending={handleDismissAllPending}
         pendingClassifyTarget={pendingClassifyTarget}
         handleOpenClassify={handleOpenClassify}

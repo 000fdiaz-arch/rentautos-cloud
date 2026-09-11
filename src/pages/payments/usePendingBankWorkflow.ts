@@ -20,7 +20,7 @@ import type {
 import type { NotifiedPayment } from "./paymentTypes";
 import { importBankCsv } from "./bankCsvImport";
 import { extractFoliosFromReference, isNotifiedCandidateMatch, normalizeFolioToken, removeOneMatchingNotified } from "./bankPaymentRules";
-import { buildPendingPaymentApplication, buildTakenFolioSet, getPendingSimilaritySignals } from "./pendingBankRules";
+import { buildPendingPaymentApplication, buildTakenFolioSet } from "./pendingBankRules";
 import { getPaymentSaveErrorMessage } from "./paymentPersistenceErrors";
 import { roundMoney } from "./paymentRules";
 
@@ -316,11 +316,11 @@ export default function usePendingBankWorkflow(options: Options) {
     }
   }
 
-  async function handleApplyAllHighSimilarity(): Promise<void> {
+  async function handleApplyAllAssigned(): Promise<void> {
     if (isBulkPendingApplyingRef.current) return;
+    const clientIds = new Set(clients.map((client) => client.id));
     const candidates = pendingBankItems.filter((item) =>
-      getPendingSimilaritySignals(item, notifiedPayments, activeClients).aplicable &&
-      clients.some((client) => client.id === item.suggestedClientId)
+      !!item.suggestedClientId && clientIds.has(item.suggestedClientId)
     );
     if (candidates.length === 0) return;
     isBulkPendingApplyingRef.current = true;
@@ -414,7 +414,7 @@ export default function usePendingBankWorkflow(options: Options) {
     handlePendingUnitChange,
     handleConfirmClassify,
     handleQuickApply,
-    handleApplyAllHighSimilarity,
+    handleApplyAllAssigned,
     handleSavePendingClientTravelFund
   };
 }
