@@ -1,7 +1,7 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { hasCollectionTeam } from "../../cashTeamRules";
-import type { Client, LateFeeSettings, OtherChargesRetentionCycle, PaymentMethod } from "../../types";
+import type { Client, LateFeeSettings, OtherChargesRetentionCycle, Payment, PaymentMethod } from "../../types";
 import {
   getOtherChargeKey,
   isLateFeeListClient,
@@ -68,6 +68,9 @@ type Props = {
   projectedNextChargeDate: Date | null;
   errors: string[];
   paymentInfo: string;
+  lastRegisteredPayment: Payment | null;
+  onViewRegisteredReceipt: () => void;
+  onOpenRegisteredHistory: () => void;
   handleConfirmPaymentClick: () => Promise<void>;
   isDateClosed: (dateKey: string) => boolean;
   isConfirmingPayment: boolean;
@@ -110,6 +113,9 @@ export default function RegisterPaymentPanel({
   projectedNextChargeDate,
   errors,
   paymentInfo,
+  lastRegisteredPayment,
+  onViewRegisteredReceipt,
+  onOpenRegisteredHistory,
   handleConfirmPaymentClick,
   isDateClosed,
   isConfirmingPayment
@@ -522,6 +528,22 @@ export default function RegisterPaymentPanel({
               <ul className="error-list">{errors.map((e) => <li key={e}>{e}</li>)}</ul>
             )}
             {paymentInfo && <p className="hint recon-info">{paymentInfo}</p>}
+            {lastRegisteredPayment && (
+              <div className="recon-info" role="status" aria-live="polite" style={{ marginTop: 10 }}>
+                <strong>Pago guardado correctamente.</strong>
+                <div style={{ marginTop: 6 }}>
+                  {lastRegisteredPayment.clientUnit} - {lastRegisteredPayment.clientName} · {formatCurrency(lastRegisteredPayment.amountReceived)} · Recibo {lastRegisteredPayment.receiptNumber}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                  <button type="button" className="button primary small" onClick={onViewRegisteredReceipt}>
+                    Ver comprobante
+                  </button>
+                  <button type="button" className="button ghost small" onClick={onOpenRegisteredHistory}>
+                    Ir al historial
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div style={{ marginTop: 20 }}>
               <button

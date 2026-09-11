@@ -132,6 +132,7 @@ export default function PaymentsPage({
   const [errors, setErrors] = useState<string[]>([]);
   const [historyFocusRequest, setHistoryFocusRequest] = useState<HistoryFocusRequest | null>(null);
   const [historyPreview, setHistoryPreview] = useState<{ payment: Payment; accountClient?: Client } | null>(null);
+  const [lastRegisteredPayment, setLastRegisteredPayment] = useState<Payment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
   const [bulkDeleteTargets, setBulkDeleteTargets] = useState<Payment[]>([]);
   const {
@@ -246,7 +247,10 @@ export default function PaymentsPage({
     onPaymentsChange,
     replacePendingBankItems,
     setPendingImportError,
-    showReceipt: (payment) => finalizeSuccessfulPayment(payment, { openHistory: true })
+    showReceipt: (payment) => setHistoryPreview({
+      payment,
+      accountClient: clients.find((client) => client.id === payment.clientId)
+    })
   });
 
 
@@ -386,6 +390,7 @@ export default function PaymentsPage({
 
   async function handleConfirmPaymentClick(): Promise<void> {
     if (isConfirmingPayment) return;
+    setLastRegisteredPayment(null);
     setIsConfirmingPayment(true);
     setPaymentInfo("Guardando pago y reservando recibo...");
     try {
@@ -581,6 +586,7 @@ export default function PaymentsPage({
     setManualOverrideForcedOtherCharges(false);
     setAutoAmountInfo("");
     setPaymentInfo("");
+    setLastRegisteredPayment(null);
     setRegisterTravelFundInput(toInputMoney(roundMoney(Math.max(0, client.travelFundBalance ?? 0))));
   }
 
@@ -592,6 +598,7 @@ export default function PaymentsPage({
     setManualOverrideForcedOtherCharges(false);
     setAutoAmountInfo("");
     setPaymentInfo("");
+    setLastRegisteredPayment(null);
     setRegisterTravelFundInput("");
   }
 
@@ -696,7 +703,7 @@ export default function PaymentsPage({
           : `Pago en tarjeta aplicado con folio temporal ${transaction.cardFolio}. Debes corregirlo manana para conciliar con el CSV.`
       );
     }
-    finalizeSuccessfulPayment(transaction.payment, { openHistory: true });
+    setLastRegisteredPayment(transaction.payment);
     setForm({ clientId: "", dateApplied: operationalDateKey, paymentMethod: "Efectivo", cashDeliveryStatus: "", reference: "", amountReceived: "" });
     setManualOtherChargesInput({});
     setManualOverrideForcedOtherCharges(false);
@@ -874,6 +881,17 @@ export default function PaymentsPage({
         projectedNextChargeDate={projectedNextChargeDate}
         errors={errors}
         paymentInfo={paymentInfo}
+        lastRegisteredPayment={lastRegisteredPayment}
+        onViewRegisteredReceipt={() => {
+          if (!lastRegisteredPayment) return;
+          setHistoryPreview({
+            payment: lastRegisteredPayment,
+            accountClient: clients.find((client) => client.id === lastRegisteredPayment.clientId)
+          });
+        }}
+        onOpenRegisteredHistory={() => {
+          if (lastRegisteredPayment) openHistoryAfterPayment(lastRegisteredPayment);
+        }}
         handleConfirmPaymentClick={handleConfirmPaymentClick}
         isDateClosed={isDateClosed}
         isConfirmingPayment={isConfirmingPayment}
