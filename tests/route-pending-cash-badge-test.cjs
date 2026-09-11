@@ -10,19 +10,22 @@ const day = '2026-09-05';
 const item = {clientId:'c1',publishedAt:'publication',releaseAmount:40};
 const payments = [{clientId:'c1',dateApplied:day,appliedToRent:20}];
 const cash = {client_id:'c1',published_at:'publication',status:'review',method:'cash',confirmed_cash_amount:0};
-assert.equal(countActiveRouteReviewItems([item],payments,day,[cash]),1,'Do not count the same unit twice');
-assert.equal(countActiveRouteReviewItems([item],payments,day,[{...cash,client_id:'c2'}]),2);
-assert.equal(countActiveRouteReviewItems([],[],day,[cash]),1,'Reported cash remains pending without an active route card');
+assert.equal(countActiveRouteReviewItems([item],payments,day,[]),1,'An unresolved partial payment must be counted');
+assert.equal(countActiveRouteReviewItems([item],payments,day,[cash]),0,'A cash report on hold must not count as an actionable partial payment');
+assert.equal(countActiveRouteReviewItems([item],payments,day,[{...cash,method:'bank'}]),0,'A bank report on hold must not count as an actionable partial payment');
+assert.equal(countActiveRouteReviewItems([item],payments,day,[{...cash,method:'mixed'}]),0,'A mixed report on hold must not count as an actionable partial payment');
+assert.equal(countActiveRouteReviewItems([item],payments,day,[{...cash,client_id:'c2'}]),1,'A hold report for another client must not change the partial count');
+assert.equal(countActiveRouteReviewItems([],[],day,[cash]),0,'Reported cash remains on hold without affecting the badge');
 for (const patch of [{status:'confirmed'},{status:'cancelled'},{method:'bank'},{method:'mixed'},{confirmed_cash_amount:20}]) {
   assert.equal(isPendingCashRouteReport({...cash,...patch}),false);
   assert.equal(countActiveRouteReviewItems([],[],day,[{...cash,...patch}]),0);
 }
-assert.equal(countActiveRouteReviewItems([{...item,partialDecisionRentAmount:20}],payments,day,[cash]),1);
+assert.equal(countActiveRouteReviewItems([{...item,partialDecisionRentAmount:20}],payments,day,[cash]),0);
 assert.equal(countActiveRouteReviewItems([{...item,partialDecisionRentAmount:20}],payments,day,[{...cash,status:'confirmed'}]),0);
-console.log('OK cash badge: actionable reports, partial decisions, deduplication and clearing after confirmation');
+console.log('OK route badge: only unresolved partial decisions are counted; hold reports are excluded');
 
 assert.equal(countActiveRouteReviewItems([{...item,inCustody:true}],payments,day,[]),0);
-assert.equal(countActiveRouteReviewItems([{...item,inCustody:true}],payments,day,[cash]),1,'Custody must not discard cash awaiting a receipt');
+assert.equal(countActiveRouteReviewItems([{...item,inCustody:true}],payments,day,[cash]),0,'Hold reports never affect the partial-review badge');
 
 const {getRouteWorkItems,getActiveRouteReviewItems}=rulesModule.exports;
 const paid=[{clientId:'b79',dateApplied:day,appliedToRent:34,amountReceived:34.79},{clientId:'b79',dateApplied:day,appliedToRent:34,amountReceived:34.79}];

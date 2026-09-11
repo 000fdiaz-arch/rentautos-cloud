@@ -52,7 +52,6 @@ export function hasAcknowledgedPartialRouteDecision(payments: Payment[], item: A
 
 export function countActiveRouteReviewItems(items: ActiveRouteItem[], payments: Payment[], dateKey: string, reports: RoutePaymentReport[] = []): number {
   const pending = new Set(getActiveRouteReviewItems(items, payments, dateKey, reports).map((item) => JSON.stringify([item.clientId, item.publishedAt])));
-  reports.filter(isPendingCashRouteReport).forEach((report) => pending.add(JSON.stringify([report.client_id, report.published_at])));
   return pending.size;
 }
 
