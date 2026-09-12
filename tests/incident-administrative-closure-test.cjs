@@ -16,7 +16,7 @@ if (!collisions.includes('status: "CIERRE ADMINISTRATIVO"') || !collisions.inclu
 if (!collisions.includes("Reabrir expediente") || !collisions.includes("Razón de la reapertura")) {
   throw new Error("El expediente debe poder reabrirse con una razón obligatoria.");
 }
-if (!unified.includes('label: "Cierre administrativo", finalized: true')) {
+if (!unified.includes('return completedAction("Cierre administrativo", "judicial")')) {
   throw new Error("El control unificado debe tratar el cierre administrativo como finalizado.");
 }
 if (!cloud.includes('rawStatus === "CIERRE ADMINISTRATIVO"')) {

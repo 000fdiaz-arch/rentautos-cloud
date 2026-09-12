@@ -8,9 +8,15 @@ const css = fs.readFileSync(path.join(root, "src/pages/incidents/incidentFilters
 
 assert.match(page, /incidentsMatchingActionContext/);
 assert.match(page, /visibleNextAction/);
-assert.match(page, /NEXT_ACTION_GROUPS/);
-assert.match(page, /\{ value: "custom", label: "Esperando juicio" \}/);
-assert.doesNotMatch(page, /Gestión personalizada/);
+assert.match(page, /type IncidentNextAction = \{/);
+assert.match(page, /"fud_delivery", "Coordinar entrega presencial del FUD"/);
+assert.match(page, /"fud_attachment", "Adjuntar copia digital del FUD"/);
+assert.match(page, /"judicial_resolution", `Buscar y adjuntar resolución judicial/);
+assert.match(page, /"judicial_result", "Registrar resultado del juicio"/);
+assert.match(page, /"start_claim", "Iniciar reclamo al seguro"/);
+assert.match(page, /"finalize_claim", "Finalizar reclamo"/);
+assert.match(page, /label: incident\.action\.groupLabel/);
+assert.doesNotMatch(page, /"Documentación \/ FUD"/);
 assert.match(page, /nextActionGroup/);
 assert.match(page, /nextActionOptions/);
 assert.match(page, /nextActionTotal/);
@@ -23,17 +29,19 @@ assert.match(page, /return incident\.nextAction\.trim\(\) \|\| "Acción pendient
 assert.match(page, /incidentLatestNote/);
 assert.doesNotMatch(page, /incidentFollowUpSummary/);
 assert.match(page, /nextActionGroup\(incident\)\?\.value !== nextActionFilter/);
-assert.match(page, /unified-incident-action-group/);
+assert.doesNotMatch(page, /unified-incident-action-group/);
 assert.match(page, /Filtros rápidos por área/);
 assert.match(page, />Pendientes <b>\{filterCounts\.pending\}<\/b>/);
 assert.doesNotMatch(page, /Tipo de expediente/);
 assert.doesNotMatch(page, /Documentación pendiente <span>/);
 assert.doesNotMatch(page, /Con reclamo activo <span>/);
-assert.match(page, /return \{ label: "Dar seguimiento y gestionar finiquito", finalized: false, requiresAction: true \}/);
+assert.match(page, /"insurance_follow_up", "Dar seguimiento y gestionar finiquito"/);
+assert.match(page, /courtFilter !== "all" && normalizeCourtName\(incident\.collision\?\.court \?\? ""\) !== courtFilter/);
+assert.match(page, /Aseguradora[\s\S]*?Juzgado[\s\S]*?Vencidos/);
+assert.match(page, /setCourtFilter\("all"\)/);
 assert.doesNotMatch(page, /Definir próximo seguimiento del seguro/);
 assert.doesNotMatch(page, /scheduled_follow_up/);
 assert.doesNotMatch(page, /incident-next-action-strip/);
 assert.match(css, /\.unified-incidents-filter-label-with-count b/);
-assert.match(css, /\.unified-incident-action-group/);
 
-console.log("OK próximas acciones: selector agrupado y categoría visible en cada tarjeta.");
+console.log("OK próximas acciones por paso, con filtros combinables de aseguradora y juzgado.");
