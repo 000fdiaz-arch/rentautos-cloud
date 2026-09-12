@@ -36,7 +36,7 @@ type AreaFilter = "pending" | "judicial" | "insurance" | "finalized";
 type NextActionCategory = "destination_resolution" | "documentation" | "judicial_management" | "judicial_workshop" | "judicial_balance" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim";
 type ActionTimingFilter = "all" | "overdue" | "today" | "upcoming";
 type DateFieldFilter = "incident" | "next_action";
-type IncidentSort = "action_asc" | "incident_desc" | "updated_desc" | "unit_asc";
+type IncidentSort = "incident_asc" | "incident_desc" | "action_asc" | "updated_desc" | "unit_asc";
 type IncidentAlertSeverity = "urgent" | "attention" | "upcoming";
 type IncidentsWorkspaceView = "incidents" | "agenda";
 
@@ -287,6 +287,7 @@ function compareByActionDate(left: UnifiedIncident, right: UnifiedIncident): num
 }
 
 function compareIncidents(left: UnifiedIncident, right: UnifiedIncident, sort: IncidentSort): number {
+  if (sort === "incident_asc") return (left.incidentDate || "9999-12-31").localeCompare(right.incidentDate || "9999-12-31") || compareByActionDate(left, right);
   if (sort === "incident_desc") return right.incidentDate.localeCompare(left.incidentDate) || compareByActionDate(left, right);
   if (sort === "updated_desc") return right.updatedAt.localeCompare(left.updatedAt) || compareByActionDate(left, right);
   if (sort === "unit_asc") return left.unit.localeCompare(right.unit, "es", { numeric: true, sensitivity: "base" }) || compareByActionDate(left, right);
@@ -709,7 +710,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   const [dateFieldFilter, setDateFieldFilter] = useState<DateFieldFilter>("incident");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [sort, setSort] = useState<IncidentSort>("action_asc");
+  const [sort, setSort] = useState<IncidentSort>("incident_asc");
   const [search, setSearch] = useState("");
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<IncidentsWorkspaceView>("incidents");
@@ -865,7 +866,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     }).sort((left, right) => compareIncidents(left, right, sort));
   }, [incidentsMatchingActionContext, nextActionFilter, sort]);
   const hasActiveFilters = Boolean(search.trim() || filter !== "pending" || actionTimingFilter !== "all"
-    || nextActionFilter !== "all" || insurerFilter !== "all" || courtFilter !== "all" || dateFrom || dateTo || sort !== "action_asc");
+    || nextActionFilter !== "all" || insurerFilter !== "all" || courtFilter !== "all" || dateFrom || dateTo || sort !== "incident_asc");
   const activeFilterCount = [
     Boolean(search.trim()),
     filter !== "pending",
@@ -874,7 +875,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     insurerFilter !== "all",
     courtFilter !== "all",
     Boolean(dateFrom || dateTo),
-    sort !== "action_asc"
+    sort !== "incident_asc"
   ].filter(Boolean).length;
   const unresolvedDestinations = useMemo(() => incidents
     .filter((incident) => Boolean(incident.pendingDestination))
@@ -906,7 +907,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     setDateFieldFilter("incident");
     setDateFrom("");
     setDateTo("");
-    setSort("action_asc");
+    setSort("incident_asc");
     setFiltersExpanded(false);
   }
 
@@ -1005,6 +1006,15 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
             {courts.map((court) => <option key={court} value={court}>{court}</option>)}
           </select>
         </label>}
+        <label className="incident-next-action-filter incident-party-filter">Ordenar por
+          <select value={sort} onChange={(event) => setSort(event.target.value as IncidentSort)}>
+            <option value="incident_asc">Siniestro más antiguo</option>
+            <option value="incident_desc">Siniestro más reciente</option>
+            <option value="action_asc">Próxima acción</option>
+            <option value="updated_desc">Última actualización</option>
+            <option value="unit_asc">Unidad</option>
+          </select>
+        </label>
         <button type="button" className={`overdue${actionTimingFilter === "overdue" ? " active" : ""}`} onClick={() => toggleActionTiming("overdue")}><strong>{actionTimingCounts.overdue}</strong><span>Vencidos</span></button>
         <button type="button" className={`today${actionTimingFilter === "today" ? " active" : ""}`} onClick={() => toggleActionTiming("today")}><strong>{actionTimingCounts.today}</strong><span>Para hoy</span></button>
         <button type="button" className={`upcoming${actionTimingFilter === "upcoming" ? " active" : ""}`} onClick={() => toggleActionTiming("upcoming")}><strong>{actionTimingCounts.upcoming}</strong><span>Próximos</span></button>
@@ -1045,14 +1055,6 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
               </label>
               <label>Desde<input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} /></label>
               <label>Hasta<input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} /></label>
-              <label>Ordenar por
-                <select value={sort} onChange={(event) => setSort(event.target.value as IncidentSort)}>
-                  <option value="action_asc">Próxima acción</option>
-                  <option value="incident_desc">Siniestro más reciente</option>
-                  <option value="updated_desc">Última actualización</option>
-                  <option value="unit_asc">Unidad</option>
-                </select>
-              </label>
             </div>
           </section>
         </div>

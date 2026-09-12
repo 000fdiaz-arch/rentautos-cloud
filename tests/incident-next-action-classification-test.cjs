@@ -4,7 +4,7 @@ const path = require("node:path");
 const ts = require("typescript");
 
 const source = fs.readFileSync(path.join(__dirname, "../src/pages/UnifiedIncidentsFollowUp.tsx"), "utf8");
-const compiled = ts.transpileModule(`${source}\nexport { claimNextAction, collisionNextAction, nextActionGroup, incidentActionSchedule };`, {
+const compiled = ts.transpileModule(`${source}\nexport { claimNextAction, collisionNextAction, nextActionGroup, incidentActionSchedule, compareIncidents };`, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 }
 }).outputText;
 const moduleUnderTest = { exports: {} };
@@ -16,7 +16,7 @@ const dependencies = {
 const requireStub = (name) => dependencies[name] ?? {};
 new Function("require", "module", "exports", compiled)(requireStub, moduleUnderTest, moduleUnderTest.exports);
 
-const { claimNextAction, collisionNextAction, nextActionGroup, incidentActionSchedule } = moduleUnderTest.exports;
+const { claimNextAction, collisionNextAction, nextActionGroup, incidentActionSchedule, compareIncidents } = moduleUnderTest.exports;
 const claim = {
   incidentDate: "2026-08-30",
   documentationPending: true,
@@ -59,4 +59,14 @@ const administrativeClosure = collisionNextAction({ ...collision, status: "CIERR
 assert.equal(administrativeClosure.finalized, true);
 assert.equal(nextActionGroup({ action: administrativeClosure, finalized: true }), null);
 
-console.log("OK clasificación: resolución, FUD y resultado judicial conservan pasos, fechas y destinos distintos.");
+const incidentsByOccurrence = [
+  { incidentDate: "2026-07-09", action: { date: "2026-08-10" }, requiresAction: true, updatedAt: "2026-08-01" },
+  { incidentDate: "2026-05-16", action: { date: "2026-08-10" }, requiresAction: true, updatedAt: "2026-08-02" },
+  { incidentDate: "2024-04-30", action: { date: "2026-08-21" }, requiresAction: true, updatedAt: "2026-08-03" }
+];
+incidentsByOccurrence.sort((left, right) => compareIncidents(left, right, "incident_asc"));
+assert.deepEqual(incidentsByOccurrence.map((incident) => incident.incidentDate), ["2024-04-30", "2026-05-16", "2026-07-09"]);
+incidentsByOccurrence.sort((left, right) => compareIncidents(left, right, "action_asc"));
+assert.equal(incidentsByOccurrence.at(-1).incidentDate, "2024-04-30");
+
+console.log("OK acciones y orden: siniestros antiguos primero por defecto, con orden de próxima acción disponible.");
