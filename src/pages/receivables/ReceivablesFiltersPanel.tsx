@@ -19,7 +19,7 @@ export function ReceivablesFiltersPanel({
   onClearFilters
 }: Props) {
   return (
-    <section className={`ar-filters-panel ${className}`.trim()}>
+    <section id="ar-ledger-advanced-filters" className={`ar-filters-panel ${className}`.trim()}>
       <div className="ar-filters-grid">
         <label className="ar-filter-field">
           <span className="ar-filter-label">Unidad</span>

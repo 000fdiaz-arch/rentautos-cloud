@@ -1,4 +1,5 @@
 import RouteSearchPage, { type RouteSearchPageProps } from "./RouteSearchPage";
+import "./receivables/receivablesResponsive.css";
 import { getBusinessDateKey } from "../billing";
 import { getRouteWorkItems, routeRentAmountForDay } from "../routeReviewRules";
 import { loadRoutePaymentReports } from "../cloud/routeReportCloudData";
@@ -2947,8 +2948,9 @@ export default function ReceivablesPage({
               className={`ar-mobile-filter-toggle ${mobileFiltersOpen ? "is-open" : ""}`}
               onClick={() => setMobileFiltersOpen((current) => !current)}
               aria-expanded={mobileFiltersOpen}
+              aria-controls="ar-ledger-advanced-filters"
             >
-              <span>{mobileFiltersOpen ? "Ocultar filtros" : "Filtros"}</span>
+              <span>{mobileFiltersOpen ? "Ocultar filtros" : "Mostrar filtros"}</span>
               {activeAdvancedFilterCount > 0 ? <strong>{activeAdvancedFilterCount}</strong> : null}
             </button>
 

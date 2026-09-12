@@ -13103,9 +13103,9 @@ button.ar-route-publish-copy.is-active {
 }
 
 .incident-action-strip {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  flex-wrap: wrap;
   gap: 8px;
   margin-top: 14px;
   border: 1px solid #e2e8f0;
@@ -13115,6 +13115,7 @@ button.ar-route-publish-copy.is-active {
 }
 
 .incident-action-strip-title {
+  grid-column: 1 / -1;
   color: #475569;
   font-size: 0.74rem;
   font-weight: 900;
@@ -13314,6 +13315,39 @@ button.ar-route-publish-copy.is-active {
   margin-top: 16px;
 }
 
+.unified-incidents-results {
+  margin: 0;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.unified-incidents-results span {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.unified-incidents-follow-up button:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.unified-incidents-empty {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 16px;
+}
+
+.unified-incidents-empty p {
+  margin: 0;
+}
+
 .unified-incident-card {
   position: relative;
   overflow: hidden;
@@ -13340,6 +13374,28 @@ button.ar-route-publish-copy.is-active {
 
 .unified-incident-card.status-finished {
   border-left-color: #334155;
+}
+
+.incident-action-controls {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.8fr) repeat(3, minmax(140px, 1fr));
+  align-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.incident-action-secondary-filters {
+  display: contents;
+}
+
+.incident-action-strip .incident-action-extra-toggle {
+  display: none;
+}
+
+.incident-action-timing {
+  display: flex;
+  align-items: end;
+  gap: 7px;
 }
 
 .unified-incident-card.status-destination-pending {
@@ -16786,8 +16842,30 @@ button.ar-route-publish-copy.is-active {
 }
 
 @media (max-width: 1040px) {
+  .incident-action-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .incident-action-strip-title {
+    grid-column: 1;
+  }
+
+  .incident-action-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .incident-action-timing {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .incident-action-timing button {
+    justify-content: center;
+    min-height: 44px;
+  }
+
   .unified-incident-summary {
-    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr) 32px;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr) 44px;
   }
 
   .unified-incident-action {
@@ -16800,6 +16878,23 @@ button.ar-route-publish-copy.is-active {
   .unified-incident-summary .workflow-claim-chevron {
     grid-column: 3;
     grid-row: 1 / span 2;
+    width: 44px;
+    height: 44px;
+    border: 1px solid #c7d2fe;
+    cursor: pointer;
+  }
+}
+
+@media (min-width: 1041px) and (any-pointer: coarse) {
+  .unified-incident-summary {
+    grid-template-columns: minmax(250px, 1fr) minmax(210px, 0.75fr) minmax(320px, 1.15fr) 44px;
+  }
+
+  .unified-incident-summary .workflow-claim-chevron {
+    width: 44px;
+    height: 44px;
+    border: 1px solid #c7d2fe;
+    cursor: pointer;
   }
 }
 
@@ -16825,15 +16920,52 @@ button.ar-route-publish-copy.is-active {
   }
 
   .incident-action-strip {
-    flex-wrap: nowrap;
     margin-top: 0;
-    overflow-x: auto;
-    scrollbar-width: thin;
+    padding: 12px;
   }
 
-  .incident-action-strip-title,
-  .incident-action-strip button {
-    flex: 0 0 auto;
+  .incident-action-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .incident-action-strip .incident-action-extra-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 44px;
+    border-radius: 8px;
+    color: #1d4ed8;
+    font-weight: 800;
+    text-align: left;
+  }
+
+  .incident-action-strip .incident-action-extra-toggle span {
+    font-size: 0.86rem;
+    font-weight: 800;
+  }
+
+  .incident-action-extra-toggle b {
+    border-radius: 999px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    font-size: 0.72rem;
+    padding: 4px 8px;
+    white-space: nowrap;
+  }
+
+  .incident-action-secondary-filters {
+    display: none;
+  }
+
+  .incident-action-secondary-filters.is-expanded {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .incident-action-secondary-filters .incident-next-action-filter:last-child {
+    grid-column: 1 / -1;
   }
 
   .unified-incidents-toolbar {
@@ -16846,8 +16978,17 @@ button.ar-route-publish-copy.is-active {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
+  .unified-incidents-filter-head .workflow-claim-search input,
+  .unified-incidents-filter-actions .button {
+    min-height: 44px;
+  }
+
+  .unified-incidents-filter-head .workflow-claim-search input {
+    font-size: 16px;
+  }
+
   .unified-incident-summary {
-    grid-template-columns: minmax(0, 1fr) 32px;
+    grid-template-columns: minmax(0, 1fr) 44px;
     gap: 10px;
     padding: 13px;
   }
@@ -16857,16 +16998,56 @@ button.ar-route-publish-copy.is-active {
     grid-column: 1;
   }
 
+  .unified-incident-identity { grid-row: 1; }
+  .unified-incident-action { grid-row: 2; }
+  .unified-incident-status-stack { grid-row: 3; }
+
   .unified-incident-action {
     margin-top: 3px;
     padding: 11px;
   }
 
+  .unified-incident-action > strong {
+    font-size: 1rem;
+  }
+
+  .unified-incident-identity small,
+  .unified-incident-action small,
+  .unified-incident-follow-up-date,
+  .unified-incident-latest-note-open span {
+    font-size: 0.82rem;
+    line-height: 1.4;
+  }
+
+  .unified-incident-vehicle-meta > span,
+  .unified-incident-card-alerts .unified-incident-alert {
+    font-size: 0.76rem;
+  }
+
+  .unified-incident-latest-note-open {
+    min-height: 44px;
+  }
+
+  .unified-incident-latest-note-open strong {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .unified-incident-note-complete-button {
+    min-height: 44px;
+  }
+
   .unified-incident-summary .workflow-claim-chevron {
     grid-column: 2;
     grid-row: 1 / span 3;
-    min-width: 32px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
     min-height: 44px;
+    border: 1px solid #c7d2fe;
+    cursor: pointer;
   }
 
   .unified-incident-action-buttons {
@@ -16990,7 +17171,7 @@ button.ar-route-publish-copy.is-active {
 
   .unified-incidents-clear {
     justify-self: stretch;
-    min-height: 42px;
+    min-height: 44px;
     width: 100%;
   }
 

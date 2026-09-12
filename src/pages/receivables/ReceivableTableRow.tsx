@@ -805,15 +805,6 @@ function ReceivableTableRowComponent({
                     </div>
                   ) : (
                     <div className="ar-card-key-grid">
-                      <span className={`ar-metric-chip ar-metric-chip--plan ar-metric-chip--plan-${row.hasActiveClient ? row.plan : "none"}`}>
-                        <small>Plan</small>
-                        <strong className="ar-plan-chip-name">{planDetailLabel(row)}</strong>
-                        {row.hasActiveClient && row.rentAmount > 0 ? (
-                          <em className="ar-plan-chip-rent">Letra {formatCurrency(row.rentAmount)}</em>
-                        ) : null}
-                      </span>
-                      <span className="ar-metric-chip ar-metric-chip--date"><small>Proximo</small>{dateKeyLabel(row.nextDueDate)}</span>
-                      <span className="ar-metric-chip ar-metric-chip--late"><small>Atraso</small>{row.daysLate > 0 ? `${row.daysLate} dias` : "Sin atraso"}</span>
                       <span className="ar-metric-chip ar-metric-chip--debt">
                         <small>Renta vencida</small>
                         <strong className="ar-overdue-chip-amount">{formatCurrency(row.overdueBalance)}</strong>
@@ -821,8 +812,17 @@ function ReceivableTableRowComponent({
                           <em className="ar-overdue-chip-installments">{overdueInstallmentsText(row.overdueBalance, row.rentAmount)}</em>
                         ) : null}
                       </span>
-                      <span className="ar-metric-chip ar-metric-chip--debt"><small>Otros cargos</small>{formatCurrency(row.totalOtherCharges)}</span>
+                      <span className="ar-metric-chip ar-metric-chip--date"><small>Proximo</small>{dateKeyLabel(row.nextDueDate)}</span>
+                      <span className="ar-metric-chip ar-metric-chip--late"><small>Atraso</small>{row.daysLate > 0 ? `${row.daysLate} dias` : "Sin atraso"}</span>
                       <span className="ar-metric-chip ar-metric-chip--debt"><small>Total general</small>{formatCurrency(totalDue)}</span>
+                      <span className={`ar-metric-chip ar-metric-chip--plan ar-metric-chip--plan-${row.hasActiveClient ? row.plan : "none"}`}>
+                        <small>Plan</small>
+                        <strong className="ar-plan-chip-name">{planDetailLabel(row)}</strong>
+                        {row.hasActiveClient && row.rentAmount > 0 ? (
+                          <em className="ar-plan-chip-rent">Letra {formatCurrency(row.rentAmount)}</em>
+                        ) : null}
+                      </span>
+                      <span className="ar-metric-chip ar-metric-chip--debt"><small>Otros cargos</small>{formatCurrency(row.totalOtherCharges)}</span>
                     </div>
                   )}
                 </div>

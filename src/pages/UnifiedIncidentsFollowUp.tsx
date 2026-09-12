@@ -713,6 +713,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   const [sort, setSort] = useState<IncidentSort>("incident_asc");
   const [search, setSearch] = useState("");
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [actionOptionsExpanded, setActionOptionsExpanded] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<IncidentsWorkspaceView>("incidents");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -865,6 +866,13 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
       return true;
     }).sort((left, right) => compareIncidents(left, right, sort));
   }, [incidentsMatchingActionContext, nextActionFilter, sort]);
+  const sortDescription: Record<IncidentSort, string> = {
+    incident_asc: "Siniestro más antiguo primero",
+    incident_desc: "Siniestro más reciente primero",
+    action_asc: "Próxima acción primero",
+    updated_desc: "Última actualización primero",
+    unit_asc: "Por unidad"
+  };
   const hasActiveFilters = Boolean(search.trim() || filter !== "pending" || actionTimingFilter !== "all"
     || nextActionFilter !== "all" || insurerFilter !== "all" || courtFilter !== "all" || dateFrom || dateTo || sort !== "incident_asc");
   const activeFilterCount = [
@@ -877,6 +885,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     Boolean(dateFrom || dateTo),
     sort !== "incident_asc"
   ].filter(Boolean).length;
+  const secondaryActionFilterCount = [insurerFilter !== "all", courtFilter !== "all", sort !== "incident_asc"].filter(Boolean).length;
   const unresolvedDestinations = useMemo(() => incidents
     .filter((incident) => Boolean(incident.pendingDestination))
     .sort((left, right) => {
@@ -909,6 +918,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     setDateTo("");
     setSort("incident_asc");
     setFiltersExpanded(false);
+    setActionOptionsExpanded(false);
   }
 
   function selectAreaFilter(nextFilter: AreaFilter): void {
@@ -985,39 +995,50 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           </li>;
         })}</ol> : <p className="incident-trial-agenda-empty">No hay juicios próximos con fecha.</p>}
       </section>}
-      {!loading && !loadError && workspaceView === "incidents" && <section className="incident-action-strip" aria-label="Resumen de acciones por fecha">
+      {!loading && !loadError && workspaceView === "incidents" && <section className="incident-action-strip" aria-label="Filtrar y ordenar acciones">
         <span className="incident-action-strip-title">Acciones</span>
-        <label className="incident-next-action-filter"><span className="unified-incidents-filter-label-with-count">Próx. acción <b>{nextActionTotal}</b></span>
-          <select value={nextActionFilter} onChange={(event) => setNextActionFilter(event.target.value)}>
-            <option value="all">Todas pendientes ({nextActionTotal})</option>
-            {nextActionFilter !== "all" && !nextActionOptions.some((option) => option.value === nextActionFilter) && <option value={nextActionFilter}>{incidents.find((incident) => incident.action.key === nextActionFilter)?.action.groupLabel ?? "Acción seleccionada"} (0)</option>}
-            {nextActionOptions.map((option) => <option key={option.value} value={option.value}>{option.label} ({option.count})</option>)}
-          </select>
-        </label>
-        {canViewInsurance && <label className="incident-next-action-filter incident-party-filter">Aseguradora
-          <select value={insurerFilter} onChange={(event) => setInsurerFilter(event.target.value)}>
-            <option value="all">Todas</option>
-            {insurers.map((insurer) => <option key={insurer} value={insurer}>{insurer}</option>)}
-          </select>
-        </label>}
-        {canViewJudicial && <label className="incident-next-action-filter incident-party-filter">Juzgado
-          <select value={courtFilter} onChange={(event) => setCourtFilter(event.target.value)}>
-            <option value="all">Todos</option>
-            {courts.map((court) => <option key={court} value={court}>{court}</option>)}
-          </select>
-        </label>}
-        <label className="incident-next-action-filter incident-party-filter">Ordenar por
-          <select value={sort} onChange={(event) => setSort(event.target.value as IncidentSort)}>
-            <option value="incident_asc">Siniestro más antiguo</option>
-            <option value="incident_desc">Siniestro más reciente</option>
-            <option value="action_asc">Próxima acción</option>
-            <option value="updated_desc">Última actualización</option>
-            <option value="unit_asc">Unidad</option>
-          </select>
-        </label>
-        <button type="button" className={`overdue${actionTimingFilter === "overdue" ? " active" : ""}`} onClick={() => toggleActionTiming("overdue")}><strong>{actionTimingCounts.overdue}</strong><span>Vencidos</span></button>
-        <button type="button" className={`today${actionTimingFilter === "today" ? " active" : ""}`} onClick={() => toggleActionTiming("today")}><strong>{actionTimingCounts.today}</strong><span>Para hoy</span></button>
-        <button type="button" className={`upcoming${actionTimingFilter === "upcoming" ? " active" : ""}`} onClick={() => toggleActionTiming("upcoming")}><strong>{actionTimingCounts.upcoming}</strong><span>Próximos</span></button>
+        <div className="incident-action-controls">
+          <label className="incident-next-action-filter"><span className="unified-incidents-filter-label-with-count">Próx. acción <b>{nextActionTotal}</b></span>
+            <select value={nextActionFilter} onChange={(event) => setNextActionFilter(event.target.value)}>
+              <option value="all">Todas pendientes ({nextActionTotal})</option>
+              {nextActionFilter !== "all" && !nextActionOptions.some((option) => option.value === nextActionFilter) && <option value={nextActionFilter}>{incidents.find((incident) => incident.action.key === nextActionFilter)?.action.groupLabel ?? "Acción seleccionada"} (0)</option>}
+              {nextActionOptions.map((option) => <option key={option.value} value={option.value}>{option.label} ({option.count})</option>)}
+            </select>
+          </label>
+          <button type="button" className="incident-action-extra-toggle" aria-expanded={actionOptionsExpanded} aria-controls="incident-action-secondary-filters" onClick={() => setActionOptionsExpanded((current) => !current)}>
+            <span>{actionOptionsExpanded ? "Ocultar opciones" : canViewInsurance && canViewJudicial ? "Aseguradora, juzgado y orden" : canViewInsurance ? "Aseguradora y orden" : canViewJudicial ? "Juzgado y orden" : "Ordenar expedientes"}</span>
+            {secondaryActionFilterCount > 0 && <b>{secondaryActionFilterCount} {secondaryActionFilterCount === 1 ? "activo" : "activos"}</b>}
+            <span aria-hidden="true">{actionOptionsExpanded ? "−" : "+"}</span>
+          </button>
+          <div id="incident-action-secondary-filters" className={`incident-action-secondary-filters${actionOptionsExpanded ? " is-expanded" : ""}`}>
+            {canViewInsurance && <label className="incident-next-action-filter incident-party-filter">Aseguradora
+              <select value={insurerFilter} onChange={(event) => setInsurerFilter(event.target.value)}>
+                <option value="all">Todas</option>
+                {insurers.map((insurer) => <option key={insurer} value={insurer}>{insurer}</option>)}
+              </select>
+            </label>}
+            {canViewJudicial && <label className="incident-next-action-filter incident-party-filter">Juzgado
+              <select value={courtFilter} onChange={(event) => setCourtFilter(event.target.value)}>
+                <option value="all">Todos</option>
+                {courts.map((court) => <option key={court} value={court}>{court}</option>)}
+              </select>
+            </label>}
+            <label className="incident-next-action-filter incident-party-filter">Ordenar por
+              <select value={sort} onChange={(event) => setSort(event.target.value as IncidentSort)}>
+                <option value="incident_asc">Siniestro más antiguo</option>
+                <option value="incident_desc">Siniestro más reciente</option>
+                <option value="action_asc">Próxima acción</option>
+                <option value="updated_desc">Última actualización</option>
+                <option value="unit_asc">Unidad</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div className="incident-action-timing" role="group" aria-label="Vencimiento de acciones">
+          <button type="button" className={`overdue${actionTimingFilter === "overdue" ? " active" : ""}`} aria-pressed={actionTimingFilter === "overdue"} onClick={() => toggleActionTiming("overdue")}><strong>{actionTimingCounts.overdue}</strong><span>Vencidos</span></button>
+          <button type="button" className={`today${actionTimingFilter === "today" ? " active" : ""}`} aria-pressed={actionTimingFilter === "today"} onClick={() => toggleActionTiming("today")}><strong>{actionTimingCounts.today}</strong><span>Para hoy</span></button>
+          <button type="button" className={`upcoming${actionTimingFilter === "upcoming" ? " active" : ""}`} aria-pressed={actionTimingFilter === "upcoming"} onClick={() => toggleActionTiming("upcoming")}><strong>{actionTimingCounts.upcoming}</strong><span>Próximos</span></button>
+        </div>
       </section>}
       {workspaceView === "incidents" && <div className="unified-incidents-toolbar" role="region" aria-label="Filtros fijos de expedientes y alertas">
         <div className="unified-incidents-filter-head">
@@ -1037,11 +1058,11 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
             </button>
           </div>
         </div>
-        <div className="incident-area-quick-filters" aria-label="Filtros rápidos por área">
-          <button type="button" className={filter === "pending" ? "active" : ""} onClick={() => selectAreaFilter("pending")}>Pendientes <b>{filterCounts.pending}</b></button>
-          {canViewJudicial && <button type="button" className={filter === "judicial" ? "active" : ""} onClick={() => selectAreaFilter("judicial")}>Judicial <b>{filterCounts.judicial}</b></button>}
-          {canViewInsurance && <button type="button" className={filter === "insurance" ? "active" : ""} onClick={() => selectAreaFilter("insurance")}>Seguro <b>{filterCounts.insurance}</b></button>}
-          <button type="button" className={filter === "finalized" ? "active" : ""} onClick={() => selectAreaFilter("finalized")}>Finalizados <b>{filterCounts.finalized}</b></button>
+        <div className="incident-area-quick-filters" role="group" aria-label="Filtros rápidos por área">
+          <button type="button" className={filter === "pending" ? "active" : ""} aria-pressed={filter === "pending"} onClick={() => selectAreaFilter("pending")}>Pendientes <b>{filterCounts.pending}</b></button>
+          {canViewJudicial && <button type="button" className={filter === "judicial" ? "active" : ""} aria-pressed={filter === "judicial"} onClick={() => selectAreaFilter("judicial")}>Judicial <b>{filterCounts.judicial}</b></button>}
+          {canViewInsurance && <button type="button" className={filter === "insurance" ? "active" : ""} aria-pressed={filter === "insurance"} onClick={() => selectAreaFilter("insurance")}>Seguro <b>{filterCounts.insurance}</b></button>}
+          <button type="button" className={filter === "finalized" ? "active" : ""} aria-pressed={filter === "finalized"} onClick={() => selectAreaFilter("finalized")}>Finalizados <b>{filterCounts.finalized}</b></button>
         </div>
         <div id="unified-incidents-filter-groups" className={`unified-incidents-filter-groups${filtersExpanded ? " is-expanded" : ""}`}>
           <section className="unified-incidents-filter-section" aria-labelledby="incident-detail-filter-title">
@@ -1060,8 +1081,9 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
         </div>
       </div>}
       {workspaceView === "incidents" && <div className="workflow-claims-list unified-incidents-list">
+        {!loading && incidents.length > 0 && <p className="unified-incidents-results" role="status" aria-live="polite">{filteredIncidents.length === incidents.length ? `${incidents.length} expedientes` : `Mostrando ${filteredIncidents.length} de ${incidents.length} expedientes`} <span>· {sortDescription[sort]}</span></p>}
         {!loading && !incidents.length && <p className="hint">Todavía no hay expedientes de siniestros.</p>}
-        {!loading && incidents.length > 0 && !filteredIncidents.length && <p className="hint workflow-empty-filter">No hay expedientes que coincidan con los filtros.</p>}
+        {!loading && incidents.length > 0 && !filteredIncidents.length && <div className="workflow-empty-filter unified-incidents-empty"><p>{hasActiveFilters ? "No hay expedientes que coincidan con los filtros." : "No hay expedientes pendientes."}</p>{hasActiveFilters && <button type="button" className="button ghost" onClick={clearFilters}>Limpiar filtros</button>}</div>}
         {filteredIncidents.map((incident) => {
           const expanded = expandedId === incident.id;
           const resolutionPending = incident.collision?.status === "ABSUELTO" && !incident.collision.judicialResolutionEvidence;

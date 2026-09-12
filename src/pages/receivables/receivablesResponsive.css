@@ -1,0 +1,169 @@
+.ar-ledger-panel button:focus-visible {
+  outline: 3px solid #0f766e;
+  outline-offset: 2px;
+}
+
+@media (max-width: 1120px) {
+  .ar-ledger-panel .ar-card-actions--compact {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-ledger-panel .ar-unit-stack {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .ar-ledger-panel .ar-unit-quick-actions {
+    max-width: 420px;
+  }
+
+  .ar-ledger-scroll .ar-table--compact,
+  .ar-ledger-scroll .ar-table--compact tbody,
+  .ar-ledger-scroll .ar-card-row,
+  .ar-ledger-scroll .ar-card-cell {
+    display: block;
+    width: 100%;
+  }
+
+  .ar-ledger-scroll .ar-table--compact {
+    min-width: 0;
+    table-layout: auto;
+  }
+
+  .ar-ledger-scroll .ar-table--compact tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .ar-ledger-scroll .ar-card-cell {
+    box-sizing: border-box;
+    max-width: 100%;
+    padding: 0;
+  }
+}
+
+@media (min-width: 721px) and (max-width: 1024px) {
+  .ar-ledger-panel .ar-mobile-filter-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    margin: 8px 16px;
+    border: 1px solid #bfd7ea;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #334155;
+    font-size: 0.9rem;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .ar-ledger-panel .ar-mobile-filter-toggle.is-open {
+    border-color: #99d8d0;
+    background: #f0fdfa;
+    color: #0f766e;
+  }
+
+  .ar-ledger-panel .ar-filters-panel:not(.is-mobile-open) {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .ar-ledger-panel .ar-route-publish-cta {
+    grid-template-columns: minmax(0, 1fr) 96px;
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .ar-ledger-panel .ar-route-publish-copy {
+    grid-column: 1 / -1;
+  }
+
+  .ar-ledger-panel .ar-route-publish-button.button,
+  .ar-ledger-panel .ar-route-export-format--prominent,
+  .ar-ledger-panel .ar-workflow-tabs button,
+  .ar-ledger-panel .ar-mobile-filter-toggle,
+  .ar-ledger-panel .ar-toolbar-filter-select,
+  .ar-ledger-panel .ar-state-chip,
+  .ar-ledger-panel .ar-clear-filters-button,
+  .ar-ledger-panel .ar-filter-field input,
+  .ar-ledger-panel .ar-filter-field select {
+    min-height: 44px;
+  }
+
+  .ar-ledger-panel .ar-ledger-toolbar-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ar-ledger-panel .ar-management-alert,
+  .ar-ledger-panel .ar-whatsapp-alert,
+  .ar-ledger-panel .ar-contact-time-sort,
+  .ar-ledger-panel .ar-results-count {
+    min-width: 0;
+    min-height: 44px;
+  }
+
+  .ar-ledger-panel .ar-card-actions--compact {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-ledger-panel .ar-unit-quick-actions .ar-whatsapp-image-button {
+    min-height: 44px;
+    font-size: 0.78rem;
+  }
+
+  .ar-ledger-panel .ar-unit-client-name {
+    font-size: 0.86rem;
+    overflow-wrap: anywhere;
+  }
+
+  .ar-ledger-panel .ar-card-key-grid small,
+  .ar-ledger-panel .ar-plan-chip-rent,
+  .ar-ledger-panel .ar-overdue-chip-installments {
+    font-size: 0.75rem;
+    line-height: 1.3;
+  }
+
+  .ar-ledger-panel .ar-cut-select,
+  .ar-ledger-panel .ar-route-release-input,
+  .ar-ledger-panel .ar-contact-time-input,
+  .ar-ledger-panel .ar-route-mobile-controls select,
+  .ar-ledger-panel .ar-route-mobile-controls input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .ar-ledger-panel .ar-support-note-inline {
+    font-size: 16px;
+  }
+
+  .ar-ledger-panel .ar-filter-field input,
+  .ar-ledger-panel .ar-filter-field select,
+  .ar-ledger-panel .ar-toolbar-filter-select,
+  .ar-ledger-panel .ar-route-export-format--prominent {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 420px) {
+  .ar-ledger-panel .ar-card-key-grid,
+  .ar-ledger-panel .ar-card-key-grid--route {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 360px) {
+  .ar-ledger-panel .ar-unit-quick-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    max-width: none;
+  }
+
+  .ar-ledger-panel .ar-unit-quick-actions > button {
+    width: 100%;
+    min-height: 44px;
+  }
+}
