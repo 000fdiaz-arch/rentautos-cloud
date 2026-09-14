@@ -3,7 +3,7 @@ import RoutePendingCashPanel from "./RoutePendingCashPanel";
 import RouteCollectionCard, { type RouteWorkflowView } from "./RouteCollectionCard";
 import RouteTeamSummary from "./RouteTeamSummary";
 import { PaymentPreviewDialog } from "./payments/PaymentDialogs";
-import { changeRouteAssignment, cancelRoutePaymentReport, loadRoutePaymentReports, loadRouteReportReceipts, reportRoutePayment, setRouteCustody, setRouteInactiveStatus, type RoutePaymentReport } from "../cloud/routeReportCloudData";
+import { applyRouteReportDelta, changeRouteAssignment, cancelRoutePaymentReport, loadNextPendingCashRouteReport, loadRoutePaymentReport, loadRoutePaymentReportForItem, loadRoutePaymentReports, loadRouteReportReceipts, reportRoutePayment, routeReportDeltaFromPayload, setRouteCustody, setRouteInactiveStatus, type RoutePaymentReport, type RouteReportDelta } from "../cloud/routeReportCloudData";
 import {
   ALL_ACTIVE_ROUTE_FILTER,
   EMPTY_ACTIVE_ROUTE_FILTER,
@@ -16,11 +16,15 @@ import { getBusinessDateKey } from "../billing";
 import { buildCloudErrorMessage } from "../app/appShellRules";
 import {
   loadCloudActiveRouteItems,
+  loadCloudActiveRouteItem,
+  activeRouteDeltaFromPayload,
+  applyActiveRouteDelta,
   keepCloudActiveRouteItemAfterPartialPayment,
   removeCloudActiveRouteItemFromSearch,
   saveCloudActiveRouteComment,
   saveCloudActiveRouteZone,
-  type ActiveRouteItem
+  type ActiveRouteItem,
+  type ActiveRouteDelta
 } from "../cloudData";
 import { formatCurrency, formatDate } from "../format";
 import { supabase } from "../lib/supabase";
@@ -136,6 +140,12 @@ export default function RouteSearchPage({
   const [confirmedPeriod, setConfirmedPeriod] = useState<"today" | "previous">("today");
   const [items, setItems] = useState<ActiveRouteItem[]>([]);
   const [reports, setReports] = useState<RoutePaymentReport[]>([]);
+  const itemLoadIdRef = useRef(0);
+  const itemLoadingRef = useRef(false);
+  const pendingItemDeltasRef = useRef<ActiveRouteDelta[]>([]);
+  const reportLoadIdRef = useRef(0);
+  const reportLoadingRef = useRef(false);
+  const pendingReportDeltasRef = useRef<RouteReportDelta[]>([]);
   const [workflowView, setWorkflowView] = useState<RouteWorkflowView>("work");
   const [reviewMethod, setReviewMethod] = useState<"cash" | "bank" | "mixed">("cash");
   const [custodyTarget, setCustodyTarget] = useState<ActiveRouteItem | null>(null);
@@ -157,14 +167,30 @@ export default function RouteSearchPage({
   const [reportsReady, setReportsReady] = useState(false);
 
   async function reloadReports(): Promise<void> {
-    if (!dataOwnerUserId) return;
+    const loadId = ++reportLoadIdRef.current;
+    pendingReportDeltasRef.current = [];
+    if (!dataOwnerUserId) {
+      reportLoadingRef.current = false;
+      setReports([]);
+      setReportsReady(false);
+      return;
+    }
+    reportLoadingRef.current = true;
     try {
-      setReports(await loadRoutePaymentReports(dataOwnerUserId));
+      const loaded = await loadRoutePaymentReports(dataOwnerUserId);
+      if (loadId !== reportLoadIdRef.current) return;
+      setReports(pendingReportDeltasRef.current.reduce(applyRouteReportDelta, loaded));
       setReportsError("");
       setReportsReady(true);
     } catch (cause) {
+      if (loadId !== reportLoadIdRef.current) return;
       setReportsReady(false);
       setReportsError(buildCloudErrorMessage("No se pudieron cargar los reportes de pago.", cause));
+    } finally {
+      if (loadId === reportLoadIdRef.current) {
+        reportLoadingRef.current = false;
+        pendingReportDeltasRef.current = [];
+      }
     }
   }
 
@@ -184,8 +210,13 @@ export default function RouteSearchPage({
     try {
       await reportRoutePayment(dataOwnerUserId, reportTarget, cashAmount, bankAmount);
       setRouteActionMessage(`${reportTarget.unitId} pasó a En revisión.`);
+      try {
+        const latestReport = await loadRoutePaymentReportForItem(dataOwnerUserId, reportTarget.clientId, reportTarget.publishedAt);
+        if (latestReport) setReports((current) => applyRouteReportDelta(current, { id: latestReport.id, report: latestReport }));
+      } catch (refreshError) {
+        console.warn("El reporte se guardó, pero no se pudo actualizar su vista.", refreshError);
+      }
       setReportTarget(null);
-      await reloadReports();
     } catch (cause) {
       setReportError(buildCloudErrorMessage("No se pudo reportar el pago.", cause, { includeRawFallback: true }));
     } finally { setReportSaving(false); }
@@ -197,7 +228,7 @@ export default function RouteSearchPage({
     try {
       await cancelRoutePaymentReport(report.id);
       setRouteActionMessage(`Reporte de ${report.snapshot.unitId} devuelto. La unidad aparecerá en Trabajo si sigue activa.`);
-      await reloadReports();
+      setReports((current) => applyRouteReportDelta(current, { id: report.id, report: null }));
     } catch (cause) {
       setReportsError(buildCloudErrorMessage("No se pudo devolver el reporte.", cause, { includeRawFallback: true }));
     } finally { setReportSaving(false); }
@@ -290,23 +321,34 @@ export default function RouteSearchPage({
   }
 
   async function reload(): Promise<void> {
+    const loadId = ++itemLoadIdRef.current;
+    pendingItemDeltasRef.current = [];
     if (!dataOwnerUserId) {
+      itemLoadingRef.current = false;
       setItems([]);
       setLoading(false);
       setError("No hay dataset asignado para consultar la ruta.");
       return;
     }
+    itemLoadingRef.current = true;
     setLoading(true);
     setError("");
     try {
-      const nextItems = await loadCloudActiveRouteItems(dataOwnerUserId);
+      const loadedItems = await loadCloudActiveRouteItems(dataOwnerUserId);
+      if (loadId !== itemLoadIdRef.current) return;
+      const nextItems = pendingItemDeltasRef.current.reduce(applyActiveRouteDelta, loadedItems);
       setItems(nextItems);
       setLastRefreshAt(new Date().toLocaleTimeString("es-PA", { hour: "numeric", minute: "2-digit" }));
     } catch (loadError) {
+      if (loadId !== itemLoadIdRef.current) return;
       console.error("No se pudo cargar la vista buscador.", loadError);
       setError("No se pudo cargar Cobro en Ruta.");
     } finally {
-      setLoading(false);
+      if (loadId === itemLoadIdRef.current) {
+        itemLoadingRef.current = false;
+        pendingItemDeltasRef.current = [];
+        setLoading(false);
+      }
     }
   }
 
@@ -349,18 +391,39 @@ export default function RouteSearchPage({
   useEffect(() => {
     if (!dataOwnerUserId || !supabase) return;
     const client = supabase;
+    let subscribed = false;
     const channel = client
       .channel(`route-search-${dataOwnerUserId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "route_payment_reports", filter: `user_id=eq.${dataOwnerUserId}` }, () => {
-        void reloadReports();
+      .on("postgres_changes", { event: "*", schema: "public", table: "route_payment_reports", filter: `user_id=eq.${dataOwnerUserId}` }, (payload) => {
+        const delta = routeReportDeltaFromPayload(payload);
+        if (!delta) {
+          void reloadReports();
+          return;
+        }
+        if (reportLoadingRef.current) pendingReportDeltasRef.current.push(delta);
+        setReports((current) => applyRouteReportDelta(current, delta));
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "active_route_items_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, () => {
-        void reload();
+      .on("postgres_changes", { event: "*", schema: "public", table: "active_route_items_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, (payload) => {
+        const delta = activeRouteDeltaFromPayload(payload);
+        if (!delta) {
+          void reload();
+          return;
+        }
+        if (itemLoadingRef.current) pendingItemDeltasRef.current.push(delta);
+        setItems((current) => applyActiveRouteDelta(current, delta));
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "notified_payments_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, () => {
         void reloadBankNotices();
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status !== "SUBSCRIBED") return;
+        if (subscribed) {
+          void reload();
+          void reloadReports();
+          void reloadBankNotices();
+        }
+        subscribed = true;
+      });
     return () => {
       void client.removeChannel(channel);
     };
@@ -394,6 +457,12 @@ export default function RouteSearchPage({
   function openWorkflow(view: RouteWorkflowView): void {
     setWorkflowView(view); setConfirmedPeriod("today"); setCompletedCash(null); setRouteActionMessage(""); setRouteUndo(null);
     if (view === "review") setReviewMethod(pendingCashCount > 0 ? "cash" : reviewCounts.bank > 0 ? "bank" : reviewCounts.mixed > 0 ? "mixed" : "cash");
+  }
+
+  async function refreshItem(clientId: string): Promise<void> {
+    if (!dataOwnerUserId) return;
+    const item = await loadCloudActiveRouteItem(dataOwnerUserId, clientId);
+    setItems((current) => applyActiveRouteDelta(current, { clientId, item }));
   }
 
   const bankNoticesByClient = useMemo(() => {
@@ -563,7 +632,7 @@ export default function RouteSearchPage({
         currentItem.clientId === item.clientId ? { ...currentItem, zone: previousZone } : currentItem
       )));
       setZoneError("No se pudo guardar la zona. Se restauro el valor anterior.");
-      void reload();
+      void refreshItem(item.clientId).catch((refreshError) => console.warn("No se pudo actualizar la unidad.", refreshError));
     } finally {
       setZoneSavingByClient((current) => ({ ...current, [item.clientId]: false }));
     }
@@ -598,7 +667,7 @@ export default function RouteSearchPage({
         currentItem.clientId === item.clientId ? { ...currentItem, comment: previousComment } : currentItem
       )));
       setCommentError("No se pudo guardar el comentario. Se restauro el valor anterior.");
-      void reload();
+      void refreshItem(item.clientId).catch((refreshError) => console.warn("No se pudo actualizar la unidad.", refreshError));
     } finally {
       setCommentSavingByClient((current) => ({ ...current, [item.clientId]: false }));
     }
@@ -680,9 +749,8 @@ export default function RouteSearchPage({
     try {
       if (paymentReport) {
         if (!dataOwnerUserId || registeredReportIds.includes(paymentReport.id)) throw new Error("Este reporte ya fue registrado. Actualiza la ruta.");
-        const latestReports = await loadRoutePaymentReports(dataOwnerUserId);
-        setReports(latestReports);
-        const latest = latestReports.find((report) => report.id === paymentReport.id);
+        const latest = await loadRoutePaymentReport(dataOwnerUserId, paymentReport.id);
+        if (latest) setReports((current) => applyRouteReportDelta(current, { id: latest.id, report: latest }));
         if (!latest || latest.status !== "review" || latest.method !== "cash" || latest.confirmed_cash_amount > 0
           || latest.amount !== amount || paymentMethod !== "cash") {
           throw new Error("El reporte cambió o ya fue confirmado. Cierra esta ventana y actualiza la ruta.");
@@ -704,7 +772,14 @@ export default function RouteSearchPage({
         if (paymentReport) setRegisteredReportIds((current) => [...current, paymentReport.id]);
       }
       setPaymentTarget(null);
-      if (paymentReport) await reloadReports();
+      if (paymentReport && dataOwnerUserId) {
+        try {
+          const latest = await loadRoutePaymentReport(dataOwnerUserId, paymentReport.id);
+          setReports((current) => applyRouteReportDelta(current, { id: paymentReport.id, report: latest }));
+        } catch (refreshError) {
+          console.warn("El pago se registró, pero no se pudo actualizar el reporte.", refreshError);
+        }
+      }
     } catch (saveError) {
       console.error("No se pudo registrar el pago desde Ruta en calle.", saveError);
       setPaymentError(buildCloudErrorMessage("No se pudo registrar el pago.", saveError, { includeRawFallback: true }));
@@ -720,8 +795,11 @@ export default function RouteSearchPage({
     try {
       await setRouteCustody(dataOwnerUserId, custodyTarget, !custodyTarget.inCustody);
       setRouteActionMessage(custodyTarget.inCustody ? `${custodyTarget.unitId} salió de custodia. Aparecerá en Trabajo si tiene cobros pendientes y no está en revisión.` : `${custodyTarget.unitId} pasó a Vehículo en custodia.`);
+      const clientId = custodyTarget.clientId;
+      const inCustody = !custodyTarget.inCustody;
+      setItems((current) => current.map((item) => item.clientId === clientId ? { ...item, inCustody } : item));
+      void refreshItem(clientId).catch((refreshError) => console.warn("La custodia cambió, pero no se pudo actualizar la unidad.", refreshError));
       setCustodyTarget(null);
-      await reload();
     } catch (cause) { setCustodyError(buildCloudErrorMessage("No se pudo cambiar la custodia.", cause, { includeRawFallback: true })); }
     finally { setCustodySaving(false); }
   }
@@ -743,9 +821,8 @@ export default function RouteSearchPage({
     if (!dataOwnerUserId || receiptLoading || paymentSaving) return;
     setReceiptLoading("next"); setReceiptError("");
     try {
-      const latest = await loadRoutePaymentReports(dataOwnerUserId);
-      setReports(latest);
-      const next = latest.find(report => isPendingCashRouteReport(report) && !registeredReportIds.includes(report.id));
+      const next = await loadNextPendingCashRouteReport(dataOwnerUserId, registeredReportIds);
+      if (next) setReports((current) => applyRouteReportDelta(current, { id: next.id, report: next }));
       openWorkflow("review"); setReviewMethod("cash");
       if (next) openPaymentDialog(next.snapshot, next);
       else setRouteActionMessage("No quedan pagos en efectivo pendientes de recibo.");

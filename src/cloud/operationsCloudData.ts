@@ -1834,6 +1834,46 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
   };
 }
 
+type ActiveRouteCloudRow = {
+  client_id?: unknown;
+  data?: unknown;
+  in_custody?: unknown;
+  custody_since?: unknown;
+  custody_changed_at?: unknown;
+};
+
+function activeRouteItemFromCloudRow(row: ActiveRouteCloudRow): ActiveRouteItem | null {
+  const data = row.data && typeof row.data === "object" && !Array.isArray(row.data) ? row.data : {};
+  return normalizeActiveRouteItem({
+    ...data,
+    clientId: typeof row.client_id === "string" ? row.client_id : undefined,
+    inCustody: row.in_custody === true,
+    custodySince: row.custody_since,
+    custodyChangedAt: row.custody_changed_at
+  });
+}
+
+export type ActiveRouteDelta = { clientId: string; item: ActiveRouteItem | null };
+
+export function activeRouteDeltaFromPayload(payload: unknown): ActiveRouteDelta | null {
+  if (!payload || typeof payload !== "object") return null;
+  const event = payload as { eventType?: unknown; new?: unknown; old?: unknown };
+  const row = (event.eventType === "DELETE" ? event.old : event.new) as ActiveRouteCloudRow | null;
+  const clientId = typeof row?.client_id === "string" ? row.client_id : "";
+  if (!clientId) return null;
+  if (event.eventType === "DELETE") return { clientId, item: null };
+  if (event.eventType !== "INSERT" && event.eventType !== "UPDATE") return null;
+  const item = activeRouteItemFromCloudRow(row ?? {});
+  return item ? { clientId, item } : null;
+}
+
+export function applyActiveRouteDelta(items: ActiveRouteItem[], delta: ActiveRouteDelta): ActiveRouteItem[] {
+  const index = items.findIndex((item) => item.clientId === delta.clientId);
+  if (!delta.item) return index < 0 ? items : items.filter((item) => item.clientId !== delta.clientId);
+  if (index < 0) return [...items, delta.item];
+  return items.map((item, itemIndex) => itemIndex === index ? delta.item! : item);
+}
+
 export async function loadCloudActiveRouteItems(userId: string): Promise<ActiveRouteItem[]> {
   const client = getCloudClient();
   const { data, error } = await client
@@ -1841,9 +1881,20 @@ export async function loadCloudActiveRouteItems(userId: string): Promise<ActiveR
     .select("client_id,data,in_custody,custody_since,custody_changed_at")
     .eq("user_id", userId);
   if (error) throw error;
-  return ((data ?? []) as Array<{ client_id?: unknown; data?: unknown; in_custody?: boolean; custody_since?: string; custody_changed_at?: string }>)
-    .map((row) => normalizeActiveRouteItem({ ...(row.data && typeof row.data === "object" ? row.data : {}), inCustody: row.in_custody === true, custodySince: row.custody_since, custodyChangedAt: row.custody_changed_at }))
+  return ((data ?? []) as ActiveRouteCloudRow[])
+    .map(activeRouteItemFromCloudRow)
     .filter((item): item is ActiveRouteItem => item !== null);
+}
+
+export async function loadCloudActiveRouteItem(userId: string, clientId: string): Promise<ActiveRouteItem | null> {
+  const { data, error } = await getCloudClient()
+    .from("active_route_items_cloud")
+    .select("client_id,data,in_custody,custody_since,custody_changed_at")
+    .eq("user_id", userId)
+    .eq("client_id", clientId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? activeRouteItemFromCloudRow(data) : null;
 }
 
 export async function publishCloudActiveRouteItems(userId: string, items: ActiveRouteItem[]): Promise<void> {

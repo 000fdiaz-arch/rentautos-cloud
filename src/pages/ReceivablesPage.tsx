@@ -14,6 +14,8 @@ import {
 import { exportReceivablesToExcel, exportReceivablesToPdf } from "../exporters";
 import { formatCurrency, formatDate } from "../format";
 import {
+  activeRouteDeltaFromPayload,
+  applyActiveRouteDelta,
   loadCloudCollectionClosures,
   loadCloudLatestPaymentsForReceivableTargets,
   loadCloudActiveRouteItems,
@@ -27,6 +29,7 @@ import {
   saveCloudStreetManagement,
   syncCloudStreetManagementDelta,
   type ActiveRouteItem,
+  type ActiveRouteDelta,
   type CollisionCaseRecord,
   type ControlUnitRow,
   type InsuranceClaimRecord
@@ -451,6 +454,9 @@ export default function ReceivablesPage({
   const streetManagementLoadedRef = useRef<boolean>(false);
   const optimisticStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
   const activeRouteItemsRef = useRef<ActiveRouteItem[]>([]);
+  const activeRouteLoadingRef = useRef(false);
+  const activeRouteLoadIdRef = useRef(0);
+  const activeRoutePendingDeltasRef = useRef<ActiveRouteDelta[]>([]);
   const saveTokenByClientRef = useRef<Record<string, number>>({});
   const latestCollectionStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
   const streetManagementDataRef = useRef<Record<string, unknown>>(streetManagementData ?? {});
@@ -574,17 +580,23 @@ export default function ReceivablesPage({
   }, [applyStreetManagementData, dataOwnerUserId]);
 
   const loadActiveRouteFromCloud = useCallback(async (): Promise<void> => {
+    const loadId = ++activeRouteLoadIdRef.current;
+    activeRoutePendingDeltasRef.current = [];
     if (!dataOwnerUserId) {
+      activeRouteLoadingRef.current = false;
       setActiveRouteItems([]);
       activeRouteItemsRef.current = [];
       setActiveRouteLoading(false);
       setActiveRouteError("");
       return;
     }
+    activeRouteLoadingRef.current = true;
     setActiveRouteLoading(true);
     setActiveRouteError("");
     try {
-      const rows = await loadCloudActiveRouteItems(dataOwnerUserId);
+      const loadedRows = await loadCloudActiveRouteItems(dataOwnerUserId);
+      if (loadId !== activeRouteLoadIdRef.current) return;
+      const rows = activeRoutePendingDeltasRef.current.reduce(applyActiveRouteDelta, loadedRows);
       setActiveRouteItems(rows);
       activeRouteItemsRef.current = rows;
       setPublishedRouteAmountDraftByClient((current) => {
@@ -604,10 +616,15 @@ export default function ReceivablesPage({
         return next;
       });
     } catch (error) {
+      if (loadId !== activeRouteLoadIdRef.current) return;
       console.error("No se pudo cargar la ruta en calle.", error);
       setActiveRouteError("No se pudo cargar la Ruta en calle.");
     } finally {
-      setActiveRouteLoading(false);
+      if (loadId === activeRouteLoadIdRef.current) {
+        activeRoutePendingDeltasRef.current = [];
+        activeRouteLoadingRef.current = false;
+        setActiveRouteLoading(false);
+      }
     }
   }, [dataOwnerUserId]);
 
@@ -618,19 +635,6 @@ export default function ReceivablesPage({
   useEffect(() => {
     void loadActiveRouteFromCloud();
   }, [loadActiveRouteFromCloud]);
-
-  useEffect(() => {
-    if (!dataOwnerUserId) return;
-    function refreshWhenVisible(): void {
-      if (document.visibilityState === "visible") void loadStreetManagementFromCloud();
-    }
-    window.addEventListener("focus", refreshWhenVisible);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    return () => {
-      window.removeEventListener("focus", refreshWhenVisible);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
-  }, [dataOwnerUserId, loadStreetManagementFromCloud]);
 
   useEffect(() => {
     if (!dataOwnerUserId) {
@@ -762,26 +766,43 @@ export default function ReceivablesPage({
   useEffect(() => {
     if (!dataOwnerUserId || !supabase) return;
     const client = supabase;
+    let subscribed = false;
     const channel = client
       .channel(`street-management-items-live-${dataOwnerUserId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "street_management_items_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, (payload) => {
         applyStreetManagementItemPayload(payload);
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status !== "SUBSCRIBED") return;
+        if (subscribed) void loadStreetManagementFromCloud();
+        subscribed = true;
+      });
     return () => {
       void client.removeChannel(channel);
     };
-  }, [applyStreetManagementItemPayload, dataOwnerUserId]);
+  }, [applyStreetManagementItemPayload, dataOwnerUserId, loadStreetManagementFromCloud]);
 
   useEffect(() => {
     if (!dataOwnerUserId || !supabase) return;
     const client = supabase;
+    let subscribed = false;
     const channel = client
       .channel(`active-route-items-live-${dataOwnerUserId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "active_route_items_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, () => {
-        void loadActiveRouteFromCloud();
+      .on("postgres_changes", { event: "*", schema: "public", table: "active_route_items_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, (payload) => {
+        const delta = activeRouteDeltaFromPayload(payload);
+        if (!delta) {
+          void loadActiveRouteFromCloud();
+          return;
+        }
+        if (activeRouteLoadingRef.current) activeRoutePendingDeltasRef.current.push(delta);
+        activeRouteItemsRef.current = applyActiveRouteDelta(activeRouteItemsRef.current, delta);
+        setActiveRouteItems(activeRouteItemsRef.current);
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status !== "SUBSCRIBED") return;
+        if (subscribed) void loadActiveRouteFromCloud();
+        subscribed = true;
+      });
     return () => {
       void client.removeChannel(channel);
     };
