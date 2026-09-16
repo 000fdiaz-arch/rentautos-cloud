@@ -111,19 +111,19 @@ async function run() {
     assert.equal(sameDay.writes, 0);
     assert.equal(sameDay.confirmations, 0);
     const skippedToday = await attempt("2026-09-02", [client]);
-    assert.match(skippedToday.confirmMessage, /Primero se repararan 1 cargo\(s\) pendiente\(s\) de 2026-09-02/);
+    assert.doesNotMatch(skippedToday.confirmMessage, /repar/i, "El cierre no debe ofrecer reparar cargos del mismo día.");
     assert.match(skippedToday.confirmMessage, /cargos automaticos para 2026-09-03/);
     assert.equal(skippedToday.writes, 0);
     assert.equal(skippedToday.confirmations, 1);
     const normal = await attempt("2026-09-02", [{ ...client, lastChargeDate: "2026-09-02" }]);
     assert.equal(normal.confirmations, 1, "Un cierre válido debe llegar a la confirmación normal.");
     assert.equal(normal.writes, 0, "Cancelar la confirmación no guarda cambios.");
-    const repairedAndClosed = await attempt("2026-09-02", [client], true);
-    assert.equal(repairedAndClosed.savedClients[0].lastChargeDate, "2026-09-03");
-    assert.equal(repairedAndClosed.savedClients[0].balance, 124, "Debe reparar el 2 y aplicar el cargo normal del 3.");
-    assert.equal(repairedAndClosed.savedClients[0].installmentsIssued, 12);
+    const closedWithoutRepair = await attempt("2026-09-02", [client], true);
+    assert.equal(closedWithoutRepair.savedClients[0].lastChargeDate, "2026-09-03");
+    assert.equal(closedWithoutRepair.savedClients[0].balance, 93, "Solo debe aplicar el cargo normal del día siguiente.");
+    assert.equal(closedWithoutRepair.savedClients[0].installmentsIssued, 11);
     assert.deepEqual(client, before);
   } finally { global.Date = RealDate; delete global.window; }
-  console.log("OK cierre: fechas futuras bloqueadas en horario de Panamá, sin saltar cargos pendientes ni modificar cuotas durante la validación.");
+  console.log("OK cierre: fechas futuras bloqueadas y reparación automática del mismo día desactivada.");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });
