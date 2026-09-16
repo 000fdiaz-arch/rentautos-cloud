@@ -9,7 +9,7 @@ export type ExportField = { key: ExportFieldKey; label: string; enabled: boolean
 export type CollectionStatusFilter = "all" | CollectionStatus;
 export type GroupFilter = "all" | string;
 export type ReceivablesViewMode = "cartera" | "historial";
-export type ReceivablesWorkflowTab = "management" | "route";
+export type ReceivablesWorkflowTab = "management" | "priority" | "route";
 export type CollectionCutKey = "morning" | "afternoon" | "night";
 
 export type CollectionClosureItem = {
@@ -313,6 +313,9 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   const contactTimeUpdatedAt = typeof row.contactTimeUpdatedAt === "string" ? row.contactTimeUpdatedAt : undefined;
   const paymentPromiseDate = typeof row.paymentPromiseDate === "string" ? row.paymentPromiseDate : undefined;
   const paymentPromiseUpdatedAt = typeof row.paymentPromiseUpdatedAt === "string" ? row.paymentPromiseUpdatedAt : undefined;
+  const rawPriorityDebtCap = typeof row.priorityDebtCap === "number" ? row.priorityDebtCap : Number(row.priorityDebtCap);
+  const priorityDebtCap = Number.isFinite(rawPriorityDebtCap) && rawPriorityDebtCap > 0 ? rawPriorityDebtCap : undefined;
+  const priorityDebtCapUpdatedAt = typeof row.priorityDebtCapUpdatedAt === "string" ? row.priorityDebtCapUpdatedAt : undefined;
   const legacyRouteStatus = status === "route" || status === "route_collection" || status === "route_not_sent";
   const hasLegacyRouteData = (
     managementType !== undefined &&
@@ -324,7 +327,7 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
     : isRouteTagged
       ? routeReleaseUpdatedAt ?? managementUpdatedAt ?? updatedAt
       : undefined;
-  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt, contactTime, contactTimeUpdatedAt, paymentPromiseDate, paymentPromiseUpdatedAt, routeReleaseAmount, routeReleaseUpdatedAt, routeAssignment, routeAssignmentUpdatedAt, routeUrgency, routeUrgencyUpdatedAt };
+  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt, contactTime, contactTimeUpdatedAt, paymentPromiseDate, paymentPromiseUpdatedAt, routeReleaseAmount, routeReleaseUpdatedAt, routeAssignment, routeAssignmentUpdatedAt, routeUrgency, routeUrgencyUpdatedAt, priorityDebtCap, priorityDebtCapUpdatedAt };
   if (
     status === "pending" ||
     status === "unassigned" ||

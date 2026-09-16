@@ -271,11 +271,19 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
         : null;
       const state = computeReceivableState(effectiveBalance, daysLate, daysUntilDue);
       const overdueInstallments = provisionalRental
-        ? provisionalRental.charges.filter((charge) => charge.amountPaid < charge.amount).length
+        ? provisionalRental.charges.filter((charge) => charge.dueDate < toDateKey(referenceDate) && charge.amountPaid < charge.amount).length
         : computeOverdueInstallments(client, debtStartDate, referenceDate);
-      const overdueBalance = debtStartDate && effectiveBalance > 0
-        ? roundMoney(Math.max(0, effectiveBalance))
+      const pendingInstallments = effectiveRentAmount > 0
+        ? Math.ceil(Math.max(0, effectiveBalance) / effectiveRentAmount)
         : 0;
+      const currentInstallments = Math.max(0, pendingInstallments - overdueInstallments);
+      const overdueBalance = provisionalRental
+        ? roundMoney(provisionalRental.charges
+            .filter((charge) => charge.dueDate < toDateKey(referenceDate))
+            .reduce((sum, charge) => sum + Math.max(0, charge.amount - charge.amountPaid), 0))
+        : debtStartDate && effectiveBalance > 0
+          ? roundMoney(Math.max(0, effectiveBalance - currentInstallments * effectiveRentAmount))
+          : 0;
 
       const directPayments = paymentsByClient.get(client.id) ?? [];
       const identityUnitPayments = (paymentsByUnit.get(normalizeUnit(effectiveUnitId)) ?? [])
@@ -326,7 +334,11 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
           appliedToRent: roundMoney(payment.appliedToRent)
         })),
         hasActiveClient: true,
-        operationalStatus: client.activeProvisionalRental ? "provisional_rental" : operationalStatus
+        operationalStatus: client.activeProvisionalRental
+          ? "provisional_rental"
+          : client.status !== "activo"
+            ? client.status
+            : operationalStatus
       } satisfies ReceivableRow;
   }
 

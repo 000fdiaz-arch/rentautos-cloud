@@ -62,6 +62,7 @@ import type {
 import { ReceivableDetailModal } from "./receivables/ReceivableDetailModal";
 import { ReceivablesFiltersPanel } from "./receivables/ReceivablesFiltersPanel";
 import { ReceivablesLedgerTable, type ReceivablesHistoryRow } from "./receivables/ReceivablesLedgerTable";
+import { ReceivablesPriorityList, type PriorityRouteRequest } from "./receivables/ReceivablesPriorityList";
 import { buildIncidentActionsByUnit } from "./receivables/incidentReceivableActions";
 import { exportRouteCollection } from "./receivables/routeCollectionExport";
 import {
@@ -162,46 +163,9 @@ function isWhatsAppEligibleUnit(row: ReceivableRow): boolean {
   return hasActiveOperationalClient(row);
 }
 
-function adjustedMonthlyChargeDate(year: number, monthIndex: number, monthlyChargeDay: number): Date {
-  const lastDay = new Date(year, monthIndex + 1, 0).getDate();
-  const date = new Date(year, monthIndex, Math.min(monthlyChargeDay, lastDay));
-  if (date.getDay() === 0) date.setDate(date.getDate() + 1);
-  return date;
-}
-
-function isReceivableChargeDay(row: ReceivableRow, date: Date): boolean {
-  const weekDay = date.getDay();
-  if (row.plan === "daily") {
-    if (weekDay >= 1 && weekDay <= 6) return true;
-    return weekDay === 0 && !!row.chargeFirstSunday && row.installmentsPaid <= 7;
-  }
-  if (row.plan === "weekly") {
-    const dayMap: Record<NonNullable<ReceivableRow["weeklyChargeDay"]>, number> = {
-      monday: 1,
-      tuesday: 2,
-      wednesday: 3,
-      thursday: 4,
-      friday: 5,
-      saturday: 6
-    };
-    return weekDay === dayMap[row.weeklyChargeDay ?? "monday"];
-  }
-  if (row.plan === "biweekly") {
-    const day = date.getDate();
-    if (day === 15) return true;
-    if (date.getMonth() === 1) return day === new Date(date.getFullYear(), 2, 0).getDate();
-    return day === 30;
-  }
-  const monthlyChargeDay = row.monthlyChargeDay ?? 1;
-  const adjusted = adjustedMonthlyChargeDate(date.getFullYear(), date.getMonth(), monthlyChargeDay);
-  return adjusted.getDate() === date.getDate();
-}
-
 function overdueRentForWhatsAppDate(row: ReceivableRow, date: Date): number {
-  const pendingInstallments = row.rentAmount > 0 ? Math.ceil(row.totalPending / row.rentAmount) : 0;
-  const currentInstallments = isReceivableChargeDay(row, date) && pendingInstallments > 0 ? 1 : 0;
-  const overdueInstallments = Math.max(0, Math.min(row.overdueInstallments, pendingInstallments - currentInstallments));
-  return Math.max(0, Math.min(row.totalPending, overdueInstallments * row.rentAmount));
+  void date;
+  return Math.max(0, Math.min(row.totalPending, row.overdueBalance));
 }
 
 function currentRentForWhatsApp(row: ReceivableRow, date: Date): number {
@@ -470,6 +434,7 @@ export default function ReceivablesPage({
       toTimestamp(record.supportNoteUpdatedAt),
       toTimestamp(record.contactTimeUpdatedAt),
       toTimestamp(record.routeUrgencyUpdatedAt),
+      toTimestamp(record.priorityDebtCapUpdatedAt),
       toTimestamp(record.whatsAppMessageCopiedAt),
       toTimestamp(record.whatsAppMessageSentAt),
       toTimestamp(record.paymentPromiseUpdatedAt)
@@ -1157,6 +1122,7 @@ export default function ReceivablesPage({
     : 0;
   const canSavePublishedRouteDraft = !!publishedRouteDraftSelectedRow && !!parsePositiveMoneyInput(publishedRouteDraft.amount);
   const managementWorkflowRowsCount = baseRows.length;
+  const priorityWorkflowRowsCount = baseRows.filter((row) => hasActiveOperationalClient(row) && row.overdueBalance > 0).length;
   const clearableManagementRecordsCount = Object.keys(collectionStatusByClient).length;
   const canConfirmClearManagement = clearManagementConfirmation.trim().toUpperCase() === CLEAR_COLLECTION_MANAGEMENT_CONFIRMATION;
   const workflowRows = useMemo(() => (
@@ -1623,7 +1589,18 @@ export default function ReceivablesPage({
     const nowIso = new Date().toISOString();
     const activeRouteStatus: Record<string, CollectionStatusRecord> = {};
     for (const [clientId, record] of Object.entries(collectionStatusByClient)) {
-      if (!record.isRouteTagged) continue;
+      if (!record.isRouteTagged) {
+        if (record.priorityDebtCap && record.priorityDebtCap > 0) {
+          activeRouteStatus[clientId] = {
+            status: "unassigned",
+            comment: "",
+            updatedAt: nowIso,
+            priorityDebtCap: record.priorityDebtCap,
+            priorityDebtCapUpdatedAt: record.priorityDebtCapUpdatedAt ?? nowIso
+          };
+        }
+        continue;
+      }
       activeRouteStatus[clientId] = {
         ...record,
         status: "pending",
@@ -1799,6 +1776,76 @@ export default function ReceivablesPage({
         contactTimeUpdatedAt: previous?.contactTimeUpdatedAt,
         paymentPromiseDate: previous?.paymentPromiseDate,
         paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
+      return { ...current, [clientId]: updatedRecord };
+    });
+  }
+
+  function handlePrioritySendToRoute(request: PriorityRouteRequest): void {
+    if (isCollectionLocked) return;
+    const routeCandidate = baseRows.find((row) => row.id === request.clientId);
+    if (!routeCandidate || !hasActiveOperationalClient(routeCandidate)) return;
+    const routeAssignment = normalizeRouteAssignment(request.routeAssignment);
+    if (!routeAssignment || !(request.releaseAmount > 0)) return;
+    const nowIso = new Date().toISOString();
+    const releaseAmount = Math.round((request.releaseAmount + Number.EPSILON) * 100) / 100;
+    markClientStatusAsSaving(request.clientId);
+    setCollectionStatusByClient((current) => {
+      const previous = current[request.clientId];
+      const updatedRecord: CollectionStatusRecord = {
+        ...previous,
+        status: "pending",
+        isRouteTagged: true,
+        routeTaggedAt: nowIso,
+        comment: previous?.comment ?? "",
+        updatedAt: nowIso,
+        managementType: request.managementType,
+        managementAmount: releaseAmount,
+        managementComment: normalizeFieldManagementComment(request.comment),
+        managementUpdatedAt: nowIso,
+        routeReleaseAmount: releaseAmount,
+        routeReleaseUpdatedAt: nowIso,
+        routeAssignment,
+        routeAssignmentUpdatedAt: nowIso,
+        routeUrgency: normalizeRouteUrgency(request.urgency),
+        routeUrgencyUpdatedAt: request.urgency === "normal" ? undefined : nowIso,
+        whatsAppMessageCopiedAt: previous?.whatsAppMessageCopiedAt,
+        whatsAppMessageSentAt: previous?.whatsAppMessageSentAt,
+        whatsAppMessageText: previous?.whatsAppMessageText,
+        supportNote: previous?.supportNote,
+        supportNoteUpdatedAt: previous?.supportNoteUpdatedAt,
+        contactTime: previous?.contactTime,
+        contactTimeUpdatedAt: previous?.contactTimeUpdatedAt,
+        paymentPromiseDate: previous?.paymentPromiseDate,
+        paymentPromiseUpdatedAt: previous?.paymentPromiseUpdatedAt,
+        priorityDebtCap: previous?.priorityDebtCap,
+        priorityDebtCapUpdatedAt: previous?.priorityDebtCapUpdatedAt
+      };
+      optimisticStatusByClientRef.current[request.clientId] = updatedRecord;
+      return { ...current, [request.clientId]: updatedRecord };
+    });
+    setRouteExportMessage(`${routeCandidate.unitId} · Preparada para envío automático a ${routeAssignment}.`);
+  }
+
+  function handlePriorityDebtCapChange(clientId: string, value: number | null): void {
+    if (isCollectionLocked) return;
+    const normalizedValue = value && value > 0
+      ? Math.round((value + Number.EPSILON) * 100) / 100
+      : undefined;
+    const previous = collectionStatusByClient[clientId];
+    if (!previous && normalizedValue === undefined) return;
+    const nowIso = new Date().toISOString();
+    markClientStatusAsSaving(clientId);
+    setCollectionStatusByClient((current) => {
+      const currentRecord = current[clientId];
+      const updatedRecord: CollectionStatusRecord = {
+        ...currentRecord,
+        status: currentRecord?.status ?? "unassigned",
+        comment: currentRecord?.comment ?? "",
+        updatedAt: nowIso,
+        priorityDebtCap: normalizedValue,
+        priorityDebtCapUpdatedAt: nowIso
       };
       optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return { ...current, [clientId]: updatedRecord };
@@ -2833,6 +2880,21 @@ export default function ReceivablesPage({
             <button
               type="button"
               role="tab"
+              aria-selected={workflowTab === "priority"}
+              className={workflowTab === "priority" ? "is-active" : ""}
+              onClick={() => {
+                setWorkflowTab("priority");
+                setCollectionStatusFilter("all");
+                setRouteTagFilter(false);
+                setRouteReadyFilter(false);
+                setWhatsAppContactFilter("all");
+              }}
+            >
+              Prioridad de búsqueda <strong>{priorityWorkflowRowsCount}</strong>
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={workflowTab === "route"}
               className={workflowTab === "route" ? "is-active" : ""}
               onClick={() => {
@@ -3044,6 +3106,19 @@ export default function ReceivablesPage({
                 </select></label>
               </div>} />
           </div>
+        ) : workflowTab === "priority" ? (
+          <ReceivablesPriorityList
+            rows={baseRows}
+            clients={clients}
+            payments={receivablePayments}
+            collectionStatusByClient={collectionStatusByClient}
+            now={receivablesDate}
+            readOnly={isCollectionLocked}
+            onSendToRoute={handlePrioritySendToRoute}
+            onRemoveFromRoute={(clientId) => handleRouteTagChange(clientId, false)}
+            onOpenRoute={() => setWorkflowTab("route")}
+            onDebtCapChange={handlePriorityDebtCapChange}
+          />
         ) : (
           <ReceivablesLedgerTable
             tableScrollRef={tableScrollRef}

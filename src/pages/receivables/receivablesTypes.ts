@@ -51,4 +51,6 @@ export type CollectionStatusRecord = {
   contactTimeUpdatedAt?: string;
   paymentPromiseDate?: string;
   paymentPromiseUpdatedAt?: string;
+  priorityDebtCap?: number;
+  priorityDebtCapUpdatedAt?: string;
 };
