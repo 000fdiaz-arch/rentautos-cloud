@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { PLAN_LABEL, type ReceivableRow } from "../../receivables";
 import type { BillingFrequency, Client, Payment } from "../../types";
 import { ROUTE_ASSIGNMENT_OPTIONS, ROUTE_URGENCY_OPTIONS } from "./receivablesPageRules";
@@ -47,6 +47,15 @@ type TenureFilter = "all" | PriorityTenureBucket;
 type PaymentDaysFilter = "all" | "no_payments" | `${number}`;
 type PlanFilter = "all" | BillingFrequency;
 type InstallmentFilter = "all" | `${number}`;
+type PriorityFacet = "level" | "plan" | "installments" | "payment" | "tenure";
+
+type PriorityFilterValues = {
+  level: LevelFilter;
+  plan: PlanFilter;
+  installments: InstallmentFilter;
+  payment: PaymentDaysFilter;
+  tenure: TenureFilter;
+};
 
 type RouteDraft = {
   item: PriorityReceivable;
@@ -94,6 +103,31 @@ function normalizedRoute(value: string): string {
 
 function normalizedUnitSearch(value: string): string {
   return value.replace(/\s+/g, "").trim().toUpperCase();
+}
+
+function matchesPriorityFilters(
+  item: PriorityReceivable,
+  now: Date,
+  filters: PriorityFilterValues,
+  omittedFacet?: PriorityFacet
+): boolean {
+  if (omittedFacet !== "level" && filters.level !== "all" && item.level !== filters.level) return false;
+  if (omittedFacet !== "plan" && filters.plan !== "all" && item.row.plan !== filters.plan) return false;
+  if (
+    omittedFacet !== "installments"
+    && filters.installments !== "all"
+    && priorityOverdueInstallmentCount(item.row.overdueBalance, item.row.rentAmount) !== Number(filters.installments)
+  ) return false;
+  if (omittedFacet !== "payment" && filters.payment !== "all") {
+    const paymentDays = priorityPaymentDaysAgo(item.lastPayment, now);
+    if (filters.payment === "no_payments" ? paymentDays !== null : paymentDays !== Number(filters.payment)) return false;
+  }
+  if (
+    omittedFacet !== "tenure"
+    && filters.tenure !== "all"
+    && priorityTenureBucket(item.tenureDays) !== filters.tenure
+  ) return false;
+  return true;
 }
 
 function paymentReading(payment: PriorityPaymentSummary | null, now: Date): {
@@ -146,10 +180,45 @@ export function ReceivablesPriorityList({
     () => buildPriorityReceivables(rows, clients, payments, collectionStatusByClient, now),
     [clients, collectionStatusByClient, now, payments, rows]
   );
-  const paymentDayOptions = useMemo(() => {
+
+  const searchedUnit = normalizedUnitSearch(unitSearch);
+  const unitRows = useMemo(
+    () => searchedUnit
+      ? priorityRows.filter((item) => normalizedUnitSearch(item.row.unitId).includes(searchedUnit))
+      : priorityRows,
+    [priorityRows, searchedUnit]
+  );
+  const activeFilters: PriorityFilterValues = {
+    level: levelFilter,
+    plan: planFilter,
+    installments: installmentFilter,
+    payment: paymentDaysFilter,
+    tenure: tenureFilter
+  };
+  const levelFacetRows = unitRows.filter((item) => matchesPriorityFilters(item, now, activeFilters, "level"));
+  const planFacetRows = unitRows.filter((item) => matchesPriorityFilters(item, now, activeFilters, "plan"));
+  const installmentFacetRows = unitRows.filter((item) => matchesPriorityFilters(item, now, activeFilters, "installments"));
+  const paymentFacetRows = unitRows.filter((item) => matchesPriorityFilters(item, now, activeFilters, "payment"));
+  const tenureFacetRows = unitRows.filter((item) => matchesPriorityFilters(item, now, activeFilters, "tenure"));
+  const visibleRows = unitRows.filter((item) => matchesPriorityFilters(item, now, activeFilters));
+
+  const planOptions = PLAN_FILTER_OPTIONS.map((plan) => [
+    plan,
+    planFacetRows.filter((item) => item.row.plan === plan).length
+  ] as const);
+  const installmentOptions = (() => {
+    const counts = new Map<number, number>();
+    for (const item of installmentFacetRows) {
+      const installments = priorityOverdueInstallmentCount(item.row.overdueBalance, item.row.rentAmount);
+      if (installments > 0) counts.set(installments, (counts.get(installments) ?? 0) + 1);
+    }
+    if (installmentFilter !== "all" && !counts.has(Number(installmentFilter))) counts.set(Number(installmentFilter), 0);
+    return [...counts.entries()].sort((left, right) => right[0] - left[0]);
+  })();
+  const paymentDayOptions = (() => {
     const counts = new Map<number, number>();
     let withoutPayments = 0;
-    for (const item of priorityRows) {
+    for (const item of paymentFacetRows) {
       const days = priorityPaymentDaysAgo(item.lastPayment, now);
       if (days === null) {
         withoutPayments += 1;
@@ -157,55 +226,26 @@ export function ReceivablesPriorityList({
       }
       counts.set(days, (counts.get(days) ?? 0) + 1);
     }
+    if (paymentDaysFilter !== "all" && paymentDaysFilter !== "no_payments" && !counts.has(Number(paymentDaysFilter))) {
+      counts.set(Number(paymentDaysFilter), 0);
+    }
     return {
       withoutPayments,
       days: [...counts.entries()].sort((left, right) => right[0] - left[0])
     };
-  }, [now, priorityRows]);
-  const installmentOptions = useMemo(() => {
-    const counts = new Map<number, number>();
-    for (const item of priorityRows) {
-      const installments = priorityOverdueInstallmentCount(item.row.overdueBalance, item.row.rentAmount);
-      if (installments > 0) counts.set(installments, (counts.get(installments) ?? 0) + 1);
+  })();
+  const tenureOptions = (() => {
+    const counts = new Map<PriorityTenureBucket, number>();
+    for (const item of tenureFacetRows) {
+      const bucket = priorityTenureBucket(item.tenureDays);
+      counts.set(bucket, (counts.get(bucket) ?? 0) + 1);
     }
-    return [...counts.entries()].sort((left, right) => right[0] - left[0]);
-  }, [priorityRows]);
-  useEffect(() => {
-    if (paymentDaysFilter === "all") return;
-    if (paymentDaysFilter === "no_payments") {
-      if (paymentDayOptions.withoutPayments === 0) setPaymentDaysFilter("all");
-      return;
-    }
-    if (!paymentDayOptions.days.some(([days]) => days === Number(paymentDaysFilter))) setPaymentDaysFilter("all");
-  }, [paymentDayOptions, paymentDaysFilter]);
-  useEffect(() => {
-    if (installmentFilter === "all") return;
-    if (!installmentOptions.some(([installments]) => installments === Number(installmentFilter))) setInstallmentFilter("all");
-  }, [installmentFilter, installmentOptions]);
-  const searchedUnit = normalizedUnitSearch(unitSearch);
-  const unitRows = searchedUnit
-    ? priorityRows.filter((item) => normalizedUnitSearch(item.row.unitId).includes(searchedUnit))
-    : priorityRows;
-  const planRows = planFilter === "all"
-    ? unitRows
-    : unitRows.filter((item) => item.row.plan === planFilter);
-  const tenureRows = tenureFilter === "all"
-    ? planRows
-    : planRows.filter((item) => priorityTenureBucket(item.tenureDays) === tenureFilter);
-  const paymentRows = paymentDaysFilter === "all"
-    ? tenureRows
-    : paymentDaysFilter === "no_payments"
-      ? tenureRows.filter((item) => priorityPaymentDaysAgo(item.lastPayment, now) === null)
-      : tenureRows.filter((item) => priorityPaymentDaysAgo(item.lastPayment, now) === Number(paymentDaysFilter));
-  const installmentRows = installmentFilter === "all"
-    ? paymentRows
-    : paymentRows.filter((item) => (
-        priorityOverdueInstallmentCount(item.row.overdueBalance, item.row.rentAmount) === Number(installmentFilter)
-      ));
-  const visibleRows = levelFilter === "all"
-    ? installmentRows
-    : installmentRows.filter((item) => item.level === levelFilter);
-  const counts = installmentRows.reduce<Record<LevelFilter, number>>((result, item) => {
+    return TENURE_FILTER_OPTIONS
+      .filter((option): option is { value: PriorityTenureBucket; label: string } => option.value !== "all")
+      .map((option) => ({ ...option, count: counts.get(option.value) ?? 0 }))
+      .filter((option) => option.count > 0 || option.value === tenureFilter);
+  })();
+  const counts = levelFacetRows.reduce<Record<LevelFilter, number>>((result, item) => {
     result.all += 1;
     result[item.level] += 1;
     return result;
@@ -283,14 +323,14 @@ export function ReceivablesPriorityList({
             <label className="ar-priority-plan-filter">
               <span>Plan</span>
               <select value={planFilter} aria-label="Filtrar por tipo de plan" onChange={(event) => setPlanFilter(event.target.value as PlanFilter)}>
-                <option value="all">Todos los planes</option>
-                {PLAN_FILTER_OPTIONS.map((plan) => <option key={plan} value={plan}>{PLAN_LABEL[plan]}</option>)}
+                <option value="all">Todos los planes ({planFacetRows.length})</option>
+                {planOptions.map(([plan, count]) => <option key={plan} value={plan}>{PLAN_LABEL[plan]} ({count})</option>)}
               </select>
             </label>
             <label className="ar-priority-installments-filter">
               <span>Cuotas vencidas</span>
               <select value={installmentFilter} aria-label="Filtrar por cuotas vencidas" onChange={(event) => setInstallmentFilter(event.target.value as InstallmentFilter)}>
-                <option value="all">Todas las cuotas</option>
+                <option value="all">Todas las cuotas ({installmentFacetRows.length})</option>
                 {installmentOptions.map(([installments, count]) => (
                   <option key={installments} value={String(installments)}>
                     {installments} cuota{installments === 1 ? "" : "s"} ({count})
@@ -301,8 +341,10 @@ export function ReceivablesPriorityList({
             <label className="ar-priority-payment-days-filter">
               <span>Último pago</span>
               <select value={paymentDaysFilter} aria-label="Filtrar por días desde el último pago" onChange={(event) => setPaymentDaysFilter(event.target.value as PaymentDaysFilter)}>
-                <option value="all">Todos los días</option>
-                {paymentDayOptions.withoutPayments > 0 ? <option value="no_payments">Sin pagos ({paymentDayOptions.withoutPayments})</option> : null}
+                <option value="all">Todos los días ({paymentFacetRows.length})</option>
+                {paymentDayOptions.withoutPayments > 0 || paymentDaysFilter === "no_payments"
+                  ? <option value="no_payments">Sin pagos ({paymentDayOptions.withoutPayments})</option>
+                  : null}
                 {paymentDayOptions.days.map(([days, count]) => (
                   <option key={days} value={String(days)}>
                     {days === 0 ? "Hoy" : `${days} día${days === 1 ? "" : "s"}`} ({count})
@@ -313,7 +355,8 @@ export function ReceivablesPriorityList({
             <label className="ar-priority-tenure-filter">
               <span>Antigüedad</span>
               <select value={tenureFilter} aria-label="Filtrar por antigüedad" onChange={(event) => setTenureFilter(event.target.value as TenureFilter)}>
-                {TENURE_FILTER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                <option value="all">Toda antigüedad ({tenureFacetRows.length})</option>
+                {tenureOptions.map((option) => <option key={option.value} value={option.value}>{option.label} ({option.count})</option>)}
               </select>
             </label>
           </div>
