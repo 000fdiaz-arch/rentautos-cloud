@@ -6,21 +6,24 @@
 }
 
 .ar-priority-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+  display: grid;
+  gap: 10px;
 }
 
 .ar-priority-filters {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ar-priority-level-filters {
   display: flex;
   align-items: center;
   gap: 7px;
   flex-wrap: wrap;
 }
 
-.ar-priority-filters button {
+.ar-priority-level-filters button {
   min-height: 36px;
   padding: 7px 11px;
   border: 1px solid #d8e2ef;
@@ -31,50 +34,65 @@
   cursor: pointer;
 }
 
-.ar-priority-filters button strong {
+.ar-priority-level-filters button strong {
   margin-left: 4px;
   color: #334155;
 }
 
-.ar-priority-filters button.is-active {
+.ar-priority-level-filters button.is-active {
   border-color: #5eead4;
   background: #ecfdf5;
   color: #0f766e;
 }
 
+.ar-priority-filter-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 8px;
+}
+
 .ar-priority-tenure-filter,
+.ar-priority-plan-filter,
+.ar-priority-installments-filter,
 .ar-priority-unit-filter,
 .ar-priority-payment-days-filter {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 36px;
-  padding-left: 5px;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
   color: #475569;
-  font-size: .76rem;
+  font-size: .72rem;
   font-weight: 800;
+  letter-spacing: .02em;
+  text-transform: uppercase;
 }
 
 .ar-priority-tenure-filter select,
+.ar-priority-plan-filter select,
+.ar-priority-installments-filter select,
 .ar-priority-unit-filter input,
 .ar-priority-payment-days-filter select {
   min-height: 36px;
+  width: 100%;
+  min-width: 0;
   padding: 6px 30px 6px 10px;
   border: 1px solid #d8e2ef;
-  border-radius: 999px;
+  border-radius: 10px;
   background: #ffffff;
   color: #334155;
   font: inherit;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .ar-priority-unit-filter input {
-  width: 112px;
   padding-right: 10px;
 }
 
 .ar-priority-summary {
   display: flex;
   align-items: baseline;
+  justify-content: flex-end;
   gap: 9px;
   color: #64748b;
   font-size: .82rem;
@@ -443,6 +461,10 @@
     padding: 12px;
   }
 
+  .ar-priority-filter-fields {
+    grid-template-columns: 1fr;
+  }
+
   .ar-priority-toolbar {
     align-items: stretch;
   }
@@ -460,10 +482,12 @@
   }
 
   .ar-priority-tenure-filter select,
+  .ar-priority-plan-filter select,
+  .ar-priority-installments-filter select,
   .ar-priority-unit-filter input,
   .ar-priority-payment-days-filter select {
     flex: 1;
-    width: auto;
+    width: 100%;
     min-height: 44px;
     font-size: 16px;
   }

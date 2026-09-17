@@ -49,7 +49,7 @@ try {
   bundle("src/receivables.ts", receivablesOutput);
   bundle("src/pages/receivables/receivablesPriority.ts", priorityOutput);
   const { buildReceivableRows } = require(receivablesOutput);
-  const { buildPriorityReceivables, formatInstallmentDebt, formatPriorityPayment, priorityGeneratedInstallments, priorityPaymentDaysAgo, priorityTenureBucket } = require(priorityOutput);
+  const { buildPriorityReceivables, formatInstallmentDebt, formatPriorityPayment, priorityGeneratedInstallments, priorityOverdueInstallmentCount, priorityPaymentDaysAgo, priorityTenureBucket } = require(priorityOutput);
 
   const monday = buildReceivableRows([client()], [], new Date("2026-09-14T12:00:00"))[0];
   const tuesday = buildReceivableRows([client()], [], new Date("2026-09-15T12:00:00"))[0];
@@ -80,7 +80,9 @@ try {
   assert.equal(priority.length, 1, "Todo cliente con renta vencida debe entrar a prioridad.");
   assert.equal(priority[0].level, "critical", "Superar el tope manual debe llevar el caso a crítico.");
   assert.equal(formatInstallmentDebt(44, 34), "2 cuotas; con $10 baja una cuota", "C04 debe contar la cuota parcial dentro del total de cuotas adeudadas.");
+  assert.equal(priorityOverdueInstallmentCount(44, 34), 2, "El filtro debe contar la cuota parcial de C04 como una cuota vencida completa en la selección.");
   assert.equal(formatInstallmentDebt(1685, 35), "49 cuotas; con $5 baja una cuota");
+  assert.equal(priorityOverdueInstallmentCount(1685, 35), 49, "Las opciones dinámicas deben usar el mismo total que se muestra en la tarjeta.");
   assert.equal(formatInstallmentDebt(70, 35), "2 cuotas", "Una deuda exacta no debe inventar una cuota parcial.");
   assert.equal(
     formatPriorityPayment({
@@ -235,6 +237,8 @@ try {
   assert.equal(newnessFirst[0].row.unitId, "T11", "El cliente de hasta 30 días debe preceder al de 3 a 6 meses.");
   assert.equal(priorityTenureBucket(newnessFirst[0].tenureDays), "up_to_30", "T11 debe caer en el filtro de hasta 30 días.");
   assert.equal(priorityTenureBucket(newnessFirst[1].tenureDays), "three_to_six", "T07 debe caer en el filtro de 3 a 6 meses.");
+  assert.equal(priorityTenureBucket(500), "one_to_two_years", "La antigüedad general debe distinguir clientes de 1 a 2 años.");
+  assert.equal(priorityTenureBucket(800), "two_years_plus", "La antigüedad general debe agrupar clientes de 2 años o más.");
 
   console.log("OK prioridad de cobranza: vencimiento estricto, antigüedad por cuotas, saldo parcial y tope validados.");
 } finally {

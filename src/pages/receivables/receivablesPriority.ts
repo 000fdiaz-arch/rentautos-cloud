@@ -4,7 +4,13 @@ import type { Client, Payment } from "../../types";
 import type { CollectionStatusRecord, RouteUrgency } from "./receivablesTypes";
 
 export type ReceivablePriorityLevel = "critical" | "high" | "medium" | "low";
-export type PriorityTenureBucket = "up_to_30" | "one_to_three" | "three_to_six" | "six_to_twelve" | "one_year_plus";
+export type PriorityTenureBucket =
+  | "up_to_30"
+  | "one_to_three"
+  | "three_to_six"
+  | "six_to_twelve"
+  | "one_to_two_years"
+  | "two_years_plus";
 
 export type PriorityPaymentCharge = {
   label: string;
@@ -98,7 +104,8 @@ export function priorityTenureBucket(tenureDays: number): PriorityTenureBucket {
   if (tenureDays <= 90) return "one_to_three";
   if (tenureDays < 183) return "three_to_six";
   if (tenureDays < 365) return "six_to_twelve";
-  return "one_year_plus";
+  if (tenureDays < 730) return "one_to_two_years";
+  return "two_years_plus";
 }
 
 function newnessPriorityRank(tenureDays: number): number {
@@ -351,13 +358,19 @@ export function summarizeInstallmentDebt(overdueBalance: number, rentAmount: num
   if (!(balanceCents > 0) || !(rentCents > 0)) return null;
   const wholeInstallments = Math.floor(balanceCents / rentCents);
   const remainderCents = balanceCents % rentCents;
-  const affectedInstallments = wholeInstallments + (remainderCents > 0 ? 1 : 0);
+  const affectedInstallments = priorityOverdueInstallmentCount(overdueBalance, rentAmount);
   return {
     installmentText: `${affectedInstallments} cuota${affectedInstallments === 1 ? "" : "s"}`,
     partialPaymentText: remainderCents > 0
       ? `con ${formatWholeCurrency(remainderCents / 100)} baja una cuota`
       : null
   };
+}
+
+export function priorityOverdueInstallmentCount(overdueBalance: number, rentAmount: number): number {
+  const balanceCents = Math.max(0, Math.round(overdueBalance * 100));
+  const rentCents = Math.round(rentAmount * 100);
+  return balanceCents > 0 && rentCents > 0 ? Math.ceil(balanceCents / rentCents) : 0;
 }
 
 export function formatInstallmentDebt(overdueBalance: number, rentAmount: number): string {
