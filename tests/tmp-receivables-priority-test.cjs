@@ -115,6 +115,7 @@ try {
     [{ unit_id: "D81", operational_status: "activo" }]
   )[0];
   assert.equal(workshopRow.operationalStatus, "taller", "El estado Taller del cliente debe prevalecer aunque la flota local esté desactualizada.");
+  assert.equal(workshopRow.overdueBalance, workshopRow.totalPending, "Un estado que no genera renta hoy no debe conservar saldo como renta corriente.");
   assert.equal(
     buildPriorityReceivables([workshopRow], [workshopClient], [], {}, new Date("2026-09-16T12:00:00")).length,
     0,

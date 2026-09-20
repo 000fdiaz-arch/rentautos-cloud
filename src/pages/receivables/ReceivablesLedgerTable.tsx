@@ -2,7 +2,13 @@ import { memo, useState, type RefObject } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { STATE_LABEL, type ReceivableRow, type ReceivableState } from "../../receivables";
 import type { Client } from "../../types";
-import { fieldManagementLabel, type CollectionStatusRecord, type FieldManagementType } from "./receivablesTypes";
+import {
+  fieldManagementLabel,
+  type CollectionStatusRecord,
+  type DailyContactResult,
+  type DailyContactShift,
+  type FieldManagementType
+} from "./receivablesTypes";
 import { ReceivableTableRow } from "./ReceivableTableRow";
 import type { IncidentReceivableAction } from "./incidentReceivableActions";
 import {
@@ -39,6 +45,7 @@ type Props = {
   rows: ReceivableRow[];
   collectionStatusByClient: Record<string, CollectionStatusRecord>;
   clientStatusById: Map<string, Client["status"]>;
+  tenureLabelByClient: Map<string, string>;
   todayDateKey: string;
   now: Date;
   isTodayCollectionClosed: boolean;
@@ -61,6 +68,10 @@ type Props = {
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
   onSupportNoteChange: (clientId: string, value: string) => void;
   onContactTimeChange: (clientId: string, value: string) => void;
+  onDailyContactAttemptChange: (clientId: string, shift: DailyContactShift, result: DailyContactResult | "pending") => void;
+  onOperationalReviewChange: (clientId: string, operationalStatus: string, reviewed: boolean) => void;
+  onOpenRoutePreparation: (clientId: string) => void;
+  onOpenRoute: () => void;
   onClearFilters: () => void;
   incidentActionsByUnit: Record<string, IncidentReceivableAction>;
 };
@@ -127,6 +138,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   rows,
   collectionStatusByClient,
   clientStatusById,
+  tenureLabelByClient,
   todayDateKey,
   now,
   isTodayCollectionClosed,
@@ -149,6 +161,10 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   onWhatsAppMessageSent,
   onSupportNoteChange,
   onContactTimeChange,
+  onDailyContactAttemptChange,
+  onOperationalReviewChange,
+  onOpenRoutePreparation,
+  onOpenRoute,
   onClearFilters,
   incidentActionsByUnit
 }: Props) {
@@ -548,6 +564,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               row={row}
               statusRecord={collectionStatusByClient[row.id]}
               operationalStatus={row.operationalStatus ?? clientStatusById.get(row.id) ?? "activo"}
+              tenureLabel={tenureLabelByClient.get(row.id) ?? "Sin antigüedad"}
               todayDateKey={todayDateKey}
               now={now}
               isTodayCollectionClosed={isTodayCollectionClosed}
@@ -569,6 +586,10 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               onWhatsAppMessageSent={onWhatsAppMessageSent}
               onSupportNoteChange={onSupportNoteChange}
               onContactTimeChange={onContactTimeChange}
+              onDailyContactAttemptChange={onDailyContactAttemptChange}
+              onOperationalReviewChange={onOperationalReviewChange}
+              onOpenRoutePreparation={onOpenRoutePreparation}
+              onOpenRoute={onOpenRoute}
               incidentAction={incidentActionsByUnit[row.unitId.trim().toUpperCase()]}
             />
           ))}

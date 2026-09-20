@@ -25,6 +25,13 @@ export type RouteExportFormat = "jpg" | "pdf" | "excel";
 export type WhatsAppContactFilter = "all" | "pending" | "ready" | "sent" | "idle";
 export type RouteAssignment = "PTY" | "WC" | "CL" | (string & {});
 export type RouteUrgency = "normal" | "urgent" | "very_urgent";
+export type DailyContactShift = "morning" | "afternoon" | "night";
+export type DailyContactResult = "contacted";
+export type DailyContactAttempt = {
+  result: DailyContactResult;
+  updatedAt: string;
+};
+export type DailyContactAttemptsByDate = Record<string, Partial<Record<DailyContactShift, DailyContactAttempt>>>;
 
 export type CollectionStatusRecord = {
   status: CollectionStatus;
@@ -51,6 +58,9 @@ export type CollectionStatusRecord = {
   contactTimeUpdatedAt?: string;
   paymentPromiseDate?: string;
   paymentPromiseUpdatedAt?: string;
+  operationalReviewStatus?: string;
+  operationalReviewedAt?: string;
+  dailyContactAttemptsByDate?: DailyContactAttemptsByDate;
   priorityDebtCap?: number;
   priorityDebtCapUpdatedAt?: string;
 };

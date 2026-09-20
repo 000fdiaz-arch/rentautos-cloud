@@ -50,10 +50,12 @@ import {
   type ReceivableState,
   type SortDirection
 } from "../receivables";
-import type { Client, Payment } from "../types";
+import type { BillingFrequency, Client, Payment } from "../types";
 import type {
   CollectionStatus,
   CollectionStatusRecord,
+  DailyContactResult,
+  DailyContactShift,
   FieldManagementType,
   RouteUrgency,
   RouteExportFormat,
@@ -63,6 +65,15 @@ import { ReceivableDetailModal } from "./receivables/ReceivableDetailModal";
 import { ReceivablesFiltersPanel } from "./receivables/ReceivablesFiltersPanel";
 import { ReceivablesLedgerTable, type ReceivablesHistoryRow } from "./receivables/ReceivablesLedgerTable";
 import { ReceivablesPriorityList, type PriorityRouteRequest } from "./receivables/ReceivablesPriorityList";
+import {
+  buildPriorityReceivables,
+  formatCalendarDuration,
+  priorityOverdueInstallmentCount,
+  priorityTenureBucket,
+  routeUrgencyForPriority,
+  type PriorityTenureBucket,
+  type ReceivablePriorityLevel
+} from "./receivables/receivablesPriority";
 import { buildIncidentActionsByUnit } from "./receivables/incidentReceivableActions";
 import { exportRouteCollection } from "./receivables/routeCollectionExport";
 import {
@@ -78,7 +89,6 @@ import {
   getCollectionClosureCuts,
   getCollectionClosureDateKeys,
   formatDateForTitle,
-  getFutureContactTimeOptions,
   hasActiveOperationalClient,
   isToday,
   normalizeComment,
@@ -118,14 +128,67 @@ type Props = {
 };
 
 
-type PendingContactPrompt = {
+type ManagementRouteDraft = {
   clientId: string;
-  step: "question" | "time";
-  selectedTime: string;
+  unitId: string;
+  clientName: string;
+  amount: string;
+  routeAssignment: string;
+  customRoute: boolean;
+  managementType: FieldManagementType;
+  urgency: RouteUrgency;
+  comment: string;
 };
+
+type EssentialManagementFilter = "all" | "pending" | "contacted" | "automatic";
+type EssentialPortfolioFilter = "all" | "portfolio-1" | "portfolio-2";
+type EssentialPriorityLevelFilter = "all" | ReceivablePriorityLevel;
+type EssentialPlanFilter = "all" | BillingFrequency;
+type EssentialInstallmentFilter = "all" | `${number}`;
+type EssentialPaymentDaysFilter = "all" | "no-payments" | `${number}`;
+type EssentialTenureFilter = "all" | PriorityTenureBucket;
+type EssentialContactChecklistFilter = "all" | `${DailyContactShift}:pending` | `${DailyContactShift}:contacted`;
+type EssentialFilterKey =
+  | "search"
+  | "portfolio"
+  | "operational"
+  | "management"
+  | "priority"
+  | "plan"
+  | "installments"
+  | "paymentDays"
+  | "tenure"
+  | "contactChecklist";
 
 const STATEMENT_SUGGESTION_WINDOW_MS = 24 * 60 * 60 * 1000;
 const CLEAR_COLLECTION_MANAGEMENT_CONFIRMATION = "LIMPIAR GESTION";
+
+function normalizeEssentialFilterValue(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function essentialPaymentDaysAgo(dateKey: string | null, now: Date): number | null {
+  if (!dateKey) return null;
+  const date = new Date(`${dateKey}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((today.getTime() - date.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+const ESSENTIAL_TENURE_OPTIONS: Array<{ value: PriorityTenureBucket; label: string }> = [
+  { value: "up_to_30", label: "Hasta 1 mes" },
+  { value: "one_to_three", label: "1 a 3 meses" },
+  { value: "three_to_six", label: "3 a 6 meses" },
+  { value: "six_to_twelve", label: "6 a 12 meses" },
+  { value: "one_to_two_years", label: "1 a 2 años" },
+  { value: "two_years_plus", label: "2 años o más" }
+];
 
 function getStatusOptionsForCut(cutKey: CollectionCutKey): Array<{ value: CollectionStatus; label: string; description: string }> {
   return cutKey === "night" ? DAILY_COLLECTION_STATUS_OPTIONS : COLLECTION_STATUS_OPTIONS;
@@ -350,9 +413,18 @@ export default function ReceivablesPage({
   const [routeReadyFilter, setRouteReadyFilter] = useState<boolean>(false);
   const [whatsAppContactFilter, setWhatsAppContactFilter] = useState<WhatsAppContactFilter>("all");
   const [prioritizeContactTime, setPrioritizeContactTime] = useState<boolean>(false);
-  const [pendingContactPrompt, setPendingContactPrompt] = useState<PendingContactPrompt | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
   const [workflowTab, setWorkflowTab] = useState<ReceivablesWorkflowTab>("management");
+  const [essentialSearch, setEssentialSearch] = useState("");
+  const [essentialPortfolioFilter, setEssentialPortfolioFilter] = useState<EssentialPortfolioFilter>("all");
+  const [essentialOperationalFilter, setEssentialOperationalFilter] = useState("all");
+  const [essentialManagementFilter, setEssentialManagementFilter] = useState<EssentialManagementFilter>("all");
+  const [essentialPriorityLevelFilter, setEssentialPriorityLevelFilter] = useState<EssentialPriorityLevelFilter>("all");
+  const [essentialPlanFilter, setEssentialPlanFilter] = useState<EssentialPlanFilter>("all");
+  const [essentialInstallmentFilter, setEssentialInstallmentFilter] = useState<EssentialInstallmentFilter>("all");
+  const [essentialPaymentDaysFilter, setEssentialPaymentDaysFilter] = useState<EssentialPaymentDaysFilter>("all");
+  const [essentialTenureFilter, setEssentialTenureFilter] = useState<EssentialTenureFilter>("all");
+  const [essentialContactChecklistFilter, setEssentialContactChecklistFilter] = useState<EssentialContactChecklistFilter>("all");
   const viewMode: ReceivablesViewMode = "cartera";
   const [collectionClosuresByDate, setCollectionClosuresByDate] = useState<CollectionClosuresByDate>({});
   const [collectionClosuresLoaded, setCollectionClosuresLoaded] = useState<boolean>(false);
@@ -375,6 +447,7 @@ export default function ReceivablesPage({
   const autoRouteAttempted = useRef(new Set<string>());
   const autoRouteBusy = useRef(false);
   const [isRouteExportMenuOpen, setIsRouteExportMenuOpen] = useState<boolean>(false);
+  const [managementRouteDraft, setManagementRouteDraft] = useState<ManagementRouteDraft | null>(null);
   const [exportFields, setExportFields] = useState<ExportField[]>(INITIAL_EXPORT_FIELDS);
   const [fieldManagementModalClientId, setFieldManagementModalClientId] = useState<string | null>(null);
   const [fieldManagementDraftByClient, setFieldManagementDraftByClient] = useState<
@@ -433,6 +506,7 @@ export default function ReceivablesPage({
       toTimestamp(record.routeReleaseUpdatedAt),
       toTimestamp(record.supportNoteUpdatedAt),
       toTimestamp(record.contactTimeUpdatedAt),
+      toTimestamp(record.operationalReviewedAt),
       toTimestamp(record.routeUrgencyUpdatedAt),
       toTimestamp(record.priorityDebtCapUpdatedAt),
       toTimestamp(record.whatsAppMessageCopiedAt),
@@ -859,7 +933,7 @@ export default function ReceivablesPage({
 
   useEffect(() => {
     tableScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
-  }, [collectionStatusFilter, filters, routeTagFilter, sortDirection, sortField, viewMode, whatsAppContactFilter, workflowTab]);
+  }, [collectionStatusFilter, essentialContactChecklistFilter, essentialInstallmentFilter, essentialManagementFilter, essentialOperationalFilter, essentialPaymentDaysFilter, essentialPlanFilter, essentialPortfolioFilter, essentialPriorityLevelFilter, essentialSearch, essentialTenureFilter, filters, routeTagFilter, sortDirection, sortField, viewMode, whatsAppContactFilter, workflowTab]);
 
   const clientStatusById = useMemo(() => {
     const map = new Map<string, Client["status"]>();
@@ -1225,6 +1299,106 @@ export default function ReceivablesPage({
     });
   }, [collectionStatusByClient, filteredByWhatsAppRows, prioritizeContactTime, sortDirection, sortField]);
   const rows = sortedRows;
+  const essentialPriorityRows = useMemo(
+    () => buildPriorityReceivables(baseRows, clients, receivablePayments, collectionStatusByClient, now),
+    [baseRows, clients, collectionStatusByClient, now, receivablePayments]
+  );
+  const essentialPriorityByClient = useMemo(
+    () => new Map(essentialPriorityRows.map((item) => [item.row.id, item])),
+    [essentialPriorityRows]
+  );
+  const essentialTenureLabelByClient = useMemo(() => {
+    const priorityByClient = new Map(essentialPriorityRows.map((item) => [item.row.id, item]));
+    return new Map(baseRows.map((row) => {
+      const priorityItem = priorityByClient.get(row.id);
+      if (priorityItem) return [row.id, formatCalendarDuration(priorityItem.tenureStart, now)] as const;
+      const client = clients.find((item) => item.id === row.id);
+      const createdAt = client?.createdAt ? new Date(client.createdAt) : null;
+      const label = createdAt && !Number.isNaN(createdAt.getTime())
+        ? formatCalendarDuration(createdAt, now)
+        : "Sin antigüedad";
+      return [row.id, label] as const;
+    }));
+  }, [baseRows, clients, essentialPriorityRows, now]);
+  const matchesEssentialFilters = useCallback((row: ReceivableRow, omittedFilter?: EssentialFilterKey): boolean => {
+    const search = normalizeEssentialFilterValue(essentialSearch);
+    const operationalStatus = row.operationalStatus ?? clientStatusById.get(row.id) ?? "activo";
+    const operationalValue = normalizeEssentialFilterValue(operationalStatus);
+    const unitGroup = row.unitId.trim().charAt(0).toUpperCase();
+    const portfolioValue: Exclude<EssentialPortfolioFilter, "all"> | "other" = ["A", "C", "E"].includes(unitGroup)
+      ? "portfolio-1"
+      : ["B", "D", "T"].includes(unitGroup)
+        ? "portfolio-2"
+        : "other";
+    const isOperationallyActive = row.hasActiveClient && operationalValue === "activo";
+    const statusRecord = collectionStatusByClient[row.id];
+    const isOperationallyReviewed = statusRecord?.operationalReviewStatus === operationalValue;
+    const managementValue: Exclude<EssentialManagementFilter, "all"> = isOperationallyActive
+      ? statusRecord?.status === "contacted" ? "contacted" : "pending"
+      : isOperationallyReviewed ? "automatic" : "pending";
+    const [checklistShift, checklistStatus] = essentialContactChecklistFilter === "all"
+      ? ["", ""]
+      : essentialContactChecklistFilter.split(":");
+    const checklistIsContacted = checklistShift
+      ? statusRecord?.dailyContactAttemptsByDate?.[todayDateKey]?.[checklistShift as DailyContactShift]?.result === "contacted"
+      : false;
+    const priorityItem = essentialPriorityByClient.get(row.id);
+    const overdueInstallments = priorityOverdueInstallmentCount(row.overdueBalance, row.rentAmount);
+    const paymentDays = essentialPaymentDaysAgo(row.lastPaymentDate, now);
+
+    return (omittedFilter === "search" || !search || normalizeEssentialFilterValue(`${row.unitId} ${row.name}`).includes(search))
+      && (omittedFilter === "portfolio" || essentialPortfolioFilter === "all" || portfolioValue === essentialPortfolioFilter)
+      && (omittedFilter === "operational" || essentialOperationalFilter === "all" || operationalValue === essentialOperationalFilter)
+      && (omittedFilter === "management" || essentialManagementFilter === "all" || managementValue === essentialManagementFilter)
+      && (omittedFilter === "priority" || essentialPriorityLevelFilter === "all" || priorityItem?.level === essentialPriorityLevelFilter)
+      && (omittedFilter === "plan" || essentialPlanFilter === "all" || row.plan === essentialPlanFilter)
+      && (omittedFilter === "installments" || essentialInstallmentFilter === "all" || overdueInstallments === Number(essentialInstallmentFilter))
+      && (omittedFilter === "paymentDays" || essentialPaymentDaysFilter === "all"
+        || (essentialPaymentDaysFilter === "no-payments" ? paymentDays === null : paymentDays === Number(essentialPaymentDaysFilter)))
+      && (omittedFilter === "tenure" || essentialTenureFilter === "all"
+        || (priorityItem ? priorityTenureBucket(priorityItem.tenureDays) === essentialTenureFilter : false))
+      && (omittedFilter === "contactChecklist" || essentialContactChecklistFilter === "all"
+        || (isOperationallyActive && (checklistStatus === "contacted" ? checklistIsContacted : !checklistIsContacted)));
+  }, [clientStatusById, collectionStatusByClient, essentialContactChecklistFilter, essentialInstallmentFilter, essentialManagementFilter, essentialOperationalFilter, essentialPaymentDaysFilter, essentialPlanFilter, essentialPortfolioFilter, essentialPriorityByClient, essentialPriorityLevelFilter, essentialSearch, essentialTenureFilter, now, todayDateKey]);
+  const essentialOperationalOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    for (const row of baseRows) {
+      if (!matchesEssentialFilters(row, "operational")) continue;
+      const operationalStatus = row.operationalStatus ?? clientStatusById.get(row.id) ?? "activo";
+      const value = normalizeEssentialFilterValue(operationalStatus);
+      if (!value || options.has(value)) continue;
+      options.set(value, clientOperationalStatusLabel(operationalStatus));
+    }
+    return Array.from(options, ([value, label]) => ({ value, label }))
+      .sort((a, b) => {
+        if (a.value === "activo") return -1;
+        if (b.value === "activo") return 1;
+        return a.label.localeCompare(b.label, "es");
+      });
+  }, [baseRows, clientStatusById, matchesEssentialFilters]);
+  const essentialInstallmentOptions = useMemo(() => {
+    const values = new Set(baseRows
+      .filter((row) => matchesEssentialFilters(row, "installments"))
+      .map((row) => priorityOverdueInstallmentCount(row.overdueBalance, row.rentAmount))
+      .filter((value) => value > 0));
+    if (essentialInstallmentFilter !== "all") values.add(Number(essentialInstallmentFilter));
+    return Array.from(values).sort((a, b) => b - a);
+  }, [baseRows, essentialInstallmentFilter, matchesEssentialFilters]);
+  const essentialPaymentDayOptions = useMemo(() => {
+    const values = new Set(baseRows
+      .filter((row) => matchesEssentialFilters(row, "paymentDays"))
+      .map((row) => essentialPaymentDaysAgo(row.lastPaymentDate, now))
+      .filter((value): value is number => value !== null));
+    if (essentialPaymentDaysFilter !== "all" && essentialPaymentDaysFilter !== "no-payments") {
+      values.add(Number(essentialPaymentDaysFilter));
+    }
+    return Array.from(values).sort((a, b) => b - a);
+  }, [baseRows, essentialPaymentDaysFilter, matchesEssentialFilters, now]);
+  const essentialRows = useMemo(() => (
+    baseRows
+      .filter((row) => matchesEssentialFilters(row))
+      .sort((a, b) => a.unitId.localeCompare(b.unitId, undefined, { numeric: true }))
+  ), [baseRows, matchesEssentialFilters]);
   const selectedHistoryCuts = useMemo(
     () => selectedHistoryDate ? getCollectionClosureCuts(collectionClosuresByDate[selectedHistoryDate]) : {},
     [collectionClosuresByDate, selectedHistoryDate]
@@ -1314,6 +1488,16 @@ export default function ReceivablesPage({
     setCollectionStatusFilter("all");
     setRouteTagFilter(false);
     setWhatsAppContactFilter("all");
+    setEssentialSearch("");
+    setEssentialPortfolioFilter("all");
+    setEssentialOperationalFilter("all");
+    setEssentialManagementFilter("all");
+    setEssentialPriorityLevelFilter("all");
+    setEssentialPlanFilter("all");
+    setEssentialInstallmentFilter("all");
+    setEssentialPaymentDaysFilter("all");
+    setEssentialTenureFilter("all");
+    setEssentialContactChecklistFilter("all");
     setMobileFiltersOpen(false);
   }
 
@@ -1578,6 +1762,59 @@ export default function ReceivablesPage({
     });
   }
 
+  function handleDailyContactAttemptChange(
+    clientId: string,
+    shift: DailyContactShift,
+    result: DailyContactResult | "pending"
+  ): void {
+    if (isCollectionLocked) return;
+    const row = baseRows.find((item) => item.id === clientId);
+    if (!row || !hasActiveOperationalClient(row) || shouldDefaultToCovered(row)) return;
+    markClientStatusAsSaving(clientId);
+    const nowIso = new Date().toISOString();
+    setCollectionStatusByClient((current) => {
+      const previous = current[clientId];
+      const attemptsByDate = { ...(previous?.dailyContactAttemptsByDate ?? {}) };
+      const todayAttempts = { ...(attemptsByDate[todayDateKey] ?? {}) };
+      if (result === "pending") delete todayAttempts[shift];
+      else todayAttempts[shift] = { result, updatedAt: nowIso };
+      if (Object.keys(todayAttempts).length > 0) attemptsByDate[todayDateKey] = todayAttempts;
+      else delete attemptsByDate[todayDateKey];
+
+      const updatedRecord: CollectionStatusRecord = {
+        ...previous,
+        status: previous?.status ?? "unassigned",
+        comment: previous?.comment ?? "",
+        updatedAt: nowIso,
+        dailyContactAttemptsByDate: Object.keys(attemptsByDate).length > 0 ? attemptsByDate : undefined
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
+      return { ...current, [clientId]: updatedRecord };
+    });
+  }
+
+  function handleOperationalReviewChange(clientId: string, operationalStatus: string, reviewed: boolean): void {
+    if (isCollectionLocked) return;
+    markClientStatusAsSaving(clientId);
+    const nowIso = new Date().toISOString();
+    setCollectionStatusByClient((current) => {
+      const previous = current[clientId];
+      const updatedRecord: CollectionStatusRecord = {
+        ...previous,
+        status: previous?.status ?? "unassigned",
+        comment: previous?.comment ?? "",
+        updatedAt: nowIso,
+        operationalReviewStatus: reviewed ? normalizeEssentialFilterValue(operationalStatus) : undefined,
+        operationalReviewedAt: reviewed ? nowIso : undefined
+      };
+      optimisticStatusByClientRef.current[clientId] = updatedRecord;
+      return {
+        ...current,
+        [clientId]: updatedRecord
+      };
+    });
+  }
+
   function computeCutTotals(items: CollectionClosureItem[]): Record<CollectionStatus, number> {
     const totals = createEmptyCollectionStatusCounts();
     for (const item of items) totals[item.collectionStatus] += 1;
@@ -1590,13 +1827,18 @@ export default function ReceivablesPage({
     const activeRouteStatus: Record<string, CollectionStatusRecord> = {};
     for (const [clientId, record] of Object.entries(collectionStatusByClient)) {
       if (!record.isRouteTagged) {
-        if (record.priorityDebtCap && record.priorityDebtCap > 0) {
+        const preservedSupportNote = record.supportNote ?? "";
+        if ((record.priorityDebtCap && record.priorityDebtCap > 0) || preservedSupportNote.trim()) {
           activeRouteStatus[clientId] = {
             status: "unassigned",
             comment: "",
             updatedAt: nowIso,
+            supportNote: preservedSupportNote || undefined,
+            supportNoteUpdatedAt: preservedSupportNote ? record.supportNoteUpdatedAt ?? nowIso : undefined,
             priorityDebtCap: record.priorityDebtCap,
-            priorityDebtCapUpdatedAt: record.priorityDebtCapUpdatedAt ?? nowIso
+            priorityDebtCapUpdatedAt: record.priorityDebtCap && record.priorityDebtCap > 0
+              ? record.priorityDebtCapUpdatedAt ?? nowIso
+              : undefined
           };
         }
         continue;
@@ -1654,7 +1896,7 @@ export default function ReceivablesPage({
       setIsRouteExportMenuOpen(false);
       setIsClearManagementConfirmOpen(false);
       setClearManagementConfirmation("");
-      setCollectionCutMessage("Gestion limpiada. La Ruta en calle se mantuvo activa en gestion.");
+      setCollectionCutMessage("Gestión limpiada. Las notas se conservaron y la Ruta en calle se mantuvo activa.");
     } catch (error) {
       console.error("No se pudo limpiar la gestion de cobranza.", error);
       setCollectionCutMessage("No se pudo limpiar la gestion de cobranza.");
@@ -1712,29 +1954,7 @@ export default function ReceivablesPage({
   function handleCollectionCutStatusChange(cutKey: CollectionCutKey, clientId: string, nextStatus: string): void {
     if (isCollectionLocked || cutKey !== "night") return;
     if (collectionStatusByClient[clientId]?.isRouteTagged && nextStatus !== "pending") return;
-    if (nextStatus === "pending") {
-      setPendingContactPrompt({ clientId, step: "question", selectedTime: "" });
-      return;
-    }
     applyCollectionCutStatus(clientId, nextStatus as CollectionStatus);
-  }
-
-  function leavePendingWithoutContactTime(): void {
-    if (!pendingContactPrompt) return;
-    applyCollectionCutStatus(pendingContactPrompt.clientId, "pending");
-    setPendingContactPrompt(null);
-  }
-
-  function openPendingContactTimeSelection(): void {
-    if (!pendingContactPrompt) return;
-    const firstAvailableTime = getFutureContactTimeOptions(new Date())[0] ?? "";
-    setPendingContactPrompt({ ...pendingContactPrompt, step: "time", selectedTime: firstAvailableTime });
-  }
-
-  function confirmPendingContactTime(): void {
-    if (!pendingContactPrompt?.selectedTime) return;
-    applyCollectionCutStatus(pendingContactPrompt.clientId, "pending", pendingContactPrompt.selectedTime);
-    setPendingContactPrompt(null);
   }
 
   function handleRouteTagChange(clientId: string, tagged: boolean): void {
@@ -1826,6 +2046,40 @@ export default function ReceivablesPage({
       return { ...current, [request.clientId]: updatedRecord };
     });
     setRouteExportMessage(`${routeCandidate.unitId} · Preparada para envío automático a ${routeAssignment}.`);
+  }
+
+  function handleOpenManagementRoute(clientId: string): void {
+    if (isCollectionLocked) return;
+    const row = baseRows.find((item) => item.id === clientId);
+    if (!row || !hasActiveOperationalClient(row)) return;
+    const priorityItem = essentialPriorityByClient.get(clientId);
+    setManagementRouteDraft({
+      clientId: row.id,
+      unitId: row.unitId,
+      clientName: row.name,
+      amount: row.overdueBalance > 0 ? String(Math.round(row.overdueBalance)) : "",
+      routeAssignment: "",
+      customRoute: false,
+      managementType: "solo_cobrar",
+      urgency: priorityItem ? routeUrgencyForPriority(priorityItem.level) : "normal",
+      comment: ""
+    });
+  }
+
+  function handleSaveManagementRoute(): void {
+    if (!managementRouteDraft) return;
+    const releaseAmount = Number(managementRouteDraft.amount);
+    const routeAssignment = normalizeRouteAssignment(managementRouteDraft.routeAssignment);
+    if (!(releaseAmount > 0) || !routeAssignment) return;
+    handlePrioritySendToRoute({
+      clientId: managementRouteDraft.clientId,
+      releaseAmount,
+      routeAssignment,
+      managementType: managementRouteDraft.managementType,
+      urgency: managementRouteDraft.urgency,
+      comment: managementRouteDraft.comment.trim()
+    });
+    setManagementRouteDraft(null);
   }
 
   function handlePriorityDebtCapChange(clientId: string, value: number | null): void {
@@ -2270,12 +2524,12 @@ export default function ReceivablesPage({
     }));
   }
 
-  function openAddPublishedRoute(): void {
-    const firstRow = publishedRouteAddRows[0];
+  function openAddPublishedRoute(clientId?: string): void {
+    const firstRow = publishedRouteAddRows.find((row) => row.id === clientId) ?? publishedRouteAddRows[0];
     setPublishedRouteDraft({
       clientId: firstRow?.id ?? "",
       type: "solo_cobrar",
-      amount: "",
+      amount: firstRow && firstRow.overdueBalance > 0 ? String(firstRow.overdueBalance) : "",
       comment: "",
       routeAssignment: "",
       urgency: "normal"
@@ -2776,7 +3030,8 @@ export default function ReceivablesPage({
           managementComment: statusRecord?.managementComment,
           contactTime: statusRecord?.contactTime,
           whatsAppMessageCopiedAt: statusRecord?.whatsAppMessageCopiedAt,
-          whatsAppMessageSentAt: statusRecord?.whatsAppMessageSentAt
+          whatsAppMessageSentAt: statusRecord?.whatsAppMessageSentAt,
+          dailyContactAttempts: statusRecord?.dailyContactAttemptsByDate?.[todayDateKey]
         });
       }
       const closureTotals = computeCutTotals(closureItems);
@@ -2824,18 +3079,13 @@ export default function ReceivablesPage({
     filters.group !== DEFAULT_RECEIVABLE_FILTERS.group ? filters.group : "",
     filters.state.length > 0 ? "state" : ""
   ].filter(Boolean).length;
-  const pendingContactTimeOptions = getFutureContactTimeOptions(now);
-  const pendingContactRow = pendingContactPrompt
-    ? baseRows.find((row) => row.id === pendingContactPrompt.clientId)
-    : undefined;
-
   return (
     <>
-      <section className="panel ar-ledger-panel">
-        <div className="ar-ledger-command">
+      <section className="panel ar-ledger-panel ar-ledger-panel--essential">
+        <div className="ar-ledger-command ar-ledger-command--essential">
           <div className="ar-ledger-title">
             <h1>Cuentas por cobrar</h1>
-            <p>Gestiona estados, notas y ruta de cobro desde una sola lista.</p>
+            <p>Saldo, atraso y seguimiento de cada unidad en un solo lugar.</p>
             <p className="ar-ledger-date-note">
               Fecha de gestion: <strong>{receivablesDateLabel}</strong>
               {" | Gestion abierta"}
@@ -2875,22 +3125,7 @@ export default function ReceivablesPage({
                 setRouteReadyFilter(false);
               }}
             >
-              Gestion <strong>{managementWorkflowRowsCount}</strong>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={workflowTab === "priority"}
-              className={workflowTab === "priority" ? "is-active" : ""}
-              onClick={() => {
-                setWorkflowTab("priority");
-                setCollectionStatusFilter("all");
-                setRouteTagFilter(false);
-                setRouteReadyFilter(false);
-                setWhatsAppContactFilter("all");
-              }}
-            >
-              Prioridad de búsqueda <strong>{priorityWorkflowRowsCount}</strong>
+              Gestion <strong>{essentialRows.length}</strong>
             </button>
             <button
               type="button"
@@ -2950,6 +3185,151 @@ export default function ReceivablesPage({
             </select>
           </div>
         </div>
+
+        {workflowTab === "management" ? (
+          <>
+            <div className="ar-essential-toolbar">
+              <div className="ar-essential-toolbar-fields">
+                <label className="ar-essential-filter ar-essential-filter--search">
+                  <span>Buscar</span>
+                  <input
+                    type="search"
+                    value={essentialSearch}
+                    onChange={(event) => setEssentialSearch(event.target.value)}
+                    placeholder="Unidad o nombre del cliente"
+                  />
+                </label>
+                <label className="ar-essential-filter">
+                  <span>Cartera</span>
+                  <select
+                    value={essentialPortfolioFilter}
+                    onChange={(event) => setEssentialPortfolioFilter(event.target.value as EssentialPortfolioFilter)}
+                  >
+                    <option value="all">Todas</option>
+                    <option value="portfolio-1">Cartera 1 · A, C, E</option>
+                    <option value="portfolio-2">Cartera 2 · B, D, T</option>
+                  </select>
+                </label>
+                <label className="ar-essential-filter">
+                  <span>Estado operativo</span>
+                  <select
+                    value={essentialOperationalFilter}
+                    onChange={(event) => setEssentialOperationalFilter(event.target.value)}
+                  >
+                    <option value="all">Todos</option>
+                    {essentialOperationalOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="ar-essential-filter">
+                  <span>Gestión</span>
+                  <select
+                    value={essentialManagementFilter}
+                    onChange={(event) => setEssentialManagementFilter(event.target.value as EssentialManagementFilter)}
+                  >
+                    <option value="all">Todos</option>
+                    <option value="pending">Pendiente</option>
+                    <option value="contacted">Contactado</option>
+                    <option value="automatic">Automático</option>
+                  </select>
+                </label>
+              </div>
+              <div className="ar-essential-priority-filters" aria-label="Filtros de prioridad de cobranza">
+                <label className="ar-essential-filter">
+                  <span>Nivel de prioridad</span>
+                  <select
+                    value={essentialPriorityLevelFilter}
+                    onChange={(event) => setEssentialPriorityLevelFilter(event.target.value as EssentialPriorityLevelFilter)}
+                  >
+                    <option value="all">Todos los niveles</option>
+                    <option value="critical">Crítico</option>
+                    <option value="high">Alto</option>
+                    <option value="medium">Medio</option>
+                    <option value="low">Bajo</option>
+                  </select>
+                </label>
+                <label className="ar-essential-filter">
+                  <span>Plan</span>
+                  <select
+                    value={essentialPlanFilter}
+                    onChange={(event) => setEssentialPlanFilter(event.target.value as EssentialPlanFilter)}
+                  >
+                    <option value="all">Todos los planes</option>
+                    {(Object.keys(PLAN_LABEL) as BillingFrequency[]).map((plan) => (
+                      <option key={plan} value={plan}>{PLAN_LABEL[plan]}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="ar-essential-filter">
+                  <span>Cuotas vencidas</span>
+                  <select
+                    value={essentialInstallmentFilter}
+                    onChange={(event) => setEssentialInstallmentFilter(event.target.value as EssentialInstallmentFilter)}
+                  >
+                    <option value="all">Todas las cuotas</option>
+                    {essentialInstallmentOptions.map((installments) => (
+                      <option key={installments} value={String(installments)}>
+                        {installments} cuota{installments === 1 ? "" : "s"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="ar-essential-filter">
+                  <span>Último pago</span>
+                  <select
+                    value={essentialPaymentDaysFilter}
+                    onChange={(event) => setEssentialPaymentDaysFilter(event.target.value as EssentialPaymentDaysFilter)}
+                  >
+                    <option value="all">Todos los días</option>
+                    <option value="no-payments">Sin pagos</option>
+                    {essentialPaymentDayOptions.map((days) => (
+                      <option key={days} value={String(days)}>
+                        {days === 0 ? "Hoy" : `${days} día${days === 1 ? "" : "s"}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="ar-essential-filter">
+                  <span>Antigüedad</span>
+                  <select
+                    value={essentialTenureFilter}
+                    onChange={(event) => setEssentialTenureFilter(event.target.value as EssentialTenureFilter)}
+                  >
+                    <option value="all">Toda antigüedad</option>
+                    {ESSENTIAL_TENURE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="ar-essential-filter">
+                  <span>Checklist de contacto</span>
+                  <select
+                    value={essentialContactChecklistFilter}
+                    onChange={(event) => setEssentialContactChecklistFilter(event.target.value as EssentialContactChecklistFilter)}
+                  >
+                    <option value="all">Todos los contactos</option>
+                    <option value="morning:pending">Mañana · pendiente</option>
+                    <option value="morning:contacted">Mañana · contactado</option>
+                    <option value="afternoon:pending">Tarde · pendiente</option>
+                    <option value="afternoon:contacted">Tarde · contactado</option>
+                    <option value="night:pending">Noche · pendiente</option>
+                    <option value="night:contacted">Noche · contactado</option>
+                  </select>
+                </label>
+              </div>
+              <span className="ar-essential-results-count">
+                <strong>{essentialRows.length}</strong> de {managementWorkflowRowsCount} unidades
+              </span>
+            </div>
+
+            <div className="ar-essential-column-guide" aria-hidden="true">
+              <span>Unidad y cliente</span>
+              <span>Información de cuenta</span>
+              <span>Gestión y seguimiento</span>
+            </div>
+          </>
+        ) : null}
 
         {workflowTab === "management" ? <div className="ar-ledger-toolbar">
           <div className="ar-view-tabs">
@@ -3074,7 +3454,7 @@ export default function ReceivablesPage({
                 <button
                   type="button"
                   className="button ghost small"
-                  onClick={openAddPublishedRoute}
+                  onClick={() => openAddPublishedRoute()}
                   disabled={readOnly || publishedRouteAddRows.length === 0}
                   title={readOnly ? "No tienes permiso para editar cuentas por cobrar." : publishedRouteAddRows.length === 0 ? "No hay unidades disponibles para agregar." : undefined}
                 >
@@ -3125,13 +3505,14 @@ export default function ReceivablesPage({
             viewMode={viewMode}
             selectedHistoryDate={selectedHistoryDate}
             selectedHistoryRows={selectedHistoryRows}
-            rows={rows}
+            rows={essentialRows}
             collectionStatusByClient={collectionStatusByClient}
             clientStatusById={clientStatusById}
+            tenureLabelByClient={essentialTenureLabelByClient}
             todayDateKey={todayDateKey}
             now={now}
             isTodayCollectionClosed={isCollectionLocked}
-            workflowTab={workflowTab}
+            workflowTab="management"
             todayCollectionCuts={todayCollectionCuts}
             visibleCollectionCut={visibleCollectionCut}
             buildWhatsAppReceivableMessage={buildWhatsAppReceivableMessage}
@@ -3150,6 +3531,10 @@ export default function ReceivablesPage({
             onWhatsAppMessageSent={handleWhatsAppMessageSent}
             onSupportNoteChange={handleSupportNoteChange}
             onContactTimeChange={handleContactTimeChange}
+            onDailyContactAttemptChange={handleDailyContactAttemptChange}
+            onOperationalReviewChange={handleOperationalReviewChange}
+            onOpenRoutePreparation={handleOpenManagementRoute}
+            onOpenRoute={() => setWorkflowTab("route")}
             onClearFilters={clearFilters}
             incidentActionsByUnit={incidentActionsByUnit}
           />
@@ -3163,80 +3548,117 @@ export default function ReceivablesPage({
         />
       )}
 
-      {pendingContactPrompt ? (
-        <div className="modal-overlay" onClick={() => setPendingContactPrompt(null)}>
+      {managementRouteDraft ? (
+        <div className="modal-overlay" onClick={() => setManagementRouteDraft(null)}>
           <div
-            className="modal confirm-modal ar-pending-contact-modal"
+            className="modal ar-priority-route-modal"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="pending-contact-title"
+            aria-labelledby="ar-management-route-title"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-header">
-              <h2 id="pending-contact-title">
-                {pendingContactPrompt.step === "question" ? "Gestión pendiente" : "Hora de contacto"}
-              </h2>
-              <button type="button" className="modal-close" onClick={() => setPendingContactPrompt(null)} aria-label="Cerrar">X</button>
+              <div>
+                <span className="ar-priority-modal-kicker">Preparación de cobro</span>
+                <h2 id="ar-management-route-title">{managementRouteDraft.unitId} · {managementRouteDraft.clientName}</h2>
+              </div>
+              <button type="button" className="modal-close" onClick={() => setManagementRouteDraft(null)} aria-label="Cerrar">X</button>
             </div>
-            <div className="confirm-modal-body ar-pending-contact-body">
-              {pendingContactRow ? (
-                <span className="ar-pending-contact-client">
-                  {pendingContactRow.unitId} · {pendingContactRow.name}
-                </span>
-              ) : null}
-              {pendingContactPrompt.step === "question" ? (
-                <>
-                  <p>¿Gustas ponerle una hora de contacto?</p>
-                  <div className="confirm-modal-actions">
-                    <button type="button" className="button primary" onClick={openPendingContactTimeSelection}>Sí</button>
-                    <button type="button" className="button ghost" onClick={leavePendingWithoutContactTime}>No, dejar pendiente</button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {pendingContactTimeOptions.length > 0 ? (
-                    <label className="form-field ar-pending-contact-field">
-                      Selecciona la hora
-                      <select
-                        value={pendingContactPrompt.selectedTime}
-                        onChange={(event) => setPendingContactPrompt((current) => current
-                          ? { ...current, selectedTime: event.target.value }
-                          : current)}
-                        autoFocus
-                      >
-                        {pendingContactTimeOptions.map((time) => (
-                          <option key={time} value={time}>{time}</option>
-                        ))}
-                      </select>
-                    </label>
-                  ) : (
-                    <p>Ya no quedan horarios de hoy disponibles en intervalos de 30 minutos.</p>
-                  )}
-                  <div className="confirm-modal-actions">
-                    {pendingContactTimeOptions.length > 0 ? (
-                      <button
-                        type="button"
-                        className="button primary"
-                        onClick={confirmPendingContactTime}
-                        disabled={!pendingContactPrompt.selectedTime}
-                      >
-                        Guardar hora
-                      </button>
-                    ) : (
-                      <button type="button" className="button primary" onClick={leavePendingWithoutContactTime}>Dejar pendiente sin hora</button>
-                    )}
-                    <button
-                      type="button"
-                      className="button ghost"
-                      onClick={() => setPendingContactPrompt((current) => current
-                        ? { ...current, step: "question", selectedTime: "" }
+            <div className="modal-body">
+              <p className="ar-priority-modal-rule">
+                <strong>Monto prellenado:</strong> toda la renta vencida hasta ayer. Puedes editarlo; el cambio no modifica el saldo real del cliente.
+              </p>
+              <div className="ar-priority-route-grid">
+                <label>Monto a cobrar
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputMode="numeric"
+                    value={managementRouteDraft.amount}
+                    onChange={(event) => setManagementRouteDraft((current) => current ? { ...current, amount: event.target.value } : current)}
+                    autoFocus
+                  />
+                </label>
+                <label>Ruta
+                  {managementRouteDraft.customRoute ? (
+                    <input
+                      value={managementRouteDraft.routeAssignment}
+                      maxLength={12}
+                      placeholder="Escribe la ruta"
+                      onChange={(event) => setManagementRouteDraft((current) => current
+                        ? { ...current, routeAssignment: event.target.value.toUpperCase().slice(0, 12) }
                         : current)}
+                    />
+                  ) : (
+                    <select
+                      value={managementRouteDraft.routeAssignment}
+                      onChange={(event) => {
+                        if (event.target.value === "__custom") {
+                          setManagementRouteDraft((current) => current ? { ...current, customRoute: true, routeAssignment: "" } : current);
+                          return;
+                        }
+                        setManagementRouteDraft((current) => current ? { ...current, routeAssignment: event.target.value } : current);
+                      }}
                     >
-                      Volver
-                    </button>
-                  </div>
-                </>
-              )}
+                      <option value="">Seleccionar ruta</option>
+                      {ROUTE_ASSIGNMENT_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                      <option value="__custom">Otra</option>
+                    </select>
+                  )}
+                </label>
+                <label>Tipo de gestión
+                  <select
+                    value={managementRouteDraft.managementType}
+                    onChange={(event) => setManagementRouteDraft((current) => current
+                      ? { ...current, managementType: event.target.value as FieldManagementType }
+                      : current)}
+                  >
+                    <option value="solo_cobrar">Solo cobrar</option>
+                    <option value="cobrar_o_quitar">Cobrar o quitar</option>
+                    <option value="desiste">Desiste</option>
+                    <option value="quitar">Quitar</option>
+                  </select>
+                </label>
+                <label>Urgencia
+                  <select
+                    value={managementRouteDraft.urgency}
+                    onChange={(event) => setManagementRouteDraft((current) => current
+                      ? { ...current, urgency: event.target.value as RouteUrgency }
+                      : current)}
+                  >
+                    {ROUTE_URGENCY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </label>
+                <label className="ar-priority-route-comment">Comentario para el cobrador
+                  <textarea
+                    maxLength={25}
+                    rows={2}
+                    value={managementRouteDraft.comment}
+                    onChange={(event) => setManagementRouteDraft((current) => current ? { ...current, comment: event.target.value } : current)}
+                  />
+                </label>
+              </div>
+            </div>
+            <div className="ar-priority-modal-actions">
+              <span>
+                {!(Number(managementRouteDraft.amount) > 0)
+                  ? "El monto debe ser mayor que cero."
+                  : !normalizeRouteAssignment(managementRouteDraft.routeAssignment)
+                    ? "Falta seleccionar la ruta."
+                    : "Lista para enviar automáticamente a Ruta en calle."}
+              </span>
+              <div>
+                <button type="button" className="button ghost" onClick={() => setManagementRouteDraft(null)}>Cancelar</button>
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={!(Number(managementRouteDraft.amount) > 0) || !normalizeRouteAssignment(managementRouteDraft.routeAssignment)}
+                  onClick={handleSaveManagementRoute}
+                >
+                  Listo
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -3368,8 +3790,9 @@ export default function ReceivablesPage({
             </div>
             <div className="confirm-modal-body">
               <p>
-                Esta accion borra los estados, notas y asignaciones vivas de cuentas por cobrar
+                Esta acción borra los estados, checklist y asignaciones vivas de cuentas por cobrar
                 {clearableManagementRecordsCount > 0 ? ` (${clearableManagementRecordsCount} registro${clearableManagementRecordsCount === 1 ? "" : "s"}).` : "."}
+                {" Las notas se conservarán."}
               </p>
               <label className="form-field">
                 Escribe {CLEAR_COLLECTION_MANAGEMENT_CONFIRMATION} para confirmar

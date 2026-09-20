@@ -277,13 +277,18 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
         ? Math.ceil(Math.max(0, effectiveBalance) / effectiveRentAmount)
         : 0;
       const currentInstallments = Math.max(0, pendingInstallments - overdueInstallments);
-      const overdueBalance = provisionalRental
+      const calculatedOverdueBalance = provisionalRental
         ? roundMoney(provisionalRental.charges
             .filter((charge) => charge.dueDate < toDateKey(referenceDate))
             .reduce((sum, charge) => sum + Math.max(0, charge.amount - charge.amountPaid), 0))
         : debtStartDate && effectiveBalance > 0
           ? roundMoney(Math.max(0, effectiveBalance - currentInstallments * effectiveRentAmount))
           : 0;
+      const normalizedOperationalStatus = String(operationalStatus).trim().toLowerCase();
+      const accruesCurrentRent = !!provisionalRental || (client.status === "activo" && normalizedOperationalStatus === "activo");
+      const overdueBalance = accruesCurrentRent
+        ? calculatedOverdueBalance
+        : roundMoney(Math.max(0, effectiveBalance));
 
       const directPayments = paymentsByClient.get(client.id) ?? [];
       const identityUnitPayments = (paymentsByUnit.get(normalizeUnit(effectiveUnitId)) ?? [])

@@ -711,51 +711,6 @@ select.input-error:focus {
   }
 }
 
-.ar-pending-contact-modal {
-  max-width: 440px;
-}
-
-.ar-pending-contact-body {
-  display: grid;
-  gap: 18px;
-}
-
-.ar-pending-contact-body p {
-  margin: 0;
-  color: var(--color-text);
-  font-size: 1rem;
-  font-weight: 700;
-}
-
-.ar-pending-contact-client {
-  width: fit-content;
-  padding: 5px 9px;
-  border-radius: 999px;
-  background: #f1f5f9;
-  color: #475569;
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
-.ar-pending-contact-field {
-  display: grid;
-  gap: 8px;
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
-  font-weight: 700;
-}
-
-.ar-pending-contact-field select {
-  width: 100%;
-  min-height: 42px;
-  padding: 8px 10px;
-  border: 1.5px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font: inherit;
-}
-
 /* -- Export panel -- */
 
 .export-bar {
@@ -18837,4 +18792,779 @@ button.ar-route-publish-copy.is-active {
   .route-search-page--compact .route-search-list { grid-template-columns: minmax(0, 1fr); }
   .route-search-page--compact .route-search-workflow-tabs .button { flex-basis: 130px; font-size: .8rem; }
   .route-search-page--compact .route-search-header { flex-wrap: wrap; }
+}
+
+/* Cuentas por cobrar: vista unificada y esencial */
+.ar-ledger-panel--essential {
+  container-name: receivables-essential;
+  container-type: inline-size;
+}
+
+.ar-ledger-panel--essential > .ar-ledger-toolbar,
+.ar-ledger-panel--essential > .ar-mobile-filter-toggle,
+.ar-ledger-panel--essential > .ar-filters-panel {
+  display: none;
+}
+
+.ar-ledger-panel--essential .ar-collection-cuts-actions {
+  display: flex;
+}
+
+.ar-ledger-command--essential {
+  margin-bottom: 0;
+  padding-bottom: 14px;
+}
+
+.ar-essential-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #dce4eb;
+  background: #f7f9fb;
+}
+
+.ar-essential-toolbar-fields {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.35fr) repeat(3, minmax(150px, 0.85fr));
+  flex: 1;
+  gap: 9px;
+  max-width: 950px;
+}
+
+.ar-essential-priority-filters {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(135px, 1fr));
+  flex: 1 0 100%;
+  order: 3;
+  gap: 9px;
+  max-width: 950px;
+}
+
+.ar-essential-filter {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ar-essential-filter input,
+.ar-essential-filter select {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid #d5dee8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #172136;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.ar-essential-filter input:focus,
+.ar-essential-filter select:focus,
+.ar-essential-management select:focus,
+.ar-essential-notes input:focus,
+.ar-essential-notes textarea:focus {
+  border-color: #0f766e;
+  outline: 3px solid rgba(15, 118, 110, 0.12);
+}
+
+.ar-essential-results-count {
+  order: 2;
+  padding-bottom: 10px;
+  color: #64748b;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.ar-essential-results-count strong {
+  color: #172136;
+}
+
+.ar-essential-column-guide {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 480px;
+  padding: 9px 28px 9px 25px;
+  border-bottom: 1px solid #dce4eb;
+  color: #7a8798;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ar-essential-column-guide span:nth-child(n + 2) {
+  padding-left: 14px;
+}
+
+.ar-ledger-panel--essential .ar-ledger-scroll {
+  max-height: calc(100vh - 245px);
+  padding: 10px 12px 14px;
+  border-top: 0;
+  background: #f2f5f8;
+}
+
+.ar-ledger-panel--essential .ar-table--compact {
+  border-spacing: 0 8px;
+}
+
+.ar-essential-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 260px minmax(420px, 1fr) 480px;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid #dce4eb;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035);
+}
+
+.ar-essential-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: #0f766e;
+}
+
+.ar-essential-card.is-automatic::before {
+  background: #7c3aed;
+}
+
+.ar-essential-identity {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 13px 12px 13px 16px;
+  border-right: 1px solid #dce4eb;
+}
+
+.ar-essential-unit-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ar-essential-unit {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0f766e;
+  font: inherit;
+  font-size: 1.2rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.ar-essential-unit:hover {
+  color: #115e59;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ar-essential-client-name {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  color: #172136;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.ar-essential-last-payment,
+.ar-essential-tenure {
+  display: grid;
+  gap: 2px;
+  color: #6b788b;
+  font-size: 0.7rem;
+}
+
+.ar-essential-last-payment strong,
+.ar-essential-tenure strong {
+  color: #334155;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.ar-essential-tenure {
+  padding-top: 7px;
+  border-top: 1px solid #e5eaf0;
+}
+
+.ar-essential-tenure strong {
+  color: #0f766e;
+  font-weight: 900;
+}
+
+.ar-essential-statement-button {
+  display: inline-flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid #99d8d0;
+  border-radius: 7px;
+  background: #f0fdfa;
+  color: #0f766e;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 900;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.ar-essential-statement-button:hover:not(:disabled) {
+  border-color: #14b8a6;
+  background: #ccfbf1;
+  color: #115e59;
+}
+
+.ar-essential-statement-button:focus-visible {
+  outline: 2px solid #14b8a6;
+  outline-offset: 2px;
+}
+
+.ar-essential-statement-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.ar-essential-statement-button svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.ar-essential-financial {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: center;
+  gap: 9px 16px;
+  min-width: 0;
+  padding: 13px 15px;
+}
+
+.ar-essential-value {
+  min-width: 0;
+  padding-bottom: 7px;
+  border-bottom: 1px solid #e5eaf0;
+}
+
+.ar-essential-value span {
+  display: block;
+  margin-bottom: 4px;
+  color: #6b788b;
+  font-size: 0.68rem;
+}
+
+.ar-essential-value strong {
+  display: block;
+  color: #172136;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.ar-essential-value small {
+  display: block;
+  margin-top: 3px;
+  color: #7a8798;
+  font-size: 0.64rem;
+  font-weight: 700;
+}
+
+.ar-essential-value--balance strong {
+  color: #2459c4;
+}
+
+.ar-essential-value--rent strong {
+  color: #b4232c;
+}
+
+.ar-essential-value--total strong {
+  color: #0f766e;
+  font-weight: 900;
+}
+
+.ar-essential-followup {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.55fr) minmax(210px, 0.45fr);
+  min-width: 0;
+  border-left: 1px solid #dce4eb;
+  background: #f7f9fb;
+}
+
+.ar-essential-management,
+.ar-essential-notes {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.ar-essential-management {
+  border-right: 1px solid #dce4eb;
+}
+
+.ar-daily-contact-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ar-daily-contact-header > strong {
+  color: #0f766e;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.ar-daily-contact-checklist {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+.ar-daily-contact-shift-label {
+  color: #475569;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.ar-daily-contact-check {
+  display: grid;
+  place-items: center;
+  min-height: 40px;
+  border: 1px solid #d5dee8;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.ar-daily-contact-check.is-checked {
+  border-color: #8bd5ca;
+  background: #ecfdf5;
+}
+
+.ar-daily-contact-check input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: #0f766e;
+}
+
+.ar-daily-contact-check:has(input:disabled) {
+  background: #f1f5f9;
+  opacity: 0.7;
+}
+
+.ar-daily-contact-collapsed {
+  padding: 9px 10px;
+  border: 1px solid #8bd5ca;
+  border-radius: 7px;
+  background: #ecfdf5;
+  color: #0f766e;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.ar-essential-label {
+  color: #6b788b;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ar-essential-management select,
+.ar-essential-notes input,
+.ar-essential-notes textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid #d5dee8;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #172136;
+  font: inherit;
+  font-size: 0.75rem;
+}
+
+.ar-essential-management select {
+  min-height: 36px;
+  font-weight: 800;
+}
+
+.ar-essential-notes textarea {
+  min-height: 58px;
+  resize: vertical;
+}
+
+.ar-essential-automatic-management {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #6b788b;
+  font-size: 0.66rem;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.ar-essential-automatic-management span {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ar-essential-automatic-management strong {
+  display: block;
+  padding: 8px 7px;
+  border-radius: 7px;
+  text-align: center;
+}
+
+.ar-essential-review-button {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 8px;
+  border: 1px solid #d97706;
+  border-radius: 7px;
+  background: #fff7ed;
+  color: #9a3412;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 900;
+  line-height: 1.25;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.ar-essential-review-button.is-reviewed {
+  border-color: #99d8d0;
+  background: #ecfdf5;
+  color: #0f766e;
+}
+
+.ar-essential-review-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.ar-essential-route-button {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 8px;
+  border: 1px solid #0f766e;
+  border-radius: 7px;
+  background: #0f766e;
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 900;
+  line-height: 1.25;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.ar-essential-route-button.is-in-route {
+  border-color: #c2410c;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.ar-essential-route-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+@media (max-width: 1180px) {
+  .ar-essential-column-guide {
+    display: none;
+  }
+
+  .ar-essential-card {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+
+  .ar-essential-followup {
+    grid-column: 1 / -1;
+    border-top: 1px solid #dce4eb;
+    border-left: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .ar-essential-priority-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .ar-essential-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ar-essential-toolbar-fields {
+    grid-template-columns: 1fr;
+    max-width: none;
+  }
+
+  .ar-essential-priority-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .ar-essential-filter input,
+  .ar-essential-filter select,
+  .ar-essential-management select,
+  .ar-essential-notes input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .ar-essential-results-count {
+    padding-bottom: 0;
+  }
+
+  .ar-essential-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-essential-identity {
+    border-right: 0;
+    border-bottom: 1px solid #dce4eb;
+  }
+
+  .ar-essential-financial {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ar-essential-followup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-essential-management {
+    border-right: 0;
+    border-bottom: 1px solid #dce4eb;
+  }
+
+  .ar-essential-notes textarea {
+    min-height: 82px;
+    font-size: 16px;
+  }
+}
+
+@container receivables-essential (max-width: 1450px) {
+  .ar-essential-column-guide {
+    display: none;
+  }
+
+  .ar-ledger-panel--essential .ar-ledger-scroll {
+    overflow-x: hidden;
+  }
+
+  .ar-ledger-panel--essential .ar-table--compact,
+  .ar-ledger-panel--essential .ar-table--compact tbody,
+  .ar-ledger-panel--essential .ar-essential-table-row,
+  .ar-ledger-panel--essential .ar-essential-table-row > .ar-card-cell {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .ar-essential-card {
+    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  }
+
+  .ar-essential-followup {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(180px, 0.32fr) minmax(0, 0.68fr);
+    border-top: 1px solid #dce4eb;
+    border-left: 0;
+  }
+
+  .ar-essential-toolbar-fields,
+  .ar-essential-priority-filters {
+    max-width: none;
+  }
+}
+
+@container receivables-essential (max-width: 1100px) {
+  .ar-workflow-commandbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ar-route-publish-cta {
+    width: 100%;
+  }
+
+  .ar-essential-toolbar-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ar-essential-priority-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ar-essential-results-count {
+    width: 100%;
+    padding: 0;
+  }
+
+  .ar-essential-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-essential-identity {
+    grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1.2fr);
+    align-items: start;
+    border-right: 0;
+    border-bottom: 1px solid #dce4eb;
+  }
+
+  .ar-essential-unit-line,
+  .ar-essential-client-name {
+    grid-column: 1;
+  }
+
+  .ar-essential-last-payment,
+  .ar-essential-tenure {
+    grid-column: 2;
+  }
+
+  .ar-essential-last-payment {
+    grid-row: 1;
+  }
+
+  .ar-essential-tenure {
+    grid-row: 2 / span 2;
+  }
+
+  .ar-essential-financial,
+  .ar-essential-followup {
+    grid-column: 1;
+  }
+}
+
+@container receivables-essential (max-width: 720px) {
+  .ar-ledger-command--essential,
+  .ar-workflow-commandbar {
+    margin-left: 10px;
+    margin-right: 10px;
+  }
+
+  .ar-workflow-tabs,
+  .ar-route-publish-cta {
+    width: 100%;
+  }
+
+  .ar-route-publish-cta {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .ar-route-publish-copy {
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
+
+  .ar-essential-toolbar {
+    padding: 12px 10px;
+  }
+
+  .ar-essential-toolbar-fields,
+  .ar-essential-priority-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ar-essential-filter input,
+  .ar-essential-filter select,
+  .ar-essential-management select,
+  .ar-essential-route-button,
+  .ar-essential-review-button,
+  .ar-essential-notes input {
+    min-height: 44px;
+  }
+
+  .ar-ledger-panel--essential .ar-ledger-scroll {
+    max-height: none;
+    padding: 8px;
+  }
+
+  .ar-essential-identity {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-essential-unit-line,
+  .ar-essential-client-name,
+  .ar-essential-last-payment,
+  .ar-essential-tenure {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .ar-essential-financial {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .ar-essential-followup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-essential-management {
+    border-right: 0;
+    border-bottom: 1px solid #dce4eb;
+  }
+}
+
+@container receivables-essential (max-width: 460px) {
+  .ar-workflow-tabs,
+  .ar-essential-toolbar-fields,
+  .ar-essential-priority-filters,
+  .ar-essential-financial {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-route-publish-cta {
+    grid-template-columns: minmax(0, 1fr) 88px;
+  }
+
+  .ar-route-publish-button.button {
+    width: 100%;
+  }
+
+  .ar-essential-card {
+    border-radius: 9px;
+  }
+
+  .ar-essential-unit {
+    font-size: 1.35rem;
+  }
 }

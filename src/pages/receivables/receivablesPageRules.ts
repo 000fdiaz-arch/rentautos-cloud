@@ -1,7 +1,16 @@
 import { formatCurrency } from "../../format";
 import { PLAN_LABEL, type ReceivableRow, type ReceivableState, type SortDirection } from "../../receivables";
 import type { Client } from "../../types";
-import type { CollectionStatus, CollectionStatusRecord, FieldManagementType, RouteAssignment, RouteUrgency } from "./receivablesTypes";
+import type {
+  CollectionStatus,
+  CollectionStatusRecord,
+  DailyContactAttempt,
+  DailyContactAttemptsByDate,
+  DailyContactShift,
+  FieldManagementType,
+  RouteAssignment,
+  RouteUrgency
+} from "./receivablesTypes";
 
 export type DashboardFilter = "none" | "totalPorCobrar" | "totalVencido" | "proximoAVencer" | "clientesMorosos" | "cobradoEsteMes";
 export type ExportFieldKey = "unitId" | "name" | "rentAmount" | "pendingSummary" | "lastPaymentDate" | "state" | "collectionStatus" | "routeCollection";
@@ -11,6 +20,18 @@ export type GroupFilter = "all" | string;
 export type ReceivablesViewMode = "cartera" | "historial";
 export type ReceivablesWorkflowTab = "management" | "priority" | "route";
 export type CollectionCutKey = "morning" | "afternoon" | "night";
+
+export const DAILY_CONTACT_SHIFT_OPTIONS: Array<{ key: DailyContactShift; label: string; startHour: number }> = [
+  { key: "morning", label: "Mañana", startHour: 0 },
+  { key: "afternoon", label: "Tarde", startHour: 12 },
+  { key: "night", label: "Noche", startHour: 18 }
+];
+
+export function currentDailyContactShift(now: Date): DailyContactShift {
+  if (now.getHours() >= 18) return "night";
+  if (now.getHours() >= 12) return "afternoon";
+  return "morning";
+}
 
 export type CollectionClosureItem = {
   clientId: string;
@@ -29,6 +50,7 @@ export type CollectionClosureItem = {
   contactTime?: string;
   whatsAppMessageCopiedAt?: string;
   whatsAppMessageSentAt?: string;
+  dailyContactAttempts?: Partial<Record<DailyContactShift, DailyContactAttempt>>;
 };
 
 export type CollectionClosureSnapshot = {
@@ -284,6 +306,27 @@ export function planLabelForExport(plan: ReceivableRow["plan"]): string {
   return PLAN_LABEL[plan] ?? "Plan";
 }
 
+function parseDailyContactAttemptsByDate(value: unknown): DailyContactAttemptsByDate | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const parsed: DailyContactAttemptsByDate = {};
+  for (const [dateKey, rawAttempts] of Object.entries(value as Record<string, unknown>)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || !rawAttempts || typeof rawAttempts !== "object" || Array.isArray(rawAttempts)) continue;
+    const attempts: Partial<Record<DailyContactShift, DailyContactAttempt>> = {};
+    for (const shift of DAILY_CONTACT_SHIFT_OPTIONS) {
+      const rawAttempt = (rawAttempts as Record<string, unknown>)[shift.key];
+      if (!rawAttempt || typeof rawAttempt !== "object" || Array.isArray(rawAttempt)) continue;
+      const attempt = rawAttempt as Record<string, unknown>;
+      if (attempt.result !== "contacted") continue;
+      attempts[shift.key] = {
+        result: attempt.result,
+        updatedAt: typeof attempt.updatedAt === "string" ? attempt.updatedAt : new Date().toISOString()
+      };
+    }
+    if (Object.keys(attempts).length > 0) parsed[dateKey] = attempts;
+  }
+  return Object.keys(parsed).length > 0 ? parsed : undefined;
+}
+
 function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
@@ -313,6 +356,9 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
   const contactTimeUpdatedAt = typeof row.contactTimeUpdatedAt === "string" ? row.contactTimeUpdatedAt : undefined;
   const paymentPromiseDate = typeof row.paymentPromiseDate === "string" ? row.paymentPromiseDate : undefined;
   const paymentPromiseUpdatedAt = typeof row.paymentPromiseUpdatedAt === "string" ? row.paymentPromiseUpdatedAt : undefined;
+  const operationalReviewStatus = typeof row.operationalReviewStatus === "string" ? row.operationalReviewStatus : undefined;
+  const operationalReviewedAt = typeof row.operationalReviewedAt === "string" ? row.operationalReviewedAt : undefined;
+  const dailyContactAttemptsByDate = parseDailyContactAttemptsByDate(row.dailyContactAttemptsByDate);
   const rawPriorityDebtCap = typeof row.priorityDebtCap === "number" ? row.priorityDebtCap : Number(row.priorityDebtCap);
   const priorityDebtCap = Number.isFinite(rawPriorityDebtCap) && rawPriorityDebtCap > 0 ? rawPriorityDebtCap : undefined;
   const priorityDebtCapUpdatedAt = typeof row.priorityDebtCapUpdatedAt === "string" ? row.priorityDebtCapUpdatedAt : undefined;
@@ -327,7 +373,7 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
     : isRouteTagged
       ? routeReleaseUpdatedAt ?? managementUpdatedAt ?? updatedAt
       : undefined;
-  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt, contactTime, contactTimeUpdatedAt, paymentPromiseDate, paymentPromiseUpdatedAt, routeReleaseAmount, routeReleaseUpdatedAt, routeAssignment, routeAssignmentUpdatedAt, routeUrgency, routeUrgencyUpdatedAt, priorityDebtCap, priorityDebtCapUpdatedAt };
+  const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt, contactTime, contactTimeUpdatedAt, paymentPromiseDate, paymentPromiseUpdatedAt, operationalReviewStatus, operationalReviewedAt, dailyContactAttemptsByDate, routeReleaseAmount, routeReleaseUpdatedAt, routeAssignment, routeAssignmentUpdatedAt, routeUrgency, routeUrgencyUpdatedAt, priorityDebtCap, priorityDebtCapUpdatedAt };
   if (
     status === "pending" ||
     status === "unassigned" ||

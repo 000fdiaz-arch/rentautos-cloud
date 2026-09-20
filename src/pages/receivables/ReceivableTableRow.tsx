@@ -5,9 +5,17 @@ import { inlineComputedStylesForCanvas } from "../../canvasExportStyles";
 import { formatCurrency, formatDate } from "../../format";
 import { PLAN_LABEL, STATE_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivables";
 import type { IncidentReceivableAction } from "./incidentReceivableActions";
-import type { CollectionStatus, CollectionStatusRecord, FieldManagementType, RouteUrgency } from "./receivablesTypes";
+import type {
+  CollectionStatus,
+  CollectionStatusRecord,
+  DailyContactResult,
+  DailyContactShift,
+  FieldManagementType,
+  RouteUrgency
+} from "./receivablesTypes";
 import {
   COLLECTION_CUT_OPTIONS,
+  DAILY_CONTACT_SHIFT_OPTIONS,
   DAILY_COLLECTION_STATUS_OPTIONS,
   ROUTE_ASSIGNMENT_OPTIONS,
   ROUTE_COLLECTION_STATUS_OPTIONS,
@@ -16,6 +24,7 @@ import {
   CONTACT_TIME_OPTIONS,
   clientOperationalStatusLabel,
   clientOperationalStatusTone,
+  currentDailyContactShift,
   normalizeContactTime,
   normalizeRouteAssignment,
   overdueInstallmentsText,
@@ -30,6 +39,7 @@ type Props = {
   row: ReceivableRow;
   statusRecord?: CollectionStatusRecord;
   operationalStatus: string;
+  tenureLabel: string;
   todayDateKey: string;
   now: Date;
   isTodayCollectionClosed: boolean;
@@ -51,6 +61,10 @@ type Props = {
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
   onSupportNoteChange: (clientId: string, value: string) => void;
   onContactTimeChange: (clientId: string, value: string) => void;
+  onDailyContactAttemptChange: (clientId: string, shift: DailyContactShift, result: DailyContactResult | "pending") => void;
+  onOperationalReviewChange: (clientId: string, operationalStatus: string, reviewed: boolean) => void;
+  onOpenRoutePreparation: (clientId: string) => void;
+  onOpenRoute: () => void;
   incidentAction?: IncidentReceivableAction;
 };
 
@@ -101,48 +115,17 @@ function formatStatementTimestamp(value: string | null | undefined, now: Date): 
   return `${formatDate(date)} ${date.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" })}${elapsed ? ` (${elapsed})` : ""}`;
 }
 
-function isStatementChargeDay(row: ReceivableRow, date: Date): boolean {
-  const weekDay = date.getDay();
-  if (row.plan === "daily") {
-    if (weekDay >= 1 && weekDay <= 6) return true;
-    return weekDay === 0 && !!row.chargeFirstSunday && row.installmentsPaid <= 7;
-  }
-  if (row.plan === "weekly") {
-    const dayMap: Record<NonNullable<ReceivableRow["weeklyChargeDay"]>, number> = {
-      monday: 1,
-      tuesday: 2,
-      wednesday: 3,
-      thursday: 4,
-      friday: 5,
-      saturday: 6
-    };
-    return weekDay === dayMap[row.weeklyChargeDay ?? "monday"];
-  }
-  if (row.plan === "biweekly") {
-    const day = date.getDate();
-    if (day === 15) return true;
-    if (date.getMonth() === 1) return day === new Date(date.getFullYear(), 2, 0).getDate();
-    return day === 30;
-  }
-  const day = date.getDate();
-  const monthlyChargeDay = row.monthlyChargeDay ?? 1;
-  const adjustedMonthlyDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  return day === Math.min(monthlyChargeDay, adjustedMonthlyDay);
-}
-
 function roundStatementMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-function statementRentSplit(row: ReceivableRow, now: Date): { overdueRent: number; currentRent: number } {
+function statementRentSplit(row: ReceivableRow): { overdueRent: number; currentRent: number } {
   const totalPending = roundStatementMoney(Math.max(0, row.totalPending));
   if (totalPending <= 0) return { overdueRent: 0, currentRent: 0 };
-  const currentRent = isStatementChargeDay(row, now)
-    ? roundStatementMoney(Math.min(Math.max(0, row.rentAmount), totalPending))
-    : roundStatementMoney(Math.max(0, totalPending - Math.max(0, row.overdueBalance)));
+  const overdueRent = roundStatementMoney(Math.min(totalPending, Math.max(0, row.overdueBalance)));
   return {
-    overdueRent: roundStatementMoney(Math.max(0, totalPending - currentRent)),
-    currentRent
+    overdueRent,
+    currentRent: roundStatementMoney(Math.max(0, totalPending - overdueRent))
   };
 }
 
@@ -174,7 +157,7 @@ function statementWholeAndPartialRent(amount: number, rentAmount: number): { who
 
 function StatementBalanceCard({ row, now }: { row: ReceivableRow; now: Date }) {
   const planLabel = planDetailLabel(row);
-  const { overdueRent, currentRent } = statementRentSplit(row, now);
+  const { overdueRent, currentRent } = statementRentSplit(row);
   const { wholeRent: fullOverdueRent, partialRent: overduePartialRent } = statementWholeAndPartialRent(overdueRent, row.rentAmount);
   const showOverduePartialRent = overduePartialRent > 0;
   const showOverdueRent = fullOverdueRent > 0;
@@ -462,10 +445,20 @@ function contactTimeMeta(value: string | undefined, now: Date): { tone: "missing
   return { tone: "scheduled", label: "Llamada" };
 }
 
+function pendingRentLettersLabel(amount: number, rentAmount: number): string {
+  const amountCents = Math.max(0, Math.round(amount * 100));
+  const rentCents = Math.round(rentAmount * 100);
+  if (!(amountCents > 0) || !(rentCents > 0)) return "0 letras";
+  const letters = Math.ceil(amountCents / rentCents);
+  return `${letters} ${letters === 1 ? "letra" : "letras"}`;
+}
+
 function ReceivableTableRowComponent({
   row,
   statusRecord,
   operationalStatus,
+  tenureLabel,
+  todayDateKey,
   now,
   isTodayCollectionClosed,
   workflowTab,
@@ -486,6 +479,10 @@ function ReceivableTableRowComponent({
   onWhatsAppMessageSent,
   onSupportNoteChange,
   onContactTimeChange,
+  onDailyContactAttemptChange,
+  onOperationalReviewChange,
+  onOpenRoutePreparation,
+  onOpenRoute,
   incidentAction
 }: Props) {
   const [isCopyingBalanceImage, setIsCopyingBalanceImage] = useState(false);
@@ -627,6 +624,226 @@ function ReceivableTableRowComponent({
   function handleContactTimeDraftBlur(): void {
     const normalized = normalizeContactTime(contactTimeDraft);
     setContactTimeDraft(normalized ?? statusRecord?.contactTime ?? "");
+  }
+
+  if ((workflowTab as string) === "management") {
+    const isOperationallyActive = isWhatsAppEligibleUnit(row, operationalStatus);
+    const operationalReviewValue = operationalStatus
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+    const isOperationallyReviewed = statusRecord?.operationalReviewStatus === operationalReviewValue;
+    const managementValue = statusRecord?.status === "contacted" ? "contacted" : "pending";
+    const paymentDate = row.lastPaymentDate ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) : "Sin pagos";
+    const paymentRelative = lastPaymentLabel(row.lastPaymentDate, now)
+      .replace(/^PAGO HOY$/, "Hoy")
+      .replace(/^Ultimo pago /, "");
+    const planLabel = row.hasActiveClient
+      ? `${planDetailLabel(row)}${row.rentAmount > 0 ? ` · ${formatCurrency(row.rentAmount)}` : ""}`
+      : "Sin plan";
+    const currentRentBalance = Math.max(0, row.totalPending - row.overdueBalance);
+    const totalRentBalance = currentRentBalance + row.overdueBalance;
+    const overdueRentLetters = pendingRentLettersLabel(row.overdueBalance, row.rentAmount);
+    const totalRentLetters = pendingRentLettersLabel(totalRentBalance, row.rentAmount);
+    const dailyContactAttempts = statusRecord?.dailyContactAttemptsByDate?.[todayDateKey] ?? {};
+    const currentContactShift = currentDailyContactShift(now);
+    const currentContactShiftIndex = DAILY_CONTACT_SHIFT_OPTIONS.findIndex((option) => option.key === currentContactShift);
+    const completedContactCount = DAILY_CONTACT_SHIFT_OPTIONS.filter((option) => dailyContactAttempts[option.key]?.result === "contacted").length;
+
+    return (
+      <tr className="ar-card-row ar-essential-table-row">
+        <td colSpan={4} className="ar-card-cell">
+          <article className={`ar-essential-card ${isOperationallyActive ? "is-active" : "is-automatic"}`}>
+            <section className="ar-essential-identity">
+              <div className="ar-essential-unit-line">
+                <button type="button" className="ar-essential-unit" onClick={() => onSelectDetail(row)}>
+                  {row.unitId}
+                </button>
+                <span className={clientOperationalStatusTone(operationalStatus)}>
+                  {clientOperationalStatusLabel(operationalStatus)}
+                </span>
+              </div>
+              <strong className="ar-essential-client-name" title={row.name}>{row.name}</strong>
+              <div className="ar-essential-last-payment">
+                <span>Último pago</span>
+                <strong>{paymentDate}{row.lastPaymentDate ? ` · ${paymentRelative}` : ""}</strong>
+              </div>
+              <div className="ar-essential-tenure">
+                <span>Antigüedad del cliente</span>
+                <strong>{tenureLabel}</strong>
+              </div>
+              <button
+                type="button"
+                className={`ar-essential-statement-button ${isCopyingBalanceImage ? "is-copying" : ""}`}
+                onClick={() => void handleCopyBalanceImage()}
+                disabled={isCopyingBalanceImage}
+                title={balanceImageTitle}
+                aria-label={balanceImageTitle}
+              >
+                {isCopyingBalanceImage ? (
+                  <>
+                    <span className="ar-copy-spinner" aria-hidden="true" />
+                    <span>Preparando...</span>
+                  </>
+                ) : (
+                  <>
+                    <BalanceImageIcon />
+                    <span>Estado de cuenta</span>
+                  </>
+                )}
+              </button>
+            </section>
+
+            <section className="ar-essential-financial" aria-label={`Información de cuenta de ${row.unitId}`}>
+              <div className="ar-essential-value">
+                <span>Tiempo de atraso</span>
+                <strong>{row.daysLate > 0 ? `${row.daysLate} días` : "Sin atraso"}</strong>
+              </div>
+              <div className="ar-essential-value">
+                <span>Tipo de plan</span>
+                <strong>{planLabel}</strong>
+              </div>
+              <div className="ar-essential-value">
+                <span>Otros cargos</span>
+                <strong>{formatCurrency(row.totalOtherCharges)}</strong>
+              </div>
+              <div className="ar-essential-value ar-essential-value--balance">
+                <span>Renta corriente</span>
+                <strong>{formatCurrency(currentRentBalance)}</strong>
+              </div>
+              <div className="ar-essential-value ar-essential-value--rent">
+                <span>Renta vencida</span>
+                <strong>{formatCurrency(row.overdueBalance)}</strong>
+                <small>{overdueRentLetters}</small>
+              </div>
+              <div className="ar-essential-value ar-essential-value--total">
+                <span>Renta total</span>
+                <strong>{formatCurrency(totalRentBalance)}</strong>
+                <small>{totalRentLetters}</small>
+              </div>
+            </section>
+
+            <section className="ar-essential-followup">
+              <div className="ar-essential-management">
+                {isOperationallyActive ? (
+                  <>
+                    <span className="ar-essential-label">Gestión</span>
+                    <select
+                      value={managementValue}
+                      onChange={(event) => onCollectionCutStatusChange("night", row.id, event.target.value)}
+                      disabled={isTodayCollectionClosed || statusRecord?.isRouteTagged}
+                      aria-label={`Gestión de ${row.unitId}`}
+                    >
+                      <option value="pending">Pendiente</option>
+                      <option value="contacted">Contactado</option>
+                    </select>
+                    {managementValue === "pending" ? (
+                      <>
+                        <div className="ar-daily-contact-header">
+                          <span className="ar-essential-label">Checklist de contacto</span>
+                          <strong>{completedContactCount}/3</strong>
+                        </div>
+                        <div className="ar-daily-contact-checklist" role="group" aria-label={`Contactos de hoy para ${row.unitId}`}>
+                          {DAILY_CONTACT_SHIFT_OPTIONS.map((option) => (
+                            <span key={`${option.key}-label`} className="ar-daily-contact-shift-label">{option.label}</span>
+                          ))}
+                          {DAILY_CONTACT_SHIFT_OPTIONS.map((option, index) => {
+                            const attempt = dailyContactAttempts[option.key];
+                            const isFutureShift = index > currentContactShiftIndex;
+                            const attemptDate = attempt?.updatedAt ? new Date(attempt.updatedAt) : null;
+                            const attemptTime = attemptDate && !Number.isNaN(attemptDate.getTime())
+                              ? attemptDate.toLocaleTimeString("es-PA", { hour: "numeric", minute: "2-digit" })
+                              : "";
+                            return (
+                              <label
+                                key={option.key}
+                                className={`ar-daily-contact-check ${attempt?.result === "contacted" ? "is-checked" : ""}`}
+                                title={attemptTime ? `Contactado a las ${attemptTime}` : isFutureShift ? "Aún no corresponde" : "Marcar como contactado"}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={attempt?.result === "contacted"}
+                                  onChange={(event) => onDailyContactAttemptChange(row.id, option.key, event.target.checked ? "contacted" : "pending")}
+                                  disabled={isTodayCollectionClosed || statusRecord?.isRouteTagged || isFutureShift}
+                                  aria-label={`${option.label}: contactado con ${row.unitId}`}
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="ar-daily-contact-collapsed">Contactado ✓</div>
+                    )}
+                    <button
+                      type="button"
+                      className={`ar-essential-route-button ${statusRecord?.isRouteTagged ? "is-in-route" : ""}`}
+                      onClick={() => statusRecord?.isRouteTagged ? onOpenRoute() : onOpenRoutePreparation(row.id)}
+                      disabled={isTodayCollectionClosed}
+                    >
+                      {statusRecord?.isRouteTagged ? "Ver en ruta" : "Enviar a ruta"}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="ar-essential-label">Gestión</span>
+                    <div className="ar-essential-automatic-management">
+                      <strong className={clientOperationalStatusTone(operationalStatus)}>
+                        {clientOperationalStatusLabel(operationalStatus)}
+                      </strong>
+                      <span>
+                        {isOperationallyReviewed
+                          ? "Revisión confirmada. No aparece entre los pendientes."
+                          : "Requiere revisión para omitirla de los pendientes."}
+                      </span>
+                      <button
+                        type="button"
+                        className={`ar-essential-review-button ${isOperationallyReviewed ? "is-reviewed" : ""}`}
+                        onClick={() => onOperationalReviewChange(row.id, operationalStatus, !isOperationallyReviewed)}
+                        disabled={isTodayCollectionClosed}
+                      >
+                        {isOperationallyReviewed ? "Revisada ✓" : "Marcar revisada"}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="ar-essential-notes">
+                <span className="ar-essential-label">Notas y hora de contacto</span>
+                <input
+                  className="ar-essential-contact-time"
+                  type="text"
+                  list={`contact-time-options-${row.id}`}
+                  value={contactTimeDraft}
+                  onChange={(event) => handleContactTimeDraftChange(event.target.value)}
+                  onBlur={handleContactTimeDraftBlur}
+                  disabled={isTodayCollectionClosed}
+                  placeholder="Ej. 6:30 PM"
+                  maxLength={8}
+                  aria-label={`Hora posible de contacto de ${row.unitId}`}
+                />
+                <datalist id={`contact-time-options-${row.id}`}>
+                  {CONTACT_TIME_OPTIONS.map((time) => (
+                    <option key={time} value={time}>{time}</option>
+                  ))}
+                </datalist>
+                <textarea
+                  value={statusRecord?.supportNote ?? ""}
+                  onChange={(event) => onSupportNoteChange(row.id, event.target.value)}
+                  placeholder="Escribe una nota..."
+                  maxLength={300}
+                  rows={3}
+                  disabled={isTodayCollectionClosed}
+                  aria-label={`Notas de ${row.unitId}`}
+                />
+              </div>
+            </section>
+          </article>
+        </td>
+      </tr>
+    );
   }
 
   function renderCutCell(cutKey: CollectionCutKey) {
@@ -1049,6 +1266,7 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.row === next.row &&
   previous.statusRecord === next.statusRecord &&
   previous.operationalStatus === next.operationalStatus &&
+  previous.tenureLabel === next.tenureLabel &&
   previous.todayDateKey === next.todayDateKey &&
   previous.isTodayCollectionClosed === next.isTodayCollectionClosed &&
   previous.workflowTab === next.workflowTab &&
@@ -1068,6 +1286,10 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.onWhatsAppMessageSent === next.onWhatsAppMessageSent &&
   previous.onSupportNoteChange === next.onSupportNoteChange &&
   previous.onContactTimeChange === next.onContactTimeChange
+  && previous.onDailyContactAttemptChange === next.onDailyContactAttemptChange
+  && previous.onOperationalReviewChange === next.onOperationalReviewChange
+  && previous.onOpenRoutePreparation === next.onOpenRoutePreparation
+  && previous.onOpenRoute === next.onOpenRoute
   && previous.incidentAction?.targetId === next.incidentAction?.targetId
   && previous.incidentAction?.destination === next.incidentAction?.destination
   && previous.incidentAction?.label === next.incidentAction?.label
