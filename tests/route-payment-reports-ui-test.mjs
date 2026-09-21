@@ -42,7 +42,19 @@ try {
     if(url.pathname.endsWith('/rpc/update_active_route_zone')) {item.zone=req.postDataJSON().p_zone;return route.fulfill({status:204});}
     if(url.pathname.endsWith('/rpc/update_active_route_comment')) {item.comment=req.postDataJSON().p_comment;return route.fulfill({status:204});}
     if(url.pathname.endsWith('/notified_payments_cloud'))return route.fulfill({json:[]});
-    if(url.pathname.endsWith('/route_payment_reports'))return route.fulfill({json:reports});
+    if(url.pathname.endsWith('/route_payment_reports')){
+      let visible=[...reports];
+      for(const field of ['status','method','confirmed_cash_amount','id']){
+        const filter=url.searchParams.get(field);if(!filter)continue;
+        if(filter.startsWith('eq.')) visible=visible.filter(report=>String(report[field])===filter.slice(3));
+        if(field==='id'&&filter.startsWith('not.in.(')){
+          const excluded=filter.slice(8,-1).split(',');visible=visible.filter(report=>!excluded.includes(report.id));
+        }
+      }
+      if(url.searchParams.get('order')?.includes('reported_at.desc')) visible.sort((left,right)=>right.reported_at.localeCompare(left.reported_at)||left.id.localeCompare(right.id));
+      const limit=Number(url.searchParams.get('limit'));if(Number.isFinite(limit)&&limit>0)visible=visible.slice(0,limit);
+      return route.fulfill({json:visible});
+    }
     if(url.pathname.endsWith('/rpc/change_active_route_assignment')){
       const input=req.postDataJSON();routeChanges.push(input);
       if(fail)return route.fulfill({status:400,json:{message:'La ruta cambió. Actualiza.'}});
@@ -156,6 +168,7 @@ try {
   assert.equal(await page.locator('.route-search-workflow-tabs button').count(),5);
   await page.getByPlaceholder('Unidad, cliente, cedula, telefono o zona...').fill('no-match');
   await partialTab.click();
+  await page.getByPlaceholder('Unidad, cliente, cedula, telefono o zona...').fill('');
   await page.getByText('Faltan $8.00 para liberar',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Reportar que pagó',exact:true}).count(),0);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);

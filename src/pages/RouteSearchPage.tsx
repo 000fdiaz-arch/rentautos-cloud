@@ -3,7 +3,7 @@ import RoutePendingCashPanel from "./RoutePendingCashPanel";
 import RouteCollectionCard, { type RouteWorkflowView } from "./RouteCollectionCard";
 import RouteTeamSummary from "./RouteTeamSummary";
 import { PaymentPreviewDialog } from "./payments/PaymentDialogs";
-import { applyRouteReportDelta, changeRouteAssignment, cancelRoutePaymentReport, loadNextPendingCashRouteReport, loadRoutePaymentReport, loadRoutePaymentReportForItem, loadRoutePaymentReports, loadRouteReportReceipts, reportRoutePayment, routeReportDeltaFromPayload, setRouteCustody, setRouteInactiveStatus, type RoutePaymentReport, type RouteReportDelta } from "../cloud/routeReportCloudData";
+import { applyRouteReportDelta, changeRouteAssignment, cancelRoutePaymentReport, loadNextPendingCashRouteReport, loadRoutePaymentReport, loadRoutePaymentReportForItem, loadRoutePaymentReports, loadRoutePaymentReportsPage, loadRouteReportReceipts, reportRoutePayment, routeReportDeltaFromPayload, setRouteCustody, setRouteInactiveStatus, type RoutePaymentReport, type RouteReportDelta } from "../cloud/routeReportCloudData";
 import {
   ALL_ACTIVE_ROUTE_FILTER,
   EMPTY_ACTIVE_ROUTE_FILTER,
@@ -28,7 +28,7 @@ import {
 } from "../cloudData";
 import { formatCurrency, formatDate } from "../format";
 import { supabase } from "../lib/supabase";
-import { getActiveRouteReviewItems, getRouteWorkItems, isPendingCashRouteReport, routeRentAmountForDay } from "../routeReviewRules";
+import { buildRouteReviewIndex, getActiveRouteReviewItems, getRouteWorkItems, isPendingCashRouteReport, routeRentAmountForDay } from "../routeReviewRules";
 import type { Client, CollectionTeam, Payment } from "../types";
 import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentStorage";
 import type { NotifiedPayment } from "./payments/paymentTypes";
@@ -56,6 +56,7 @@ export type RouteSearchPageProps = {
 const ALL_ACTIVE_ZONE_FILTER = "__all_zones__";
 const EMPTY_ACTIVE_ZONE_FILTER = "__empty_zone__";
 const STANDARD_ACTIVE_ROUTES = new Set(["PTY", "WC"]);
+const ROUTE_REPORT_PAGE_SIZE = 200;
 
 type ZoneOption = {
   value: string;
@@ -145,6 +146,7 @@ export default function RouteSearchPage({
   const pendingItemDeltasRef = useRef<ActiveRouteDelta[]>([]);
   const reportLoadIdRef = useRef(0);
   const reportLoadingRef = useRef(false);
+  const reportHistoryOffsetRef = useRef(0);
   const pendingReportDeltasRef = useRef<RouteReportDelta[]>([]);
   const [workflowView, setWorkflowView] = useState<RouteWorkflowView>("work");
   const [reviewMethod, setReviewMethod] = useState<"cash" | "bank" | "mixed">("cash");
@@ -165,6 +167,8 @@ export default function RouteSearchPage({
   const [reportError, setReportError] = useState("");
   const [reportsError, setReportsError] = useState("");
   const [reportsReady, setReportsReady] = useState(false);
+  const [reportsHaveMore, setReportsHaveMore] = useState(false);
+  const [reportsLoadingMore, setReportsLoadingMore] = useState(false);
 
   async function reloadReports(): Promise<void> {
     const loadId = ++reportLoadIdRef.current;
@@ -173,13 +177,20 @@ export default function RouteSearchPage({
       reportLoadingRef.current = false;
       setReports([]);
       setReportsReady(false);
+      setReportsHaveMore(false);
       return;
     }
     reportLoadingRef.current = true;
     try {
-      const loaded = await loadRoutePaymentReports(dataOwnerUserId);
+      const [page, reviewReports] = await Promise.all([
+        loadRoutePaymentReportsPage(dataOwnerUserId, 0, ROUTE_REPORT_PAGE_SIZE),
+        loadRoutePaymentReports(dataOwnerUserId, { reviewOnly: true })
+      ]);
       if (loadId !== reportLoadIdRef.current) return;
+      const loaded = [...new Map([...page.reports, ...reviewReports].map((report) => [report.id, report])).values()];
       setReports(pendingReportDeltasRef.current.reduce(applyRouteReportDelta, loaded));
+      reportHistoryOffsetRef.current = page.reports.length;
+      setReportsHaveMore(page.hasMore);
       setReportsError("");
       setReportsReady(true);
     } catch (cause) {
@@ -429,15 +440,16 @@ export default function RouteSearchPage({
     };
   }, [dataOwnerUserId]);
 
-  const workItems = useMemo(() => getRouteWorkItems(items, payments, businessDateKey, reports), [items, payments, businessDateKey, reports]);
+  const routeReviewIndex = useMemo(() => buildRouteReviewIndex(payments, reports), [payments, reports]);
+  const workItems = useMemo(() => getRouteWorkItems(items, payments, businessDateKey, reports, routeReviewIndex), [items, payments, businessDateKey, reports, routeReviewIndex]);
   const custodyItems = useMemo(() => items.filter((item) => item.inCustody), [items]);
 
   const partialReviewItems = useMemo(() => (
-    getActiveRouteReviewItems(items, payments, businessDateKey, reports).map((item) => ({
+    getActiveRouteReviewItems(items, payments, businessDateKey, reports, routeReviewIndex).map((item) => ({
       ...item,
       report: reports.find((report) => report.client_id === item.clientId && report.published_at === item.publishedAt)
     }))
-  ), [items, payments, businessDateKey, reports]);
+  ), [items, payments, businessDateKey, reports, routeReviewIndex]);
 
   const confirmedReports = useMemo(() => reports.filter(report => report.status === "confirmed"), [reports]);
   const confirmedToday = useMemo(() => confirmedReports.filter(report => {
@@ -457,6 +469,29 @@ export default function RouteSearchPage({
   function openWorkflow(view: RouteWorkflowView): void {
     setWorkflowView(view); setConfirmedPeriod("today"); setCompletedCash(null); setRouteActionMessage(""); setRouteUndo(null);
     if (view === "review") setReviewMethod(pendingCashCount > 0 ? "cash" : reviewCounts.bank > 0 ? "bank" : reviewCounts.mixed > 0 ? "mixed" : "cash");
+  }
+
+  async function loadMoreReportHistory(): Promise<void> {
+    if (!dataOwnerUserId || reportsLoadingMore || !reportsHaveMore) return;
+    setReportsLoadingMore(true);
+    try {
+      const page = await loadRoutePaymentReportsPage(
+        dataOwnerUserId,
+        reportHistoryOffsetRef.current,
+        ROUTE_REPORT_PAGE_SIZE
+      );
+      reportHistoryOffsetRef.current += page.reports.length;
+      setReports((current) => {
+        const byId = new Map(current.map((report) => [report.id, report]));
+        for (const report of page.reports) byId.set(report.id, report);
+        return [...byId.values()].sort((left, right) => right.reported_at.localeCompare(left.reported_at) || left.id.localeCompare(right.id));
+      });
+      setReportsHaveMore(page.hasMore);
+    } catch (cause) {
+      setReportsError(buildCloudErrorMessage("No se pudo cargar mas historial de pagos.", cause));
+    } finally {
+      setReportsLoadingMore(false);
+    }
   }
 
   async function refreshItem(clientId: string): Promise<void> {
@@ -1077,7 +1112,7 @@ export default function RouteSearchPage({
         <div className="route-search-list">
           {visibleItems.map((item) => {
             const activeRoute = items.find(active => active.clientId === item.clientId && active.publishedAt === item.publishedAt);
-            const paidRent = routeRentAmountForDay(payments, item, businessDateKey);
+            const paidRent = routeRentAmountForDay(payments, item, businessDateKey, routeReviewIndex);
             return <RouteCollectionCard key={workflowView + '-' + (item.report?.id ?? item.clientId)} item={item} view={workflowView}
               managementFields={activeRoute && !activeRoute.removedAt && workflowView !== "review" && workflowView !== "confirmed" ? renderManagementFields?.(activeRoute) : undefined}
               paidRent={paidRent} balance={currentBalance(item)} canReport={canReportPayment} canEdit={!readOnly}
@@ -1106,6 +1141,17 @@ export default function RouteSearchPage({
           })}
         </div>
       )}
+
+      {workflowView === "confirmed" && confirmedPeriod === "previous" && reportsHaveMore ? (
+        <button
+          type="button"
+          className="button ghost"
+          onClick={() => void loadMoreReportHistory()}
+          disabled={reportsLoadingMore}
+        >
+          {reportsLoadingMore ? "Cargando historial..." : "Cargar más confirmaciones"}
+        </button>
+      ) : null}
 
       <PaymentPreviewDialog payment={receiptPreview} onClose={() => setReceiptPreview(null)} />
       {receiptOptions.length > 0 ? <div className="modal-overlay route-search-payment-overlay"><div className="modal route-search-payment-modal" role="dialog" aria-modal="true" aria-label="Recibos del pago">

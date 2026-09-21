@@ -333,7 +333,7 @@ function normalizePaymentLookupCedula(value: string | undefined): string {
   return (value ?? "").replace(/\D/g, "");
 }
 
-function paymentMatchesTargetIdentity(payment: Payment, target: CloudLatestPaymentTarget): boolean {
+export function paymentMatchesTargetIdentity(payment: Payment, target: CloudLatestPaymentTarget): boolean {
   if (payment.clientId === target.clientId) return true;
   if (normalizePaymentLookupUnit(payment.clientUnit) !== normalizePaymentLookupUnit(target.unitId)) return false;
   const targetCedula = normalizePaymentLookupCedula(target.cedula);

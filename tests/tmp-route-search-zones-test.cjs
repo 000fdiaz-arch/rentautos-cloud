@@ -4,6 +4,7 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
 const routePage = fs.readFileSync(path.join(root, "src", "pages", "RouteSearchPage.tsx"), "utf8");
+const routeCard = fs.readFileSync(path.join(root, "src", "pages", "RouteCollectionCard.tsx"), "utf8");
 const receivablesPage = fs.readFileSync(path.join(root, "src", "pages", "ReceivablesPage.tsx"), "utf8");
 const cloudData = fs.readFileSync(path.join(root, "src", "cloud", "operationsCloudData.ts"), "utf8");
 const migration = fs.readFileSync(path.join(root, "supabase", "57-active-route-zones.sql"), "utf8");
@@ -15,9 +16,9 @@ assert(routePage.includes('const ALL_ACTIVE_ZONE_FILTER = "__all_zones__"'), "De
 assert(routePage.includes('label: "Sin zona"'), "El filtro debe incluir Sin zona.");
 assert(routePage.includes("Todas ({selectedRouteItems.length})"), "Todas las zonas debe mostrar su cantidad.");
 assert(routePage.includes("item.zone ?? \"\""), "La busqueda debe incluir la zona.");
-assert(routePage.includes("maxLength={40}"), "La zona debe limitarse a 40 caracteres.");
-assert(routePage.includes("onBlur={() => void commitZone(item)}"), "La zona debe guardarse al salir del campo.");
-assert(routePage.includes('event.key !== "Enter"'), "La zona debe guardarse con Enter.");
+assert(routeCard.includes("maxLength={40}"), "La zona debe limitarse a 40 caracteres.");
+assert(routePage.includes("onSaveZone={() => void commitZone(item)}"), "La zona debe guardarse al salir del campo.");
+assert(routeCard.includes('event.key === "Enter"'), "La zona debe guardarse con Enter.");
 assert(routePage.includes("group.zoneLabel ? ` · Zona ${group.zoneLabel}`"), "La imagen compartida debe identificar la zona filtrada.");
 
 const routeClearPattern = /zone:\s*activeRouteFilterValue\(item\.routeAssignment\) === activeRouteFilterValue\([^)]+\)[\s\S]{0,100}\? item\.zone[\s\S]{0,30}: undefined/g;

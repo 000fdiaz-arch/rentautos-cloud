@@ -1,4 +1,4 @@
-import { memo, useState, type RefObject } from "react";
+import { memo, useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { STATE_LABEL, type ReceivableRow, type ReceivableState } from "../../receivables";
 import type { Client } from "../../types";
@@ -25,6 +25,8 @@ import {
   type ReceivablesViewMode,
   type ReceivablesWorkflowTab
 } from "./receivablesPageRules";
+
+const RECEIVABLE_ROWS_PAGE_SIZE = 75;
 
 export type ReceivablesHistoryRow = {
   clientId: string;
@@ -53,8 +55,8 @@ type Props = {
   todayCollectionCuts: Partial<Record<CollectionCutKey, { items: CollectionClosureItem[] }>>;
   visibleCollectionCut: CollectionCutKey | "all";
   buildWhatsAppReceivableMessage: (row: ReceivableRow) => string;
-  getWhatsAppGroupRows: (row: ReceivableRow) => ReceivableRow[];
-  getStatementGroupRows: (row: ReceivableRow) => ReceivableRow[];
+  getWhatsAppGroupRows: (row: ReceivableRow) => ReceivableRow[] | undefined;
+  getStatementGroupRows: (row: ReceivableRow) => ReceivableRow[] | undefined;
   onSelectDetail: (row: ReceivableRow) => void;
   onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
   onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
@@ -68,6 +70,7 @@ type Props = {
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
   onSupportNoteChange: (clientId: string, value: string) => void;
   onContactTimeChange: (clientId: string, value: string) => void;
+  onPersistPendingChanges: () => void;
   onDailyContactAttemptChange: (clientId: string, shift: DailyContactShift, result: DailyContactResult | "pending") => void;
   onOperationalReviewChange: (clientId: string, operationalStatus: string, reviewed: boolean) => void;
   onOpenRoutePreparation: (clientId: string) => void;
@@ -130,6 +133,12 @@ function firstName(value: string): string {
   return value.trim().split(/\s+/)[0] || value;
 }
 
+function useStableEvent<T extends (...args: any[]) => any>(handler: T): T {
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler;
+  return useCallback(((...args: Parameters<T>) => handlerRef.current(...args)) as T, []);
+}
+
 export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   tableScrollRef,
   viewMode,
@@ -161,6 +170,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   onWhatsAppMessageSent,
   onSupportNoteChange,
   onContactTimeChange,
+  onPersistPendingChanges,
   onDailyContactAttemptChange,
   onOperationalReviewChange,
   onOpenRoutePreparation,
@@ -170,6 +180,31 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
 }: Props) {
   const [customRouteEditorByClient, setCustomRouteEditorByClient] = useState<Record<string, boolean>>({});
   const [routeAmountDraftByClient, setRouteAmountDraftByClient] = useState<Record<string, string>>({});
+  const [visibleRowLimit, setVisibleRowLimit] = useState(RECEIVABLE_ROWS_PAGE_SIZE);
+  const visibleRows = rows.slice(0, visibleRowLimit);
+  const hasMoreRows = visibleRows.length < rows.length;
+  const stableOnSelectDetail = useStableEvent(onSelectDetail);
+  const stableOnCollectionCutStatusChange = useStableEvent(onCollectionCutStatusChange);
+  const stableOnCollectionCutCommentChange = useStableEvent(onCollectionCutCommentChange);
+  const stableOnRouteTagChange = useStableEvent(onRouteTagChange);
+  const stableOnRouteManagementTypeChange = useStableEvent(onRouteManagementTypeChange);
+  const stableOnRouteManagementCommentChange = useStableEvent(onRouteManagementCommentChange);
+  const stableOnRouteAssignmentChange = useStableEvent(onRouteAssignmentChange);
+  const stableOnRouteUrgencyChange = useStableEvent(onRouteUrgencyChange);
+  const stableOnRouteReleaseAmountChange = useStableEvent(onRouteReleaseAmountChange);
+  const stableOnWhatsAppMessageSent = useStableEvent(onWhatsAppMessageSent);
+  const stableOnSupportNoteChange = useStableEvent(onSupportNoteChange);
+  const stableOnContactTimeChange = useStableEvent(onContactTimeChange);
+  const stableOnPersistPendingChanges = useStableEvent(onPersistPendingChanges);
+  const stableOnDailyContactAttemptChange = useStableEvent(onDailyContactAttemptChange);
+  const stableOnOperationalReviewChange = useStableEvent(onOperationalReviewChange);
+  const stableOnOpenRoutePreparation = useStableEvent(onOpenRoutePreparation);
+  const stableOnOpenRoute = useStableEvent(onOpenRoute);
+  const collectionCutItemsByClient = useMemo(() => {
+    const byClient = new Map<string, Partial<Record<CollectionCutKey, CollectionClosureItem>>>();
+    for (const row of rows) byClient.set(row.id, getCutItemsForClient(todayCollectionCuts, row.id));
+    return byClient;
+  }, [rows, todayCollectionCuts]);
 
   function updateRouteAmountDraft(clientId: string, value: string): void {
     setRouteAmountDraftByClient((current) => ({
@@ -223,7 +258,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {visibleRows.map((row) => {
               const statusRecord = collectionStatusByClient[row.id];
               const routeReleaseAmount = statusRecord?.routeReleaseAmount ?? statusRecord?.managementAmount;
               const routeAssignment = statusRecord?.routeAssignment ?? "";
@@ -362,7 +397,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
           </tbody>
         </table>
         <div className="ar-route-mobile-list" aria-label="Cobro en ruta">
-          {rows.map((row) => {
+          {visibleRows.map((row) => {
             const statusRecord = collectionStatusByClient[row.id];
             const routeReleaseAmount = statusRecord?.routeReleaseAmount ?? statusRecord?.managementAmount;
             const routeAssignment = statusRecord?.routeAssignment ?? "";
@@ -512,6 +547,15 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
             );
           })}
         </div>
+        {hasMoreRows ? (
+          <button
+            type="button"
+            className="button ghost ar-ledger-load-more"
+            onClick={() => setVisibleRowLimit((current) => current + RECEIVABLE_ROWS_PAGE_SIZE)}
+          >
+            Mostrar más ({rows.length - visibleRows.length} restantes)
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -558,7 +602,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                 </td>
               </tr>
             ))
-          ) : rows.map((row) => (
+          ) : visibleRows.map((row) => (
             <ReceivableTableRow
               key={row.id}
               row={row}
@@ -569,32 +613,42 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               now={now}
               isTodayCollectionClosed={isTodayCollectionClosed}
               workflowTab={workflowTab}
-              collectionCutItems={getCutItemsForClient(todayCollectionCuts, row.id)}
+              collectionCutItems={collectionCutItemsByClient.get(row.id) ?? {}}
               visibleCutKey={visibleCollectionCut}
               whatsAppMessage={buildWhatsAppReceivableMessage(row)}
               whatsAppGroupRows={getWhatsAppGroupRows(row)}
               statementGroupRows={getStatementGroupRows(row)}
-              onSelectDetail={onSelectDetail}
-                onCollectionCutStatusChange={onCollectionCutStatusChange}
-                onCollectionCutCommentChange={onCollectionCutCommentChange}
-                onRouteTagChange={onRouteTagChange}
-              onRouteManagementTypeChange={onRouteManagementTypeChange}
-              onRouteManagementCommentChange={onRouteManagementCommentChange}
-              onRouteAssignmentChange={onRouteAssignmentChange}
-              onRouteUrgencyChange={onRouteUrgencyChange}
-              onRouteReleaseAmountChange={onRouteReleaseAmountChange}
-              onWhatsAppMessageSent={onWhatsAppMessageSent}
-              onSupportNoteChange={onSupportNoteChange}
-              onContactTimeChange={onContactTimeChange}
-              onDailyContactAttemptChange={onDailyContactAttemptChange}
-              onOperationalReviewChange={onOperationalReviewChange}
-              onOpenRoutePreparation={onOpenRoutePreparation}
-              onOpenRoute={onOpenRoute}
+              onSelectDetail={stableOnSelectDetail}
+              onCollectionCutStatusChange={stableOnCollectionCutStatusChange}
+              onCollectionCutCommentChange={stableOnCollectionCutCommentChange}
+              onRouteTagChange={stableOnRouteTagChange}
+              onRouteManagementTypeChange={stableOnRouteManagementTypeChange}
+              onRouteManagementCommentChange={stableOnRouteManagementCommentChange}
+              onRouteAssignmentChange={stableOnRouteAssignmentChange}
+              onRouteUrgencyChange={stableOnRouteUrgencyChange}
+              onRouteReleaseAmountChange={stableOnRouteReleaseAmountChange}
+              onWhatsAppMessageSent={stableOnWhatsAppMessageSent}
+              onSupportNoteChange={stableOnSupportNoteChange}
+              onContactTimeChange={stableOnContactTimeChange}
+              onPersistPendingChanges={stableOnPersistPendingChanges}
+              onDailyContactAttemptChange={stableOnDailyContactAttemptChange}
+              onOperationalReviewChange={stableOnOperationalReviewChange}
+              onOpenRoutePreparation={stableOnOpenRoutePreparation}
+              onOpenRoute={stableOnOpenRoute}
               incidentAction={incidentActionsByUnit[row.unitId.trim().toUpperCase()]}
             />
           ))}
         </tbody>
       </table>
+      {viewMode === "cartera" && hasMoreRows ? (
+        <button
+          type="button"
+          className="button ghost ar-ledger-load-more"
+          onClick={() => setVisibleRowLimit((current) => current + RECEIVABLE_ROWS_PAGE_SIZE)}
+        >
+          Mostrar más ({rows.length - visibleRows.length} restantes)
+        </button>
+      ) : null}
     </div>
   );
 });

@@ -18,6 +18,7 @@ import {
   applyActiveRouteDelta,
   loadCloudCollectionClosures,
   loadCloudLatestPaymentsForReceivableTargets,
+  paymentMatchesTargetIdentity,
   loadCloudActiveRouteItems,
   loadCloudStreetManagement,
   loadCollisionCases,
@@ -112,6 +113,29 @@ import {
   type ReceivablesViewMode,
   type ReceivablesWorkflowTab
 } from "./receivables/receivablesPageRules";
+
+const RECEIVABLES_PERF_LOGS_ENABLED = import.meta.env.VITE_PERF_LOGS === "1";
+const STREET_MANAGEMENT_SAVE_DEBOUNCE_MS = 650;
+
+async function measureReceivablesAsync<T>(label: string, task: () => Promise<T>): Promise<T> {
+  if (!RECEIVABLES_PERF_LOGS_ENABLED) return task();
+  const startedAt = performance.now();
+  try {
+    return await task();
+  } finally {
+    console.info(`[Rentautos perf] receivables ${label}: ${Math.round(performance.now() - startedAt)}ms`);
+  }
+}
+
+function measureReceivablesSync<T>(label: string, task: () => T): T {
+  if (!RECEIVABLES_PERF_LOGS_ENABLED) return task();
+  const startedAt = performance.now();
+  try {
+    return task();
+  } finally {
+    console.info(`[Rentautos perf] receivables ${label}: ${Math.round(performance.now() - startedAt)}ms`);
+  }
+}
 
 type Props = {
   routePermissions?: Pick<RouteSearchPageProps, "currentUserId" | "canReportPayment" | "readOnly" | "canRemoveFromRoute" | "onRegisterPayment" | "paymentsLoading">;
@@ -391,6 +415,23 @@ function routeRemovalBlocksRecord(
   return removedAt > reassignedAt;
 }
 
+function paymentRefreshSignature(payment: Payment): string {
+  return JSON.stringify([
+    payment.clientId,
+    payment.clientUnit,
+    payment.clientName,
+    payment.clientCedula,
+    payment.dateApplied,
+    payment.createdAt,
+    payment.amountReceived,
+    payment.appliedToRent,
+    payment.centavosAhorro,
+    payment.otherChargesApplied,
+    payment.finesApplied,
+    payment.ticketsApplied
+  ]);
+}
+
 export default function ReceivablesPage({
   routePermissions,
   clients,
@@ -486,6 +527,8 @@ export default function ReceivablesPage({
 
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const persistStreetTimerRef = useRef<number | null>(null);
+  const streetPersistQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const lastQueuedStreetSnapshotRef = useRef<string>("");
   const lastStreetSnapshotRef = useRef<string>("");
   const streetPersistPendingRef = useRef<boolean>(false);
   const streetManagementLoadedRef = useRef<boolean>(false);
@@ -497,6 +540,13 @@ export default function ReceivablesPage({
   const saveTokenByClientRef = useRef<Record<string, number>>({});
   const latestCollectionStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
   const streetManagementDataRef = useRef<Record<string, unknown>>(streetManagementData ?? {});
+  const paymentSignaturesRef = useRef<Map<string, string>>(new Map(payments.map((payment) => [payment.id, paymentRefreshSignature(payment)])));
+  const paymentsByIdRef = useRef<Map<string, Payment>>(new Map(payments.map((payment) => [payment.id, payment])));
+  const affectedLatestPaymentTokenRef = useRef<Map<string, number>>(new Map());
+  const dataOwnerUserIdRef = useRef(dataOwnerUserId);
+  const onStreetManagementPersistRef = useRef(onStreetManagementPersist);
+  dataOwnerUserIdRef.current = dataOwnerUserId;
+  onStreetManagementPersistRef.current = onStreetManagementPersist;
 
   function collectionRecordTimestamp(record: CollectionStatusRecord | undefined): number {
     if (!record) return 0;
@@ -523,7 +573,10 @@ export default function ReceivablesPage({
   useEffect(() => {
     if (!dataOwnerUserId) { setInsuranceClaims([]); setCollisionCases([]); return; }
     let cancelled = false;
-    Promise.all([loadInsuranceClaims(dataOwnerUserId), loadCollisionCases(dataOwnerUserId)])
+    measureReceivablesAsync("incident actions load", () => Promise.all([
+      loadInsuranceClaims(dataOwnerUserId),
+      loadCollisionCases(dataOwnerUserId)
+    ]))
       .then(([claims, collisions]) => {
         if (cancelled) return;
         setInsuranceClaims(claims);
@@ -610,7 +663,10 @@ export default function ReceivablesPage({
       return;
     }
     try {
-      const cloudData = await loadCloudStreetManagement(dataOwnerUserId);
+      const cloudData = await measureReceivablesAsync(
+        "street management load",
+        () => loadCloudStreetManagement(dataOwnerUserId)
+      );
       applyStreetManagementData(cloudData);
     } catch (error) {
       console.error("No se pudo cargar gestion de cobranza desde nube.", error);
@@ -633,7 +689,10 @@ export default function ReceivablesPage({
     setActiveRouteLoading(true);
     setActiveRouteError("");
     try {
-      const loadedRows = await loadCloudActiveRouteItems(dataOwnerUserId);
+      const loadedRows = await measureReceivablesAsync(
+        "active route load",
+        () => loadCloudActiveRouteItems(dataOwnerUserId)
+      );
       if (loadId !== activeRouteLoadIdRef.current) return;
       const rows = activeRoutePendingDeltasRef.current.reduce(applyActiveRouteDelta, loadedRows);
       setActiveRouteItems(rows);
@@ -681,7 +740,7 @@ export default function ReceivablesPage({
       return;
     }
     let cancelled = false;
-    loadControlUnits(dataOwnerUserId)
+    measureReceivablesAsync("fleet units load", () => loadControlUnits(dataOwnerUserId))
       .then((rows) => {
         if (!cancelled) setFleetUnits(rows);
       })
@@ -694,34 +753,45 @@ export default function ReceivablesPage({
     };
   }, [dataOwnerUserId]);
 
-  useEffect(() => {
-    const serialized = JSON.stringify(collectionStatusByClient);
-    latestCollectionStatusByClientRef.current = collectionStatusByClient;
-    if (dataOwnerUserId && !streetManagementLoadedRef.current) return;
-    if (serialized === lastStreetSnapshotRef.current) return;
+  const enqueueStreetManagementPersist = useCallback((
+    nextSnapshot: Record<string, CollectionStatusRecord>,
+    serialized: string,
+    ownerUserId: string | null | undefined,
+    localPersist: Props["onStreetManagementPersist"]
+  ): Promise<void> => {
+    const queueKey = `${ownerUserId ?? "local"}:${serialized}`;
+    if (serialized === lastStreetSnapshotRef.current || queueKey === lastQueuedStreetSnapshotRef.current) {
+      return streetPersistQueueRef.current;
+    }
+    lastQueuedStreetSnapshotRef.current = queueKey;
     streetPersistPendingRef.current = true;
-
-    if (persistStreetTimerRef.current) window.clearTimeout(persistStreetTimerRef.current);
-    persistStreetTimerRef.current = null;
-    void (async () => {
-      const saveTokenSnapshot = { ...saveTokenByClientRef.current };
+    const saveTokenSnapshot = { ...saveTokenByClientRef.current };
+    const run = async (): Promise<void> => {
+      let persisted = false;
       const previousSnapshot = parseCollectionStatusMapFromStorage(lastStreetSnapshotRef.current);
       try {
-        if (dataOwnerUserId) {
+        if (ownerUserId) {
           await syncCloudStreetManagementDelta(
-            dataOwnerUserId,
+            ownerUserId,
             previousSnapshot as Record<string, unknown>,
-            collectionStatusByClient as Record<string, unknown>
+            nextSnapshot as Record<string, unknown>
           );
-        } else if (onStreetManagementPersist) {
-          const ok = await onStreetManagementPersist(collectionStatusByClient as Record<string, unknown>);
-          if (ok === false) return;
+          persisted = true;
+        } else if (localPersist) {
+          persisted = (await localPersist(nextSnapshot as Record<string, unknown>)) !== false;
+        } else {
+          persisted = true;
         }
-        lastStreetSnapshotRef.current = serialized;
+        if (persisted) lastStreetSnapshotRef.current = serialized;
       } catch (error) {
         console.error("No se pudo guardar la gestion de cobranza.", error);
         setCollectionCutMessage("No se pudo guardar la gestion de cobranza. Revisa la conexion e intenta nuevamente.");
       } finally {
+        if (lastQueuedStreetSnapshotRef.current === queueKey) lastQueuedStreetSnapshotRef.current = "";
+        const latestSerialized = JSON.stringify(latestCollectionStatusByClientRef.current);
+        if (latestSerialized === serialized || latestSerialized === lastStreetSnapshotRef.current) {
+          streetPersistPendingRef.current = false;
+        }
         setStatusSavingByClient((current) => {
           const next = { ...current };
           for (const [clientId, token] of Object.entries(saveTokenSnapshot)) {
@@ -729,30 +799,63 @@ export default function ReceivablesPage({
           }
           return next;
         });
-        streetPersistPendingRef.current = false;
-      }
-    })();
-  }, [collectionStatusByClient, dataOwnerUserId, loadStreetManagementFromCloud, onStreetManagementPersist]);
-
-  useEffect(() => {
-    return () => {
-      if (persistStreetTimerRef.current) window.clearTimeout(persistStreetTimerRef.current);
-      if (streetPersistPendingRef.current) {
-        const latestStatusByClient = latestCollectionStatusByClientRef.current;
-        const previousSnapshot = parseCollectionStatusMapFromStorage(lastStreetSnapshotRef.current);
-        lastStreetSnapshotRef.current = JSON.stringify(latestStatusByClient);
-        if (dataOwnerUserId) {
-          void syncCloudStreetManagementDelta(
-            dataOwnerUserId,
-            previousSnapshot as Record<string, unknown>,
-            latestStatusByClient as Record<string, unknown>
-          );
-        } else if (onStreetManagementPersist) {
-          void onStreetManagementPersist(latestStatusByClient as Record<string, unknown>);
-        }
       }
     };
-  }, [dataOwnerUserId, onStreetManagementPersist]);
+    const queued = streetPersistQueueRef.current.catch(() => undefined).then(run);
+    streetPersistQueueRef.current = queued;
+    return queued;
+  }, []);
+
+  const flushStreetManagementPersist = useCallback((): void => {
+    if (!streetPersistPendingRef.current) return;
+    if (persistStreetTimerRef.current) {
+      window.clearTimeout(persistStreetTimerRef.current);
+      persistStreetTimerRef.current = null;
+    }
+    const latestSnapshot = latestCollectionStatusByClientRef.current;
+    const serialized = JSON.stringify(latestSnapshot);
+    if (serialized === lastStreetSnapshotRef.current) {
+      streetPersistPendingRef.current = false;
+      return;
+    }
+    void enqueueStreetManagementPersist(
+      latestSnapshot,
+      serialized,
+      dataOwnerUserIdRef.current,
+      onStreetManagementPersistRef.current
+    );
+  }, [enqueueStreetManagementPersist]);
+
+  useEffect(() => {
+    const serialized = JSON.stringify(collectionStatusByClient);
+    latestCollectionStatusByClientRef.current = collectionStatusByClient;
+    if (dataOwnerUserId && !streetManagementLoadedRef.current) return;
+    if (serialized === lastStreetSnapshotRef.current) return;
+    streetPersistPendingRef.current = true;
+    if (persistStreetTimerRef.current) window.clearTimeout(persistStreetTimerRef.current);
+    persistStreetTimerRef.current = window.setTimeout(() => {
+      persistStreetTimerRef.current = null;
+      void enqueueStreetManagementPersist(
+        collectionStatusByClient,
+        serialized,
+        dataOwnerUserId,
+        onStreetManagementPersist
+      );
+    }, STREET_MANAGEMENT_SAVE_DEBOUNCE_MS);
+  }, [collectionStatusByClient, dataOwnerUserId, enqueueStreetManagementPersist, onStreetManagementPersist]);
+
+  useEffect(() => {
+    const flushWhenHidden = (): void => {
+      if (document.visibilityState === "hidden") flushStreetManagementPersist();
+    };
+    window.addEventListener("pagehide", flushStreetManagementPersist);
+    document.addEventListener("visibilitychange", flushWhenHidden);
+    return () => {
+      window.removeEventListener("pagehide", flushStreetManagementPersist);
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+      flushStreetManagementPersist();
+    };
+  }, [flushStreetManagementPersist]);
 
   const loadCollectionClosuresFromCloud = useCallback(async (): Promise<void> => {
     if (!dataOwnerUserId) {
@@ -762,7 +865,10 @@ export default function ReceivablesPage({
     }
     setIsCollectionClosuresLoading(true);
     try {
-      const rows = await loadCloudCollectionClosures(dataOwnerUserId);
+      const rows = await measureReceivablesAsync(
+        "collection closures load",
+        () => loadCloudCollectionClosures(dataOwnerUserId)
+      );
       setCollectionClosuresByDate(rows as CollectionClosuresByDate);
       setCollectionClosuresLoaded(true);
     } catch (error) {
@@ -882,9 +988,22 @@ export default function ReceivablesPage({
     return [...byId.values()];
   }, [payments, supplementalLastPayments]);
 
+  const activeReceivableLookupTargets = useMemo(() => clients
+    .filter((client) => client.status !== "archivado" && !client.archivedAt)
+    .map((client) => ({
+      clientId: client.id,
+      unitId: client.unitId,
+      name: client.name,
+      cedula: client.cedula
+    })), [clients]);
+  const activeReceivableLookupIdentityKey = JSON.stringify(activeReceivableLookupTargets);
+
   const baseRows = useMemo(() => {
     if (clients.length === 0) return createMockReceivableRows(receivablesDate);
-    return buildReceivableRows(clients, receivablePayments, receivablesDate, fleetUnits);
+    return measureReceivablesSync(
+      "ledger calculation",
+      () => buildReceivableRows(clients, receivablePayments, receivablesDate, fleetUnits)
+    );
   }, [clients, fleetUnits, receivablePayments, receivablesDate]);
 
   useEffect(() => {
@@ -892,28 +1011,35 @@ export default function ReceivablesPage({
   }, [dataOwnerUserId]);
 
   useEffect(() => {
-    if (!dataOwnerUserId || clients.length === 0) {
+    if (!dataOwnerUserId || activeReceivableLookupTargets.length === 0) {
       setSupplementalLastPayments([]);
       return;
     }
-    const lookupTargets = clients
-      .filter((client) => client.status !== "archivado" && !client.archivedAt)
-      .map((client) => ({
-        clientId: client.id,
-        unitId: client.unitId,
-        name: client.name,
-        cedula: client.cedula
-      }));
-    if (lookupTargets.length === 0) return;
 
     let cancelled = false;
     let retryTimer: number | null = null;
     let retryCount = 0;
+    const targetTokensAtLoad = new Map(activeReceivableLookupTargets.map((target) => [
+      target.clientId,
+      affectedLatestPaymentTokenRef.current.get(target.clientId) ?? 0
+    ]));
     const loadLatestPayments = (): void => {
-      void loadCloudLatestPaymentsForReceivableTargets(dataOwnerUserId, lookupTargets)
+      void measureReceivablesAsync(
+        "latest payments load",
+        () => loadCloudLatestPaymentsForReceivableTargets(dataOwnerUserId, activeReceivableLookupTargets)
+      )
         .then((latestPayments) => {
           if (cancelled) return;
-          setSupplementalLastPayments(latestPayments);
+          setSupplementalLastPayments((current) => {
+            const targetsChangedWhileLoading = activeReceivableLookupTargets.filter((target) => (
+              (affectedLatestPaymentTokenRef.current.get(target.clientId) ?? 0) !== targetTokensAtLoad.get(target.clientId)
+            ));
+            const unchangedTargets = activeReceivableLookupTargets.filter((target) => !targetsChangedWhileLoading.includes(target));
+            return [
+              ...current.filter((payment) => targetsChangedWhileLoading.some((target) => paymentMatchesTargetIdentity(payment, target))),
+              ...latestPayments.filter((payment) => unchangedTargets.some((target) => paymentMatchesTargetIdentity(payment, target)))
+            ];
+          });
         })
         .catch((error) => {
           if (cancelled) return;
@@ -929,7 +1055,56 @@ export default function ReceivablesPage({
       cancelled = true;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
-  }, [clients, dataOwnerUserId, payments]);
+  }, [activeReceivableLookupIdentityKey, dataOwnerUserId]);
+
+  useEffect(() => {
+    const previousSignatures = paymentSignaturesRef.current;
+    const previousPaymentsById = paymentsByIdRef.current;
+    const nextSignatures = new Map(payments.map((payment) => [payment.id, paymentRefreshSignature(payment)]));
+    paymentSignaturesRef.current = nextSignatures;
+    paymentsByIdRef.current = new Map(payments.map((payment) => [payment.id, payment]));
+    if (!dataOwnerUserId || activeReceivableLookupTargets.length === 0) return;
+
+    const changedPayments: Payment[] = [];
+    const currentById = new Map(payments.map((payment) => [payment.id, payment]));
+    for (const payment of payments) {
+      if (previousSignatures.get(payment.id) !== nextSignatures.get(payment.id)) changedPayments.push(payment);
+    }
+    for (const paymentId of previousSignatures.keys()) {
+      if (nextSignatures.has(paymentId)) continue;
+      const previousPayment = previousPaymentsById.get(paymentId);
+      if (previousPayment) changedPayments.push(previousPayment);
+    }
+    if (changedPayments.length === 0) return;
+
+    const affectedTargets = activeReceivableLookupTargets.filter((target) => (
+      changedPayments.some((payment) => paymentMatchesTargetIdentity(payment, target))
+    ));
+    if (affectedTargets.length === 0) return;
+    const targetTokens = new Map(affectedTargets.map((target) => {
+      const token = (affectedLatestPaymentTokenRef.current.get(target.clientId) ?? 0) + 1;
+      affectedLatestPaymentTokenRef.current.set(target.clientId, token);
+      return [target.clientId, token] as const;
+    }));
+    void measureReceivablesAsync(
+      "affected latest payments refresh",
+      () => loadCloudLatestPaymentsForReceivableTargets(dataOwnerUserId, affectedTargets)
+    ).then((latestPayments) => {
+      if (dataOwnerUserIdRef.current !== dataOwnerUserId) return;
+      const currentTargets = affectedTargets.filter((target) => (
+        affectedLatestPaymentTokenRef.current.get(target.clientId) === targetTokens.get(target.clientId)
+      ));
+      if (currentTargets.length === 0) return;
+      setSupplementalLastPayments((current) => [
+        ...current.filter((payment) => !currentTargets.some((target) => paymentMatchesTargetIdentity(payment, target))),
+        ...latestPayments.filter((payment) => (
+          !currentById.has(payment.id) && currentTargets.some((target) => paymentMatchesTargetIdentity(payment, target))
+        ))
+      ]);
+    }).catch((error) => {
+      if (dataOwnerUserIdRef.current === dataOwnerUserId) console.error("No se pudo refrescar el ultimo pago afectado.", error);
+    });
+  }, [activeReceivableLookupIdentityKey, dataOwnerUserId, payments]);
 
   useEffect(() => {
     tableScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
@@ -1300,7 +1475,10 @@ export default function ReceivablesPage({
   }, [collectionStatusByClient, filteredByWhatsAppRows, prioritizeContactTime, sortDirection, sortField]);
   const rows = sortedRows;
   const essentialPriorityRows = useMemo(
-    () => buildPriorityReceivables(baseRows, clients, receivablePayments, collectionStatusByClient, now),
+    () => measureReceivablesSync(
+      "priority calculation",
+      () => buildPriorityReceivables(baseRows, clients, receivablePayments, collectionStatusByClient, now)
+    ),
     [baseRows, clients, collectionStatusByClient, now, receivablePayments]
   );
   const essentialPriorityByClient = useMemo(
@@ -1309,10 +1487,11 @@ export default function ReceivablesPage({
   );
   const essentialTenureLabelByClient = useMemo(() => {
     const priorityByClient = new Map(essentialPriorityRows.map((item) => [item.row.id, item]));
+    const clientsById = new Map(clients.map((client) => [client.id, client]));
     return new Map(baseRows.map((row) => {
       const priorityItem = priorityByClient.get(row.id);
       if (priorityItem) return [row.id, formatCalendarDuration(priorityItem.tenureStart, now)] as const;
-      const client = clients.find((item) => item.id === row.id);
+      const client = clientsById.get(row.id);
       const createdAt = client?.createdAt ? new Date(client.createdAt) : null;
       const label = createdAt && !Number.isNaN(createdAt.getTime())
         ? formatCalendarDuration(createdAt, now)
@@ -1657,12 +1836,12 @@ export default function ReceivablesPage({
     ].join("\n");
   }
 
-  function getWhatsAppGroupRows(row: ReceivableRow): ReceivableRow[] {
-    return whatsAppGroupRowsByClient.get(row.id) ?? [row];
+  function getWhatsAppGroupRows(row: ReceivableRow): ReceivableRow[] | undefined {
+    return whatsAppGroupRowsByClient.get(row.id);
   }
 
-  function getStatementGroupRows(row: ReceivableRow): ReceivableRow[] {
-    return statementGroupRowsByClient.get(row.id) ?? [row];
+  function getStatementGroupRows(row: ReceivableRow): ReceivableRow[] | undefined {
+    return statementGroupRowsByClient.get(row.id);
   }
 
   function getEffectiveStatus(row: ReceivableRow): CollectionStatus | "" {
@@ -2933,7 +3112,10 @@ export default function ReceivablesPage({
     try {
       const rows: ReceivableRow[] = [];
       const statusByClient: Record<string, CollectionStatusRecord> = {};
-      const [latestItems, latestReports] = dataOwnerUserId ? await Promise.all([loadCloudActiveRouteItems(dataOwnerUserId), loadRoutePaymentReports(dataOwnerUserId)]) : [activeRouteItems, []];
+      const [latestItems, latestReports] = dataOwnerUserId ? await Promise.all([
+        loadCloudActiveRouteItems(dataOwnerUserId),
+        loadRoutePaymentReports(dataOwnerUserId, { reviewOnly: true })
+      ]) : [activeRouteItems, []];
       const workItems = getRouteWorkItems(latestItems, payments, getBusinessDateKey(), latestReports);
       for (const item of workItems) {
         const row = baseRows.find(candidate => candidate.id === item.clientId);
@@ -3531,6 +3713,7 @@ export default function ReceivablesPage({
             onWhatsAppMessageSent={handleWhatsAppMessageSent}
             onSupportNoteChange={handleSupportNoteChange}
             onContactTimeChange={handleContactTimeChange}
+            onPersistPendingChanges={flushStreetManagementPersist}
             onDailyContactAttemptChange={handleDailyContactAttemptChange}
             onOperationalReviewChange={handleOperationalReviewChange}
             onOpenRoutePreparation={handleOpenManagementRoute}

@@ -31,7 +31,7 @@ assert(
   "Gestion y Ruta deben mostrar monto y cuotas en Renta vencida."
 );
 assert(ledger.includes("overdueInstallmentsText(row.overdueBalance, row.rentAmount)"), "La tabla de ruta debe mostrar las cuotas vencidas.");
-assert(page.includes("overdueInstallmentsText(item.overdueBalance, item.rentAmount)"), "Ruta en calle publicada debe mostrar las cuotas vencidas.");
+assert(ledger.includes("ar-overdue-chip-installments"), "Ruta en calle publicada debe mostrar las cuotas vencidas.");
 assert(rules.includes('"cuota vencida" : "cuotas vencidas"'), "El conteo debe identificar claramente las cuotas como vencidas.");
 
 console.log("OK receivables display: Plan muestra letra y Renta vencida muestra cuotas.");

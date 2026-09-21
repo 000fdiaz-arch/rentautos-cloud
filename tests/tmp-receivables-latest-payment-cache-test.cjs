@@ -22,12 +22,16 @@ assert(
   "Cuentas por cobrar debe consultar el ultimo pago de todos los clientes activos."
 );
 assert(
-  pageSource.includes("setSupplementalLastPayments(latestPayments)"),
+  pageSource.includes("setSupplementalLastPayments((current)") && pageSource.includes("unchangedTargets.some"),
   "La consulta debe reemplazar el cache para retirar pagos eliminados o corregidos."
 );
 assert(
-  pageSource.includes("[clients, dataOwnerUserId, payments]"),
-  "El cache debe refrescarse cuando cambien clientes o pagos."
+  pageSource.includes("[activeReceivableLookupIdentityKey, dataOwnerUserId]"),
+  "La carga completa debe repetirse solo cuando cambie la identidad de clientes activos."
+);
+assert(
+  pageSource.includes('"affected latest payments refresh"') && pageSource.includes("affectedTargets"),
+  "Los cambios de pagos deben refrescar solo los clientes afectados."
 );
 assert(
   pageSource.includes("retryTimer = window.setTimeout(loadLatestPayments"),

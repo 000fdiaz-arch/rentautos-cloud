@@ -145,15 +145,54 @@ function paymentTimestamp(payment: Payment): number {
   return parseDateKey(payment.dateApplied)?.getTime() ?? 0;
 }
 
+type PriorityPaymentIndex = {
+  byClientId: Map<string, number[]>;
+  byUnit: Map<string, number[]>;
+};
+
+function addPaymentIndexEntry(index: Map<string, number[]>, key: string, paymentIndex: number): void {
+  if (!key) return;
+  const existing = index.get(key);
+  if (existing) existing.push(paymentIndex);
+  else index.set(key, [paymentIndex]);
+}
+
+function buildPriorityPaymentIndex(payments: Payment[]): PriorityPaymentIndex {
+  const byClientId = new Map<string, number[]>();
+  const byUnit = new Map<string, number[]>();
+  payments.forEach((payment, index) => {
+    addPaymentIndexEntry(byClientId, payment.clientId, index);
+    addPaymentIndexEntry(byUnit, normalizeUnit(payment.clientUnit), index);
+  });
+  return { byClientId, byUnit };
+}
+
 function readableChargeLabel(value: string): string {
   const normalized = value.replace(/\s+/g, " ").trim().toLocaleLowerCase("es");
   return normalized ? normalized.charAt(0).toLocaleUpperCase("es") + normalized.slice(1) : "Otros cargos";
 }
 
-function latestPaymentForRow(row: ReceivableRow, payments: Payment[]): PriorityPaymentSummary | null {
-  const payment = payments
-    .filter((item) => paymentMatchesRow(item, row))
-    .sort((left, right) => paymentTimestamp(right) - paymentTimestamp(left))[0];
+function latestPaymentForRow(
+  row: ReceivableRow,
+  payments: Payment[],
+  paymentIndex: PriorityPaymentIndex
+): PriorityPaymentSummary | null {
+  const candidateIndexes = new Set<number>([
+    ...(paymentIndex.byClientId.get(row.id) ?? []),
+    ...(paymentIndex.byUnit.get(normalizeUnit(row.unitId)) ?? [])
+  ]);
+  let latestIndex = -1;
+  let latestTimestamp = Number.NEGATIVE_INFINITY;
+  for (const candidateIndex of candidateIndexes) {
+    const candidate = payments[candidateIndex];
+    if (!candidate || !paymentMatchesRow(candidate, row)) continue;
+    const candidateTimestamp = paymentTimestamp(candidate);
+    if (candidateTimestamp > latestTimestamp || (candidateTimestamp === latestTimestamp && candidateIndex < latestIndex)) {
+      latestIndex = candidateIndex;
+      latestTimestamp = candidateTimestamp;
+    }
+  }
+  const payment = latestIndex >= 0 ? payments[latestIndex] : undefined;
   if (!payment) {
     const snapshot = row.recentPayments[0];
     return snapshot ? {
@@ -225,6 +264,7 @@ export function buildPriorityReceivables(
 ): PriorityReceivable[] {
   const today = dateOnly(now);
   const clientsById = new Map(clients.map((client) => [client.id, client]));
+  const paymentIndex = buildPriorityPaymentIndex(payments);
 
   return rows.flatMap((row): PriorityReceivable[] => {
     const client = clientsById.get(row.id);
@@ -269,7 +309,7 @@ export function buildPriorityReceivables(
       actionRatio,
       debtCap,
       capExceededBy,
-      lastPayment: latestPaymentForRow(row, payments),
+      lastPayment: latestPaymentForRow(row, payments, paymentIndex),
       reason: priorityReason(row, isEstablishedClient, installmentEquivalent, Math.max(1, toleranceDays), capExceededBy)
     }];
   }).sort((left, right) => (

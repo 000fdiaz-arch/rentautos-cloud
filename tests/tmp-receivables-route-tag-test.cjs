@@ -23,6 +23,7 @@ const row = read("src/pages/receivables/ReceivableTableRow.tsx");
 const ledger = read("src/pages/receivables/ReceivablesLedgerTable.tsx");
 const cloud = read("src/cloud/operationsCloudData.ts");
 const routeSearch = read("src/pages/RouteSearchPage.tsx");
+const routeRules = read("src/routeReviewRules.ts");
 
 const dailyOptions = section(rules, "export const DAILY_COLLECTION_STATUS_OPTIONS", "export const ROUTE_COLLECTION_STATUS_OPTIONS");
 assert(!dailyOptions.includes('option.value === "route"'), "Cobro en ruta no debe seguir siendo un estado diario.");
@@ -50,7 +51,7 @@ assert(activeRouteSync.includes('status: "pending"'), "Ruta en calle debe sincro
 assert(activeRouteSync.includes("isRouteTagged: true"), "Ruta en calle debe conservar la etiqueta.");
 
 const clearManagement = section(page, "async function clearLiveCollectionStatusAfterClosure", "async function handleClearCollectionManagement");
-assert(clearManagement.includes("if (!record.isRouteTagged) continue"), "Limpiar gestion debe conservar las cuentas etiquetadas En ruta.");
+assert(clearManagement.includes("if (!record.isRouteTagged)") && clearManagement.includes("activeRouteStatus[clientId]"), "Limpiar gestion debe conservar las cuentas etiquetadas En ruta.");
 assert(clearManagement.includes('status: "pending"'), "Limpiar gestion debe conservar las rutas como Pendiente.");
 
 assert(row.includes("disabled={isTodayCollectionClosed || isRouteTagged}"), "Los otros estados deben bloquearse mientras tenga la etiqueta.");
@@ -65,7 +66,7 @@ assert(ledger.includes("Pendiente · En ruta"), "Ruta en calle debe mostrar Pend
 assert(page.includes("routeTagFilter"), "Gestion debe incluir un filtro directo por la etiqueta En ruta.");
 assert(page.includes("routeTaggedManagementCount"), "El filtro directo debe mostrar el total de cuentas en ruta.");
 assert(!page.includes("Ruta para enviar"), "La vista redundante Ruta para enviar debe desaparecer.");
-assert(page.includes("ar-route-publish-cta") && page.includes('"Publicar ruta"') && page.includes("routeWorkflowRowsCount"), "Gestion debe destacar la publicacion de las cuentas preparadas para ruta.");
+assert(page.includes("ar-active-route-panel--tab") && page.includes("Agregar unidad"), "La pestaña de ruta debe permitir gestionar la ruta activa directamente.");
 assert(page.includes("routeReadyFilter") && page.includes("isRouteReadyToSendRow(row)"), "El contador de unidades listas debe funcionar como filtro.");
 assert(page.includes('"Descargar ruta"') && page.includes("handleDownloadPublishedRoute"), "La descarga debe aparecer como segundo paso despues de publicar.");
 assert(page.includes('workflowTab === "route" ? ('), "La pestaña de ruta debe abrir directamente Ruta en calle.");
@@ -77,12 +78,12 @@ const releaseAmountChange = section(page, "function handleRouteReleaseAmountChan
 assert(releaseAmountChange.includes("const nextAmount = parsedAmount ?? undefined;"), "Borrar Libera con no debe recuperar el monto publicado anterior.");
 assert(releaseAmountChange.includes("releaseAmount: nextAmount ?? 0"), "Ruta en calle debe conservar la cuenta con el monto marcado como pendiente.");
 assert(cloud.includes("releaseAmount < 0"), "La nube debe aceptar cero como marcador temporal de monto pendiente.");
-assert(routeSearch.includes("item.releaseAmount <= 0"), "Un monto pendiente no debe liberar automaticamente la cuenta por un pago.");
-assert(routeSearch.includes("payment.dateApplied === dateKey"), "Ruta en calle debe limitar la suma a los pagos aplicados del dia.");
-assert(routeSearch.includes("sum + Math.max(0, payment.appliedToRent)"), "Ruta en calle debe sumar solamente los montos aplicados a renta.");
-assert(!routeSearch.includes("sum + payment.amountReceived"), "El total recibido no debe contar como renta para liberar una unidad.");
+assert(routeRules.includes("item.releaseAmount > 0 && routeRentAmountForDay"), "Un monto pendiente no debe liberar automaticamente la cuenta por un pago.");
+assert(routeRules.includes("payment.dateApplied === dateKey"), "Ruta en calle debe limitar la suma a los pagos aplicados del dia.");
+assert(routeRules.includes("sum + Math.max(0, payment.appliedToRent)"), "Ruta en calle debe sumar solamente los montos aplicados a renta.");
+assert(!routeRules.includes("sum + payment.amountReceived"), "El total recibido no debe contar como renta para liberar una unidad.");
 assert(routeSearch.includes('"Monto pendiente"'), "Ruta en calle debe mostrar que el monto sigue pendiente.");
-assert(page.includes("hasActiveOperationalClient(row) &&\n          record?.isRouteTagged"), "La publicacion debe excluir cuentas no activas aunque tengan una etiqueta antigua.");
+assert(page.includes("hasActiveOperationalClient(row) && record?.isRouteTagged"), "La publicacion debe excluir cuentas no activas aunque tengan una etiqueta antigua.");
 assert(page.includes("return !!row && !hasActiveOperationalClient(row);"), "La limpieza de ruta solo debe desmontar una unidad confirmada como inactiva, no una fila aun sin cargar.");
 
 console.log("OK receivables route tag: cuatro estados, Pendiente bloqueado y migracion compatible.");

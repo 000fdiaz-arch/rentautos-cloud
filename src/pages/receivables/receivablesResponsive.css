@@ -155,6 +155,12 @@
   }
 }
 
+.ar-ledger-load-more {
+  display: block;
+  width: min(100%, 28rem);
+  margin: 1rem auto;
+}
+
 @media (max-width: 360px) {
   .ar-ledger-panel .ar-unit-quick-actions {
     display: grid;

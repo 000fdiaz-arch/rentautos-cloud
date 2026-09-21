@@ -48,12 +48,12 @@ try {
   const publishedAt=active.find(item=>item.client_id==='c1').data.publishedAt;
   await page.reload();await page.waitForTimeout(1100);assert.equal(sent.length,1);assert.equal(active.find(item=>item.client_id==='c1').data.publishedAt,publishedAt);
   await page.getByRole('button',{name:'Completar ruta',exact:true}).click();
-  const modal=page.getByRole('dialog');await modal.getByLabel('Saldo para liberar de T02').fill('55');
+  const modal=page.getByRole('dialog');await modal.getByLabel('Monto a cobrar').fill('55');
   await page.waitForTimeout(1100);assert.equal(sent.length,1);
-  fail=true;await modal.getByLabel(/^Ruta/).selectOption('WC');
+  fail=true;await modal.getByRole('combobox').first().selectOption('WC');
+  await modal.getByRole('button',{name:'Listo',exact:true}).click();
   await page.getByRole('alert').filter({hasText:'No se pudo confirmar el envío de T02'}).waitFor();
   await page.waitForTimeout(1100);assert.equal(sent.length,2,'No infinite retry loop');
-  await modal.getByRole('button',{name:'Cerrar',exact:true}).click();
   fail=false;await page.getByRole('button',{name:'Reintentar envío',exact:true}).click();
   await page.getByRole('status').filter({hasText:'T02 · Enviada a ruta.'}).waitFor();
   assert.equal(active.length,2);assert.equal(active.find(item=>item.client_id==='c2').data.releaseAmount,55);assert.equal(active.find(item=>item.client_id==='c2').data.routeAssignment,'WC');assert.equal(active.find(item=>item.client_id==='c2').data.removedAt,undefined);

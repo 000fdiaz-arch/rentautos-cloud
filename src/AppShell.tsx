@@ -385,7 +385,10 @@ export default function AppShell({
 
     const reloadRouteReviewItems = async (): Promise<void> => {
       try {
-        const [items, cashReports] = await Promise.all([loadCloudActiveRouteItems(cloudDataUserId), loadRoutePaymentReports(cloudDataUserId)]);
+        const [items, cashReports] = await Promise.all([
+          loadCloudActiveRouteItems(cloudDataUserId),
+          loadRoutePaymentReports(cloudDataUserId, { reviewOnly: true })
+        ]);
         if (!cancelled) { setRouteReviewItems(items); setRouteCashReports(cashReports); }
       } catch (error) {
         console.warn("No se pudo actualizar la notificacion de Ruta en calle.", error);

@@ -7,7 +7,8 @@ const base = 'http://127.0.0.1:4199';
 const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '4199', '--strictPort'], {
   windowsHide: true, stdio: 'pipe', env: { ...process.env, VITE_SUPABASE_URL: 'https://tests.invalid', VITE_SUPABASE_ANON_KEY: 'synthetic' }
 });
-let browser, cases = 0;
+let browser, page, cases = 0;
+const errors = [];
 const check = name => { cases++; console.log('OK', name); };
 try {
   await new Promise((resolve, reject) => {
@@ -16,10 +17,9 @@ try {
     server.on('error', reject);
   });
   browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.setDefaultTimeout(8000);
   page.setDefaultNavigationTimeout(30000);
-  const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => {
     const url = new URL(route.request().url());
@@ -37,37 +37,13 @@ try {
   assert.match(await notice.innerText(), /2026-09-01/);
   assert.match(await notice.innerText(), /Puedes continuar con la gestión de cobro/);
   assert.equal(await notice.getAttribute('role'), 'alert');
-  const management = page.locator('.ar-cut-select');
+  const management = page.getByRole('combobox', { name: 'Gestión de T99' });
   assert.equal(await management.isEnabled(), true);
   await management.selectOption('contacted');
   assert.equal((await state()).status, 'contacted');
-  await page.getByPlaceholder('Escribe una nota rapida...').fill('Cobro coordinado');
+  await page.getByPlaceholder('Escribe una nota...').fill('Cobro coordinado');
   assert.equal((await state()).supportNote, 'Cobro coordinado');
   check('siniestro urgente conserva información y fecha mientras permite clasificar y escribir notas');
-  await page.getByRole('button', { name: 'Enviar a ruta', exact: true }).click();
-  const dialog = page.getByRole('dialog'); await dialog.waitFor();
-  assert.notEqual((await state()).isRouteTagged, true);
-  await dialog.getByLabel('Saldo para liberar de T99').fill('50');
-  await dialog.getByLabel(/^Ruta/).selectOption('PTY');
-  await dialog.getByLabel('Tipo de gestión').selectOption('cobrar_o_quitar');
-  await dialog.getByLabel(/^Urgencia/).selectOption('urgent');
-  await dialog.getByPlaceholder('Comentario para el cobrador...').fill('Cobrar hoy');
-  assert.notEqual((await state()).isRouteTagged, true);
-  check('abrir y completar el modal no activa la ruta antes de confirmar');
-  await page.getByRole('button', { name: 'Alternar urgencia' }).evaluate(button => button.click());
-  await page.getByRole('button', { name: 'Alternar urgencia' }).evaluate(button => button.click());
-  assert.equal(await dialog.isVisible(), true);
-  await dialog.getByRole('button', { name: 'Listo', exact: true }).click();
-  assert.equal((await state()).isRouteTagged, true);
-  assert.equal((await state()).routeReleaseAmount, 50);
-  assert.equal((await state()).routeAssignment, 'PTY');
-  assert.equal((await state()).managementType, 'cobrar_o_quitar');
-  assert.equal((await state()).managementComment, 'Cobrar hoy');
-  check('preparación de ruta permite monto, zona, tipo, urgencia y comentario con siniestro pendiente');
-  await page.getByRole('button', { name: 'Ver detalles', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Quitar de ruta', exact: true }).click();
-  assert.equal((await state()).isRouteTagged, false);
-  check('cambiar urgencia del siniestro no cierra la preparación y permite retirar de ruta');
   await page.getByRole('button', { name: 'Abrir expediente', exact: true }).click();
   assert.ok(page.url().endsWith('/control-de-siniestros?insuranceClaim=case-test'));
   await page.getByRole('button', { name: 'Alternar expediente' }).click();
@@ -77,7 +53,7 @@ try {
   check('enlaces a seguro y expediente judicial siguen disponibles y abren el registro correcto');
   await page.getByRole('button', { name: 'Alternar cierre' }).click();
   assert.equal(await management.isDisabled(), true);
-  assert.equal(await page.getByPlaceholder('Escribe una nota rapida...').isDisabled(), true);
+  assert.equal(await page.getByPlaceholder('Escribe una nota...').isDisabled(), true);
   assert.equal(await page.getByRole('button', { name: 'Enviar a ruta', exact: true }).isDisabled(), true);
   assert.equal(await page.getByRole('button', { name: 'Abrir expediente', exact: true }).isEnabled(), true);
   await page.getByRole('button', { name: 'Alternar cierre' }).click();
@@ -94,4 +70,8 @@ try {
   assert.deepEqual(errors, []);
   check('aviso y gestión disponibles en móvil, sin errores del navegador');
   console.log(`PASS ${cases} escenarios con datos sintéticos; sin acceso a producción.`);
+} catch (error) {
+  console.error("Browser errors:", errors);
+  console.error((await page?.locator('body').innerText().catch(() => ""))?.slice(0, 3500));
+  throw error;
 } finally { await browser?.close(); server.kill(); }

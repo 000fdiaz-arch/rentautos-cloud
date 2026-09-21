@@ -61,6 +61,7 @@ type Props = {
   onWhatsAppMessageSent: (clientId: string, message: string) => void;
   onSupportNoteChange: (clientId: string, value: string) => void;
   onContactTimeChange: (clientId: string, value: string) => void;
+  onPersistPendingChanges: () => void;
   onDailyContactAttemptChange: (clientId: string, shift: DailyContactShift, result: DailyContactResult | "pending") => void;
   onOperationalReviewChange: (clientId: string, operationalStatus: string, reviewed: boolean) => void;
   onOpenRoutePreparation: (clientId: string) => void;
@@ -479,6 +480,7 @@ function ReceivableTableRowComponent({
   onWhatsAppMessageSent,
   onSupportNoteChange,
   onContactTimeChange,
+  onPersistPendingChanges,
   onDailyContactAttemptChange,
   onOperationalReviewChange,
   onOpenRoutePreparation,
@@ -624,6 +626,7 @@ function ReceivableTableRowComponent({
   function handleContactTimeDraftBlur(): void {
     const normalized = normalizeContactTime(contactTimeDraft);
     setContactTimeDraft(normalized ?? statusRecord?.contactTime ?? "");
+    onPersistPendingChanges();
   }
 
   if ((workflowTab as string) === "management") {
@@ -724,6 +727,23 @@ function ReceivableTableRowComponent({
               </div>
             </section>
 
+            {incidentAction ? <div className={`ar-insurance-action${incidentAction.urgent ? " is-urgent" : ""}`} role={incidentAction.urgent ? "alert" : "status"}>
+              <div>
+                <small>Acción pendiente de siniestros</small>
+                <strong>{incidentAction.label}</strong>
+                {incidentAction.date && <span>Fecha de acción: {incidentAction.date}</span>}
+                <span className="ar-incident-action-rule">
+                  Información de seguimiento. Puedes continuar con la gestión de cobro.
+                </span>
+              </div>
+              <button type="button" className="button small" onClick={() => {
+                const state = { page: "incidents" };
+                const parameter = incidentAction.destination === "judicial" ? "judicialCase" : "insuranceClaim";
+                window.history.pushState(state, "", `/control-de-siniestros?${parameter}=${encodeURIComponent(incidentAction.targetId)}`);
+                window.dispatchEvent(new PopStateEvent("popstate", { state }));
+              }}>Abrir expediente</button>
+            </div> : null}
+
             <section className="ar-essential-followup">
               <div className="ar-essential-management">
                 {isOperationallyActive ? (
@@ -779,10 +799,10 @@ function ReceivableTableRowComponent({
                     <button
                       type="button"
                       className={`ar-essential-route-button ${statusRecord?.isRouteTagged ? "is-in-route" : ""}`}
-                      onClick={() => statusRecord?.isRouteTagged ? onOpenRoute() : onOpenRoutePreparation(row.id)}
+                      onClick={() => statusRecord?.isRouteTagged && isRoutePreparationComplete ? onOpenRoute() : onOpenRoutePreparation(row.id)}
                       disabled={isTodayCollectionClosed}
                     >
-                      {statusRecord?.isRouteTagged ? "Ver en ruta" : "Enviar a ruta"}
+                      {statusRecord?.isRouteTagged ? (isRoutePreparationComplete ? "Ver en ruta" : "Completar ruta") : "Enviar a ruta"}
                     </button>
                   </>
                 ) : (
@@ -832,6 +852,7 @@ function ReceivableTableRowComponent({
                 <textarea
                   value={statusRecord?.supportNote ?? ""}
                   onChange={(event) => onSupportNoteChange(row.id, event.target.value)}
+                  onBlur={onPersistPendingChanges}
                   placeholder="Escribe una nota..."
                   maxLength={300}
                   rows={3}
@@ -1104,6 +1125,7 @@ function ReceivableTableRowComponent({
                 className="ar-support-note-inline"
                 value={statusRecord?.supportNote ?? ""}
                 onChange={(event) => onSupportNoteChange(row.id, event.target.value)}
+                onBlur={onPersistPendingChanges}
                 placeholder="Escribe una nota rapida..."
                 maxLength={300}
                 rows={3}
@@ -1286,6 +1308,7 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.onWhatsAppMessageSent === next.onWhatsAppMessageSent &&
   previous.onSupportNoteChange === next.onSupportNoteChange &&
   previous.onContactTimeChange === next.onContactTimeChange
+  && previous.onPersistPendingChanges === next.onPersistPendingChanges
   && previous.onDailyContactAttemptChange === next.onDailyContactAttemptChange
   && previous.onOperationalReviewChange === next.onOperationalReviewChange
   && previous.onOpenRoutePreparation === next.onOpenRoutePreparation

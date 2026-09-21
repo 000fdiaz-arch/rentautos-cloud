@@ -35,6 +35,11 @@ function Harness() {
       onRouteReleaseAmountChange={(_id, value) => update({ routeReleaseAmount: Number(value) })}
       onWhatsAppMessageSent={() => {}} onSupportNoteChange={(_id, value) => update({ supportNote: value })}
       onContactTimeChange={(_id, value) => update({ contactTime: value })}
+      onPersistPendingChanges={() => {}}
+      onDailyContactAttemptChange={() => {}}
+      onOperationalReviewChange={() => {}}
+      onOpenRoutePreparation={() => {}}
+      onOpenRoute={() => {}}
     /></tbody></table>
     <output id="test-status" hidden>{JSON.stringify(status)}</output>
   </main>;

@@ -25,6 +25,7 @@ function transpileFile(srcPath, outPath) {
 (function run() {
   fs.mkdirSync(TMP_DIR, { recursive: true });
 
+  transpileFile(path.join(ROOT, "src", "provisionalRentals.ts"), path.join(TMP_DIR, "provisionalRentals.js"));
   transpileFile(path.join(ROOT, "src", "billing.ts"), path.join(TMP_DIR, "billing.js"));
   transpileFile(path.join(ROOT, "src", "receivables.ts"), path.join(TMP_DIR, "receivables.js"));
 

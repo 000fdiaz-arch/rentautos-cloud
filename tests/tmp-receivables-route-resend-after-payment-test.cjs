@@ -24,34 +24,14 @@ assert(removalRule.includes("removedAt > reassignedAt"), "La salida solo debe bl
 assert(removalRule.includes("record?.routeReleaseUpdatedAt"), "La regla debe considerar la fecha del nuevo minimo de ruta.");
 assert(removalRule.includes("record?.routeAssignmentUpdatedAt"), "La regla debe considerar la fecha de reasignacion de ruta.");
 
-const sendFlow = sourceSection(
-  "async function handlePublishCobroEnRuta",
-  "async function handleDownloadPublishedRoute"
-);
-assert(sendFlow.includes("loadCloudStreetManagement(dataOwnerUserId)"), "El envio debe releer la gestion vigente.");
-assert(sendFlow.includes("loadCloudActiveRouteItems(dataOwnerUserId)"), "El envio debe releer las salidas vigentes.");
-assert(
-  sendFlow.includes("!routeRemovalBlocksRecord(record, removedItemByClientForSend.get(row.id))"),
-  "Una salida antigua no debe excluir una reasignacion nueva."
-);
-assert(sendFlow.includes("const routeRowsForSend = baseRows.filter"), "La publicacion debe construir una sola lista.");
-assert(sendFlow.includes("setPublishedRouteDownload") && sendFlow.includes("rows: routeRowsForSend"), "La descarga debe conservar exactamente la lista publicada.");
-assert(!sendFlow.includes("exportRouteCollection"), "Publicar la ruta no debe descargar archivos automaticamente.");
-
-const publishIndex = sendFlow.indexOf("await publishCloudActiveRouteItems");
-const verifyIndex = sendFlow.indexOf("const verifiedActiveRouteItems = await loadCloudActiveRouteItems", publishIndex);
-assert(publishIndex >= 0, "El flujo debe publicar la ruta.");
-assert(verifyIndex > publishIndex, "El flujo debe verificar la nube despues de publicar.");
-assert(
-  sendFlow.includes("No se pudo confirmar la publicacion de la ruta; puedes volver a intentar."),
-  "Una falla de publicacion debe permitir reintentar."
-);
-
 const downloadFlow = sourceSection(
   "async function handleDownloadPublishedRoute",
   "async function handleSaveCollectionCut"
 );
 assert(downloadFlow.includes("exportRouteCollection"), "Descargar ruta debe ser una accion separada.");
-assert(downloadFlow.includes("publishedRouteDownload.rows"), "La descarga debe usar la ruta ya publicada.");
+assert(downloadFlow.includes("loadCloudActiveRouteItems(dataOwnerUserId)"), "La descarga debe releer la ruta vigente.");
+assert(downloadFlow.includes("getRouteWorkItems"), "La descarga debe aplicar las reglas vigentes de trabajo en ruta.");
+assert(downloadFlow.includes("loadRoutePaymentReports(dataOwnerUserId, { reviewOnly: true })"), "La descarga debe excluir unidades en revision sin leer todo el historial.");
+assert(downloadFlow.includes("exportRouteCollection"), "La descarga debe exportar la lista verificada.");
 
-console.log("OK reenvio a ruta: publicacion y descarga son pasos separados y usan la misma lista verificada.");
+console.log("OK reenvio a ruta: salidas antiguas no bloquean y la descarga usa la ruta vigente verificada.");

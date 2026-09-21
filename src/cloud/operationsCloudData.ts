@@ -893,6 +893,10 @@ export async function saveCloudOtherChargesRetention(
 }
 
 async function loadCloudArrayRows<T>(userId: string, table: string): Promise<T[]> {
+  return dedupeLoad(`array-rows:${table}:${userId}`, () => loadCloudArrayRowsUncached<T>(userId, table));
+}
+
+async function loadCloudArrayRowsUncached<T>(userId: string, table: string): Promise<T[]> {
   const client = getCloudClient();
   const rows: T[] = [];
   let lastId = "";
@@ -1875,6 +1879,10 @@ export function applyActiveRouteDelta(items: ActiveRouteItem[], delta: ActiveRou
 }
 
 export async function loadCloudActiveRouteItems(userId: string): Promise<ActiveRouteItem[]> {
+  return dedupeLoad(`active-route-items:${userId}`, () => loadCloudActiveRouteItemsUncached(userId));
+}
+
+async function loadCloudActiveRouteItemsUncached(userId: string): Promise<ActiveRouteItem[]> {
   const client = getCloudClient();
   const { data, error } = await client
     .from("active_route_items_cloud")

@@ -1,4 +1,4 @@
-import { getCloudClient, PAGE_SIZE } from "./cloudClient";
+import { dedupeLoad, getCloudClient, PAGE_SIZE } from "./cloudClient";
 import type { ActiveRouteItem } from "./operationsCloudData";
 import type { Payment } from "../types";
 
@@ -58,18 +58,59 @@ export function applyRouteReportDelta(reports: RoutePaymentReport[], delta: Rout
   return next.sort((left, right) => right.reported_at.localeCompare(left.reported_at) || left.id.localeCompare(right.id));
 }
 
-export async function loadRoutePaymentReports(ownerId: string, pendingCashOnly = false): Promise<RoutePaymentReport[]> {
+export type RoutePaymentReportLoadOptions = {
+  pendingCashOnly?: boolean;
+  reviewOnly?: boolean;
+};
+
+export type RoutePaymentReportPage = {
+  reports: RoutePaymentReport[];
+  hasMore: boolean;
+};
+
+export async function loadRoutePaymentReports(
+  ownerId: string,
+  options: boolean | RoutePaymentReportLoadOptions = false
+): Promise<RoutePaymentReport[]> {
+  const pendingCashOnly = typeof options === "boolean" ? options : options.pendingCashOnly === true;
+  const reviewOnly = typeof options === "boolean" ? false : options.reviewOnly === true;
+  return dedupeLoad(
+    `route-payment-reports:${ownerId}:${pendingCashOnly ? "pending-cash" : reviewOnly ? "review" : "all"}`,
+    () => loadRoutePaymentReportsUncached(ownerId, { pendingCashOnly, reviewOnly })
+  );
+}
+
+async function loadRoutePaymentReportsUncached(ownerId: string, options: RoutePaymentReportLoadOptions): Promise<RoutePaymentReport[]> {
   const rows: RoutePaymentReport[] = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
     let query = getCloudClient().from("route_payment_reports").select("*")
       .eq("user_id", ownerId).neq("status", "cancelled").order("reported_at", { ascending: false })
       .order("id").range(offset, offset + PAGE_SIZE - 1);
-    if (pendingCashOnly) query = query.eq("status", "review").eq("method", "cash").eq("confirmed_cash_amount", 0);
+    if (options.reviewOnly || options.pendingCashOnly) query = query.eq("status", "review");
+    if (options.pendingCashOnly) query = query.eq("method", "cash").eq("confirmed_cash_amount", 0);
     const { data, error } = await query;
     if (error) throw error;
     rows.push(...(data ?? []).map((row) => normalizeRoutePaymentReport(row)));
     if (!data || data.length < PAGE_SIZE) return rows;
   }
+}
+
+export async function loadRoutePaymentReportsPage(
+  ownerId: string,
+  offset = 0,
+  limit = 200
+): Promise<RoutePaymentReportPage> {
+  const safeOffset = Math.max(0, Math.floor(offset));
+  const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+  return dedupeLoad(`route-payment-reports-page:${ownerId}:${safeOffset}:${safeLimit}`, async () => {
+    const { data, error } = await getCloudClient().from("route_payment_reports").select("*")
+      .eq("user_id", ownerId).neq("status", "cancelled")
+      .order("reported_at", { ascending: false }).order("id")
+      .range(safeOffset, safeOffset + safeLimit);
+    if (error) throw error;
+    const rows = (data ?? []).map((row) => normalizeRoutePaymentReport(row));
+    return { reports: rows.slice(0, safeLimit), hasMore: rows.length > safeLimit };
+  });
 }
 
 export async function loadRoutePaymentReport(ownerId: string, reportId: string): Promise<RoutePaymentReport | null> {
@@ -82,7 +123,7 @@ export async function loadRoutePaymentReport(ownerId: string, reportId: string):
 export async function loadRoutePaymentReportForItem(ownerId: string, clientId: string, publishedAt: string): Promise<RoutePaymentReport | null> {
   const { data, error } = await getCloudClient().from("route_payment_reports").select("*")
     .eq("user_id", ownerId).eq("client_id", clientId).eq("published_at", publishedAt)
-    .neq("status", "cancelled").maybeSingle();
+    .neq("status", "cancelled").order("reported_at", { ascending: false }).order("id").limit(1).maybeSingle();
   if (error) throw error;
   return data ? normalizeRoutePaymentReport(data) : null;
 }
