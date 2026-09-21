@@ -372,6 +372,8 @@ export function useCoreCloudSync({
     if (!ownerUserId || !cloudReady || !supabase) return;
     const client = supabase;
     let cancelled = false;
+    let realtimeHealthy = false;
+    let hasConnected = false;
     const reload = async () => {
       if (pendingCoreSyncRef.current) {
         void flushPendingCoreSync();
@@ -399,9 +401,19 @@ export function useCoreCloudSync({
       .channel(`clients-core-live-${ownerUserId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "clients_cloud", filter: `user_id=eq.${ownerUserId}` }, (payload) => applyRemoteRow(payload, "clients_cloud"))
       .on("postgres_changes", { event: "*", schema: "public", table: "payments_cloud", filter: `user_id=eq.${ownerUserId}` }, (payload) => applyRemoteRow(payload, "payments_cloud"))
-      .subscribe();
+      .subscribe((status) => {
+        const wasHealthy = realtimeHealthy;
+        realtimeHealthy = status === "SUBSCRIBED";
+        if (!realtimeHealthy) return;
+
+        // The initial cloud load already produced a current snapshot. Reload only
+        // after a real disconnect so healthy tabs do not repeatedly download the
+        // full client list and recent payments every fallback interval.
+        if (hasConnected && !wasHealthy && !document.hidden) void reload();
+        hasConnected = true;
+      });
     const fallbackTimer = window.setInterval(() => {
-      if (!document.hidden) void reload();
+      if (!document.hidden && !realtimeHealthy) void reload();
     }, CORE_DATA_FALLBACK_POLL_MS);
     return () => {
       cancelled = true;
