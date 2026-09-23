@@ -16216,6 +16216,110 @@ button.ar-route-publish-copy.is-active {
   background: #f0f9ff;
 }
 
+.collision-balance-client-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.collision-balance-client-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.collision-balance-client-field > small,
+.collision-balance-client-picker > small {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+.collision-balance-client-selected {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 43px;
+  border: 1px solid #5eead4;
+  border-radius: 8px;
+  background: #f0fdfa;
+  padding: 7px 8px;
+}
+
+.collision-balance-client-selected > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.collision-balance-client-selected strong,
+.collision-balance-client-selected small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collision-balance-client-selected strong {
+  color: #134e4a;
+  font-size: 0.84rem;
+}
+
+.collision-balance-client-selected small {
+  color: #0f766e;
+  font-size: 0.72rem;
+}
+
+.collision-balance-client-check {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border-radius: 50%;
+  background: #ccfbf1;
+  color: #0f766e;
+  font-weight: 900;
+}
+
+.collision-balance-client-picker {
+  display: grid;
+  gap: 5px;
+}
+
+.collision-balance-client-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 7px;
+}
+
+.collision-balance-client-picker .client-dropdown-item {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: #ffffff;
+  color: var(--color-text);
+  font-family: inherit;
+  text-align: left;
+}
+
+.collision-balance-client-picker .client-dropdown-item:last-child {
+  border-bottom: 0;
+}
+
+.collision-balance-client-picker .client-dropdown-item:hover,
+.collision-balance-client-picker .client-dropdown-item:focus-visible {
+  background: #ecfeff;
+  outline: none;
+}
+
+.collision-balance-client-picker .client-dropdown-item span {
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+}
+
 .collision-balance-inline-message {
   grid-column: 1 / -1;
   margin: 0;

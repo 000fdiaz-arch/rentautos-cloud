@@ -84,6 +84,28 @@ const CURRENT_DATE_FORMATTER = new Intl.DateTimeFormat("es-PA", { weekday: "long
 
 function normalizeUnit(value: string): string { return value.trim().toUpperCase(); }
 function normalizePersonName(value: string): string { return value.trim().toLocaleUpperCase("es").replace(/\s+/g, " "); }
+function normalizeClientSearch(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("es").replace(/\s+/g, " ");
+}
+function balanceClientSearchResults(clients: Client[], search: string): Client[] {
+  const needle = normalizeClientSearch(search);
+  if (!needle) return [];
+  return clients
+    .filter((client) => {
+      const searchable = normalizeClientSearch([client.name, client.unitId, client.cedula ?? ""].join(" "));
+      return needle.split(" ").every((term) => searchable.includes(term));
+    })
+    .sort((left, right) => {
+      const leftName = normalizeClientSearch(left.name);
+      const rightName = normalizeClientSearch(right.name);
+      const leftUnit = normalizeClientSearch(left.unitId);
+      const rightUnit = normalizeClientSearch(right.unitId);
+      const leftPriority = leftUnit === needle ? 0 : leftName.startsWith(needle) ? 1 : left.status === "archivado" ? 3 : 2;
+      const rightPriority = rightUnit === needle ? 0 : rightName.startsWith(needle) ? 1 : right.status === "archivado" ? 3 : 2;
+      return leftPriority - rightPriority || left.name.localeCompare(right.name, "es", { sensitivity: "base" });
+    })
+    .slice(0, 8);
+}
 function findClientByName(clients: Client[], name: string): Client | undefined {
   const normalizedName = normalizePersonName(name);
   return normalizedName ? clients.find((client) => normalizePersonName(client.name) === normalizedName) : undefined;
@@ -171,6 +193,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   const [expenseEvaluationDates, setExpenseEvaluationDates] = useState<Record<string, string>>({});
   const [expenseInvoiceFiles, setExpenseInvoiceFiles] = useState<Record<string, File | null>>({});
   const [balanceClientIds, setBalanceClientIds] = useState<Record<string, string>>({});
+  const [balanceClientSearches, setBalanceClientSearches] = useState<Record<string, string>>({});
+  const [balanceClientPickerOpenId, setBalanceClientPickerOpenId] = useState<string | null>(null);
   const [editingBalanceId, setEditingBalanceId] = useState<string | null>(null);
   const [balanceEditJustification, setBalanceEditJustification] = useState("");
   const [returnedBeforeClosure, setReturnedBeforeClosure] = useState<Record<string, boolean>>({});
@@ -1577,7 +1601,11 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
             const attendanceComplete = typeof item.clientWillAttend === "boolean" && typeof item.legalAssistanceRequested === "boolean";
             const attendanceDraft = attendanceDrafts[item.id] ?? { clientWillAttend: "", legalAssistanceRequested: "" };
             const balanceClientIndex = findCaseClientIndex(item, balanceClientIds[item.id]);
-            const balanceClientId = balanceClientIndex >= 0 ? clients[balanceClientIndex].id : "";
+            const balanceClient = balanceClientIndex >= 0 ? clients[balanceClientIndex] : null;
+            const balanceClientId = balanceClient?.id ?? "";
+            const balanceClientSearch = balanceClientSearches[item.id] ?? (!balanceClient ? item.driver : "");
+            const balanceClientResults = balanceClientSearchResults(clients, balanceClientSearch);
+            const balanceClientPickerVisible = !balanceClient || balanceClientPickerOpenId === item.id;
             const timelineEvents = buildJudicialCaseTimeline(item);
             const managementTabOptions = ([
               ["attendance", "Asistencia", attendanceComplete ? "OK" : isFinalStatus(item.status) ? "Cerrado" : "Pendiente"],
@@ -1736,7 +1764,53 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                 {activeWorkspaceTab === "management" && activeCaseTab === "balance" && <div className="judicial-case-tab-panel" role="tabpanel" id={`judicial-balance-panel-${item.id}`}>
                  {!item.expenseInvoice && !isFinalStatus(item.status) && <div className="workflow-finalization-panel collision-balance-panel">
                   <div><strong>Saldo de colisión</strong><span>Registra el costo determinado después de la evaluación del taller.</span></div>
-                  <label className="workflow-required-field">Cliente asociado<select value={balanceClientId} onChange={(event) => { setBalanceClientIds((current) => ({ ...current, [item.id]: event.target.value })); setMessage(""); }} disabled={readOnly || busyId === item.id}><option value="">Seleccionar cliente</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name} · {client.unitId || "Sin unidad"}{client.status === "archivado" ? " · Archivado" : ""}</option>)}</select><small>El saldo se agregará a los otros cargos de este cliente.</small></label>
+                  <div className={`collision-balance-client-field${balanceClient ? "" : " workflow-required-field"}`}>
+                    <span className="collision-balance-client-label">Cliente asociado</span>
+                    {balanceClient && !balanceClientPickerVisible && <div className="collision-balance-client-selected">
+                      <span className="collision-balance-client-check" aria-hidden="true">✓</span>
+                      <span><strong>{balanceClient.name}</strong><small>{balanceClient.unitId || "Sin unidad"}{balanceClient.cedula ? ` · ${balanceClient.cedula}` : ""}{balanceClient.status === "archivado" ? " · Archivado" : ""}</small></span>
+                      <button type="button" className="button ghost small" onClick={() => { setBalanceClientSearches((current) => ({ ...current, [item.id]: "" })); setBalanceClientPickerOpenId(item.id); }} disabled={readOnly || busyId === item.id}>Cambiar</button>
+                    </div>}
+                    {balanceClientPickerVisible && <div className="collision-balance-client-picker">
+                      <div className="collision-balance-client-search-row">
+                        <div className="client-selector">
+                          <input
+                            type="search"
+                            className="client-search-input"
+                            aria-label="Buscar cliente para el saldo de colisión"
+                            placeholder="Escribe nombre, unidad o cédula..."
+                            value={balanceClientSearch}
+                            onChange={(event) => { setBalanceClientSearches((current) => ({ ...current, [item.id]: event.target.value })); setBalanceClientPickerOpenId(item.id); }}
+                            onFocus={() => setBalanceClientPickerOpenId(item.id)}
+                            onBlur={() => window.setTimeout(() => setBalanceClientPickerOpenId((current) => current === item.id ? null : current), 150)}
+                            autoFocus={balanceClientPickerOpenId === item.id}
+                            autoComplete="off"
+                            disabled={readOnly || busyId === item.id}
+                          />
+                          {balanceClientPickerOpenId === item.id && balanceClientSearch.trim() && <div className="client-dropdown" role="listbox" aria-label="Coincidencias de clientes">
+                            {balanceClientResults.map((client) => <button
+                              type="button"
+                              role="option"
+                              aria-selected={client.id === balanceClientId}
+                              className="client-dropdown-item"
+                              key={client.id}
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                setBalanceClientIds((current) => ({ ...current, [item.id]: client.id }));
+                                setBalanceClientSearches((current) => ({ ...current, [item.id]: "" }));
+                                setBalanceClientPickerOpenId(null);
+                                setMessage("");
+                              }}
+                            ><strong>{client.name}</strong><span>{client.unitId || "Sin unidad"}{client.cedula ? ` · ${client.cedula}` : ""}{client.status === "archivado" ? " · Archivado" : ""}</span></button>)}
+                            {!balanceClientResults.length && <div className="client-dropdown-empty">No encontramos clientes con “{balanceClientSearch.trim()}”.</div>}
+                          </div>}
+                        </div>
+                        {balanceClient && <button type="button" className="button ghost small" onMouseDown={(event) => event.preventDefault()} onClick={() => { setBalanceClientSearches((current) => ({ ...current, [item.id]: "" })); setBalanceClientPickerOpenId(null); }}>Cancelar</button>}
+                      </div>
+                      {!balanceClientSearch.trim() && <small>Empieza a escribir para ver coincidencias.</small>}
+                    </div>}
+                    <small>{balanceClient ? "Seleccionado automáticamente según el cliente del expediente. El saldo se agregará a sus otros cargos." : "Busca y selecciona el cliente al que se agregará el saldo."}</small>
+                  </div>
                   <label>Fecha de evaluación<input type="date" value={expenseEvaluationDates[item.id] ?? today} onChange={(event) => setExpenseEvaluationDates((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /></label>
                   <label className="workflow-required-field">Monto obligatorio<input type="number" min="0.01" step="0.01" placeholder="0.00" value={expenseAmounts[item.id] ?? ""} onChange={(event) => setExpenseAmounts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /></label>
                   <label className="workflow-finalization-reason workflow-required-field">Descripción del daño o reparación (obligatoria)<textarea value={expenseLabels[item.id] ?? ""} placeholder="Ej. Reparación de guardafango y pintura" onChange={(event) => setExpenseLabels((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id} /></label>
