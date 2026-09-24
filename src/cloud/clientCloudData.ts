@@ -105,11 +105,12 @@ export async function saveCloudClients(userId: string, clients: Client[]): Promi
   }));
 
   if (rows.length > 0) {
-    const { error } = await client
-      .from("clients_cloud")
-      .upsert(rows, { onConflict: "user_id,id" });
-
-    if (error) throw error;
+    await withCloudRetry(() =>
+      client
+        .from("clients_cloud")
+        .upsert(rows, { onConflict: "user_id,id" })
+        .throwOnError()
+    );
   }
 }
 
@@ -132,11 +133,11 @@ export async function syncCloudClientsDelta(
     }));
 
   if (upsertRows.length > 0) {
-    const { error } = await withCloudRetry(() =>
+    await withCloudRetry(() =>
       client
         .from("clients_cloud")
         .upsert(upsertRows, { onConflict: "user_id,id" })
+        .throwOnError()
     );
-    if (error) throw error;
   }
 }
