@@ -99,6 +99,7 @@ export function buildClient(form: ClientForm, existing?: Client): Client {
     firstChargeAnchor.getMonth(),
     firstChargeAnchor.getDate() - 1
   ));
+  const balance = Number(form.initialBalance);
   const client: Client = {
     id: existing?.id ?? crypto.randomUUID(),
     unitId: form.unitId.trim(),
@@ -109,9 +110,11 @@ export function buildClient(form: ClientForm, existing?: Client): Client {
     frequency: form.frequency,
     chargeFirstSunday: form.frequency === "daily" && form.chargeFirstSunday,
     firstSundayChargedAt: existing?.firstSundayChargedAt,
-    balance: Number(form.initialBalance),
+    balance,
     travelFundBalance: Number(form.travelFundBalance),
-    advanceBalance: existing?.advanceBalance ?? 0,
+    // A manually assigned pending balance replaces any previously recorded
+    // credit. This keeps the account from showing debt and credit at once.
+    advanceBalance: balance > 0 ? 0 : existing?.advanceBalance ?? 0,
     savings: existing?.savings ?? 0,
     installmentsAgreed: Number(form.installmentsAgreed),
     installmentsIssued: Number(form.installmentsIssued),

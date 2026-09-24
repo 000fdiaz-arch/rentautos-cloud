@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  DuplicateCollisionTicketStubError,
   DuplicateInsuranceClaimNumberError,
   JudicialOutcomeRequiredForClaimError,
   loadCollisionCases,
@@ -440,7 +441,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
       if (uploadedInsuranceFud) { try { await removeInsuranceSettlement(uploadedInsuranceFud.path); } catch { /* Limpieza de mejor esfuerzo. */ } }
       if (uploadedJudicialPhotos.length) { try { await removeCollisionPhotos(uploadedJudicialPhotos.map((photo) => photo.path)); } catch { /* Limpieza de mejor esfuerzo. */ } }
       console.error("No se pudo guardar el siniestro.", error);
-      setMessage(error instanceof DuplicateInsuranceClaimNumberError || error instanceof JudicialOutcomeRequiredForClaimError ? error.message : incidentSaveErrorMessage(saveStep, error));
+      setMessage(error instanceof DuplicateCollisionTicketStubError || error instanceof DuplicateInsuranceClaimNumberError || error instanceof JudicialOutcomeRequiredForClaimError ? error.message : incidentSaveErrorMessage(saveStep, error));
     } finally { setSaving(false); }
   }
 

@@ -81,6 +81,15 @@ export class DuplicateInsuranceClaimNumberError extends Error {
   }
 }
 
+export class DuplicateCollisionTicketStubError extends Error {
+  readonly code = "DUPLICATE_COLLISION_TICKET_STUB";
+
+  constructor(ticketStub: string) {
+    super(`El número de colilla ${ticketStub.trim()} ya está registrado en otro expediente judicial.`);
+    this.name = "DuplicateCollisionTicketStubError";
+  }
+}
+
 export class JudicialOutcomeRequiredForClaimError extends Error {
   readonly code = "JUDICIAL_OUTCOME_REQUIRED_FOR_CLAIM";
 
@@ -467,6 +476,10 @@ function normalizeInsuranceClaimNumber(value: string): string {
   return value.trim().toLocaleUpperCase("es").replace(/[\s-]+/g, "");
 }
 
+function normalizeCollisionTicketStub(value: string): string {
+  return value.trim().toLocaleUpperCase("es").replace(/[\s-]+/g, "");
+}
+
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
 }
@@ -763,10 +776,33 @@ export async function loadCollisionCases(userId: string): Promise<CollisionCaseR
 export async function saveCollisionCase(userId: string, item: CollisionCaseRecord): Promise<void> {
   const client = getCloudClient();
   const normalizedItem = { ...item, court: normalizeCourtName(item.court) };
+  const normalizedTicketStub = normalizeCollisionTicketStub(normalizedItem.ticketStub);
+  if (normalizedTicketStub) {
+    const { data: existingRows, error: duplicateCheckError } = await client
+      .from("collision_cases_cloud")
+      .select("id,data")
+      .eq("user_id", userId);
+    if (duplicateCheckError) throw duplicateCheckError;
+    const currentRow = (existingRows ?? []).find((row) => row.id === item.id);
+    const currentTicketStub = currentRow && typeof currentRow.data === "object" && currentRow.data !== null
+      ? (currentRow.data as { ticketStub?: unknown }).ticketStub
+      : "";
+    const keepsExistingTicketStub = typeof currentTicketStub === "string"
+      && normalizeCollisionTicketStub(currentTicketStub) === normalizedTicketStub;
+    const duplicate = (existingRows ?? []).find((row) => {
+      if (row.id === item.id || typeof row.data !== "object" || row.data === null) return false;
+      const existingTicketStub = (row.data as { ticketStub?: unknown }).ticketStub;
+      return typeof existingTicketStub === "string" && normalizeCollisionTicketStub(existingTicketStub) === normalizedTicketStub;
+    });
+    if (duplicate && !keepsExistingTicketStub) throw new DuplicateCollisionTicketStubError(normalizedItem.ticketStub);
+  }
   const { error } = await client
     .from("collision_cases_cloud")
     .upsert({ user_id: userId, id: item.id, data: normalizedItem, updated_at: item.updatedAt }, { onConflict: "user_id,id" });
-  if (error) throw error;
+  if (error) {
+    if (isUniqueViolation(error)) throw new DuplicateCollisionTicketStubError(normalizedItem.ticketStub);
+    throw error;
+  }
 }
 
 function normalizePendingIncident(item: PendingIncidentRecord): PendingIncidentRecord {
@@ -2114,20 +2150,22 @@ export async function setControlUnitStatus(
   status: string
 ): Promise<ControlUnitStatusResult> {
   const client = getCloudClient();
-  const { data, error } = await client.rpc("set_fleet_unit_status", {
-    p_owner_user_id: userId,
-    p_unit_id: unitId,
-    p_status: status
-  });
-  if (error) {
-    if (isMissingFleetStatusRpc(error)) {
-      throw new Error("La funcion segura set_fleet_unit_status no esta disponible en Supabase. Ejecuta la migracion de flota y recarga el schema cache antes de cambiar estados.");
+  return withCloudRetry(async () => {
+    const { data, error } = await client.rpc("set_fleet_unit_status", {
+      p_owner_user_id: userId,
+      p_unit_id: unitId,
+      p_status: status
+    });
+    if (error) {
+      if (isMissingFleetStatusRpc(error)) {
+        throw new Error("La funcion segura set_fleet_unit_status no esta disponible en Supabase. Ejecuta la migracion de flota y recarga el schema cache antes de cambiar estados.");
+      }
+      throw error;
     }
-    throw error;
-  }
-  return (data && typeof data === "object" && !Array.isArray(data))
-    ? data as ControlUnitStatusResult
-    : {};
+    return (data && typeof data === "object" && !Array.isArray(data))
+      ? data as ControlUnitStatusResult
+      : {};
+  });
 }
 
 export type FleetLifecycleImpact = {

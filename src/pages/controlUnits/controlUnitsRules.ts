@@ -308,9 +308,18 @@ export function buildFleetPieData(rows: ControlUnitRow[]): { slices: FleetPieSli
 }
 
 export function describeStatusError(error: unknown): string {
+  const record = error && typeof error === "object" ? error as Record<string, unknown> : null;
+  const normalized = [
+    error instanceof Error ? error.message : "",
+    typeof record?.message === "string" ? record.message : "",
+    typeof record?.code === "string" ? record.code : "",
+    typeof record?.details === "string" ? record.details : ""
+  ].join(" ").toLowerCase();
+  if (normalized.includes("57014") || normalized.includes("statement timeout")) {
+    return "La base de datos tardo demasiado en responder. El cambio se reintento, pero no pudo confirmarse; intenta nuevamente.";
+  }
   if (error instanceof Error && error.message) return error.message;
-  if (error && typeof error === "object") {
-    const record = error as Record<string, unknown>;
+  if (record) {
     const parts = [
       typeof record.message === "string" ? record.message : "",
       typeof record.code === "string" ? `code=${record.code}` : "",

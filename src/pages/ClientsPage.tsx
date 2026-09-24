@@ -280,7 +280,8 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
     if (!Number.isFinite(value) || value < 0) return;
     updateClientInline(client.id, (current) => ({
       ...current,
-      balance: roundInlineMoney(value)
+      balance: roundInlineMoney(value),
+      advanceBalance: value > 0 ? 0 : current.advanceBalance
     }));
   }
 
@@ -839,6 +840,9 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
     <div className="clients-luxury-page">
       <EditClientDialog
         editingClientId={editingClientId}
+        existingAdvanceBalance={editingClientId === null
+          ? 0
+          : clients.find((client) => client.id === editingClientId)?.advanceBalance ?? 0}
         onCancel={handleCancelEdit}
         form={form}
         setForm={setForm}

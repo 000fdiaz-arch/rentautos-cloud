@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  DuplicateCollisionTicketStubError,
   DuplicateInsuranceClaimNumberError,
   JudicialOutcomeRequiredForClaimError,
   createCollisionPhotoViewUrl,
@@ -430,7 +431,10 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       setMessage(missingDocumentation.length > 0
         ? `Siniestro guardado. Falta completar: ${missingDocumentation.map((requirement) => requirement.label).join(", ")}.`
         : "Juicio registrado correctamente.");
-    } catch (error) { console.error("No se pudo guardar el juicio.", error); setMessage("No se pudo guardar el juicio en la nube."); }
+    } catch (error) {
+      console.error("No se pudo guardar el juicio.", error);
+      setMessage(error instanceof DuplicateCollisionTicketStubError ? error.message : "No se pudo guardar el juicio en la nube.");
+    }
     finally { setSaving(false); }
   }
 
@@ -740,7 +744,11 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
         catch (rollbackError) { console.error("No se pudo revertir la sincronización del reclamo.", rollbackError); }
       }
       console.error("No se pudo guardar la corrección del siniestro.", error);
-      setMessage(error instanceof Error && error.message === "INVALID_TICKET_STUB_PHOTO" ? "La foto de la colilla debe ser una imagen de 10 MB o menos." : "No se pudo guardar la corrección del siniestro en la nube.");
+      setMessage(error instanceof Error && error.message === "INVALID_TICKET_STUB_PHOTO"
+        ? "La foto de la colilla debe ser una imagen de 10 MB o menos."
+        : error instanceof DuplicateCollisionTicketStubError
+          ? error.message
+          : "No se pudo guardar la corrección del siniestro en la nube.");
     } finally {
       setCaseEditSavingId("");
     }
@@ -778,7 +786,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       setTicketStubDrafts((current) => ({ ...current, [item.id]: nextTicketStub }));
     } catch (error) {
       console.error("No se pudo actualizar el número de colilla.", error);
-      setMessage("No se pudo actualizar el número de colilla.");
+      setMessage(error instanceof DuplicateCollisionTicketStubError ? error.message : "No se pudo actualizar el número de colilla.");
     } finally {
       setBusyId("");
     }

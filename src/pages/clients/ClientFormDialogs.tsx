@@ -17,6 +17,7 @@ type SharedProps = {
 
 type EditProps = SharedProps & {
   editingClientId: string | null;
+  existingAdvanceBalance: number;
   onCancel: () => void;
   editClientTab: EditClientTab;
   setEditClientTab: Dispatch<SetStateAction<EditClientTab>>;
@@ -38,6 +39,7 @@ function IssuedInstallmentsSummary({ value }: { value: string }) {
 
 export function EditClientDialog({
   editingClientId,
+  existingAdvanceBalance,
   onCancel: handleCancelEdit,
   form,
   setForm,
@@ -50,6 +52,7 @@ export function EditClientDialog({
   installmentLiveError,
   errors
 }: EditProps) {
+  const willClearAdvanceBalance = Number(form.initialBalance) > 0 && existingAdvanceBalance > 0;
   return (
     <>
       {editingClientId !== null && (
@@ -149,6 +152,11 @@ export function EditClientDialog({
                         <label>MONTO A COBRAR (USD)
                           <input type="number" step="0.01" min="0" value={form.initialBalance} onChange={(e) => setForm((c) => ({ ...c, initialBalance: e.target.value }))} placeholder="0.00" className={errorFields.has("initialBalance") ? "input-error" : undefined} required />
                         </label>
+                        {willClearAdvanceBalance && (
+                          <p className="payment-notice" role="alert" style={{ gridColumn: "1 / -1", margin: 0 }}>
+                            Al guardar este saldo pendiente se anulara el saldo a favor de ${existingAdvanceBalance.toFixed(2)}.
+                          </p>
+                        )}
                         <label>FONDO DE VIAJE (USD)
                           <input type="number" step="0.01" min="0" value={form.travelFundBalance} onChange={(e) => setForm((c) => ({ ...c, travelFundBalance: e.target.value }))} placeholder="0.00" className={errorFields.has("travelFundBalance") ? "input-error" : undefined} required />
                         </label>

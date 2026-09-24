@@ -318,7 +318,11 @@ export default function ControlUnitsPage({
       const result = await setControlUnitStatus(dataOwnerUserId, unitId, statusDraft);
       const archivedClientIds = Array.isArray(result.archived_client_ids) ? result.archived_client_ids : [];
       const updatedClientIds = Array.isArray(result.updated_client_ids) ? result.updated_client_ids : [];
-      await reloadRows();
+      setRows((current) => current.map((row) => (
+        normalizeUnitIdInput(row.unit_id ?? "") === unitId
+          ? { ...row, operational_status: statusDraft }
+          : row
+      )));
       onFleetClientStatusSync?.({
         unitId,
         status: statusDraft,
@@ -328,6 +332,9 @@ export default function ControlUnitsPage({
         archivedAt
       });
       setStatusTarget(null);
+      void reloadRows().catch((error) => {
+        console.error("El estado se guardo, pero no se pudo refrescar Autos inmediatamente.", error);
+      });
     } catch (error) {
       console.error("No se pudo cambiar estado de auto.", error);
       setStatusError(`No se pudo cambiar el estado en Supabase. Detalle: ${describeStatusError(error)}`);
