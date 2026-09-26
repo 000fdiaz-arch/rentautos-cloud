@@ -143,19 +143,17 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
     fleetStatus: "provisional_rental" | "libre"
   ): Promise<void> {
     if (dataOwnerUserId) {
-      await saveProvisionalRentalState({
+      const savedClient = await saveProvisionalRentalState({
         userId: dataOwnerUserId,
         clientId: current.id,
         clientData: nextClient,
         unitId,
         fleetStatus
       });
-      // Mantiene el estado local y cualquier snapshot pendiente de sincronizacion
-      // alineados con la escritura atomica. Sin esto, un snapshot anterior podia
-      // volver a guardar el cliente sin activeProvisionalRental y dejar la flota
-      // marcada como provisional, pero sin cliente asociado.
-      await persist(clients.map((client) => client.id === current.id ? nextClient : client));
-      await onClientsRefresh?.();
+      // La RPC ya guarda cliente y flota en una sola transaccion. Una segunda
+      // escritura del documento completo podia reponer una copia local antigua.
+      if (onClientsRefresh) await onClientsRefresh();
+      else await persist(clients.map((client) => client.id === current.id ? savedClient : client));
     } else {
       await persist(clients.map((client) => client.id === current.id ? nextClient : client));
     }

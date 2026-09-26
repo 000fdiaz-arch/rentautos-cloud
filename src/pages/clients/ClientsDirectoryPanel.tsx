@@ -21,6 +21,7 @@ import type {
   WeeklyChargeDayFilterKey
 } from "./clientTypes";
 import { toDateKey } from "../../billing";
+import { statusBadgeClass, statusLabel } from "../controlUnits/controlUnitsRules";
 
 type Props = {
   rows: ClientDirectoryRow[];
@@ -266,6 +267,9 @@ export function ClientsDirectoryPanel({
                 ) : (
                   rows.map(({ client, unitId, assignmentKind, debtStartDate, nextChargeDate }) => {
                     const vehicle = fleetDetailsByUnit[unitId];
+                    const fleetStatus = String(vehicle?.operational_status ?? "libre").trim().toLowerCase() || "libre";
+                    const isOrphanedProvisional = !client && fleetStatus === "provisional_rental";
+                    const isUnassignedUnitAvailable = !client && fleetStatus === "libre";
                     const isProvisionalRow = assignmentKind === "provisional" && Boolean(client?.activeProvisionalRental);
                     const provisionalRental = isProvisionalRow ? client?.activeProvisionalRental : undefined;
                     const primaryUnitId = client?.unitId.trim().toUpperCase() ?? "";
@@ -313,7 +317,13 @@ export function ClientsDirectoryPanel({
                           ) : (
                             <>
                               <strong>Sin cliente asignado</strong>
-                              <div className="debt-meta">Unidad disponible para asignacion.</div>
+                              <div className="debt-meta">
+                                {isOrphanedProvisional
+                                  ? "Estado provisional sin cliente vinculado. Requiere revision."
+                                  : isUnassignedUnitAvailable
+                                    ? "Unidad disponible para asignacion."
+                                    : `Unidad sin cliente con estado ${statusLabel(fleetStatus)}.`}
+                              </div>
                             </>
                           )}
                         </td>
@@ -448,7 +458,9 @@ export function ClientsDirectoryPanel({
                               ))}
                             </select>
                           )) : (
-                            <span className="badge badge-warning">Libre</span>
+                            <span className={statusBadgeClass(fleetStatus)}>
+                              {isOrphanedProvisional ? "Provisional sin cliente" : statusLabel(fleetStatus)}
+                            </span>
                           )}
                         </td>
                         <td>
@@ -481,7 +493,7 @@ export function ClientsDirectoryPanel({
                                 )}
                               </>
                             ) : (
-                              !readOnly && (
+                              !readOnly && isUnassignedUnitAvailable && (
                                 <button
                                   type="button"
                                   className="button primary small"
