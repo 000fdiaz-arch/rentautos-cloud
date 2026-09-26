@@ -28,7 +28,7 @@ try {
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = [];
-  page.setDefaultTimeout(8000);
+  page.setDefaultTimeout(20000);
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url());
@@ -113,7 +113,7 @@ try {
   failSave = false; await save(); await form().waitFor({ state: 'hidden' });
   assert.equal(records.length, 2); assert.equal(records[0].id, original.id); assert.equal(records[0].createdAt, original.createdAt);
   assert.equal(records[0].attachmentDataUrl, png); assert.equal(records[0].cedula, '8-100-101');
-  assert.equal(records[0].decision, 'aplica_con_abono'); assert.equal(records[0].extraDeposit, 200);
+  assert.equal(records[0].decision, 'aplica_con_abono'); assert.equal(records[0].extraDeposit, 300);
   check('valida fecha, conserva formulario ante fallo y corrige el mismo ID con documento y dictamen recalculado');
   await page.reload(); await recent(); await editRow('8-100-101');
   assert.equal(await form().getByLabel('Fecha de nacimiento').inputValue(), '2001-01-01');

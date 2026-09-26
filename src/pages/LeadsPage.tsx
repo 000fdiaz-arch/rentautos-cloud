@@ -10,6 +10,7 @@ import {
 } from "../cloudData";
 import type { LeadDecision, LeadEvaluation, SellerLeadRequest, SellerLeadRequestStatus } from "../types";
 import { sellerCedulaKey, validSellerCedula, validSellerCedulaInput, validSellerBirthDate } from "../sellerLeadPortalRules";
+import { calculateLeadAgeExtraDeposit } from "../leadAgeRules";
 import LeadDocumentPreview from "../components/LeadDocumentPreview";
 
 type LeadForm = {
@@ -108,7 +109,6 @@ function buildVerdict(form: LeadForm): LeadVerdict {
   const extraDepositReasons: string[] = [];
   let extraDeposit = 0;
 
-  if (age !== null && age < 22) blockers.push("Menor de 22 anos");
   if (!form.noCases) {
     if (form.hasGpsTamperingReport) blockers.push("Reporte de quitar/manipular GPS");
     if (form.hasLegalCases) blockers.push("Casos legales");
@@ -118,10 +118,11 @@ function buildVerdict(form: LeadForm): LeadVerdict {
     if (collisionReports >= 2) blockers.push("2 o mas reportes de colision/choque");
   }
 
-  if (blockers.length === 0 && age !== null && age >= 22 && age < 27) {
-    const amount = (27 - age) * 100;
+  const ageExtraDeposit = calculateLeadAgeExtraDeposit(age);
+  if (blockers.length === 0 && age !== null && ageExtraDeposit > 0) {
+    const amount = ageExtraDeposit;
     extraDeposit += amount;
-    extraDepositReasons.push(`Edad ${age}: +$${amount} por estar debajo de 27`);
+    extraDepositReasons.push(`Edad ${age}: +$${amount} según la escala de edad hasta los 27 años`);
   }
   if (blockers.length === 0 && collisionReports === 1) {
     extraDeposit += 100;
@@ -818,7 +819,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
           <div className="lead-dictamen-section">
             <h3>Requisitos</h3>
             <ul>
-              <li>Edad minima 27: {verdict.age === null ? "Pendiente" : verdict.age >= 27 ? "Cumple" : verdict.age >= 22 ? "Aplica con abono" : "No cumple"}</li>
+              <li>Edad: {verdict.age === null ? "Pendiente" : verdict.age <= 27 ? "Aplica con abono según escala" : "Sin abono adicional por edad"}</li>
               <li>Licencia: debe validar en la entrega del documento</li>
               <li>Record policivo: debe validar en la revision</li>
               <li>Historial de transito: debe validar en la revision</li>
