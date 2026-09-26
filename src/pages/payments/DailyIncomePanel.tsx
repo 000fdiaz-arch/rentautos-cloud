@@ -25,7 +25,7 @@ type Props = {
   isOpen: boolean;
   payments: Payment[];
   bankRules: BankRule[];
-  onPaymentsChange: (payments: Payment[]) => void;
+  onPaymentsChange: (payments: Payment[]) => void | Promise<void>;
   currentActor: string;
   readOnly?: boolean;
   isPaymentHistoryLoaded?: boolean;
@@ -113,6 +113,7 @@ export default function DailyIncomePanel({
   const [deliveryDate, setDeliveryDate] = useState("");
   const [deliveryReason, setDeliveryReason] = useState("");
   const [deliveryError, setDeliveryError] = useState("");
+  const [isDeliverySaving, setIsDeliverySaving] = useState(false);
   const [search, setSearch] = useState("");
   const [methodFilter, setMethodFilter] = useState("all");
   const [destinationFilter, setDestinationFilter] = useState("all");
@@ -499,8 +500,8 @@ export default function DailyIncomePanel({
     setDeliveryError("");
   }
 
-  function saveDelivery(): void {
-    if (readOnly || deliveryIds.length === 0) return;
+  async function saveDelivery(): Promise<void> {
+    if (readOnly || isDeliverySaving || deliveryIds.length === 0) return;
     if (deliveryPayments.length !== deliveryIds.length) {
       setDeliveryError("La lista de recibos cambió. Cierra esta ventana y vuelve a seleccionar la entrega.");
       return;
@@ -512,7 +513,9 @@ export default function DailyIncomePanel({
       return;
     }
     const changedAt = new Date().toISOString();
-    onPaymentsChange(payments.map((payment) => {
+    const deliveryCount = deliveryIds.length;
+    const savedDeliveryDate = deliveryDate;
+    const nextPayments = payments.map((payment) => {
       if (!deliveryIds.includes(payment.id)) return payment;
       if (isMoneyDelivered(payment) && getDailyIncomeReportDate(payment) === deliveryDate) return payment;
       const audit: PaymentIncomeEdit = {
@@ -533,10 +536,20 @@ export default function DailyIncomePanel({
         moneyDeliveryUpdatedBy: currentActor,
         incomeEdits: [...(payment.incomeEdits ?? []), audit]
       };
-    }));
-    setTeamDeliveryMessage(`Entrega registrada para el ${formatMoneyDay(deliveryDate)} · ${deliveryIds.length} recibo(s).`);
-    setDeliveryIds([]);
-    setSelectedCashIds([]);
+    });
+    setDeliveryError("");
+    setIsDeliverySaving(true);
+    try {
+      await onPaymentsChange(nextPayments);
+      setTeamDeliveryMessage(`Entrega guardada para el ${formatMoneyDay(savedDeliveryDate)} · ${deliveryCount} recibo(s).`);
+      setDeliveryIds([]);
+      setSelectedCashIds([]);
+    } catch (error) {
+      console.error("No se pudo guardar la entrega de efectivo.", error);
+      setDeliveryError("No se pudo guardar la entrega en la nube. Revisa tu conexión e intenta nuevamente.");
+    } finally {
+      setIsDeliverySaving(false);
+    }
   }
 
   function saveEdit(): void {
@@ -924,15 +937,15 @@ export default function DailyIncomePanel({
       </div>
       {deliveryIds.length > 0 && <div className="modal-overlay">
         <div className="modal income-edit-modal" role="dialog" aria-modal="true" aria-labelledby="cash-delivery-title">
-          <div className="modal-header"><h2 id="cash-delivery-title">{isDeliveryCorrection ? "Cambiar fecha de entrega" : "Registrar entrega de efectivo"}</h2><button type="button" className="modal-close" aria-label="Cerrar entrega" onClick={() => setDeliveryIds([])}>×</button></div>
-          <form className="modal-body income-edit-form" onSubmit={event => { event.preventDefault(); saveDelivery(); }}>
+          <div className="modal-header"><h2 id="cash-delivery-title">{isDeliveryCorrection ? "Cambiar fecha de entrega" : "Registrar entrega de efectivo"}</h2><button type="button" className="modal-close" aria-label="Cerrar entrega" disabled={isDeliverySaving} onClick={() => setDeliveryIds([])}>×</button></div>
+          <form className="modal-body income-edit-form" onSubmit={event => { event.preventDefault(); void saveDelivery(); }}>
             <p>{deliveryPayments.length} recibo(s) · {formatCurrency(deliveryPayments.reduce((sum, payment) => sum + payment.amountReceived, 0))}</p>
             <p className="hint">Elige el día en que recibiste este dinero. Aparecerá como entregado en ese día.</p>
             <ul className="income-edit-audit">{deliveryPayments.map(payment => <li key={payment.id}>{payment.receiptNumber} · {payment.clientUnit} · Cobro: {getIncomeDate(payment)}{isMoneyDelivered(payment) ? ` · Entrega actual: ${getDailyIncomeReportDate(payment)}` : " · Pendiente"}</li>)}</ul>
-            <label>Fecha de entrega<input autoFocus type="date" required min={deliveryPayments.map(getIncomeDate).sort().slice(-1)[0]} max={getBusinessDateKey()} value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} /></label>
-            <label>{isDeliveryCorrection ? "Motivo de la corrección" : "Observación (opcional)"}<input required={isDeliveryCorrection} value={deliveryReason} onChange={event => setDeliveryReason(event.target.value)} /></label>
+            <label>Fecha de entrega<input autoFocus type="date" required disabled={isDeliverySaving} min={deliveryPayments.map(getIncomeDate).sort().slice(-1)[0]} max={getBusinessDateKey()} value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} /></label>
+            <label>{isDeliveryCorrection ? "Motivo de la corrección" : "Observación (opcional)"}<input required={isDeliveryCorrection} disabled={isDeliverySaving} value={deliveryReason} onChange={event => setDeliveryReason(event.target.value)} /></label>
             {deliveryError && <p role="alert" className="hint error-text">{deliveryError}</p>}
-            <div className="modal-actions"><button type="button" className="button ghost" onClick={() => setDeliveryIds([])}>Cancelar</button><button type="submit" className="button primary">Guardar entrega</button></div>
+            <div className="modal-actions"><button type="button" className="button ghost" disabled={isDeliverySaving} onClick={() => setDeliveryIds([])}>Cancelar</button><button type="submit" className="button primary" disabled={isDeliverySaving}>{isDeliverySaving ? "Guardando…" : "Guardar entrega"}</button></div>
           </form>
         </div>
       </div>}

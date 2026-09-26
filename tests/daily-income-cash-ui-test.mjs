@@ -19,6 +19,7 @@ try {
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   page.setDefaultTimeout(8000);
+  page.setDefaultNavigationTimeout(30000);
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/*", route => {
@@ -397,6 +398,21 @@ try {
   const zoneRows = XLSX.utils.sheet_to_json(zoneWorkbook.Sheets.Movimientos);
   assert.deepEqual(zoneRows.map(row => row.Recibo).sort(), ["CASH-PTY-2", "CASH-WC"]);
   check("orden y totales de entregados independientes; Excel respeta los filtros de ambas zonas");
+  await page.evaluate(() => localStorage.removeItem("income-fixture-seeded"));
+  await page.goto(base + "/income-test?fail-save=1");
+  await date().fill("2026-09-02");
+  const failedReceipt = page.getByRole("article", { name: "Recibo CASH-WC", exact: true });
+  await failedReceipt.getByRole("button", { name: "Registrar entrega", exact: true }).click();
+  dialog = page.getByRole("dialog");
+  const saveButton = dialog.getByRole("button", { name: "Guardar entrega", exact: true });
+  await saveButton.click();
+  await dialog.getByRole("button", { name: "Guardando…", exact: true }).waitFor();
+  assert.equal(await dialog.getByRole("button", { name: "Guardando…", exact: true }).isDisabled(), true);
+  await dialog.getByRole("alert").waitFor();
+  assert.match(await dialog.getByRole("alert").innerText(), /No se pudo guardar la entrega en la nube/);
+  assert.equal(await dialog.isVisible(), true);
+  assert.equal((await rows()).find(row => row.id === "CASH-WC").moneyDelivered, false);
+  check("un fallo cloud mantiene la entrega pendiente, deja el diálogo abierto y permite reintentar");
   assert.deepEqual(errors, []);
   console.log(`PASS ${cases} escenarios; sin errores del navegador ni acceso a producción.`);
 } finally { await browser?.close(); server.kill(); }

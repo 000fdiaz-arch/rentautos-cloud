@@ -13,6 +13,7 @@ const payment = (id: string, method: Payment["paymentMethod"], amount: number, e
   installmentsPaidAfter: 1, installmentsRemainingAfter: 0, rentAmount: amount, frequency: "daily", ...extra
 });
 const restored = localStorage.getItem("income-fixture-seeded") ? await loadPaymentsFromIndexedDb() : null;
+const shouldFailSave = new URLSearchParams(location.search).has("fail-save");
 function Harness() {
   const [isOpen, setIsOpen] = useState(true);
   const [payments, setPayments] = useState(() => {
@@ -33,6 +34,13 @@ function Harness() {
   const ref = useRef<HTMLElement>(null);
   return <main style={{ padding: 16, minWidth: 0 }}><button onClick={() => setIsOpen(value => !value)}>{isOpen ? "Ir a otra sección" : "Volver a ingresos"}</button><DailyIncomePanel sectionRef={ref} isOpen={isOpen} payments={payments} bankRules={[]}
     currentActor="Pruebas" readOnly={new URLSearchParams(location.search).has("readonly")}
-    onPaymentsChange={rows => { savePayments(rows); setPayments(rows); }} /></main>;
+    onPaymentsChange={async rows => {
+      if (shouldFailSave) {
+        await new Promise(resolve => window.setTimeout(resolve, 75));
+        throw new Error("Fallo cloud simulado");
+      }
+      savePayments(rows);
+      setPayments(rows);
+    }} /></main>;
 }
 createRoot(document.getElementById("root")!).render(<Harness />);

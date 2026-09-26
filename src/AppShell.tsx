@@ -535,11 +535,16 @@ export default function AppShell({
     const previousClients = clients;
     const previousPayments = payments;
     setPayments(next);
-    if (cloudDataUserId) {
-      void syncCoreDeltaOrQueue(previousClients, previousClients, previousPayments, next);
+    try {
+      if (cloudDataUserId) {
+        await syncCoreDeltaOrQueue(previousClients, previousClients, previousPayments, next);
+      }
+      if (!isSupabaseOnlyMode) savePayments(next);
+      setHasPendingChanges(true);
+    } catch (error) {
+      setPayments(previousPayments);
+      throw error;
     }
-    if (!isSupabaseOnlyMode) savePayments(next);
-    setHasPendingChanges(true);
   }
 
 

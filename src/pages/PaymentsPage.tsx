@@ -77,7 +77,7 @@ type Props = {
   otherChargesRetentionByClient: OtherChargesRetentionByClient;
   onClientsChange: (next: Client[]) => void;
   payments: Payment[];
-  onPaymentsChange: (next: Payment[]) => void;
+  onPaymentsChange: (next: Payment[]) => void | Promise<void>;
   onPersistClientPayment?: (nextClients: Client[], nextPayments: Payment[]) => Promise<boolean>;
   onDeletePayment?: (nextClients: Client[], nextPayments: Payment[], deletedPaymentId: string) => Promise<boolean>;
   onDeletePayments?: (nextClients: Client[], nextPayments: Payment[], deletedPaymentIds: string[]) => Promise<boolean>;
