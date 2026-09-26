@@ -47,6 +47,13 @@ export function getPaymentSaveErrorMessage(error: unknown): string {
     return "No se pudo guardar por permisos de Supabase. Verifica el usuario/owner y vuelve a intentar.";
   }
   if (
+    normalized.includes("57014") ||
+    normalized.includes("statement timeout") ||
+    normalized.includes("canceling statement")
+  ) {
+    return "No se pudo guardar porque Supabase tardo demasiado. No se aplicaron cambios; vuelve a intentar.";
+  }
+  if (
     normalized.includes("network") ||
     normalized.includes("fetch") ||
     normalized.includes("timeout")

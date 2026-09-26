@@ -35,6 +35,7 @@ Para instalaciones existentes que ya ejecutaron las migraciones de cuentas por c
 - `supabase/62-route-operator-actions.sql` (habilita comentarios y decisiones para usuarios con permiso de editar Ruta en calle)
 - `supabase/63-provisional-rental-workflow.sql` (habilita la asignacion atomica de autos provisionales desde Clientes)
 - `supabase/64-provisional-rental-payment-balance.sql` (valida los pagos provisionales contra el saldo del alquiler sin tocar el saldo regular pausado)
+- `supabase/88-payment-insert-latest-fast-path.sql` (evita recorrer el historial completo al registrar pagos nuevos)
 
 En Vercel, produccion debe usar `VITE_PERSISTENCE_MODE=SUPABASE_ONLY`. `LOCAL_ONLY` queda limitado a desarrollo, salvo que se habilite deliberadamente `VITE_ALLOW_PRODUCTION_LOCAL_ONLY=1`.
 5. Crea una cuenta desde la pantalla de registro de la app.
