@@ -4,7 +4,6 @@ import { createPortal } from "react-dom";
 import { inlineComputedStylesForCanvas } from "../../canvasExportStyles";
 import { formatCurrency, formatDate } from "../../format";
 import { PLAN_LABEL, STATE_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivables";
-import type { IncidentReceivableAction } from "./incidentReceivableActions";
 import type {
   CollectionStatus,
   CollectionStatusRecord,
@@ -66,7 +65,6 @@ type Props = {
   onOperationalReviewChange: (clientId: string, operationalStatus: string, reviewed: boolean) => void;
   onOpenRoutePreparation: (clientId: string) => void;
   onOpenRoute: () => void;
-  incidentAction?: IncidentReceivableAction;
 };
 
 type RoutePreparationDraft = {
@@ -484,8 +482,7 @@ function ReceivableTableRowComponent({
   onDailyContactAttemptChange,
   onOperationalReviewChange,
   onOpenRoutePreparation,
-  onOpenRoute,
-  incidentAction
+  onOpenRoute
 }: Props) {
   const [isCopyingBalanceImage, setIsCopyingBalanceImage] = useState(false);
   const statementWasSentRecently = hasTimestampWithinWindow(statusRecord?.whatsAppMessageSentAt, now, STATEMENT_SUGGESTION_WINDOW_MS);
@@ -726,23 +723,6 @@ function ReceivableTableRowComponent({
                 <small>{totalRentLetters}</small>
               </div>
             </section>
-
-            {incidentAction ? <div className={`ar-insurance-action${incidentAction.urgent ? " is-urgent" : ""}`} role={incidentAction.urgent ? "alert" : "status"}>
-              <div>
-                <small>Acción pendiente de siniestros</small>
-                <strong>{incidentAction.label}</strong>
-                {incidentAction.date && <span>Fecha de acción: {incidentAction.date}</span>}
-                <span className="ar-incident-action-rule">
-                  Información de seguimiento. Puedes continuar con la gestión de cobro.
-                </span>
-              </div>
-              <button type="button" className="button small" onClick={() => {
-                const state = { page: "incidents" };
-                const parameter = incidentAction.destination === "judicial" ? "judicialCase" : "insuranceClaim";
-                window.history.pushState(state, "", `/control-de-siniestros?${parameter}=${encodeURIComponent(incidentAction.targetId)}`);
-                window.dispatchEvent(new PopStateEvent("popstate", { state }));
-              }}>Abrir expediente</button>
-            </div> : null}
 
             <section className="ar-essential-followup">
               <div className="ar-essential-management">
@@ -1068,23 +1048,6 @@ function ReceivableTableRowComponent({
             </div>
           </div>
 
-          {incidentAction ? <div className={`ar-insurance-action${incidentAction.urgent ? " is-urgent" : ""}`} role={incidentAction.urgent ? "alert" : "status"}>
-            <div>
-              <small>Acción pendiente de siniestros</small>
-              <strong>{incidentAction.label}</strong>
-              {incidentAction.date && <span>Fecha de acción: {incidentAction.date}</span>}
-              <span className="ar-incident-action-rule">
-                Información de seguimiento. Puedes continuar con la gestión de cobro.
-              </span>
-            </div>
-            <button type="button" className="button small" onClick={() => {
-              const state = { page: "incidents" };
-              const parameter = incidentAction.destination === "judicial" ? "judicialCase" : "insuranceClaim";
-              window.history.pushState(state, "", `/control-de-siniestros?${parameter}=${encodeURIComponent(incidentAction.targetId)}`);
-              window.dispatchEvent(new PopStateEvent("popstate", { state }));
-            }}>Abrir expediente</button>
-          </div> : null}
-
           <div className="ar-card-workflow">
             <div className="ar-card-management ar-cut-cell ar-cut-cell--stacked">
               <div className="ar-cut-stack">
@@ -1313,9 +1276,4 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   && previous.onOperationalReviewChange === next.onOperationalReviewChange
   && previous.onOpenRoutePreparation === next.onOpenRoutePreparation
   && previous.onOpenRoute === next.onOpenRoute
-  && previous.incidentAction?.targetId === next.incidentAction?.targetId
-  && previous.incidentAction?.destination === next.incidentAction?.destination
-  && previous.incidentAction?.label === next.incidentAction?.label
-  && previous.incidentAction?.date === next.incidentAction?.date
-  && previous.incidentAction?.urgent === next.incidentAction?.urgent
 ));

@@ -10,7 +10,6 @@ import {
   type FieldManagementType
 } from "./receivablesTypes";
 import { ReceivableTableRow } from "./ReceivableTableRow";
-import type { IncidentReceivableAction } from "./incidentReceivableActions";
 import {
   COLLECTION_CUT_OPTIONS,
   COLLECTION_STATUS_HELP,
@@ -76,7 +75,6 @@ type Props = {
   onOpenRoutePreparation: (clientId: string) => void;
   onOpenRoute: () => void;
   onClearFilters: () => void;
-  incidentActionsByUnit: Record<string, IncidentReceivableAction>;
 };
 
 function getCutItemsForClient(
@@ -175,8 +173,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   onOperationalReviewChange,
   onOpenRoutePreparation,
   onOpenRoute,
-  onClearFilters,
-  incidentActionsByUnit
+  onClearFilters
 }: Props) {
   const [customRouteEditorByClient, setCustomRouteEditorByClient] = useState<Record<string, boolean>>({});
   const [routeAmountDraftByClient, setRouteAmountDraftByClient] = useState<Record<string, string>>({});
@@ -635,7 +632,6 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               onOperationalReviewChange={stableOnOperationalReviewChange}
               onOpenRoutePreparation={stableOnOpenRoutePreparation}
               onOpenRoute={stableOnOpenRoute}
-              incidentAction={incidentActionsByUnit[row.unitId.trim().toUpperCase()]}
             />
           ))}
         </tbody>

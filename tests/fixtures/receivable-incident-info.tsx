@@ -15,17 +15,12 @@ const row: ReceivableRow = {
 function Harness() {
   const [status, setStatus] = useState<CollectionStatusRecord>({ status: "pending", updatedAt: "2026-09-02T12:00:00Z" });
   const [closed, setClosed] = useState(false);
-  const [urgent, setUrgent] = useState(true);
-  const [destination, setDestination] = useState<"insurance" | "judicial">("insurance");
   const update = (patch: Partial<CollectionStatusRecord>) => setStatus(current => ({ ...current, ...patch }));
   return <main style={{ padding: 16 }}>
     <button onClick={() => setClosed(value => !value)}>Alternar cierre</button>
-    <button onClick={() => setUrgent(value => !value)}>Alternar urgencia</button>
-    <button onClick={() => setDestination(value => value === "insurance" ? "judicial" : "insurance")}>Alternar expediente</button>
     <table className="ar-table"><tbody><ReceivableTableRow row={row} statusRecord={status} operationalStatus="activo"
       todayDateKey="2026-09-02" now={new Date("2026-09-02T12:00:00Z")} isTodayCollectionClosed={closed}
       workflowTab="management" collectionCutItems={{}} visibleCutKey="night" whatsAppMessage="Cobro de prueba"
-      incidentAction={{ targetId: "case-test", destination, label: destination === "insurance" ? "Agregar número de reclamo" : "Asignar fecha de juicio", date: "2026-09-01", urgent }}
       onSelectDetail={() => {}} onCollectionCutStatusChange={(_cut, _id, next) => update({ status: next as CollectionStatusRecord["status"] })}
       onCollectionCutCommentChange={() => {}} onRouteTagChange={(_id, tagged) => update({ isRouteTagged: tagged, status: "pending" })}
       onRouteManagementTypeChange={(_id, value) => update({ managementType: value })}

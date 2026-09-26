@@ -21,7 +21,6 @@ import {
   paymentMatchesTargetIdentity,
   loadCloudActiveRouteItems,
   loadCloudStreetManagement,
-  loadCollisionCases,
   loadControlUnits,
   removeCloudActiveRouteItem,
   saveCloudActiveRouteItem,
@@ -30,7 +29,6 @@ import {
   syncCloudStreetManagementDelta,
   type ActiveRouteItem,
   type ActiveRouteDelta,
-  type CollisionCaseRecord,
   type ControlUnitRow
 } from "../cloudData";
 import { supabase } from "../lib/supabase";
@@ -73,7 +71,6 @@ import {
   type PriorityTenureBucket,
   type ReceivablePriorityLevel
 } from "./receivables/receivablesPriority";
-import { buildJudicialActionsByUnit } from "./receivables/incidentReceivableActions";
 import { exportRouteCollection } from "./receivables/routeCollectionExport";
 import {
   COLLECTION_STATUS_OPTIONS,
@@ -495,7 +492,6 @@ export default function ReceivablesPage({
   const [fieldManagementErrorByClient, setFieldManagementErrorByClient] = useState<Record<string, string>>({});
   const [statusSavingByClient, setStatusSavingByClient] = useState<Record<string, boolean>>({});
   const [fleetUnits, setFleetUnits] = useState<ControlUnitRow[]>([]);
-  const [collisionCases, setCollisionCases] = useState<CollisionCaseRecord[]>([]);
   const [supplementalLastPayments, setSupplementalLastPayments] = useState<Payment[]>([]);
   const [activeRouteItems, setActiveRouteItems] = useState<ActiveRouteItem[]>([]);
   const [activeRouteLoading, setActiveRouteLoading] = useState<boolean>(false);
@@ -566,21 +562,6 @@ export default function ReceivablesPage({
     const timerId = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timerId);
   }, []);
-
-  useEffect(() => {
-    if (!dataOwnerUserId) { setCollisionCases([]); return; }
-    let cancelled = false;
-    measureReceivablesAsync("judicial actions load", () => loadCollisionCases(dataOwnerUserId))
-      .then((collisions) => {
-        if (cancelled) return;
-        setCollisionCases(collisions);
-      })
-      .catch((error) => {
-        console.error("No se pudieron cargar las acciones judiciales en cuentas por cobrar.", error);
-        if (!cancelled) setCollisionCases([]);
-      });
-    return () => { cancelled = true; };
-  }, [dataOwnerUserId]);
 
   useEffect(() => {
     activeRouteItemsRef.current = activeRouteItems;
@@ -966,11 +947,6 @@ export default function ReceivablesPage({
   }, [now, receivablesDateKey]);
   const receivablesDate = useMemo(() => dateFromDateKey(todayDateKey, now), [now, todayDateKey]);
   const receivablesDateLabel = useMemo(() => formatDate(receivablesDate), [receivablesDate]);
-  const judicialActionsByUnit = useMemo(
-    () => buildJudicialActionsByUnit(collisionCases, todayDateKey),
-    [collisionCases, todayDateKey]
-  );
-
   const receivablePayments = useMemo(() => {
     if (supplementalLastPayments.length === 0) return payments;
     const byId = new Map<string, Payment>();
@@ -3712,7 +3688,6 @@ export default function ReceivablesPage({
             onOpenRoutePreparation={handleOpenManagementRoute}
             onOpenRoute={() => setWorkflowTab("route")}
             onClearFilters={clearFilters}
-            incidentActionsByUnit={judicialActionsByUnit}
           />
         )}
       </section>
