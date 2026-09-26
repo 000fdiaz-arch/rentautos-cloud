@@ -761,6 +761,7 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
           } else {
             await persist(clients.map((current) => current.id === client.id ? nextClient : current));
           }
+          setFleetReloadToken((value) => value + 1);
         } catch (error) {
           console.error("No se pudo desvincular el cliente.", error);
           setErrors([describeCloudSaveError("No se pudo desvincular el cliente en la nube. La unidad no fue liberada.", error)]);
