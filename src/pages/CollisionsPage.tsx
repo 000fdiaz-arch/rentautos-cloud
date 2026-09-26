@@ -211,6 +211,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   );
   const [attendanceDrafts, setAttendanceDrafts] = useState<Record<string, { clientWillAttend: "" | "yes" | "no"; legalAssistanceRequested: "" | "yes" | "no" }>>({});
   const [ticketStubDrafts, setTicketStubDrafts] = useState<Record<string, string>>({});
+  const [trialTimeDrafts, setTrialTimeDrafts] = useState<Record<string, string>>({});
   const [vehicleInspectionDates, setVehicleInspectionDates] = useState<Record<string, string>>({});
   const [editingCaseId, setEditingCaseId] = useState<string | null>(null);
   const [caseEditForm, setCaseEditForm] = useState<TrialForm>(EMPTY_FORM);
@@ -291,6 +292,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
           legalAssistanceRequested: item.legalAssistanceRequested === true ? "yes" : item.legalAssistanceRequested === false ? "no" : ""
         }])));
         setTicketStubDrafts(Object.fromEntries(nextCases.map((item) => [item.id, item.ticketStub])));
+        setTrialTimeDrafts(Object.fromEntries(nextCases.map((item) => [item.id, item.placeTime])));
         setVehicleInspectionDates(Object.fromEntries(nextCases.map((item) => [item.id, item.vehicleInspectionDate ?? localDateKey(new Date())])));
         setResolutionSearchDates(Object.fromEntries(nextCases.map((item) => [item.id, item.judicialResolutionSearchDate ?? addCalendarDays((item.updatedAt || item.createdAt).slice(0, 10), 30)])));
       })
@@ -340,6 +342,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
   }
   function initializeCaseDrafts(item: CollisionCaseRecord): void {
     setTicketStubDrafts((current) => ({ ...current, [item.id]: current[item.id] ?? item.ticketStub }));
+    setTrialTimeDrafts((current) => ({ ...current, [item.id]: current[item.id] ?? item.placeTime }));
     setVehicleInspectionDates((current) => ({ ...current, [item.id]: current[item.id] ?? item.vehicleInspectionDate ?? localDateKey(new Date()) }));
     setExpenseLabels((current) => ({ ...current, [item.id]: current[item.id] ?? item.expenseInvoice?.description ?? "" }));
     setExpenseAmounts((current) => ({ ...current, [item.id]: current[item.id] ?? (item.expenseInvoice ? String(item.expenseInvoice.amount) : "") }));
@@ -787,6 +790,84 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
     } catch (error) {
       console.error("No se pudo actualizar el número de colilla.", error);
       setMessage(error instanceof DuplicateCollisionTicketStubError ? error.message : "No se pudo actualizar el número de colilla.");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  async function saveTrialTime(item: CollisionCaseRecord): Promise<void> {
+    if (readOnly || busyId || !dataOwnerUserId) return;
+    const nextTime = (trialTimeDrafts[item.id] ?? item.placeTime).trim();
+    if (!nextTime) {
+      setMessage("Indica la hora del juicio.");
+      return;
+    }
+    if (nextTime === item.placeTime) return;
+    const now = new Date().toISOString();
+    const candidate = { ...item, placeTime: nextTime };
+    const missingDocumentation = getMissingCollisionDocumentation(candidate);
+    setBusyId(item.id);
+    setMessage("");
+    try {
+      await persistCase({
+        ...candidate,
+        documentationPending: missingDocumentation.length > 0,
+        documentationPendingSince: missingDocumentation.length > 0 ? item.documentationPendingSince ?? now : null,
+        documentationReceivedAt: missingDocumentation.length > 0 ? null : item.documentationPending ? now : item.documentationReceivedAt ?? now,
+        editHistory: [...(item.editHistory ?? []), {
+          editedAt: now,
+          justification: `Hora del juicio actualizada de ${item.placeTime || "sin hora"} a ${nextTime}.`,
+          changedFields: ["Hora del juicio"]
+        }],
+        updatedAt: now
+      }, missingDocumentation.length > 0
+        ? `Hora del juicio actualizada. Falta completar: ${missingDocumentation.map((requirement) => requirement.label).join(", ")}.`
+        : "Hora del juicio actualizada correctamente.");
+      setTrialTimeDrafts((current) => ({ ...current, [item.id]: nextTime }));
+    } catch (error) {
+      console.error("No se pudo actualizar la hora del juicio.", error);
+      setMessage("No se pudo actualizar la hora del juicio.");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  async function saveTicketStubPhoto(item: CollisionCaseRecord, file: File): Promise<void> {
+    if (readOnly || busyId || !dataOwnerUserId) return;
+    if (!file.type.startsWith("image/")) {
+      setMessage("La foto de la colilla debe ser una imagen.");
+      return;
+    }
+    if (file.size > MAX_PHOTO_SIZE) {
+      setMessage("La foto de la colilla debe pesar 10 MB o menos.");
+      return;
+    }
+    setBusyId(item.id);
+    setMessage("");
+    let uploadedPhoto: CollisionPhotoAttachment | null = null;
+    try {
+      uploadedPhoto = await uploadCollisionPhoto(dataOwnerUserId, item.id, file);
+      const now = new Date().toISOString();
+      await persistCase({
+        ...item,
+        ticketStubPhoto: uploadedPhoto,
+        editHistory: [...(item.editHistory ?? []), {
+          editedAt: now,
+          justification: item.ticketStubPhoto ? "Foto de la colilla reemplazada desde el resumen." : "Foto de la colilla adjuntada desde el resumen.",
+          changedFields: ["Foto de la colilla"]
+        }],
+        updatedAt: now
+      }, item.ticketStubPhoto ? "Foto de la colilla reemplazada correctamente." : "Foto de la colilla adjuntada correctamente.");
+      if (item.ticketStubPhoto && item.ticketStubPhoto.path !== uploadedPhoto.path) {
+        try { await removeCollisionPhotos([item.ticketStubPhoto.path]); }
+        catch (cleanupError) { console.error("No se pudo retirar la foto anterior de la colilla.", cleanupError); }
+      }
+    } catch (error) {
+      if (uploadedPhoto) {
+        try { await removeCollisionPhotos([uploadedPhoto.path]); } catch { /* Limpieza de mejor esfuerzo. */ }
+      }
+      console.error("No se pudo adjuntar la foto de la colilla.", error);
+      setMessage("No se pudo adjuntar la foto de la colilla en la nube.");
     } finally {
       setBusyId("");
     }
@@ -1709,7 +1790,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                       <label>Fecha de juicio<input type="date" value={caseEditForm.trialDate} onChange={(event) => setCaseEditForm((current) => ({ ...current, trialDate: event.target.value }))} /></label>
                       <label>Número de colilla<input value={caseEditForm.ticketStub} onChange={(event) => setCaseEditForm((current) => ({ ...current, ticketStub: event.target.value }))} /></label>
                       <label>Foto de la colilla<input type="file" accept="image/*" onChange={(event) => setCaseEditTicketStubPhotoFile(event.target.files?.[0] ?? null)} /><span className="hint">{caseEditTicketStubPhotoFile ? caseEditTicketStubPhotoFile.name : item.ticketStubPhoto?.name ?? "Opcional · máximo 10 MB"}</span></label>
-                      <label>Hora del juicio<input value={caseEditForm.placeTime} placeholder="Ej. 09:00" onChange={(event) => setCaseEditForm((current) => ({ ...current, placeTime: event.target.value }))} /></label>
+                      <label>Hora del juicio<input type="time" value={caseEditForm.placeTime} onChange={(event) => setCaseEditForm((current) => ({ ...current, placeTime: event.target.value }))} /></label>
                       <label>Juzgado<input list="collision-edit-court-options" value={caseEditForm.court} onChange={(event) => setCaseEditForm((current) => ({ ...current, court: event.target.value }))} /></label>
                       <label className="collision-client-returned-option"><input type="checkbox" checked={caseEditForm.collisionAndRun} onChange={(event) => setCaseEditForm((current) => ({ ...current, collisionAndRun: event.target.checked }))} /><span><strong>Colisión y fuga</strong></span></label>
                       <label className="workflow-claim-edit-wide">Daños del auto<textarea value={caseEditForm.vehicleDamage} onChange={(event) => setCaseEditForm((current) => ({ ...current, vehicleDamage: event.target.value }))} /></label>
@@ -1732,8 +1813,8 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                   </div> : <>
                   <dl className="workflow-claim-detail-grid">
                   <div><dt>Fecha del incidente</dt><dd>{item.incidentDate || "-"}</dd></div>
-                  <div><dt>Fecha de juicio</dt><dd>{item.trialDate || "-"}</dd></div><div><dt>Hora del juicio</dt><dd>{item.placeTime || "-"}</dd></div>
-                  <div><dt>Número de colilla</dt><dd className="judicial-ticket-stub-editor"><div><input aria-label="Número de colilla" value={ticketStubDrafts[item.id] ?? item.ticketStub} onChange={(event) => setTicketStubDrafts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id || administrativelyClosed} /><button type="button" className="button small" onClick={() => void saveTicketStub(item)} disabled={readOnly || busyId === item.id || administrativelyClosed || !(ticketStubDrafts[item.id] ?? item.ticketStub).trim() || (ticketStubDrafts[item.id] ?? item.ticketStub).trim() === item.ticketStub}>{busyId === item.id ? "Guardando..." : "Guardar"}</button></div>{item.ticketStubPhoto && <button type="button" className="button small" onClick={() => setPhotoGallery({ photos: [item.ticketStubPhoto!], index: 0, title: "Foto de la colilla" })}>Ver foto original</button>}</dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
+                  <div><dt>Fecha de juicio</dt><dd>{item.trialDate || "-"}</dd></div><div><dt>Hora del juicio</dt><dd className="judicial-inline-editor"><div><input type="time" aria-label="Hora del juicio" value={trialTimeDrafts[item.id] ?? item.placeTime} onChange={(event) => setTrialTimeDrafts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id || administrativelyClosed} /><button type="button" className="button small" onClick={() => void saveTrialTime(item)} disabled={readOnly || busyId === item.id || administrativelyClosed || !(trialTimeDrafts[item.id] ?? item.placeTime).trim() || (trialTimeDrafts[item.id] ?? item.placeTime).trim() === item.placeTime}>{busyId === item.id ? "Guardando..." : "Cambiar hora"}</button></div></dd></div>
+                  <div className="judicial-ticket-stub-card"><dt>Número y foto de la colilla</dt><dd className="judicial-ticket-stub-editor"><div><input aria-label="Número de colilla" value={ticketStubDrafts[item.id] ?? item.ticketStub} onChange={(event) => setTicketStubDrafts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={readOnly || busyId === item.id || administrativelyClosed} /><button type="button" className="button small" onClick={() => void saveTicketStub(item)} disabled={readOnly || busyId === item.id || administrativelyClosed || !(ticketStubDrafts[item.id] ?? item.ticketStub).trim() || (ticketStubDrafts[item.id] ?? item.ticketStub).trim() === item.ticketStub}>{busyId === item.id ? "Guardando..." : "Guardar número"}</button></div><div className="judicial-ticket-stub-photo-actions">{item.ticketStubPhoto && <button type="button" className="button small" onClick={() => setPhotoGallery({ photos: [item.ticketStubPhoto!], index: 0, title: "Foto de la colilla" })}>Ver foto</button>}<label className="button primary small judicial-ticket-stub-upload">{busyId === item.id ? "Adjuntando..." : item.ticketStubPhoto ? "Reemplazar foto" : "Adjuntar foto"}<input type="file" accept="image/*" hidden onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void saveTicketStubPhoto(item, file); }} disabled={readOnly || busyId === item.id || administrativelyClosed} /></label></div><small>{item.ticketStubPhoto?.name ?? "Imagen de hasta 10 MB"}</small></dd></div><div><dt>Juzgado</dt><dd>{item.court}</dd></div>
                   <div><dt>Colisión y fuga</dt><dd><span className={`collision-runaway-status ${item.collisionAndRun ? "collision-runaway-status--yes" : "collision-runaway-status--no"}`}>{item.collisionAndRun ? "Sí" : "No"}</span></dd></div>
                   <div><dt>Conductor al momento del incidente</dt><dd>{item.driver || "-"}</dd></div>
                    <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{item.vehicleDamage}</dd></div>
@@ -1744,7 +1825,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
                 {activeWorkspaceTab === "documents" && <section className="judicial-case-tab-panel judicial-documents-panel" role="tabpanel" id={`judicial-documents-panel-${item.id}`} aria-labelledby={`judicial-documents-tab-${item.id}`}>
                   <div className="judicial-section-heading"><div><strong>Documentación del expediente</strong><span>Todos los archivos y evidencias están reunidos aquí. Agrega evidencia en cualquier momento. Esto no completa la colilla ni cambia el estado del expediente.</span></div><b>{documentCount} {documentCount === 1 ? "archivo" : "archivos"}</b></div>
                   <div className="judicial-document-grid">
-                    <article className="judicial-document-card judicial-document-card--compact"><div className="judicial-document-card-head"><div><small>Documento inicial</small><strong>Colilla del incidente</strong></div><span className={item.ticketStubPhoto ? "is-ready" : "is-missing"}>{item.ticketStubPhoto ? "Disponible" : "Pendiente"}</span></div><div className="judicial-compact-document-line"><span>Colilla <strong>{item.ticketStub || "sin número"}</strong></span>{item.ticketStubPhoto ? <button type="button" className="button" title={item.ticketStubPhoto.name} onClick={() => setPhotoGallery({ photos: [item.ticketStubPhoto!], index: 0, title: "Foto de la colilla" })}>Abrir colilla</button> : <small>Sin archivo adjunto</small>}</div></article>
+                    <article className="judicial-document-card judicial-document-card--compact"><div className="judicial-document-card-head"><div><small>Documento inicial</small><strong>Colilla del incidente</strong></div><span className={item.ticketStubPhoto ? "is-ready" : "is-missing"}>{item.ticketStubPhoto ? "Disponible" : "Pendiente"}</span></div><div className="judicial-compact-document-line"><span>Colilla <strong>{item.ticketStub || "sin número"}</strong></span><div className="judicial-ticket-stub-photo-actions">{item.ticketStubPhoto && <button type="button" className="button" title={item.ticketStubPhoto.name} onClick={() => setPhotoGallery({ photos: [item.ticketStubPhoto!], index: 0, title: "Foto de la colilla" })}>Abrir colilla</button>}<label className="button primary judicial-ticket-stub-upload">{busyId === item.id ? "Adjuntando..." : item.ticketStubPhoto ? "Reemplazar foto" : "Adjuntar foto"}<input type="file" accept="image/*" hidden onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void saveTicketStubPhoto(item, file); }} disabled={readOnly || busyId === item.id || administrativelyClosed} /></label></div></div></article>
                     <article className="judicial-document-card judicial-document-card--compact"><div className="judicial-document-card-head"><div><small>Evidencia del incidente</small><strong>Fotos adjuntas</strong></div><span className={(item.incidentPhotos?.length ?? 0) ? "is-ready" : "is-missing"}>{item.incidentPhotos?.length ?? 0} fotos</span></div><div className="judicial-photo-card-actions">{(item.incidentPhotos?.length ?? 0) > 0 && <button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.incidentPhotos ?? [], index: 0, title: "Evidencia del incidente", onDelete: (photo) => deleteIncidentPhoto(item, photo, true) })}>Ver fotos ({item.incidentPhotos?.length ?? 0})</button>}<label className="button primary judicial-document-add">{busyId === item.id ? "Guardando..." : "Agregar fotos"}<input type="file" accept="image/*" multiple hidden onChange={(event) => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; void addIncidentPhotos(item, files); }} disabled={readOnly || busyId === item.id} /></label>{!(item.incidentPhotos?.length ?? 0) && <small>Sin fotos adjuntas</small>}</div></article>
                     <article className="judicial-document-card"><div className="judicial-document-card-head"><div><small>Proceso judicial</small><strong>Evidencias y resolución</strong></div><span className={rescheduleDocuments.length || item.judicialOutcomeEvidence || item.judicialResolutionEvidence ? "is-ready" : "is-missing"}>{rescheduleDocuments.length + (item.judicialOutcomeEvidence ? 1 : 0) + (item.judicialResolutionEvidence ? 1 : 0)} archivos</span></div><div className="judicial-document-list">{rescheduleDocuments.map((document, index) => <div className="judicial-document-file" key={document.path}><span><strong>Cambio de fecha {index + 1}</strong><small>{document.name}</small></span><button type="button" className="button" onClick={() => void viewRescheduleEvidence(document)}>Ver</button></div>)}{item.judicialOutcomeEvidence && <div className="judicial-document-file"><span><strong>Evidencia del resultado</strong><small>{item.judicialOutcomeEvidence.name}</small></span><button type="button" className="button" onClick={() => setPhotoGallery({ photos: [item.judicialOutcomeEvidence!], index: 0, title: "Evidencia del resultado" })}>Ver</button></div>}{item.judicialResolutionEvidence && <div className="judicial-document-file"><span><strong>Resolución judicial</strong><small>{item.judicialResolutionEvidence.name}</small></span><button type="button" className="button" onClick={() => setPhotoGallery({ photos: [item.judicialResolutionEvidence!], index: 0, title: "Resolución judicial" })}>Ver</button></div>}{!rescheduleDocuments.length && !item.judicialOutcomeEvidence && !item.judicialResolutionEvidence && <p className="judicial-document-empty">Todavía no hay evidencia judicial adjunta.</p>}</div></article>
                     <article className="judicial-document-card"><div className="judicial-document-card-head"><div><small>Costos y seguro</small><strong>Factura y daños asegurados</strong></div><span className={item.expenseInvoice?.attachment || item.insuranceClaim?.photos.length ? "is-ready" : "is-missing"}>{(item.expenseInvoice?.attachment ? 1 : 0) + (item.insuranceClaim?.photos.length ?? 0)} archivos</span></div><div className="judicial-document-list">{item.expenseInvoice?.attachment && <div className="judicial-document-file"><span><strong>Factura de taller</strong><small>{item.expenseInvoice.attachment.name}</small></span><button type="button" className="button" onClick={() => void viewExpenseInvoice(item.expenseInvoice!.attachment!)}>Ver</button></div>}{item.insuranceClaim?.photos.map((photo, index) => <div className="judicial-document-file" key={photo.path}><span><strong>Daño para seguro {index + 1}</strong><small>{photo.name}</small></span><button type="button" className="button" onClick={() => setPhotoGallery({ photos: item.insuranceClaim!.photos, index, title: "Fotos del reclamo al seguro" })}>Ver</button></div>)}{!item.expenseInvoice?.attachment && !item.insuranceClaim?.photos.length && <p className="judicial-document-empty">No hay facturas ni fotos del reclamo.</p>}</div></article>
