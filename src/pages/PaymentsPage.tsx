@@ -25,6 +25,7 @@ import DailyIncomePanel from "./payments/DailyIncomePanel";
 import usePaymentPersistence from "./payments/usePaymentPersistence";
 import useCashClosing from "./payments/useCashClosing";
 import useNotifiedPayments from "./payments/useNotifiedPayments";
+import useRouteReviewNotifications from "./payments/useRouteReviewNotifications";
 import usePendingCards from "./payments/usePendingCards";
 import PendingBankReview from "./payments/PendingBankReview";
 import usePendingBankWorkflow from "./payments/usePendingBankWorkflow";
@@ -70,6 +71,9 @@ import {
   splitWholeAndCents
 } from "./payments/paymentRules";
 import { applyPaymentToProvisionalRental, getCollectibleProvisionalRental, nextProvisionalRentalChargeDate, restoreProvisionalRentalPayment } from "../provisionalRentals";
+import { loadCloudActiveRouteItem } from "../cloud/operationsCloudData";
+import { cancelRoutePaymentReport, loadRoutePaymentReportForItem, reportRoutePayment } from "../cloud/routeReportCloudData";
+import type { NotifiedPayment } from "./payments/paymentTypes";
 type Props = {
   clients: Client[];
   bankRules: BankRule[];
@@ -427,6 +431,22 @@ export default function PaymentsPage({
   const isBankPayment = BANK_PAYMENT_METHODS.has(form.paymentMethod);
   const isCardPayment = form.paymentMethod === "Tarjeta";
 
+  const { routeReviewReports, routeReviewError, routeReviewReady, upsertRouteReviewReport } = useRouteReviewNotifications(dataOwnerUserId);
+  const createRouteReview = useCallback(async (clientId: string, amount: number) => {
+    if (!dataOwnerUserId) return null;
+    const item = await loadCloudActiveRouteItem(dataOwnerUserId, clientId);
+    if (!item || item.removedAt) return null;
+    await reportRoutePayment(dataOwnerUserId, item, 0, amount);
+    const report = await loadRoutePaymentReportForItem(dataOwnerUserId, item.clientId, item.publishedAt);
+    if (!report || report.status !== "review") throw new Error("El pago se notificó, pero no se pudo vincular con Ruta en calle.");
+    upsertRouteReviewReport(report);
+    return { routeReportId: report.id, routeAssignment: item.routeAssignment };
+  }, [dataOwnerUserId, upsertRouteReviewReport]);
+
+  const cancelLinkedRouteReview = useCallback(async (reportId: string) => {
+    await cancelRoutePaymentReport(reportId);
+  }, []);
+
   const {
     notifiedForm,
     setNotifiedForm,
@@ -440,6 +460,7 @@ export default function PaymentsPage({
     notifiedUntilNoonOnly,
     setNotifiedUntilNoonOnly,
     notifiedErrors,
+    notifiedSavingId,
     notifiedRowsFiltered,
     notifiedClientMatch,
     editingNotifiedClientMatch,
@@ -449,7 +470,34 @@ export default function PaymentsPage({
     handleCancelEditNotified,
     handleSaveEditNotified,
     handleSortNotified
-  } = useNotifiedPayments(clients, activeClients);
+  } = useNotifiedPayments(clients, activeClients, {
+    createRouteReview,
+    cancelRouteReview: cancelLinkedRouteReview
+  });
+
+  useEffect(() => {
+    if (!dataOwnerUserId || !routeReviewReady) return;
+    const activeReportIds = new Set(routeReviewReports.map((report) => report.id));
+    const reconciled = notifiedPayments.filter((notice) => !notice.routeReportId || activeReportIds.has(notice.routeReportId));
+    if (reconciled.length !== notifiedPayments.length) replaceNotifiedPayments(reconciled);
+  }, [dataOwnerUserId, notifiedPayments, replaceNotifiedPayments, routeReviewReady, routeReviewReports]);
+
+  const routeReviewRows = useMemo<NotifiedPayment[]>(() => routeReviewReports
+    .filter((report) => report.bank_amount > report.confirmed_bank_amount)
+    .map((report) => ({
+      id: `route-review:${report.id}`,
+      clientId: report.client_id,
+      amount: roundMoney(report.bank_amount - report.confirmed_bank_amount),
+      createdAt: report.reported_at,
+      paymentMethod: "bank",
+      collectionTeam: report.snapshot.routeAssignment === "PTY" || report.snapshot.routeAssignment === "WC"
+        ? report.snapshot.routeAssignment
+        : undefined,
+      source: "route-review",
+      routeReportId: report.id,
+      routePaymentMethod: "bank",
+      routeAssignment: report.snapshot.routeAssignment
+    })), [routeReviewReports]);
 
   const {
     pendingClassifyTarget,
@@ -904,10 +952,13 @@ export default function PaymentsPage({
         setNotifiedForm={setNotifiedForm}
         notifiedClientMatch={notifiedClientMatch}
         notifiedErrors={notifiedErrors}
+        notifiedSavingId={notifiedSavingId}
         handleAddNotifiedPayment={handleAddNotifiedPayment}
         notifiedUntilNoonOnly={notifiedUntilNoonOnly}
         setNotifiedUntilNoonOnly={setNotifiedUntilNoonOnly}
         notifiedRowsFiltered={notifiedRowsFiltered}
+        routeReviewRows={routeReviewRows}
+        routeReviewError={routeReviewError}
         handleSortNotified={handleSortNotified}
         notifiedSortField={notifiedSortField}
         notifiedSortDirection={notifiedSortDirection}

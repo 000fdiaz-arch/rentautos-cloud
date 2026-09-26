@@ -29,6 +29,7 @@ type Props = {
   comment: string;
   commentSaving: boolean;
   changingRoute: boolean;
+  routeOptions: string[];
   inactiveSaving: boolean;
   elapsedNow: number;
   canReturnReport: boolean;
@@ -44,7 +45,8 @@ type Props = {
   onSaveZone: () => void;
   onComment: (value: string) => void;
   onSaveComment: () => void;
-  onRoute: (route: "WC" | "PTY") => void;
+  onRoute: (route: string) => void;
+  onCreateRoute: () => void;
   onInactive: () => void;
 };
 
@@ -88,9 +90,17 @@ export default function RouteCollectionCard(props: Props) {
     {urgency ? <div className={`route-collection-urgency route-collection-urgency--${urgency}`}><span aria-hidden="true">⚠</span> {urgency === "very_urgent" ? "Muy urgente" : "Urgente"}</div> : null}
     <div className="route-collection-identity">
       <h2>{item.unitId} <span>· {item.clientName.trim().split(/\s+/)[0]}</span></h2>
-      {canReport && !report && (item.routeAssignment === "WC" || item.routeAssignment === "PTY") ? (
-        <select className="route-collection-route route-collection-route-picker" aria-label={`Ruta de ${item.unitId}`} value={item.routeAssignment} disabled={props.changingRoute || saving} onChange={event => props.onRoute(event.target.value as "WC" | "PTY")}>
-          <option value="PTY">PTY</option><option value="WC">WC</option>
+      {canReport && !report ? (
+        <select className="route-collection-route route-collection-route-picker" aria-label={`Ruta de ${item.unitId}`} value={(item.routeAssignment ?? "").trim().toUpperCase()} disabled={props.changingRoute || saving} onChange={event => {
+          if (event.target.value === "__create_route__") {
+            props.onCreateRoute();
+            return;
+          }
+          props.onRoute(event.target.value);
+        }}>
+          {!item.routeAssignment ? <option value="">Sin ruta</option> : null}
+          {props.routeOptions.map((route) => <option key={route} value={route}>{route}</option>)}
+          <option value="__create_route__">+ Nueva ruta</option>
         </select>
       ) : <span className="route-collection-route">{item.routeAssignment || "Sin ruta"}</span>}
     </div>
@@ -126,8 +136,7 @@ export default function RouteCollectionCard(props: Props) {
       {pendingCash && canRegister ? <button type="button" className="button primary" disabled={saving} onClick={props.onRegister}>Generar recibo</button> : null}
       {view === "confirmed" && report ? <button type="button" className="button primary" disabled={props.receiptLoading} onClick={props.onReceipt}>{props.receiptLoading ? "Abriendo…" : "Ver recibo"}</button> : null}
       {view === "partial" && canRemove && !acknowledged ? <button type="button" className="button primary" disabled={saving} onClick={props.onKeep}>Debe pagar más</button> : null}
-      {view === "work" && canReport && !props.hasPendingReport ? <button type="button" className="button primary" disabled={props.reportDisabled || saving} onClick={props.onReport}>Reportar que pagó</button> : null}
-      {view === "work" && canRegister ? <button type="button" className="button ghost" disabled={saving} onClick={props.onRegister}>Registrar pago</button> : null}
+      {view === "work" && canReport && !props.hasPendingReport ? <button type="button" className="button primary" disabled={props.reportDisabled || saving} onClick={props.onReport}>Notificar pago</button> : null}
       {view === "work" && canReport && !report ? <button type="button" className={`button ${item.routeInactiveAt ? "route-collection-inactive-action" : "ghost"}`} disabled={props.inactiveSaving || saving} onClick={props.onInactive}>{props.inactiveSaving ? "Guardando…" : item.routeInactiveAt ? "Marcar como disponible" : "Marcar Inactivo"}</button> : null}
       {view === "custody" && canReport ? <button type="button" className="button primary" disabled={saving} onClick={props.onCustody}>Sacar de custodia</button> : null}
       {view !== "confirmed" && view !== "custody" && canReport && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button ghost" disabled={saving} onClick={props.onCustody}>Vehículo en custodia</button> : null}

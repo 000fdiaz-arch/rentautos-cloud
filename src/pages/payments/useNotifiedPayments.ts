@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { Client } from "../../types";
 import { loadNotifiedPayments, saveNotifiedPayments } from "./paymentStorage";
 import type {
@@ -11,7 +11,17 @@ import { roundMoney } from "./paymentRules";
 
 const EMPTY_FORM: NotifiedPaymentForm = { unitId: "", amount: "" };
 
-export default function useNotifiedPayments(clients: Client[], activeClients: Client[]) {
+type RouteLink = {
+  routeReportId: string;
+  routeAssignment?: string;
+};
+
+type Options = {
+  createRouteReview?: (clientId: string, amount: number) => Promise<RouteLink | null>;
+  cancelRouteReview?: (reportId: string) => Promise<void>;
+};
+
+export default function useNotifiedPayments(clients: Client[], activeClients: Client[], options: Options = {}) {
   const [notifiedForm, setNotifiedForm] = useState<NotifiedPaymentForm>(EMPTY_FORM);
   const [notifiedPayments, setNotifiedPayments] = useState<NotifiedPayment[]>(() => loadNotifiedPayments());
   const [editingNotifiedId, setEditingNotifiedId] = useState<string | null>(null);
@@ -20,6 +30,7 @@ export default function useNotifiedPayments(clients: Client[], activeClients: Cl
   const [notifiedSortDirection, setNotifiedSortDirection] = useState<SortDirection>("desc");
   const [notifiedUntilNoonOnly, setNotifiedUntilNoonOnly] = useState(false);
   const [notifiedErrors, setNotifiedErrors] = useState<string[]>([]);
+  const [notifiedSavingId, setNotifiedSavingId] = useState<string | null>(null);
 
   const notifiedRows = useMemo(() => {
     const getClient = (clientId: string): Client | null => clients.find((client) => client.id === clientId) ?? null;
@@ -69,10 +80,10 @@ export default function useNotifiedPayments(clients: Client[], activeClients: Cl
     return activeClients.find((client) => (client.activeProvisionalRental?.unitId ?? client.unitId).trim().toLowerCase() === unit);
   }, [activeClients, editingNotifiedForm.unitId]);
 
-  function replaceNotifiedPayments(rows: NotifiedPayment[]): void {
+  const replaceNotifiedPayments = useCallback((rows: NotifiedPayment[]): void => {
     setNotifiedPayments(rows);
     saveNotifiedPayments(rows);
-  }
+  }, []);
 
   function validate(form: NotifiedPaymentForm, client: Client | null | undefined): string[] {
     const errors: string[] = [];
@@ -84,7 +95,7 @@ export default function useNotifiedPayments(clients: Client[], activeClients: Cl
     return errors;
   }
 
-  function handleAddNotifiedPayment(): void {
+  async function handleAddNotifiedPayment(): Promise<void> {
     const errors = validate(notifiedForm, notifiedClientMatch);
     if (errors.length > 0) {
       setNotifiedErrors(errors);
@@ -92,20 +103,47 @@ export default function useNotifiedPayments(clients: Client[], activeClients: Cl
     }
     setNotifiedErrors([]);
     if (!notifiedClientMatch) return;
-    replaceNotifiedPayments([...notifiedPayments, {
-      id: crypto.randomUUID(),
-      clientId: notifiedClientMatch.id,
-      amount: roundMoney(Number.parseFloat(notifiedForm.amount)),
-      createdAt: new Date().toISOString()
-    }]);
-    setNotifiedForm(EMPTY_FORM);
+    const amount = roundMoney(Number.parseFloat(notifiedForm.amount));
+    setNotifiedSavingId("new");
+    try {
+      const routeLink = await options.createRouteReview?.(notifiedClientMatch.id, amount) ?? null;
+      replaceNotifiedPayments([...notifiedPayments, {
+        id: crypto.randomUUID(),
+        clientId: notifiedClientMatch.id,
+        amount,
+        createdAt: new Date().toISOString(),
+        paymentMethod: "bank",
+        routeReportId: routeLink?.routeReportId,
+        routePaymentMethod: routeLink ? "bank" : undefined,
+        routeAssignment: routeLink?.routeAssignment
+      }]);
+      setNotifiedForm(EMPTY_FORM);
+    } catch (cause) {
+      console.error("No se pudo guardar el pago notificado.", cause);
+      const message = cause instanceof Error && cause.message ? cause.message : "No se pudo guardar el pago notificado.";
+      setNotifiedErrors([message]);
+    } finally {
+      setNotifiedSavingId(null);
+    }
   }
 
-  function handleDeleteNotifiedPayment(id: string): void {
-    replaceNotifiedPayments(notifiedPayments.filter((row) => row.id !== id));
+  async function handleDeleteNotifiedPayment(row: NotifiedPayment): Promise<void> {
+    setNotifiedSavingId(row.id);
+    setNotifiedErrors([]);
+    try {
+      if (row.routeReportId) await options.cancelRouteReview?.(row.routeReportId);
+      replaceNotifiedPayments(notifiedPayments.filter((current) => current.id !== row.id));
+    } catch (cause) {
+      console.error("No se pudo devolver el pago notificado.", cause);
+      const message = cause instanceof Error && cause.message ? cause.message : "No se pudo devolver el pago notificado.";
+      setNotifiedErrors([message]);
+    } finally {
+      setNotifiedSavingId(null);
+    }
   }
 
   function handleStartEditNotified(row: NotifiedPayment): void {
+    if (row.routeReportId) return;
     const client = clients.find((candidate) => candidate.id === row.clientId);
     setEditingNotifiedId(row.id);
     setEditingNotifiedForm({ unitId: client?.activeProvisionalRental?.unitId ?? client?.unitId ?? "", amount: String(row.amount) });
@@ -157,6 +195,7 @@ export default function useNotifiedPayments(clients: Client[], activeClients: Cl
     notifiedUntilNoonOnly,
     setNotifiedUntilNoonOnly,
     notifiedErrors,
+    notifiedSavingId,
     notifiedRowsFiltered,
     notifiedClientMatch,
     editingNotifiedClientMatch,

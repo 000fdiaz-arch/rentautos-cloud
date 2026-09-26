@@ -17,7 +17,10 @@ export type NotifiedPayment = {
   createdAt: string;
   paymentMethod?: "bank";
   collectionTeam?: CollectionTeam;
-  source?: "route";
+  source?: "route" | "route-review";
+  routeReportId?: string;
+  routePaymentMethod?: "cash" | "bank" | "mixed";
+  routeAssignment?: string;
 };
 
 export type NotifiedPaymentForm = {

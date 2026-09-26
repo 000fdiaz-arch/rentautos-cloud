@@ -15,10 +15,13 @@ type Props = {
   setNotifiedForm: Dispatch<SetStateAction<NotifiedPaymentForm>>;
   notifiedClientMatch?: Client;
   notifiedErrors: string[];
+  notifiedSavingId: string | null;
   handleAddNotifiedPayment: () => void;
   notifiedUntilNoonOnly: boolean;
   setNotifiedUntilNoonOnly: Dispatch<SetStateAction<boolean>>;
   notifiedRowsFiltered: NotifiedPayment[];
+  routeReviewRows: NotifiedPayment[];
+  routeReviewError: string;
   handleSortNotified: (field: NotifiedSortField) => void;
   notifiedSortField: NotifiedSortField;
   notifiedSortDirection: SortDirection;
@@ -30,7 +33,7 @@ type Props = {
   handleSaveEditNotified: (row: NotifiedPayment) => void;
   handleCancelEditNotified: () => void;
   handleStartEditNotified: (row: NotifiedPayment) => void;
-  handleDeleteNotifiedPayment: (id: string) => void;
+  handleDeleteNotifiedPayment: (row: NotifiedPayment) => void;
 };
 
 export default function NotifiedPaymentsPanel({
@@ -40,10 +43,13 @@ export default function NotifiedPaymentsPanel({
   setNotifiedForm,
   notifiedClientMatch,
   notifiedErrors,
+  notifiedSavingId,
   handleAddNotifiedPayment,
   notifiedUntilNoonOnly,
   setNotifiedUntilNoonOnly,
   notifiedRowsFiltered,
+  routeReviewRows,
+  routeReviewError,
   handleSortNotified,
   notifiedSortField,
   notifiedSortDirection,
@@ -57,6 +63,36 @@ export default function NotifiedPaymentsPanel({
   handleStartEditNotified,
   handleDeleteNotifiedPayment
 }: Props) {
+  const linkedReportIds = new Set(notifiedRowsFiltered.map((row) => row.routeReportId).filter(Boolean));
+  const visibleRouteRows = routeReviewRows.filter((row) => {
+    if (row.routeReportId && linkedReportIds.has(row.routeReportId)) return false;
+    if (!notifiedUntilNoonOnly) return true;
+    const createdAt = new Date(row.createdAt);
+    return !Number.isNaN(createdAt.getTime()) && (
+      createdAt.getHours() < 12 || (
+        createdAt.getHours() === 12 && createdAt.getMinutes() === 0 && createdAt.getSeconds() === 0
+      )
+    );
+  });
+  const direction = notifiedSortDirection === "asc" ? 1 : -1;
+  const rows = [...notifiedRowsFiltered, ...visibleRouteRows].sort((left, right) => {
+    const getClient = (clientId: string) => clients.find((client) => client.id === clientId);
+    if (notifiedSortField === "amount") {
+      const comparison = (left.amount - right.amount) * direction;
+      if (comparison !== 0) return comparison;
+    } else if (notifiedSortField === "unit") {
+      const comparison = (getClient(left.clientId)?.unitId ?? "").localeCompare(getClient(right.clientId)?.unitId ?? "") * direction;
+      if (comparison !== 0) return comparison;
+    } else if (notifiedSortField === "client") {
+      const comparison = (getClient(left.clientId)?.name ?? "").localeCompare(getClient(right.clientId)?.name ?? "") * direction;
+      if (comparison !== 0) return comparison;
+    } else {
+      const comparison = left.createdAt.localeCompare(right.createdAt) * direction;
+      if (comparison !== 0) return comparison;
+    }
+    return right.createdAt.localeCompare(left.createdAt);
+  });
+
   return (
     <section id="payment-panel-notified" role="tabpanel" aria-labelledby="payment-tab-notified" ref={notifiedSectionRef} className="panel" style={{ display: isNotifiedOpen ? undefined : "none" }}>
             <div className="panel-head">
@@ -65,7 +101,7 @@ export default function NotifiedPaymentsPanel({
 
             {isNotifiedOpen && (
             <>
-            <p className="hint">Ingresa la unidad y el monto. El sistema trae automaticamente el cliente.</p>
+            <p className="hint">Ingresa la unidad y el monto. Si la unidad está activa en Ruta en calle, también aparecerá allí como Pago notificado.</p>
 
             <div className="payment-form-grid" style={{ marginTop: 12 }}>
               <div className="payment-field-group">
@@ -104,10 +140,11 @@ export default function NotifiedPaymentsPanel({
             {notifiedErrors.length > 0 && (
               <ul className="error-list">{notifiedErrors.map((e) => <li key={e}>{e}</li>)}</ul>
             )}
+            {routeReviewError ? <p className="error-list">{routeReviewError}</p> : null}
 
             <div style={{ marginTop: 14 }}>
-              <button type="button" className="button primary" onClick={handleAddNotifiedPayment}>
-                Guardar pago notificado
+              <button type="button" className="button primary" disabled={notifiedSavingId === "new"} onClick={handleAddNotifiedPayment}>
+                {notifiedSavingId === "new" ? "Guardando..." : "Guardar pago notificado"}
               </button>
             </div>
 
@@ -122,7 +159,7 @@ export default function NotifiedPaymentsPanel({
               </label>
             </div>
 
-            {notifiedRowsFiltered.length === 0 ? (
+            {rows.length === 0 ? (
               <p className="empty">No hay pagos notificados pendientes.</p>
             ) : (
               <div className="table-scroll" style={{ marginTop: 14 }}>
@@ -155,9 +192,13 @@ export default function NotifiedPaymentsPanel({
                     </tr>
                   </thead>
                   <tbody>
-                    {notifiedRowsFiltered.map((row) => {
+                    {rows.map((row) => {
                       const client = clients.find((c) => c.id === row.clientId);
                       const isEditing = editingNotifiedId === row.id;
+                      const isRouteReview = Boolean(row.routeReportId);
+                      const routeMethodLabel = row.routePaymentMethod === "cash"
+                        ? "Efectivo"
+                        : row.routePaymentMethod === "mixed" ? "Mixto" : "Banca";
                       return (
                         <tr key={row.id}>
                           <td>
@@ -195,8 +236,8 @@ export default function NotifiedPaymentsPanel({
                             )}
                           </td>
                           <td>{new Date(row.createdAt).toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })}</td>
-                          <td>{row.paymentMethod === "bank" ? "Por confirmar banca" : "Notificado"}</td>
-                          <td>{row.collectionTeam || "—"}</td>
+                          <td>{isRouteReview ? `Pago notificado · ${routeMethodLabel}` : row.paymentMethod === "bank" ? "Por confirmar banca" : "Notificado"}</td>
+                          <td>{row.routeAssignment || row.collectionTeam || "—"}</td>
                           <td className="actions-cell">
                             {isEditing ? (
                               <>
@@ -215,7 +256,7 @@ export default function NotifiedPaymentsPanel({
                                   Cancelar
                                 </button>
                               </>
-                            ) : (
+                            ) : !isRouteReview ? (
                               <button
                                 type="button"
                                 className="button ghost small"
@@ -223,13 +264,14 @@ export default function NotifiedPaymentsPanel({
                               >
                                 Editar
                               </button>
-                            )}
+                            ) : null}
                             <button
                               type="button"
                               className="button danger small"
-                              onClick={() => handleDeleteNotifiedPayment(row.id)}
+                              disabled={notifiedSavingId === row.id}
+                              onClick={() => handleDeleteNotifiedPayment(row)}
                             >
-                              Eliminar
+                              {notifiedSavingId === row.id ? "Procesando..." : isRouteReview ? "Devolver" : "Eliminar"}
                             </button>
                           </td>
                         </tr>

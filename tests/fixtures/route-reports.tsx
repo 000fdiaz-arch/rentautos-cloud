@@ -6,7 +6,9 @@ import { canReportRoutePayment, getRoleScreenPermissions } from "../../src/auth/
 import { getBusinessDateKey } from "../../src/billing";
 import "../../src/styles.css";
 const role = new URLSearchParams(location.search).has("readonly") ? "lectura" : "buscador";
-const canRegister = new URLSearchParams(location.search).has("cashregister");
+const routeParams = new URLSearchParams(location.search);
+const autoCash = routeParams.has("autocash");
+const canRegister = routeParams.has("cashregister") || autoCash;
 function Harness() {
   const [payments, setPayments] = useState<Payment[]>(() => [
     { id: "old", clientId: "cash-wc", clientUnit: "RA-WC", clientName: "Cliente WC", receiptNumber: "REC-old", paymentMethod: "Efectivo", moneyDelivered: false, collectionTeam: "WC", amountReceived: 45.25, dateApplied: "2020-01-01", createdAt: "2020-01-01T12:00:00Z" },
@@ -25,6 +27,7 @@ function Harness() {
   return <RouteSearchPage
   dataOwnerUserId="11111111-1111-4111-8111-111111111111"
   currentUserId="22222222-2222-4222-8222-222222222222"
+  initialRouteFilter={autoCash ? (routeParams.has("delta2") ? "WC" : "PTY") : undefined}
   canReportPayment={canReportRoutePayment(role, getRoleScreenPermissions(role))}
   canRemoveFromRoute={new URLSearchParams(location.search).has("editor")}
   clients={[]} payments={payments} readOnly={!canRegister}

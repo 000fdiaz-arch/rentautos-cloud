@@ -91,7 +91,12 @@ export function parseNotifiedPayments(value: unknown): NotifiedPayment[] {
         ...item,
         paymentMethod: item.paymentMethod === "bank" ? "bank" : undefined,
         collectionTeam: item.collectionTeam === "PTY" || item.collectionTeam === "WC" ? item.collectionTeam : undefined,
-        source: item.source === "route" ? "route" : undefined
+        source: item.source === "route" ? "route" : undefined,
+        routeReportId: typeof item.routeReportId === "string" && item.routeReportId ? item.routeReportId : undefined,
+        routePaymentMethod: item.routePaymentMethod === "cash" || item.routePaymentMethod === "bank" || item.routePaymentMethod === "mixed"
+          ? item.routePaymentMethod
+          : undefined,
+        routeAssignment: typeof item.routeAssignment === "string" && item.routeAssignment.trim() ? item.routeAssignment.trim() : undefined
       }));
 }
 

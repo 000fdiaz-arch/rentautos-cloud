@@ -67,6 +67,7 @@ import { supabase } from "./lib/supabase";
 import { countActiveRouteReviewItems } from "./routeReviewRules";
 import { loadRoutePaymentReports, type RoutePaymentReport } from "./cloud/routeReportCloudData";
 import { stableEqual } from "./stableSerialize";
+import { routeFilterForOperatorEmail } from "./routeOperatorScope";
 import { buildManualPaymentTransaction } from "./pages/payments/manualPaymentWorkflow";
 import { getPendingCashChangeError } from "./cashTeamRules";
 import { loadNotifiedPayments, saveNotifiedPayments } from "./pages/payments/paymentStorage";
@@ -218,6 +219,7 @@ export default function AppShell({
   }, [canViewClients, canViewControlUnits, canViewPayments, canViewReceivables, canViewRouteSearch, canViewSettingsPage]);
   // Shared dataset mode: when a data owner is configured, all roles work on that same owner dataset.
   const cloudDataUserId = effectiveOwnerUserId ?? dataOwnerUserId ?? userId;
+  const operatorRouteFilter = routeFilterForOperatorEmail(userEmail);
   const [page, setPage] = useState<AppPage>(() => {
     const requestedPage = appPageFromPathname(window.location.pathname);
     if (requestedPage && pageVisibility[requestedPage]) return requestedPage;
@@ -1111,6 +1113,7 @@ export default function AppShell({
             onRefreshPayments={refreshPaymentsFromSource}
             streetManagementData={parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>}
             routePermissions={{ paymentsLoading: !cloudReady, currentUserId: userId, canReportPayment: canReportRoutePayments,
+              initialRouteFilter: operatorRouteFilter,
               readOnly: !canEditRouteSearch, canRemoveFromRoute: canEditRouteSearch, onRegisterPayment: registerRoutePayment }}
             onStreetManagementPersist={async (value) => {
               localStorage.setItem("cobrapp.module3.street_management.v1", JSON.stringify(value));
@@ -1123,6 +1126,7 @@ export default function AppShell({
           <RouteSearchPage
             paymentsLoading={!cloudReady}
             currentUserId={userId}
+            initialRouteFilter={operatorRouteFilter}
             canReportPayment={canReportRoutePayments}
             dataOwnerUserId={cloudDataUserId}
             clients={clients}

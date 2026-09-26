@@ -37,6 +37,10 @@ Para instalaciones existentes que ya ejecutaron las migraciones de cuentas por c
 - `supabase/64-provisional-rental-payment-balance.sql` (valida los pagos provisionales contra el saldo del alquiler sin tocar el saldo regular pausado)
 - `supabase/87-fleet-status-timeout-fast-path.sql` (evita el timeout 57014 al cambiar el estado operativo desde Autos)
 - `supabase/88-payment-insert-latest-fast-path.sql` (evita recorrer el historial completo al registrar pagos nuevos)
+- `supabase/91-dynamic-route-assignment.sql` (habilita rutas personalizadas en Ruta en calle)
+- `supabase/92-notified-route-review-sync.sql` (comparte Pago notificado entre Pagos y Ruta en calle)
+- `supabase/93-notified-route-review-backfill.sql` (vincula avisos existentes con unidades activas de Ruta y mantiene la relación automáticamente)
+- `supabase/94-route-cash-receipt-delete-cancels-report.sql` (al eliminar en Pagos un recibo de efectivo creado desde Ruta, cancela también la notificación y devuelve la unidad a Trabajo)
 
 En Vercel, produccion debe usar `VITE_PERSISTENCE_MODE=SUPABASE_ONLY`. `LOCAL_ONLY` queda limitado a desarrollo, salvo que se habilite deliberadamente `VITE_ALLOW_PRODUCTION_LOCAL_ONLY=1`.
 5. Crea una cuenta desde la pantalla de registro de la app.

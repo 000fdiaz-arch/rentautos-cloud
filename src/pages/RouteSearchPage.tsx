@@ -3,7 +3,7 @@ import RoutePendingCashPanel from "./RoutePendingCashPanel";
 import RouteCollectionCard, { type RouteWorkflowView } from "./RouteCollectionCard";
 import RouteTeamSummary from "./RouteTeamSummary";
 import { PaymentPreviewDialog } from "./payments/PaymentDialogs";
-import { applyRouteReportDelta, changeRouteAssignment, cancelRoutePaymentReport, loadNextPendingCashRouteReport, loadRoutePaymentReport, loadRoutePaymentReportForItem, loadRoutePaymentReports, loadRoutePaymentReportsPage, loadRouteReportReceipts, reportRoutePayment, routeReportDeltaFromPayload, setRouteCustody, setRouteInactiveStatus, type RoutePaymentReport, type RouteReportDelta } from "../cloud/routeReportCloudData";
+import { applyRouteReportDelta, changeRouteAssignment, cancelRoutePaymentReport, loadRoutePaymentReport, loadRoutePaymentReportForItem, loadRoutePaymentReports, loadRoutePaymentReportsPage, loadRouteReportReceipts, reportRoutePayment, routeReportDeltaFromPayload, setRouteCustody, setRouteInactiveStatus, type RoutePaymentReport, type RouteReportDelta } from "../cloud/routeReportCloudData";
 import {
   ALL_ACTIVE_ROUTE_FILTER,
   EMPTY_ACTIVE_ROUTE_FILTER,
@@ -32,12 +32,14 @@ import { buildRouteReviewIndex, getActiveRouteReviewItems, getRouteWorkItems, is
 import type { Client, CollectionTeam, Payment } from "../types";
 import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentStorage";
 import type { NotifiedPayment } from "./payments/paymentTypes";
+import { normalizeRouteAssignment, ROUTE_ASSIGNMENT_OPTIONS } from "./receivables/receivablesPageRules";
 import { fieldManagementLabel, type FieldManagementType } from "./receivables/receivablesTypes";
 
 export type RouteSearchPageProps = {
   renderManagementFields?: (item: ActiveRouteItem) => React.ReactNode;
   paymentsLoading?: boolean;
   currentUserId?: string;
+  initialRouteFilter?: string;
   canReportPayment?: boolean;
   dataOwnerUserId?: string | null;
   clients: Client[];
@@ -55,7 +57,7 @@ export type RouteSearchPageProps = {
 
 const ALL_ACTIVE_ZONE_FILTER = "__all_zones__";
 const EMPTY_ACTIVE_ZONE_FILTER = "__empty_zone__";
-const STANDARD_ACTIVE_ROUTES = new Set(["PTY", "WC"]);
+const STANDARD_ACTIVE_ROUTES = new Set<string>(ROUTE_ASSIGNMENT_OPTIONS);
 const ROUTE_REPORT_PAGE_SIZE = 200;
 
 type ZoneOption = {
@@ -71,6 +73,11 @@ function normalizeZoneName(value: string | undefined): string {
 function activeZoneFilterValue(value: string | undefined): string {
   const normalized = normalizeZoneName(value);
   return normalized ? normalized.toLocaleLowerCase("es") : EMPTY_ACTIVE_ZONE_FILTER;
+}
+
+function asCollectionTeam(value: string | undefined): CollectionTeam | "" {
+  const normalized = (value ?? "").trim().toUpperCase();
+  return normalized === "PTY" || normalized === "WC" ? normalized : "";
 }
 
 function toTimestamp(value: string | undefined): number {
@@ -123,6 +130,7 @@ export default function RouteSearchPage({
   renderManagementFields,
   paymentsLoading = false,
   currentUserId,
+  initialRouteFilter,
   canReportPayment = false,
   dataOwnerUserId,
   clients,
@@ -131,6 +139,10 @@ export default function RouteSearchPage({
   canRemoveFromRoute = false,
   onRegisterPayment
 }: RouteSearchPageProps) {
+  const preferredRouteFilter = initialRouteFilter
+    ? activeRouteFilterValue(initialRouteFilter)
+    : null;
+  const operatorCollectionTeam = asCollectionTeam(initialRouteFilter);
   const [businessDateKey, setBusinessDateKey] = useState(() => getBusinessDateKey());
   useEffect(() => {
     const updateDay = () => setBusinessDateKey(getBusinessDateKey());
@@ -149,7 +161,6 @@ export default function RouteSearchPage({
   const reportHistoryOffsetRef = useRef(0);
   const pendingReportDeltasRef = useRef<RouteReportDelta[]>([]);
   const [workflowView, setWorkflowView] = useState<RouteWorkflowView>("work");
-  const [reviewMethod, setReviewMethod] = useState<"cash" | "bank" | "mixed">("cash");
   const [custodyTarget, setCustodyTarget] = useState<ActiveRouteItem | null>(null);
   const [custodySaving, setCustodySaving] = useState(false);
   const [custodyError, setCustodyError] = useState("");
@@ -163,6 +174,7 @@ export default function RouteSearchPage({
   const [reportMethod, setReportMethod] = useState<"" | "cash" | "bank" | "mixed">("");
   const [reportCashAmount, setReportCashAmount] = useState("");
   const [reportBankAmount, setReportBankAmount] = useState("");
+  const [reportCashTeam, setReportCashTeam] = useState<CollectionTeam | "">("");
   const [reportSaving, setReportSaving] = useState(false);
   const [reportError, setReportError] = useState("");
   const [reportsError, setReportsError] = useState("");
@@ -216,20 +228,67 @@ export default function RouteSearchPage({
       setReportError("Indica un monto mayor a cero, con hasta dos decimales.");
       return;
     }
+    if (cashAmount > 0 && !reportCashTeam) {
+      setReportError("Selecciona el equipo PTY o WC que recibió el efectivo.");
+      return;
+    }
     setReportSaving(true);
     setReportError("");
+    let savedReport: RoutePaymentReport | null = null;
     try {
       await reportRoutePayment(dataOwnerUserId, reportTarget, cashAmount, bankAmount);
-      setRouteActionMessage(`${reportTarget.unitId} pasó a En revisión.`);
+      setRouteActionMessage(`${reportTarget.unitId} pasó a Pago notificado.`);
       try {
         const latestReport = await loadRoutePaymentReportForItem(dataOwnerUserId, reportTarget.clientId, reportTarget.publishedAt);
-        if (latestReport) setReports((current) => applyRouteReportDelta(current, { id: latestReport.id, report: latestReport }));
+        if (latestReport) {
+          savedReport = latestReport;
+          setReports((current) => applyRouteReportDelta(current, { id: latestReport.id, report: latestReport }));
+        }
       } catch (refreshError) {
         console.warn("El reporte se guardó, pero no se pudo actualizar su vista.", refreshError);
       }
+
+      if (cashAmount > 0 && onRegisterPayment) {
+        if (!savedReport) throw new Error("El pago se notificó, pero no se pudo preparar el recibo. Actualiza la ruta para generarlo.");
+        if (!reportCashTeam) throw new Error("El pago se notificó, pero falta identificar el equipo que recibió el efectivo.");
+        const cashTeam = reportCashTeam;
+        const result = await onRegisterPayment({
+          clientId: reportTarget.clientId,
+          amount: cashAmount,
+          method: "cash",
+          team: cashTeam,
+          fundsReceivedDate: getBusinessDateKey(new Date(savedReport.reported_at))
+        });
+        if (result.kind !== "cash" || !result.receiptNumber) throw new Error("El pago se notificó, pero no se pudo emitir el recibo de efectivo.");
+        setCompletedCash({ unit: reportTarget.unitId, amount: cashAmount, receipt: result.receiptNumber, payment: result.payment });
+        setPaymentMessage(`Recibo ${result.receiptNumber} generado de inmediato · Equipo ${cashTeam}.`);
+        setRegisteredReportIds((current) => current.includes(savedReport!.id) ? current : [...current, savedReport!.id]);
+        if (result.payment) setReceiptPreview(result.payment);
+        try {
+          const refreshed = await loadRoutePaymentReport(dataOwnerUserId, savedReport.id);
+          setReports((current) => applyRouteReportDelta(current, { id: savedReport!.id, report: refreshed }));
+        } catch (refreshError) {
+          console.warn("El recibo se generó, pero no se pudo actualizar el pago notificado.", refreshError);
+        }
+        setRouteActionMessage(`${reportTarget.unitId}: ${result.receiptNumber} generado.`);
+      }
       setReportTarget(null);
     } catch (cause) {
-      setReportError(buildCloudErrorMessage("No se pudo reportar el pago.", cause, { includeRawFallback: true }));
+      if (savedReport) {
+        setReportTarget(null);
+        try {
+          await cancelRoutePaymentReport(savedReport.id);
+          setReports((current) => applyRouteReportDelta(current, { id: savedReport!.id, report: null }));
+          openWorkflow("work");
+          setReportsError(buildCloudErrorMessage("No se pudo emitir el recibo. La notificación se devolvió a Trabajo para evitar un efectivo pendiente.", cause, { includeRawFallback: true }));
+        } catch (cancelError) {
+          console.error("No se pudo devolver el reporte después de fallar el recibo.", cancelError);
+          openWorkflow("review");
+          setReportsError(buildCloudErrorMessage("No se pudo emitir el recibo ni devolver la notificación. Actualiza la ruta antes de reintentar.", cause, { includeRawFallback: true }));
+        }
+      } else {
+        setReportError(buildCloudErrorMessage("No se pudo notificar el pago.", cause, { includeRawFallback: true }));
+      }
     } finally { setReportSaving(false); }
   }
 
@@ -246,13 +305,17 @@ export default function RouteSearchPage({
   }
   const [changingRoute, setChangingRoute] = useState<string | null>(null);
   const [changeRouteError, setChangeRouteError] = useState("");
-  const [routeUndo, setRouteUndo] = useState<{ item: ActiveRouteItem; previous: "WC" | "PTY"; current: "WC" | "PTY" } | null>(null);
+  const [routeUndo, setRouteUndo] = useState<{ item: ActiveRouteItem; previous: string; current: string } | null>(null);
+  const [routeCreateTarget, setRouteCreateTarget] = useState<ActiveRouteItem | null>(null);
+  const [routeCreateDraft, setRouteCreateDraft] = useState("");
+  const [routeCreateError, setRouteCreateError] = useState("");
   const [inactiveSavingByClient, setInactiveSavingByClient] = useState<Record<string, boolean>>({});
   const [inactiveError, setInactiveError] = useState("");
   const [elapsedNow, setElapsedNow] = useState(() => Date.now());
-  async function changeTeam(item: ActiveRouteItem, route: "WC" | "PTY", isUndo = false): Promise<void> {
-    if (!canReportPayment || !dataOwnerUserId || changingRoute || route === item.routeAssignment) return;
-    const previous = item.routeAssignment as "WC" | "PTY";
+  async function changeTeam(item: ActiveRouteItem, routeValue: string, isUndo = false): Promise<boolean> {
+    const route = normalizeRouteAssignment(routeValue);
+    const previous = normalizeRouteAssignment(item.routeAssignment ?? "") ?? "";
+    if (!canReportPayment || !dataOwnerUserId || changingRoute || !route || route === previous) return false;
     setChangingRoute(item.clientId);
     setChangeRouteError("");
     setInactiveError("");
@@ -263,12 +326,36 @@ export default function RouteSearchPage({
         ? { ...row, routeAssignment: route } : row));
       setRouteUndo(isUndo ? null : { item: { ...item, routeAssignment: route }, previous, current: route });
       setRouteActionMessage(isUndo ? `${item.unitId} volvió a ${route}.` : `${item.unitId} cambió a ${route}.`);
+      return true;
     } catch (cause) {
       setChangeRouteError(buildCloudErrorMessage("No se pudo cambiar la ruta.", cause, { includeRawFallback: true }));
+      return false;
     } finally { setChangingRoute(null); }
   }
   async function undoRouteChange(): Promise<void> {
     if (routeUndo) await changeTeam(routeUndo.item, routeUndo.previous, true);
+  }
+  async function createRoute(): Promise<void> {
+    if (!routeCreateTarget || changingRoute) return;
+    const route = normalizeRouteAssignment(routeCreateDraft);
+    if (!route) {
+      setRouteCreateError("Escribe el nombre de la ruta.");
+      return;
+    }
+    if (route === normalizeRouteAssignment(routeCreateTarget.routeAssignment ?? "")) {
+      setRouteCreateTarget(null);
+      setRouteCreateDraft("");
+      setRouteCreateError("");
+      return;
+    }
+    const changed = await changeTeam(routeCreateTarget, route);
+    if (!changed) {
+      setRouteCreateError("No se pudo guardar la ruta. Intenta nuevamente.");
+      return;
+    }
+    setRouteCreateTarget(null);
+    setRouteCreateDraft("");
+    setRouteCreateError("");
   }
   async function toggleInactive(item: ActiveRouteItem): Promise<void> {
     if (!canReportPayment || !dataOwnerUserId || inactiveSavingByClient[item.clientId]) return;
@@ -292,7 +379,7 @@ export default function RouteSearchPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  const [routeFilter, setRouteFilter] = useState(ALL_ACTIVE_ROUTE_FILTER);
+  const [routeFilter, setRouteFilter] = useState(preferredRouteFilter ?? ALL_ACTIVE_ROUTE_FILTER);
   const [zoneFilter, setZoneFilter] = useState(ALL_ACTIVE_ZONE_FILTER);
   const [zoneFilterLabel, setZoneFilterLabel] = useState("");
   const [zoneDrafts, setZoneDrafts] = useState<Record<string, string>>({});
@@ -321,6 +408,13 @@ export default function RouteSearchPage({
   const [paymentError, setPaymentError] = useState("");
   const [paymentMessage, setPaymentMessage] = useState("");
   const shareSheetRefs = useRef(new Map<string, HTMLDivElement>());
+
+  useEffect(() => {
+    if (!preferredRouteFilter) return;
+    setRouteFilter(preferredRouteFilter);
+    setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
+    setZoneFilterLabel("");
+  }, [preferredRouteFilter]);
 
   const currentBalanceByClient = useMemo(
     () => new Map(clients.map((client) => [client.id, Math.max(0, client.balance)] as const)),
@@ -458,17 +552,18 @@ export default function RouteSearchPage({
   }), [confirmedReports, businessDateKey]);
   const confirmedPrevious = useMemo(() => confirmedReports.filter(report => !confirmedToday.includes(report)), [confirmedReports, confirmedToday]);
   const visibleConfirmedReports = confirmedPeriod === "today" ? confirmedToday : confirmedPrevious;
+  const reviewReports = useMemo(() => reports.filter((report) => (
+    report.status === "review"
+    && report.bank_amount > report.confirmed_bank_amount
+  )), [reports]);
 
   const activeItems = useMemo<Array<ActiveRouteItem & { report?: RoutePaymentReport }>>(() => (
-    workflowView === "work" ? workItems : workflowView === "custody" ? custodyItems : workflowView === "partial" ? partialReviewItems : (workflowView === "confirmed" ? visibleConfirmedReports : reports.filter((report) => report.status === workflowView))
+    workflowView === "work" ? workItems : workflowView === "custody" ? custodyItems : workflowView === "partial" ? partialReviewItems : (workflowView === "confirmed" ? visibleConfirmedReports : reviewReports)
       .map((report) => ({ ...report.snapshot, inCustody: items.some((item) => item.clientId === report.client_id && item.publishedAt === report.published_at && item.inCustody), report }))
-  ), [workflowView, workItems, partialReviewItems, reports, custodyItems, items, visibleConfirmedReports]);
-  const pendingCashCount = reports.filter(isPendingCashRouteReport).length;
-  const reviewCounts = { cash: reports.filter((report) => report.status === "review" && report.method === "cash").length, bank: reports.filter((report) => report.status === "review" && report.method === "bank").length, mixed: reports.filter((report) => report.status === "review" && report.method === "mixed").length };
+  ), [workflowView, workItems, partialReviewItems, reviewReports, custodyItems, items, visibleConfirmedReports]);
 
   function openWorkflow(view: RouteWorkflowView): void {
     setWorkflowView(view); setConfirmedPeriod("today"); setCompletedCash(null); setRouteActionMessage(""); setRouteUndo(null);
-    if (view === "review") setReviewMethod(pendingCashCount > 0 ? "cash" : reviewCounts.bank > 0 ? "bank" : reviewCounts.mixed > 0 ? "mixed" : "cash");
   }
 
   async function loadMoreReportHistory(): Promise<void> {
@@ -508,6 +603,18 @@ export default function RouteSearchPage({
     return grouped;
   }, [bankNotices]);
 
+  const routeAssignmentOptions = useMemo(() => {
+    const knownRoutes = new Set<string>(ROUTE_ASSIGNMENT_OPTIONS);
+    const addRoute = (value: string | undefined) => {
+      const normalized = normalizeRouteAssignment(value ?? "");
+      if (normalized) knownRoutes.add(normalized);
+    };
+    items.forEach((item) => addRoute(item.routeAssignment));
+    reports.forEach((report) => addRoute(report.snapshot.routeAssignment));
+    const defaults = ROUTE_ASSIGNMENT_OPTIONS.filter((route) => knownRoutes.delete(route));
+    return [...defaults, ...Array.from(knownRoutes).sort(compareActiveRouteFilterValues)];
+  }, [items, reports]);
+
   const routeFilterOptions = useMemo(() => {
     const options = new Set(activeItems.map((item) => activeRouteFilterValue(item.routeAssignment)));
     if (routeFilter !== ALL_ACTIVE_ROUTE_FILTER) options.add(routeFilter);
@@ -517,7 +624,6 @@ export default function RouteSearchPage({
   const extraRouteOptions = useMemo(() => {
     const counts = new Map<string, number>();
     activeItems
-      .filter((item) => workflowView !== "review" || item.report?.method === reviewMethod)
       .forEach((item) => {
         const routeValue = activeRouteFilterValue(item.routeAssignment);
         if (routeValue === EMPTY_ACTIVE_ROUTE_FILTER || STANDARD_ACTIVE_ROUTES.has(routeValue)) return;
@@ -526,7 +632,7 @@ export default function RouteSearchPage({
     return Array.from(counts.entries())
       .sort(([left], [right]) => compareActiveRouteFilterValues(left, right))
       .map(([value, count]) => ({ value, count }));
-  }, [activeItems, workflowView, reviewMethod]);
+  }, [activeItems]);
 
   const extraRouteItemCount = useMemo(
     () => extraRouteOptions.reduce((total, option) => total + option.count, 0),
@@ -585,7 +691,6 @@ export default function RouteSearchPage({
   const visibleItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return activeItems
-      .filter((item) => workflowView !== "review" || item.report?.method === reviewMethod)
       .filter((item) => routeFilter === ALL_ACTIVE_ROUTE_FILTER || activeRouteFilterValue(item.routeAssignment) === routeFilter)
       .filter((item) => zoneFilter === ALL_ACTIVE_ZONE_FILTER || activeZoneFilterValue(item.zone) === zoneFilter)
       .filter((item) => {
@@ -600,8 +705,8 @@ export default function RouteSearchPage({
           item.comment ?? ""
         ].some((value) => value.toLowerCase().includes(normalizedQuery));
       })
-      .sort((left, right) => (workflowView === "review" ? Number(isPendingCashRouteReport(right.report)) - Number(isPendingCashRouteReport(left.report)) : 0) || compareActiveRouteItems(left, right));
-  }, [activeItems, query, routeFilter, zoneFilter, workflowView, reviewMethod]);
+      .sort(compareActiveRouteItems);
+  }, [activeItems, query, routeFilter, zoneFilter]);
 
   const selectedZoneLabel = useMemo(() => {
     if (zoneFilter === ALL_ACTIVE_ZONE_FILTER) return "";
@@ -829,7 +934,7 @@ export default function RouteSearchPage({
     setCustodySaving(true); setCustodyError("");
     try {
       await setRouteCustody(dataOwnerUserId, custodyTarget, !custodyTarget.inCustody);
-      setRouteActionMessage(custodyTarget.inCustody ? `${custodyTarget.unitId} salió de custodia. Aparecerá en Trabajo si tiene cobros pendientes y no está en revisión.` : `${custodyTarget.unitId} pasó a Vehículo en custodia.`);
+      setRouteActionMessage(custodyTarget.inCustody ? `${custodyTarget.unitId} salió de custodia. Aparecerá en Trabajo si tiene cobros pendientes y no tiene un pago notificado.` : `${custodyTarget.unitId} pasó a Vehículo en custodia.`);
       const clientId = custodyTarget.clientId;
       const inCustody = !custodyTarget.inCustody;
       setItems((current) => current.map((item) => item.clientId === clientId ? { ...item, inCustody } : item));
@@ -849,19 +954,6 @@ export default function RouteSearchPage({
       if (receipts.length === 1) setReceiptPreview(receipts[0]);
       else setReceiptOptions(receipts);
     } catch (cause) { setReceiptError(buildCloudErrorMessage("No se pudo abrir el recibo.", cause, { includeRawFallback: true })); }
-    finally { setReceiptLoading(null); }
-  }
-
-  async function nextPendingCash(): Promise<void> {
-    if (!dataOwnerUserId || receiptLoading || paymentSaving) return;
-    setReceiptLoading("next"); setReceiptError("");
-    try {
-      const next = await loadNextPendingCashRouteReport(dataOwnerUserId, registeredReportIds);
-      if (next) setReports((current) => applyRouteReportDelta(current, { id: next.id, report: next }));
-      openWorkflow("review"); setReviewMethod("cash");
-      if (next) openPaymentDialog(next.snapshot, next);
-      else setRouteActionMessage("No quedan pagos en efectivo pendientes de recibo.");
-    } catch (cause) { setReceiptError(buildCloudErrorMessage("No se pudieron cargar los pendientes.", cause)); }
     finally { setReceiptLoading(null); }
   }
 
@@ -943,7 +1035,7 @@ export default function RouteSearchPage({
       <header className="route-search-header">
         <div>
           <h1>Cobro en Ruta</h1>
-          <p>{visibleItems.length} unidades · {workflowView === "work" ? "Trabajo" : workflowView === "review" ? "En revisión" : workflowView === "partial" ? "Pagos parciales a revisar" : workflowView === "custody" ? "Vehículo en custodia" : "Pagos confirmados"}{publishedAt ? ` | Publicada ${publishedAt}` : ""}</p>
+          <p>{visibleItems.length} unidades · {workflowView === "work" ? "Trabajo" : workflowView === "review" ? "Pago notificado" : workflowView === "partial" ? "Pagos parciales a revisar" : workflowView === "custody" ? "Vehículo en custodia" : "Cobro en ruta"}{publishedAt ? ` | Publicada ${publishedAt}` : ""}</p>
         </div>
         <div className="route-search-header-actions">
           {workflowView === "work" ? <button
@@ -960,11 +1052,11 @@ export default function RouteSearchPage({
         </div>
       </header>
 
-      {workflowView === "work" ? <RouteTeamSummary workItems={workItems} reports={reports} confirmedToday={confirmedToday} /> : null}
-      {extraRouteOptions.length > 0 ? <section className="route-search-extra-routes" aria-label="Rutas extra">
+      {workflowView === "work" ? <RouteTeamSummary workItems={workItems} reports={reports} confirmedToday={confirmedToday} routes={routeAssignmentOptions} /> : null}
+      {extraRouteOptions.length > 0 ? <section className="route-search-extra-routes" aria-label="Rutas creadas">
         <div className="route-search-extra-routes-copy">
-          <strong>Rutas extra · {extraRouteItemCount} unidad{extraRouteItemCount === 1 ? "" : "es"}</strong>
-          <span>Fuera de WC y PTY</span>
+          <strong>Rutas creadas · {extraRouteItemCount} unidad{extraRouteItemCount === 1 ? "" : "es"}</strong>
+          <span>Rutas personalizadas activas</span>
         </div>
         <div className="route-search-extra-route-options">
           {extraRouteOptions.map((option) => <button
@@ -990,20 +1082,13 @@ export default function RouteSearchPage({
       </section> : null}
       <details className="route-collection-cash-summary"><summary>Efectivo pendiente de entrega</summary><RoutePendingCashPanel payments={payments} dateKey={businessDateKey} loading={paymentsLoading} /></details>
       <div className="route-search-workflow-tabs" aria-label="Estado de las unidades">
-        {([['work', 'Trabajo', workItems.length], ['review', 'En revisión', reports.filter((r) => r.status === 'review').length], ['partial', 'Pagos parciales a revisar', partialReviewItems.length], ['confirmed', 'Pagos confirmados', confirmedToday.length], ['custody', 'Vehículo en custodia', custodyItems.length]] as const).map(([view, label, count]) => (
+        {([['work', 'Trabajo', workItems.length], ['review', 'Pago notificado', reviewReports.length], ['partial', 'Pagos parciales a revisar', partialReviewItems.length], ['custody', 'Vehículo en custodia', custodyItems.length]] as const).map(([view, label, count]) => (
           <button type="button" key={view} className={`button ${workflowView === view ? 'primary' : 'ghost'}`} aria-pressed={workflowView === view}
             onClick={() => openWorkflow(view)}>
             {label} ({count})
           </button>
         ))}
       </div>
-      {workflowView === "review" ? <div className="route-search-filters route-collection-methods" aria-label="Filtrar pagos en revisión">
-        {([["cash", "Efectivo pendiente"], ["bank", "Banca"], ["mixed", "Mixtos"]] as const).map(([method, label]) => <button key={method} type="button" className={reviewMethod === method ? "is-active" : ""} aria-pressed={reviewMethod === method} onClick={() => { setReviewMethod(method); setQuery(""); }}>{label} ({reviewCounts[method]})</button>)}
-      </div> : null}
-      {workflowView === "confirmed" ? <div className="route-search-filters route-collection-methods" aria-label="Fecha de confirmación">
-        {([["today", "Hoy", confirmedToday.length], ["previous", "Ver anteriores", confirmedPrevious.length]] as const).map(([period, label, count]) => <button key={period} type="button" className={confirmedPeriod === period ? "is-active" : ""} aria-pressed={confirmedPeriod === period} onClick={() => { setConfirmedPeriod(period); setQuery(""); setRouteFilter(ALL_ACTIVE_ROUTE_FILTER); setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel(""); }}>{label} ({count})</button>)}
-        <span>{confirmedPeriod === "today" ? "Confirmados hoy · Hora de Panamá" : "Historial de confirmaciones anteriores · Recibos disponibles"}</span>
-      </div> : null}
       {reportsError ? <p className="error-text" role="alert">{reportsError}</p> : null}
 
       <label className="route-search-box">
@@ -1019,7 +1104,6 @@ export default function RouteSearchPage({
       {completedCash ? <div className="route-collection-success" role="status">
         <div><strong>Recibo generado · {completedCash.unit}</strong><p>{formatCurrency(completedCash.amount)} · {completedCash.receipt}</p></div>
         {completedCash.payment ? <button type="button" className="button ghost" onClick={() => setReceiptPreview(completedCash.payment!)}>Ver recibo</button> : null}
-        <button type="button" className="button primary" disabled={receiptLoading !== null} onClick={() => void nextPendingCash()}>Siguiente pendiente</button>
       </div> : null}
       {receiptError ? <p className="error-text" role="alert">{receiptError}</p> : null}
       {lastRefreshAt ? <p className="route-search-refresh">Ultima actualizacion: {lastRefreshAt}</p> : null}
@@ -1125,10 +1209,11 @@ export default function RouteSearchPage({
               zoneOptions={(zoneOptionsByRoute.get(activeRouteFilterValue(item.routeAssignment)) ?? []).filter(option => option.value !== EMPTY_ACTIVE_ZONE_FILTER).map(option => option.label)}
               comment={commentDrafts[item.clientId] ?? item.comment ?? ""} commentSaving={Boolean(commentSavingByClient[item.clientId]) || !dataOwnerUserId}
               changingRoute={changingRoute !== null}
+              routeOptions={routeAssignmentOptions}
               inactiveSaving={Boolean(inactiveSavingByClient[item.clientId])} elapsedNow={elapsedNow}
               canReturnReport={Boolean(item.report?.status === "review" && canReportPayment && (item.report.reported_by === currentUserId || canRemoveFromRoute))}
               bankNotices={!item.report ? bankNoticesByClient.get(item.clientId) ?? [] : []}
-              onReport={() => { setReportTarget(item); setReportAmount(""); setReportMethod(""); setReportCashAmount(""); setReportBankAmount(""); setReportError(""); }}
+              onReport={() => { setReportTarget(item); setReportAmount(""); setReportMethod(""); setReportCashAmount(""); setReportBankAmount(""); setReportCashTeam(operatorCollectionTeam || asCollectionTeam(item.routeAssignment)); setReportError(""); }}
               onRegister={() => openPaymentDialog(item, item.report)}
               onReceipt={() => { if (item.report) void openReportReceipt(item.report); }}
               onCustody={() => { if (activeRoute) { setCustodyTarget(activeRoute); setCustodyError(""); } }}
@@ -1137,20 +1222,43 @@ export default function RouteSearchPage({
               onReturnReport={() => { if (item.report) void returnReport(item.report); }}
               onZone={value => { setZoneError(""); setZoneDrafts(current => ({ ...current, [item.clientId]: value })); }} onSaveZone={() => void commitZone(item)}
               onComment={value => { setCommentError(""); setCommentDrafts(current => ({ ...current, [item.clientId]: value.slice(0, 25) })); }} onSaveComment={() => void commitComment(item)}
-              onRoute={route => void changeTeam(item, route)} onInactive={() => void toggleInactive(item)} />;
+              onRoute={route => void changeTeam(item, route)}
+              onCreateRoute={() => { setRouteCreateTarget(item); setRouteCreateDraft(""); setRouteCreateError(""); }}
+              onInactive={() => void toggleInactive(item)} />;
           })}
         </div>
       )}
 
-      {workflowView === "confirmed" && confirmedPeriod === "previous" && reportsHaveMore ? (
-        <button
-          type="button"
-          className="button ghost"
-          onClick={() => void loadMoreReportHistory()}
-          disabled={reportsLoadingMore}
-        >
-          {reportsLoadingMore ? "Cargando historial..." : "Cargar más confirmaciones"}
-        </button>
+      {routeCreateTarget ? (
+        <div className="modal-overlay route-search-payment-overlay">
+          <form className="modal route-search-payment-modal" role="dialog" aria-modal="true" aria-labelledby="route-create-title" onSubmit={(event) => { event.preventDefault(); void createRoute(); }}>
+            <div className="modal-header">
+              <div>
+                <h2 id="route-create-title">Crear y asignar ruta</h2>
+                <p>{routeCreateTarget.unitId} · {routeCreateTarget.clientName}</p>
+              </div>
+            </div>
+            <div className="route-search-payment-form">
+              <label>
+                <span>Nombre de la ruta</span>
+                <input
+                  value={routeCreateDraft}
+                  maxLength={12}
+                  placeholder="Ej. CHORRERA"
+                  autoFocus
+                  disabled={changingRoute !== null}
+                  onChange={(event) => { setRouteCreateDraft(event.target.value.toUpperCase().slice(0, 12)); setRouteCreateError(""); }}
+                />
+              </label>
+              <p className="hint">La ruta quedará disponible en los demás selectores de esta pantalla.</p>
+              {routeCreateError ? <p className="error-text" role="alert">{routeCreateError}</p> : null}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="button ghost" disabled={changingRoute !== null} onClick={() => { setRouteCreateTarget(null); setRouteCreateDraft(""); setRouteCreateError(""); }}>Cancelar</button>
+              <button type="submit" className="button primary" disabled={changingRoute !== null || !normalizeRouteAssignment(routeCreateDraft)}>{changingRoute ? "Guardando..." : "Crear y asignar"}</button>
+            </div>
+          </form>
+        </div>
       ) : null}
 
       <PaymentPreviewDialog payment={receiptPreview} onClose={() => setReceiptPreview(null)} />
@@ -1162,14 +1270,14 @@ export default function RouteSearchPage({
       {custodyTarget ? <div className="modal-overlay route-search-payment-overlay"><div className="modal route-search-payment-modal" role="dialog" aria-modal="true" aria-labelledby="route-custody-title">
         <h2 id="route-custody-title">{custodyTarget.inCustody ? "Sacar de custodia" : "Vehículo en custodia"}</h2>
         <p>{custodyTarget.unitId} · {custodyTarget.clientName}</p>
-        <p>{custodyTarget.inCustody ? "La unidad volverá a Trabajo si tiene cobros pendientes y no está en revisión." : "La unidad saldrá de Trabajo y quedará en la lista de custodia."} Se conservan los pagos y el historial. Los saldos y los cobros automáticos siguen igual.</p>
+        <p>{custodyTarget.inCustody ? "La unidad volverá a Trabajo si tiene cobros pendientes y no tiene un pago notificado." : "La unidad saldrá de Trabajo y quedará en la lista de custodia."} Se conservan los pagos y el historial. Los saldos y los cobros automáticos siguen igual.</p>
         {custodyError ? <p className="error-text" role="alert">{custodyError}</p> : null}
         <div className="modal-actions"><button type="button" className="button ghost" disabled={custodySaving} onClick={() => setCustodyTarget(null)}>Cancelar</button><button type="button" className="button primary" disabled={custodySaving} onClick={() => void changeCustody()}>{custodySaving ? "Guardando…" : "Confirmar"}</button></div>
       </div></div> : null}
       {reportTarget ? (
         <div className="modal-overlay route-search-payment-overlay">
           <form className="modal route-search-payment-modal" role="dialog" aria-modal="true" aria-labelledby="route-report-title" onSubmit={(event) => void submitReport(event)}>
-            <div className="modal-header"><div><h2 id="route-report-title">Reportar pago</h2><p>{reportTarget.unitId} · {reportTarget.clientName}</p></div></div>
+            <div className="modal-header"><div><h2 id="route-report-title">Notificar pago</h2><p>{reportTarget.unitId} · {reportTarget.clientName}</p></div></div>
             <div className="route-search-payment-form">
               <label><span>Cómo pagó</span><select value={reportMethod} onChange={(event) => setReportMethod(event.target.value as "" | "cash" | "bank" | "mixed")} required autoFocus disabled={reportSaving}>
                 <option value="">Seleccionar</option><option value="cash">Efectivo</option><option value="bank">Banca</option><option value="mixed">Mixto (efectivo + banca)</option>
@@ -1179,10 +1287,13 @@ export default function RouteSearchPage({
                 <label><span>Cuánto por banca ($)</span><input type="number" min="0.01" max="9999999999.99" step="0.01" inputMode="decimal" value={reportBankAmount} onChange={(event) => setReportBankAmount(event.target.value)} required disabled={reportSaving} /></label>
                 <strong aria-live="polite">Total reportado: {formatCurrency((Number(reportCashAmount) || 0) + (Number(reportBankAmount) || 0))}</strong>
               </> : <label><span>Cuánto pagó ($)</span><input type="number" min="0.01" max="9999999999.99" step="0.01" inputMode="decimal" value={reportAmount} onChange={(event) => setReportAmount(event.target.value)} required disabled={reportSaving} /></label>}
-              <p className="hint">Se moverá a En revisión. El saldo cambia cuando se aplique el pago.</p>
+              {reportMethod === "cash" || reportMethod === "mixed" ? <label><span>Equipo que recibió el efectivo</span><select value={reportCashTeam} onChange={(event) => setReportCashTeam(event.target.value as CollectionTeam | "")} required disabled={reportSaving || Boolean(operatorCollectionTeam)}>
+                <option value="">Seleccionar</option><option value="PTY">PTY</option><option value="WC">WC</option>
+              </select></label> : null}
+              <p className="hint">{reportMethod === "cash" || reportMethod === "mixed" ? "El efectivo generará su recibo de inmediato. La parte bancaria quedará notificada hasta su confirmación." : "Se moverá a Pago notificado. El saldo cambia cuando se aplique el pago."}</p>
               {reportError ? <p className="error-text" role="alert">{reportError}</p> : null}
             </div>
-            <div className="modal-actions"><button type="button" className="button ghost" disabled={reportSaving} onClick={() => setReportTarget(null)}>Cancelar</button><button type="submit" className="button primary" disabled={reportSaving}>{reportSaving ? "Enviando..." : "Enviar a revisión"}</button></div>
+            <div className="modal-actions"><button type="button" className="button ghost" disabled={reportSaving} onClick={() => setReportTarget(null)}>Cancelar</button><button type="submit" className="button primary" disabled={reportSaving}>{reportSaving ? "Enviando..." : "Notificar pago"}</button></div>
           </form>
         </div>
       ) : null}
@@ -1191,7 +1302,7 @@ export default function RouteSearchPage({
           <div className="modal route-search-payment-modal" role="dialog" aria-modal="true" aria-labelledby="route-payment-title" onMouseDown={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <h2 id="route-payment-title">Registrar pago</h2>
+                <h2 id="route-payment-title">Generar recibo</h2>
                 <p>{paymentTarget.unitId} · {paymentTarget.clientName}</p>
               </div>
               <button type="button" className="button ghost small" onClick={() => setPaymentTarget(null)} disabled={paymentSaving}>Cerrar</button>
