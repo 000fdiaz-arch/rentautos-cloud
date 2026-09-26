@@ -23,7 +23,6 @@ import {
   loadCloudStreetManagement,
   loadCollisionCases,
   loadControlUnits,
-  loadInsuranceClaims,
   removeCloudActiveRouteItem,
   saveCloudActiveRouteItem,
   saveCloudCollectionClosures,
@@ -32,8 +31,7 @@ import {
   type ActiveRouteItem,
   type ActiveRouteDelta,
   type CollisionCaseRecord,
-  type ControlUnitRow,
-  type InsuranceClaimRecord
+  type ControlUnitRow
 } from "../cloudData";
 import { supabase } from "../lib/supabase";
 import {
@@ -75,7 +73,7 @@ import {
   type PriorityTenureBucket,
   type ReceivablePriorityLevel
 } from "./receivables/receivablesPriority";
-import { buildIncidentActionsByUnit } from "./receivables/incidentReceivableActions";
+import { buildJudicialActionsByUnit } from "./receivables/incidentReceivableActions";
 import { exportRouteCollection } from "./receivables/routeCollectionExport";
 import {
   COLLECTION_STATUS_OPTIONS,
@@ -497,7 +495,6 @@ export default function ReceivablesPage({
   const [fieldManagementErrorByClient, setFieldManagementErrorByClient] = useState<Record<string, string>>({});
   const [statusSavingByClient, setStatusSavingByClient] = useState<Record<string, boolean>>({});
   const [fleetUnits, setFleetUnits] = useState<ControlUnitRow[]>([]);
-  const [insuranceClaims, setInsuranceClaims] = useState<InsuranceClaimRecord[]>([]);
   const [collisionCases, setCollisionCases] = useState<CollisionCaseRecord[]>([]);
   const [supplementalLastPayments, setSupplementalLastPayments] = useState<Payment[]>([]);
   const [activeRouteItems, setActiveRouteItems] = useState<ActiveRouteItem[]>([]);
@@ -571,20 +568,16 @@ export default function ReceivablesPage({
   }, []);
 
   useEffect(() => {
-    if (!dataOwnerUserId) { setInsuranceClaims([]); setCollisionCases([]); return; }
+    if (!dataOwnerUserId) { setCollisionCases([]); return; }
     let cancelled = false;
-    measureReceivablesAsync("incident actions load", () => Promise.all([
-      loadInsuranceClaims(dataOwnerUserId),
-      loadCollisionCases(dataOwnerUserId)
-    ]))
-      .then(([claims, collisions]) => {
+    measureReceivablesAsync("judicial actions load", () => loadCollisionCases(dataOwnerUserId))
+      .then((collisions) => {
         if (cancelled) return;
-        setInsuranceClaims(claims);
         setCollisionCases(collisions);
       })
       .catch((error) => {
-        console.error("No se pudieron cargar las acciones de siniestros en cuentas por cobrar.", error);
-        if (!cancelled) { setInsuranceClaims([]); setCollisionCases([]); }
+        console.error("No se pudieron cargar las acciones judiciales en cuentas por cobrar.", error);
+        if (!cancelled) setCollisionCases([]);
       });
     return () => { cancelled = true; };
   }, [dataOwnerUserId]);
@@ -973,9 +966,9 @@ export default function ReceivablesPage({
   }, [now, receivablesDateKey]);
   const receivablesDate = useMemo(() => dateFromDateKey(todayDateKey, now), [now, todayDateKey]);
   const receivablesDateLabel = useMemo(() => formatDate(receivablesDate), [receivablesDate]);
-  const incidentActionsByUnit = useMemo(
-    () => buildIncidentActionsByUnit(insuranceClaims, collisionCases, todayDateKey),
-    [collisionCases, insuranceClaims, todayDateKey]
+  const judicialActionsByUnit = useMemo(
+    () => buildJudicialActionsByUnit(collisionCases, todayDateKey),
+    [collisionCases, todayDateKey]
   );
 
   const receivablePayments = useMemo(() => {
@@ -3719,7 +3712,7 @@ export default function ReceivablesPage({
             onOpenRoutePreparation={handleOpenManagementRoute}
             onOpenRoute={() => setWorkflowTab("route")}
             onClearFilters={clearFilters}
-            incidentActionsByUnit={incidentActionsByUnit}
+            incidentActionsByUnit={judicialActionsByUnit}
           />
         )}
       </section>

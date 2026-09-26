@@ -10,7 +10,7 @@ const output = ts.transpileModule(source, {
 }).outputText;
 const target = path.join(os.tmpdir(), `incident-receivable-actions-${Date.now()}.cjs`);
 fs.writeFileSync(target, output);
-const { buildIncidentActionsByUnit } = require(target);
+const { buildIncidentActionsByUnit, buildJudicialActionsByUnit } = require(target);
 
 function collision(id, unit, trialDate) {
   return {
@@ -109,6 +109,20 @@ pendingStub.documentationPendingSince = "2026-08-14T08:00:00Z";
 const pendingStubActions = buildIncidentActionsByUnit([], [pendingStub], "2026-08-15");
 if (pendingStubActions.B23?.label !== "Obtener y registrar la colilla" || pendingStubActions.B23.urgent) {
   throw new Error("La colilla pendiente debe mostrarse sin bloquear antes de las 48 horas.");
+}
+
+const insuranceTransition = collision("insurance-transition", "B24", "");
+insuranceTransition.status = "ABSUELTO";
+insuranceTransition.judicialResolutionEvidence = { name: "resolucion.pdf", path: "resolucion.pdf" };
+const receivablesJudicialActions = buildJudicialActionsByUnit(
+  [insuranceTransition, collision("judicial-only", "B25", "2026-08-17")],
+  "2026-08-15"
+);
+if (receivablesJudicialActions.B24) {
+  throw new Error("Cuentas por cobrar no debe mostrar la transición para iniciar un reclamo al seguro.");
+}
+if (receivablesJudicialActions.B25?.destination !== "judicial") {
+  throw new Error("Cuentas por cobrar debe conservar las acciones estrictamente judiciales.");
 }
 
 console.log("OK información de siniestros: conserva acciones, fechas, urgencia y expediente de destino.");

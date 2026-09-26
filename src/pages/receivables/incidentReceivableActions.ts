@@ -74,20 +74,7 @@ type IncidentCandidate = {
   action: IncidentReceivableAction;
 };
 
-export function buildIncidentActionsByUnit(
-  claims: InsuranceClaimRecord[],
-  collisions: CollisionCaseRecord[],
-  todayDateKey: string
-): Record<string, IncidentReceivableAction> {
-  const candidates: IncidentCandidate[] = [];
-  for (const claim of claims) {
-    const action = insuranceActionForReceivables(claim, todayDateKey);
-    if (action) candidates.push({ unit: claim.unit.trim().toUpperCase(), updatedAt: claim.updatedAt || claim.createdAt, action });
-  }
-  for (const collision of collisions) {
-    const action = collisionActionForReceivables(collision, todayDateKey);
-    if (action) candidates.push({ unit: collision.unit.trim().toUpperCase(), updatedAt: collision.updatedAt || collision.createdAt, action });
-  }
+function prioritizedActionsByUnit(candidates: IncidentCandidate[]): Record<string, IncidentReceivableAction> {
   candidates.sort((left, right) => {
     if (left.action.urgent !== right.action.urgent) return left.action.urgent ? -1 : 1;
     if (left.action.date !== right.action.date) {
@@ -102,4 +89,38 @@ export function buildIncidentActionsByUnit(
     if (candidate.unit && !result[candidate.unit]) result[candidate.unit] = candidate.action;
   }
   return result;
+}
+
+export function buildIncidentActionsByUnit(
+  claims: InsuranceClaimRecord[],
+  collisions: CollisionCaseRecord[],
+  todayDateKey: string
+): Record<string, IncidentReceivableAction> {
+  const candidates: IncidentCandidate[] = [];
+  for (const claim of claims) {
+    const action = insuranceActionForReceivables(claim, todayDateKey);
+    if (action) candidates.push({ unit: claim.unit.trim().toUpperCase(), updatedAt: claim.updatedAt || claim.createdAt, action });
+  }
+  for (const collision of collisions) {
+    const action = collisionActionForReceivables(collision, todayDateKey);
+    if (action) candidates.push({ unit: collision.unit.trim().toUpperCase(), updatedAt: collision.updatedAt || collision.createdAt, action });
+  }
+  return prioritizedActionsByUnit(candidates);
+}
+
+export function buildJudicialActionsByUnit(
+  collisions: CollisionCaseRecord[],
+  todayDateKey: string
+): Record<string, IncidentReceivableAction> {
+  const candidates: IncidentCandidate[] = [];
+  for (const collision of collisions) {
+    const action = collisionActionForReceivables(collision, todayDateKey);
+    if (!action || action.label === "Iniciar reclamo al seguro") continue;
+    candidates.push({
+      unit: collision.unit.trim().toUpperCase(),
+      updatedAt: collision.updatedAt || collision.createdAt,
+      action
+    });
+  }
+  return prioritizedActionsByUnit(candidates);
 }
