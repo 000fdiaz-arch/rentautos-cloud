@@ -320,11 +320,12 @@ try {
   assert.equal(await modal.getByLabel('Equipo que recibió el efectivo').inputValue(),'PTY');
   assert.equal(await modal.getByLabel('Equipo que recibió el efectivo').isDisabled(),true);
   await modal.getByRole('button',{name:'Notificar pago',exact:true}).click();
-  await page.getByRole('button',{name:'Cerrar vista previa',exact:true}).waitFor();
+  await page.getByText('Pago gestionado · RA-042',{exact:true}).waitFor();
   assert.equal(cashRegistrations.length,registrationsBeforeAutoCash+1);
   assert.deepEqual({...cashRegistrations.at(-1),fundsReceivedDate:undefined},{clientId:'c1',amount:55,method:'cash',team:'PTY',fundsReceivedDate:undefined});
-  await page.getByRole('button',{name:'Cerrar vista previa',exact:true}).click();
-  await page.getByText('Recibo REC-CASH-55 generado de inmediato · Equipo PTY.',{exact:true}).waitFor();
+  await page.getByText('RA-042: pago en efectivo registrado correctamente · Equipo PTY.',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Cerrar vista previa',exact:true}).count(),0);
+  assert.equal(await page.getByRole('button',{name:'Ver recibo',exact:true}).count(),0);
   // Delta 2 uses WC for the same immediate-cash flow.
   reports=[];item.routeAssignment='WC';
   const registrationsBeforeDelta2=cashRegistrations.length;
@@ -335,9 +336,9 @@ try {
   await modal.getByLabel('Cuánto pagó ($)').fill('55');
   assert.equal(await modal.getByLabel('Equipo que recibió el efectivo').inputValue(),'WC');
   await modal.getByRole('button',{name:'Notificar pago',exact:true}).click();
-  await page.getByRole('button',{name:'Cerrar vista previa',exact:true}).waitFor();
+  await page.getByText('RA-042: pago en efectivo registrado correctamente · Equipo WC.',{exact:true}).waitFor();
   assert.equal(cashRegistrations.length,registrationsBeforeDelta2+1);
   assert.equal(cashRegistrations.at(-1).team,'WC');
-  await page.getByRole('button',{name:'Cerrar vista previa',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'Cerrar vista previa',exact:true}).count(),0);
   assert.deepEqual(errors,[]);console.log('OK: WC/PTY from shared payments, zero extra queries, historical receipts, live delivered removal, read-only; report form, mixed split and confirmation');
 } finally {await browser?.close();server.kill();}

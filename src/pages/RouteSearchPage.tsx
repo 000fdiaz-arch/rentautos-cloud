@@ -168,7 +168,7 @@ export default function RouteSearchPage({
   const [receiptOptions, setReceiptOptions] = useState<Payment[]>([]);
   const [receiptLoading, setReceiptLoading] = useState<string | null>(null);
   const [receiptError, setReceiptError] = useState("");
-  const [completedCash, setCompletedCash] = useState<{ unit: string; amount: number; receipt: string; payment?: Payment } | null>(null);
+  const [completedCash, setCompletedCash] = useState<{ unit: string; amount: number } | null>(null);
   const [reportTarget, setReportTarget] = useState<ActiveRouteItem | null>(null);
   const [reportAmount, setReportAmount] = useState("");
   const [reportMethod, setReportMethod] = useState<"" | "cash" | "bank" | "mixed">("");
@@ -260,17 +260,16 @@ export default function RouteSearchPage({
           fundsReceivedDate: getBusinessDateKey(new Date(savedReport.reported_at))
         });
         if (result.kind !== "cash" || !result.receiptNumber) throw new Error("El pago se notificó, pero no se pudo emitir el recibo de efectivo.");
-        setCompletedCash({ unit: reportTarget.unitId, amount: cashAmount, receipt: result.receiptNumber, payment: result.payment });
-        setPaymentMessage(`Recibo ${result.receiptNumber} generado de inmediato · Equipo ${cashTeam}.`);
+        setCompletedCash({ unit: reportTarget.unitId, amount: cashAmount });
+        setPaymentMessage(`${reportTarget.unitId}: pago en efectivo registrado correctamente · Equipo ${cashTeam}.`);
         setRegisteredReportIds((current) => current.includes(savedReport!.id) ? current : [...current, savedReport!.id]);
-        if (result.payment) setReceiptPreview(result.payment);
         try {
           const refreshed = await loadRoutePaymentReport(dataOwnerUserId, savedReport.id);
           setReports((current) => applyRouteReportDelta(current, { id: savedReport!.id, report: refreshed }));
         } catch (refreshError) {
           console.warn("El recibo se generó, pero no se pudo actualizar el pago notificado.", refreshError);
         }
-        setRouteActionMessage(`${reportTarget.unitId}: ${result.receiptNumber} generado.`);
+        setRouteActionMessage(`${reportTarget.unitId}: pago registrado correctamente.`);
       }
       setReportTarget(null);
     } catch (cause) {
@@ -907,8 +906,8 @@ export default function RouteSearchPage({
         setBankNotices(loadNotifiedPayments());
         setPaymentMessage(`Pago bancario de ${formatCurrency(amount)} en hold · Equipo ${paymentTeam}.`);
       } else {
-        setPaymentMessage(`Pago en efectivo registrado en ${result.receiptNumber ?? "recibo"} · pendiente de entrega.`);
-        setCompletedCash({ unit: paymentTarget.unitId, amount, receipt: result.receiptNumber ?? "Recibo", payment: result.payment });
+        setPaymentMessage(`${paymentTarget.unitId}: pago en efectivo registrado correctamente · Equipo ${paymentTeam}.`);
+        setCompletedCash({ unit: paymentTarget.unitId, amount });
         if (paymentReport) setRegisteredReportIds((current) => [...current, paymentReport.id]);
       }
       setPaymentTarget(null);
@@ -1102,8 +1101,7 @@ export default function RouteSearchPage({
       </label>
 
       {completedCash ? <div className="route-collection-success" role="status">
-        <div><strong>Recibo generado · {completedCash.unit}</strong><p>{formatCurrency(completedCash.amount)} · {completedCash.receipt}</p></div>
-        {completedCash.payment ? <button type="button" className="button ghost" onClick={() => setReceiptPreview(completedCash.payment!)}>Ver recibo</button> : null}
+        <div><strong>Pago gestionado · {completedCash.unit}</strong><p>{formatCurrency(completedCash.amount)} · Recibo generado. Puede confirmarle el pago al cliente.</p></div>
       </div> : null}
       {receiptError ? <p className="error-text" role="alert">{receiptError}</p> : null}
       {lastRefreshAt ? <p className="route-search-refresh">Ultima actualizacion: {lastRefreshAt}</p> : null}
