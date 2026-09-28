@@ -555,7 +555,7 @@ export default function AppShell({
     nextPayments: Payment[],
     source: "payments" | "route" = "payments"
   ): Promise<boolean> {
-    if (source === "route" ? !canEditRouteSearch : !canEditPayments) return false;
+    if (source === "route" ? !canReportRoutePayments : !canEditPayments) return false;
     const teamError = getPendingCashChangeError(payments, nextPayments);
     if (teamError) throw new Error(teamError);
     const previousClients = clients;
@@ -647,7 +647,7 @@ export default function AppShell({
     team: CollectionTeam;
     fundsReceivedDate?: string;
   }): Promise<{ kind: "cash" | "bank"; receiptNumber?: string; payment?: Payment }> {
-    if (!canEditRouteSearch) {
+    if (!canReportRoutePayments) {
       throw new Error("No tienes permiso para registrar pagos desde Ruta en calle.");
     }
     const localClient = clients.find((candidate) => candidate.id === input.clientId);
