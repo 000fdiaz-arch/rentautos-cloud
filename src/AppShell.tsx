@@ -40,7 +40,6 @@ import {
   registerCloudPaymentGroupsWithReceipts,
   registerCloudPaymentWithReceipt,
   registerCloudRouteBankNotice,
-  reserveCloudReceiptNumber,
   saveCloudBankRules,
   saveCloudChargeRuns,
   saveControlUnit,
@@ -572,7 +571,7 @@ export default function AppShell({
         return Boolean(nextPayment) && stableEqual(previousPayment, nextPayment);
       });
 
-    if (cloudDataUserId && isSupabaseOnlyMode) {
+    if (cloudDataUserId) {
       setSyncStatus("syncing");
       let persistedClients = normalizedNextClients;
       let persistedPayments = nextPayments;
@@ -618,6 +617,10 @@ export default function AppShell({
       }
       setClients(persistedClients);
       setPayments(persistedPayments);
+      if (!isSupabaseOnlyMode) {
+        saveClients(persistedClients);
+        savePayments(persistedPayments);
+      }
       setHasPendingChanges(true);
       return true;
     }
@@ -680,9 +683,7 @@ export default function AppShell({
     }
 
     const operationalDateKey = getBusinessDateKey();
-    const receiptNumber = cloudDataUserId
-      ? await reserveCloudReceiptNumber(cloudDataUserId)
-      : nextReceiptNumber();
+    const receiptNumber = cloudDataUserId ? "" : nextReceiptNumber();
     const transaction = buildManualPaymentTransaction({
       clients: paymentClients,
       payments,
@@ -710,7 +711,9 @@ export default function AppShell({
     transaction.payment.incomeComment = `Cobro en Ruta · Equipo ${input.team}`;
     const saved = await persistClientsAndPayments(transaction.updatedClients, [...payments, transaction.payment], "route");
     if (!saved) throw new Error("No se pudo guardar el pago.");
-    return { kind: "cash", receiptNumber, payment: transaction.payment };
+    const savedReceiptNumber = transaction.payment.receiptNumber.trim();
+    if (!savedReceiptNumber) throw new Error("El pago se guardó sin número de recibo.");
+    return { kind: "cash", receiptNumber: savedReceiptNumber, payment: transaction.payment };
   }
 
   async function persistDeletedPayments(nextClients: Client[], nextPayments: Payment[], deletedPaymentIds: string[]): Promise<boolean> {

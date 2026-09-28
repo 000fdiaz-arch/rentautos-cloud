@@ -17,6 +17,13 @@ assert(app.includes('readOnly={!canEditRouteSearch}'), "La interfaz de Ruta no d
 assert(app.includes('source: "payments" | "route" = "payments"'), "El guardado debe distinguir el origen del pago.");
 assert(app.includes('source === "route" ? !canReportRoutePayments : !canEditPayments'), "Pagos generales deben conservar su permiso independiente y Ruta debe aceptar a Delta.");
 assert(app.includes('transaction.payment.source = "route"'), "El efectivo de Ruta debe quedar identificado por origen.");
+const routeRegistration = app.slice(
+  app.indexOf("async function registerRoutePayment"),
+  app.indexOf("async function persistDeletedPayments")
+);
+assert(!routeRegistration.includes("reserveCloudReceiptNumber"), "Ruta no debe intentar leer la secuencia ni recorrer el historial antes de registrar el pago.");
+assert(routeRegistration.includes('const receiptNumber = cloudDataUserId ? "" : nextReceiptNumber();'), "En nube, Ruta debe permitir que la RPC reserve el recibo atomico.");
+assert(routeRegistration.includes("transaction.payment.receiptNumber.trim()"), "Ruta debe devolver el recibo reservado por Supabase.");
 assert(app.includes("registerCloudRouteBankNotice(cloudDataUserId, notice)"), "El aviso bancario debe guardarse por una ruta dedicada.");
 assert(cloud.includes('.from("notified_payments_cloud")') && cloud.includes(".insert("), "La nube debe insertar el ACH de Ruta sin sincronizar toda la bandeja.");
 assert(migration.includes('data ->> \'source\' = \'route\''), "Supabase debe limitar la excepcion a registros originados en Ruta.");
