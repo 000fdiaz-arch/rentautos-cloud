@@ -11,6 +11,14 @@ import { roundMoney } from "./paymentRules";
 
 const EMPTY_FORM: NotifiedPaymentForm = { unitId: "", amount: "" };
 
+function getErrorMessage(cause: unknown, fallback: string): string {
+  if (cause instanceof Error && cause.message) return cause.message;
+  if (cause && typeof cause === "object" && "message" in cause && typeof cause.message === "string" && cause.message) {
+    return cause.message;
+  }
+  return fallback;
+}
+
 type RouteLink = {
   routeReportId: string;
   routeAssignment?: string;
@@ -120,8 +128,7 @@ export default function useNotifiedPayments(clients: Client[], activeClients: Cl
       setNotifiedForm(EMPTY_FORM);
     } catch (cause) {
       console.error("No se pudo guardar el pago notificado.", cause);
-      const message = cause instanceof Error && cause.message ? cause.message : "No se pudo guardar el pago notificado.";
-      setNotifiedErrors([message]);
+      setNotifiedErrors([getErrorMessage(cause, "No se pudo guardar el pago notificado.")]);
     } finally {
       setNotifiedSavingId(null);
     }
@@ -135,8 +142,7 @@ export default function useNotifiedPayments(clients: Client[], activeClients: Cl
       replaceNotifiedPayments(notifiedPayments.filter((current) => current.id !== row.id));
     } catch (cause) {
       console.error("No se pudo devolver el pago notificado.", cause);
-      const message = cause instanceof Error && cause.message ? cause.message : "No se pudo devolver el pago notificado.";
-      setNotifiedErrors([message]);
+      setNotifiedErrors([getErrorMessage(cause, "No se pudo devolver el pago notificado.")]);
     } finally {
       setNotifiedSavingId(null);
     }

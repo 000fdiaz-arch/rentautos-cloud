@@ -14,12 +14,16 @@ const migration = readFileSync("supabase/migrations/20260926000400_notified_rout
 assert.equal(sql, migration, "the numbered SQL and migration must remain identical");
 assert.match(page, /loadCloudActiveRouteItem\(dataOwnerUserId, clientId\)/, "Payments verifies that the unit is on the active route");
 assert.match(page, /if \(!item \|\| item\.removedAt\) return null;/, "off-route units remain only in Payments");
+assert.match(page, /existingReport\?\.status === "review"/, "Payments detects an existing route review before reporting a duplicate");
+assert.match(page, /buildPendingRouteNoticeMessage\(item\.unitId, item\.routeAssignment\)/, "the duplicate message identifies the unit and assigned route");
+assert.match(page, /ya tiene un pago notificado pendiente en la ruta/, "the duplicate message explains the exact conflict");
 assert.match(page, /reportRoutePayment\(dataOwnerUserId, item, 0, amount\)/, "a matching notified payment becomes a bank route report");
 assert.match(page, /routeReportId: report\.id/, "the notification keeps its route report link");
 assert.match(page, /report\.bank_amount > report\.confirmed_bank_amount/, "Payments only shows reports with a bank portion still pending");
 assert.match(page, /amount: roundMoney\(report\.bank_amount - report\.confirmed_bank_amount\)/, "a mixed report shows only its outstanding bank portion");
 assert.match(page, /routePaymentMethod: "bank"/, "the unified notified row is labelled as bank reconciliation");
 assert.match(hook, /if \(row\.routeReportId\) await options\.cancelRouteReview\?\.\(row\.routeReportId\)/, "deleting in Payments cancels the linked route report first");
+assert.match(hook, /"message" in cause/, "plain Supabase errors preserve their specific message");
 assert.match(routeHook, /route_payment_reports/, "Payments listens to the shared route review source");
 assert.match(panel, /linkedReportIds\.has\(row\.routeReportId\)/, "the shared record is rendered only once");
 assert.match(sql, /can_view_owner_screen\(user_id, 'payments'\)/, "Payments can read shared route reports");

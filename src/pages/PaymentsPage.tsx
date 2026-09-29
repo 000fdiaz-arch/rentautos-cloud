@@ -102,6 +102,19 @@ type Props = {
   currentActor?: string;
 };
 
+function buildPendingRouteNoticeMessage(unitId: string, routeAssignment?: string): string {
+  const route = routeAssignment?.trim();
+  return route
+    ? `${unitId} ya tiene un pago notificado pendiente en la ruta ${route}.`
+    : `${unitId} ya tiene un pago notificado pendiente.`;
+}
+
+function getUnknownErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (!error || typeof error !== "object" || !("message" in error)) return "";
+  return typeof error.message === "string" ? error.message : "";
+}
+
 export default function PaymentsPage({
   clients,
   bankRules,
@@ -436,7 +449,18 @@ export default function PaymentsPage({
     if (!dataOwnerUserId) return null;
     const item = await loadCloudActiveRouteItem(dataOwnerUserId, clientId);
     if (!item || item.removedAt) return null;
-    await reportRoutePayment(dataOwnerUserId, item, 0, amount);
+    const existingReport = await loadRoutePaymentReportForItem(dataOwnerUserId, item.clientId, item.publishedAt);
+    if (existingReport?.status === "review") {
+      throw new Error(buildPendingRouteNoticeMessage(item.unitId, item.routeAssignment));
+    }
+    try {
+      await reportRoutePayment(dataOwnerUserId, item, 0, amount);
+    } catch (error) {
+      if (getUnknownErrorMessage(error).includes("ya tiene un reporte")) {
+        throw new Error(buildPendingRouteNoticeMessage(item.unitId, item.routeAssignment));
+      }
+      throw error;
+    }
     const report = await loadRoutePaymentReportForItem(dataOwnerUserId, item.clientId, item.publishedAt);
     if (!report || report.status !== "review") throw new Error("El pago se notificó, pero no se pudo vincular con Ruta en calle.");
     upsertRouteReviewReport(report);
