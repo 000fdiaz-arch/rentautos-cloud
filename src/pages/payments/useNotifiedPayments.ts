@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import { formatCurrency } from "../../format";
 import type { Client } from "../../types";
 import { loadNotifiedPayments, saveNotifiedPayments } from "./paymentStorage";
 import type {
@@ -24,10 +25,26 @@ type RouteLink = {
   routeAssignment?: string;
 };
 
+type PendingRoutePayment = {
+  clientId: string;
+  amount: number;
+  routeAssignment?: string;
+};
+
 type Options = {
   createRouteReview?: (clientId: string, amount: number) => Promise<RouteLink | null>;
   cancelRouteReview?: (reportId: string) => Promise<void>;
+  pendingRoutePayments?: PendingRoutePayment[];
 };
+
+function buildAdditionalPaymentConfirmation(unitId: string, amount: number, pending: PendingRoutePayment[]): string {
+  const pendingTotal = roundMoney(pending.reduce((sum, payment) => sum + payment.amount, 0));
+  const route = pending.find((payment) => payment.routeAssignment?.trim())?.routeAssignment?.trim();
+  const existing = pending.length === 1
+    ? `un pago notificado pendiente de ${formatCurrency(pendingTotal)}`
+    : `${pending.length} pagos notificados pendientes por ${formatCurrency(pendingTotal)}`;
+  return `${unitId} ya tiene ${existing}${route ? ` en la ruta ${route}` : ""}. ¿Agregar otro pago de ${formatCurrency(amount)}?`;
+}
 
 export default function useNotifiedPayments(clients: Client[], activeClients: Client[], options: Options = {}) {
   const [notifiedForm, setNotifiedForm] = useState<NotifiedPaymentForm>(EMPTY_FORM);
@@ -112,6 +129,11 @@ export default function useNotifiedPayments(clients: Client[], activeClients: Cl
     setNotifiedErrors([]);
     if (!notifiedClientMatch) return;
     const amount = roundMoney(Number.parseFloat(notifiedForm.amount));
+    const pendingRoutePayments = options.pendingRoutePayments?.filter((payment) => payment.clientId === notifiedClientMatch.id) ?? [];
+    if (pendingRoutePayments.length > 0) {
+      const unitId = notifiedClientMatch.activeProvisionalRental?.unitId ?? notifiedClientMatch.unitId;
+      if (!window.confirm(buildAdditionalPaymentConfirmation(unitId, amount, pendingRoutePayments))) return;
+    }
     setNotifiedSavingId("new");
     try {
       const routeLink = await options.createRouteReview?.(notifiedClientMatch.id, amount) ?? null;

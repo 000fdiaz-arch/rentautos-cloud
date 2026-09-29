@@ -102,19 +102,6 @@ type Props = {
   currentActor?: string;
 };
 
-function buildPendingRouteNoticeMessage(unitId: string, routeAssignment?: string): string {
-  const route = routeAssignment?.trim();
-  return route
-    ? `${unitId} ya tiene un pago notificado pendiente en la ruta ${route}.`
-    : `${unitId} ya tiene un pago notificado pendiente.`;
-}
-
-function getUnknownErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (!error || typeof error !== "object" || !("message" in error)) return "";
-  return typeof error.message === "string" ? error.message : "";
-}
-
 export default function PaymentsPage({
   clients,
   bankRules,
@@ -449,18 +436,7 @@ export default function PaymentsPage({
     if (!dataOwnerUserId) return null;
     const item = await loadCloudActiveRouteItem(dataOwnerUserId, clientId);
     if (!item || item.removedAt) return null;
-    const existingReport = await loadRoutePaymentReportForItem(dataOwnerUserId, item.clientId, item.publishedAt);
-    if (existingReport?.status === "review") {
-      throw new Error(buildPendingRouteNoticeMessage(item.unitId, item.routeAssignment));
-    }
-    try {
-      await reportRoutePayment(dataOwnerUserId, item, 0, amount);
-    } catch (error) {
-      if (getUnknownErrorMessage(error).includes("ya tiene un reporte")) {
-        throw new Error(buildPendingRouteNoticeMessage(item.unitId, item.routeAssignment));
-      }
-      throw error;
-    }
+    await reportRoutePayment(dataOwnerUserId, item, 0, amount);
     const report = await loadRoutePaymentReportForItem(dataOwnerUserId, item.clientId, item.publishedAt);
     if (!report || report.status !== "review") throw new Error("El pago se notificó, pero no se pudo vincular con Ruta en calle.");
     upsertRouteReviewReport(report);
@@ -470,6 +446,14 @@ export default function PaymentsPage({
   const cancelLinkedRouteReview = useCallback(async (reportId: string) => {
     await cancelRoutePaymentReport(reportId);
   }, []);
+
+  const pendingRoutePayments = useMemo(() => routeReviewReports
+    .filter((report) => report.bank_amount > report.confirmed_bank_amount)
+    .map((report) => ({
+      clientId: report.client_id,
+      amount: roundMoney(report.bank_amount - report.confirmed_bank_amount),
+      routeAssignment: report.snapshot.routeAssignment
+    })), [routeReviewReports]);
 
   const {
     notifiedForm,
@@ -496,7 +480,8 @@ export default function PaymentsPage({
     handleSortNotified
   } = useNotifiedPayments(clients, activeClients, {
     createRouteReview,
-    cancelRouteReview: cancelLinkedRouteReview
+    cancelRouteReview: cancelLinkedRouteReview,
+    pendingRoutePayments
   });
 
   useEffect(() => {
