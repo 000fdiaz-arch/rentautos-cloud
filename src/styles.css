@@ -4320,7 +4320,7 @@ select.control-op-badge {
 .income-zone-filters { display: grid; gap: 10px; padding: 12px; margin-bottom: 14px; border: 1px solid var(--color-border); border-radius: 10px; background: #fff; }
 .income-zone-filter-fields { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; }
 .income-zone-filter-fields label { min-width: 0; flex: 1; }
-.income-zone-filter-fields input, .income-zone-filter-fields select { width: 100%; min-width: 0; padding: 9px; border: 1px solid var(--color-border); border-radius: 6px; background: #fff; color: var(--color-text); font: inherit; text-transform: none; }
+.income-zone-filter-fields input, .income-zone-filter-fields select { width: 100%; min-width: 0; min-height: 44px; padding: 9px; border: 1px solid var(--color-border); border-radius: 6px; background: #fff; color: var(--color-text); font: inherit; text-transform: none; }
 .income-zone-team-filters { display: flex; flex-wrap: wrap; gap: 8px; }
 .income-zone-team-filter { padding: 8px 14px; border: 1px solid #94a3b8; border-radius: 7px; background: #fff; color: #334155; font: inherit; font-size: .82rem; font-weight: 800; cursor: pointer; }
 .income-zone-team-filter[aria-pressed="true"] { background: #334155; color: #fff; border-color: #334155; }
@@ -4363,7 +4363,7 @@ select.control-op-badge {
 .income-day-header h2 { margin: 0 0 4px; }
 .income-day-header p { margin: 0; }
 .income-day-actions label { display: grid; gap: 4px; font-size: .8rem; font-weight: 700; color: var(--color-text-muted); }
-.income-day-actions input, .income-day-search input, .income-edit-form input, .income-edit-form select, .income-edit-form textarea { border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 9px 11px; background: var(--color-surface); color: var(--color-text); font: inherit; }
+.income-day-actions input, .income-day-search input, .income-edit-form input, .income-edit-form select, .income-edit-form textarea { min-height: 44px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 9px 11px; background: var(--color-surface); color: var(--color-text); font: inherit; }
 .income-day-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .income-day-kpis--cash { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .income-team-closing { overflow: hidden; border: 1px solid #99d8d0; border-radius: var(--radius); background: linear-gradient(135deg, #f0fdfa 0%, #ecfeff 100%); box-shadow: 0 8px 24px rgba(15, 118, 110, .08); }
@@ -11749,9 +11749,14 @@ button.ar-route-publish-copy.is-active {
 
 .clients-luxury-page .client-directory-filters {
   display: grid;
-  grid-template-columns: repeat(4, minmax(130px, 1fr)) auto auto;
+  grid-template-columns: repeat(6, minmax(125px, 1fr)) auto auto;
   align-items: center;
   gap: 8px;
+  margin-bottom: 12px;
+}
+
+.client-directory-filter-toggle {
+  display: none;
 }
 
 .clients-luxury-page .client-directory-filters select,
@@ -12141,6 +12146,53 @@ button.ar-route-publish-copy.is-active {
   background: rgba(248, 250, 252, 0.72);
 }
 
+.client-card-details {
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.client-card-details > summary,
+.client-card-actions-menu > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.client-card-details > summary::-webkit-details-marker,
+.client-card-actions-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.client-card-details > summary {
+  display: grid;
+  gap: 4px;
+  min-height: 48px;
+  padding: 11px 14px;
+  color: #0f766e;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.client-card-details > summary::after {
+  content: "+";
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-size: 1.35rem;
+}
+
+.client-card-details[open] > summary::after {
+  content: "−";
+}
+
+.client-card-details > summary strong {
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.client-card-details .client-card-edit-grid {
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
 .client-card-field {
   display: grid;
   gap: 5px;
@@ -12177,6 +12229,44 @@ button.ar-route-publish-copy.is-active {
   gap: 8px;
   padding: 14px;
   border-top: 1px solid rgba(148, 163, 184, 0.24);
+}
+
+.client-card-actions-menu {
+  position: relative;
+  min-width: 0;
+}
+
+.client-card-actions-menu > summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--color-text);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.client-card-actions-menu > summary::after {
+  content: "⋯";
+  margin-left: 7px;
+  font-size: 1rem;
+}
+
+.client-card-actions-menu > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  grid-column: 1 / -1;
+  margin-top: 8px;
+}
+
+.client-card-actions-menu[open] {
+  grid-column: 1 / -1;
 }
 
 .clients-luxury-page .client-card-actions .button {
@@ -12236,6 +12326,31 @@ button.ar-route-publish-copy.is-active {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .client-directory-filter-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 48px;
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    border: 1px solid rgba(15, 118, 110, 0.3);
+    border-radius: 12px;
+    background: #f0fdfa;
+    color: #0f766e;
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .client-directory-filter-toggle strong {
+    font-size: 0.76rem;
+  }
+
+  .clients-luxury-page .client-directory-filters:not(.is-mobile-open) {
+    display: none;
+  }
+
   .client-directory-cards,
   .client-legacy-cards {
     grid-template-columns: 1fr;
@@ -12287,6 +12402,228 @@ button.ar-route-publish-copy.is-active {
   .client-card-header select {
     max-width: none;
   }
+
+  .client-card-actions-menu > div {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Responsive payment workspace */
+.payment-tab-select-wrap {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .payments-page {
+    min-width: 0;
+  }
+
+  .payment-tabs-row {
+    align-items: stretch;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .payment-tabs {
+    display: none;
+  }
+
+  .payment-tab-select-wrap {
+    display: grid;
+    flex: 1 1 240px;
+    gap: 5px;
+    min-width: 0;
+    color: var(--color-text-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .payment-tab-select {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    padding: 8px 11px;
+    border: 1.5px solid var(--color-primary);
+    border-radius: var(--radius-sm);
+    background: #f0fdfa;
+    color: #0f5f59;
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 800;
+  }
+
+  .payment-import-button {
+    align-self: end;
+    min-height: 44px;
+  }
+
+  .payments-page .payment-input,
+  .payments-page .history-filter-select,
+  .payments-page .client-search-input,
+  .payments-page button:not(.sort-button) {
+    min-height: 44px;
+  }
+
+  .payments-page .client-pill-clear {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .payment-method-option,
+  .payment-cash-delivery-option {
+    min-height: 44px;
+  }
+
+  #payment-panel-history > .panel-head {
+    align-items: stretch;
+  }
+
+  #payment-panel-history > .panel-head > select,
+  #payment-panel-history > .panel-head > input,
+  #payment-panel-history > .panel-head > button {
+    width: 100% !important;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .history-delivery-summary {
+    align-items: stretch;
+  }
+
+  .history-delivery-chip {
+    min-height: 44px;
+  }
+
+  .history-bulk-actions {
+    width: 100%;
+  }
+
+  .history-bulk-actions .button {
+    flex: 1 1 140px;
+  }
+
+  .payments-page :is(#payment-panel-history, #payment-panel-notified, #payment-panel-cards) .table-scroll {
+    max-width: 100%;
+    overflow: visible;
+  }
+
+  .payments-page :is(#payment-panel-history, #payment-panel-notified, #payment-panel-cards) .table-scroll table,
+  .payments-page :is(#payment-panel-history, #payment-panel-notified, #payment-panel-cards) .table-scroll tbody {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    gap: 12px;
+  }
+
+  .payments-page :is(#payment-panel-history, #payment-panel-notified, #payment-panel-cards) .table-scroll thead,
+  .payments-page :is(#payment-panel-history, #payment-panel-notified, #payment-panel-cards) .top-scroll {
+    display: none;
+  }
+
+  .payments-page :is(#payment-panel-history, #payment-panel-notified, #payment-panel-cards) .table-scroll tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 14px;
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.42);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.07);
+  }
+
+  .payments-page :is(#payment-panel-history, #payment-panel-notified, #payment-panel-cards) .table-scroll tbody td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .payments-page :is(#payment-panel-history, #payment-panel-notified, #payment-panel-cards) .table-scroll tbody td::before {
+    flex: 0 0 auto;
+    color: #64748b;
+    font-size: 0.68rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  #payment-panel-history .table-scroll tbody td:nth-child(1),
+  #payment-panel-history .table-scroll tbody td:nth-child(2) {
+    justify-content: stretch;
+  }
+
+  #payment-panel-history .table-scroll tbody td:nth-child(1) button,
+  #payment-panel-history .table-scroll tbody td:nth-child(2) button {
+    width: 100%;
+  }
+
+  #payment-panel-history .table-scroll tbody td:nth-child(3),
+  #payment-panel-history .table-scroll tbody td:nth-child(7),
+  #payment-panel-history .table-scroll tbody td:nth-child(13) {
+    grid-column: 1 / -1;
+  }
+
+  #payment-panel-history .table-scroll tbody td:nth-child(3)::before { content: "Seleccionar"; }
+  #payment-panel-history .table-scroll tbody td:nth-child(4)::before { content: "Recibo"; }
+  #payment-panel-history .table-scroll tbody td:nth-child(5)::before { content: "Fecha"; }
+  #payment-panel-history .table-scroll tbody td:nth-child(6)::before { content: "Unidad"; }
+  #payment-panel-history .table-scroll tbody td:nth-child(7)::before { content: "Cliente"; }
+  #payment-panel-history .table-scroll tbody td:nth-child(8)::before { content: "Monto"; }
+  #payment-panel-history .table-scroll tbody td:nth-child(9)::before { content: "A renta"; }
+  #payment-panel-history .table-scroll tbody td:nth-child(10)::before { content: "Ahorro"; }
+  #payment-panel-history .table-scroll tbody td:nth-child(11)::before { content: "Cuotas"; }
+  #payment-panel-history .table-scroll tbody td:nth-child(12)::before { content: "Método"; }
+
+  #payment-panel-notified .table-scroll tbody td:nth-child(1)::before { content: "Unidad"; }
+  #payment-panel-notified .table-scroll tbody td:nth-child(2)::before { content: "Cliente"; }
+  #payment-panel-notified .table-scroll tbody td:nth-child(3)::before { content: "Monto"; }
+  #payment-panel-notified .table-scroll tbody td:nth-child(4)::before { content: "Hora"; }
+  #payment-panel-notified .table-scroll tbody td:nth-child(5)::before { content: "Estado"; }
+  #payment-panel-notified .table-scroll tbody td:nth-child(6)::before { content: "Equipo"; }
+  #payment-panel-notified .table-scroll tbody td:nth-child(2),
+  #payment-panel-notified .table-scroll tbody td:nth-child(5),
+  #payment-panel-notified .table-scroll tbody td:nth-child(7) {
+    grid-column: 1 / -1;
+  }
+
+  #payment-panel-notified .table-scroll tbody td:nth-child(7),
+  #payment-panel-cards .table-scroll tbody td:nth-child(7) {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  #payment-panel-cards .table-scroll tbody td:nth-child(1)::before { content: "Folio"; }
+  #payment-panel-cards .table-scroll tbody td:nth-child(2)::before { content: "Registro"; }
+  #payment-panel-cards .table-scroll tbody td:nth-child(3)::before { content: "Esperado"; }
+  #payment-panel-cards .table-scroll tbody td:nth-child(4)::before { content: "Unidad"; }
+  #payment-panel-cards .table-scroll tbody td:nth-child(5)::before { content: "Cliente"; }
+  #payment-panel-cards .table-scroll tbody td:nth-child(6)::before { content: "Monto"; }
+  #payment-panel-cards .table-scroll tbody td:nth-child(1),
+  #payment-panel-cards .table-scroll tbody td:nth-child(5),
+  #payment-panel-cards .table-scroll tbody td:nth-child(7) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 520px) {
+  .payment-tabs-row {
+    align-items: stretch;
+  }
+
+  .payment-tab-select-wrap,
+  .payment-import-button {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
 }
 
 /* ------------------------------------------

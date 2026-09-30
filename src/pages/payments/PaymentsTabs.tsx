@@ -30,6 +30,17 @@ export default function PaymentsTabs({ activeTab, onSelect, onImportCsv, isImpor
   return (
     <section className="panel payment-tabs-panel" aria-label="Navegación de pagos">
       <div className="payment-tabs-row">
+        <label className="payment-tab-select-wrap">
+          <span>Sección de pagos</span>
+          <select
+            className="payment-tab-select"
+            value={activeTab}
+            onChange={(event) => onSelect(event.target.value as PaymentTabId)}
+            aria-label="Sección de pagos"
+          >
+            {visibleTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.label}</option>)}
+          </select>
+        </label>
         <div className="payment-tabs" role="tablist" aria-label="Opciones de pagos">
           {visibleTabs.map((tab) => {
             const isActive = activeTab === tab.id;

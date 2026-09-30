@@ -870,7 +870,7 @@ export default function PaymentsPage({
 
 
   return (
-    <div className="page-inner">
+    <div className="page-inner payments-page">
       <PaymentsTabs
         activeTab={activePaymentTab}
         onSelect={selectPaymentTab}

@@ -923,6 +923,7 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
         onUnitSearchChange={setUnitSearchFilter}
         onClientSearchChange={setClientNameSearchFilter}
         onClearSearch={() => {
+          setGeneralGroupFilter("ALL");
           setPlanFilter("ALL");
           setWeeklyChargeDayFilter("ALL");
           setUnitSearchFilter("");

@@ -104,15 +104,45 @@ type FilterOptions = {
   bankRules: BankRule[];
 };
 
+const CLIENT_DIRECTORY_FILTERS_KEY = "rentautos-client-directory-filters";
+
+type StoredClientDirectoryFilters = {
+  group?: GeneralGroupFilterKey;
+  plan?: PlanFilterKey;
+  weeklyDay?: WeeklyChargeDayFilterKey;
+  unit?: string;
+  client?: string;
+};
+
+function readStoredClientDirectoryFilters(): StoredClientDirectoryFilters {
+  if (typeof window === "undefined") return {};
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(CLIENT_DIRECTORY_FILTERS_KEY) ?? "{}") as Record<string, unknown>;
+    const plan = stored.plan;
+    const weeklyDay = stored.weeklyDay;
+    return {
+      group: typeof stored.group === "string" ? stored.group : undefined,
+      plan: plan === "ALL" || plan === "daily" || plan === "weekly" || plan === "biweekly" || plan === "monthly" ? plan : undefined,
+      weeklyDay: weeklyDay === "ALL" || weeklyDay === "monday" || weeklyDay === "tuesday" || weeklyDay === "wednesday"
+        || weeklyDay === "thursday" || weeklyDay === "friday" || weeklyDay === "saturday" ? weeklyDay : undefined,
+      unit: typeof stored.unit === "string" ? stored.unit : undefined,
+      client: typeof stored.client === "string" ? stored.client : undefined
+    };
+  } catch {
+    return {};
+  }
+}
+
 export function useClientDirectoryFilters({
   rows,
   bankRules
 }: FilterOptions) {
-  const [generalGroupFilter, setGeneralGroupFilter] = useState<GeneralGroupFilterKey>("ALL");
-  const [planFilter, setPlanFilter] = useState<PlanFilterKey>("ALL");
-  const [weeklyChargeDayFilter, setWeeklyChargeDayFilter] = useState<WeeklyChargeDayFilterKey>("ALL");
-  const [unitSearchFilter, setUnitSearchFilter] = useState("");
-  const [clientNameSearchFilter, setClientNameSearchFilter] = useState("");
+  const storedFilters = useMemo(readStoredClientDirectoryFilters, []);
+  const [generalGroupFilter, setGeneralGroupFilter] = useState<GeneralGroupFilterKey>(storedFilters.group ?? "ALL");
+  const [planFilter, setPlanFilter] = useState<PlanFilterKey>(storedFilters.plan ?? "ALL");
+  const [weeklyChargeDayFilter, setWeeklyChargeDayFilter] = useState<WeeklyChargeDayFilterKey>(storedFilters.weeklyDay ?? "ALL");
+  const [unitSearchFilter, setUnitSearchFilter] = useState(storedFilters.unit ?? "");
+  const [clientNameSearchFilter, setClientNameSearchFilter] = useState(storedFilters.client ?? "");
   const deferredUnitSearch = useDeferredValue(unitSearchFilter);
   const deferredClientSearch = useDeferredValue(clientNameSearchFilter);
   const groupOptions = useMemo(() => Array.from(new Set([
@@ -124,10 +154,24 @@ export function useClientDirectoryFilters({
   ])).sort((left, right) => left.localeCompare(right)), [bankRules, rows]);
 
   useEffect(() => {
-    if (generalGroupFilter !== "ALL" && !groupOptions.includes(generalGroupFilter)) {
+    if (groupOptions.length > 0 && generalGroupFilter !== "ALL" && !groupOptions.includes(generalGroupFilter)) {
       setGeneralGroupFilter("ALL");
     }
   }, [generalGroupFilter, groupOptions]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CLIENT_DIRECTORY_FILTERS_KEY, JSON.stringify({
+        group: generalGroupFilter,
+        plan: planFilter,
+        weeklyDay: weeklyChargeDayFilter,
+        unit: unitSearchFilter,
+        client: clientNameSearchFilter
+      } satisfies StoredClientDirectoryFilters));
+    } catch {
+      // Filtering remains available when storage is blocked.
+    }
+  }, [clientNameSearchFilter, generalGroupFilter, planFilter, unitSearchFilter, weeklyChargeDayFilter]);
 
   const displayedRows = useMemo(() => {
     let filteredRows = generalGroupFilter === "ALL"

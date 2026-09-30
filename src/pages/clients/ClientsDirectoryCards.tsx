@@ -147,7 +147,15 @@ export function ClientsDirectoryCards({
                   <small>{provisionalRental ? `Proximo cobro: ${provisionalRental.nextChargeDate ?? "-"}` : nextChargeLabel}</small>
                 </section>
 
-                <section className="client-card-edit-grid">
+                <details className="client-card-details">
+                  <summary>
+                    <span>Ver y editar detalles</span>
+                    <strong>
+                      Saldo {formatCurrency(provisionalRental?.balance ?? client.balance)}
+                      {!isProvisionalRow ? ` · ${client.installmentsPaid}/${client.installmentsAgreed} cuotas` : ""}
+                    </strong>
+                  </summary>
+                  <section className="client-card-edit-grid">
                   {provisionalRental ? (
                     <div className="client-rental-balance client-card-field-span">
                       <span>Saldo provisional</span>
@@ -238,20 +246,24 @@ export function ClientsDirectoryCards({
                       </div>
                     </>
                   )}
-                </section>
+                  </section>
+                </details>
 
                 <footer className="client-card-actions">
-                  <button type="button" className="button ghost" onClick={() => onShowVehicle(unitId)}>Ver unidad</button>
-                  <button type="button" className="button ghost" onClick={() => onShowClient(client.id)}>Ver cliente</button>
-                  {!readOnly && (
-                    <>
+                  <button type="button" className="button primary" onClick={() => onShowClient(client.id)}>Ver cliente</button>
+                  <details className="client-card-actions-menu">
+                    <summary>Más acciones</summary>
+                    <div>
+                      <button type="button" className="button ghost" onClick={() => onShowVehicle(unitId)}>Ver unidad</button>
+                      {!readOnly && <>
                       <button type="button" className="button ghost" onClick={() => onEditClient(client)}>Editar</button>
-                      <button type="button" className="button primary" onClick={() => onOpenProvisionalRental(client)}>
+                      <button type="button" className="button ghost" onClick={() => onOpenProvisionalRental(client)}>
                         {client.activeProvisionalRental ? "Ver alquiler" : "Unidad alquilada"}
                       </button>
                       <button type="button" className="button ghost client-card-unlink" onClick={() => onUnlinkClient(client)}>Desvincular</button>
-                    </>
-                  )}
+                      </>}
+                    </div>
+                  </details>
                 </footer>
               </>
             ) : (

@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { otherChargeDateKey } from "../../otherCharges";
 import type { Client } from "../../types";
@@ -25,6 +25,19 @@ import { statusBadgeClass, statusLabel } from "../controlUnits/controlUnitsRules
 import { ClientsDirectoryCards } from "./ClientsDirectoryCards";
 
 const DIRECTORY_PAGE_SIZE = 15;
+const DIRECTORY_SORT_STORAGE_KEY = "rentautos-client-directory-sort";
+
+type DirectorySortKey = "unit" | "client" | "balance" | "overdue";
+
+function readStoredDirectorySort(): DirectorySortKey {
+  if (typeof window === "undefined") return "unit";
+  try {
+    const stored = window.localStorage.getItem(DIRECTORY_SORT_STORAGE_KEY);
+    return stored === "client" || stored === "balance" || stored === "overdue" ? stored : "unit";
+  } catch {
+    return "unit";
+  }
+}
 
 type Props = {
   rows: ClientDirectoryRow[];
@@ -154,19 +167,63 @@ export function ClientsDirectoryPanel({
   readOnly = false
 }: Props) {
   const [page, setPage] = useState(1);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<DirectorySortKey>(readStoredDirectorySort);
   const visibleClientCount = new Set(
     rows.flatMap((row) => row.client ? [row.client.id] : [])
   ).size;
-  const activeRowCount = viewTab === "current" ? rows.length : legacyClients.length;
+  const sortedRows = useMemo(() => [...rows].sort((left, right) => {
+    if (sortBy === "client") {
+      return (left.client?.name ?? "").localeCompare(right.client?.name ?? "", "es", { sensitivity: "base" });
+    }
+    if (sortBy === "balance") {
+      const leftBalance = left.assignmentKind === "provisional"
+        ? left.client?.activeProvisionalRental?.balance ?? 0
+        : left.client?.balance ?? 0;
+      const rightBalance = right.assignmentKind === "provisional"
+        ? right.client?.activeProvisionalRental?.balance ?? 0
+        : right.client?.balance ?? 0;
+      return rightBalance - leftBalance;
+    }
+    if (sortBy === "overdue") {
+      const leftDate = left.debtStartDate?.getTime() ?? Number.POSITIVE_INFINITY;
+      const rightDate = right.debtStartDate?.getTime() ?? Number.POSITIVE_INFINITY;
+      return leftDate - rightDate;
+    }
+    return left.unitId.localeCompare(right.unitId, "es", { numeric: true, sensitivity: "base" });
+  }), [rows, sortBy]);
+  const sortedLegacyClients = useMemo(() => [...legacyClients].sort((left, right) => (
+    sortBy === "client"
+      ? left.name.localeCompare(right.name, "es", { sensitivity: "base" })
+      : left.unitId.localeCompare(right.unitId, "es", { numeric: true, sensitivity: "base" })
+  )), [legacyClients, sortBy]);
+  const activeRowCount = viewTab === "current" ? sortedRows.length : sortedLegacyClients.length;
   const totalPages = Math.max(1, Math.ceil(activeRowCount / DIRECTORY_PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * DIRECTORY_PAGE_SIZE;
-  const pagedRows = rows.slice(pageStart, pageStart + DIRECTORY_PAGE_SIZE);
-  const pagedLegacyClients = legacyClients.slice(pageStart, pageStart + DIRECTORY_PAGE_SIZE);
+  const pagedRows = sortedRows.slice(pageStart, pageStart + DIRECTORY_PAGE_SIZE);
+  const pagedLegacyClients = sortedLegacyClients.slice(pageStart, pageStart + DIRECTORY_PAGE_SIZE);
+  const activeFilterCount = [
+    groupFilter !== "ALL",
+    planFilter !== "ALL",
+    planFilter === "weekly" && weeklyChargeDayFilter !== "ALL",
+    Boolean(unitSearch.trim()),
+    Boolean(clientSearch.trim())
+  ].filter(Boolean).length;
+  const hasActiveFilters = activeFilterCount > 0;
 
   useEffect(() => {
     setPage(1);
   }, [viewTab, groupFilter, planFilter, weeklyChargeDayFilter, unitSearch, clientSearch]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DIRECTORY_SORT_STORAGE_KEY, sortBy);
+    } catch {
+      // The directory remains usable when storage is unavailable.
+    }
+    setPage(1);
+  }, [sortBy]);
 
   function handlePageChange(nextPage: number): void {
     setPage(Math.max(1, Math.min(nextPage, totalPages)));
@@ -241,7 +298,20 @@ export function ClientsDirectoryPanel({
 
       {viewTab === "current" ? (
         <>
-          <div className="clients-general-filters client-directory-filters" style={{ marginBottom: 12 }}>
+          <button
+            type="button"
+            className="client-directory-filter-toggle"
+            aria-expanded={filtersOpen}
+            aria-controls="client-directory-filters"
+            onClick={() => setFiltersOpen((open) => !open)}
+          >
+            <span>Filtros y orden</span>
+            <strong>{activeFilterCount > 0 ? `${activeFilterCount} activo${activeFilterCount === 1 ? "" : "s"}` : filtersOpen ? "Ocultar" : "Mostrar"}</strong>
+          </button>
+          <div
+            id="client-directory-filters"
+            className={`clients-general-filters client-directory-filters${filtersOpen ? " is-mobile-open" : ""}`}
+          >
             <select
               value={groupFilter}
               onChange={(event) => onGroupFilterChange(event.target.value as GeneralGroupFilterKey)}
@@ -288,10 +358,21 @@ export function ClientsDirectoryPanel({
               placeholder="Buscar cliente"
               aria-label="Buscar por nombre del cliente"
             />
+            <select
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as DirectorySortKey)}
+              aria-label="Ordenar clientes"
+              title="Ordenar clientes"
+            >
+              <option value="unit">Ordenar por unidad</option>
+              <option value="client">Ordenar por cliente</option>
+              <option value="balance">Mayor saldo primero</option>
+              <option value="overdue">Mayor atraso primero</option>
+            </select>
             <span className="clients-filter-count">
               {visibleClientCount} cliente{visibleClientCount === 1 ? "" : "s"} visible{visibleClientCount === 1 ? "" : "s"}
             </span>
-            {(planFilter !== "ALL" || weeklyChargeDayFilter !== "ALL" || unitSearch || clientSearch) && (
+            {hasActiveFilters && (
               <button type="button" className="clients-filter-clear" onClick={onClearSearch}>
                 Limpiar
               </button>
