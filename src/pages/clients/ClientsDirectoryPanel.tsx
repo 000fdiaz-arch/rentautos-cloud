@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { otherChargeDateKey } from "../../otherCharges";
 import type { Client } from "../../types";
@@ -22,6 +22,9 @@ import type {
 } from "./clientTypes";
 import { toDateKey } from "../../billing";
 import { statusBadgeClass, statusLabel } from "../controlUnits/controlUnitsRules";
+import { ClientsDirectoryCards } from "./ClientsDirectoryCards";
+
+const DIRECTORY_PAGE_SIZE = 15;
 
 type Props = {
   rows: ClientDirectoryRow[];
@@ -68,6 +71,48 @@ function blurOnEnter(event: KeyboardEvent<HTMLInputElement>): void {
   if (event.key === "Enter") event.currentTarget.blur();
 }
 
+function DirectoryPagination({
+  page,
+  totalPages,
+  totalRows,
+  onChange
+}: {
+  page: number;
+  totalPages: number;
+  totalRows: number;
+  onChange: (page: number) => void;
+}) {
+  if (totalRows <= DIRECTORY_PAGE_SIZE) return null;
+
+  const firstRow = (page - 1) * DIRECTORY_PAGE_SIZE + 1;
+  const lastRow = Math.min(page * DIRECTORY_PAGE_SIZE, totalRows);
+
+  return (
+    <nav className="client-directory-pagination" aria-label="Paginacion de clientes">
+      <span>{firstRow}-{lastRow} de {totalRows}</span>
+      <div>
+        <button
+          type="button"
+          className="button ghost small"
+          disabled={page <= 1}
+          onClick={() => onChange(page - 1)}
+        >
+          Anterior
+        </button>
+        <strong>Pagina {page} de {totalPages}</strong>
+        <button
+          type="button"
+          className="button ghost small"
+          disabled={page >= totalPages}
+          onClick={() => onChange(page + 1)}
+        >
+          Siguiente
+        </button>
+      </div>
+    </nav>
+  );
+}
+
 export function ClientsDirectoryPanel({
   rows,
   legacyClients,
@@ -108,9 +153,27 @@ export function ClientsDirectoryPanel({
   onCreateClientFromUnit,
   readOnly = false
 }: Props) {
+  const [page, setPage] = useState(1);
   const visibleClientCount = new Set(
     rows.flatMap((row) => row.client ? [row.client.id] : [])
   ).size;
+  const activeRowCount = viewTab === "current" ? rows.length : legacyClients.length;
+  const totalPages = Math.max(1, Math.ceil(activeRowCount / DIRECTORY_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * DIRECTORY_PAGE_SIZE;
+  const pagedRows = rows.slice(pageStart, pageStart + DIRECTORY_PAGE_SIZE);
+  const pagedLegacyClients = legacyClients.slice(pageStart, pageStart + DIRECTORY_PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+  }, [viewTab, groupFilter, planFilter, weeklyChargeDayFilter, unitSearch, clientSearch]);
+
+  function handlePageChange(nextPage: number): void {
+    setPage(Math.max(1, Math.min(nextPage, totalPages)));
+    window.requestAnimationFrame(() => {
+      document.querySelector(".clients-luxury-page .panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
 
   return (
     <section className="panel">
@@ -235,7 +298,14 @@ export function ClientsDirectoryPanel({
             )}
           </div>
 
-          <div className="table-scroll client-directory-table-wrap">
+          <DirectoryPagination
+            page={currentPage}
+            totalPages={totalPages}
+            totalRows={rows.length}
+            onChange={handlePageChange}
+          />
+
+          <div className="table-scroll client-directory-table-wrap client-directory-desktop">
             <table className="client-directory-table">
               <colgroup>
                 <col className="client-directory-col-unit" />
@@ -265,7 +335,7 @@ export function ClientsDirectoryPanel({
                     <td colSpan={8} className="empty">Aun no hay clientes con ese filtro.</td>
                   </tr>
                 ) : (
-                  rows.map(({ client, unitId, assignmentKind, debtStartDate, nextChargeDate }) => {
+                  pagedRows.map(({ client, unitId, assignmentKind, debtStartDate, nextChargeDate }) => {
                     const vehicle = fleetDetailsByUnit[unitId];
                     const fleetStatus = String(vehicle?.operational_status ?? "libre").trim().toLowerCase() || "libre";
                     const isOrphanedProvisional = !client && fleetStatus === "provisional_rental";
@@ -512,13 +582,40 @@ export function ClientsDirectoryPanel({
               </tbody>
             </table>
           </div>
+          <ClientsDirectoryCards
+            rows={pagedRows}
+            fleetDetailsByUnit={fleetDetailsByUnit}
+            onBalanceChange={onBalanceChange}
+            onInstallmentsChange={onInstallmentsChange}
+            onOtherChargesChange={onOtherChargesChange}
+            onStatusChange={onStatusChange}
+            onShowVehicle={onShowVehicle}
+            onShowClient={onShowClient}
+            onEditClient={onEditClient}
+            onOpenProvisionalRental={onOpenProvisionalRental}
+            onUnlinkClient={onUnlinkClient}
+            onCreateClientFromUnit={onCreateClientFromUnit}
+            readOnly={readOnly}
+          />
+          <DirectoryPagination
+            page={currentPage}
+            totalPages={totalPages}
+            totalRows={rows.length}
+            onChange={handlePageChange}
+          />
         </>
       ) : (
         <>
           <p className="hint" style={{ marginBottom: 12 }}>
             Clientes sin unidad asignada o con unidad no registrada en flota. Estado aplicado: Inactivo.
           </p>
-          <div className="table-scroll client-directory-table-wrap">
+          <DirectoryPagination
+            page={currentPage}
+            totalPages={totalPages}
+            totalRows={legacyClients.length}
+            onChange={handlePageChange}
+          />
+          <div className="table-scroll client-directory-table-wrap client-directory-desktop">
             <table className="client-directory-table client-directory-table--legacy">
               <colgroup>
                 <col className="client-directory-col-client" />
@@ -542,7 +639,7 @@ export function ClientsDirectoryPanel({
                     <td colSpan={5} className="empty">No hay clientes archivados.</td>
                   </tr>
                 ) : (
-                  legacyClients.map((client) => (
+                  pagedLegacyClients.map((client) => (
                     <tr key={client.id}>
                       <td><strong>{client.name}</strong></td>
                       <td>{client.cedula ?? "-"}</td>
@@ -566,6 +663,35 @@ export function ClientsDirectoryPanel({
               </tbody>
             </table>
           </div>
+          <div className="client-directory-mobile client-legacy-cards">
+            {pagedLegacyClients.length === 0 ? (
+              <p className="empty">No hay clientes archivados.</p>
+            ) : pagedLegacyClients.map((client) => (
+              <article key={`legacy-mobile-${client.id}`} className="client-legacy-card">
+                <div>
+                  <span className="client-card-eyebrow">Cliente archivado</span>
+                  <strong>{client.name}</strong>
+                </div>
+                <dl>
+                  <div><dt>Cedula</dt><dd>{client.cedula ?? "-"}</dd></div>
+                  <div><dt>Unidad/ID</dt><dd>{client.unitId?.trim() ? client.unitId : "-"}</dd></div>
+                </dl>
+                <span className="badge badge-warning">Inactivo</span>
+                <div className="client-card-actions">
+                  <button type="button" className="button ghost" onClick={() => onShowClient(client.id)}>Ver cliente</button>
+                  {!readOnly && (
+                    <button type="button" className="button ghost" onClick={() => onEditClient(client)}>Editar</button>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+          <DirectoryPagination
+            page={currentPage}
+            totalPages={totalPages}
+            totalRows={legacyClients.length}
+            onChange={handlePageChange}
+          />
         </>
       )}
     </section>
