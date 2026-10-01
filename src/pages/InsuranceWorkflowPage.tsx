@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import {
   DuplicateInsuranceClaimNumberError,
   JudicialOutcomeRequiredForClaimError,
+  createCollisionPhotoViewUrl,
   createInsuranceDamagePhotoViewUrl,
   createInsuranceSettlementViewUrl,
+  insuranceClaimUsesJudicialResolution,
   loadInsuranceClaims,
   loadInsuranceInsurers,
   removeInsuranceDamagePhotos,
@@ -748,6 +750,19 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
     }
   }
 
+  async function viewJudicialResolution(path: string): Promise<void> {
+    const previewWindow = window.open("", "_blank");
+    try {
+      const url = await createCollisionPhotoViewUrl(path);
+      if (previewWindow) previewWindow.location.href = url;
+      else window.location.href = url;
+    } catch (error) {
+      previewWindow?.close();
+      console.error("No se pudo abrir la resolución judicial.", error);
+      setMessage("No se pudo abrir la resolución judicial.");
+    }
+  }
+
   async function handleFudAttachmentUpload(claim: InsuranceClaimRecord, file: File | undefined): Promise<void> {
     if (!file || !dataOwnerUserId || readOnly || fudUploadingId) return;
     if ((file.type !== "application/pdf" && !file.type.startsWith("image/")) || file.size > MAX_SETTLEMENT_FILE_SIZE) {
@@ -1229,6 +1244,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
             {filteredClaims.map((claim) => {
               const expanded = expandedClaimId === claim.id;
               const activeClaimDetailTab = claimDetailTabs[claim.id] ?? "management";
+              const usesJudicialResolution = insuranceClaimUsesJudicialResolution(claim);
               const fudCompletionMissing = completingFudClaimId === claim.id
                 ? missingFudCompletionRequirements(fudCompletionForm)
                 : [];
@@ -1260,6 +1276,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                       <strong>{claim.amount || "-"}</strong>
                     </span>
                     <span className="workflow-claim-indicators">
+                      {usesJudicialResolution && <span className="complete">Resolución judicial</span>}
                       <span className={claim.settlementDelivered ? "complete" : "pending"}>
                         {claim.settlementDelivered ? "Finiquito entregado" : "Finiquito pendiente"}
                       </span>
@@ -1289,7 +1306,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                 </div>
                 {expanded && (
                 <div className="workflow-claim-details">
-                {claim.documentationPending && <div className="workflow-finalization-panel insurance-documentation-pending">
+                {!usesJudicialResolution && claim.documentationPending && <div className="workflow-finalization-panel insurance-documentation-pending">
                   <div><strong>Datos del FUD pendientes</strong><span>El reclamo no avanzará hasta completar los datos del FUD y recibir presencialmente el original. La copia digital puede adjuntarse después.</span></div>
                   {completingFudClaimId !== claim.id ? (
                     <div className="workflow-finalization-actions"><button type="button" className="button primary" onClick={() => startCompletingFud(claim)} disabled={readOnly || Boolean(fudCompletionSavingId)}>Gestionar FUD</button></div>
@@ -1310,7 +1327,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                     </div>
                   )}
                 </div>}
-                {!claim.documentationPending && claim.fudPhysicalDeliveryConfirmed && !claim.fudAttachment && <div className="workflow-finalization-panel insurance-documentation-pending">
+                {!usesJudicialResolution && !claim.documentationPending && claim.fudPhysicalDeliveryConfirmed && !claim.fudAttachment && <div className="workflow-finalization-panel insurance-documentation-pending">
                   <div><strong>Copia digital del FUD no adjunta</strong><span>El reclamo puede continuar, pero esta alerta permanecerá hasta agregar una foto o PDF del documento entregado.</span></div>
                   <div className="workflow-finalization-actions">
                     <label className="button primary">
@@ -1439,8 +1456,13 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                   <div><dt>Placa</dt><dd>{claim.plate || "-"}</dd></div>
                   <div><dt>Fotos de daños</dt><dd>{claim.damagePhotos.length || claim.damagePhotoNames.length || "-"}</dd></div>
                   <div><dt>Fecha de creación</dt><dd>{claim.createdAt ? new Date(claim.createdAt).toLocaleDateString("es-PA") : "-"}</dd></div>
-                  <div><dt>Entrega presencial del FUD</dt><dd>{claim.fudPhysicalDeliveryConfirmed ? `Confirmada${claim.fudPhysicalDeliveryDate ? ` · ${claim.fudPhysicalDeliveryDate}` : ""}` : "Pendiente de confirmar"}</dd></div>
-                  <div><dt>Copia digital del FUD</dt><dd>{claim.fudAttachment ? <><span>{claim.fudAttachment.name}</span><button type="button" className="button small" onClick={() => void viewSettlement(claim.fudAttachment!.path)}>Ver FUD</button></> : <strong className="workflow-claim-number-warning">No adjunta · alerta activa</strong>}</dd></div>
+                  {usesJudicialResolution ? <>
+                    <div><dt>Documento de anclaje</dt><dd>Resolución judicial</dd></div>
+                    <div><dt>Resolución judicial</dt><dd>{claim.judicialResolutionAttachment ? <><span>{claim.judicialResolutionAttachment.name}</span><button type="button" className="button small" onClick={() => void viewJudicialResolution(claim.judicialResolutionAttachment!.path)}>Ver resolución</button></> : "Registrada en el expediente judicial"}</dd></div>
+                  </> : <>
+                    <div><dt>Entrega presencial del FUD</dt><dd>{claim.fudPhysicalDeliveryConfirmed ? `Confirmada${claim.fudPhysicalDeliveryDate ? ` · ${claim.fudPhysicalDeliveryDate}` : ""}` : "Pendiente de confirmar"}</dd></div>
+                    <div><dt>Copia digital del FUD</dt><dd>{claim.fudAttachment ? <><span>{claim.fudAttachment.name}</span><button type="button" className="button small" onClick={() => void viewSettlement(claim.fudAttachment!.path)}>Ver FUD</button></> : <strong className="workflow-claim-number-warning">No adjunta · alerta activa</strong>}</dd></div>
+                  </>}
                   {claim.status === "Finalizado" && <div><dt>Resultado final</dt><dd>{claim.closureOutcome || "-"}</dd></div>}
                   {claim.closureOutcome === "Declinado" && <div className="workflow-claim-damage"><dt>Justificación del rechazo</dt><dd>{claim.closureJustification}</dd></div>}
                   <div className="workflow-claim-damage"><dt>Daños del auto</dt><dd>{claim.vehicleDamage || "Sin descripción"}</dd></div>

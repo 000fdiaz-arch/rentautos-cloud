@@ -34,6 +34,10 @@ assertIncludes(workflow, "Adjuntar FUD", "El expediente debe permitir cargar pos
 assertIncludes(workflow, "La alerta fue retirada", "La carga posterior debe confirmar que la alerta desapareció.");
 
 assertIncludes(cloud, "claim.documentationPending === true || !fudPhysicalDeliveryConfirmed", "Los reclamos anteriores sin confirmación deben normalizarse como pendientes.");
+assertIncludes(cloud, 'documentationBasis?: "FUD" | "JUDICIAL_RESOLUTION"', "El reclamo debe distinguir el documento que origina el flujo.");
+assertIncludes(cloud, "!usesJudicialResolution && (claim.documentationPending === true || !fudPhysicalDeliveryConfirmed)", "Los reclamos anclados a una resolución no deben generar pendientes de FUD.");
+assertIncludes(workflow, "Documento de anclaje", "Control de siniestros debe mostrar el documento que ancla el reclamo.");
+assertIncludes(workflow, "Resolución judicial", "Los reclamos posteriores a juicio deben mostrar la resolución en lugar del FUD.");
 assertIncludes(followUp, "Coordinar entrega presencial del FUD", "Las alertas deben describir la acción presencial correcta.");
 assertIncludes(followUp, "Copia digital del FUD no adjunta", "Control de siniestros debe alertar por la copia digital faltante.");
 assertIncludes(followUp, "Monto reclamado pendiente", "Control de siniestros debe alertar por el monto faltante.");

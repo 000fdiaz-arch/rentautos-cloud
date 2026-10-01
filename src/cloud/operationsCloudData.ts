@@ -155,6 +155,9 @@ export type InsuranceClaimRecord = {
   status: InsuranceClaimStatus;
   damagePhotoNames: string[];
   damagePhotos: InsuranceDamagePhotoAttachment[];
+  documentationBasis?: "FUD" | "JUDICIAL_RESOLUTION";
+  judicialCaseId?: string | null;
+  judicialResolutionAttachment?: InsuranceSettlementAttachment | null;
   fudAttachment?: InsuranceSettlementAttachment | null;
   fudPhysicalDeliveryConfirmed?: boolean;
   fudPhysicalDeliveryDate?: string | null;
@@ -176,6 +179,14 @@ export type InsuranceClaimRecord = {
   createdAt: string;
   updatedAt: string;
 };
+
+export function insuranceClaimUsesJudicialResolution(
+  claim: Pick<InsuranceClaimRecord, "id" | "documentationBasis" | "judicialCaseId">
+): boolean {
+  return claim.documentationBasis === "JUDICIAL_RESOLUTION"
+    || Boolean(claim.judicialCaseId)
+    || claim.id.startsWith("collision-insurance-collision-trial-");
+}
 
 export type CollisionTrialStatus = "PENDIENTE" | "NUEVA FECHA" | "ABSUELTO" | "CULPABLE" | "CIERRE ADMINISTRATIVO";
 export type CollisionPhotoAttachment = {
@@ -339,8 +350,18 @@ function normalizeInsuranceClaim(claim: InsuranceClaimRecord): InsuranceClaimRec
     ? rawHasClaimNumber
     : Boolean(claimNumber.trim());
   const rawStatus = (claim as unknown as { status?: string }).status;
-  const fudPhysicalDeliveryConfirmed = claim.fudPhysicalDeliveryConfirmed === true;
-  const documentationPending = claim.documentationPending === true || !fudPhysicalDeliveryConfirmed;
+  const inferredJudicialCaseId = claim.id.startsWith("collision-insurance-collision-trial-")
+    ? claim.id.slice("collision-insurance-".length)
+    : null;
+  const judicialCaseId = typeof claim.judicialCaseId === "string" && claim.judicialCaseId.trim()
+    ? claim.judicialCaseId
+    : inferredJudicialCaseId;
+  const documentationBasis = claim.documentationBasis === "JUDICIAL_RESOLUTION" || judicialCaseId
+    ? "JUDICIAL_RESOLUTION"
+    : "FUD";
+  const usesJudicialResolution = documentationBasis === "JUDICIAL_RESOLUTION";
+  const fudPhysicalDeliveryConfirmed = !usesJudicialResolution && claim.fudPhysicalDeliveryConfirmed === true;
+  const documentationPending = !usesJudicialResolution && (claim.documentationPending === true || !fudPhysicalDeliveryConfirmed);
   const status: InsuranceClaimStatus = rawStatus === "Finalizado" || rawStatus === "Pagado"
     ? "Finalizado"
     : !claimNumber.trim() || documentationPending
@@ -384,6 +405,11 @@ function normalizeInsuranceClaim(claim: InsuranceClaimRecord): InsuranceClaimRec
     damagePhotos: Array.isArray(claim.damagePhotos)
       ? claim.damagePhotos.filter((photo) => photo && typeof photo.path === "string")
       : [],
+    documentationBasis,
+    judicialCaseId,
+    judicialResolutionAttachment: claim.judicialResolutionAttachment && typeof claim.judicialResolutionAttachment.path === "string"
+      ? claim.judicialResolutionAttachment
+      : null,
     fudAttachment: claim.fudAttachment && typeof claim.fudAttachment.path === "string"
       ? claim.fudAttachment
       : null,

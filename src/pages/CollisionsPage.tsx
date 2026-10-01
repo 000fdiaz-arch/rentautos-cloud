@@ -1551,6 +1551,15 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
             createdAt: now
           }),
           id: insuranceClaimId,
+          documentationBasis: "JUDICIAL_RESOLUTION",
+          judicialCaseId: item.id,
+          judicialResolutionAttachment: item.judicialResolutionEvidence,
+          fudPhysicalDeliveryConfirmed: false,
+          fudPhysicalDeliveryDate: null,
+          fudPhysicalDeliveryConfirmedAt: null,
+          documentationPending: false,
+          documentationPendingSince: null,
+          documentationReceivedAt: item.judicialResolutionEvidence.uploadedAt || now,
           incidentDate: item.incidentDate,
           unit: normalizeUnit(item.unit),
           driver: item.driver,
@@ -1560,7 +1569,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
           claimNumber,
           amount: draft.amount,
           vehicleDamage: item.vehicleDamage,
-          status: linkedClaim?.status === "Finalizado" ? "Finalizado" : linkedClaim?.documentationPending === false && hasClaimNumber ? "Activo" : "Inactivo",
+          status: linkedClaim?.status === "Finalizado" ? "Finalizado" : hasClaimNumber ? "Activo" : "Inactivo",
           damagePhotos,
           damagePhotoNames: damagePhotos.map((photo) => photo.name),
           updatedAt: now
@@ -1570,7 +1579,7 @@ export default function CollisionsPage({ clients, payments, dataOwnerUserId, rea
       }
       await persistCase(
         { ...item, insuranceClaim, updatedAt: now },
-        "Reclamo guardado como inactivo y vinculado con Reclamos a seguros. Falta confirmar la entrega presencial del FUD."
+        "Reclamo vinculado con Reclamos a seguros usando la resolución judicial como documento base."
       );
       setClaimDrafts((current) => ({ ...current, [item.id]: { insurer: insuranceClaim.insurer, claimNumber: insuranceClaim.claimNumber, amount: insuranceClaim.amount } }));
       setClaimPhotoFiles((current) => ({ ...current, [item.id]: [] }));
