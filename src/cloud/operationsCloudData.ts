@@ -29,6 +29,16 @@ export async function registerCloudRouteBankNotice(
   if (error) throw error;
 }
 
+export async function deleteCloudNotifiedPayment(userId: string, noticeId: string): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("notified_payments_cloud")
+    .delete()
+    .eq("user_id", userId)
+    .eq("id", noticeId);
+  if (error) throw error;
+}
+
 export type ControlUnitRow = {
   fleet_id: string;
   user_id: string;

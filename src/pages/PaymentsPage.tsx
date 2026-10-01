@@ -71,7 +71,7 @@ import {
   splitWholeAndCents
 } from "./payments/paymentRules";
 import { applyPaymentToProvisionalRental, getCollectibleProvisionalRental, nextProvisionalRentalChargeDate, restoreProvisionalRentalPayment } from "../provisionalRentals";
-import { loadCloudActiveRouteItem } from "../cloud/operationsCloudData";
+import { deleteCloudNotifiedPayment, loadCloudActiveRouteItem } from "../cloud/operationsCloudData";
 import { cancelRoutePaymentReport, loadRoutePaymentReportForItem, reportRoutePayment } from "../cloud/routeReportCloudData";
 import type { NotifiedPayment } from "./payments/paymentTypes";
 type Props = {
@@ -447,6 +447,11 @@ export default function PaymentsPage({
     await cancelRoutePaymentReport(reportId);
   }, []);
 
+  const deleteNotifiedPaymentFromCloud = useCallback(async (noticeId: string) => {
+    if (!dataOwnerUserId) return;
+    await deleteCloudNotifiedPayment(dataOwnerUserId, noticeId);
+  }, [dataOwnerUserId]);
+
   const pendingRoutePayments = useMemo(() => routeReviewReports
     .filter((report) => report.bank_amount > report.confirmed_bank_amount)
     .map((report) => ({
@@ -479,8 +484,10 @@ export default function PaymentsPage({
     handleSaveEditNotified,
     handleSortNotified
   } = useNotifiedPayments(clients, activeClients, {
+    dataOwnerUserId,
     createRouteReview,
     cancelRouteReview: cancelLinkedRouteReview,
+    deleteCloudNotice: deleteNotifiedPaymentFromCloud,
     pendingRoutePayments
   });
 

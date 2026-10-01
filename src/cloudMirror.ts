@@ -162,16 +162,8 @@ function dedupeRowsByIdAndFolio(rows: Array<{ user_id: string; id: string; data:
   return [...byId.values()];
 }
 
-async function saveArrayKey(userId: string, key: ArrayKey, raw: string | null): Promise<void> {
+async function deleteStaleArrayRows(table: string, userId: string, nextIds: Set<string>): Promise<void> {
   if (!supabase) return;
-  const table = ARRAY_TABLE_MAP[key];
-  const rows = dedupeRowsByIdAndFolio((await parseArrayValueForKey(key, raw)).map((rec, idx) => ({
-    user_id: userId,
-    id: makeRowId(key, rec, idx),
-    data: rec
-  })));
-  const nextIds = new Set(rows.map((row) => row.id));
-
   const existingIds: string[] = [];
   let from = 0;
   while (true) {
@@ -199,6 +191,24 @@ async function saveArrayKey(userId: string, key: ArrayKey, raw: string | null): 
       .eq("user_id", userId)
       .in("id", batch);
     if (error) throw error;
+  }
+}
+
+async function saveArrayKey(userId: string, key: ArrayKey, raw: string | null): Promise<void> {
+  if (!supabase) return;
+  const table = ARRAY_TABLE_MAP[key];
+  const rows = dedupeRowsByIdAndFolio((await parseArrayValueForKey(key, raw)).map((rec, idx) => ({
+    user_id: userId,
+    id: makeRowId(key, rec, idx),
+    data: rec
+  })));
+  const nextIds = new Set(rows.map((row) => row.id));
+
+  // Pago notificado is shared by several simultaneous operators. A full-array
+  // mirror must never infer deletes from one browser's potentially stale copy.
+  // Its explicit delete path and the payment trigger remove rows atomically.
+  if (key !== "cobrapp.module2.notified.v1") {
+    await deleteStaleArrayRows(table, userId, nextIds);
   }
 
   if (rows.length > 0) {

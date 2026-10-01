@@ -41,6 +41,7 @@ Para instalaciones existentes que ya ejecutaron las migraciones de cuentas por c
 - `supabase/92-notified-route-review-sync.sql` (comparte Pago notificado entre Pagos y Ruta en calle)
 - `supabase/93-notified-route-review-backfill.sql` (vincula avisos existentes con unidades activas de Ruta y mantiene la relación automáticamente)
 - `supabase/94-route-cash-receipt-delete-cancels-report.sql` (al eliminar en Pagos un recibo de efectivo creado desde Ruta, cancela también la notificación y devuelve la unidad a Trabajo)
+- `supabase/98-notified-payment-atomic-consumption.sql` (consume Pago notificado junto con el pago bancario e impide que una sesión desactualizada lo restaure)
 
 En Vercel, produccion debe usar `VITE_PERSISTENCE_MODE=SUPABASE_ONLY`. `LOCAL_ONLY` queda limitado a desarrollo, salvo que se habilite deliberadamente `VITE_ALLOW_PRODUCTION_LOCAL_ONLY=1`.
 5. Crea una cuenta desde la pantalla de registro de la app.

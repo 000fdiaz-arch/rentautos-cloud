@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatCurrency } from "../../format";
+import { supabase } from "../../lib/supabase";
 import type { Client } from "../../types";
-import { loadNotifiedPayments, saveNotifiedPayments } from "./paymentStorage";
+import { loadNotifiedPayments, parseNotifiedPayments, saveNotifiedPayments } from "./paymentStorage";
 import type {
   NotifiedPayment,
   NotifiedPaymentForm,
@@ -32,8 +33,10 @@ type PendingRoutePayment = {
 };
 
 type Options = {
+  dataOwnerUserId?: string | null;
   createRouteReview?: (clientId: string, amount: number) => Promise<RouteLink | null>;
   cancelRouteReview?: (reportId: string) => Promise<void>;
+  deleteCloudNotice?: (noticeId: string) => Promise<void>;
   pendingRoutePayments?: PendingRoutePayment[];
 };
 
@@ -56,6 +59,36 @@ export default function useNotifiedPayments(clients: Client[], activeClients: Cl
   const [notifiedUntilNoonOnly, setNotifiedUntilNoonOnly] = useState(false);
   const [notifiedErrors, setNotifiedErrors] = useState<string[]>([]);
   const [notifiedSavingId, setNotifiedSavingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const ownerUserId = options.dataOwnerUserId;
+    if (!ownerUserId || !supabase) return;
+
+    const channel = supabase
+      .channel(`payments-notified-live-${ownerUserId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notified_payments_cloud", filter: `user_id=eq.${ownerUserId}` },
+        (payload) => {
+          const eventType = payload.eventType;
+          const rawRow = (eventType === "DELETE" ? payload.old : payload.new) as { id?: unknown; data?: unknown } | null;
+          const rowId = typeof rawRow?.id === "string" ? rawRow.id : "";
+          if (!rowId) return;
+          if (eventType === "DELETE") {
+            setNotifiedPayments((current) => current.filter((row) => row.id !== rowId));
+            return;
+          }
+          const parsed = parseNotifiedPayments([rawRow?.data])[0];
+          if (!parsed) return;
+          setNotifiedPayments((current) => [...current.filter((row) => row.id !== rowId), parsed]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase?.removeChannel(channel);
+    };
+  }, [options.dataOwnerUserId]);
 
   const notifiedRows = useMemo(() => {
     const getClient = (clientId: string): Client | null => clients.find((client) => client.id === clientId) ?? null;
@@ -161,6 +194,7 @@ export default function useNotifiedPayments(clients: Client[], activeClients: Cl
     setNotifiedErrors([]);
     try {
       if (row.routeReportId) await options.cancelRouteReview?.(row.routeReportId);
+      await options.deleteCloudNotice?.(row.id);
       replaceNotifiedPayments(notifiedPayments.filter((current) => current.id !== row.id));
     } catch (cause) {
       console.error("No se pudo devolver el pago notificado.", cause);
