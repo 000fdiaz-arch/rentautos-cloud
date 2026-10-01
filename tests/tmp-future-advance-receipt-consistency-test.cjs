@@ -91,6 +91,26 @@ for (const fixture of cases) {
   assert.equal(state.accumulated, 15, `${fixture.name}: acumulado`);
   assert.equal(state.remaining, 15, `${fixture.name}: restante`);
 
+  const changedAccount = {
+    ...client,
+    rentAmount: 999,
+    frequency: "daily",
+    installmentsAgreed: 5,
+    installmentsIssued: 179,
+    installmentsIssuedEstimateNeedsReview: true,
+    balance: 999
+  };
+  const immutableState = resolveFutureAdvanceReceiptState(payment, changedAccount);
+  assert.equal(
+    immutableState.targetDate?.toISOString().slice(0, 10),
+    fixture.expectedDate,
+    `${fixture.name}: un cambio posterior del cliente no debe alterar el recibo`
+  );
+  const immutableText = renderToStaticMarkup(React.createElement(ReceiptCardContent, { payment, accountClient: changedAccount, format: "history" }))
+    .replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  assert.ok(immutableText.includes(fixture.single), `${fixture.name}: el recibo debe conservar su fecha historica\n${immutableText}`);
+  assert.ok(!immutableText.includes("Por definir"), `${fixture.name}: un contrato actual inconsistente no debe borrar la fecha historica`);
+
   const text = renderToStaticMarkup(React.createElement(ReceiptCardContent, { payment, accountClient: client, format: "history" }))
     .replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   assert.ok(text.includes(`Aplicado por adelantado a la cuota del ${fixture.single.toLowerCase()}.`), `${fixture.name}: banner\n${text}`);

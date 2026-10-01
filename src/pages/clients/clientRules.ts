@@ -72,15 +72,34 @@ export function getOperationalReferenceDate(now: Date): Date {
   }
 }
 
-function hasBillingRuleChanged(existing: Client, form: ClientForm): boolean {
+function hasBillingScheduleChanged(existing: Client, form: ClientForm): boolean {
   if ((existing.firstChargeDate ?? "") !== form.firstChargeDate.trim()) return true;
   if (existing.frequency !== form.frequency) return true;
+  if (form.frequency === "daily") return (existing.chargeFirstSunday ?? false) !== form.chargeFirstSunday;
   if (form.frequency === "weekly") return (existing.weeklyChargeDay ?? "monday") !== form.weeklyChargeDay;
   if (form.frequency === "monthly") return (existing.monthlyChargeDay ?? 1) !== Number(form.monthlyChargeDay);
   return false;
 }
 
-export function buildClient(form: ClientForm, existing?: Client): Client {
+export function hasContractTermsChanged(existing: Client, form: ClientForm): boolean {
+  return hasBillingScheduleChanged(existing, form) ||
+    existing.rentAmount !== Number(form.rentAmount) ||
+    existing.installmentsAgreed !== Number(form.installmentsAgreed);
+}
+
+export function calculateIssuedInstallmentsForContract(form: ClientForm): number {
+  const paid = Math.max(0, Math.floor(Number(form.installmentsPaid) || 0));
+  const balance = Math.max(0, Number(form.initialBalance) || 0);
+  const rent = Number(form.rentAmount);
+  const debtCycles = Number.isFinite(rent) && rent > 0 ? Math.ceil(balance / rent) : 0;
+  return paid + debtCycles;
+}
+
+export function buildClient(
+  form: ClientForm,
+  existing?: Client,
+  options?: { resetInstallmentsIssued?: boolean }
+): Client {
   const otherCharges: OtherCharge[] = form.otherCharges
     .filter((charge) => charge.label.trim() && parseNumberOrNull(charge.amount) !== null)
     .map((charge) => ({
@@ -100,6 +119,10 @@ export function buildClient(form: ClientForm, existing?: Client): Client {
     firstChargeAnchor.getDate() - 1
   ));
   const balance = Number(form.initialBalance);
+  const installmentsAgreed = Number(form.installmentsAgreed);
+  const installmentsIssued = options?.resetInstallmentsIssued
+    ? calculateIssuedInstallmentsForContract(form)
+    : Number(form.installmentsIssued);
   const client: Client = {
     id: existing?.id ?? crypto.randomUUID(),
     unitId: form.unitId.trim(),
@@ -116,15 +139,15 @@ export function buildClient(form: ClientForm, existing?: Client): Client {
     // credit. This keeps the account from showing debt and credit at once.
     advanceBalance: balance > 0 ? 0 : existing?.advanceBalance ?? 0,
     savings: existing?.savings ?? 0,
-    installmentsAgreed: Number(form.installmentsAgreed),
-    installmentsIssued: Number(form.installmentsIssued),
-    installmentsIssuedEstimateNeedsReview: false,
+    installmentsAgreed,
+    installmentsIssued,
+    installmentsIssuedEstimateNeedsReview: installmentsIssued > installmentsAgreed,
     installmentsRemaining: Number(form.installmentsRemaining),
     installmentsPaid: Number(form.installmentsPaid),
     otherCharges,
     createdAt: existing?.createdAt ?? now.toISOString(),
     firstChargeDate,
-    lastChargeDate: existing && !hasBillingRuleChanged(existing, form)
+    lastChargeDate: existing && !hasBillingScheduleChanged(existing, form)
       ? existing.lastChargeDate ?? firstChargeLastDate
       : firstChargeLastDate,
     archivedAt: existing?.archivedAt,

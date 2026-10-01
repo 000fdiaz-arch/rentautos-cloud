@@ -43,8 +43,10 @@ import type {
 } from "./clients/clientTypes";
 import {
   buildClient,
+  calculateIssuedInstallmentsForContract,
   createOtherChargeForm,
   getOperationalReferenceDate,
+  hasContractTermsChanged,
   normalizePhoneDigits,
   parseIntegerOrNull,
   parseNumberOrNull
@@ -66,6 +68,7 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
   const [errors, setErrors] = useState<string[]>([]);
   const [errorFields, setErrorFields] = useState<Set<string>>(new Set());
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
+  const [contractChangeDecision, setContractChangeDecision] = useState<"same" | "new" | null>(null);
   const [isFormOpen, setIsFormOpen] = useState<boolean>(!readOnly && clients.length === 0);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [exportFields, setExportFields] = useState<ExportField[]>(INITIAL_EXPORT_FIELDS);
@@ -99,6 +102,24 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
       : "";
     return fleetUnitOptions.filter((unit) => !occupiedUnitSet.has(unit) || unit === currentEditingUnit);
   }, [clients, editingClientId, fleetUnitOptions, occupiedUnitSet]);
+  const editingClient = useMemo(
+    () => clients.find((client) => client.id === editingClientId) ?? null,
+    [clients, editingClientId]
+  );
+  const contractTermsChanged = editingClient ? hasContractTermsChanged(editingClient, form) : false;
+  const issuanceNeedsReview = Boolean(editingClient && (
+    editingClient.installmentsIssuedEstimateNeedsReview ||
+    (editingClient.installmentsIssued ?? 0) > editingClient.installmentsAgreed
+  ));
+  const contractDecisionRequired = Boolean(editingClient && (contractTermsChanged || issuanceNeedsReview));
+  const recalculatedInstallmentsIssued = calculateIssuedInstallmentsForContract(form);
+  const issuanceReviewClients = useMemo(
+    () => clients.filter((client) =>
+      client.installmentsIssuedEstimateNeedsReview ||
+      (client.installmentsIssued ?? 0) > client.installmentsAgreed
+    ),
+    [clients]
+  );
   const provisionalRentalClient = useMemo(
     () => clients.find((client) => client.id === provisionalRentalClientId) ?? null,
     [clients, provisionalRentalClientId]
@@ -287,6 +308,16 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
     if (readOnly) return;
     const value = Number(rawValue);
     if (!Number.isInteger(value) || value < 0) return;
+    if (field === "agreed" && value !== client.installmentsAgreed) {
+      // Changing the contract total must go through the guarded edit flow so
+      // the operator explicitly chooses whether this is a new contract.
+      handleStartEditClient(client, {
+        installmentsAgreed: String(value),
+        installmentsRemaining: String(Math.max(0, value - Math.min(client.installmentsPaid, value)))
+      });
+      setEditClientTab("plan");
+      return;
+    }
     updateClientInline(client.id, (current) => {
       const installmentsAgreed = field === "agreed" ? value : current.installmentsAgreed;
       const installmentsPaid = Math.min(field === "paid" ? value : current.installmentsPaid, installmentsAgreed);
@@ -557,7 +588,36 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
     if (editingClientId !== null) {
       const existing = clients.find((client) => client.id === editingClientId);
       if (!existing) { setErrors(["No se encontro el cliente a editar."]); return; }
-      const nextClient = buildClient(normalizedForm, existing);
+      const changedContractTerms = hasContractTermsChanged(existing, normalizedForm);
+      const needsIssuanceRepair = existing.installmentsIssuedEstimateNeedsReview === true ||
+        (existing.installmentsIssued ?? 0) > existing.installmentsAgreed;
+      if ((changedContractTerms || needsIssuanceRepair) && contractChangeDecision === null) {
+        setErrors(["Debes indicar si conservaras el contrato actual o recalcularas las cuotas emitidas."]);
+        setErrorFields(new Set(["installmentsIssued"]));
+        setEditClientTab("plan");
+        return;
+      }
+      const resetInstallmentsIssued = contractChangeDecision === "new" && (changedContractTerms || needsIssuanceRepair);
+      if (
+        resetInstallmentsIssued &&
+        changedContractTerms &&
+        normalizedForm.firstChargeDate.trim() === (existing.firstChargeDate ?? "")
+      ) {
+        setErrors(["Para iniciar un contrato nuevo debes indicar su nueva fecha de primer cobro."]);
+        setErrorFields(new Set(["firstChargeDate"]));
+        setEditClientTab("identidad");
+        return;
+      }
+      const nextClient = buildClient(normalizedForm, existing, { resetInstallmentsIssued });
+      if ((nextClient.installmentsIssued ?? 0) > nextClient.installmentsAgreed) {
+        setErrors([
+          `No se puede guardar: hay ${nextClient.installmentsIssued ?? 0} cuotas emitidas y solo ${nextClient.installmentsAgreed} pactadas. ` +
+          "Selecciona recalcular las cuotas emitidas o corrige las cuotas pactadas."
+        ]);
+        setErrorFields(new Set(["installmentsIssued", "installmentsAgreed"]));
+        setEditClientTab("plan");
+        return;
+      }
       try {
         await persist(clients.map((client) => client.id === editingClientId ? nextClient : client));
       } catch (error) {
@@ -584,10 +644,11 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
     setErrors([]);
     setErrorFields(new Set());
     setEditingClientId(null);
+    setContractChangeDecision(null);
     setIsFormOpen(false);
   }
 
-  function handleStartEditClient(client: Client): void {
+  function handleStartEditClient(client: Client, overrides?: Partial<ClientForm>): void {
     const nextForm: ClientForm = {
       unitId: client.unitId,
       cedula: client.cedula ?? "",
@@ -607,17 +668,20 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
       installmentsPaid: String(client.installmentsPaid),
       otherCharges: sortOtherChargesOldestFirst(client.otherCharges).map((c) =>
         createOtherChargeForm({ id: c.id, label: c.label, amount: String(c.amount), createdAt: otherChargeDateKey(c) })
-      )
+      ),
+      ...overrides
     };
     setForm(recalculateInstallments(nextForm));
     setErrors([]);
     setErrorFields(new Set());
     setEditingClientId(client.id);
+    setContractChangeDecision(null);
     setEditClientTab("identidad");
   }
 
   function handleCancelEdit(): void {
     setEditingClientId(null);
+    setContractChangeDecision(null);
     setEditClientTab("identidad");
     setForm(initialForm);
     setErrors([]);
@@ -627,6 +691,7 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
 
   function handleOpenNewClient(): void {
     setEditingClientId(null);
+    setContractChangeDecision(null);
     setEditClientTab("identidad");
     setForm(initialForm);
     setErrors([]);
@@ -714,6 +779,7 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
 
   function handleCreateClientFromUnit(unitId: string): void {
     setEditingClientId(null);
+    setContractChangeDecision(null);
     setErrors([]);
     setErrorFields(new Set());
     setForm({ ...initialForm, unitId });
@@ -842,6 +908,13 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
         existingAdvanceBalance={editingClientId === null
           ? 0
           : clients.find((client) => client.id === editingClientId)?.advanceBalance ?? 0}
+        contractTermsChanged={contractTermsChanged}
+        issuanceNeedsReview={issuanceNeedsReview}
+        contractDecisionRequired={contractDecisionRequired}
+        contractChangeDecision={contractChangeDecision}
+        currentInstallmentsIssued={editingClient?.installmentsIssued ?? 0}
+        recalculatedInstallmentsIssued={recalculatedInstallmentsIssued}
+        onContractChangeDecision={setContractChangeDecision}
         onCancel={handleCancelEdit}
         form={form}
         setForm={setForm}
@@ -891,6 +964,14 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
         installmentLiveError={installmentLiveError}
         errors={errors}
       />
+
+      {issuanceReviewClients.length > 0 && (
+        <div className="payment-notice" role="alert" style={{ marginBottom: 12 }}>
+          <strong>Cuotas emitidas por revisar:</strong>{" "}
+          {issuanceReviewClients.map((client) => client.unitId).join(", ")}.
+          {readOnly ? " Un editor debe corregirlas." : " Abre cada cliente y usa la opcion de recalculo antes de guardar."}
+        </div>
+      )}
 
       <ClientsDirectoryPanel
         rows={displayedRows}

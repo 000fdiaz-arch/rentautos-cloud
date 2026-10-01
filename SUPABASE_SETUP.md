@@ -37,6 +37,7 @@ Para instalaciones existentes que ya ejecutaron las migraciones de cuentas por c
 - `supabase/64-provisional-rental-payment-balance.sql` (valida los pagos provisionales contra el saldo del alquiler sin tocar el saldo regular pausado)
 - `supabase/87-fleet-status-timeout-fast-path.sql` (evita el timeout 57014 al cambiar el estado operativo desde Autos)
 - `supabase/88-payment-insert-latest-fast-path.sql` (evita recorrer el historial completo al registrar pagos nuevos)
+- `supabase/90-payment-metadata-update-fast-path.sql` (evita recorrer el historial al marcar recibos como enviados)
 - `supabase/91-dynamic-route-assignment.sql` (habilita rutas personalizadas en Ruta en calle)
 - `supabase/92-notified-route-review-sync.sql` (comparte Pago notificado entre Pagos y Ruta en calle)
 - `supabase/93-notified-route-review-backfill.sql` (vincula avisos existentes con unidades activas de Ruta y mantiene la relación automáticamente)

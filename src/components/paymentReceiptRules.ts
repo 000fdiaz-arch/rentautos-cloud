@@ -93,32 +93,16 @@ export function findNextPaymentDateForReceipt(payment: Payment): Date | null {
   return findNextChargeDay(asClient(payment, payment.balanceAfter, advanceBalanceAfter), paymentDate);
 }
 
-export function resolveFutureAdvanceReceiptState(payment: Payment, accountClient?: Client): FutureAdvanceReceiptState {
+export function resolveFutureAdvanceReceiptState(payment: Payment, _accountClient?: Client): FutureAdvanceReceiptState {
   const rent = roundMoney(Math.max(0, payment.rentAmount));
   if (rent <= 0) return { targetDate: null, accumulated: 0, remaining: 0, hasPartial: false };
 
   const paymentDate = startOfDay(new Date(`${payment.dateApplied}T12:00:00`));
-  const matchingAccountClient = accountClient && (
-    accountClient.id === payment.clientId ||
-    accountClient.unitId.trim().toUpperCase() === payment.clientUnit.trim().toUpperCase()
-  ) ? accountClient : undefined;
-  const effectiveAdvance = roundMoney(Math.max(
-    0,
-    matchingAccountClient?.advanceBalance ?? payment.advanceBalanceAfter ?? payment.advanceApplied ?? 0
-  ));
-  const effectiveBalance = roundMoney(Math.max(0, matchingAccountClient?.balance ?? payment.balanceAfter));
-  const scheduleClient: Client = matchingAccountClient
-    ? {
-      ...matchingAccountClient,
-      rentAmount: rent,
-      frequency: payment.frequency,
-      weeklyChargeDay: payment.weeklyChargeDay ?? matchingAccountClient.weeklyChargeDay,
-      monthlyChargeDay: payment.monthlyChargeDay ?? matchingAccountClient.monthlyChargeDay,
-      chargeFirstSunday: payment.chargeFirstSunday ?? matchingAccountClient.chargeFirstSunday,
-      firstSundayChargedAt: payment.firstSundayChargedAt ?? matchingAccountClient.firstSundayChargedAt,
-      advanceBalance: effectiveAdvance
-    }
-    : asClient(payment, payment.balanceAfter, effectiveAdvance);
+  // A historical receipt is an immutable account snapshot. Using the client's
+  // current contract here can make an old receipt change after a plan edit.
+  const effectiveAdvance = roundMoney(Math.max(0, payment.advanceBalanceAfter ?? payment.advanceApplied ?? 0));
+  const effectiveBalance = roundMoney(Math.max(0, payment.balanceAfter));
+  const scheduleClient = asClient(payment, payment.balanceAfter, effectiveAdvance);
   const remainder = roundMoney(effectiveAdvance % rent);
   const hasPartial = effectiveBalance <= 0 && remainder > 0;
 

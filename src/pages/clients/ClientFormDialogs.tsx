@@ -18,6 +18,13 @@ type SharedProps = {
 type EditProps = SharedProps & {
   editingClientId: string | null;
   existingAdvanceBalance: number;
+  contractTermsChanged: boolean;
+  issuanceNeedsReview: boolean;
+  contractDecisionRequired: boolean;
+  contractChangeDecision: "same" | "new" | null;
+  currentInstallmentsIssued: number;
+  recalculatedInstallmentsIssued: number;
+  onContractChangeDecision: (decision: "same" | "new") => void;
   onCancel: () => void;
   editClientTab: EditClientTab;
   setEditClientTab: Dispatch<SetStateAction<EditClientTab>>;
@@ -40,6 +47,13 @@ function IssuedInstallmentsSummary({ value }: { value: string }) {
 export function EditClientDialog({
   editingClientId,
   existingAdvanceBalance,
+  contractTermsChanged,
+  issuanceNeedsReview,
+  contractDecisionRequired,
+  contractChangeDecision,
+  currentInstallmentsIssued,
+  recalculatedInstallmentsIssued,
+  onContractChangeDecision,
   onCancel: handleCancelEdit,
   form,
   setForm,
@@ -70,6 +84,37 @@ export function EditClientDialog({
                     <div><span className="hint">Saldo</span><p>{form.initialBalance || "0.00"}</p></div>
                   </div>
                   <IssuedInstallmentsSummary value={form.installmentsIssued} />
+                  {contractDecisionRequired && (
+                    <aside className="payment-notice" role="alert" style={{ marginBottom: 12 }}>
+                      <strong>{issuanceNeedsReview ? "Contador de cuotas inconsistente" : "Cambio de contrato detectado"}</strong>
+                      <p style={{ margin: "6px 0" }}>
+                        {issuanceNeedsReview
+                          ? "Las cuotas emitidas superan las pactadas o estan marcadas para revision. Debes recalcularlas antes de guardar."
+                          : "Indica si los cambios pertenecen al mismo contrato o si comienzan uno nuevo."}
+                      </p>
+                      {!issuanceNeedsReview && contractTermsChanged && (
+                        <label style={{ display: "block", marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>
+                          <input
+                            type="radio"
+                            name="contract-change-decision"
+                            checked={contractChangeDecision === "same"}
+                            onChange={() => onContractChangeDecision("same")}
+                          />{" "}
+                          Mismo contrato: conservar {currentInstallmentsIssued} cuotas emitidas
+                        </label>
+                      )}
+                      <label style={{ display: "block", textTransform: "none", letterSpacing: "normal" }}>
+                        <input
+                          type="radio"
+                          name="contract-change-decision"
+                          checked={contractChangeDecision === "new"}
+                          onChange={() => onContractChangeDecision("new")}
+                        />{" "}
+                        {contractTermsChanged ? "Contrato nuevo" : "Corregir contador"}: recalcular en {recalculatedInstallmentsIssued} cuotas emitidas
+                        {contractTermsChanged ? " y registrar una nueva fecha de primer cobro" : ""}
+                      </label>
+                    </aside>
+                  )}
                   <div className="cash-view-tabs" style={{ marginBottom: 12 }}>
                     <button type="button" className={`button ghost small ${editClientTab === "identidad" ? "cash-tab-active" : ""}`} onClick={() => setEditClientTab("identidad")}>Identidad</button>
                     <button type="button" className={`button ghost small ${editClientTab === "plan" ? "cash-tab-active" : ""}`} onClick={() => setEditClientTab("plan")}>Plan y Cobranza</button>

@@ -33,7 +33,7 @@ type Props = {
   payments: Payment[];
   dataOwnerUserId?: string | null;
   operationalDateKey: string;
-  onPaymentsChange: (next: Payment[]) => void;
+  onPaymentsChange: (next: Payment[]) => void | Promise<void>;
   isPaymentHistoryLoaded: boolean;
   onRefreshPayments?: () => Promise<void>;
   isDateClosed: (dateKey: string) => boolean;
@@ -468,6 +468,7 @@ async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
   if (historyCopyingPaymentId) return;
 
   const wasAlreadySent = payment.receiptDeliveryStatus !== "pending" || historyCopiedPaymentIds.has(payment.id);
+  let receiptWasCopied = false;
   setHistoryCopyingPaymentId(payment.id);
   setHistoryCopyFeedback({
     paymentId: payment.id,
@@ -477,14 +478,9 @@ async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
 
   try {
     await copyHistoryPaymentReceiptImage(payment, findAccountClient(payment));
-    setHistoryCopiedPaymentIds((previous) => {
-      if (previous.has(payment.id)) return previous;
-      const next = new Set(previous);
-      next.add(payment.id);
-      return next;
-    });
+    receiptWasCopied = true;
     if (!readOnly && payment.receiptDeliveryStatus === "pending") {
-      onPaymentsChange(
+      await onPaymentsChange(
         payments.map((row) =>
           row.id === payment.id
             ? { ...row, receiptDeliveryStatus: "sent" }
@@ -492,6 +488,12 @@ async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
         )
       );
     }
+    setHistoryCopiedPaymentIds((previous) => {
+      if (previous.has(payment.id)) return previous;
+      const next = new Set(previous);
+      next.add(payment.id);
+      return next;
+    });
     setHistoryCopyFeedback({
       paymentId: payment.id,
       tone: "success",
@@ -503,7 +505,9 @@ async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
     setHistoryCopyFeedback({
       paymentId: payment.id,
       tone: "error",
-      message: `No se pudo copiar ${payment.receiptNumber}. Permite el acceso al portapapeles e intenta nuevamente.`
+      message: receiptWasCopied
+        ? `${payment.receiptNumber} se copió, pero no se pudo marcar como enviado. Intenta nuevamente.`
+        : `No se pudo copiar ${payment.receiptNumber}. Permite el acceso al portapapeles e intenta nuevamente.`
     });
   } finally {
     setHistoryCopyingPaymentId(null);

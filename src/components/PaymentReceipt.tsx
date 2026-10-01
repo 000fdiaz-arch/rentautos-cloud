@@ -229,11 +229,7 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
   const hasMoroseBalance = moroseBalanceToday > 0;
   const normalizedRent = roundMoney(Math.max(0, payment.rentAmount));
   const nextChargeDate = normalizedRent > 0 ? findNextChargeDay(minimalClientWithoutAdvance, paymentDate) : null;
-  const matchingAccountClient = accountClient && (
-    accountClient.id === payment.clientId ||
-    accountClient.unitId.trim().toUpperCase() === payment.clientUnit.trim().toUpperCase()
-  ) ? accountClient : undefined;
-  const futureAdvanceState = resolveFutureAdvanceReceiptState(payment, matchingAccountClient);
+  const futureAdvanceState = resolveFutureAdvanceReceiptState(payment);
   const nextPaymentDate = normalizedRent > 0 ? futureAdvanceState.targetDate : null;
   const debtStartDate = normalizedRent > 0 && hasMoroseBalance ? findDebtStartDateForReceipt(payment, paymentDate) : null;
   const badgeDate = hasMoroseBalance ? debtStartDate : nextPaymentDate;
@@ -358,7 +354,7 @@ export function ReceiptCardContent({ payment, format = "standard", accountClient
   }
 
   if (format === "history") {
-    const coveredRows = buildCoveredPaymentRows(payment, matchingAccountClient);
+    const coveredRows = buildCoveredPaymentRows(payment);
     const partialRow = coveredRows.find((row) => row.status === "partial");
     const isFutureAdvancePartial = !hasPending && ((!!partialRow && advanceApplied > 0) || currentFuturePendingAmount > 0);
     const missingForPartial = partialRow?.amount && normalizedRent > 0
