@@ -610,6 +610,12 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
 
   async function saveFudProgress(claim: InsuranceClaimRecord): Promise<void> {
     if (!dataOwnerUserId || readOnly || fudCompletionSavingId) return;
+    if (missingFudCompletionRequirements(fudCompletionForm).length === 0) {
+      setMessage(fudCompletionForm.managementNote.trim()
+        ? "La información del FUD ya está completa. Usa “Completar FUD” para retirar la alerta."
+        : "La información del FUD ya está completa. Escribe el registro de la gestión y usa “Completar FUD”.");
+      return;
+    }
     if (!fudCompletionForm.managementNote.trim()) {
       setMessage("Escribe el registro de la gestión para guardar el avance.");
       return;
@@ -1248,6 +1254,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
               const fudCompletionMissing = completingFudClaimId === claim.id
                 ? missingFudCompletionRequirements(fudCompletionForm)
                 : [];
+              const fudCompletionDataReady = completingFudClaimId === claim.id && fudCompletionMissing.length === 0;
               return (
               <article key={claim.id} className={`workflow-claim-card${expanded ? " expanded" : ""}`}>
                 <div className="workflow-claim-summary">
@@ -1320,10 +1327,10 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                         {fudCompletionForm.hasClaimNumber === "yes" && <label className={!fudCompletionForm.claimNumber.trim() ? "workflow-required-field" : ""}>Número de reclamo<input value={fudCompletionForm.claimNumber} placeholder="Escribe el número" onChange={(event) => setFudCompletionForm((current) => ({ ...current, claimNumber: event.target.value }))} /></label>}
                         <label className="workflow-claim-edit-wide">Copia digital del FUD <small>Opcional temporalmente</small><input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => selectFudCompletionFile(event.target.files?.[0])} /><span className="hint">{fudCompletionFile ? `Seleccionado: ${fudCompletionFile.name}` : claim.fudAttachment ? `Adjunto actual: ${claim.fudAttachment.name}` : "Puedes continuar sin archivo; quedará una alerta activa. PDF o imagen · máximo 10 MB"}</span></label>
                         <label className="workflow-claim-edit-wide collision-client-returned-option"><input type="checkbox" checked={fudCompletionForm.physicalDeliveryConfirmed} onChange={(event) => setFudCompletionForm((current) => ({ ...current, physicalDeliveryConfirmed: event.target.checked }))} /><span><strong>Confirmo que el FUD original fue recibido presencialmente</strong><small>Una foto, PDF o envío digital no sustituye la entrega física.</small></span></label>
-                        <div className={`workflow-claim-edit-wide fud-completion-readiness${fudCompletionMissing.length > 0 ? " is-incomplete" : " is-complete"}`}><strong>{fudCompletionMissing.length > 0 ? "Información pendiente para completar el FUD" : "Información del FUD completa"}</strong>{fudCompletionMissing.length > 0 ? <ul>{fudCompletionMissing.map((requirement) => <li key={requirement}>{requirement}</li>)}</ul> : <span>Ya puedes completar el FUD. Si solo deseas conservar los cambios, usa “Guardar avance”.</span>}</div>
+                        <div className={`workflow-claim-edit-wide fud-completion-readiness${fudCompletionMissing.length > 0 ? " is-incomplete" : " is-complete"}`}><strong>{fudCompletionMissing.length > 0 ? "Información pendiente para completar el FUD" : "Información del FUD completa"}</strong>{fudCompletionMissing.length > 0 ? <ul>{fudCompletionMissing.map((requirement) => <li key={requirement}>{requirement}</li>)}</ul> : <span>{fudCompletionForm.managementNote.trim() ? "Todo listo. Usa “Completar FUD” para retirar la alerta." : "Agrega el registro de la gestión y luego usa “Completar FUD”."}</span>}</div>
                         <label className={`workflow-claim-edit-wide${!fudCompletionForm.managementNote.trim() ? " workflow-required-field" : ""}`}>Registro de la gestión<textarea value={fudCompletionForm.managementNote} placeholder="Ej. FUD original recibido y datos verificados" onChange={(event) => setFudCompletionForm((current) => ({ ...current, managementNote: event.target.value }))} /></label>
                       </div>
-                      <div className="workflow-claim-edit-actions"><button type="button" className="button" onClick={cancelFudCompletion} disabled={fudCompletionSavingId === claim.id}>Cancelar</button><button type="button" className="button" onClick={() => void saveFudProgress(claim)} disabled={fudCompletionSavingId === claim.id}>{fudCompletionSavingId === claim.id ? "Guardando..." : "Guardar avance"}</button><button type="button" className="button primary" onClick={() => void completeFudDocumentation(claim)} disabled={fudCompletionSavingId === claim.id || fudCompletionMissing.length > 0 || !fudCompletionForm.managementNote.trim()} title={fudCompletionMissing.length > 0 ? `Falta: ${fudCompletionMissing.join(", ")}` : undefined}>{fudCompletionSavingId === claim.id ? "Guardando..." : "Completar FUD"}</button></div>
+                      <div className="workflow-claim-edit-actions"><button type="button" className="button" onClick={cancelFudCompletion} disabled={fudCompletionSavingId === claim.id}>Cancelar</button><button type="button" className="button" onClick={() => void saveFudProgress(claim)} disabled={fudCompletionSavingId === claim.id || fudCompletionDataReady} title={fudCompletionDataReady ? "La información está completa; usa Completar FUD." : undefined}>{fudCompletionSavingId === claim.id ? "Guardando..." : "Guardar avance"}</button><button type="button" className="button primary" onClick={() => void completeFudDocumentation(claim)} disabled={fudCompletionSavingId === claim.id || fudCompletionMissing.length > 0 || !fudCompletionForm.managementNote.trim()} title={fudCompletionMissing.length > 0 ? `Falta: ${fudCompletionMissing.join(", ")}` : undefined}>{fudCompletionSavingId === claim.id ? "Guardando..." : "Completar FUD"}</button></div>
                     </div>
                   )}
                 </div>}

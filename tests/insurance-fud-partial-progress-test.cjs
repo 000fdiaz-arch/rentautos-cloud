@@ -22,6 +22,15 @@ if (!progressHandler.includes("Escribe el registro de la gestión para guardar e
 if (progressHandler.includes("!fudCompletionForm.deliveryDate ||") || progressHandler.includes("!fudCompletionForm.physicalDeliveryConfirmed")) {
   throw new Error("La fecha y la entrega presencial no deben bloquear el guardado parcial.");
 }
+if (!progressHandler.includes("missingFudCompletionRequirements(fudCompletionForm).length === 0")) {
+  throw new Error("Guardar avance debe rechazar un FUD que ya está listo para completarse.");
+}
+if (!source.includes("fudCompletionSavingId === claim.id || fudCompletionDataReady")) {
+  throw new Error("Guardar avance debe quedar deshabilitado cuando todos los datos del FUD están completos.");
+}
+if (!source.includes("Todo listo. Usa “Completar FUD” para retirar la alerta.")) {
+  throw new Error("La interfaz debe dirigir al usuario a Completar FUD cuando ya no faltan datos.");
+}
 if (!completionHandler.includes("missingFudCompletionRequirements") || !completionHandler.includes("documentationPending: false")) {
   throw new Error("Completar el FUD debe validar todos los requisitos y retirar la alerta.");
 }
