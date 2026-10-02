@@ -3,6 +3,10 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
 const source = fs.readFileSync(path.join(root, "src/pages/CollisionsPage.tsx"), "utf8");
+const completionGuardMigration = fs.readFileSync(
+  path.join(root, "supabase/migrations/20261002000100_collision_completion_guard_after_upsert.sql"),
+  "utf8"
+);
 
 function section(startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -103,6 +107,11 @@ assertIncludes(
   source,
   "collision-resolution-inline-message",
   "El resultado debe mostrar el progreso o error junto al botón de guardar resolución."
+);
+assertIncludes(
+  completionGuardMigration,
+  "after insert or update of data on public.collision_cases_cloud",
+  "El guard de cierre debe ejecutarse después de resolver el upsert de un expediente existente."
 );
 
 console.log("OK resolución judicial: la absolución conserva el cargo y la resolución libera el saldo una sola vez.");
