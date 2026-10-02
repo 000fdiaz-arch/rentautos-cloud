@@ -12,6 +12,7 @@ import type { LeadDecision, LeadEvaluation, SellerLeadRequest, SellerLeadRequest
 import { sellerCedulaKey, validSellerCedula, validSellerCedulaInput, validSellerBirthDate } from "../sellerLeadPortalRules";
 import { calculateLeadAgeExtraDeposit } from "../leadAgeRules";
 import LeadDocumentPreview from "../components/LeadDocumentPreview";
+import LeadPdfPreview from "../components/LeadPdfPreview";
 
 type LeadForm = {
   cedula: string;
@@ -850,6 +851,8 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
                 <button type="button" className="button ghost small" disabled={documentLoading} onClick={() => void handleLoadDocument()}>{documentLoading ? "Cargando documento..." : "Ver documento"}</button>
               ) : form.attachmentDataUrl.startsWith("data:image/") ? (
                 <LeadDocumentPreview key={form.attachmentDataUrl} src={form.attachmentDataUrl} name={form.attachmentName} />
+              ) : form.attachmentDataUrl.startsWith("data:application/pdf") ? (
+                <LeadPdfPreview key={form.attachmentDataUrl} src={form.attachmentDataUrl} name={form.attachmentName} />
               ) : (
                 <p className="lead-document-file">{form.attachmentName}</p>
               )}
