@@ -34,6 +34,7 @@ export type IncidentManagementAction = "finalize_claim";
 
 type AreaFilter = "pending" | "judicial" | "insurance" | "finalized";
 type NextActionCategory = "destination_resolution" | "documentation" | "judicial_management" | "judicial_workshop" | "judicial_balance" | "judicial_attendance" | "judicial_result" | "judicial_resolution" | "start_claim" | "claim_number" | "insurance_follow_up" | "finalize_claim";
+type NextActionFilterGroup = "complete_record" | "manage_process" | "resolve_close";
 type ActionTimingFilter = "all" | "overdue" | "today" | "upcoming";
 type DateFieldFilter = "incident" | "next_action";
 type IncidentSort = "incident_asc" | "incident_desc" | "action_asc" | "updated_desc" | "unit_asc";
@@ -215,9 +216,36 @@ function visibleNextAction(incident: UnifiedIncident): string | null {
   return incident.nextAction.trim() || "Acción pendiente";
 }
 
-function nextActionGroup(incident: UnifiedIncident): { value: string; label: string } | null {
+const nextActionFilterGroups: ReadonlyArray<{ value: NextActionFilterGroup; label: string }> = [
+  { value: "complete_record", label: "Completar expediente" },
+  { value: "manage_process", label: "Gestionar trámite" },
+  { value: "resolve_close", label: "Resolver y cerrar" }
+];
+
+function nextActionGroup(incident: UnifiedIncident): { value: NextActionFilterGroup; label: string } | null {
   if (incident.finalized) return null;
-  return { value: incident.action.key, label: incident.action.groupLabel };
+  const groupValue: NextActionFilterGroup = (() => {
+    switch (incident.action.category) {
+      case "documentation":
+      case "judicial_workshop":
+      case "judicial_balance":
+      case "judicial_attendance":
+      case "claim_number":
+        return "complete_record";
+      case "judicial_management":
+      case "start_claim":
+      case "insurance_follow_up":
+        return "manage_process";
+      case "destination_resolution":
+      case "judicial_result":
+      case "judicial_resolution":
+      case "finalize_claim":
+        return "resolve_close";
+      default:
+        return "manage_process";
+    }
+  })();
+  return nextActionFilterGroups.find((group) => group.value === groupValue)!;
 }
 
 type IncidentActionSchedule = {
@@ -843,13 +871,12 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     });
   }, [actionTimingFilter, courtFilter, dateFieldFilter, dateFrom, dateTo, filter, incidents, insurerFilter, search]);
   const nextActionOptions = useMemo(() => {
-    const counts = new Map<string, { value: string; label: string; count: number }>();
+    const counts = new Map<NextActionFilterGroup, number>(nextActionFilterGroups.map((group) => [group.value, 0]));
     incidentsMatchingActionContext.forEach((incident) => {
       const group = nextActionGroup(incident);
-      if (group) counts.set(group.value, { ...group, count: (counts.get(group.value)?.count ?? 0) + 1 });
+      if (group) counts.set(group.value, (counts.get(group.value) ?? 0) + 1);
     });
-    return [...counts.values()]
-      .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "es", { sensitivity: "base" }));
+    return nextActionFilterGroups.map((group) => ({ ...group, count: counts.get(group.value) ?? 0 }));
   }, [incidentsMatchingActionContext]);
   const nextActionTotal = useMemo(() => nextActionOptions.reduce((total, option) => total + option.count, 0), [nextActionOptions]);
   const insurers = useMemo(() => Array.from(new Set(incidents
@@ -1001,7 +1028,6 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           <label className="incident-next-action-filter"><span className="unified-incidents-filter-label-with-count">Próx. acción <b>{nextActionTotal}</b></span>
             <select value={nextActionFilter} onChange={(event) => setNextActionFilter(event.target.value)}>
               <option value="all">Todas pendientes ({nextActionTotal})</option>
-              {nextActionFilter !== "all" && !nextActionOptions.some((option) => option.value === nextActionFilter) && <option value={nextActionFilter}>{incidents.find((incident) => incident.action.key === nextActionFilter)?.action.groupLabel ?? "Acción seleccionada"} (0)</option>}
               {nextActionOptions.map((option) => <option key={option.value} value={option.value}>{option.label} ({option.count})</option>)}
             </select>
           </label>

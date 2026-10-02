@@ -41,12 +41,13 @@ assert.equal(resolution.date, "2026-09-20");
 assert.notEqual(resolution.key, fudDelivery.key);
 assert.equal(fudDelivery.groupLabel, "Coordinar entrega presencial del FUD");
 assert.equal(fudDelivery.destination, "insurance");
-assert.equal(nextActionGroup({ action: resolution, finalized: false }).value, "judicial_resolution");
+assert.deepEqual(nextActionGroup({ action: resolution, finalized: false }), { value: "resolve_close", label: "Resolver y cerrar" });
 assert.equal(incidentActionSchedule({ action: resolution, finalized: false }).date, "2026-09-20");
 
 const fudAttachment = claimNextAction({ ...claim, fudPhysicalDeliveryConfirmed: true });
 assert.equal(fudAttachment.key, "fud_attachment");
 assert.equal(fudAttachment.groupLabel, "Adjuntar copia digital del FUD");
+assert.deepEqual(nextActionGroup({ action: fudAttachment, finalized: false }), { value: "complete_record", label: "Completar expediente" });
 
 const fudCompletion = claimNextAction({ ...claim, fudPhysicalDeliveryConfirmed: true, fudAttachment: { path: "fud.pdf" } });
 assert.equal(fudCompletion.key, "fud_completion");
@@ -54,6 +55,9 @@ assert.equal(fudCompletion.key, "fud_completion");
 const judicialResult = collisionNextAction({ ...collision, status: "PENDIENTE", trialDate: "2026-09-20" }, null);
 assert.equal(judicialResult.key, "judicial_result");
 assert.notEqual(judicialResult.key, resolution.key);
+
+const insuranceFollowUp = claimNextAction({ ...claim, documentationPending: false, claimNumber: "R-123", status: "Activo" });
+assert.deepEqual(nextActionGroup({ action: insuranceFollowUp, finalized: false }), { value: "manage_process", label: "Gestionar trámite" });
 
 const administrativeClosure = collisionNextAction({ ...collision, status: "CIERRE ADMINISTRATIVO" }, null);
 assert.equal(administrativeClosure.finalized, true);

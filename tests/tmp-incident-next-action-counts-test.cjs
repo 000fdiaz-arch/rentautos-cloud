@@ -15,8 +15,10 @@ assert.match(page, /"judicial_resolution", `Buscar y adjuntar resolución judici
 assert.match(page, /"judicial_result", "Registrar resultado del juicio"/);
 assert.match(page, /"start_claim", "Iniciar reclamo al seguro"/);
 assert.match(page, /"finalize_claim", "Finalizar reclamo"/);
-assert.match(page, /label: incident\.action\.groupLabel/);
-assert.doesNotMatch(page, /"Documentación \/ FUD"/);
+assert.match(page, /"complete_record", label: "Completar expediente"/);
+assert.match(page, /"manage_process", label: "Gestionar trámite"/);
+assert.match(page, /"resolve_close", label: "Resolver y cerrar"/);
+assert.match(page, /nextActionFilterGroups\.map\(\(group\) => \(\{ \.\.\.group, count:/);
 assert.match(page, /nextActionGroup/);
 assert.match(page, /nextActionOptions/);
 assert.match(page, /nextActionTotal/);
