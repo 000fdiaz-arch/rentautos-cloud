@@ -16972,6 +16972,24 @@ button.ar-route-publish-copy.is-active {
   padding: 9px 11px;
 }
 
+.collision-resolution-inline-message {
+  grid-column: 1 / -1;
+  margin: 0;
+  border: 1px solid #99f6e4;
+  border-radius: 8px;
+  background: #f0fdfa;
+  color: #0f766e;
+  font-size: 0.82rem;
+  font-weight: 850;
+  padding: 9px 11px;
+}
+
+.collision-resolution-inline-message.is-error {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
 .collision-workshop-panel {
   border-color: #14b8a6;
   background: #f0fdfa;

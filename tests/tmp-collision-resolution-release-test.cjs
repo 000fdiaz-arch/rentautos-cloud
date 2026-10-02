@@ -73,6 +73,16 @@ assertIncludes(
   "await saveCollisionCase(dataOwnerUserId, item)",
   "Si falla el estado de cuenta, el expediente debe intentar revertirse."
 );
+assertIncludes(
+  resolutionHandler,
+  'let saveStep = "subir el archivo de la resolución"',
+  "El guardado debe identificar si el fallo ocurrió durante la carga del archivo."
+);
+assertIncludes(
+  resolutionHandler,
+  "judicialResolutionFailureMessage(saveStep, error)",
+  "El error de la nube debe convertirse en un mensaje visible y accionable."
+);
 
 const deleteHandler = section(
   "async function deleteJudicialResolution(item: CollisionCaseRecord)",
@@ -88,6 +98,11 @@ assertIncludes(
   source,
   "Guardar resolución y retirar saldo",
   "La interfaz debe explicar el efecto financiero antes de guardar la resolución."
+);
+assertIncludes(
+  source,
+  "collision-resolution-inline-message",
+  "El resultado debe mostrar el progreso o error junto al botón de guardar resolución."
 );
 
 console.log("OK resolución judicial: la absolución conserva el cargo y la resolución libera el saldo una sola vez.");
