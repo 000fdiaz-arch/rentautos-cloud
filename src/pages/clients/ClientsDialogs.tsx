@@ -1,4 +1,3 @@
-import type { Dispatch, SetStateAction } from "react";
 import { formatCurrency } from "../../format";
 import { otherChargeDateKey, sortOtherChargesOldestFirst } from "../../otherCharges";
 import type { Client } from "../../types";
@@ -10,13 +9,6 @@ export type ConfirmDialogValue = {
   variant: "warning" | "danger";
   onConfirm: () => void | Promise<void>;
 };
-
-export type StatusDialogValue = {
-  clientId: string;
-  nextStatus: Client["status"];
-  comment: string;
-};
-
 
 export type FleetDetail = {
   plate?: string | null;
@@ -55,48 +47,6 @@ export function ConfirmDialog({
     </div>
   );
 }
-
-export function StatusChangeDialog({
-  dialog,
-  setDialog,
-  onConfirm
-}: {
-  dialog: StatusDialogValue | null;
-  setDialog: Dispatch<SetStateAction<StatusDialogValue | null>>;
-  onConfirm: () => void | Promise<void>;
-}) {
-  if (!dialog) return null;
-  return (
-    <div className="modal-overlay" onClick={() => setDialog(null)}>
-      <div className="modal confirm-modal" onClick={(event) => event.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Cambiar estado</h2>
-          <button type="button" className="modal-close" onClick={() => setDialog(null)}>X</button>
-        </div>
-        <div className="confirm-modal-body">
-          <p>
-            Confirma el cambio a <strong>{STATUS_LABEL[dialog.nextStatus]}</strong> e indica el motivo:
-          </p>
-          <textarea
-            className="pause-comment-input"
-            placeholder="Ej. Acuerdo de pago, reparacion en unidad, negociacion..."
-            value={dialog.comment}
-            onChange={(event) => setDialog((current) => current ? { ...current, comment: event.target.value } : current)}
-            rows={3}
-            autoFocus
-          />
-          <div className="confirm-modal-actions" style={{ marginTop: 16 }}>
-            <button type="button" className="button primary" onClick={onConfirm} disabled={dialog.comment.trim().length === 0}>
-              Confirmar
-            </button>
-            <button type="button" className="button ghost" onClick={() => setDialog(null)}>Cancelar</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 
 export function VehicleInfoDialog({
   unitId,

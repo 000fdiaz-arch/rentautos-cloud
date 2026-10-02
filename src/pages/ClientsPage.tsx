@@ -21,11 +21,9 @@ import {
 import {
   ClientInfoDialog,
   ConfirmDialog,
-  StatusChangeDialog,
   VehicleInfoDialog,
   type ConfirmDialogValue,
-  type FleetDetail,
-  type StatusDialogValue
+  type FleetDetail
 } from "./clients/ClientsDialogs";
 import { CreateClientDialog, EditClientDialog } from "./clients/ClientFormDialogs";
 import { ClientsDirectoryPanel } from "./clients/ClientsDirectoryPanel";
@@ -75,7 +73,6 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogValue | null>(null);
-  const [statusDialog, setStatusDialog] = useState<StatusDialogValue | null>(null);
   const [editClientTab, setEditClientTab] = useState<EditClientTab>("identidad");
   const [clientsViewTab, setClientsViewTab] = useState<ClientsViewTab>("current");
   const [fleetUnitOptions, setFleetUnitOptions] = useState<string[]>([]);
@@ -699,10 +696,6 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
     setIsFormOpen(true);
   }
 
-  function requiresComment(nextStatus: Client["status"]): boolean {
-    return nextStatus === "taller" || nextStatus === "chapisteria" || nextStatus === "custodia" || nextStatus === "archivado";
-  }
-
   function applyClientStatusChange(client: Client, nextStatus: Client["status"], comment: string): Client {
     const normalizedComment = comment.trim() || undefined;
     if (nextStatus === "activo") {
@@ -746,35 +739,10 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
 
   function handleStatusSelection(client: Client, nextStatus: Client["status"]): void {
     if (nextStatus === client.status) return;
-
-    const needsComment = requiresComment(nextStatus);
-    if (!needsComment) {
-      void applyClientStatusThroughFleet(client, nextStatus, "").catch((error) => {
-        console.error("No se pudo guardar el cambio de estado desde Autos.", error);
-        setErrors(["No se pudo guardar el cambio de estado en la nube. Intenta de nuevo."]);
-      });
-      return;
-    }
-    setStatusDialog({ clientId: client.id, nextStatus, comment: "" });
-  }
-
-  async function handleConfirmStatusChange(): Promise<void> {
-    if (!statusDialog) return;
-    const comment = statusDialog.comment.trim();
-    if (requiresComment(statusDialog.nextStatus) && !comment) return;
-    try {
-      const client = clients.find((current) => current.id === statusDialog.clientId);
-      if (!client) {
-        setErrors(["No se encontro el cliente para cambiar estado."]);
-        return;
-      }
-      await applyClientStatusThroughFleet(client, statusDialog.nextStatus, comment);
-    } catch (error) {
+    void applyClientStatusThroughFleet(client, nextStatus, "").catch((error) => {
       console.error("No se pudo guardar el cambio de estado desde Autos.", error);
       setErrors(["No se pudo guardar el cambio de estado en la nube. Intenta de nuevo."]);
-      return;
-    }
-    setStatusDialog(null);
+    });
   }
 
   function handleCreateClientFromUnit(unitId: string): void {
@@ -929,7 +897,6 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
       />
 
       <ConfirmDialog dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
-      <StatusChangeDialog dialog={statusDialog} setDialog={setStatusDialog} onConfirm={handleConfirmStatusChange} />
       <VehicleInfoDialog unitId={vehicleInfoUnit} detailsByUnit={fleetDetailsByUnit} onClose={() => setVehicleInfoUnit(null)} />
       <ClientInfoDialog clientId={clientInfoId} clients={clients} onClose={() => setClientInfoId(null)} />
       <ProvisionalRentalDialog
