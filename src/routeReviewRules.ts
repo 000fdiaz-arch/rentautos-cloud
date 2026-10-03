@@ -16,6 +16,7 @@ function routeReportBusinessDateKey(value: string): string | null {
 }
 
 export function isPendingCashRouteReport(report?: RoutePaymentReport): boolean {
+  // Un reporte mixto sigue pendiente mientras falte el recibo de cualquiera de sus partes.
   return report?.status === "review" && report.cash_amount > report.confirmed_cash_amount;
 }
 
