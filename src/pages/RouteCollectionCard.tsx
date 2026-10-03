@@ -115,7 +115,7 @@ export default function RouteCollectionCard(props: Props) {
       <span className="route-collection-tag">Vehículo en custodia</span>
       <p className="route-collection-context">Desde {when(item.custodySince)}</p>
     </> : report && (view === "review" || view === "confirmed") ? <>
-      <span className={`route-collection-tag ${view === "confirmed" ? "route-collection-tag--confirmed" : ""}`}>{acceptedBankSavings ? "Pago confirmado con diferencia" : view === "confirmed" ? "Pago confirmado" : report.method === "cash" ? "Efectivo" : report.method === "mixed" ? "Pago mixto por confirmar" : "Banca por confirmar"}</span>
+      <span className={`route-collection-tag ${view === "confirmed" ? "route-collection-tag--confirmed" : ""}`}>{acceptedBankSavings ? "Pago confirmado con diferencia" : view === "confirmed" ? "Pago confirmado" : pendingCash && report.bank_amount <= report.confirmed_bank_amount ? "Efectivo pendiente" : report.method === "cash" ? "Efectivo pendiente" : report.method === "mixed" ? "Pago mixto por confirmar" : "Banca por confirmar"}</span>
       <p className="route-collection-amount">{report.method === "cash" || view === "confirmed" ? "Pagó" : "Reportó"} {formatCurrency(report.amount)}</p>
       {acceptedBankSavings ? <div className="route-collection-accepted-difference" aria-label="Diferencia bancaria aceptada">
         <span>Reportó <strong>{formatCurrency(report.amount)}</strong></span>

@@ -87,7 +87,7 @@ async function loadRoutePaymentReportsUncached(ownerId: string, options: RoutePa
       .eq("user_id", ownerId).neq("status", "cancelled").order("reported_at", { ascending: false })
       .order("id").range(offset, offset + PAGE_SIZE - 1);
     if (options.reviewOnly || options.pendingCashOnly) query = query.eq("status", "review");
-    if (options.pendingCashOnly) query = query.eq("method", "cash").eq("confirmed_cash_amount", 0);
+    if (options.pendingCashOnly) query = query.gt("cash_amount", 0).eq("confirmed_cash_amount", 0);
     const { data, error } = await query;
     if (error) throw error;
     rows.push(...(data ?? []).map((row) => normalizeRoutePaymentReport(row)));
@@ -130,7 +130,7 @@ export async function loadRoutePaymentReportForItem(ownerId: string, clientId: s
 
 export async function loadNextPendingCashRouteReport(ownerId: string, excludedIds: string[]): Promise<RoutePaymentReport | null> {
   let query = getCloudClient().from("route_payment_reports").select("*")
-    .eq("user_id", ownerId).eq("status", "review").eq("method", "cash")
+    .eq("user_id", ownerId).eq("status", "review").gt("cash_amount", 0)
     .eq("confirmed_cash_amount", 0).order("reported_at", { ascending: false }).order("id").limit(1);
   if (excludedIds.length > 0) query = query.not("id", "in", `(${excludedIds.join(",")})`);
   const { data, error } = await query.maybeSingle();

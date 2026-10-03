@@ -551,10 +551,7 @@ export default function RouteSearchPage({
   }), [confirmedReports, businessDateKey]);
   const confirmedPrevious = useMemo(() => confirmedReports.filter(report => !confirmedToday.includes(report)), [confirmedReports, confirmedToday]);
   const visibleConfirmedReports = confirmedPeriod === "today" ? confirmedToday : confirmedPrevious;
-  const reviewReports = useMemo(() => reports.filter((report) => (
-    report.status === "review"
-    && report.bank_amount > report.confirmed_bank_amount
-  )), [reports]);
+  const reviewReports = useMemo(() => reports.filter((report) => report.status === "review"), [reports]);
 
   const activeItems = useMemo<Array<ActiveRouteItem & { report?: RoutePaymentReport }>>(() => (
     workflowView === "work" ? workItems : workflowView === "custody" ? custodyItems : workflowView === "partial" ? partialReviewItems : (workflowView === "confirmed" ? visibleConfirmedReports : reviewReports)
@@ -865,7 +862,8 @@ export default function RouteSearchPage({
   function openPaymentDialog(item: ActiveRouteItem, report?: RoutePaymentReport): void {
     setPaymentTarget(item);
     setPaymentReport(report ?? null);
-    setPaymentAmount(report ? String(report.amount) : item.releaseAmount > 0 ? String(item.releaseAmount) : "");
+    const pendingCashAmount = report ? Math.max(0, report.cash_amount - report.confirmed_cash_amount) : 0;
+    setPaymentAmount(report ? String(pendingCashAmount) : item.releaseAmount > 0 ? String(item.releaseAmount) : "");
     setPaymentMethod("cash");
     setPaymentTeam("");
     setPaymentError("");
@@ -890,8 +888,9 @@ export default function RouteSearchPage({
         if (!dataOwnerUserId || registeredReportIds.includes(paymentReport.id)) throw new Error("Este reporte ya fue registrado. Actualiza la ruta.");
         const latest = await loadRoutePaymentReport(dataOwnerUserId, paymentReport.id);
         if (latest) setReports((current) => applyRouteReportDelta(current, { id: latest.id, report: latest }));
-        if (!latest || latest.status !== "review" || latest.method !== "cash" || latest.confirmed_cash_amount > 0
-          || latest.amount !== amount || paymentMethod !== "cash") {
+        const pendingCashAmount = latest ? Math.max(0, latest.cash_amount - latest.confirmed_cash_amount) : 0;
+        if (!latest || !isPendingCashRouteReport(latest)
+          || Math.abs(pendingCashAmount - amount) >= 0.005 || paymentMethod !== "cash") {
           throw new Error("El reporte cambió o ya fue confirmado. Cierra esta ventana y actualiza la ruta.");
         }
       }

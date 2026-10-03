@@ -16,7 +16,7 @@ function routeReportBusinessDateKey(value: string): string | null {
 }
 
 export function isPendingCashRouteReport(report?: RoutePaymentReport): boolean {
-  return report?.status === "review" && report.method === "cash" && report.confirmed_cash_amount === 0;
+  return report?.status === "review" && report.cash_amount > report.confirmed_cash_amount;
 }
 
 export type RouteReviewIndex = {

@@ -19,9 +19,12 @@ try {
     const req=route.request(),url=new URL(req.url());
     if(url.origin===base){
       if(url.pathname==='/__register-cash'){
-        cashRegistrations.push(JSON.parse(req.postData()));
-        reports[0].confirmed_cash_amount=reports[0].cash_amount;
-        reports[0].status=reports[0].bank_amount>0?'review':'confirmed';
+        const registration=JSON.parse(req.postData());cashRegistrations.push(registration);
+        const registeredReport=reports.find(report=>report.client_id===registration.clientId);
+        if(registeredReport){
+          registeredReport.confirmed_cash_amount=registeredReport.cash_amount;
+          registeredReport.status=registeredReport.confirmed_bank_amount>=registeredReport.bank_amount?'confirmed':'review';
+        }
         return route.fulfill({json:{kind:'cash',receiptNumber:'REC-CASH-55',payment:receipt}});
       }
       if(url.pathname==='/__route-test')return route.fulfill({contentType:'text/html',body:`<meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script type="module">import RefreshRuntime from '/@react-refresh';RefreshRuntime.injectIntoGlobalHook(window);window.$RefreshReg$=()=>{};window.$RefreshSig$=()=>type=>type;window.__vite_plugin_react_preamble_installed__=true;</script><script type="module" src="/tests/fixtures/route-reports.tsx"></script>`});
@@ -226,20 +229,35 @@ try {
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:/^Pagos confirmados/}).count(),0);
   delete item.removedAt;
-  // Pago notificado is now one bank-reconciliation list: no method tabs,
-  // pure cash is absent, and mixed stays only for its pending bank portion.
+  // Pago notificado is one queue for every incomplete report, including
+  // legacy cash and mixed reports whose bank portion was already confirmed.
   const cashReport={...reports[0],id:'cash-legacy',client_id:'cash-legacy',status:'review',amount:55,cash_amount:55,bank_amount:0,method:'cash',confirmed_cash_amount:0,confirmed_bank_amount:0,snapshot:{...item,clientId:'cash-legacy',unitId:'CASH-OLD',clientName:'Cash legacy'}};
   const bankReport={...cashReport,id:'bank-extra',client_id:'bank-extra',method:'bank',cash_amount:0,bank_amount:55,snapshot:{...item,clientId:'bank-extra',unitId:'BANK-01',clientName:'Bank pending'}};
   const mixedReport={...cashReport,id:'mixed-extra',client_id:'mixed-extra',method:'mixed',cash_amount:25,bank_amount:30,confirmed_cash_amount:25,snapshot:{...item,clientId:'mixed-extra',unitId:'MIX-01',clientName:'Mixed bank pending'}};
-  reports=[cashReport,bankReport,mixedReport];
+  const mixedCashPendingReport={...cashReport,id:'mixed-cash-pending',client_id:'mixed-cash-pending',method:'mixed',amount:65,cash_amount:19,bank_amount:46,confirmed_cash_amount:0,confirmed_bank_amount:46,snapshot:{...item,clientId:'mixed-cash-pending',unitId:'B90',clientName:'Mixed cash pending'}};
+  reports=[cashReport,bankReport,mixedReport,mixedCashPendingReport];
   await page.goto(base+'/__route-test?cashregister');
-  await page.getByRole('button',{name:'Pago notificado (2)',exact:true}).click();
+  await page.getByRole('button',{name:'Pago notificado (4)',exact:true}).click();
   assert.equal(await page.getByLabel('Filtrar pagos notificados').count(),0);
   assert.equal(await page.getByRole('button',{name:/^(Efectivo pendiente|Banca|Mixtos) \(/}).count(),0);
-  assert.equal(await page.locator('.route-search-card').count(),2);
+  assert.equal(await page.locator('.route-search-card').count(),4);
   await page.getByText('BANK-01',{exact:false}).waitFor();
   await page.getByText('MIX-01',{exact:false}).waitFor();
-  assert.equal(await page.getByText('CASH-OLD',{exact:false}).count(),0);
+  await page.getByText('CASH-OLD',{exact:false}).waitFor();
+  const mixedCashPendingCard=page.getByRole('article',{name:/^B90 ·/});
+  await mixedCashPendingCard.getByText('Efectivo pendiente',{exact:true}).waitFor();
+  await mixedCashPendingCard.getByText('Efectivo: $19.00 · Pendiente',{exact:true}).waitFor();
+  await mixedCashPendingCard.getByText('Banca: $46.00 · Confirmado',{exact:true}).waitFor();
+  await mixedCashPendingCard.getByRole('button',{name:'Generar recibo',exact:true}).click();
+  await modal.getByLabel('Monto pagado').waitFor();
+  assert.equal(await modal.getByLabel('Monto pagado').inputValue(),'19');
+  assert.equal(await modal.getByLabel('Monto pagado').isEditable(),false);
+  await modal.getByLabel('Equipo').selectOption('PTY');
+  await modal.getByRole('button',{name:'Generar recibo',exact:true}).click();
+  await modal.waitFor({state:'hidden'});
+  assert.equal(cashRegistrations.at(-1).clientId,'mixed-cash-pending');
+  assert.equal(cashRegistrations.at(-1).amount,19);
+  await page.getByRole('button',{name:'Pago notificado (3)',exact:true}).waitFor();
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:'.tmp/route-reports/mobile-bank-review-without-method-tabs.png',fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);

@@ -9,14 +9,18 @@ const {countActiveRouteReviewItems, isPendingCashRouteReport} = rulesModule.expo
 const day = '2026-09-05';
 const item = {clientId:'c1',publishedAt:'publication',releaseAmount:40};
 const payments = [{clientId:'c1',dateApplied:day,appliedToRent:20}];
-const cash = {client_id:'c1',published_at:'publication',status:'review',method:'cash',confirmed_cash_amount:0};
+const cash = {client_id:'c1',published_at:'publication',status:'review',method:'cash',cash_amount:20,bank_amount:0,confirmed_cash_amount:0,confirmed_bank_amount:0};
+const mixedCashPending = {...cash,method:'mixed',cash_amount:19,bank_amount:46,confirmed_bank_amount:46};
 assert.equal(countActiveRouteReviewItems([item],payments,day,[]),1,'An unresolved partial payment must be counted');
 assert.equal(countActiveRouteReviewItems([item],payments,day,[cash]),0,'A cash report on hold must not count as an actionable partial payment');
 assert.equal(countActiveRouteReviewItems([item],payments,day,[{...cash,method:'bank'}]),0,'A bank report on hold must not count as an actionable partial payment');
 assert.equal(countActiveRouteReviewItems([item],payments,day,[{...cash,method:'mixed'}]),0,'A mixed report on hold must not count as an actionable partial payment');
 assert.equal(countActiveRouteReviewItems([item],payments,day,[{...cash,client_id:'c2'}]),1,'A hold report for another client must not change the partial count');
 assert.equal(countActiveRouteReviewItems([],[],day,[cash]),0,'Reported cash remains on hold without affecting the badge');
-for (const patch of [{status:'confirmed'},{status:'cancelled'},{method:'bank'},{method:'mixed'},{confirmed_cash_amount:20}]) {
+assert.equal(isPendingCashRouteReport(cash),true);
+assert.equal(isPendingCashRouteReport(mixedCashPending),true);
+assert.equal(isPendingCashRouteReport({...mixedCashPending,confirmed_cash_amount:19}),false);
+for (const patch of [{status:'confirmed'},{status:'cancelled'},{method:'bank',cash_amount:0},{confirmed_cash_amount:20}]) {
   assert.equal(isPendingCashRouteReport({...cash,...patch}),false);
   assert.equal(countActiveRouteReviewItems([],[],day,[{...cash,...patch}]),0);
 }
