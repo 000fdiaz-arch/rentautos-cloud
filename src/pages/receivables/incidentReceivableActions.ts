@@ -28,7 +28,7 @@ export function insuranceActionForReceivables(
   if (claim.status === "Finalizado") return null;
   if (!claim.claimNumber.trim()) return { ...base, label: "Agregar número de reclamo", date: "", urgent: true };
   if (claim.settlementDelivered) return { ...base, label: "Finalizar reclamo", date: claim.settlementDeliveredDate, urgent: true };
-  return { ...base, label: "Dar seguimiento y gestionar finiquito", date: "", urgent: false };
+  return { ...base, label: "Dar seguimiento al reclamo", date: "", urgent: false };
 }
 
 export function collisionActionForReceivables(

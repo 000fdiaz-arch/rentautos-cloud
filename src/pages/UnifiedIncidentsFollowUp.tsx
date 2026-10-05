@@ -37,7 +37,7 @@ type NextActionCategory = "destination_resolution" | "documentation" | "judicial
 type NextActionFilterGroup = "complete_record" | "manage_process" | "resolve_close";
 type ActionTimingFilter = "all" | "overdue" | "today" | "upcoming";
 type DateFieldFilter = "incident" | "next_action";
-type IncidentSort = "incident_asc" | "incident_desc" | "action_asc" | "updated_desc" | "unit_asc";
+type IncidentSort = "incident_asc" | "incident_desc" | "action_asc" | "note_asc" | "updated_desc" | "unit_asc";
 type IncidentAlertSeverity = "urgent" | "attention" | "upcoming";
 type IncidentsWorkspaceView = "incidents" | "agenda";
 
@@ -222,6 +222,21 @@ const nextActionFilterGroups: ReadonlyArray<{ value: NextActionFilterGroup; labe
   { value: "resolve_close", label: "Resolver y cerrar" }
 ];
 
+const nextActionCategoryFilters: ReadonlyArray<{ value: NextActionCategory; label: string }> = [
+  { value: "destination_resolution", label: "Definir destino" },
+  { value: "documentation", label: "Completar documentación" },
+  { value: "judicial_management", label: "Gestión judicial" },
+  { value: "judicial_workshop", label: "Revisión de taller" },
+  { value: "judicial_balance", label: "Saldo de colisión" },
+  { value: "judicial_attendance", label: "Confirmar asistencia" },
+  { value: "judicial_result", label: "Resultado del juicio" },
+  { value: "judicial_resolution", label: "Resolución judicial" },
+  { value: "start_claim", label: "Iniciar reclamo" },
+  { value: "claim_number", label: "Número de reclamo" },
+  { value: "insurance_follow_up", label: "Seguimiento de aseguradora" },
+  { value: "finalize_claim", label: "Finalizar reclamo" }
+];
+
 function nextActionGroup(incident: UnifiedIncident): { value: NextActionFilterGroup; label: string } | null {
   if (incident.finalized) return null;
   const groupValue: NextActionFilterGroup = (() => {
@@ -314,9 +329,20 @@ function compareByActionDate(left: UnifiedIncident, right: UnifiedIncident): num
   return right.updatedAt.localeCompare(left.updatedAt);
 }
 
+function compareByOldestNote(left: UnifiedIncident, right: UnifiedIncident): number {
+  const leftNote = incidentLatestNote(left);
+  const rightNote = incidentLatestNote(right);
+  if (Boolean(leftNote) !== Boolean(rightNote)) return leftNote ? 1 : -1;
+  if (!leftNote || !rightNote) {
+    return (left.incidentDate || "9999-12-31").localeCompare(right.incidentDate || "9999-12-31") || compareByActionDate(left, right);
+  }
+  return leftNote.createdAt.localeCompare(rightNote.createdAt) || compareByActionDate(left, right);
+}
+
 function compareIncidents(left: UnifiedIncident, right: UnifiedIncident, sort: IncidentSort): number {
   if (sort === "incident_asc") return (left.incidentDate || "9999-12-31").localeCompare(right.incidentDate || "9999-12-31") || compareByActionDate(left, right);
   if (sort === "incident_desc") return right.incidentDate.localeCompare(left.incidentDate) || compareByActionDate(left, right);
+  if (sort === "note_asc") return compareByOldestNote(left, right);
   if (sort === "updated_desc") return right.updatedAt.localeCompare(left.updatedAt) || compareByActionDate(left, right);
   if (sort === "unit_asc") return left.unit.localeCompare(right.unit, "es", { numeric: true, sensitivity: "base" }) || compareByActionDate(left, right);
   return compareByActionDate(left, right);
@@ -594,7 +620,7 @@ function claimNextAction(claim: InsuranceClaimRecord): IncidentNextAction {
   }
   if (!claim.claimNumber.trim()) return pendingAction("claim_number", "Agregar número de reclamo", "claim_number", "insurance");
   if (claim.settlementDelivered) return pendingAction("finalize_claim", "Finalizar reclamo", "finalize_claim", "insurance");
-  return pendingAction("insurance_follow_up", "Dar seguimiento y gestionar finiquito", "insurance_follow_up", "insurance");
+  return pendingAction("insurance_follow_up", "Dar seguimiento al reclamo", "insurance_follow_up", "insurance");
 }
 
 function collisionNextAction(collision: CollisionCaseRecord, claim: InsuranceClaimRecord | null): IncidentNextAction {
@@ -733,12 +759,13 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   const [filter, setFilter] = useState<AreaFilter>("pending");
   const [actionTimingFilter, setActionTimingFilter] = useState<ActionTimingFilter>("all");
   const [nextActionFilter, setNextActionFilter] = useState("all");
+  const [nextActionCategoryFilter, setNextActionCategoryFilter] = useState<NextActionCategory | "all">("all");
   const [insurerFilter, setInsurerFilter] = useState("all");
   const [courtFilter, setCourtFilter] = useState("all");
   const [dateFieldFilter, setDateFieldFilter] = useState<DateFieldFilter>("incident");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [sort, setSort] = useState<IncidentSort>("incident_asc");
+  const [sort, setSort] = useState<IncidentSort>("note_asc");
   const [search, setSearch] = useState("");
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [actionOptionsExpanded, setActionOptionsExpanded] = useState(false);
@@ -879,6 +906,17 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     return nextActionFilterGroups.map((group) => ({ ...group, count: counts.get(group.value) ?? 0 }));
   }, [incidentsMatchingActionContext]);
   const nextActionTotal = useMemo(() => nextActionOptions.reduce((total, option) => total + option.count, 0), [nextActionOptions]);
+  const nextActionCategoryOptions = useMemo(() => {
+    const counts = new Map<NextActionCategory, number>(nextActionCategoryFilters.map((option) => [option.value, 0]));
+    incidentsMatchingActionContext.forEach((incident) => {
+      const category = nextActionCategory(incident);
+      if (!category || (nextActionFilter !== "all" && nextActionGroup(incident)?.value !== nextActionFilter)) return;
+      counts.set(category, (counts.get(category) ?? 0) + 1);
+    });
+    return nextActionCategoryFilters
+      .map((option) => ({ ...option, count: counts.get(option.value) ?? 0 }))
+      .filter((option) => option.count > 0);
+  }, [incidentsMatchingActionContext, nextActionFilter]);
   const insurers = useMemo(() => Array.from(new Set(incidents
     .map((incident) => incident.claim?.insurer.trim() ?? "")
     .filter(Boolean)))
@@ -890,29 +928,32 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   const filteredIncidents = useMemo(() => {
     return incidentsMatchingActionContext.filter((incident) => {
       if (nextActionFilter !== "all" && nextActionGroup(incident)?.value !== nextActionFilter) return false;
+      if (nextActionCategoryFilter !== "all" && nextActionCategory(incident) !== nextActionCategoryFilter) return false;
       return true;
     }).sort((left, right) => compareIncidents(left, right, sort));
-  }, [incidentsMatchingActionContext, nextActionFilter, sort]);
+  }, [incidentsMatchingActionContext, nextActionCategoryFilter, nextActionFilter, sort]);
   const sortDescription: Record<IncidentSort, string> = {
     incident_asc: "Siniestro más antiguo primero",
     incident_desc: "Siniestro más reciente primero",
     action_asc: "Próxima acción primero",
+    note_asc: "Seguimiento más antiguo primero",
     updated_desc: "Última actualización primero",
     unit_asc: "Por unidad"
   };
   const hasActiveFilters = Boolean(search.trim() || filter !== "pending" || actionTimingFilter !== "all"
-    || nextActionFilter !== "all" || insurerFilter !== "all" || courtFilter !== "all" || dateFrom || dateTo || sort !== "incident_asc");
+    || nextActionFilter !== "all" || nextActionCategoryFilter !== "all" || insurerFilter !== "all" || courtFilter !== "all" || dateFrom || dateTo || sort !== "note_asc");
   const activeFilterCount = [
     Boolean(search.trim()),
     filter !== "pending",
     actionTimingFilter !== "all",
     nextActionFilter !== "all",
+    nextActionCategoryFilter !== "all",
     insurerFilter !== "all",
     courtFilter !== "all",
     Boolean(dateFrom || dateTo),
-    sort !== "incident_asc"
+    sort !== "note_asc"
   ].filter(Boolean).length;
-  const secondaryActionFilterCount = [insurerFilter !== "all", courtFilter !== "all", sort !== "incident_asc"].filter(Boolean).length;
+  const secondaryActionFilterCount = [insurerFilter !== "all", courtFilter !== "all", sort !== "note_asc"].filter(Boolean).length;
   const unresolvedDestinations = useMemo(() => incidents
     .filter((incident) => Boolean(incident.pendingDestination))
     .sort((left, right) => {
@@ -938,12 +979,13 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     setSearch("");
     setActionTimingFilter("all");
     setNextActionFilter("all");
+    setNextActionCategoryFilter("all");
     setInsurerFilter("all");
     setCourtFilter("all");
     setDateFieldFilter("incident");
     setDateFrom("");
     setDateTo("");
-    setSort("incident_asc");
+    setSort("note_asc");
     setFiltersExpanded(false);
     setActionOptionsExpanded(false);
   }
@@ -952,6 +994,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     setFilter(nextFilter);
     if (nextFilter === "finalized") {
       setNextActionFilter("all");
+      setNextActionCategoryFilter("all");
       setActionTimingFilter("all");
     }
   }
@@ -1026,9 +1069,15 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
         <span className="incident-action-strip-title">Acciones</span>
         <div className="incident-action-controls">
           <label className="incident-next-action-filter"><span className="unified-incidents-filter-label-with-count">Próx. acción <b>{nextActionTotal}</b></span>
-            <select value={nextActionFilter} onChange={(event) => setNextActionFilter(event.target.value)}>
+            <select value={nextActionFilter} onChange={(event) => { setNextActionFilter(event.target.value); setNextActionCategoryFilter("all"); }}>
               <option value="all">Todas pendientes ({nextActionTotal})</option>
               {nextActionOptions.map((option) => <option key={option.value} value={option.value}>{option.label} ({option.count})</option>)}
+            </select>
+          </label>
+          <label className="incident-next-action-filter">Paso pendiente
+            <select value={nextActionCategoryFilter} onChange={(event) => setNextActionCategoryFilter(event.target.value as NextActionCategory | "all")}>
+              <option value="all">Todos los pasos</option>
+              {nextActionCategoryOptions.map((option) => <option key={option.value} value={option.value}>{option.label} ({option.count})</option>)}
             </select>
           </label>
           <button type="button" className="incident-action-extra-toggle" aria-expanded={actionOptionsExpanded} aria-controls="incident-action-secondary-filters" onClick={() => setActionOptionsExpanded((current) => !current)}>
@@ -1051,6 +1100,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
             </label>}
             <label className="incident-next-action-filter incident-party-filter">Ordenar por
               <select value={sort} onChange={(event) => setSort(event.target.value as IncidentSort)}>
+                <option value="note_asc">Seguimiento más antiguo</option>
                 <option value="incident_asc">Siniestro más antiguo</option>
                 <option value="incident_desc">Siniestro más reciente</option>
                 <option value="action_asc">Próxima acción</option>

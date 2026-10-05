@@ -1227,7 +1227,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
               <select value={settlementFilter} onChange={(event) => setSettlementFilter(event.target.value as SettlementFilter)}>
                 <option value="all">Todos</option>
                 <option value="delivered">Entregado</option>
-                <option value="pending">Pendiente</option>
+                <option value="pending">No registrado</option>
               </select>
             </label>
             <label>
@@ -1284,9 +1284,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                     </span>
                     <span className="workflow-claim-indicators">
                       {usesJudicialResolution && <span className="complete">Resolución judicial</span>}
-                      <span className={claim.settlementDelivered ? "complete" : "pending"}>
-                        {claim.settlementDelivered ? "Finiquito entregado" : "Finiquito pendiente"}
-                      </span>
+                      {claim.settlementDelivered && <span className="complete">Finiquito entregado</span>}
                       {claim.followUps.length > 0 && <span className="complete">Con notas</span>}
                       {!claim.claimNumber && <span className="missing">Sin número</span>}
                       {!claim.amount.trim() && <span className="missing">Monto pendiente</span>}
@@ -1533,9 +1531,9 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                 </div>
                 <div className="workflow-settlement">
                   <div className="workflow-settlement-head">
-                    <strong>Finiquito</strong>
-                    <small>Documento final de pago o cierre emitido por la aseguradora.</small>
-                    <span>{claim.settlementDelivered ? "Entregado" : "Pendiente"}</span>
+                    <strong>Finiquito <small>Opcional</small></strong>
+                    <small>Regístralo si aplica. No es requisito para finalizar el reclamo.</small>
+                    <span>{claim.settlementDelivered ? "Entregado" : "No registrado"}</span>
                   </div>
                   <label className="workflow-settlement-date">
                     Fecha de entrega del finiquito
@@ -1590,24 +1588,24 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                       <span className="hint">Sin finiquito adjunto</span>
                     )}
                   </div>
-                  {claim.settlementDelivered && claim.status !== "Finalizado" && finalizingClaimId !== claim.id && (
-                    <div className="workflow-finalization-actions">
-                      <button
-                        type="button"
-                        className="button primary"
-                        onClick={() => {
-                          setClosureOutcome("");
-                          setClosureJustification("");
-                          setClaimDetailTabs((current) => ({ ...current, [claim.id]: "management" }));
-                          setFinalizingClaimId(claim.id);
-                        }}
-                        disabled={readOnly || statusSavingId === claim.id}
-                      >
-                        Finalizar reclamo
-                      </button>
-                    </div>
-                  )}
                 </div>
+                {claim.status !== "Finalizado" && finalizingClaimId !== claim.id && (
+                  <div className="workflow-finalization-actions">
+                    <button
+                      type="button"
+                      className="button primary"
+                      onClick={() => {
+                        setClosureOutcome("");
+                        setClosureJustification("");
+                        setClaimDetailTabs((current) => ({ ...current, [claim.id]: "management" }));
+                        setFinalizingClaimId(claim.id);
+                      }}
+                      disabled={readOnly || statusSavingId === claim.id}
+                    >
+                      Finalizar reclamo
+                    </button>
+                  </div>
+                )}
                 </div>}
                 {activeClaimDetailTab === "follow_up" && <section className="insurance-follow-up-panel workflow-record-tab-panel" role="tabpanel" id={`claim-follow-up-panel-${claim.id}`} aria-labelledby={`claim-follow-up-tab-${claim.id}`}>
                   <div className="judicial-follow-up-head"><div><strong>Notas del reclamo</strong><span>Agrega contexto sin modificar el paso pendiente del siniestro.</span></div><b>{claim.followUps.length} {claim.followUps.length === 1 ? "nota" : "notas"}</b></div>

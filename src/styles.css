@@ -13944,7 +13944,7 @@ button.ar-route-publish-copy.is-active {
 
 .incident-action-controls {
   display: grid;
-  grid-template-columns: minmax(260px, 1.8fr) repeat(3, minmax(140px, 1fr));
+  grid-template-columns: minmax(220px, 1.5fr) minmax(190px, 1.3fr) repeat(3, minmax(130px, 1fr));
   align-items: end;
   gap: 8px;
   min-width: 0;

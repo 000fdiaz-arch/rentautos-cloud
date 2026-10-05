@@ -66,7 +66,7 @@ const completedInsuranceActions = buildIncidentActionsByUnit([{
   followUps: [{ nextStep: "Consultar ajustador", nextActionDate: "2026-08-14", completedAt: "2026-08-15T09:00:00Z" }],
   createdAt: "2026-08-10T08:00:00Z", updatedAt: "2026-08-15T09:00:00Z"
 }], [], "2026-08-15");
-if (completedInsuranceActions.C31?.urgent || completedInsuranceActions.C31?.label !== "Dar seguimiento y gestionar finiquito") {
+if (completedInsuranceActions.C31?.urgent || completedInsuranceActions.C31?.label !== "Dar seguimiento al reclamo") {
   throw new Error("La nota del seguro no debe reemplazar la acción propia del reclamo.");
 }
 
@@ -76,7 +76,7 @@ const noteOnlyInsuranceActions = buildIncidentActionsByUnit([{
   followUps: [{ comment: "El ajustador confirmó recepción", nextStep: "", nextActionDate: "", createdAt: "2026-08-15T09:00:00Z" }],
   createdAt: "2026-08-10T08:00:00Z", updatedAt: "2026-08-15T09:00:00Z"
 }], [], "2026-08-15");
-if (noteOnlyInsuranceActions.C32?.label !== "Dar seguimiento y gestionar finiquito") {
+if (noteOnlyInsuranceActions.C32?.label !== "Dar seguimiento al reclamo") {
   throw new Error("Una nota nueva no debe convertirse en la acción de cuentas por cobrar.");
 }
 

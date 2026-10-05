@@ -22,6 +22,9 @@ assert.match(page, /nextActionFilterGroups\.map\(\(group\) => \(\{ \.\.\.group, 
 assert.match(page, /nextActionGroup/);
 assert.match(page, /nextActionOptions/);
 assert.match(page, /nextActionTotal/);
+assert.match(page, /nextActionCategoryOptions/);
+assert.match(page, /Paso pendiente/);
+assert.match(page, /nextActionCategoryFilter !== "all" && nextActionCategory\(incident\) !== nextActionCategoryFilter/);
 assert.match(page, /unified-incidents-filter-label-with-count/);
 assert.match(page, /incident-action-strip[\s\S]*?incident-next-action-filter[\s\S]*?Vencidos/);
 assert.match(page, /Próx\. acción <b>\{nextActionTotal\}<\/b>/);
@@ -37,7 +40,7 @@ assert.match(page, />Pendientes <b>\{filterCounts\.pending\}<\/b>/);
 assert.doesNotMatch(page, /Tipo de expediente/);
 assert.doesNotMatch(page, /Documentación pendiente <span>/);
 assert.doesNotMatch(page, /Con reclamo activo <span>/);
-assert.match(page, /"insurance_follow_up", "Dar seguimiento y gestionar finiquito"/);
+assert.match(page, /"insurance_follow_up", "Dar seguimiento al reclamo"/);
 assert.match(page, /courtFilter !== "all" && normalizeCourtName\(incident\.collision\?\.court \?\? ""\) !== courtFilter/);
 assert.match(page, /Aseguradora[\s\S]*?Juzgado[\s\S]*?Vencidos/);
 assert.match(page, /setCourtFilter\("all"\)/);

@@ -4,6 +4,8 @@ const path = require("node:path");
 const ts = require("typescript");
 
 const source = fs.readFileSync(path.join(__dirname, "../src/pages/UnifiedIncidentsFollowUp.tsx"), "utf8");
+assert.match(source, /useState<IncidentSort>\("note_asc"\)/, "El seguimiento más antiguo debe ser el orden predeterminado.");
+assert.match(source, /setSort\("note_asc"\)/, "Limpiar filtros debe restaurar el seguimiento más antiguo.");
 const compiled = ts.transpileModule(`${source}\nexport { claimNextAction, collisionNextAction, nextActionGroup, incidentActionSchedule, compareIncidents };`, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 }
 }).outputText;
@@ -73,4 +75,20 @@ assert.deepEqual(incidentsByOccurrence.map((incident) => incident.incidentDate),
 incidentsByOccurrence.sort((left, right) => compareIncidents(left, right, "action_asc"));
 assert.equal(incidentsByOccurrence.at(-1).incidentDate, "2024-04-30");
 
-console.log("OK acciones y orden: siniestros antiguos primero por defecto, con orden de próxima acción disponible.");
+const commonIncident = {
+  incidentDate: "2026-08-01",
+  action: { date: "2026-10-10" },
+  requiresAction: true,
+  updatedAt: "2026-10-01",
+  collision: null,
+  pendingDestination: null
+};
+const incidentsByNote = [
+  { ...commonIncident, id: "recent", claim: { id: "claim-recent", followUps: [{ id: "note-recent", comment: "Reciente", createdAt: "2026-09-20T12:00:00Z" }] } },
+  { ...commonIncident, id: "without-note", incidentDate: "2026-07-01", claim: { id: "claim-empty", followUps: [] } },
+  { ...commonIncident, id: "old", claim: { id: "claim-old", followUps: [{ id: "note-old", comment: "Antigua", createdAt: "2026-08-10T12:00:00Z" }] } }
+];
+incidentsByNote.sort((left, right) => compareIncidents(left, right, "note_asc"));
+assert.deepEqual(incidentsByNote.map((incident) => incident.id), ["without-note", "old", "recent"]);
+
+console.log("OK acciones y orden: siniestros antiguos, próxima acción y seguimientos más antiguos disponibles.");
