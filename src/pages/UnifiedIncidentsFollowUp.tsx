@@ -768,6 +768,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
   const [sort, setSort] = useState<IncidentSort>("note_asc");
   const [search, setSearch] = useState("");
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [actionFiltersExpanded, setActionFiltersExpanded] = useState(false);
   const [actionOptionsExpanded, setActionOptionsExpanded] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<IncidentsWorkspaceView>("incidents");
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -954,6 +955,14 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     sort !== "note_asc"
   ].filter(Boolean).length;
   const secondaryActionFilterCount = [insurerFilter !== "all", courtFilter !== "all", sort !== "note_asc"].filter(Boolean).length;
+  const actionFilterCount = [
+    actionTimingFilter !== "all",
+    nextActionFilter !== "all",
+    nextActionCategoryFilter !== "all",
+    insurerFilter !== "all",
+    courtFilter !== "all",
+    sort !== "note_asc"
+  ].filter(Boolean).length;
   const unresolvedDestinations = useMemo(() => incidents
     .filter((incident) => Boolean(incident.pendingDestination))
     .sort((left, right) => {
@@ -987,6 +996,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
     setDateTo("");
     setSort("note_asc");
     setFiltersExpanded(false);
+    setActionFiltersExpanded(false);
     setActionOptionsExpanded(false);
   }
 
@@ -1065,9 +1075,20 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
           </li>;
         })}</ol> : <p className="incident-trial-agenda-empty">No hay juicios próximos con fecha.</p>}
       </section>}
-      {!loading && !loadError && workspaceView === "incidents" && <section className="incident-action-strip" aria-label="Filtrar y ordenar acciones">
+      {!loading && !loadError && workspaceView === "incidents" && <section className={`incident-action-strip${actionFiltersExpanded ? " is-mobile-expanded" : ""}`} aria-label="Filtrar y ordenar acciones">
         <span className="incident-action-strip-title">Acciones</span>
-        <div className="incident-action-controls">
+        <button
+          type="button"
+          className="incident-action-mobile-toggle"
+          aria-expanded={actionFiltersExpanded}
+          aria-controls="incident-action-controls incident-action-timing"
+          onClick={() => setActionFiltersExpanded((current) => !current)}
+        >
+          <span>{actionFiltersExpanded ? "Ocultar filtros de acciones" : "Filtrar acciones"}</span>
+          {actionFilterCount > 0 && <b>{actionFilterCount} {actionFilterCount === 1 ? "activo" : "activos"}</b>}
+          <span aria-hidden="true">{actionFiltersExpanded ? "−" : "+"}</span>
+        </button>
+        <div className="incident-action-controls" id="incident-action-controls">
           <label className="incident-next-action-filter"><span className="unified-incidents-filter-label-with-count">Próx. acción <b>{nextActionTotal}</b></span>
             <select value={nextActionFilter} onChange={(event) => { setNextActionFilter(event.target.value); setNextActionCategoryFilter("all"); }}>
               <option value="all">Todas pendientes ({nextActionTotal})</option>
@@ -1110,7 +1131,7 @@ export default function UnifiedIncidentsFollowUp({ dataOwnerUserId, canViewJudic
             </label>
           </div>
         </div>
-        <div className="incident-action-timing" role="group" aria-label="Vencimiento de acciones">
+        <div className="incident-action-timing" id="incident-action-timing" role="group" aria-label="Vencimiento de acciones">
           <button type="button" className={`overdue${actionTimingFilter === "overdue" ? " active" : ""}`} aria-pressed={actionTimingFilter === "overdue"} onClick={() => toggleActionTiming("overdue")}><strong>{actionTimingCounts.overdue}</strong><span>Vencidos</span></button>
           <button type="button" className={`today${actionTimingFilter === "today" ? " active" : ""}`} aria-pressed={actionTimingFilter === "today"} onClick={() => toggleActionTiming("today")}><strong>{actionTimingCounts.today}</strong><span>Para hoy</span></button>
           <button type="button" className={`upcoming${actionTimingFilter === "upcoming" ? " active" : ""}`} aria-pressed={actionTimingFilter === "upcoming"} onClick={() => toggleActionTiming("upcoming")}><strong>{actionTimingCounts.upcoming}</strong><span>Próximos</span></button>

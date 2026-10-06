@@ -509,6 +509,13 @@
   .unified-incident-action-buttons .button {
     min-height: 44px;
   }
+
+  .unified-claim-copy,
+  .incident-alert-close,
+  .incident-alert-filters button {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 @media (orientation: landscape) and (max-height: 820px) and (any-pointer: coarse) {

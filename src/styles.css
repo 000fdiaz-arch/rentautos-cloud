@@ -3568,7 +3568,7 @@ select.control-op-badge {
   margin-right: 0;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 900px) {
   .app-nav {
     position: fixed;
     top: auto;
@@ -13958,6 +13958,10 @@ button.ar-route-publish-copy.is-active {
   display: none;
 }
 
+.incident-action-mobile-toggle {
+  display: none;
+}
+
 .incident-action-timing {
   display: flex;
   align-items: end;
@@ -17585,6 +17589,28 @@ button.ar-route-publish-copy.is-active {
   }
 }
 
+@media (max-width: 1220px) {
+  .unified-incident-summary {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr) 44px;
+  }
+
+  .unified-incident-action {
+    grid-column: 1 / 3;
+    border-top: 1px solid #e2e8f0;
+    border-left: 0;
+    padding: 14px 0 0;
+  }
+
+  .unified-incident-summary .workflow-claim-chevron {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+    width: 44px;
+    height: 44px;
+    border: 1px solid #c7d2fe;
+    cursor: pointer;
+  }
+}
+
 @media (max-width: 1040px) {
   .incident-action-strip {
     grid-template-columns: minmax(0, 1fr);
@@ -17608,28 +17634,9 @@ button.ar-route-publish-copy.is-active {
     min-height: 44px;
   }
 
-  .unified-incident-summary {
-    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr) 44px;
-  }
-
-  .unified-incident-action {
-    grid-column: 1 / 3;
-    border-top: 1px solid #e2e8f0;
-    border-left: 0;
-    padding: 14px 0 0;
-  }
-
-  .unified-incident-summary .workflow-claim-chevron {
-    grid-column: 3;
-    grid-row: 1 / span 2;
-    width: 44px;
-    height: 44px;
-    border: 1px solid #c7d2fe;
-    cursor: pointer;
-  }
 }
 
-@media (min-width: 1041px) and (any-pointer: coarse) {
+@media (min-width: 1221px) and (any-pointer: coarse) {
   .unified-incident-summary {
     grid-template-columns: minmax(250px, 1fr) minmax(210px, 0.75fr) minmax(320px, 1.15fr) 44px;
   }
@@ -17903,7 +17910,50 @@ button.ar-route-publish-copy.is-active {
   }
 }
 
+@media (max-width: 900px) {
+  .incident-action-mobile-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 46px;
+    border: 1px solid #bfdbfe;
+    border-radius: 9px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 850;
+    padding: 9px 11px;
+    text-align: left;
+  }
+
+  .incident-action-mobile-toggle b {
+    border-radius: 999px;
+    background: #dbeafe;
+    font-size: 0.72rem;
+    padding: 4px 8px;
+    white-space: nowrap;
+  }
+
+  .incident-action-strip:not(.is-mobile-expanded) > .incident-action-controls,
+  .incident-action-strip:not(.is-mobile-expanded) > .incident-action-timing {
+    display: none;
+  }
+
+  .unified-incidents-filter-head .workflow-claim-search input,
+  .incident-next-action-filter select,
+  .unified-incidents-advanced-filters input,
+  .unified-incidents-advanced-filters select {
+    font-size: 16px;
+  }
+}
+
 @media (max-width: 480px) {
+  .incidents-control-header .hint {
+    display: none;
+  }
+
   .judicial-focused-case .judicial-focused-context {
     position: static;
     box-shadow: none;
