@@ -22,6 +22,8 @@ assert.match(page, /className="incident-action-mobile-toggle"/);
 assert.match(page, /incident-action-strip\$\{actionFiltersExpanded \? " is-mobile-expanded" : ""\}/);
 assert.match(globalCss, /@media \(max-width: 1220px\)\s*\{[\s\S]*?\.unified-incident-summary/);
 assert.match(globalCss, /@media \(max-width: 900px\)\s*\{[\s\S]*?\.app-nav\s*\{/);
+assert.match(globalCss, /\.incident-action-strip \.incident-action-mobile-toggle\s*\{\s*display: none/);
+assert.match(globalCss, /@media \(max-width: 900px\)[\s\S]*?\.incident-action-strip \.incident-action-mobile-toggle\s*\{\s*display: flex/);
 assert.match(globalCss, /incident-action-strip:not\(\.is-mobile-expanded\) > \.incident-action-controls/);
 assert.match(css, /@media \(any-pointer: coarse\)[\s\S]*?\.unified-claim-copy/);
 

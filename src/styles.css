@@ -13958,7 +13958,7 @@ button.ar-route-publish-copy.is-active {
   display: none;
 }
 
-.incident-action-mobile-toggle {
+.incident-action-strip .incident-action-mobile-toggle {
   display: none;
 }
 
@@ -17911,7 +17911,7 @@ button.ar-route-publish-copy.is-active {
 }
 
 @media (max-width: 900px) {
-  .incident-action-mobile-toggle {
+  .incident-action-strip .incident-action-mobile-toggle {
     display: flex;
     align-items: center;
     justify-content: space-between;
