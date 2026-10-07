@@ -14,6 +14,7 @@ type Props = {
   view: RouteWorkflowView;
   paidRent: number;
   balance: number;
+  travelFundBalance: number;
   canReport: boolean;
   canEdit: boolean;
   canRemove: boolean;
@@ -104,6 +105,13 @@ export default function RouteCollectionCard(props: Props) {
         </select>
       ) : <span className="route-collection-route">{item.routeAssignment || "Sin ruta"}</span>}
     </div>
+    {view === "work" && props.travelFundBalance > 0 ? (
+      <div className="route-collection-travel-fund" aria-label={`Fondo de viaje disponible: ${formatCurrency(props.travelFundBalance)}`}>
+        <span aria-hidden="true">✈</span>
+        <span>Fondo de viaje disponible</span>
+        <strong>{formatCurrency(props.travelFundBalance)}</strong>
+      </div>
+    ) : null}
       <label className="route-collection-field">Zona<input aria-label={`Zona de ${item.unitId}`} list={zoneListId} value={props.zone} maxLength={40} placeholder="Sin zona" disabled={Boolean(report) || props.zoneSaving} onChange={event => props.onZone(event.target.value)} onBlur={props.onSaveZone} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></label>
       <datalist id={zoneListId}>{props.zoneOptions.map(zone => <option key={zone} value={zone} />)}</datalist>
     {view === "work" && item.routeInactiveAt ? <div className="route-collection-inactive" aria-label={`Estado inactivo de ${item.unitId}`}>

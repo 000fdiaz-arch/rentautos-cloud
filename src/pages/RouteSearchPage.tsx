@@ -420,6 +420,11 @@ export default function RouteSearchPage({
     [clients]
   );
 
+  const travelFundBalanceByClient = useMemo(
+    () => new Map(clients.map((client) => [client.id, Math.max(0, client.travelFundBalance ?? 0)] as const)),
+    [clients]
+  );
+
   function currentBalance(item: ActiveRouteItem): number {
     return currentBalanceByClient.get(item.clientId) ?? item.overdueBalance;
   }
@@ -1196,7 +1201,7 @@ export default function RouteSearchPage({
             const paidRent = routeRentAmountForDay(payments, item, businessDateKey, routeReviewIndex);
             return <RouteCollectionCard key={workflowView + '-' + (item.report?.id ?? item.clientId)} item={item} view={workflowView}
               managementFields={activeRoute && !activeRoute.removedAt && workflowView !== "review" && workflowView !== "confirmed" ? renderManagementFields?.(activeRoute) : undefined}
-              paidRent={paidRent} balance={currentBalance(item)} canReport={canReportPayment} canEdit={!readOnly}
+              paidRent={paidRent} balance={currentBalance(item)} travelFundBalance={travelFundBalanceByClient.get(item.clientId) ?? 0} canReport={canReportPayment} canEdit={!readOnly}
               canRemove={canRemoveFromRoute} canRegister={!readOnly && Boolean(onRegisterPayment) && (!item.report || (isPendingCashRouteReport(item.report) && !registeredReportIds.includes(item.report.id)))}
               hasPendingReport={reports.some(report => report.status === "review" && report.client_id === item.clientId && report.published_at === item.publishedAt)}
               hasActiveRoute={Boolean(activeRoute && !activeRoute.removedAt)} reportDisabled={!reportsReady}
