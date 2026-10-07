@@ -31,7 +31,15 @@ export type DailyContactAttempt = {
   result: DailyContactResult;
   updatedAt: string;
 };
-export type DailyContactAttemptsByDate = Record<string, Partial<Record<DailyContactShift, DailyContactAttempt>>>;
+export type DailyContactAttempts = Partial<Record<DailyContactShift, DailyContactAttempt>>;
+export type DailyContactAttemptsByDate = Record<string, DailyContactAttempts>;
+export type DailyContactCloudAttempt = {
+  result: DailyContactResult | "pending";
+  updatedAt: string;
+};
+export type DailyContactCloudAttempts = Partial<Record<DailyContactShift, DailyContactCloudAttempt>>;
+export type DailyContactSaveState = "saving" | "saved" | "error";
+export type DailyContactSaveStates = Partial<Record<DailyContactShift, DailyContactSaveState>>;
 
 export type CollectionStatusRecord = {
   status: CollectionStatus;

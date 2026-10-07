@@ -16,7 +16,9 @@ import { formatCurrency, formatDate } from "../format";
 import {
   activeRouteDeltaFromPayload,
   applyActiveRouteDelta,
+  cloudDailyContactAttemptFromRow,
   loadCloudCollectionClosures,
+  loadCloudDailyContactAttempts,
   loadCloudLatestPaymentsForReceivableTargets,
   paymentMatchesTargetIdentity,
   loadCloudActiveRouteItems,
@@ -25,10 +27,12 @@ import {
   removeCloudActiveRouteItem,
   saveCloudActiveRouteItem,
   saveCloudCollectionClosures,
+  saveCloudDailyContactAttempt,
   saveCloudStreetManagement,
   syncCloudStreetManagementDelta,
   type ActiveRouteItem,
   type ActiveRouteDelta,
+  type CloudDailyContactAttempt,
   type ControlUnitRow
 } from "../cloudData";
 import { supabase } from "../lib/supabase";
@@ -51,7 +55,10 @@ import type { BillingFrequency, Client, Payment } from "../types";
 import type {
   CollectionStatus,
   CollectionStatusRecord,
+  DailyContactAttempts,
+  DailyContactCloudAttempts,
   DailyContactResult,
+  DailyContactSaveStates,
   DailyContactShift,
   FieldManagementType,
   RouteUrgency,
@@ -181,6 +188,24 @@ type EssentialFilterKey =
 
 const STATEMENT_SUGGESTION_WINDOW_MS = 24 * 60 * 60 * 1000;
 const CLEAR_COLLECTION_MANAGEMENT_CONFIRMATION = "LIMPIAR GESTION";
+
+function resolveDailyContactAttempts(
+  statusRecord: CollectionStatusRecord | undefined,
+  dateKey: string,
+  cloudAttempts: DailyContactCloudAttempts | undefined
+): DailyContactAttempts {
+  const resolved: DailyContactAttempts = { ...(statusRecord?.dailyContactAttemptsByDate?.[dateKey] ?? {}) };
+  for (const shift of ["morning", "afternoon", "night"] as const) {
+    const cloudAttempt = cloudAttempts?.[shift];
+    if (!cloudAttempt) continue;
+    if (cloudAttempt.result === "contacted") {
+      resolved[shift] = { result: "contacted", updatedAt: cloudAttempt.updatedAt };
+    } else {
+      delete resolved[shift];
+    }
+  }
+  return resolved;
+}
 
 function normalizeEssentialFilterValue(value: string): string {
   return value
@@ -444,6 +469,8 @@ export default function ReceivablesPage({
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [selectedDetailRow, setSelectedDetailRow] = useState<ReceivableRow | null>(null);
   const [collectionStatusByClient, setCollectionStatusByClient] = useState<Record<string, CollectionStatusRecord>>({});
+  const [dailyContactCloudAttemptsByClient, setDailyContactCloudAttemptsByClient] = useState<Record<string, DailyContactCloudAttempts>>({});
+  const [dailyContactSaveStatesByClient, setDailyContactSaveStatesByClient] = useState<Record<string, DailyContactSaveStates>>({});
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<CollectionStatusFilter>("all");
   const [routeTagFilter, setRouteTagFilter] = useState<boolean>(false);
   const [routeReadyFilter, setRouteReadyFilter] = useState<boolean>(false);
@@ -531,6 +558,9 @@ export default function ReceivablesPage({
   const activeRouteLoadIdRef = useRef(0);
   const activeRoutePendingDeltasRef = useRef<ActiveRouteDelta[]>([]);
   const saveTokenByClientRef = useRef<Record<string, number>>({});
+  const dailyContactSaveTokenRef = useRef<Record<string, number>>({});
+  const dailyContactSavedTimerRef = useRef<Record<string, number>>({});
+  const dailyContactLoadIdRef = useRef(0);
   const latestCollectionStatusByClientRef = useRef<Record<string, CollectionStatusRecord>>({});
   const streetManagementDataRef = useRef<Record<string, unknown>>(streetManagementData ?? {});
   const paymentSignaturesRef = useRef<Map<string, string>>(new Map(payments.map((payment) => [payment.id, paymentRefreshSignature(payment)])));
@@ -945,6 +975,98 @@ export default function ReceivablesPage({
     const fallback = `${fallbackYear}-${fallbackMonth}-${fallbackDay}`;
     return receivablesDateKey && /^\d{4}-\d{2}-\d{2}$/.test(receivablesDateKey) ? receivablesDateKey : fallback;
   }, [now, receivablesDateKey]);
+
+  const applyDailyContactCloudAttempt = useCallback((attempt: CloudDailyContactAttempt): void => {
+    setDailyContactCloudAttemptsByClient((current) => ({
+      ...current,
+      [attempt.clientId]: {
+        ...(current[attempt.clientId] ?? {}),
+        [attempt.shift]: { result: attempt.result, updatedAt: attempt.updatedAt }
+      }
+    }));
+  }, []);
+
+  const loadDailyContactAttemptsFromCloud = useCallback(async (): Promise<void> => {
+    const loadId = ++dailyContactLoadIdRef.current;
+    if (!dataOwnerUserId) {
+      setDailyContactCloudAttemptsByClient({});
+      return;
+    }
+    const attempts = await measureReceivablesAsync(
+      "daily contact attempts load",
+      () => loadCloudDailyContactAttempts(dataOwnerUserId, todayDateKey)
+    );
+    const grouped: Record<string, DailyContactCloudAttempts> = {};
+    for (const attempt of attempts) {
+      grouped[attempt.clientId] = {
+        ...(grouped[attempt.clientId] ?? {}),
+        [attempt.shift]: { result: attempt.result, updatedAt: attempt.updatedAt }
+      };
+    }
+    if (loadId !== dailyContactLoadIdRef.current) return;
+    setDailyContactCloudAttemptsByClient(grouped);
+  }, [dataOwnerUserId, todayDateKey]);
+
+  useEffect(() => {
+    for (const timerId of Object.values(dailyContactSavedTimerRef.current)) window.clearTimeout(timerId);
+    dailyContactSavedTimerRef.current = {};
+    dailyContactSaveTokenRef.current = {};
+    setDailyContactCloudAttemptsByClient({});
+    setDailyContactSaveStatesByClient({});
+    let cancelled = false;
+    if (!dataOwnerUserId) return () => undefined;
+    void loadDailyContactAttemptsFromCloud().catch((error) => {
+      if (cancelled) return;
+      console.error("No se pudo cargar el checklist de contacto desde la nube.", error);
+      setCollectionCutMessage("No se pudo cargar el checklist de contacto desde la nube.");
+    });
+    return () => {
+      cancelled = true;
+      dailyContactLoadIdRef.current += 1;
+      for (const timerId of Object.values(dailyContactSavedTimerRef.current)) window.clearTimeout(timerId);
+      dailyContactSavedTimerRef.current = {};
+    };
+  }, [dataOwnerUserId, loadDailyContactAttemptsFromCloud, todayDateKey]);
+
+  useEffect(() => {
+    if (!dataOwnerUserId || !supabase) return;
+    const client = supabase;
+    let subscribed = false;
+    const channel = client
+      .channel(`daily-contact-attempts-live-${dataOwnerUserId}-${todayDateKey}`)
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "daily_contact_attempts_cloud",
+        filter: `user_id=eq.${dataOwnerUserId}`
+      }, (payload) => {
+        const eventType = typeof payload.eventType === "string" ? payload.eventType : "";
+        const rawRow = eventType === "DELETE" ? payload.old : payload.new;
+        const attempt = cloudDailyContactAttemptFromRow(rawRow);
+        if (!attempt || attempt.contactDate !== todayDateKey) return;
+        if (eventType !== "DELETE") {
+          applyDailyContactCloudAttempt(attempt);
+          return;
+        }
+        setDailyContactCloudAttemptsByClient((current) => {
+          const clientAttempts = { ...(current[attempt.clientId] ?? {}) };
+          delete clientAttempts[attempt.shift];
+          const next = { ...current };
+          if (Object.keys(clientAttempts).length > 0) next[attempt.clientId] = clientAttempts;
+          else delete next[attempt.clientId];
+          return next;
+        });
+      })
+      .subscribe((status) => {
+        if (status !== "SUBSCRIBED") return;
+        if (subscribed) void loadDailyContactAttemptsFromCloud();
+        subscribed = true;
+      });
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [applyDailyContactCloudAttempt, dataOwnerUserId, loadDailyContactAttemptsFromCloud, todayDateKey]);
+
   const receivablesDate = useMemo(() => dateFromDateKey(todayDateKey, now), [now, todayDateKey]);
   const receivablesDateLabel = useMemo(() => formatDate(receivablesDate), [receivablesDate]);
   const receivablePayments = useMemo(() => {
@@ -1487,8 +1609,13 @@ export default function ReceivablesPage({
     const [checklistShift, checklistStatus] = essentialContactChecklistFilter === "all"
       ? ["", ""]
       : essentialContactChecklistFilter.split(":");
+    const dailyContactAttempts = resolveDailyContactAttempts(
+      statusRecord,
+      todayDateKey,
+      dailyContactCloudAttemptsByClient[row.id]
+    );
     const checklistIsContacted = checklistShift
-      ? statusRecord?.dailyContactAttemptsByDate?.[todayDateKey]?.[checklistShift as DailyContactShift]?.result === "contacted"
+      ? dailyContactAttempts[checklistShift as DailyContactShift]?.result === "contacted"
       : false;
     const priorityItem = essentialPriorityByClient.get(row.id);
     const overdueInstallments = priorityOverdueInstallmentCount(row.overdueBalance, row.rentAmount);
@@ -1507,7 +1634,7 @@ export default function ReceivablesPage({
         || (priorityItem ? priorityTenureBucket(priorityItem.tenureDays) === essentialTenureFilter : false))
       && (omittedFilter === "contactChecklist" || essentialContactChecklistFilter === "all"
         || (isOperationallyActive && (checklistStatus === "contacted" ? checklistIsContacted : !checklistIsContacted)));
-  }, [clientStatusById, collectionStatusByClient, essentialContactChecklistFilter, essentialInstallmentFilter, essentialManagementFilter, essentialOperationalFilter, essentialPaymentDaysFilter, essentialPlanFilter, essentialPortfolioFilter, essentialPriorityByClient, essentialPriorityLevelFilter, essentialSearch, essentialTenureFilter, now, todayDateKey]);
+  }, [clientStatusById, collectionStatusByClient, dailyContactCloudAttemptsByClient, essentialContactChecklistFilter, essentialInstallmentFilter, essentialManagementFilter, essentialOperationalFilter, essentialPaymentDaysFilter, essentialPlanFilter, essentialPortfolioFilter, essentialPriorityByClient, essentialPriorityLevelFilter, essentialSearch, essentialTenureFilter, now, todayDateKey]);
   const essentialOperationalOptions = useMemo(() => {
     const options = new Map<string, string>();
     for (const row of baseRows) {
@@ -1910,35 +2037,60 @@ export default function ReceivablesPage({
     });
   }
 
-  function handleDailyContactAttemptChange(
+  function setDailyContactSaveState(
+    clientId: string,
+    shift: DailyContactShift,
+    state: DailyContactSaveStates[DailyContactShift] | undefined
+  ): void {
+    setDailyContactSaveStatesByClient((current) => {
+      const clientStates = { ...(current[clientId] ?? {}) };
+      if (state) clientStates[shift] = state;
+      else delete clientStates[shift];
+      const next = { ...current };
+      if (Object.keys(clientStates).length > 0) next[clientId] = clientStates;
+      else delete next[clientId];
+      return next;
+    });
+  }
+
+  async function handleDailyContactAttemptChange(
     clientId: string,
     shift: DailyContactShift,
     result: DailyContactResult | "pending"
-  ): void {
+  ): Promise<void> {
     if (isCollectionLocked) return;
     const row = baseRows.find((item) => item.id === clientId);
     if (!row || !hasActiveOperationalClient(row) || shouldDefaultToCovered(row)) return;
-    markClientStatusAsSaving(clientId);
-    const nowIso = new Date().toISOString();
-    setCollectionStatusByClient((current) => {
-      const previous = current[clientId];
-      const attemptsByDate = { ...(previous?.dailyContactAttemptsByDate ?? {}) };
-      const todayAttempts = { ...(attemptsByDate[todayDateKey] ?? {}) };
-      if (result === "pending") delete todayAttempts[shift];
-      else todayAttempts[shift] = { result, updatedAt: nowIso };
-      if (Object.keys(todayAttempts).length > 0) attemptsByDate[todayDateKey] = todayAttempts;
-      else delete attemptsByDate[todayDateKey];
+    const saveKey = `${clientId}:${todayDateKey}:${shift}`;
+    const saveToken = (dailyContactSaveTokenRef.current[saveKey] ?? 0) + 1;
+    dailyContactSaveTokenRef.current[saveKey] = saveToken;
+    const previousTimer = dailyContactSavedTimerRef.current[saveKey];
+    if (previousTimer) window.clearTimeout(previousTimer);
+    delete dailyContactSavedTimerRef.current[saveKey];
+    setDailyContactSaveState(clientId, shift, "saving");
 
-      const updatedRecord: CollectionStatusRecord = {
-        ...previous,
-        status: previous?.status ?? "unassigned",
-        comment: previous?.comment ?? "",
-        updatedAt: nowIso,
-        dailyContactAttemptsByDate: Object.keys(attemptsByDate).length > 0 ? attemptsByDate : undefined
-      };
-      optimisticStatusByClientRef.current[clientId] = updatedRecord;
-      return { ...current, [clientId]: updatedRecord };
-    });
+    if (!dataOwnerUserId) {
+      setDailyContactSaveState(clientId, shift, "error");
+      setCollectionCutMessage("El checklist solo se puede guardar en la nube.");
+      return;
+    }
+
+    try {
+      const saved = await saveCloudDailyContactAttempt(dataOwnerUserId, clientId, todayDateKey, shift, result);
+      if (dailyContactSaveTokenRef.current[saveKey] !== saveToken) return;
+      applyDailyContactCloudAttempt(saved);
+      setDailyContactSaveState(clientId, shift, "saved");
+      dailyContactSavedTimerRef.current[saveKey] = window.setTimeout(() => {
+        if (dailyContactSaveTokenRef.current[saveKey] !== saveToken) return;
+        setDailyContactSaveState(clientId, shift, undefined);
+        delete dailyContactSavedTimerRef.current[saveKey];
+      }, 2500);
+    } catch (error) {
+      if (dailyContactSaveTokenRef.current[saveKey] !== saveToken) return;
+      console.error("No se pudo guardar el checklist de contacto en la nube.", error);
+      setDailyContactSaveState(clientId, shift, "error");
+      setCollectionCutMessage("No se pudo guardar el checklist de contacto en la nube. Intenta nuevamente.");
+    }
   }
 
   function handleOperationalReviewChange(clientId: string, operationalStatus: string, reviewed: boolean): void {
@@ -3182,7 +3334,11 @@ export default function ReceivablesPage({
           contactTime: statusRecord?.contactTime,
           whatsAppMessageCopiedAt: statusRecord?.whatsAppMessageCopiedAt,
           whatsAppMessageSentAt: statusRecord?.whatsAppMessageSentAt,
-          dailyContactAttempts: statusRecord?.dailyContactAttemptsByDate?.[todayDateKey]
+          dailyContactAttempts: resolveDailyContactAttempts(
+            statusRecord,
+            todayDateKey,
+            dailyContactCloudAttemptsByClient[row.id]
+          )
         });
       }
       const closureTotals = computeCutTotals(closureItems);
@@ -3658,6 +3814,8 @@ export default function ReceivablesPage({
             selectedHistoryRows={selectedHistoryRows}
             rows={essentialRows}
             collectionStatusByClient={collectionStatusByClient}
+            dailyContactCloudAttemptsByClient={dailyContactCloudAttemptsByClient}
+            dailyContactSaveStatesByClient={dailyContactSaveStatesByClient}
             clientStatusById={clientStatusById}
             tenureLabelByClient={essentialTenureLabelByClient}
             todayDateKey={todayDateKey}

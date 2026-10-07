@@ -20011,6 +20011,16 @@ button.ar-route-publish-copy.is-active {
   background: #ecfdf5;
 }
 
+.ar-daily-contact-check.is-saving {
+  border-color: #67a9d8;
+  box-shadow: 0 0 0 2px rgba(14, 116, 144, 0.1);
+}
+
+.ar-daily-contact-check.is-error {
+  border-color: #ef4444;
+  background: #fff7f7;
+}
+
 .ar-daily-contact-check input {
   width: 20px;
   height: 20px;
@@ -20021,6 +20031,22 @@ button.ar-route-publish-copy.is-active {
 .ar-daily-contact-check:has(input:disabled) {
   background: #f1f5f9;
   opacity: 0.7;
+}
+
+.ar-daily-contact-save-state {
+  min-height: 14px;
+  color: #64748b;
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.ar-daily-contact-save-state.is-saved {
+  color: #0f766e;
+}
+
+.ar-daily-contact-save-state.is-error {
+  color: #b91c1c;
 }
 
 .ar-daily-contact-collapsed {

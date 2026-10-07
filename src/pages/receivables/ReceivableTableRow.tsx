@@ -7,7 +7,9 @@ import { PLAN_LABEL, STATE_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../.
 import type {
   CollectionStatus,
   CollectionStatusRecord,
+  DailyContactCloudAttempts,
   DailyContactResult,
+  DailyContactSaveStates,
   DailyContactShift,
   FieldManagementType,
   RouteUrgency
@@ -61,6 +63,8 @@ type Props = {
   onSupportNoteChange: (clientId: string, value: string) => void;
   onContactTimeChange: (clientId: string, value: string) => void;
   onPersistPendingChanges: () => void;
+  dailyContactCloudAttempts?: DailyContactCloudAttempts;
+  dailyContactSaveStates?: DailyContactSaveStates;
   onDailyContactAttemptChange: (clientId: string, shift: DailyContactShift, result: DailyContactResult | "pending") => void;
   onOperationalReviewChange: (clientId: string, operationalStatus: string, reviewed: boolean) => void;
   onOpenRoutePreparation: (clientId: string) => void;
@@ -479,6 +483,8 @@ function ReceivableTableRowComponent({
   onSupportNoteChange,
   onContactTimeChange,
   onPersistPendingChanges,
+  dailyContactCloudAttempts,
+  dailyContactSaveStates,
   onDailyContactAttemptChange,
   onOperationalReviewChange,
   onOpenRoutePreparation,
@@ -646,10 +652,26 @@ function ReceivableTableRowComponent({
     const totalRentBalance = currentRentBalance + row.overdueBalance;
     const overdueRentLetters = pendingRentLettersLabel(row.overdueBalance, row.rentAmount);
     const totalRentLetters = pendingRentLettersLabel(totalRentBalance, row.rentAmount);
-    const dailyContactAttempts = statusRecord?.dailyContactAttemptsByDate?.[todayDateKey] ?? {};
+    const dailyContactAttempts = { ...(statusRecord?.dailyContactAttemptsByDate?.[todayDateKey] ?? {}) };
+    for (const option of DAILY_CONTACT_SHIFT_OPTIONS) {
+      const cloudAttempt = dailyContactCloudAttempts?.[option.key];
+      if (!cloudAttempt) continue;
+      if (cloudAttempt.result === "contacted") {
+        dailyContactAttempts[option.key] = { result: "contacted", updatedAt: cloudAttempt.updatedAt };
+      } else {
+        delete dailyContactAttempts[option.key];
+      }
+    }
     const currentContactShift = currentDailyContactShift(now);
     const currentContactShiftIndex = DAILY_CONTACT_SHIFT_OPTIONS.findIndex((option) => option.key === currentContactShift);
     const completedContactCount = DAILY_CONTACT_SHIFT_OPTIONS.filter((option) => dailyContactAttempts[option.key]?.result === "contacted").length;
+    const dailyContactSaveState = DAILY_CONTACT_SHIFT_OPTIONS.some((option) => dailyContactSaveStates?.[option.key] === "error")
+      ? "error"
+      : DAILY_CONTACT_SHIFT_OPTIONS.some((option) => dailyContactSaveStates?.[option.key] === "saving")
+        ? "saving"
+        : DAILY_CONTACT_SHIFT_OPTIONS.some((option) => dailyContactSaveStates?.[option.key] === "saved")
+          ? "saved"
+          : null;
 
     return (
       <tr className="ar-card-row ar-essential-table-row">
@@ -750,6 +772,7 @@ function ReceivableTableRowComponent({
                           ))}
                           {DAILY_CONTACT_SHIFT_OPTIONS.map((option, index) => {
                             const attempt = dailyContactAttempts[option.key];
+                            const saveState = dailyContactSaveStates?.[option.key];
                             const isFutureShift = index > currentContactShiftIndex;
                             const attemptDate = attempt?.updatedAt ? new Date(attempt.updatedAt) : null;
                             const attemptTime = attemptDate && !Number.isNaN(attemptDate.getTime())
@@ -758,20 +781,40 @@ function ReceivableTableRowComponent({
                             return (
                               <label
                                 key={option.key}
-                                className={`ar-daily-contact-check ${attempt?.result === "contacted" ? "is-checked" : ""}`}
-                                title={attemptTime ? `Contactado a las ${attemptTime}` : isFutureShift ? "Aún no corresponde" : "Marcar como contactado"}
+                                className={`ar-daily-contact-check ${attempt?.result === "contacted" ? "is-checked" : ""} ${saveState ? `is-${saveState}` : ""}`}
+                                title={saveState === "error"
+                                  ? "No se pudo guardar en la nube. Intenta nuevamente."
+                                  : saveState === "saving"
+                                    ? "Guardando en la nube..."
+                                    : attemptTime
+                                      ? `Contactado a las ${attemptTime}`
+                                      : isFutureShift ? "Aún no corresponde" : "Marcar como contactado"}
                               >
                                 <input
                                   type="checkbox"
                                   checked={attempt?.result === "contacted"}
                                   onChange={(event) => onDailyContactAttemptChange(row.id, option.key, event.target.checked ? "contacted" : "pending")}
-                                  disabled={isTodayCollectionClosed || statusRecord?.isRouteTagged || isFutureShift}
+                                  disabled={isTodayCollectionClosed || statusRecord?.isRouteTagged || isFutureShift || saveState === "saving"}
+                                  aria-busy={saveState === "saving"}
                                   aria-label={`${option.label}: contactado con ${row.unitId}`}
                                 />
                               </label>
                             );
                           })}
                         </div>
+                        {dailyContactSaveState ? (
+                          <div
+                            className={`ar-daily-contact-save-state is-${dailyContactSaveState}`}
+                            role={dailyContactSaveState === "error" ? "alert" : "status"}
+                            aria-live="polite"
+                          >
+                            {dailyContactSaveState === "saving"
+                              ? "Guardando en la nube..."
+                              : dailyContactSaveState === "saved"
+                                ? "Guardado ✓"
+                                : "Error al guardar. Intenta otra vez."}
+                          </div>
+                        ) : null}
                       </>
                     ) : (
                       <div className="ar-daily-contact-collapsed">Contactado ✓</div>
@@ -1272,6 +1315,8 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   previous.onSupportNoteChange === next.onSupportNoteChange &&
   previous.onContactTimeChange === next.onContactTimeChange
   && previous.onPersistPendingChanges === next.onPersistPendingChanges
+  && previous.dailyContactCloudAttempts === next.dailyContactCloudAttempts
+  && previous.dailyContactSaveStates === next.dailyContactSaveStates
   && previous.onDailyContactAttemptChange === next.onDailyContactAttemptChange
   && previous.onOperationalReviewChange === next.onOperationalReviewChange
   && previous.onOpenRoutePreparation === next.onOpenRoutePreparation

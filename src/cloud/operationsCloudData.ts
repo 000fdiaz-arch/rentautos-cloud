@@ -1513,6 +1513,96 @@ function normalizeCloudValue(value: unknown): unknown {
   return next;
 }
 
+export type CloudDailyContactAttemptResult = "contacted" | "pending";
+
+export type CloudDailyContactAttempt = {
+  userId: string;
+  clientId: string;
+  contactDate: string;
+  shift: "morning" | "afternoon" | "night";
+  result: CloudDailyContactAttemptResult;
+  updatedAt: string;
+};
+
+type CloudDailyContactAttemptRow = {
+  user_id?: unknown;
+  client_id?: unknown;
+  contact_date?: unknown;
+  shift?: unknown;
+  result?: unknown;
+  updated_at?: unknown;
+};
+
+export function cloudDailyContactAttemptFromRow(value: unknown): CloudDailyContactAttempt | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as CloudDailyContactAttemptRow;
+  const userId = typeof row.user_id === "string" ? row.user_id : "";
+  const clientId = typeof row.client_id === "string" ? row.client_id : "";
+  const contactDate = typeof row.contact_date === "string" ? row.contact_date : "";
+  const shift = row.shift === "morning" || row.shift === "afternoon" || row.shift === "night"
+    ? row.shift
+    : null;
+  const result = row.result === "contacted" || row.result === "pending" ? row.result : null;
+  const updatedAt = typeof row.updated_at === "string" ? row.updated_at : "";
+  if (!userId || !clientId || !/^\d{4}-\d{2}-\d{2}$/.test(contactDate) || !shift || !result || !updatedAt) return null;
+  return { userId, clientId, contactDate, shift, result, updatedAt };
+}
+
+export async function loadCloudDailyContactAttempts(
+  userId: string,
+  contactDate: string
+): Promise<CloudDailyContactAttempt[]> {
+  return dedupeLoad(`daily-contact-attempts:${userId}:${contactDate}`, async () => {
+    const client = getCloudClient();
+    const attempts: CloudDailyContactAttempt[] = [];
+    for (let offset = 0; ; offset += PAGE_SIZE) {
+      const { data, error } = await client
+        .from("daily_contact_attempts_cloud")
+        .select("user_id,client_id,contact_date,shift,result,updated_at")
+        .eq("user_id", userId)
+        .eq("contact_date", contactDate)
+        .order("client_id", { ascending: true })
+        .order("shift", { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (error) throw error;
+      const rows = data ?? [];
+      for (const row of rows) {
+        const attempt = cloudDailyContactAttemptFromRow(row);
+        if (attempt) attempts.push(attempt);
+      }
+      if (rows.length < PAGE_SIZE) break;
+    }
+    return attempts;
+  });
+}
+
+export async function saveCloudDailyContactAttempt(
+  userId: string,
+  clientId: string,
+  contactDate: string,
+  shift: CloudDailyContactAttempt["shift"],
+  result: CloudDailyContactAttemptResult
+): Promise<CloudDailyContactAttempt> {
+  return withCloudRetry(async () => {
+    const client = getCloudClient();
+    const { data, error } = await client
+      .from("daily_contact_attempts_cloud")
+      .upsert({
+        user_id: userId,
+        client_id: clientId,
+        contact_date: contactDate,
+        shift,
+        result
+      }, { onConflict: "user_id,client_id,contact_date,shift" })
+      .select("user_id,client_id,contact_date,shift,result,updated_at")
+      .single();
+    if (error) throw error;
+    const saved = cloudDailyContactAttemptFromRow(data);
+    if (!saved) throw new Error("Supabase no devolvió la confirmación del contacto guardado.");
+    return saved;
+  });
+}
+
 export async function loadCloudStreetManagement(userId: string): Promise<Record<string, unknown>> {
   return dedupeLoad(`street-management:${userId}`, () => loadCloudStreetManagementUncached(userId));
 }
