@@ -25,6 +25,82 @@
 .route-collection-time-alert--attention { background: #d97706; }
 .route-collection-time-alert--urgent { background: #dc2626; }
 
+.route-collection-urgency.route-collection-time-alert {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin: -4px -4px 16px;
+  padding: 12px 14px;
+  border-radius: 9px;
+  color: #fff;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.route-collection-time-alert-status {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.route-collection-time-alert-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  border: 2px solid rgb(255 255 255 / 72%);
+  border-radius: 50%;
+  background: rgb(255 255 255 / 16%);
+  font-size: 1.2rem;
+  font-weight: 900;
+}
+
+.route-collection-time-alert-status > span:last-child,
+.route-collection-time-alert-duration {
+  display: grid;
+  gap: 2px;
+}
+
+.route-collection-time-alert small {
+  color: rgb(255 255 255 / 82%);
+  font-size: .66rem;
+  font-weight: 800;
+  letter-spacing: .07em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.route-collection-time-alert-status strong {
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+  line-height: 1.15;
+}
+
+.route-collection-time-alert-duration {
+  min-width: 132px;
+  padding-left: 14px;
+  border-left: 1px solid rgb(255 255 255 / 38%);
+  text-align: right;
+}
+
+.route-collection-time-alert-duration strong {
+  color: #fff;
+  font-size: 1.55rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.route-collection-time-alert-duration span {
+  color: rgb(255 255 255 / 80%);
+  font-size: .67rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .route-collection-route-time {
   display: inline-block;
   margin-top: 5px;
@@ -60,4 +136,17 @@
 
 @media (max-width: 640px) {
   .route-time-alert-summary { grid-template-columns: 1fr; }
+
+  .route-collection-urgency.route-collection-time-alert {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .route-collection-time-alert-duration {
+    min-width: 0;
+    padding: 10px 0 0;
+    border-top: 1px solid rgb(255 255 255 / 38%);
+    border-left: 0;
+    text-align: left;
+  }
 }

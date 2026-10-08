@@ -40,7 +40,11 @@ try {
   const card = fs.readFileSync(path.join(root, "src/pages/RouteCollectionCard.tsx"), "utf8");
   const page = fs.readFileSync(path.join(root, "src/pages/RouteSearchPage.tsx"), "utf8");
   const shell = fs.readFileSync(path.join(root, "src/AppShell.tsx"), "utf8");
-  assert.match(card, /route-collection-card--time-\$\{automaticUrgency\}/);
+  assert.match(card, /route-collection-card--time-\$\{displayedUrgency\}/);
+  assert.match(card, /<small>Tiempo en ruta<\/small>[\s\S]*?<strong>\{routeElapsedSince\(item\.publishedAt, props\.elapsedNow\)\}<\/strong>/,
+    "La duración debe ser el dato principal de la alerta.");
+  assert.match(card, /<span>Desde \{when\(item\.publishedAt\)\}<\/span>/,
+    "La alerta debe explicar desde cuándo está la unidad en ruta.");
   assert.match(page, /compareRouteWorkItemsByUrgency\(left, right, elapsedNow\)/);
   assert.match(page, /Alertas por tiempo en ruta/);
   assert.match(shell, /countImmediateRouteTimeAlerts\(workItems, routeAlertNow\)/);
