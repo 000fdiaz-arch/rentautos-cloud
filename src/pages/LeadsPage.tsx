@@ -19,6 +19,10 @@ type LeadForm = {
   birthDate: string;
   attachmentName: string;
   attachmentDataUrl: string;
+  attachmentPath: string;
+  attachmentMime: string;
+  attachmentSize?: number;
+  attachmentSha256: string;
   noCases: boolean;
   hasGpsTamperingReport: boolean;
   hasLegalCases: boolean;
@@ -60,6 +64,9 @@ const initialForm: LeadForm = {
   birthDate: "",
   attachmentName: "",
   attachmentDataUrl: "",
+  attachmentPath: "",
+  attachmentMime: "",
+  attachmentSha256: "",
   noCases: false,
   hasGpsTamperingReport: false,
   hasLegalCases: false,
@@ -156,6 +163,10 @@ function buildFormFromEvaluation(evaluation: LeadEvaluation): LeadForm {
     birthDate: evaluation.birthDate,
     attachmentName: evaluation.attachmentName ?? "",
     attachmentDataUrl: evaluation.attachmentDataUrl ?? "",
+    attachmentPath: evaluation.attachmentPath ?? "",
+    attachmentMime: evaluation.attachmentMime ?? "",
+    attachmentSize: evaluation.attachmentSize,
+    attachmentSha256: evaluation.attachmentSha256 ?? "",
     noCases: evaluation.noCases,
     hasGpsTamperingReport: evaluation.hasGpsTamperingReport,
     hasLegalCases: evaluation.hasLegalCases,
@@ -271,7 +282,11 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       cedula: full.cedula,
       birthDate: full.birthDate,
       attachmentName: full.attachmentName ?? "",
-      attachmentDataUrl: full.attachmentDataUrl ?? ""
+      attachmentDataUrl: full.attachmentDataUrl ?? "",
+      attachmentPath: full.attachmentPath ?? "",
+      attachmentMime: full.attachmentMime ?? "",
+      attachmentSize: full.attachmentSize,
+      attachmentSha256: full.attachmentSha256 ?? ""
     });
     setQueryCedula(full.cedula);
     setFlowMode("creating");
@@ -347,7 +362,15 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       reader.onerror = () => reject(reader.error ?? new Error("No se pudo leer el adjunto."));
       reader.readAsDataURL(file);
     });
-    if (version === requestVersion.current) setForm((current) => ({ ...current, attachmentName: file.name, attachmentDataUrl: dataUrl }));
+    if (version === requestVersion.current) setForm((current) => ({
+      ...current,
+      attachmentName: file.name,
+      attachmentDataUrl: dataUrl,
+      attachmentPath: "",
+      attachmentMime: file.type,
+      attachmentSize: file.size,
+      attachmentSha256: ""
+    }));
     } catch {
       if (version === requestVersion.current) setErrors(["No se pudo leer el documento. Intenta adjuntarlo nuevamente."]);
     } finally {
@@ -408,7 +431,9 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
         if (existing) { setErrors(["Esa cédula ya tiene un dictamen. Abre ese Lead para corregirlo."]); return; }
       }
       const corrected = await correctSellerLeadRequest(ownerUserId, activeSellerRequest, {
-        cedula, birthDate: form.birthDate, attachmentName: form.attachmentName, attachmentDataUrl: form.attachmentDataUrl
+        cedula, birthDate: form.birthDate, attachmentName: form.attachmentName, attachmentDataUrl: form.attachmentDataUrl,
+        attachmentPath: form.attachmentPath || undefined, attachmentMime: form.attachmentMime || undefined,
+        attachmentSize: form.attachmentSize, attachmentSha256: form.attachmentSha256 || undefined
       });
       setActiveSellerRequest(corrected);
       setSellerEditSnapshot(null);
@@ -429,7 +454,15 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       const full = await onEvaluationLoad(openedEvaluationId);
       if (version !== requestVersion.current) return;
       if (!full?.attachmentDataUrl) throw new Error("Documento no disponible");
-      setForm(current => ({ ...current, attachmentName: full.attachmentName ?? "", attachmentDataUrl: full.attachmentDataUrl ?? "" }));
+      setForm(current => ({
+        ...current,
+        attachmentName: full.attachmentName ?? "",
+        attachmentDataUrl: full.attachmentDataUrl ?? "",
+        attachmentPath: full.attachmentPath ?? "",
+        attachmentMime: full.attachmentMime ?? "",
+        attachmentSize: full.attachmentSize,
+        attachmentSha256: full.attachmentSha256 ?? ""
+      }));
     } catch {
       if (version === requestVersion.current) setErrors(["No se pudo cargar el documento. Intenta nuevamente."]);
     } finally {
@@ -561,6 +594,10 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       age: targetVerdict.age,
       attachmentName: targetForm.attachmentName || undefined,
       attachmentDataUrl: targetForm.attachmentDataUrl || undefined,
+      attachmentPath: targetForm.attachmentPath || undefined,
+      attachmentMime: targetForm.attachmentMime || undefined,
+      attachmentSize: targetForm.attachmentSize,
+      attachmentSha256: targetForm.attachmentSha256 || undefined,
       noCases: targetForm.noCases,
       hasGpsTamperingReport: targetForm.noCases ? false : targetForm.hasGpsTamperingReport,
       hasLegalCases: targetForm.noCases ? false : targetForm.hasLegalCases,
@@ -588,7 +625,9 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       if (activeSellerRequest || (editingEvaluation && nextEvaluation.sellerRequestId)) {
         await markSellerLeadRequestReviewed(activeSellerRequest?.id ?? nextEvaluation.sellerRequestId!, nextEvaluation.id, {
           cedula: nextEvaluation.cedula, birthDate: nextEvaluation.birthDate,
-          attachmentName: targetForm.attachmentName, attachmentDataUrl: targetForm.attachmentDataUrl
+          attachmentName: targetForm.attachmentName, attachmentDataUrl: targetForm.attachmentDataUrl,
+          attachmentPath: targetForm.attachmentPath || undefined, attachmentMime: targetForm.attachmentMime || undefined,
+          attachmentSize: targetForm.attachmentSize, attachmentSha256: targetForm.attachmentSha256 || undefined
         });
         await refreshSellerRequests();
       }
@@ -849,9 +888,9 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
               <h3>Documento adjunto</h3>
               {!form.attachmentDataUrl && openedEvaluationId && onEvaluationLoad ? (
                 <button type="button" className="button ghost small" disabled={documentLoading} onClick={() => void handleLoadDocument()}>{documentLoading ? "Cargando documento..." : "Ver documento"}</button>
-              ) : form.attachmentDataUrl.startsWith("data:image/") ? (
+              ) : form.attachmentDataUrl && form.attachmentMime !== "application/pdf" && !form.attachmentName.toLowerCase().endsWith(".pdf") ? (
                 <LeadDocumentPreview key={form.attachmentDataUrl} src={form.attachmentDataUrl} name={form.attachmentName} />
-              ) : form.attachmentDataUrl.startsWith("data:application/pdf") ? (
+              ) : form.attachmentDataUrl ? (
                 <LeadPdfPreview key={form.attachmentDataUrl} src={form.attachmentDataUrl} name={form.attachmentName} />
               ) : (
                 <p className="lead-document-file">{form.attachmentName}</p>

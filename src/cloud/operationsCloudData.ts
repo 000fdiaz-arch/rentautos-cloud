@@ -9,6 +9,7 @@ import type {
 import { stableEqual } from "../stableSerialize";
 import { normalizeCourtName } from "../courtNames";
 import { getMissingCollisionDocumentation } from "../collisionDocumentation";
+import { createLeadDocumentViewUrl, isLeadDocumentDataUrl, uploadLeadDocumentDataUrl } from "./leadDocumentStorage";
 
 export async function registerCloudRouteBankNotice(
   userId: string,
@@ -1346,28 +1347,45 @@ export async function saveCloudChargeRuns(userId: string, rows: ChargeRun[]): Pr
   }
 }
 
+type LeadEvaluationDocumentRow = DataRow<LeadEvaluation> & {
+  attachment_path?: string | null;
+  attachment_mime?: string | null;
+  attachment_size?: number | null;
+  attachment_sha256?: string | null;
+};
+
+function leadEvaluationFromDocumentRow(row: LeadEvaluationDocumentRow): LeadEvaluation {
+  return {
+    ...row.data,
+    attachmentPath: row.attachment_path ?? undefined,
+    attachmentMime: row.attachment_mime ?? undefined,
+    attachmentSize: row.attachment_size ?? undefined,
+    attachmentSha256: row.attachment_sha256 ?? undefined
+  };
+}
+
 export async function loadCloudLeadEvaluations(userId: string): Promise<LeadEvaluation[]> {
   const client = getCloudClient();
-  const allRows: DataRow<LeadEvaluation>[] = [];
+  const allRows: LeadEvaluationDocumentRow[] = [];
   let lastId = "";
   while (true) {
     let query = client
       .from("lead_evaluations_cloud")
-      .select("id,data")
+      .select("id,data,attachment_path,attachment_mime,attachment_size,attachment_sha256")
       .eq("user_id", userId)
       .order("id", { ascending: true })
       .limit(PAGE_SIZE);
     if (lastId) query = query.gt("id", lastId);
     const { data, error } = await query;
     if (error) throw error;
-    const batch = (data ?? []) as DataRow<LeadEvaluation>[];
+    const batch = (data ?? []) as LeadEvaluationDocumentRow[];
     allRows.push(...batch);
     if (batch.length < PAGE_SIZE) break;
     lastId = batch[batch.length - 1]?.id ?? lastId;
     if (!lastId) break;
   }
   return allRows
-    .map((row) => row.data)
+    .map(leadEvaluationFromDocumentRow)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
@@ -1446,42 +1464,54 @@ export async function loadCloudLeadEvaluation(userId: string, evaluationId: stri
   const client = getCloudClient();
   const { data, error } = await client
     .from("lead_evaluations_cloud")
-    .select("data")
+    .select("id,data,attachment_path,attachment_mime,attachment_size,attachment_sha256")
     .eq("user_id", userId)
     .eq("id", evaluationId)
     .maybeSingle();
   if (error) throw error;
-  const payload = (data as { data?: unknown } | null)?.data;
-  return payload && typeof payload === "object" && !Array.isArray(payload)
-    ? payload as LeadEvaluation
-    : null;
+  const row = data as LeadEvaluationDocumentRow | null;
+  if (!row?.data || typeof row.data !== "object" || Array.isArray(row.data)) return null;
+  const evaluation = leadEvaluationFromDocumentRow(row);
+  if (!evaluation.attachmentPath) return evaluation;
+  try {
+    return { ...evaluation, attachmentDataUrl: await createLeadDocumentViewUrl(evaluation.attachmentPath) };
+  } catch {
+    return evaluation;
+  }
 }
 
 export async function saveCloudLeadEvaluations(userId: string, evaluations: LeadEvaluation[]): Promise<void> {
-  const client = getCloudClient();
-  const rows = evaluations.map((item) => ({
-    user_id: userId,
-    id: item.id,
-    data: item,
-    updated_at: item.updatedAt
-  }));
-
-  if (rows.length > 0) {
-    const { error } = await client
-      .from("lead_evaluations_cloud")
-      .upsert(rows, { onConflict: "user_id,id" });
-    if (error) throw error;
-  }
+  for (const evaluation of evaluations) await saveCloudLeadEvaluation(userId, evaluation);
 }
 
 export async function saveCloudLeadEvaluation(userId: string, evaluation: LeadEvaluation): Promise<void> {
   const client = getCloudClient();
+  const uploaded = isLeadDocumentDataUrl(evaluation.attachmentDataUrl)
+    ? await uploadLeadDocumentDataUrl(userId, evaluation.attachmentDataUrl)
+    : null;
+  const attachmentPath = uploaded?.attachmentPath ?? evaluation.attachmentPath;
+  const attachmentMime = uploaded?.attachmentMime ?? evaluation.attachmentMime;
+  const attachmentSize = uploaded?.attachmentSize ?? evaluation.attachmentSize;
+  const attachmentSha256 = uploaded?.attachmentSha256 ?? evaluation.attachmentSha256;
+  const {
+    attachmentDataUrl: _attachmentDataUrl,
+    attachmentPath: _attachmentPath,
+    attachmentMime: _attachmentMime,
+    attachmentSize: _attachmentSize,
+    attachmentSha256: _attachmentSha256,
+    ...payload
+  } = evaluation;
   const { error } = await client
     .from("lead_evaluations_cloud")
     .upsert({
       user_id: userId,
       id: evaluation.id,
-      data: evaluation,
+      data: payload,
+      attachment_path: attachmentPath ?? null,
+      attachment_mime: attachmentMime ?? null,
+      attachment_size: attachmentSize ?? null,
+      attachment_sha256: attachmentSha256 ?? null,
+      attachment_migrated_at: attachmentPath ? new Date().toISOString() : null,
       updated_at: evaluation.updatedAt
     }, { onConflict: "user_id,id" });
   if (error) throw error;

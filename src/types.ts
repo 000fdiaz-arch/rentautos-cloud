@@ -146,6 +146,10 @@ export type SellerLeadRequest = {
   birthDate: string;
   attachmentName?: string;
   attachmentDataUrl?: string;
+  attachmentPath?: string;
+  attachmentMime?: string;
+  attachmentSize?: number;
+  attachmentSha256?: string;
   correctionNote?: string;
   evaluationId?: string;
   expiresAt: string;
@@ -174,6 +178,10 @@ export type LeadEvaluation = {
   age: number;
   attachmentName?: string;
   attachmentDataUrl?: string;
+  attachmentPath?: string;
+  attachmentMime?: string;
+  attachmentSize?: number;
+  attachmentSha256?: string;
   hasGpsTamperingReport: boolean;
   hasLegalCases: boolean;
   hasViolenceReports: boolean;

@@ -1,6 +1,7 @@
 import type { PublicSellerLeadRequest, SellerLeadRequest, SellerLeadRequestStatus } from "../types";
 import { createEphemeralSupabaseClient } from "../lib/supabase";
 import { getCloudClient } from "./cloudClient";
+import { createLeadDocumentViewUrl, isLeadDocumentDataUrl, uploadLeadDocumentDataUrl } from "./leadDocumentStorage";
 
 type SellerLeadRequestRow = {
   id: string;
@@ -11,6 +12,10 @@ type SellerLeadRequestRow = {
   birth_date: string | null;
   attachment_name: string | null;
   attachment_data_url: string | null;
+  attachment_path: string | null;
+  attachment_mime: string | null;
+  attachment_size: number | null;
+  attachment_sha256: string | null;
   correction_note: string | null;
   evaluation_id: string | null;
   expires_at: string;
@@ -30,6 +35,10 @@ function fromRow(row: SellerLeadRequestRow): SellerLeadRequest {
     birthDate: row.birth_date ?? "",
     attachmentName: row.attachment_name ?? undefined,
     attachmentDataUrl: row.attachment_data_url ?? undefined,
+    attachmentPath: row.attachment_path ?? undefined,
+    attachmentMime: row.attachment_mime ?? undefined,
+    attachmentSize: row.attachment_size ?? undefined,
+    attachmentSha256: row.attachment_sha256 ?? undefined,
     correctionNote: row.correction_note ?? undefined,
     evaluationId: row.evaluation_id ?? undefined,
     expiresAt: row.expires_at,
@@ -40,7 +49,16 @@ function fromRow(row: SellerLeadRequestRow): SellerLeadRequest {
   };
 }
 
-const requestColumns = "id,user_id,token,status,cedula,birth_date,attachment_name,attachment_data_url,correction_note,evaluation_id,expires_at,submitted_at,reviewed_at,created_at,updated_at";
+const requestColumns = "id,user_id,token,status,cedula,birth_date,attachment_name,attachment_data_url,attachment_path,attachment_mime,attachment_size,attachment_sha256,correction_note,evaluation_id,expires_at,submitted_at,reviewed_at,created_at,updated_at";
+
+async function withDocumentViewUrl(request: SellerLeadRequest): Promise<SellerLeadRequest> {
+  if (!request.attachmentPath) return request;
+  try {
+    return { ...request, attachmentDataUrl: await createLeadDocumentViewUrl(request.attachmentPath) };
+  } catch {
+    return request;
+  }
+}
 
 export const SELLER_LEAD_REQUESTS_CHANGED_EVENT = "rentautos:seller-lead-requests-changed";
 
@@ -71,7 +89,7 @@ export async function loadSellerLeadRequest(userId: string, id: string): Promise
   const { data, error } = await getCloudClient().from("seller_lead_requests")
     .select(requestColumns).eq("user_id", userId).eq("id", id).single();
   if (error) throw error;
-  return fromRow(data as SellerLeadRequestRow);
+  return withDocumentViewUrl(fromRow(data as SellerLeadRequestRow));
 }
 
 export async function createSellerLeadRequest(userId: string): Promise<SellerLeadRequest> {
@@ -95,17 +113,37 @@ export async function markSellerLeadRequestIncomplete(requestId: string, correct
   window.dispatchEvent(new Event(SELLER_LEAD_REQUESTS_CHANGED_EVENT));
 }
 
-type SellerLeadInformation = { cedula: string; birthDate: string; attachmentName: string; attachmentDataUrl: string };
+type SellerLeadInformation = {
+  cedula: string;
+  birthDate: string;
+  attachmentName: string;
+  attachmentDataUrl: string;
+  attachmentPath?: string;
+  attachmentMime?: string;
+  attachmentSize?: number;
+  attachmentSha256?: string;
+};
 
 export async function correctSellerLeadRequest(userId: string, request: SellerLeadRequest, input: SellerLeadInformation): Promise<SellerLeadRequest> {
+  const uploaded = isLeadDocumentDataUrl(input.attachmentDataUrl)
+    ? await uploadLeadDocumentDataUrl(userId, input.attachmentDataUrl)
+    : null;
+  const attachmentPath = uploaded?.attachmentPath ?? input.attachmentPath ?? request.attachmentPath;
+  const attachmentMime = uploaded?.attachmentMime ?? input.attachmentMime ?? request.attachmentMime;
+  const attachmentSize = uploaded?.attachmentSize ?? input.attachmentSize ?? request.attachmentSize;
+  const attachmentSha256 = uploaded?.attachmentSha256 ?? input.attachmentSha256 ?? request.attachmentSha256;
   const { data, error } = await getCloudClient().from("seller_lead_requests")
     .update({ cedula: input.cedula, birth_date: input.birthDate, attachment_name: input.attachmentName,
-      attachment_data_url: input.attachmentDataUrl, updated_at: new Date().toISOString() })
+      attachment_data_url: attachmentPath ? null : input.attachmentDataUrl,
+      attachment_path: attachmentPath ?? null, attachment_mime: attachmentMime ?? null,
+      attachment_size: attachmentSize ?? null, attachment_sha256: attachmentSha256 ?? null,
+      attachment_migrated_at: attachmentPath ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString() })
     .eq("user_id", userId).eq("id", request.id).eq("status", "pending_review").eq("updated_at", request.updatedAt)
     .select(requestColumns).single();
   if (error) throw error;
   window.dispatchEvent(new Event(SELLER_LEAD_REQUESTS_CHANGED_EVENT));
-  return fromRow(data as SellerLeadRequestRow);
+  return withDocumentViewUrl(fromRow(data as SellerLeadRequestRow));
 }
 
 export async function markSellerLeadRequestReviewed(requestId: string, evaluationId: string, information?: SellerLeadInformation): Promise<void> {
@@ -115,7 +153,15 @@ export async function markSellerLeadRequestReviewed(requestId: string, evaluatio
     .from("seller_lead_requests")
     .update({ status: "reviewed", evaluation_id: evaluationId, correction_note: null, reviewed_at: now, updated_at: now,
       ...(information ? { cedula: information.cedula, birth_date: information.birthDate,
-        attachment_name: information.attachmentName, attachment_data_url: information.attachmentDataUrl } : {}) })
+        attachment_name: information.attachmentName,
+        ...(information.attachmentPath ? {
+          attachment_data_url: null,
+          attachment_path: information.attachmentPath,
+          attachment_mime: information.attachmentMime ?? null,
+          attachment_size: information.attachmentSize ?? null,
+          attachment_sha256: information.attachmentSha256 ?? null,
+          attachment_migrated_at: now
+        } : { attachment_data_url: information.attachmentDataUrl }) } : {}) })
     .eq("id", requestId).select("id").single();
   if (error) throw error;
   window.dispatchEvent(new Event(SELLER_LEAD_REQUESTS_CHANGED_EVENT));
@@ -171,9 +217,8 @@ export async function submitSharedSellerLead(portalId: string, input: {
 }): Promise<PublicSellerLeadRequest> {
   const client = createEphemeralSupabaseClient();
   if (!client) throw new Error("El servicio de consulta no está configurado.");
-  const { data, error } = await client.rpc("submit_shared_seller_lead", {
-    p_portal_id: portalId, p_cedula: input.cedula, p_birth_date: input.birthDate,
-    p_attachment_name: input.attachmentName, p_attachment_data_url: input.attachmentDataUrl
+  const { data, error } = await client.functions.invoke("submit-seller-lead-document", {
+    body: { mode: "shared", portalId, ...input }
   });
   if (error) throw publicPortalError(error);
   return normalizePublicPayload(data);
@@ -195,12 +240,8 @@ export async function submitPublicSellerLeadRequest(token: string, input: {
 }): Promise<void> {
   const client = createEphemeralSupabaseClient();
   if (!client) throw new Error("El servicio de consulta no esta configurado.");
-  const { error } = await client.rpc("submit_seller_lead_request", {
-    p_token: token,
-    p_cedula: input.cedula,
-    p_birth_date: input.birthDate,
-    p_attachment_name: input.attachmentName,
-    p_attachment_data_url: input.attachmentDataUrl
+  const { error } = await client.functions.invoke("submit-seller-lead-document", {
+    body: { mode: "token", token, ...input }
   });
   if (error) throw error;
 }
