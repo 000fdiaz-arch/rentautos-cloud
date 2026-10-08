@@ -79,10 +79,6 @@ export function compareRouteWorkItemsByUrgency(left: ActiveRouteItem, right: Act
   return left.unitId.localeCompare(right.unitId, "es", { numeric: true, sensitivity: "base" });
 }
 
-export function countImmediateRouteTimeAlerts(items: ActiveRouteItem[], now: number): number {
-  return items.filter((item) => urgencyRank[effectiveRouteUrgency(item, now)] >= urgencyRank.attention).length;
-}
-
 export function summarizeRouteTimeUrgency(items: ActiveRouteItem[], now: number): Record<RouteTimeUrgency, number> {
   const summary: Record<RouteTimeUrgency, number> = { normal: 0, upcoming: 0, attention: 0, urgent: 0 };
   for (const item of items) summary[effectiveRouteUrgency(item, now)] += 1;

@@ -35,7 +35,6 @@ try {
   const route = [item("N1", 1), item("B3", 3), item("A5", 5), item("R9", 9), item("R10", 10)];
   const sorted = [...route].sort((left, right) => rules.compareRouteWorkItemsByUrgency(left, right, now));
   assert.deepEqual(sorted.map(row => row.unitId), ["R10", "R9", "A5", "B3", "N1"], "Las unidades más urgentes y antiguas deben aparecer primero.");
-  assert.equal(rules.countImmediateRouteTimeAlerts(route, now), 3, "La insignia debe contar atención y urgente, no la alerta azul.");
   assert.deepEqual(rules.summarizeRouteTimeUrgency(route, now), { normal: 1, upcoming: 1, attention: 1, urgent: 2 });
 
   const card = fs.readFileSync(path.join(root, "src/pages/RouteCollectionCard.tsx"), "utf8");
@@ -48,7 +47,7 @@ try {
     "La alerta debe explicar desde cuándo está la unidad en ruta.");
   assert.match(page, /compareRouteWorkItemsByUrgency\(left, right, elapsedNow\)/);
   assert.match(page, /Alertas por tiempo en ruta/);
-  assert.match(shell, /countImmediateRouteTimeAlerts\(workItems, routeAlertNow\)/);
+  assert.doesNotMatch(shell, /countImmediateRouteTimeAlerts/, "El menú no debe sumar las alertas de tiempo.");
 
   console.log("OK ruta: urgencia progresiva, prioridad manual, orden y contador validados.");
 } finally {
