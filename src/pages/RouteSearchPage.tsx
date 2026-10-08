@@ -29,6 +29,7 @@ import {
 import { formatCurrency, formatDate } from "../format";
 import { supabase } from "../lib/supabase";
 import { buildRouteReviewIndex, getActiveRouteReviewItems, getRouteWorkItems, isPendingCashRouteReport, routeRentAmountForDay } from "../routeReviewRules";
+import { compareRouteWorkItemsByUrgency, summarizeRouteTimeUrgency } from "../routeTimeUrgency";
 import type { Client, CollectionTeam, Payment } from "../types";
 import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentStorage";
 import type { NotifiedPayment } from "./payments/paymentTypes";
@@ -557,6 +558,7 @@ export default function RouteSearchPage({
   const confirmedPrevious = useMemo(() => confirmedReports.filter(report => !confirmedToday.includes(report)), [confirmedReports, confirmedToday]);
   const visibleConfirmedReports = confirmedPeriod === "today" ? confirmedToday : confirmedPrevious;
   const reviewReports = useMemo(() => reports.filter((report) => report.status === "review"), [reports]);
+  const routeTimeSummary = useMemo(() => summarizeRouteTimeUrgency(workItems, elapsedNow), [elapsedNow, workItems]);
 
   const activeItems = useMemo<Array<ActiveRouteItem & { report?: RoutePaymentReport }>>(() => (
     workflowView === "work" ? workItems : workflowView === "custody" ? custodyItems : workflowView === "partial" ? partialReviewItems : (workflowView === "confirmed" ? visibleConfirmedReports : reviewReports)
@@ -706,8 +708,10 @@ export default function RouteSearchPage({
           item.comment ?? ""
         ].some((value) => value.toLowerCase().includes(normalizedQuery));
       })
-      .sort(compareActiveRouteItems);
-  }, [activeItems, query, routeFilter, zoneFilter]);
+      .sort((left, right) => workflowView === "work"
+        ? compareRouteWorkItemsByUrgency(left, right, elapsedNow)
+        : compareActiveRouteItems(left, right));
+  }, [activeItems, elapsedNow, query, routeFilter, workflowView, zoneFilter]);
 
   const selectedZoneLabel = useMemo(() => {
     if (zoneFilter === ALL_ACTIVE_ZONE_FILTER) return "";
@@ -1054,6 +1058,12 @@ export default function RouteSearchPage({
           </button>
         </div>
       </header>
+
+      {workflowView === "work" ? <section className="route-time-alert-summary" aria-label="Alertas por tiempo en ruta">
+        <div className="route-time-alert-metric route-time-alert-metric--upcoming"><span>Próxima atención · 2–4 h</span><strong>{routeTimeSummary.upcoming}</strong></div>
+        <div className="route-time-alert-metric route-time-alert-metric--attention"><span>Atención · 4–8 h</span><strong>{routeTimeSummary.attention}</strong></div>
+        <div className="route-time-alert-metric route-time-alert-metric--urgent"><span>Urgente · 8 h o más</span><strong>{routeTimeSummary.urgent}</strong></div>
+      </section> : null}
 
       {workflowView === "work" ? <RouteTeamSummary workItems={workItems} reports={reports} confirmedToday={confirmedToday} routes={routeAssignmentOptions} /> : null}
       {extraRouteOptions.length > 0 ? <section className="route-search-extra-routes" aria-label="Rutas creadas">

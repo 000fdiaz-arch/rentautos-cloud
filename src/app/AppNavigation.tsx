@@ -63,7 +63,7 @@ export default function AppNavigation({
   const visibleTabs = tabs.filter((tab) => tab.visible);
   function badgeLabel(tab: (typeof tabs)[number]): string {
     if (tab.page === "leads") return `${tab.badge} ${tab.badge === 1 ? "licencia pendiente" : "licencias pendientes"} de revisión`;
-    return tab.page === "route_search" ? `${tab.badge} pagos parciales pendientes de revision` : `${tab.badge} expedientes con alertas activas`;
+    return tab.page === "route_search" ? `${tab.badge} alertas activas de ruta: pagos parciales pendientes de revision o unidades demoradas` : `${tab.badge} expedientes con alertas activas`;
   }
   const primaryOrder: AppPage[] = ["clients", "payments", "receivables", "route_search"];
   const primaryTabs = primaryOrder

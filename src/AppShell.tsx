@@ -63,7 +63,8 @@ import { useLeadCloudData } from "./app/useLeadCloudData";
 import { usePendingLeadReviewCount } from "./app/usePendingLeadReviewCount";
 import { getBusinessDateKey, withResolvedInstallmentIssuance } from "./billing";
 import { supabase } from "./lib/supabase";
-import { countActiveRouteReviewItems } from "./routeReviewRules";
+import { buildRouteReviewIndex, countActiveRouteReviewItems, getRouteWorkItems } from "./routeReviewRules";
+import { countImmediateRouteTimeAlerts } from "./routeTimeUrgency";
 import { loadRoutePaymentReports, type RoutePaymentReport } from "./cloud/routeReportCloudData";
 import { stableEqual } from "./stableSerialize";
 import { routeFilterForOperatorEmail } from "./routeOperatorScope";
@@ -254,10 +255,20 @@ export default function AppShell({
   const [incidentAlertCount, setIncidentAlertCount] = useState(0);
   const [routeReviewItems, setRouteReviewItems] = useState<ActiveRouteItem[]>([]);
   const [routeCashReports, setRouteCashReports] = useState<RoutePaymentReport[]>([]);
-  const routeReviewCount = useMemo(
-    () => countActiveRouteReviewItems(routeReviewItems, payments, getBusinessDateKey(), routeCashReports),
-    [payments, routeReviewItems, routeCashReports]
-  );
+  const [routeAlertNow, setRouteAlertNow] = useState(() => Date.now());
+  const routeReviewCount = useMemo(() => {
+    const dateKey = getBusinessDateKey();
+    const index = buildRouteReviewIndex(payments, routeCashReports);
+    const workItems = getRouteWorkItems(routeReviewItems, payments, dateKey, routeCashReports, index);
+    return countActiveRouteReviewItems(routeReviewItems, payments, dateKey, routeCashReports)
+      + countImmediateRouteTimeAlerts(workItems, routeAlertNow);
+  }, [payments, routeAlertNow, routeReviewItems, routeCashReports]);
+
+  useEffect(() => {
+    if (!canViewRouteSearch) return;
+    const timer = window.setInterval(() => setRouteAlertNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [canViewRouteSearch]);
 
   useEffect(() => {
     if (!cloudDataUserId || !canViewIncidents) {

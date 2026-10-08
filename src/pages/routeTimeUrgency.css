@@ -1,0 +1,63 @@
+.route-time-alert-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.route-time-alert-metric {
+  display: grid;
+  gap: 2px;
+  padding: 9px 11px;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid currentColor;
+  border-radius: 8px;
+  background: var(--color-surface);
+  font-size: .76rem;
+}
+
+.route-time-alert-metric strong { font-size: 1.05rem; }
+.route-time-alert-metric--upcoming { color: #1d4ed8; background: #eff6ff; }
+.route-time-alert-metric--attention { color: #92400e; background: #fffbeb; }
+.route-time-alert-metric--urgent { color: #b91c1c; background: #fef2f2; }
+
+.route-collection-time-alert--upcoming { background: #2563eb; }
+.route-collection-time-alert--attention { background: #d97706; }
+.route-collection-time-alert--urgent { background: #dc2626; }
+
+.route-collection-route-time {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  font-size: .75rem;
+  font-weight: 700;
+}
+
+.route-search-page--compact .route-collection-card--time-upcoming {
+  border-color: #60a5fa;
+  border-top-color: #2563eb;
+  background: #f8fbff;
+}
+
+.route-search-page--compact .route-collection-card--time-attention {
+  border-color: #f59e0b;
+  border-top-color: #d97706;
+  background: #fffbeb;
+}
+
+.route-search-page--compact .route-collection-card--time-urgent {
+  border-color: #ef4444;
+  border-top-color: #dc2626;
+  background: #fef2f2;
+}
+
+.route-collection-route-time--upcoming { border-color: #60a5fa; color: #1d4ed8; background: #eff6ff; }
+.route-collection-route-time--attention { border-color: #f59e0b; color: #92400e; background: #fffbeb; }
+.route-collection-route-time--urgent { border-color: #ef4444; color: #b91c1c; background: #fef2f2; }
+
+@media (max-width: 640px) {
+  .route-time-alert-summary { grid-template-columns: 1fr; }
+}

@@ -3,7 +3,9 @@ import type { ActiveRouteItem } from "../cloudData";
 import type { RoutePaymentReport } from "../cloud/routeReportCloudData";
 import { formatCurrency } from "../format";
 import { isPendingCashRouteReport } from "../routeReviewRules";
+import { effectiveRouteUrgency, routeUrgencyLabel } from "../routeTimeUrgency";
 import { fieldManagementLabel } from "./receivables/receivablesTypes";
+import "./routeTimeUrgency.css";
 
 export type RouteWorkflowView = "work" | "review" | "partial" | "confirmed" | "custody";
 export type RouteCardItem = ActiveRouteItem & { report?: RoutePaymentReport };
@@ -100,13 +102,16 @@ export default function RouteCollectionCard(props: Props) {
     ? report.cash_amount + (report.bank_amount > 0 ? report.confirmed_bank_received_amount : 0)
     : 0;
   const tone = view === "custody" ? "custody" : view === "confirmed" ? "confirmed" : pendingCash || view === "partial" ? "attention" : "normal";
-  const urgency = (view === "work" || view === "partial") && item.urgency && item.urgency !== "normal" ? item.urgency : null;
-  return <article className={`route-search-card route-collection-card route-collection-card--${tone}${urgency ? ` route-collection-card--${urgency}` : ""}${item.routeInactiveAt && view === "work" ? " route-collection-card--inactive" : ""}`} aria-label={`${item.unitId} · ${item.clientName}`}>
-    {urgency ? <div className={`route-collection-urgency route-collection-urgency--${urgency}`}><span aria-hidden="true">⚠</span> {urgency === "very_urgent" ? "Muy urgente" : "Urgente"}</div> : null}
+  const automaticUrgency = view === "work" ? effectiveRouteUrgency(item, props.elapsedNow) : "normal";
+  const manualUrgency = view === "partial" && item.urgency && item.urgency !== "normal" ? item.urgency : null;
+  const urgencyClass = automaticUrgency !== "normal" ? ` route-collection-card--time-${automaticUrgency}` : manualUrgency ? ` route-collection-card--${manualUrgency}` : "";
+  const urgencyLabel = automaticUrgency !== "normal" ? routeUrgencyLabel(item, props.elapsedNow) : manualUrgency === "very_urgent" ? "Muy urgente" : manualUrgency ? "Urgente" : "";
+  return <article className={`route-search-card route-collection-card route-collection-card--${tone}${urgencyClass}${item.routeInactiveAt && view === "work" ? " route-collection-card--inactive" : ""}`} aria-label={`${item.unitId} · ${item.clientName}`}>
+    {urgencyLabel ? <div className={`route-collection-urgency ${automaticUrgency !== "normal" ? `route-collection-time-alert--${automaticUrgency}` : `route-collection-urgency--${manualUrgency}`}`}><span aria-hidden="true">⚠</span> {urgencyLabel} · {routeElapsedSince(item.publishedAt, props.elapsedNow)} en ruta</div> : null}
     <div className="route-collection-identity">
       <div>
         <h2>{item.unitId} <span>· {item.clientName.trim().split(/\s+/)[0]}</span></h2>
-        <span className="route-collection-route" title={`Desde ${when(item.publishedAt)}`} aria-label={`Tiempo en ruta de ${item.unitId}: ${routeElapsedSince(item.publishedAt, props.elapsedNow)}`}>⏱ En ruta · {routeElapsedSince(item.publishedAt, props.elapsedNow)}</span>
+        <span className={`route-collection-route-time${automaticUrgency !== "normal" ? ` route-collection-route-time--${automaticUrgency}` : ""}`} title={`Desde ${when(item.publishedAt)}`} aria-label={`Tiempo en ruta de ${item.unitId}: ${routeElapsedSince(item.publishedAt, props.elapsedNow)}`}>⏱ En ruta · {routeElapsedSince(item.publishedAt, props.elapsedNow)}</span>
       </div>
       {canReport && !report ? (
         <select className="route-collection-route route-collection-route-picker" aria-label={`Ruta de ${item.unitId}`} value={(item.routeAssignment ?? "").trim().toUpperCase()} disabled={props.changingRoute || saving} onChange={event => {
