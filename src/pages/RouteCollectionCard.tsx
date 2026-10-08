@@ -70,6 +70,20 @@ function elapsedSince(value: string, now: number): string {
   return `Hace ${days} d${remainingHours ? ` ${remainingHours} h` : ""}`;
 }
 
+function routeElapsedSince(value: string, now: number): string {
+  const started = Date.parse(value);
+  if (!Number.isFinite(started)) return "Tiempo no disponible";
+  const minutes = Math.max(0, Math.floor((now - started) / 60_000));
+  if (minutes < 1) return "menos de 1 min";
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours < 24) return `${hours} h${remainingMinutes ? ` ${remainingMinutes} min` : ""}`;
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+  return `${days} d${remainingHours ? ` ${remainingHours} h` : ""}`;
+}
+
 export default function RouteCollectionCard(props: Props) {
   const zoneListId = useId();
   const { item, view, paidRent, balance, canReport, canEdit, canRemove, canRegister, saving } = props;
@@ -90,7 +104,10 @@ export default function RouteCollectionCard(props: Props) {
   return <article className={`route-search-card route-collection-card route-collection-card--${tone}${urgency ? ` route-collection-card--${urgency}` : ""}${item.routeInactiveAt && view === "work" ? " route-collection-card--inactive" : ""}`} aria-label={`${item.unitId} · ${item.clientName}`}>
     {urgency ? <div className={`route-collection-urgency route-collection-urgency--${urgency}`}><span aria-hidden="true">⚠</span> {urgency === "very_urgent" ? "Muy urgente" : "Urgente"}</div> : null}
     <div className="route-collection-identity">
-      <h2>{item.unitId} <span>· {item.clientName.trim().split(/\s+/)[0]}</span></h2>
+      <div>
+        <h2>{item.unitId} <span>· {item.clientName.trim().split(/\s+/)[0]}</span></h2>
+        <span className="route-collection-route" title={`Desde ${when(item.publishedAt)}`} aria-label={`Tiempo en ruta de ${item.unitId}: ${routeElapsedSince(item.publishedAt, props.elapsedNow)}`}>⏱ En ruta · {routeElapsedSince(item.publishedAt, props.elapsedNow)}</span>
+      </div>
       {canReport && !report ? (
         <select className="route-collection-route route-collection-route-picker" aria-label={`Ruta de ${item.unitId}`} value={(item.routeAssignment ?? "").trim().toUpperCase()} disabled={props.changingRoute || saving} onChange={event => {
           if (event.target.value === "__create_route__") {
