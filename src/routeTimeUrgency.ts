@@ -37,6 +37,11 @@ export function routeElapsedMinutes(publishedAt: string, now: number): number {
   return Math.max(0, Math.floor((now - startedAt) / 60_000));
 }
 
+export function routeTimeRedIntensity(publishedAt: string, now: number): number {
+  const minutes = routeElapsedMinutes(publishedAt, now);
+  return Math.min(1, Math.sqrt(minutes / (24 * 60)));
+}
+
 export function routeTimeUrgency(publishedAt: string, now: number): RouteTimeUrgency {
   const minutes = routeElapsedMinutes(publishedAt, now);
   if (minutes >= ROUTE_URGENT_AFTER_MINUTES) return "urgent";
@@ -47,7 +52,7 @@ export function routeTimeUrgency(publishedAt: string, now: number): RouteTimeUrg
 
 function manualRouteUrgency(item: Pick<ActiveRouteItem, "urgency">): RouteTimeUrgency {
   if (item.urgency === "very_urgent") return "urgent";
-  if (item.urgency === "urgent") return "attention";
+  if (item.urgency === "urgent") return "urgent";
   return "normal";
 }
 
@@ -67,8 +72,21 @@ export function routeUrgencyLabel(item: Pick<ActiveRouteItem, "publishedAt" | "u
   return "En tiempo";
 }
 
+export function effectiveRouteUrgencyRank(item: Pick<ActiveRouteItem, "publishedAt" | "urgency">, now: number): number {
+  if (item.urgency === "very_urgent") return 4;
+  if (item.urgency === "urgent") return 3;
+  return urgencyRank[routeTimeUrgency(item.publishedAt, now)];
+}
+
+export function routeVisualRedIntensity(item: Pick<ActiveRouteItem, "publishedAt" | "urgency">, now: number): number {
+  const timedIntensity = routeTimeRedIntensity(item.publishedAt, now);
+  if (item.urgency === "very_urgent") return 1;
+  if (item.urgency === "urgent") return Math.max(0.68, timedIntensity);
+  return timedIntensity;
+}
+
 export function compareRouteWorkItemsByUrgency(left: ActiveRouteItem, right: ActiveRouteItem, now: number): number {
-  const priority = urgencyRank[effectiveRouteUrgency(right, now)] - urgencyRank[effectiveRouteUrgency(left, now)];
+  const priority = effectiveRouteUrgencyRank(right, now) - effectiveRouteUrgencyRank(left, now);
   if (priority !== 0) return priority;
 
   const leftStartedAt = Date.parse(left.publishedAt);

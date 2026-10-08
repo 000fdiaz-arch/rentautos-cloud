@@ -21,86 +21,6 @@
 .route-time-alert-metric--attention { color: #92400e; background: #fffbeb; }
 .route-time-alert-metric--urgent { color: #b91c1c; background: #fef2f2; }
 
-.route-collection-time-alert--upcoming { background: #2563eb; }
-.route-collection-time-alert--attention { background: #d97706; }
-.route-collection-time-alert--urgent { background: #dc2626; }
-
-.route-collection-urgency.route-collection-time-alert {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  margin: -4px -4px 16px;
-  padding: 12px 14px;
-  border-radius: 9px;
-  color: #fff;
-  letter-spacing: normal;
-  text-transform: none;
-}
-
-.route-collection-time-alert-status {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 10px;
-}
-
-.route-collection-time-alert-icon {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
-  place-items: center;
-  border: 2px solid rgb(255 255 255 / 72%);
-  border-radius: 50%;
-  background: rgb(255 255 255 / 16%);
-  font-size: 1.2rem;
-  font-weight: 900;
-}
-
-.route-collection-time-alert-status > span:last-child,
-.route-collection-time-alert-duration {
-  display: grid;
-  gap: 2px;
-}
-
-.route-collection-time-alert small {
-  color: rgb(255 255 255 / 82%);
-  font-size: .66rem;
-  font-weight: 800;
-  letter-spacing: .07em;
-  line-height: 1.1;
-  text-transform: uppercase;
-}
-
-.route-collection-time-alert-status strong {
-  overflow-wrap: anywhere;
-  font-size: 1rem;
-  line-height: 1.15;
-}
-
-.route-collection-time-alert-duration {
-  min-width: 132px;
-  padding-left: 14px;
-  border-left: 1px solid rgb(255 255 255 / 38%);
-  text-align: right;
-}
-
-.route-collection-time-alert-duration strong {
-  color: #fff;
-  font-size: 1.55rem;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.route-collection-time-alert-duration span {
-  color: rgb(255 255 255 / 80%);
-  font-size: .67rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
 .route-collection-route-time {
   display: inline-block;
   margin-top: 5px;
@@ -112,41 +32,72 @@
   font-weight: 700;
 }
 
-.route-search-page--compact .route-collection-card--time-upcoming {
-  border-color: #60a5fa;
-  border-top-color: #2563eb;
-  background: #f8fbff;
+.route-search-page--compact .route-collection-card--time-progress {
+  border-color: var(--route-time-accent);
+  border-top-color: var(--route-time-accent);
+  background: var(--route-time-surface);
 }
 
-.route-search-page--compact .route-collection-card--time-attention {
-  border-color: #f59e0b;
-  border-top-color: #d97706;
-  background: #fffbeb;
+.route-search-page--compact .route-collection-card--priority-urgent {
+  box-shadow: 0 0 0 1px rgb(185 28 28 / 34%), 0 4px 14px rgb(185 28 28 / 16%);
 }
 
-.route-search-page--compact .route-collection-card--time-urgent {
-  border-color: #ef4444;
-  border-top-color: #dc2626;
-  background: #fef2f2;
+.route-search-page--compact .route-collection-card--priority-very_urgent {
+  border-width: 2px;
+  border-top-width: 5px;
+  box-shadow: 0 0 0 2px rgb(136 19 55 / 42%), 0 5px 18px rgb(136 19 55 / 22%);
 }
 
-.route-collection-route-time--upcoming { border-color: #60a5fa; color: #1d4ed8; background: #eff6ff; }
-.route-collection-route-time--attention { border-color: #f59e0b; color: #92400e; background: #fffbeb; }
-.route-collection-route-time--urgent { border-color: #ef4444; color: #b91c1c; background: #fef2f2; }
+.route-collection-route-time--progressive {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: min(100%, 270px);
+  margin-top: 7px;
+  padding: 9px 10px;
+  border-color: var(--route-time-accent);
+  background: var(--route-time-background);
+  color: var(--route-time-foreground);
+  gap: 3px 10px;
+}
+
+.route-collection-route-time--progressive > span {
+  display: grid;
+  gap: 1px;
+}
+
+.route-collection-route-time--progressive span small {
+  color: inherit;
+  font-size: .62rem;
+  letter-spacing: .06em;
+  line-height: 1;
+  opacity: .82;
+  text-transform: uppercase;
+}
+
+.route-collection-route-time--progressive span strong {
+  color: inherit;
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.08;
+}
+
+.route-collection-route-time--progressive em {
+  align-self: center;
+  padding: 3px 6px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: .65rem;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.route-collection-route-time--progressive > small {
+  grid-column: 1 / -1;
+  color: inherit;
+  font-size: .65rem;
+  opacity: .82;
+}
 
 @media (max-width: 640px) {
   .route-time-alert-summary { grid-template-columns: 1fr; }
-
-  .route-collection-urgency.route-collection-time-alert {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-
-  .route-collection-time-alert-duration {
-    min-width: 0;
-    padding: 10px 0 0;
-    border-top: 1px solid rgb(255 255 255 / 38%);
-    border-left: 0;
-    text-align: left;
-  }
 }
