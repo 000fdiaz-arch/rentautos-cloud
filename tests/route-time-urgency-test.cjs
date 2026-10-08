@@ -25,6 +25,7 @@ try {
   });
 
   assert.equal(rules.routeTimeUrgency(item("N1", 1).publishedAt, now), "normal");
+  assert.match(rules.formatRouteDateTime("2026-09-05T12:00:00Z"), /^05\/09\/2026, /, "La fecha debe mostrarse como día/mes/año en Panamá.");
   assert.equal(rules.routeTimeUrgency(item("B2", 2).publishedAt, now), "upcoming");
   assert.equal(rules.routeTimeUrgency(item("A4", 4).publishedAt, now), "attention");
   assert.equal(rules.routeTimeUrgency(item("R8", 8).publishedAt, now), "urgent");
@@ -43,7 +44,7 @@ try {
   assert.match(card, /route-collection-card--time-\$\{displayedUrgency\}/);
   assert.match(card, /<small>Tiempo en ruta<\/small>[\s\S]*?<strong>\{routeElapsedSince\(item\.publishedAt, props\.elapsedNow\)\}<\/strong>/,
     "La duración debe ser el dato principal de la alerta.");
-  assert.match(card, /<span>Desde \{when\(item\.publishedAt\)\}<\/span>/,
+  assert.match(card, /<span>Desde \{formatRouteDateTime\(item\.publishedAt\)\}<\/span>/,
     "La alerta debe explicar desde cuándo está la unidad en ruta.");
   assert.match(page, /compareRouteWorkItemsByUrgency\(left, right, elapsedNow\)/);
   assert.match(page, /Alertas por tiempo en ruta/);

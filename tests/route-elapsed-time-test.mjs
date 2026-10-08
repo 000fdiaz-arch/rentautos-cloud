@@ -8,7 +8,7 @@ const page = readFileSync(join(root, "src/pages/RouteSearchPage.tsx"), "utf8");
 
 assert.match(card, /⏱ En ruta · \{routeElapsedSince\(item\.publishedAt, props\.elapsedNow\)\}/,
   "La tarjeta debe mostrar el tiempo transcurrido desde la publicación vigente.");
-assert.match(card, /title=\{`Desde \$\{when\(item\.publishedAt\)\}`\}/,
+assert.match(card, /title=\{`Desde \$\{formatRouteDateTime\(item\.publishedAt\)\}`\}/,
   "El indicador debe conservar la fecha y hora exactas como ayuda.");
 assert.match(card, /if \(minutes < 60\) return `\$\{minutes\} min`/,
   "El tiempo debe expresarse en minutos durante la primera hora.");

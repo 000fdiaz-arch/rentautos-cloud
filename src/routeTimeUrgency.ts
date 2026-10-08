@@ -6,6 +6,24 @@ export const ROUTE_UPCOMING_AFTER_MINUTES = 2 * 60;
 export const ROUTE_ATTENTION_AFTER_MINUTES = 4 * 60;
 export const ROUTE_URGENT_AFTER_MINUTES = 8 * 60;
 
+export function formatRouteDateTime(value?: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("es-PA", {
+    timeZone: "America/Panama",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true
+  }).formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes): string => parts.find((part) => part.type === type)?.value ?? "";
+  const dayPeriod = get("dayPeriod");
+  return `${get("day")}/${get("month")}/${get("year")}, ${get("hour")}:${get("minute")}${dayPeriod ? ` ${dayPeriod}` : ""}`;
+}
+
 const urgencyRank: Record<RouteTimeUrgency, number> = {
   normal: 0,
   upcoming: 1,

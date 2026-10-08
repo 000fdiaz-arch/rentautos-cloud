@@ -3,7 +3,7 @@ import type { ActiveRouteItem } from "../cloudData";
 import type { RoutePaymentReport } from "../cloud/routeReportCloudData";
 import { formatCurrency } from "../format";
 import { isPendingCashRouteReport } from "../routeReviewRules";
-import { effectiveRouteUrgency, routeUrgencyLabel } from "../routeTimeUrgency";
+import { effectiveRouteUrgency, formatRouteDateTime, routeUrgencyLabel } from "../routeTimeUrgency";
 import { fieldManagementLabel } from "./receivables/receivablesTypes";
 import "./routeTimeUrgency.css";
 
@@ -52,11 +52,6 @@ type Props = {
   onCreateRoute: () => void;
   onInactive: () => void;
 };
-
-function when(value?: string): string {
-  if (!value) return "";
-  return new Date(value).toLocaleString("es-PA", { timeZone: "America/Panama", dateStyle: "short", timeStyle: "short" });
-}
 
 function elapsedSince(value: string, now: number): string {
   const started = Date.parse(value);
@@ -108,7 +103,7 @@ export default function RouteCollectionCard(props: Props) {
   const urgencyClass = displayedUrgency !== "normal" ? ` route-collection-card--time-${displayedUrgency}` : "";
   const urgencyLabel = automaticUrgency !== "normal" ? routeUrgencyLabel(item, props.elapsedNow) : manualUrgency === "very_urgent" ? "Muy urgente" : manualUrgency ? "Urgente" : "";
   return <article className={`route-search-card route-collection-card route-collection-card--${tone}${urgencyClass}${item.routeInactiveAt && view === "work" ? " route-collection-card--inactive" : ""}`} aria-label={`${item.unitId} · ${item.clientName}`}>
-    {urgencyLabel ? <div className={`route-collection-urgency route-collection-time-alert route-collection-time-alert--${displayedUrgency}`} aria-label={`${urgencyLabel}. ${routeElapsedSince(item.publishedAt, props.elapsedNow)} en ruta desde ${when(item.publishedAt)}`}>
+    {urgencyLabel ? <div className={`route-collection-urgency route-collection-time-alert route-collection-time-alert--${displayedUrgency}`} aria-label={`${urgencyLabel}. ${routeElapsedSince(item.publishedAt, props.elapsedNow)} en ruta desde ${formatRouteDateTime(item.publishedAt)}`}>
       <div className="route-collection-time-alert-status">
         <span className="route-collection-time-alert-icon" aria-hidden="true">!</span>
         <span><small>Nivel de atención</small><strong>{urgencyLabel}</strong></span>
@@ -116,13 +111,13 @@ export default function RouteCollectionCard(props: Props) {
       <div className="route-collection-time-alert-duration">
         <small>Tiempo en ruta</small>
         <strong>{routeElapsedSince(item.publishedAt, props.elapsedNow)}</strong>
-        <span>Desde {when(item.publishedAt)}</span>
+        <span>Desde {formatRouteDateTime(item.publishedAt)}</span>
       </div>
     </div> : null}
     <div className="route-collection-identity">
       <div>
         <h2>{item.unitId} <span>· {item.clientName.trim().split(/\s+/)[0]}</span></h2>
-        {displayedUrgency === "normal" ? <span className="route-collection-route-time" title={`Desde ${when(item.publishedAt)}`} aria-label={`Tiempo en ruta de ${item.unitId}: ${routeElapsedSince(item.publishedAt, props.elapsedNow)}`}>⏱ En ruta · {routeElapsedSince(item.publishedAt, props.elapsedNow)}</span> : null}
+        {displayedUrgency === "normal" ? <span className="route-collection-route-time" title={`Desde ${formatRouteDateTime(item.publishedAt)}`} aria-label={`Tiempo en ruta de ${item.unitId}: ${routeElapsedSince(item.publishedAt, props.elapsedNow)}`}>⏱ En ruta · {routeElapsedSince(item.publishedAt, props.elapsedNow)}</span> : null}
       </div>
       {canReport && !report ? (
         <select className="route-collection-route route-collection-route-picker" aria-label={`Ruta de ${item.unitId}`} value={(item.routeAssignment ?? "").trim().toUpperCase()} disabled={props.changingRoute || saving} onChange={event => {
@@ -149,12 +144,12 @@ export default function RouteCollectionCard(props: Props) {
       <datalist id={zoneListId}>{props.zoneOptions.map(zone => <option key={zone} value={zone} />)}</datalist>
     {view === "work" && item.routeInactiveAt ? <div className="route-collection-inactive" aria-label={`Estado inactivo de ${item.unitId}`}>
       <strong>Inactivo · no está encendido</strong>
-      <span>Declarado {when(item.routeInactiveAt)}</span>
+      <span>Declarado {formatRouteDateTime(item.routeInactiveAt)}</span>
       <b>{elapsedSince(item.routeInactiveAt, props.elapsedNow)}</b>
     </div> : null}
     {view === "custody" ? <>
       <span className="route-collection-tag">Vehículo en custodia</span>
-      <p className="route-collection-context">Desde {when(item.custodySince)}</p>
+      <p className="route-collection-context">Desde {formatRouteDateTime(item.custodySince)}</p>
     </> : report && (view === "review" || view === "confirmed") ? <>
       <span className={`route-collection-tag ${view === "confirmed" ? "route-collection-tag--confirmed" : ""}`}>{acceptedBankSavings ? "Pago confirmado con diferencia" : view === "confirmed" ? "Pago confirmado" : pendingCash && report.bank_amount <= report.confirmed_bank_amount ? "Efectivo pendiente" : report.method === "cash" ? "Efectivo pendiente" : report.method === "mixed" ? "Pago mixto por confirmar" : "Banca por confirmar"}</span>
       <p className="route-collection-amount">{report.method === "cash" || view === "confirmed" ? "Pagó" : "Reportó"} {formatCurrency(report.amount)}</p>
@@ -186,14 +181,14 @@ export default function RouteCollectionCard(props: Props) {
     </div>
     <details className="route-collection-details">
       <summary>Ver detalles</summary>
-      <dl><dt>Cliente</dt><dd>{item.clientName}</dd><dt>Mínimo para liberar</dt><dd>{formatCurrency(item.releaseAmount)}</dd><dt>Saldo vencido</dt><dd>{formatCurrency(balance)}</dd><dt>Atraso</dt><dd>{item.daysLate} días</dd><dt>En ruta</dt><dd>{when(item.publishedAt)}</dd></dl>
+      <dl><dt>Cliente</dt><dd>{item.clientName}</dd><dt>Mínimo para liberar</dt><dd>{formatCurrency(item.releaseAmount)}</dd><dt>Saldo vencido</dt><dd>{formatCurrency(balance)}</dd><dt>Atraso</dt><dd>{item.daysLate} días</dd><dt>En ruta</dt><dd>{formatRouteDateTime(item.publishedAt)}</dd></dl>
       {partial ? <p className="route-collection-context">Pago parcial: {formatCurrency(paidRent)} · Faltan {formatCurrency(remaining)}{acknowledged ? <><br />Decisión: Debe pagar más</> : null}</p> : null}
       {props.bankNotices.map(notice => <p className="route-collection-context" key={notice.id}>Por confirmar banca: {formatCurrency(notice.amount)}{notice.collectionTeam ? ` · Equipo ${notice.collectionTeam}` : ""}</p>)}
       {report ? <div className={`route-search-report-status ${report.status === "confirmed" ? "route-search-report-status--confirmed" : ""}`}>
         <strong>{acceptedBankSavings ? "Pago confirmado con diferencia aceptada" : report.status === "confirmed" ? "Pago confirmado" : "Pago reportado · Pendiente de confirmar"}</strong>
         <span>{formatCurrency(report.amount)} · {report.method === "mixed" ? "Mixto" : report.method === "cash" ? "Efectivo" : "Banca"}</span>
-        <span>Reportado por {report.reporter_name} · {when(report.reported_at)}</span>
-        {report.confirmed_at ? <span>Confirmado · {when(report.confirmed_at)}</span> : null}
+        <span>Reportado por {report.reporter_name} · {formatRouteDateTime(report.reported_at)}</span>
+        {report.confirmed_at ? <span>Confirmado · {formatRouteDateTime(report.confirmed_at)}</span> : null}
       </div> : null}
     </details>
   </article>;
