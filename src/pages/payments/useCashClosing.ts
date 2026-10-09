@@ -88,6 +88,9 @@ export default function useCashClosing({
   const [reopenReason, setReopenReason] = useState<string>("");
   const [cashLedgerClosedDates, setCashLedgerClosedDates] = useState<string[]>([]);
   const [isClosingCash, setIsClosingCash] = useState(false);
+  const [cashClosingCloudStatus, setCashClosingCloudStatus] = useState<"loading" | "ready" | "error">(
+    dataOwnerUserId ? "loading" : (isSupabaseOnlyMode ? "loading" : "ready")
+  );
 
   async function loadCashClosingCloudState(ownerUserId: string): Promise<void> {
     const [cloudClosings, cloudAudit, cloudRuns] = await Promise.all([
@@ -130,13 +133,21 @@ export default function useCashClosing({
   }
 
   useEffect(() => {
-    if (!dataOwnerUserId) return;
+    if (!dataOwnerUserId) {
+      setCashClosingCloudStatus(isSupabaseOnlyMode ? "loading" : "ready");
+      return;
+    }
     let active = true;
+    setCashClosingCloudStatus("loading");
     void loadCashClosingCloudState(dataOwnerUserId).then(() => {
       if (!active) return;
+      setCashClosingCloudStatus("ready");
     }).catch((error) => {
       console.error("No se pudieron cargar cierres de caja desde nube.", error);
-      if (active) setCashClosingError("No se pudieron cargar los cierres desde nube. Actualiza e intenta de nuevo.");
+      if (active) {
+        setCashClosingCloudStatus("error");
+        setCashClosingError("No se pudieron cargar los cierres desde nube. Actualiza e intenta de nuevo.");
+      }
     });
     return () => {
       active = false;
@@ -228,6 +239,11 @@ export default function useCashClosing({
 
 function isDateClosed(dateKey: string): boolean {
   return closedDateSet.has(dateKey);
+}
+
+async function verifyDateClosedInCloud(dateKey: string): Promise<boolean> {
+  if (!dataOwnerUserId) return isDateClosed(dateKey);
+  return isDateClosedInCloud(dateKey, dataOwnerUserId);
 }
 
 function cloneOtherCharges(client: Client): Client["otherCharges"] {
@@ -861,7 +877,9 @@ async function handleConfirmReopen(): Promise<void> {
     reopenReason,
     setReopenReason,
     operationalDateKey,
+    cashClosingCloudStatus,
     isDateClosed,
+    verifyDateClosedInCloud,
     handleCloseCashForDate,
     openReopenDialog,
     handleConfirmReopen

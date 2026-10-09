@@ -12,6 +12,8 @@ type Props = {
   onSelect: (tab: PaymentTabId) => void;
   onImportCsv: () => void;
   isImportingCsv?: boolean;
+  isCsvImportBlocked?: boolean;
+  csvImportBlockMessage?: string;
   readOnly?: boolean;
 };
 
@@ -25,7 +27,15 @@ const TABS: Array<{ id: PaymentTabId; label: string }> = [
   { id: "cash", label: "Cierre de caja" }
 ];
 
-export default function PaymentsTabs({ activeTab, onSelect, onImportCsv, isImportingCsv = false, readOnly = false }: Props) {
+export default function PaymentsTabs({
+  activeTab,
+  onSelect,
+  onImportCsv,
+  isImportingCsv = false,
+  isCsvImportBlocked = false,
+  csvImportBlockMessage = "",
+  readOnly = false
+}: Props) {
   const visibleTabs = readOnly ? TABS.filter((tab) => tab.id === "income" || tab.id === "history") : TABS;
   return (
     <section className="panel payment-tabs-panel" aria-label="Navegación de pagos">
@@ -61,9 +71,22 @@ export default function PaymentsTabs({ activeTab, onSelect, onImportCsv, isImpor
           })}
         </div>
         {!readOnly && (
-          <button type="button" className="button ghost small payment-import-button" onClick={onImportCsv} disabled={isImportingCsv}>
-            {isImportingCsv ? "Procesando CSV..." : "Importar CSV"}
-          </button>
+          <div className="payment-import-action">
+            <button
+              type="button"
+              className="button ghost small payment-import-button"
+              onClick={onImportCsv}
+              disabled={isImportingCsv || isCsvImportBlocked}
+              title={isCsvImportBlocked ? csvImportBlockMessage : undefined}
+            >
+              {isImportingCsv ? "Verificando..." : "Importar CSV"}
+            </button>
+            {isCsvImportBlocked && csvImportBlockMessage && (
+              <span className="payment-import-warning" role={csvImportBlockMessage.startsWith("Debes") ? "alert" : "status"}>
+                {csvImportBlockMessage}
+              </span>
+            )}
+          </div>
         )}
       </div>
     </section>

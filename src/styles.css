@@ -3967,6 +3967,21 @@ select.control-op-badge {
   align-self: center;
 }
 
+.payment-import-action {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 320px;
+}
+
+.payment-import-warning {
+  color: #b45309;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
 @media (max-width: 900px) {
   .payment-method-grid {
     grid-template-columns: 1fr;
@@ -3991,6 +4006,11 @@ select.control-op-badge {
 
   .payment-import-button {
     width: 100%;
+  }
+
+  .payment-import-action {
+    width: 100%;
+    max-width: none;
   }
 }
 

@@ -33,6 +33,7 @@ import usePaymentsNavigation from "./payments/usePaymentsNavigation";
 import { getPaymentSaveErrorMessage } from "./payments/paymentPersistenceErrors";
 import { buildManualPaymentTransaction } from "./payments/manualPaymentWorkflow";
 import { CASH_TEAM_REQUIRED_MESSAGE, hasCollectionTeam } from "../cashTeamRules";
+import { getLastClosableDateKey } from "../cashClosingRules";
 import {
   buildPendingBankPreview,
   buildTakenFolioSet,
@@ -156,7 +157,9 @@ export default function PaymentsPage({
     reopenReason,
     setReopenReason,
     operationalDateKey,
+    cashClosingCloudStatus,
     isDateClosed,
+    verifyDateClosedInCloud,
     handleCloseCashForDate,
     openReopenDialog,
     handleConfirmReopen
@@ -177,6 +180,7 @@ export default function PaymentsPage({
   const [manualOverrideForcedOtherCharges, setManualOverrideForcedOtherCharges] = useState(false);
   const [autoAmountInfo, setAutoAmountInfo] = useState("");
   const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
+  const [isVerifyingCsvClosing, setIsVerifyingCsvClosing] = useState(false);
   const [registerTravelFundInput, setRegisterTravelFundInput] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -854,10 +858,43 @@ export default function PaymentsPage({
 
 
 
-  function handleQuickImportCSV(): void {
-    if (readOnly) return;
-    selectPaymentTab("pending");
-    void handleImportBankCSV();
+  const requiredCsvClosingDate = getLastClosableDateKey();
+  const requiredCsvClosingDateValue = parseDateKey(requiredCsvClosingDate);
+  const requiredCsvClosingLabel = requiredCsvClosingDateValue
+    ? formatDate(requiredCsvClosingDateValue)
+    : requiredCsvClosingDate;
+  const isCsvImportBlocked = cashClosingCloudStatus !== "ready" || !isDateClosed(requiredCsvClosingDate);
+  const csvImportBlockMessage = cashClosingCloudStatus === "loading"
+    ? "Verificando el cierre de caja anterior..."
+    : cashClosingCloudStatus === "error"
+      ? "No se pudo verificar el cierre de caja anterior. Actualiza la app e intenta de nuevo."
+      : !isDateClosed(requiredCsvClosingDate)
+        ? `Debes hacer el cierre de caja del ${requiredCsvClosingLabel} antes de importar el CSV.`
+        : "";
+
+  async function handleQuickImportCSV(): Promise<void> {
+    if (readOnly || isVerifyingCsvClosing || isPendingImporting) return;
+    if (isCsvImportBlocked) {
+      window.alert(csvImportBlockMessage);
+      return;
+    }
+    setIsVerifyingCsvClosing(true);
+    try {
+      const isStillClosed = await verifyDateClosedInCloud(requiredCsvClosingDate);
+      if (!isStillClosed) {
+        const message = `Debes hacer el cierre de caja del ${requiredCsvClosingLabel} antes de importar el CSV.`;
+        window.alert(message);
+        selectPaymentTab("cash");
+        return;
+      }
+      selectPaymentTab("pending");
+      await handleImportBankCSV();
+    } catch (error) {
+      console.error("No se pudo verificar el cierre anterior antes de importar el CSV.", error);
+      window.alert("No se pudo verificar el cierre de caja anterior. Actualiza la app e intenta de nuevo.");
+    } finally {
+      setIsVerifyingCsvClosing(false);
+    }
   }
 
   const getPendingSimilarity = useCallback(
@@ -881,8 +918,10 @@ export default function PaymentsPage({
       <PaymentsTabs
         activeTab={activePaymentTab}
         onSelect={selectPaymentTab}
-        onImportCsv={handleQuickImportCSV}
-        isImportingCsv={isPendingImporting}
+        onImportCsv={() => { void handleQuickImportCSV(); }}
+        isImportingCsv={isPendingImporting || isVerifyingCsvClosing}
+        isCsvImportBlocked={isCsvImportBlocked}
+        csvImportBlockMessage={csvImportBlockMessage}
         readOnly={readOnly}
       />
 
