@@ -63,7 +63,7 @@ import { useLeadCloudData } from "./app/useLeadCloudData";
 import { usePendingLeadReviewCount } from "./app/usePendingLeadReviewCount";
 import { getBusinessDateKey, withResolvedInstallmentIssuance } from "./billing";
 import { supabase } from "./lib/supabase";
-import { getRouteManagementCounts } from "./routeReviewRules";
+import { getRouteMenuAlertCounts } from "./routeReviewRules";
 import { loadRoutePaymentReports, type RoutePaymentReport } from "./cloud/routeReportCloudData";
 import { stableEqual } from "./stableSerialize";
 import { routeFilterForOperatorEmail } from "./routeOperatorScope";
@@ -254,8 +254,8 @@ export default function AppShell({
   const [incidentAlertCount, setIncidentAlertCount] = useState(0);
   const [routeManagementItems, setRouteManagementItems] = useState<ActiveRouteItem[]>([]);
   const [routeReviewReports, setRouteReviewReports] = useState<RoutePaymentReport[]>([]);
-  const routeManagementCount = useMemo(
-    () => getRouteManagementCounts(routeManagementItems, payments, getBusinessDateKey(), routeReviewReports).total,
+  const routeMenuAlertCount = useMemo(
+    () => getRouteMenuAlertCounts(routeManagementItems, payments, getBusinessDateKey(), routeReviewReports).total,
     [payments, routeManagementItems, routeReviewReports]
   );
 
@@ -1026,7 +1026,7 @@ export default function AppShell({
         canViewSettings={canViewSettingsPage}
         incidentAlertCount={incidentAlertCount}
         pendingLeadReviewCount={pendingLeadReviewCount}
-        routeManagementCount={routeManagementCount}
+        routeAlertCount={routeMenuAlertCount}
         showCoreSyncStatus={shouldSyncCoreData}
         syncStatus={syncStatus}
         syncErrorMessage={syncErrorMessage}

@@ -16,7 +16,7 @@ type Props = {
   canViewSettings: boolean;
   incidentAlertCount?: number;
   pendingLeadReviewCount?: number;
-  routeManagementCount?: number;
+  routeAlertCount?: number;
   showCoreSyncStatus?: boolean;
   syncStatus: "idle" | "syncing" | "ok" | "error";
   syncErrorMessage: string;
@@ -39,7 +39,7 @@ export default function AppNavigation({
   canViewSettings,
   incidentAlertCount = 0,
   pendingLeadReviewCount = 0,
-  routeManagementCount = 0,
+  routeAlertCount = 0,
   showCoreSyncStatus = true,
   syncStatus,
   syncErrorMessage,
@@ -56,7 +56,7 @@ export default function AppNavigation({
     { page: "clients", label: "Clientes", mobileLabel: "Clientes", mobileIcon: "●", visible: canViewClients },
     { page: "payments", label: "Pagos", mobileLabel: "Pagos", mobileIcon: "$", visible: canViewPayments },
     { page: "receivables", label: "Cuentas por cobrar", mobileLabel: "Cuentas", mobileIcon: "≡", visible: canViewReceivables },
-    { page: "route_search", label: "Ruta en calle", mobileLabel: "Ruta", mobileIcon: "↗", visible: canViewRouteSearch, badge: routeManagementCount },
+    { page: "route_search", label: "Ruta en calle", mobileLabel: "Ruta", mobileIcon: "↗", visible: canViewRouteSearch, badge: routeAlertCount },
     { page: "incidents", label: "Control de siniestros", mobileLabel: "Siniestros", mobileIcon: "!", visible: canViewIncidents, badge: incidentAlertCount },
     { page: "settings", label: "Configuraciones", mobileLabel: "Config.", mobileIcon: "⚙", visible: canViewSettings }
   ];

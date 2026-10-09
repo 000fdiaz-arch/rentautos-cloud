@@ -90,21 +90,19 @@ export function countActiveRouteReviewItems(items: ActiveRouteItem[], payments: 
   return pending.size;
 }
 
-export type RouteManagementCounts = {
-  work: number;
+export type RouteMenuAlertCounts = {
   review: number;
   custody: number;
   total: number;
 };
 
-export function getRouteManagementCounts(items: ActiveRouteItem[], payments: Payment[], dateKey: string, reports: RoutePaymentReport[] = []): RouteManagementCounts {
+export function getRouteMenuAlertCounts(items: ActiveRouteItem[], payments: Payment[], dateKey: string, reports: RoutePaymentReport[] = []): RouteMenuAlertCounts {
   const index = buildRouteReviewIndex(payments, reports);
-  const work = getRouteWorkItems(items, payments, dateKey, reports, index).length;
   const partialReview = getActiveRouteReviewItems(items, payments, dateKey, reports, index).length;
   const notifiedReview = reports.filter((report) => report.status === "review").length;
   const custody = items.filter((item) => item.inCustody && !item.removedAt).length;
   const review = partialReview + notifiedReview;
-  return { work, review, custody, total: work + review + custody };
+  return { review, custody, total: review + custody };
 }
 
 export function getActiveRouteReviewItems(items: ActiveRouteItem[], payments: Payment[], dateKey: string, reports: RoutePaymentReport[] = [], index = buildRouteReviewIndex(payments, reports)): ActiveRouteItem[] {
