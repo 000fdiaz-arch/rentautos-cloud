@@ -541,7 +541,7 @@ export default function RouteSearchPage({
 
   const routeReviewIndex = useMemo(() => buildRouteReviewIndex(payments, reports), [payments, reports]);
   const workItems = useMemo(() => getRouteWorkItems(items, payments, businessDateKey, reports, routeReviewIndex), [items, payments, businessDateKey, reports, routeReviewIndex]);
-  const custodyItems = useMemo(() => items.filter((item) => item.inCustody), [items]);
+  const custodyItems = useMemo(() => items.filter((item) => item.inCustody && !item.removedAt), [items]);
 
   const partialReviewItems = useMemo(() => (
     getActiveRouteReviewItems(items, payments, businessDateKey, reports, routeReviewIndex).map((item) => ({
@@ -830,7 +830,7 @@ export default function RouteSearchPage({
       const removedAt = new Date().toISOString();
       setItems((current) => current.map((item) => (
         item.clientId === removeTarget.clientId
-          ? { ...item, removedAt, removedReason: "route_editor_removed" }
+          ? { ...item, inCustody: false, custodySince: undefined, removedAt, removedReason: "route_editor_removed" }
           : item
       )));
       setRouteActionMessage(`${removeTarget.unitId} fue retirada de Ruta en calle.`);
@@ -1366,7 +1366,9 @@ export default function RouteSearchPage({
               </div>
             </div>
             <div className="route-search-remove-copy">
-              <p>La unidad dejará de aparecer en la lista activa de cobro en ruta.</p>
+              <p>{removeTarget.inCustody
+                ? "La unidad saldrá de custodia y dejará de aparecer en Ruta en calle. Los pagos y el historial se conservarán."
+                : "La unidad dejará de aparecer en la lista activa de cobro en ruta."}</p>
               {removeError ? <p className="error-text" role="alert">{removeError}</p> : null}
             </div>
             <div className="modal-actions">

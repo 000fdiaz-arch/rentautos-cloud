@@ -7,7 +7,7 @@ const owner='11111111-1111-4111-8111-111111111111';
 const seeker='22222222-2222-4222-8222-222222222222';
 const item={clientId:'c1',unitId:'RA-042',clientName:'Carlos',routeAssignment:'PTY',zone:'Centro',releaseAmount:60,pendingAmount:120,overdueBalance:120,rentAmount:30,daysLate:4,publishedAt:'2026-09-04T12:00:00Z',routeStartedAt:'2026-09-04T12:00:00Z'};
 const receipt={id:'receipt-55',receiptNumber:'REC-CASH-55',clientId:'c1',clientName:'Carlos',clientUnit:'RA-042',dateApplied:'2026-09-05',paymentMethod:'Efectivo',collectionTeam:'WC',amountReceived:55,appliedToRent:55,centavosAhorro:0,installmentsDeducted:1,balanceBefore:120,balanceAfter:65,savingsBefore:0,savingsAfter:0,installmentsPaidAfter:1,installmentsRemainingAfter:2,rentAmount:30,frequency:'daily',createdAt:'2026-09-05T12:00:00Z'};
-let reports=[],fail=false,writes=[],routeChanges=[],inactiveChanges=[],cashRegistrations=[],custody=false,custodyWrites=[];
+let reports=[],fail=false,writes=[],routeChanges=[],inactiveChanges=[],cashRegistrations=[],custody=false,custodyWrites=[],removeWrites=[];
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4197','--strictPort'],{windowsHide:true,stdio:'pipe',env:{...process.env,VITE_SUPABASE_URL:'https://route-tests.invalid',VITE_SUPABASE_ANON_KEY:'synthetic-test-key'}});
 let browser;
 try {
@@ -41,6 +41,12 @@ try {
       const input=req.postDataJSON();custodyWrites.push(input);
       if(fail)return route.fulfill({status:400,json:{message:'La unidad cambió. Actualiza.'}});
       custody=input.p_in_custody;return route.fulfill({status:204});
+    }
+    if(url.pathname.endsWith('/rpc/remove_active_route_item_from_search')) {
+      const input=req.postDataJSON();removeWrites.push(input);
+      if(fail)return route.fulfill({status:400,json:{message:'La unidad ya no está activa en la ruta.'}});
+      item.removedAt=new Date().toISOString();item.removedReason='route_editor_removed';custody=false;
+      return route.fulfill({status:204});
     }
     if(url.pathname.endsWith('/rpc/read_route_report_receipts'))return route.fulfill({json:[receipt]});
     if(url.pathname.endsWith('/rpc/update_active_route_zone')) {item.zone=req.postDataJSON().p_zone;return route.fulfill({status:204});}
@@ -281,6 +287,7 @@ try {
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
   await page.getByRole('button',{name:'Vehículo en custodia (1)',exact:true}).click();
   await page.getByRole('button',{name:'Sacar de custodia',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Sacar de ruta',exact:true}).count(),0);
   assert.equal(await page.getByRole('button',{name:'Notificar pago',exact:true}).count(),0);
   await page.reload();await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
   await page.getByRole('button',{name:'Vehículo en custodia (1)',exact:true}).click();
@@ -292,8 +299,8 @@ try {
   await page.screenshot({path:'.tmp/route-reports/mobile-clean-work.png',fullPage:true});
   for(const urgency of ['urgent','very_urgent']) {
     item.urgency=urgency;await page.getByRole('button',{name:'Actualizar',exact:true}).click();
-    await page.locator('.route-collection-card--'+urgency).waitFor();
-    assert.match(await page.locator('.route-collection-urgency').innerText(),urgency==='urgent'?/Urgente/i:/Muy urgente/i);
+    await page.locator('.route-collection-card--priority-'+urgency).waitFor();
+    assert.match(await page.locator('.route-collection-route-time em').innerText(),urgency==='urgent'?/Urgente/i:/Muy urgente/i);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
     await page.screenshot({path:'.tmp/route-reports/mobile-'+urgency+'.png',fullPage:true});
   }
@@ -358,5 +365,24 @@ try {
   assert.equal(cashRegistrations.length,registrationsBeforeDelta2+1);
   assert.equal(cashRegistrations.at(-1).team,'WC');
   assert.equal(await page.getByRole('button',{name:'Cerrar vista previa',exact:true}).count(),0);
+  reports=[];delete item.removedAt;delete item.removedReason;custody=true;
+  await page.goto(base+'/__route-test?editor');
+  await page.getByRole('button',{name:'Vehículo en custodia (1)',exact:true}).click();
+  await page.getByRole('button',{name:'Sacar de custodia',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Sacar de ruta',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Sacar de ruta',exact:true}).click();
+  const removeDialog=page.getByRole('dialog',{name:'Sacar de ruta'});
+  await removeDialog.getByText('La unidad saldrá de custodia y dejará de aparecer en Ruta en calle. Los pagos y el historial se conservarán.',{exact:true}).waitFor();
+  await removeDialog.getByRole('button',{name:'Cancelar',exact:true}).click();
+  assert.equal(removeWrites.length,0);
+  await page.getByRole('button',{name:'Sacar de ruta',exact:true}).click();
+  fail=true;await removeDialog.getByRole('button',{name:'Sí, sacar de ruta',exact:true}).click();
+  await removeDialog.getByRole('alert').waitFor();assert.equal(removeWrites.length,1);assert.equal(custody,true);
+  fail=false;await removeDialog.getByRole('button',{name:'Sí, sacar de ruta',exact:true}).click();
+  await removeDialog.waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'Vehículo en custodia (0)',exact:true}).waitFor();
+  assert.deepEqual(removeWrites.at(-1),{p_user_id:owner,p_client_id:'c1'});assert.equal(custody,false);
+  await page.reload();await page.getByRole('button',{name:'Vehículo en custodia (0)',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Sacar de ruta',exact:true}).count(),0);
   assert.deepEqual(errors,[]);console.log('OK: WC/PTY from shared payments, zero extra queries, historical receipts, live delivered removal, read-only; report form, mixed split and confirmation');
 } finally {await browser?.close();server.kill();}
