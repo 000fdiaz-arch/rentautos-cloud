@@ -794,7 +794,7 @@ function ReceivableTableRowComponent({
                                   type="checkbox"
                                   checked={attempt?.result === "contacted"}
                                   onChange={(event) => onDailyContactAttemptChange(row.id, option.key, event.target.checked ? "contacted" : "pending")}
-                                  disabled={isTodayCollectionClosed || statusRecord?.isRouteTagged || isFutureShift || saveState === "saving"}
+                                  disabled={isTodayCollectionClosed || isFutureShift || saveState === "saving"}
                                   aria-busy={saveState === "saving"}
                                   aria-label={`${option.label}: contactado con ${row.unitId}`}
                                 />
