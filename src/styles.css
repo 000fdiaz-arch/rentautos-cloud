@@ -19587,6 +19587,13 @@ button.ar-route-publish-copy.is-active {
 .route-search-page--compact .route-search-list { grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); align-items: start; }
 .route-search-page--compact .route-search-workflow-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
 .route-search-page--compact .route-search-workflow-tabs .button { flex: 1 1 160px; min-height: 48px; transition: none; }
+.route-search-page--compact .route-search-workflow-tab--has-items { border-width: 2px; font-weight: 800; box-shadow: 0 3px 10px #0f172a14; }
+.route-search-page--compact .route-search-workflow-tab--work.route-search-workflow-tab--has-items { border-color: #d97706; background: #fff7ed; color: #9a3412; }
+.route-search-page--compact .route-search-workflow-tab--review.route-search-workflow-tab--has-items { border-color: #dc2626; background: #fff1f2; color: #991b1b; }
+.route-search-page--compact .route-search-workflow-tab--custody.route-search-workflow-tab--has-items { border-color: #7c3aed; background: #f5f3ff; color: #5b21b6; }
+.route-search-page--compact .route-search-workflow-tab--work.route-search-workflow-tab--has-items.primary { background: #b45309; color: #fff; }
+.route-search-page--compact .route-search-workflow-tab--review.route-search-workflow-tab--has-items.primary { background: #b91c1c; color: #fff; }
+.route-search-page--compact .route-search-workflow-tab--custody.route-search-workflow-tab--has-items.primary { background: #6d28d9; color: #fff; }
 .route-search-page--compact .route-collection-card { min-width: 0; padding: 20px; border: 1px solid var(--color-border); border-top: 3px solid #0f766e; border-radius: 14px; box-shadow: 0 3px 12px #0f172a08; }
 .route-search-page--compact .route-collection-card--attention { border-top-color: #d97706; }
 .route-search-page--compact .route-collection-card--confirmed { border-top-color: #16a34a; }

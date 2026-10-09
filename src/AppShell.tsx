@@ -63,7 +63,7 @@ import { useLeadCloudData } from "./app/useLeadCloudData";
 import { usePendingLeadReviewCount } from "./app/usePendingLeadReviewCount";
 import { getBusinessDateKey, withResolvedInstallmentIssuance } from "./billing";
 import { supabase } from "./lib/supabase";
-import { countActiveRouteReviewItems } from "./routeReviewRules";
+import { getRouteManagementCounts } from "./routeReviewRules";
 import { loadRoutePaymentReports, type RoutePaymentReport } from "./cloud/routeReportCloudData";
 import { stableEqual } from "./stableSerialize";
 import { routeFilterForOperatorEmail } from "./routeOperatorScope";
@@ -252,11 +252,11 @@ export default function AppShell({
   } | null>(null);
   const [signOutSyncError, setSignOutSyncError] = useState("");
   const [incidentAlertCount, setIncidentAlertCount] = useState(0);
-  const [routeReviewItems, setRouteReviewItems] = useState<ActiveRouteItem[]>([]);
-  const [routeCashReports, setRouteCashReports] = useState<RoutePaymentReport[]>([]);
-  const routeReviewCount = useMemo(
-    () => countActiveRouteReviewItems(routeReviewItems, payments, getBusinessDateKey(), routeCashReports),
-    [payments, routeReviewItems, routeCashReports]
+  const [routeManagementItems, setRouteManagementItems] = useState<ActiveRouteItem[]>([]);
+  const [routeReviewReports, setRouteReviewReports] = useState<RoutePaymentReport[]>([]);
+  const routeManagementCount = useMemo(
+    () => getRouteManagementCounts(routeManagementItems, payments, getBusinessDateKey(), routeReviewReports).total,
+    [payments, routeManagementItems, routeReviewReports]
   );
 
   useEffect(() => {
@@ -377,8 +377,8 @@ export default function AppShell({
   useEffect(() => {
     let cancelled = false;
     if (!canViewRouteSearch || !cloudDataUserId) {
-      setRouteReviewItems([]);
-      setRouteCashReports([]);
+      setRouteManagementItems([]);
+      setRouteReviewReports([]);
       return () => {
         cancelled = true;
       };
@@ -386,11 +386,11 @@ export default function AppShell({
 
     const reloadRouteReviewItems = async (): Promise<void> => {
       try {
-        const [items, cashReports] = await Promise.all([
+        const [items, reviewReports] = await Promise.all([
           loadCloudActiveRouteItems(cloudDataUserId),
           loadRoutePaymentReports(cloudDataUserId, { reviewOnly: true })
         ]);
-        if (!cancelled) { setRouteReviewItems(items); setRouteCashReports(cashReports); }
+        if (!cancelled) { setRouteManagementItems(items); setRouteReviewReports(reviewReports); }
       } catch (error) {
         console.warn("No se pudo actualizar la notificacion de Ruta en calle.", error);
       }
@@ -1026,7 +1026,7 @@ export default function AppShell({
         canViewSettings={canViewSettingsPage}
         incidentAlertCount={incidentAlertCount}
         pendingLeadReviewCount={pendingLeadReviewCount}
-        routeReviewCount={routeReviewCount}
+        routeManagementCount={routeManagementCount}
         showCoreSyncStatus={shouldSyncCoreData}
         syncStatus={syncStatus}
         syncErrorMessage={syncErrorMessage}

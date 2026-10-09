@@ -16,7 +16,7 @@ type Props = {
   canViewSettings: boolean;
   incidentAlertCount?: number;
   pendingLeadReviewCount?: number;
-  routeReviewCount?: number;
+  routeManagementCount?: number;
   showCoreSyncStatus?: boolean;
   syncStatus: "idle" | "syncing" | "ok" | "error";
   syncErrorMessage: string;
@@ -39,7 +39,7 @@ export default function AppNavigation({
   canViewSettings,
   incidentAlertCount = 0,
   pendingLeadReviewCount = 0,
-  routeReviewCount = 0,
+  routeManagementCount = 0,
   showCoreSyncStatus = true,
   syncStatus,
   syncErrorMessage,
@@ -56,14 +56,14 @@ export default function AppNavigation({
     { page: "clients", label: "Clientes", mobileLabel: "Clientes", mobileIcon: "●", visible: canViewClients },
     { page: "payments", label: "Pagos", mobileLabel: "Pagos", mobileIcon: "$", visible: canViewPayments },
     { page: "receivables", label: "Cuentas por cobrar", mobileLabel: "Cuentas", mobileIcon: "≡", visible: canViewReceivables },
-    { page: "route_search", label: "Ruta en calle", mobileLabel: "Ruta", mobileIcon: "↗", visible: canViewRouteSearch, badge: routeReviewCount },
+    { page: "route_search", label: "Ruta en calle", mobileLabel: "Ruta", mobileIcon: "↗", visible: canViewRouteSearch, badge: routeManagementCount },
     { page: "incidents", label: "Control de siniestros", mobileLabel: "Siniestros", mobileIcon: "!", visible: canViewIncidents, badge: incidentAlertCount },
     { page: "settings", label: "Configuraciones", mobileLabel: "Config.", mobileIcon: "⚙", visible: canViewSettings }
   ];
   const visibleTabs = tabs.filter((tab) => tab.visible);
   function badgeLabel(tab: (typeof tabs)[number]): string {
     if (tab.page === "leads") return `${tab.badge} ${tab.badge === 1 ? "licencia pendiente" : "licencias pendientes"} de revisión`;
-    return tab.page === "route_search" ? `${tab.badge} pagos parciales pendientes de revisión` : `${tab.badge} expedientes con alertas activas`;
+    return tab.page === "route_search" ? `${tab.badge} ${tab.badge === 1 ? "gestión pendiente" : "gestiones pendientes"} en Ruta en calle` : `${tab.badge} expedientes con alertas activas`;
   }
   const primaryOrder: AppPage[] = ["clients", "payments", "receivables", "route_search"];
   const primaryTabs = primaryOrder

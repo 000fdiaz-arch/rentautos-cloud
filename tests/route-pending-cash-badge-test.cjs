@@ -5,7 +5,7 @@ const Module = require('node:module');
 const compiled = ts.transpileModule(fs.readFileSync('src/routeReviewRules.ts', 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText;
 const rulesModule = new Module('route-review-rules-test');
 rulesModule._compile(compiled, 'route-review-rules-test.cjs');
-const {countActiveRouteReviewItems, isPendingCashRouteReport} = rulesModule.exports;
+const {countActiveRouteReviewItems, getRouteManagementCounts, isPendingCashRouteReport} = rulesModule.exports;
 const day = '2026-09-05';
 const item = {clientId:'c1',publishedAt:'publication',releaseAmount:40};
 const payments = [{clientId:'c1',dateApplied:day,appliedToRent:20}];
@@ -30,6 +30,14 @@ console.log('OK route badge: only unresolved partial decisions are counted; hold
 
 assert.equal(countActiveRouteReviewItems([{...item,inCustody:true}],payments,day,[]),0);
 assert.equal(countActiveRouteReviewItems([{...item,inCustody:true}],payments,day,[cash]),0,'Hold reports never affect the partial-review badge');
+
+assert.deepEqual(getRouteManagementCounts([item],payments,day,[]),{work:0,review:1,custody:0,total:1},'An unresolved partial payment is one management item');
+assert.deepEqual(getRouteManagementCounts([item],payments,day,[cash]),{work:0,review:1,custody:0,total:1},'A notified payment replaces the partial decision without doubling it');
+assert.deepEqual(getRouteManagementCounts([],[],day,[cash]),{work:0,review:1,custody:0,total:1},'A notified payment remains visible without an active route row');
+assert.deepEqual(getRouteManagementCounts([item],[],day,[]),{work:1,review:0,custody:0,total:1},'A route work item must appear in the navigation badge');
+assert.deepEqual(getRouteManagementCounts([{...item,inCustody:true}],[],day,[]),{work:0,review:0,custody:1,total:1},'A custody item must appear in the navigation badge');
+assert.deepEqual(getRouteManagementCounts([{...item,inCustody:true}],[],day,[cash]),{work:0,review:1,custody:1,total:2},'Custody and payment review are separate management tasks');
+assert.deepEqual(getRouteManagementCounts([],[],day,[{...cash,status:'confirmed'}]),{work:0,review:0,custody:0,total:0},'Confirmed payments must not appear in the navigation badge');
 
 const {getRouteWorkItems,getActiveRouteReviewItems}=rulesModule.exports;
 const paid=[{clientId:'b79',dateApplied:day,appliedToRent:34,amountReceived:34.79},{clientId:'b79',dateApplied:day,appliedToRent:34,amountReceived:34.79}];

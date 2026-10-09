@@ -1119,7 +1119,7 @@ export default function RouteSearchPage({
       <details className="route-collection-cash-summary"><summary>Efectivo pendiente de entrega</summary><RoutePendingCashPanel payments={payments} dateKey={businessDateKey} loading={paymentsLoading} /></details>
       <div className="route-search-workflow-tabs" aria-label="Estado de las unidades">
         {([['work', 'Trabajo', workItems.length], ['review', 'Pagos por revisar', paymentReviewItems.length], ['custody', 'Vehículo en custodia', custodyItems.length]] as const).map(([view, label, count]) => (
-          <button type="button" key={view} className={`button ${workflowView === view ? 'primary' : 'ghost'}`} aria-pressed={workflowView === view}
+          <button type="button" key={view} className={`button ${workflowView === view ? 'primary' : 'ghost'} route-search-workflow-tab route-search-workflow-tab--${view}${count > 0 ? ' route-search-workflow-tab--has-items' : ''}`} aria-pressed={workflowView === view}
             onClick={() => openWorkflow(view)}>
             {label} ({count})
           </button>
