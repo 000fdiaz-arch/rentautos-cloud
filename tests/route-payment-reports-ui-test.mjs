@@ -136,7 +136,7 @@ try {
   fail=false;await modal.getByRole('button',{name:'Notificar pago'}).click();await modal.waitFor({state:'hidden'});
   assert.equal(writes.at(-1).p_bank_amount,75.25);assert.equal(writes.at(-1).p_cash_amount,0);
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
-  await page.getByRole('button',{name:'Pago notificado (1)',exact:true}).click();
+  await page.getByRole('button',{name:'Pagos por revisar (1)',exact:true}).click();
   await page.locator('.route-collection-details summary').click();await page.getByText('Pago reportado · Pendiente de confirmar',{exact:true}).waitFor();
   assert.match(await page.locator('.route-search-report-status').innerText(),/75.25.*Banca/);
   assert.equal(await page.getByRole('button',{name:'Registrar pago',exact:true}).count(),0);
@@ -166,13 +166,13 @@ try {
   await page.screenshot({path:'.tmp/route-reports/mobile-mixed-form.png',fullPage:true});
   await modal.getByRole('button',{name:'Notificar pago'}).click();await modal.waitFor({state:'hidden'});
   assert.equal(writes.at(-1).p_cash_amount,40);assert.equal(writes.at(-1).p_bank_amount,60);
-  await page.getByRole('button',{name:'Pago notificado (1)',exact:true}).click();
+  await page.getByRole('button',{name:'Pagos por revisar (1)',exact:true}).click();
   await page.getByText('Efectivo: $40.00 · Pendiente',{exact:true}).waitFor();
   reports[0].confirmed_cash_amount=40;
   await page.getByRole('button',{name:'Actualizar',exact:true}).click();
   await page.getByText('Efectivo: $40.00 · Confirmado',{exact:true}).waitFor();
   await page.getByText('Banca: $60.00 · Pendiente',{exact:true}).waitFor();
-  await page.getByRole('button',{name:'Pago notificado (1)',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Pagos por revisar (1)',exact:true}).waitFor();
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.screenshot({path:'.tmp/route-reports/mobile-mixed-review.png',fullPage:true});
   // A confirmed report must not hide an active partial payment from the decision queue.
@@ -182,9 +182,9 @@ try {
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
   await page.evaluate(() => window.dispatchEvent(new Event('test:partial')));
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
-  const partialTab=page.getByRole('button',{name:'Pagos parciales a revisar (1)',exact:true});
+  const partialTab=page.getByRole('button',{name:'Pagos por revisar (1)',exact:true});
   await partialTab.waitFor();
-  assert.equal(await page.locator('.route-search-workflow-tabs button').count(),4);
+  assert.equal(await page.locator('.route-search-workflow-tabs button').count(),3);
   await page.getByPlaceholder('Unidad, cliente, cedula, telefono o zona...').fill('no-match');
   await partialTab.click();
   await page.getByPlaceholder('Unidad, cliente, cedula, telefono o zona...').fill('');
@@ -195,7 +195,7 @@ try {
   await page.setViewportSize({width:1280,height:900});
   await page.screenshot({path:'.tmp/route-reports/desktop-partial-review.png',fullPage:true});
   await page.getByRole('button',{name:'Debe pagar más',exact:true}).click();
-  await page.getByRole('button',{name:'Pagos parciales a revisar (0)',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Pagos por revisar (0)',exact:true}).waitFor();
   assert.equal(item.partialDecisionRentAmount,32);
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).click();
   await page.locator('.route-collection-tag').filter({hasText:'Debe pagar más'}).waitFor();
@@ -207,10 +207,10 @@ try {
   // B79 regression: a later pending report takes precedence over an acknowledged partial decision.
   Object.assign(reports[0],{status:'review',method:'bank',cash_amount:0,bank_amount:32,confirmed_cash_amount:0,confirmed_bank_amount:0,reported_at:new Date(Date.now()+1000).toISOString()});
   await page.getByRole('button',{name:'Actualizar',exact:true}).click();
-  await page.getByRole('button',{name:'Pago notificado (1)',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Pagos por revisar (1)',exact:true}).waitFor();
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).click();
   assert.equal(await page.locator('.route-search-card').count(),0);
-  await page.getByRole('button',{name:'Pago notificado (1)',exact:true}).click();
+  await page.getByRole('button',{name:'Pagos por revisar (1)',exact:true}).click();
   await page.locator('.route-collection-details summary').click();await page.getByText('Pago reportado · Pendiente de confirmar',{exact:true}).waitFor();
   // Reopening an existing report (for example after correcting a payment) must also exclude Work.
   reports[0].reported_at='2026-09-04T12:00:00Z';
@@ -224,10 +224,10 @@ try {
   // A changed partial payment needs a fresh decision; a fully paid or removed unit must not return.
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('test:change-partial',{detail:36})));
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
-  await page.getByRole('button',{name:'Pagos parciales a revisar (1)',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Pagos por revisar (1)',exact:true}).waitFor();
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('test:change-partial',{detail:40})));
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
-  await page.getByRole('button',{name:'Pagos parciales a revisar (0)',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Pagos por revisar (0)',exact:true}).waitFor();
   item.removedAt=new Date().toISOString();
   await page.getByRole('button',{name:'Actualizar',exact:true}).click();
   await page.getByRole('button',{name:'Actualizar',exact:true}).waitFor();
@@ -241,17 +241,21 @@ try {
   const bankReport={...cashReport,id:'bank-extra',client_id:'bank-extra',method:'bank',cash_amount:0,bank_amount:55,snapshot:{...item,clientId:'bank-extra',unitId:'BANK-01',clientName:'Bank pending'}};
   const mixedReport={...cashReport,id:'mixed-extra',client_id:'mixed-extra',method:'mixed',cash_amount:25,bank_amount:30,confirmed_cash_amount:25,snapshot:{...item,clientId:'mixed-extra',unitId:'MIX-01',clientName:'Mixed bank pending'}};
   const mixedCashPendingReport={...cashReport,id:'mixed-cash-pending',client_id:'mixed-cash-pending',method:'mixed',amount:65,cash_amount:19,bank_amount:46,confirmed_cash_amount:0,confirmed_bank_amount:46,snapshot:{...item,clientId:'mixed-cash-pending',unitId:'B90',clientName:'Mixed cash pending'}};
-  reports=[cashReport,bankReport,mixedReport,mixedCashPendingReport];
+  reports=[cashReport,bankReport,mixedReport,mixedCashPendingReport];delete item.partialDecisionRentAmount;
   await page.goto(base+'/__route-test?cashregister');
-  await page.getByRole('button',{name:'Pago notificado (4)',exact:true}).click();
+  await page.evaluate(() => window.dispatchEvent(new Event('test:partial')));
+  const combinedReviewTab=page.getByRole('button',{name:/^Pagos por revisar \(/});await combinedReviewTab.waitFor();
+  await page.waitForFunction(()=>document.querySelector('.route-search-workflow-tabs button:nth-child(2)')?.textContent?.trim()!=='Pagos por revisar (0)');
+  assert.equal(await combinedReviewTab.innerText(),'Pagos por revisar (5)');await combinedReviewTab.click();
   assert.equal(await page.getByLabel('Filtrar pagos notificados').count(),0);
   assert.equal(await page.getByRole('button',{name:/^(Efectivo pendiente|Banca|Mixtos) \(/}).count(),0);
-  assert.equal(await page.locator('.route-search-card').count(),4);
+  assert.equal(await page.locator('.route-search-card').count(),5);
+  assert.match(await page.locator('.route-search-card').first().innerText(),/RA-042[\s\S]*Decisión pendiente/);
   await page.getByText('BANK-01',{exact:false}).waitFor();
   await page.getByText('MIX-01',{exact:false}).waitFor();
   await page.getByText('CASH-OLD',{exact:false}).waitFor();
   const mixedCashPendingCard=page.getByRole('article',{name:/^B90 ·/});
-  await mixedCashPendingCard.getByText('Efectivo pendiente',{exact:true}).waitFor();
+  await mixedCashPendingCard.getByText('Pago notificado · Efectivo pendiente',{exact:true}).waitFor();
   await mixedCashPendingCard.getByText('Efectivo: $19.00 · Pendiente',{exact:true}).waitFor();
   await mixedCashPendingCard.getByText('Banca: $46.00 · Confirmado',{exact:true}).waitFor();
   await mixedCashPendingCard.getByRole('button',{name:'Generar recibo',exact:true}).click();
@@ -263,13 +267,13 @@ try {
   await modal.waitFor({state:'hidden'});
   assert.equal(cashRegistrations.at(-1).clientId,'mixed-cash-pending');
   assert.equal(cashRegistrations.at(-1).amount,19);
-  await page.getByRole('button',{name:'Pago notificado (3)',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Pagos por revisar (4)',exact:true}).waitFor();
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:'.tmp/route-reports/mobile-bank-review-without-method-tabs.png',fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   assert.equal(await page.getByRole('button',{name:/^Pagos confirmados/}).count(),0);
   assert.equal(await page.getByRole('button',{name:'Registrar pago',exact:true}).count(),0);
-  reports=[];delete item.partialDecisionRentAmount;
+  reports=[];await page.evaluate(() => window.dispatchEvent(new CustomEvent('test:change-partial',{detail:40})));
   await page.goto(base+'/__route-test?readonly');
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Notificar pago',exact:true}).count(),0);
@@ -315,7 +319,7 @@ try {
   await modal.getByRole('button',{name:'Notificar pago'}).click();await modal.waitFor({state:'hidden'});
   assert.equal(writes.at(-1).p_bank_amount,8);
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
-  await page.getByRole('button',{name:'Pago notificado (1)',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Pagos por revisar (1)',exact:true}).waitFor();
   assert.equal(reports.filter(report=>report.status==='confirmed').length,1);
   reports=[];delete item.partialDecisionRentAmount;
   await page.goto(base+'/__route-test?cashregister&editor');

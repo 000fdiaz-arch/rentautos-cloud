@@ -67,6 +67,11 @@ type ZoneOption = {
   count: number;
 };
 
+type RouteDisplayItem = ActiveRouteItem & {
+  report?: RoutePaymentReport;
+  reviewKind?: "partial" | "notified";
+};
+
 function normalizeZoneName(value: string | undefined): string {
   return (value ?? "").trim().replace(/\s+/g, " ");
 }
@@ -546,7 +551,8 @@ export default function RouteSearchPage({
   const partialReviewItems = useMemo(() => (
     getActiveRouteReviewItems(items, payments, businessDateKey, reports, routeReviewIndex).map((item) => ({
       ...item,
-      report: reports.find((report) => report.client_id === item.clientId && report.published_at === item.publishedAt)
+      report: reports.find((report) => report.client_id === item.clientId && report.published_at === item.publishedAt),
+      reviewKind: "partial" as const
     }))
   ), [items, payments, businessDateKey, reports, routeReviewIndex]);
 
@@ -558,12 +564,25 @@ export default function RouteSearchPage({
   const confirmedPrevious = useMemo(() => confirmedReports.filter(report => !confirmedToday.includes(report)), [confirmedReports, confirmedToday]);
   const visibleConfirmedReports = confirmedPeriod === "today" ? confirmedToday : confirmedPrevious;
   const reviewReports = useMemo(() => reports.filter((report) => report.status === "review"), [reports]);
+  const notifiedReviewItems = useMemo<RouteDisplayItem[]>(() => reviewReports.map((report) => ({
+    ...report.snapshot,
+    inCustody: items.some((item) => item.clientId === report.client_id && item.publishedAt === report.published_at && item.inCustody),
+    report,
+    reviewKind: "notified"
+  })), [items, reviewReports]);
+  const paymentReviewItems = useMemo<RouteDisplayItem[]>(() => {
+    const notifiedKeys = new Set(notifiedReviewItems.map((item) => `${item.clientId}\u0000${item.publishedAt}`));
+    return [
+      ...partialReviewItems.filter((item) => !notifiedKeys.has(`${item.clientId}\u0000${item.publishedAt}`)),
+      ...notifiedReviewItems
+    ];
+  }, [notifiedReviewItems, partialReviewItems]);
   const routeTimeSummary = useMemo(() => summarizeRouteTimeUrgency(workItems, elapsedNow), [elapsedNow, workItems]);
 
-  const activeItems = useMemo<Array<ActiveRouteItem & { report?: RoutePaymentReport }>>(() => (
-    workflowView === "work" ? workItems : workflowView === "custody" ? custodyItems : workflowView === "partial" ? partialReviewItems : (workflowView === "confirmed" ? visibleConfirmedReports : reviewReports)
+  const activeItems = useMemo<RouteDisplayItem[]>(() => (
+    workflowView === "work" ? workItems : workflowView === "custody" ? custodyItems : workflowView === "review" ? paymentReviewItems : visibleConfirmedReports
       .map((report) => ({ ...report.snapshot, inCustody: items.some((item) => item.clientId === report.client_id && item.publishedAt === report.published_at && item.inCustody), report }))
-  ), [workflowView, workItems, partialReviewItems, reviewReports, custodyItems, items, visibleConfirmedReports]);
+  ), [workflowView, workItems, paymentReviewItems, custodyItems, items, visibleConfirmedReports]);
 
   function openWorkflow(view: RouteWorkflowView): void {
     setWorkflowView(view); setConfirmedPeriod("today"); setCompletedCash(null); setRouteActionMessage(""); setRouteUndo(null);
@@ -708,9 +727,13 @@ export default function RouteSearchPage({
           item.comment ?? ""
         ].some((value) => value.toLowerCase().includes(normalizedQuery));
       })
-      .sort((left, right) => workflowView === "work"
-        ? compareRouteWorkItemsByUrgency(left, right, elapsedNow)
-        : compareActiveRouteItems(left, right));
+      .sort((left, right) => {
+        if (workflowView === "work") return compareRouteWorkItemsByUrgency(left, right, elapsedNow);
+        if (workflowView === "review" && left.reviewKind !== right.reviewKind) {
+          return left.reviewKind === "partial" ? -1 : 1;
+        }
+        return compareActiveRouteItems(left, right);
+      });
   }, [activeItems, elapsedNow, query, routeFilter, workflowView, zoneFilter]);
 
   const selectedZoneLabel = useMemo(() => {
@@ -1042,7 +1065,7 @@ export default function RouteSearchPage({
       <header className="route-search-header">
         <div>
           <h1>Cobro en Ruta</h1>
-          <p>{visibleItems.length} unidades · {workflowView === "work" ? "Trabajo" : workflowView === "review" ? "Pago notificado" : workflowView === "partial" ? "Pagos parciales a revisar" : workflowView === "custody" ? "Vehículo en custodia" : "Cobro en ruta"}{publishedAt ? ` | Publicada ${publishedAt}` : ""}</p>
+          <p>{visibleItems.length} unidades · {workflowView === "work" ? "Trabajo" : workflowView === "review" ? "Pagos por revisar" : workflowView === "custody" ? "Vehículo en custodia" : "Cobro en ruta"}{publishedAt ? ` | Publicada ${publishedAt}` : ""}</p>
         </div>
         <div className="route-search-header-actions">
           {workflowView === "work" ? <button
@@ -1095,7 +1118,7 @@ export default function RouteSearchPage({
       </section> : null}
       <details className="route-collection-cash-summary"><summary>Efectivo pendiente de entrega</summary><RoutePendingCashPanel payments={payments} dateKey={businessDateKey} loading={paymentsLoading} /></details>
       <div className="route-search-workflow-tabs" aria-label="Estado de las unidades">
-        {([['work', 'Trabajo', workItems.length], ['review', 'Pago notificado', reviewReports.length], ['partial', 'Pagos parciales a revisar', partialReviewItems.length], ['custody', 'Vehículo en custodia', custodyItems.length]] as const).map(([view, label, count]) => (
+        {([['work', 'Trabajo', workItems.length], ['review', 'Pagos por revisar', paymentReviewItems.length], ['custody', 'Vehículo en custodia', custodyItems.length]] as const).map(([view, label, count]) => (
           <button type="button" key={view} className={`button ${workflowView === view ? 'primary' : 'ghost'}`} aria-pressed={workflowView === view}
             onClick={() => openWorkflow(view)}>
             {label} ({count})
@@ -1203,14 +1226,15 @@ export default function RouteSearchPage({
       {loading && visibleItems.length === 0 ? (
         <div className="route-search-empty">Cargando ruta...</div>
       ) : visibleItems.length === 0 ? (
-        <div className="route-search-empty">{workflowView === "work" ? "No hay unidades pendientes con estos filtros." : workflowView === "review" ? "No hay pagos reportados pendientes de confirmar con estos filtros." : workflowView === "partial" ? "No hay pagos parciales pendientes de decisión con estos filtros." : workflowView === "custody" ? "No hay vehículos en custodia con estos filtros." : "No hay pagos confirmados con estos filtros."}</div>
+        <div className="route-search-empty">{workflowView === "work" ? "No hay unidades pendientes con estos filtros." : workflowView === "review" ? "No hay pagos pendientes de revisión con estos filtros." : workflowView === "custody" ? "No hay vehículos en custodia con estos filtros." : "No hay pagos confirmados con estos filtros."}</div>
       ) : (
         <div className="route-search-list">
           {visibleItems.map((item) => {
             const activeRoute = items.find(active => active.clientId === item.clientId && active.publishedAt === item.publishedAt);
             const paidRent = routeRentAmountForDay(payments, item, businessDateKey, routeReviewIndex);
-            return <RouteCollectionCard key={workflowView + '-' + (item.report?.id ?? item.clientId)} item={item} view={workflowView}
-              managementFields={activeRoute && !activeRoute.removedAt && workflowView !== "review" && workflowView !== "confirmed" ? renderManagementFields?.(activeRoute) : undefined}
+            const cardView = workflowView === "review" && item.reviewKind === "partial" ? "partial" : workflowView;
+            return <RouteCollectionCard key={workflowView + '-' + (item.reviewKind ?? 'standard') + '-' + (item.report?.id ?? item.clientId)} item={item} view={cardView}
+              managementFields={activeRoute && !activeRoute.removedAt && cardView !== "review" && cardView !== "confirmed" ? renderManagementFields?.(activeRoute) : undefined}
               paidRent={paidRent} balance={currentBalance(item)} travelFundBalance={travelFundBalanceByClient.get(item.clientId) ?? 0} canReport={canReportPayment} canEdit={!readOnly}
               canRemove={canRemoveFromRoute} canRegister={!readOnly && Boolean(onRegisterPayment) && (!item.report || (isPendingCashRouteReport(item.report) && !registeredReportIds.includes(item.report.id)))}
               hasPendingReport={reports.some(report => report.status === "review" && report.client_id === item.clientId && report.published_at === item.publishedAt)}

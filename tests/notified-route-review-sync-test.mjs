@@ -28,7 +28,7 @@ assert.match(routeHook, /route_payment_reports/, "Payments listens to the shared
 assert.match(panel, /linkedReportIds\.has\(row\.routeReportId\)/, "the shared record is rendered only once");
 assert.match(sql, /can_view_owner_screen\(user_id, 'payments'\)/, "Payments can read shared route reports");
 assert.match(sql, /route_report_remove_linked_notice/, "closing a route report removes its linked persisted notification");
-assert.match(routePage, /'review', 'Pago notificado'/, "the Route tab uses the unified visible name");
+assert.match(routePage, /'review', 'Pagos por revisar'/, "the Route tab uses the combined review name");
 assert.match(summary, /<small>Pago notificado<\/small>/, "the Route summary uses the unified visible name");
 
 const db = new PGlite();

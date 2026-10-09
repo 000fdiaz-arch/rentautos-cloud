@@ -36,7 +36,7 @@ try{
     await panel.getByLabel('Filtrar por ruta').getByRole('button',{name:'CL',exact:true}).click();
     await panel.getByLabel('Filtrar por zona').getByRole('button',{name:'Norte (1)',exact:true}).click();
     await panel.getByLabel('Buscar').fill('A10');
-    await panel.getByRole('button',{name:'Pago notificado (2)',exact:true}).click();
+    await panel.getByRole('button',{name:'Pagos por revisar (2)',exact:true}).click();
     assert.equal(await panel.getByLabel('Buscar').inputValue(),'A10');
     assert.equal(await panel.getByLabel('Filtrar por ruta').getByRole('button',{name:'CL',exact:true}).getAttribute('aria-pressed'),'true');
     assert.equal(await panel.getByLabel('Filtrar por zona').getByRole('button',{name:'Norte (0)',exact:true}).getAttribute('aria-pressed'),'true');
@@ -47,7 +47,7 @@ try{
     await panel.getByLabel('Filtrar por ruta').getByRole('button',{name:'Todas',exact:true}).click();
     await panel.getByLabel('Buscar').fill('');
     const snapshot={tabs:await panel.locator('.route-search-workflow-tabs').innerText(),views:{}};
-    for(const label of ['Trabajo (1)','Pago notificado (2)','Pagos parciales a revisar (0)','Vehículo en custodia (1)']){
+    for(const label of ['Trabajo (1)','Pagos por revisar (2)','Vehículo en custodia (1)']){
       await panel.getByRole('button',{name:label,exact:true}).click();
       snapshot.views[label]=await panel.locator('.route-collection-card').allInnerTexts();
     }
@@ -60,8 +60,7 @@ try{
   }
   assert.deepEqual(snapshots[0],snapshots[1]);
   assert.match(snapshots[0].views['Trabajo (1)'][0],/A10/);
-  assert.ok(snapshots[0].views['Pago notificado (2)'].some(text=>text.includes('D92')));
-  assert.equal(snapshots[0].views['Pagos parciales a revisar (0)'].length,0);
+  assert.ok(snapshots[0].views['Pagos por revisar (2)'].some(text=>text.includes('D92')));
   for(const [operator,expectedRoute] of [['delta1','PTY'],['delta2','WC']]){
     await page.goto(`${base}/test?operator=${operator}`);
     const scopedPanel=page.locator('.route-search-page');

@@ -8,7 +8,7 @@ function assert(condition, message) {
 const source = fs.readFileSync(path.resolve(__dirname, "..", "src", "pages", "RouteSearchPage.tsx"), "utf8");
 const rules = fs.readFileSync(path.resolve(__dirname, "..", "src", "routeReviewRules.ts"), "utf8");
 
-assert(source.includes('useState<RouteWorkflowView>("work")'), "Los pagos parciales deben tener su propia pestaña.");
+assert(source.includes('useState<RouteWorkflowView>("work")'), "La revision de pagos debe conservar su flujo propio.");
 assert(rules.includes("payment.dateApplied === dateKey"), "El filtro debe considerar solamente pagos aplicados en el dia.");
 assert(rules.includes("payment.clientId === item.clientId"), "La suma diaria debe pertenecer al cliente de la ruta.");
 assert(rules.includes("sum + Math.max(0, payment.appliedToRent)"), "El filtro debe sumar solamente lo aplicado a renta.");
@@ -16,7 +16,8 @@ assert(rules.includes("confirmedRentAmount <= 0 || confirmedRentAmount >= item.r
 assert(rules.includes("routeRentAmountForDay(payments, item, dateKey, index) >= item.releaseAmount"), "La salida debe comparar el minimo con la suma diaria aplicada a renta.");
 assert(!rules.includes("sum + payment.amountReceived"), "El total recibido no debe contar como renta.");
 assert(source.includes('getActiveRouteReviewItems(items, payments, businessDateKey, reports, routeReviewIndex)'), "Los parciales deben usar toda la ruta, no solo Trabajo.");
-assert(source.includes("'Pagos parciales a revisar', partialReviewItems.length"), "La pestaña debe contar las decisiones pendientes.");
+assert(source.includes("'Pagos por revisar', paymentReviewItems.length"), "La pestaña combinada debe contar todos los pagos pendientes de revisión.");
+assert(source.includes('reviewKind: "partial"') && source.includes('reviewKind: "notified"'), "La lista combinada debe conservar el tipo de revisión de cada tarjeta.");
 assert(rules.includes("item.partialDecisionRentAmount"), "Una decision ya tomada debe sacar la unidad del conteo de revision.");
 assert(source.includes('aria-label="Estado de las unidades"'), "Las pestañas deben ser accesibles.");
 
