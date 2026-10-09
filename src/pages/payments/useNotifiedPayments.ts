@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { loadCloudNotifiedPayments } from "../../cloud/operationsCloudData";
+import { writeLocalStorageFromCloud } from "../../cloudMirror";
 import { formatCurrency } from "../../format";
 import { supabase } from "../../lib/supabase";
 import type { Client } from "../../types";
+import { NOTIFIED_PAYMENTS_KEY } from "./paymentConstants";
 import { loadNotifiedPayments, parseNotifiedPayments, saveNotifiedPayments } from "./paymentStorage";
 import type {
   NotifiedPayment,
@@ -64,6 +67,32 @@ export default function useNotifiedPayments(clients: Client[], activeClients: Cl
     const ownerUserId = options.dataOwnerUserId;
     if (!ownerUserId || !supabase) return;
 
+    let active = true;
+    let reloadSequence = 0;
+
+    const replaceFromCloud = (rows: NotifiedPayment[]): void => {
+      setNotifiedPayments(rows);
+      writeLocalStorageFromCloud(NOTIFIED_PAYMENTS_KEY, JSON.stringify(rows));
+    };
+
+    const reloadFromCloud = async (): Promise<void> => {
+      const requestSequence = ++reloadSequence;
+      try {
+        const rows = parseNotifiedPayments(await loadCloudNotifiedPayments(ownerUserId));
+        if (!active || requestSequence !== reloadSequence) return;
+        replaceFromCloud(rows);
+      } catch (cause) {
+        if (!active || requestSequence !== reloadSequence) return;
+        console.warn("No se pudieron actualizar los pagos notificados desde la nube.", cause);
+      }
+    };
+
+    const reloadWhenVisible = (): void => {
+      if (!document.hidden) void reloadFromCloud();
+    };
+
+    void reloadFromCloud();
+
     const channel = supabase
       .channel(`payments-notified-live-${ownerUserId}`)
       .on(
@@ -76,16 +105,28 @@ export default function useNotifiedPayments(clients: Client[], activeClients: Cl
           if (!rowId) return;
           if (eventType === "DELETE") {
             setNotifiedPayments((current) => current.filter((row) => row.id !== rowId));
+            void reloadFromCloud();
             return;
           }
           const parsed = parseNotifiedPayments([rawRow?.data])[0];
           if (!parsed) return;
           setNotifiedPayments((current) => [...current.filter((row) => row.id !== rowId), parsed]);
+          void reloadFromCloud();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") void reloadFromCloud();
+      });
+
+    window.addEventListener("focus", reloadWhenVisible);
+    window.addEventListener("online", reloadWhenVisible);
+    document.addEventListener("visibilitychange", reloadWhenVisible);
 
     return () => {
+      active = false;
+      window.removeEventListener("focus", reloadWhenVisible);
+      window.removeEventListener("online", reloadWhenVisible);
+      document.removeEventListener("visibilitychange", reloadWhenVisible);
       void supabase?.removeChannel(channel);
     };
   }, [options.dataOwnerUserId]);

@@ -4,7 +4,8 @@ import type {
   CashClosing,
   CashClosingAuditEvent,
   CashCloseClientSnapshot,
-  ChargeRun
+  ChargeRun,
+  NotifiedPayment
 } from "../pages/payments/paymentTypes";
 import { stableEqual } from "../stableSerialize";
 import { normalizeCourtName } from "../courtNames";
@@ -38,6 +39,29 @@ export async function deleteCloudNotifiedPayment(userId: string, noticeId: strin
     .eq("user_id", userId)
     .eq("id", noticeId);
   if (error) throw error;
+}
+
+export async function loadCloudNotifiedPayments(userId: string): Promise<NotifiedPayment[]> {
+  const client = getCloudClient();
+  const rows: DataRow<NotifiedPayment>[] = [];
+  let lastId = "";
+  while (true) {
+    let query = client
+      .from("notified_payments_cloud")
+      .select("id,data")
+      .eq("user_id", userId)
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (lastId) query = query.gt("id", lastId);
+    const { data, error } = await query;
+    if (error) throw error;
+    const batch = (data ?? []) as DataRow<NotifiedPayment>[];
+    rows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    lastId = batch[batch.length - 1]?.id ?? lastId;
+    if (!lastId) break;
+  }
+  return rows.map((row) => row.data);
 }
 
 export type ControlUnitRow = {
