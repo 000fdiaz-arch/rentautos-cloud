@@ -258,16 +258,8 @@ try {
   await mixedCashPendingCard.getByText('Pago notificado · Efectivo pendiente',{exact:true}).waitFor();
   await mixedCashPendingCard.getByText('Efectivo: $19.00 · Pendiente',{exact:true}).waitFor();
   await mixedCashPendingCard.getByText('Banca: $46.00 · Confirmado',{exact:true}).waitFor();
-  await mixedCashPendingCard.getByRole('button',{name:'Generar recibo',exact:true}).click();
-  await modal.getByLabel('Monto pagado').waitFor();
-  assert.equal(await modal.getByLabel('Monto pagado').inputValue(),'19');
-  assert.equal(await modal.getByLabel('Monto pagado').isEditable(),false);
-  await modal.getByLabel('Equipo').selectOption('PTY');
-  await modal.getByRole('button',{name:'Generar recibo',exact:true}).click();
-  await modal.waitFor({state:'hidden'});
-  assert.equal(cashRegistrations.at(-1).clientId,'mixed-cash-pending');
-  assert.equal(cashRegistrations.at(-1).amount,19);
-  await page.getByRole('button',{name:'Pagos por revisar (4)',exact:true}).waitFor();
+  assert.equal(await mixedCashPendingCard.getByRole('button',{name:'Generar recibo',exact:true}).count(),0);
+  await page.getByRole('button',{name:'Pagos por revisar (5)',exact:true}).waitFor();
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:'.tmp/route-reports/mobile-bank-review-without-method-tabs.png',fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);

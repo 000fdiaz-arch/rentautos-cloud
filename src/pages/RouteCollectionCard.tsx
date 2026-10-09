@@ -84,7 +84,7 @@ function routeElapsedSince(value: string, now: number): string {
 
 export default function RouteCollectionCard(props: Props) {
   const zoneListId = useId();
-  const { item, view, paidRent, balance, canReport, canEdit, canRemove, canRegister, saving } = props;
+  const { item, view, paidRent, balance, canReport, canEdit, canRemove, saving } = props;
   const report = item.report;
   const remaining = Math.max(0, item.releaseAmount - paidRent);
   const partial = paidRent > 0 && remaining > 0;
@@ -172,7 +172,6 @@ export default function RouteCollectionCard(props: Props) {
       {canEdit && !report ? <label className="route-collection-field route-collection-comment">Comentario<input aria-label={`Comentario de ${item.unitId}`} value={props.comment} maxLength={25} placeholder="Agregar comentario…" disabled={props.commentSaving} onChange={event => props.onComment(event.target.value)} onBlur={props.onSaveComment} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></label> : item.comment ? <p>{item.comment}</p> : null}
     {props.managementFields}
     <div className="route-collection-actions">
-      {pendingCash && canRegister ? <button type="button" className="button primary" disabled={saving} onClick={props.onRegister}>Generar recibo</button> : null}
       {view === "confirmed" && report ? <button type="button" className="button primary" disabled={props.receiptLoading} onClick={props.onReceipt}>{props.receiptLoading ? "Abriendo…" : "Ver recibo"}</button> : null}
       {view === "partial" && canRemove && !acknowledged ? <button type="button" className="button primary" disabled={saving} onClick={props.onKeep}>Debe pagar más</button> : null}
       {view === "work" && canReport && !props.hasPendingReport ? <button type="button" className="button primary" disabled={props.reportDisabled || saving} onClick={props.onReport}>Notificar pago</button> : null}
