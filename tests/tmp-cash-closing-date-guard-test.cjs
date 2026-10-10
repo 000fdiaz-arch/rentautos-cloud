@@ -54,7 +54,7 @@ async function run() {
     plugins: [{ name: "cash-closing-adapters", setup(build) {
       const modules = {
         react: `export const useEffect = () => {}; export const useMemo = fn => fn(); export const useState = initial => { const i = global.__cash.stateIndex++; const value = i === 1 ? global.__cash.date : typeof initial === 'function' ? initial() : initial; return [value, next => global.__cash.states[i] = next]; };`,
-        cloudData: `const read = async () => { global.__cash.reads++; return []; }; const isClosed = async () => { global.__cash.reads++; return false; }; const write = async () => { global.__cash.writes++; }; export { read as loadCloudCashClosingAudit, read as loadCloudCashClosings, read as loadCloudChargeRunLateFeeEntryIds, read as loadCloudChargeRunSnapshots, read as loadCloudChargeRuns, isClosed as isCloudCashClosingDateClosed, write as saveCloudCashClosingAudit, write as saveCloudCashClosings, write as saveCloudChargeRuns };`,
+        cloudData: `const read = async () => { global.__cash.reads++; return []; }; const readClients = async () => { global.__cash.reads++; return global.__cash.clients; }; const isClosed = async () => { global.__cash.reads++; return false; }; const write = async () => { global.__cash.writes++; }; export { readClients as loadCloudClients, read as loadCloudCashClosingAudit, read as loadCloudCashClosings, read as loadCloudChargeRunLateFeeEntryIds, read as loadCloudChargeRunSnapshots, read as loadCloudChargeRuns, isClosed as isCloudCashClosingDateClosed, write as saveCloudCashClosingAudit, write as saveCloudCashClosings, write as saveCloudChargeRuns };`,
         cashLedger: `export const loadCashSummaryRange = async () => { global.__cash.reads++; return []; }; export const isCashDayClosed = async () => { global.__cash.reads++; return false; };`,
         supabase: `export const supabase = null;`,
         persistenceMode: `export const isSupabaseOnlyMode = true;`,
@@ -73,7 +73,7 @@ async function run() {
   global.window = { confirm: message => { global.__cash.confirmations++; global.__cash.confirmMessage = message; return global.__cash.confirmResult; } };
   const useCashClosing = require(hookPath).default;
   async function attempt(date, clients, confirmResult = false) {
-    global.__cash = { date, stateIndex: 0, states: {}, reads: 0, writes: 0, confirmations: 0, confirmMessage: "", confirmResult, savedClients: null };
+    global.__cash = { date, clients, stateIndex: 0, states: {}, reads: 0, writes: 0, confirmations: 0, confirmMessage: "", confirmResult, savedClients: null };
     const hook = useCashClosing({ clients, payments: [], lateFeeSettings: { active: false, dailyAmount: 0, chargeLabel: "Mora", selectedUnits: [] }, dataOwnerUserId: "owner", onClientsChange: next => { global.__cash.writes++; global.__cash.savedClients = next; } });
     await hook.handleCloseCashForDate();
     return global.__cash;

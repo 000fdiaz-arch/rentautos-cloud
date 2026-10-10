@@ -121,23 +121,24 @@ export async function syncCloudClientsDelta(
 ): Promise<void> {
   const client = getCloudClient();
   const prevById = new Map(previousClients.map((item) => [item.id, item]));
-  const upsertRows = nextClients
+  const changes = nextClients
     .filter((item) => {
       const prev = prevById.get(item.id);
       return hasRowChanged(prev, item);
     })
     .map((item) => ({
-      user_id: userId,
-      id: item.id,
-      data: item
+      clientId: item.id,
+      previousClient: prevById.get(item.id) ?? null,
+      nextClient: item
     }));
 
-  if (upsertRows.length > 0) {
-    await withCloudRetry(() =>
-      client
-        .from("clients_cloud")
-        .upsert(upsertRows, { onConflict: "user_id,id" })
-        .throwOnError()
-    );
-  }
+  if (changes.length === 0) return;
+
+  await withCloudRetry(async () => {
+    const { error } = await client.rpc("sync_client_deltas_guarded", {
+      p_owner_user_id: userId,
+      p_changes: changes
+    });
+    if (error) throw error;
+  });
 }

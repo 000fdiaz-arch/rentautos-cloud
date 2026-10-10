@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getBusinessDateKey, isBeforeFirstChargeDate, isChargeDay, parseDateKey, resolveInstallmentIssuance, toDateKey } from "../../billing";
 import { getCashClosingDateError, getLastClosableDateKey } from "../../cashClosingRules";
 import {
+  loadCloudClients,
   loadCloudCashClosingAudit,
   loadCloudCashClosings,
   loadCloudChargeRunLateFeeEntryIds,
@@ -602,7 +603,11 @@ async function handleCloseCashForDate(): Promise<void> {
       return;
     }
 
-    const chargeResult = applyNextDayChargesFromClosing(date);
+    // A cash-closing tab can remain open while another session records payments.
+    // Always calculate from the canonical cloud snapshot so a stale browser cannot
+    // restore a balance that a payment already reduced.
+    const currentCloudClients = await loadCloudClients(dataOwnerUserId);
+    const chargeResult = applyNextDayChargesFromClosing(date, {}, currentCloudClients);
     const closeReport: ChargeCloseReport = {
       closingDate: date,
       targetDate: chargeResult.targetDate,
