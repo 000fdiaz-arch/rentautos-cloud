@@ -366,7 +366,8 @@ try {
   await modal.getByRole('button',{name:'Notificar pago',exact:true}).click();
   await page.getByText('Pago gestionado · RA-042',{exact:true}).waitFor();
   assert.equal(cashRegistrations.length,registrationsBeforeAutoCash+1);
-  assert.deepEqual({...cashRegistrations.at(-1),fundsReceivedDate:undefined},{clientId:'c1',amount:55,method:'cash',team:'PTY',fundsReceivedDate:undefined});
+  assert.equal(cashRegistrations.at(-1).reportId,reports[0].id);
+  assert.deepEqual({...cashRegistrations.at(-1),reportId:undefined,fundsReceivedDate:undefined},{clientId:'c1',amount:55,method:'cash',team:'PTY',reportId:undefined,fundsReceivedDate:undefined});
   await page.getByText('RA-042: pago en efectivo registrado correctamente · Equipo PTY.',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Cerrar vista previa',exact:true}).count(),0);
   assert.equal(await page.getByRole('button',{name:'Ver recibo',exact:true}).count(),0);

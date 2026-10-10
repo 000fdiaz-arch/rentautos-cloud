@@ -46,6 +46,7 @@ Para instalaciones existentes que ya ejecutaron las migraciones de cuentas por c
 - `supabase/100-guarded-client-delta-sync.sql` (evita que una sesión desactualizada sobrescriba saldos o datos recientes de clientes)
 - `supabase/101-admin-route-bank-confirmation.sql` (permite que solo el administrador confirme visualmente en banca un pago notificado de Ruta y genere el pago regular)
 - `supabase/105-route-bank-receipt-upsert.sql` (permite copiar y marcar como enviado un recibo bancario de Ruta ya existente sin confundirlo con una confirmación nueva)
+- `supabase/106-route-cash-report-link.sql` (vincula cada recibo de efectivo con su aviso de Ruta por identificador, sin depender del reloj del navegador)
 
 En Vercel, produccion debe usar `VITE_PERSISTENCE_MODE=SUPABASE_ONLY`. `LOCAL_ONLY` queda limitado a desarrollo, salvo que se habilite deliberadamente `VITE_ALLOW_PRODUCTION_LOCAL_ONLY=1`.
 5. Crea una cuenta desde la pantalla de registro de la app.

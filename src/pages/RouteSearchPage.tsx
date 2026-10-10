@@ -53,6 +53,7 @@ export type RouteSearchPageProps = {
     amount: number;
     method: "cash" | "bank";
     team: CollectionTeam;
+    reportId?: string;
     fundsReceivedDate?: string;
   }) => Promise<{ kind: "cash" | "bank"; receiptNumber?: string; payment?: Payment }>;
   onConfirmBankPayment?: (input: {
@@ -273,6 +274,7 @@ export default function RouteSearchPage({
           amount: cashAmount,
           method: "cash",
           team: cashTeam,
+          reportId: savedReport.id,
           fundsReceivedDate: getBusinessDateKey(new Date(savedReport.reported_at))
         });
         if (result.kind !== "cash" || !result.receiptNumber) throw new Error("El pago se notificó, pero no se pudo emitir el recibo de efectivo.");
@@ -971,7 +973,10 @@ export default function RouteSearchPage({
         amount,
         method: paymentMethod,
         team: paymentTeam,
-        ...(paymentReport ? { fundsReceivedDate: getBusinessDateKey(new Date(paymentReport.reported_at)) } : {})
+        ...(paymentReport ? {
+          reportId: paymentReport.id,
+          fundsReceivedDate: getBusinessDateKey(new Date(paymentReport.reported_at))
+        } : {})
       });
       if (result.kind === "bank") {
         setBankNotices(loadNotifiedPayments());

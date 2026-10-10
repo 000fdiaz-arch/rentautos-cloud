@@ -318,6 +318,7 @@ export type PaymentIncomeEdit = {
 export type Payment = {
   id: string;
   source?: "route";
+  routeReportId?: string;
   bankConfirmation?: {
     routeReportId: string;
     confirmedAt: string;

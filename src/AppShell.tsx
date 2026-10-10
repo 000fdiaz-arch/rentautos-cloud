@@ -650,6 +650,7 @@ export default function AppShell({
     amount: number;
     method: "cash" | "bank";
     team: CollectionTeam;
+    reportId?: string;
     fundsReceivedDate?: string;
   }): Promise<{ kind: "cash" | "bank"; receiptNumber?: string; payment?: Payment }> {
     if (!canReportRoutePayments) {
@@ -708,6 +709,7 @@ export default function AppShell({
       currentActor: userEmail || userId || "Usuario"
     });
     transaction.payment.collectionTeam = input.team;
+    if (input.reportId) transaction.payment.routeReportId = input.reportId;
     if (input.fundsReceivedDate) transaction.payment.fundsReceivedDate = input.fundsReceivedDate;
     transaction.payment.source = "route";
     transaction.payment.incomeComment = `Cobro en Ruta · Equipo ${input.team}`;
