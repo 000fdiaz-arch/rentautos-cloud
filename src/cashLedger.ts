@@ -96,6 +96,20 @@ export async function loadCashSummary(date: string, ownerUserId?: string | null)
   return (data as CashSummary | null) ?? null;
 }
 
+export async function isCashDayClosed(date: string, ownerUserId?: string | null): Promise<boolean> {
+  const client = ensureSupabase();
+  let query = client
+    .from("cash_day_closings")
+    .select("opening_date")
+    .eq("opening_date", date)
+    .eq("status", "closed")
+    .limit(1);
+  if (ownerUserId) query = query.eq("owner_user_id", ownerUserId);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  return data !== null;
+}
+
 export async function loadCashMovements(date: string, ownerUserId?: string | null): Promise<CashMovementRecord[]> {
   const client = ensureSupabase();
   let query = client

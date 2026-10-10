@@ -54,8 +54,8 @@ async function run() {
     plugins: [{ name: "cash-closing-adapters", setup(build) {
       const modules = {
         react: `export const useEffect = () => {}; export const useMemo = fn => fn(); export const useState = initial => { const i = global.__cash.stateIndex++; const value = i === 1 ? global.__cash.date : typeof initial === 'function' ? initial() : initial; return [value, next => global.__cash.states[i] = next]; };`,
-        cloudData: `const read = async () => { global.__cash.reads++; return []; }; const write = async () => { global.__cash.writes++; }; export { read as loadCloudCashClosingAudit, read as loadCloudCashClosings, read as loadCloudChargeRunLateFeeEntryIds, read as loadCloudChargeRunSnapshots, read as loadCloudChargeRuns, write as saveCloudCashClosingAudit, write as saveCloudCashClosings, write as saveCloudChargeRuns };`,
-        cashLedger: `export const loadCashSummaryRange = async () => { global.__cash.reads++; return []; };`,
+        cloudData: `const read = async () => { global.__cash.reads++; return []; }; const isClosed = async () => { global.__cash.reads++; return false; }; const write = async () => { global.__cash.writes++; }; export { read as loadCloudCashClosingAudit, read as loadCloudCashClosings, read as loadCloudChargeRunLateFeeEntryIds, read as loadCloudChargeRunSnapshots, read as loadCloudChargeRuns, isClosed as isCloudCashClosingDateClosed, write as saveCloudCashClosingAudit, write as saveCloudCashClosings, write as saveCloudChargeRuns };`,
+        cashLedger: `export const loadCashSummaryRange = async () => { global.__cash.reads++; return []; }; export const isCashDayClosed = async () => { global.__cash.reads++; return false; };`,
         supabase: `export const supabase = null;`,
         persistenceMode: `export const isSupabaseOnlyMode = true;`,
         storage: `export const loadLateFeeLedger = () => []; export const saveLateFeeLedger = () => { global.__cash.writes++; };`,

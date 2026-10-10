@@ -41,10 +41,19 @@ assert.ok(csvButton);
 assert.doesNotMatch(csvButton, /disabled/);
 
 const pageSource = fs.readFileSync(path.join(root, "src/pages/PaymentsPage.tsx"), "utf8");
+const hookSource = fs.readFileSync(path.join(root, "src/pages/payments/useCashClosing.ts"), "utf8");
+const cloudSource = fs.readFileSync(path.join(root, "src/cloud/operationsCloudData.ts"), "utf8");
 assert.match(pageSource, /await verifyDateClosedInCloud\(requiredCsvClosingDate\)/);
 assert.ok(
   pageSource.indexOf("await verifyDateClosedInCloud(requiredCsvClosingDate)") < pageSource.indexOf("await handleImportBankCSV()"),
   "La verificación en nube debe ocurrir antes de abrir el CSV."
 );
+assert.match(hookSource, /isCloudCashClosingDateClosed\(ownerUserId, date\)/);
+assert.match(hookSource, /isCashDayClosed\(date, ownerUserId\)/);
+assert.ok(
+  hookSource.indexOf("isDateClosedInCloud(requiredClosingDate, dataOwnerUserId)") < hookSource.indexOf("loadCashClosingCloudState(dataOwnerUserId).catch"),
+  "La verificación puntual debe arrancar sin esperar la carga histórica."
+);
+assert.match(cloudSource, /if \(rows\.length > 0\) return rows;/);
 
-console.log("OK CSV: bloqueado con alerta hasta cerrar el día anterior y revalidado en nube antes de importar.");
+console.log("OK CSV: cierre anterior validado por fecha sin esperar ni descargar el historial pesado.");

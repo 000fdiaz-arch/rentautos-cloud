@@ -1059,6 +1059,19 @@ export async function loadCloudCashClosings(userId: string): Promise<CashClosing
   return loadCloudArrayRows<CashClosing>(userId, "cash_closings_cloud");
 }
 
+export async function isCloudCashClosingDateClosed(userId: string, date: string): Promise<boolean> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("cash_closings_cloud")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("id", date)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data !== null;
+}
+
 export async function saveCloudCashClosings(userId: string, rows: CashClosing[]): Promise<void> {
   await replaceCloudArrayRows(userId, "cash_closings_cloud", rows, (row, index) => row.date || `row-${index + 1}`);
 }
@@ -1171,11 +1184,11 @@ export async function loadCloudChargeRuns(userId: string): Promise<ChargeRun[]> 
       lastId = batch[batch.length - 1]?.id ?? lastId;
       if (!lastId) break;
     }
-    const legacyRows = await loadCloudArrayRows<ChargeRun>(userId, "charge_runs_cloud").catch(() => []);
-    const byId = new Map<string, ChargeRun>();
-    for (const run of legacyRows) byId.set(run.id, run);
-    for (const run of rows) byId.set(run.id, run);
-    return [...byId.values()];
+    // Migration 26 copies every legacy run into the modular tables. Once a
+    // modular header exists, avoid downloading the legacy JSON payloads: they
+    // contain per-client snapshots and grow quickly with every daily close.
+    if (rows.length > 0) return rows;
+    return loadCloudArrayRows<ChargeRun>(userId, "charge_runs_cloud").catch(() => []);
   } catch (error) {
     if (isMissingModularChargeRunsSchema(error)) {
       return loadCloudArrayRows<ChargeRun>(userId, "charge_runs_cloud");

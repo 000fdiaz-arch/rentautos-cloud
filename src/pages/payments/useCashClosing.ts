@@ -7,6 +7,7 @@ import {
   loadCloudChargeRunLateFeeEntryIds,
   loadCloudChargeRunSnapshots,
   loadCloudChargeRuns,
+  isCloudCashClosingDateClosed,
   saveCloudCashClosingAudit,
   saveCloudCashClosings,
   saveCloudChargeRuns
@@ -17,7 +18,7 @@ import { supabase } from "../../lib/supabase";
 import { isSupabaseOnlyMode } from "../../persistenceMode";
 import { loadLateFeeLedger, saveLateFeeLedger } from "../../storage";
 import type { Client, LateFeeLedgerEntry, LateFeeSettings, Payment } from "../../types";
-import { loadCashSummaryRange } from "../../cashLedger";
+import { isCashDayClosed, loadCashSummaryRange } from "../../cashLedger";
 import { stableEqual } from "../../stableSerialize";
 import { accrueClientProvisionalRental } from "../../provisionalRentals";
 import { roundMoney } from "./paymentRules";
@@ -91,13 +92,9 @@ export default function useCashClosing({
   const [cashClosingCloudStatus, setCashClosingCloudStatus] = useState<"loading" | "ready" | "error">(
     dataOwnerUserId ? "loading" : (isSupabaseOnlyMode ? "loading" : "ready")
   );
+  const [verifiedCloudClosedDates, setVerifiedCloudClosedDates] = useState<string[]>([]);
 
   async function loadCashClosingCloudState(ownerUserId: string): Promise<void> {
-    const [cloudClosings, cloudAudit, cloudRuns] = await Promise.all([
-      loadCloudCashClosings(ownerUserId),
-      loadCloudCashClosingAudit(ownerUserId),
-      loadCloudChargeRuns(ownerUserId)
-    ]);
     const today = getBusinessDateKey();
     const todayDate = parseDateKey(today);
     let ledgerFromDate = today;
@@ -106,10 +103,15 @@ export default function useCashClosing({
       fromDate.setDate(fromDate.getDate() - 90);
       ledgerFromDate = toDateKey(fromDate);
     }
-    const ledgerSummaries = await loadCashSummaryRange(ledgerFromDate, today, ownerUserId).catch((error) => {
-      console.error("No se pudieron cargar cierres del ledger de caja.", error);
-      return [];
-    });
+    const [cloudClosings, cloudAudit, cloudRuns, ledgerSummaries] = await Promise.all([
+      loadCloudCashClosings(ownerUserId),
+      loadCloudCashClosingAudit(ownerUserId),
+      loadCloudChargeRuns(ownerUserId),
+      loadCashSummaryRange(ledgerFromDate, today, ownerUserId).catch((error) => {
+        console.error("No se pudieron cargar cierres del ledger de caja.", error);
+        return [];
+      })
+    ]);
     const normalizedClosings = dedupeCashClosings(cloudClosings);
     const normalizedAudit = cloudAudit
       .filter((event) => typeof event.id === "string" && typeof event.date === "string" && typeof event.createdAt === "string")
@@ -139,15 +141,18 @@ export default function useCashClosing({
     }
     let active = true;
     setCashClosingCloudStatus("loading");
-    void loadCashClosingCloudState(dataOwnerUserId).then(() => {
+    const requiredClosingDate = getLastClosableDateKey();
+    void isDateClosedInCloud(requiredClosingDate, dataOwnerUserId).then((isClosed) => {
       if (!active) return;
+      setVerifiedCloudClosedDates(isClosed ? [requiredClosingDate] : []);
       setCashClosingCloudStatus("ready");
     }).catch((error) => {
+      console.error("No se pudo verificar el cierre anterior desde nube.", error);
+      if (active) setCashClosingCloudStatus("error");
+    });
+    void loadCashClosingCloudState(dataOwnerUserId).catch((error) => {
       console.error("No se pudieron cargar cierres de caja desde nube.", error);
-      if (active) {
-        setCashClosingCloudStatus("error");
-        setCashClosingError("No se pudieron cargar los cierres desde nube. Actualiza e intenta de nuevo.");
-      }
+      if (active) setCashClosingError("No se pudo cargar el historial de cierres desde nube. Actualiza e intenta de nuevo.");
     });
     return () => {
       active = false;
@@ -209,9 +214,10 @@ export default function useCashClosing({
   const closedDateSet = useMemo(
     () => new Set([
       ...cashClosings.map((closing) => closing.date),
-      ...cashLedgerClosedDates
+      ...cashLedgerClosedDates,
+      ...verifiedCloudClosedDates
     ]),
-    [cashClosings, cashLedgerClosedDates]
+    [cashClosings, cashLedgerClosedDates, verifiedCloudClosedDates]
   );
 
   const nextUnclosedDateKey = useMemo(() => {
@@ -243,7 +249,12 @@ function isDateClosed(dateKey: string): boolean {
 
 async function verifyDateClosedInCloud(dateKey: string): Promise<boolean> {
   if (!dataOwnerUserId) return isDateClosed(dateKey);
-  return isDateClosedInCloud(dateKey, dataOwnerUserId);
+  const isClosed = await isDateClosedInCloud(dateKey, dataOwnerUserId);
+  setVerifiedCloudClosedDates((current) => {
+    const withoutDate = current.filter((date) => date !== dateKey);
+    return isClosed ? [...withoutDate, dateKey] : withoutDate;
+  });
+  return isClosed;
 }
 
 function cloneOtherCharges(client: Client): Client["otherCharges"] {
@@ -547,14 +558,11 @@ function applyNextDayChargesFromClosing(
 }
 
 async function isDateClosedInCloud(date: string, ownerUserId: string): Promise<boolean> {
-  const [cloudClosings, ledgerRows] = await Promise.all([
-    loadCloudCashClosings(ownerUserId),
-    loadCashSummaryRange(date, date, ownerUserId).catch(() => [])
+  const [isLegacyClosingClosed, isLedgerClosed] = await Promise.all([
+    isCloudCashClosingDateClosed(ownerUserId, date),
+    isCashDayClosed(date, ownerUserId)
   ]);
-  return (
-    cloudClosings.some((closing) => closing.date === date) ||
-    ledgerRows.some((row) => row.opening_date === date && row.status === "closed")
-  );
+  return isLegacyClosingClosed || isLedgerClosed;
 }
 
 async function handleCloseCashForDate(): Promise<void> {
