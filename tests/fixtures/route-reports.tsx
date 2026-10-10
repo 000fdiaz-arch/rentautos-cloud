@@ -9,6 +9,7 @@ const role = new URLSearchParams(location.search).has("readonly") ? "lectura" : 
 const routeParams = new URLSearchParams(location.search);
 const autoCash = routeParams.has("autocash");
 const canRegister = routeParams.has("cashregister") || autoCash;
+const isAdmin = routeParams.has("admin");
 function Harness() {
   const [payments, setPayments] = useState<Payment[]>(() => [
     { id: "old", clientId: "cash-wc", clientUnit: "RA-WC", clientName: "Cliente WC", receiptNumber: "REC-old", paymentMethod: "Efectivo", moneyDelivered: false, collectionTeam: "WC", amountReceived: 45.25, dateApplied: "2020-01-01", createdAt: "2020-01-01T12:00:00Z" },
@@ -19,22 +20,32 @@ function Harness() {
     const changePartial = (event: Event) => setPayments(current => current.map(payment => payment.id === "partial"
       ? { ...payment, appliedToRent: Number((event as CustomEvent).detail) } : payment));
     const deliver = () => setPayments(current => current.map(payment => payment.id === "old" ? { ...payment, moneyDelivered: true } : payment));
+    const clearAdminBank = () => setPayments(current => current.filter(payment => payment.id !== "admin-bank-confirmed"));
     window.addEventListener("test:partial", partial);
     window.addEventListener("test:change-partial", changePartial);
     window.addEventListener("test:deliver-cash", deliver);
-    return () => { window.removeEventListener("test:deliver-cash", deliver); window.removeEventListener("test:partial", partial); window.removeEventListener("test:change-partial", changePartial); };
+    window.addEventListener("test:clear-admin-bank", clearAdminBank);
+    return () => { window.removeEventListener("test:clear-admin-bank", clearAdminBank); window.removeEventListener("test:deliver-cash", deliver); window.removeEventListener("test:partial", partial); window.removeEventListener("test:change-partial", changePartial); };
   }, []);
   return <RouteSearchPage
   dataOwnerUserId="11111111-1111-4111-8111-111111111111"
   currentUserId="22222222-2222-4222-8222-222222222222"
   initialRouteFilter={autoCash ? (routeParams.has("delta2") ? "WC" : "PTY") : undefined}
   canReportPayment={canReportRoutePayment(role, getRoleScreenPermissions(role))}
+  canConfirmBankPayment={isAdmin}
   canRemoveFromRoute={new URLSearchParams(location.search).has("editor")}
   clients={[]} payments={payments} readOnly={!canRegister}
   onRegisterPayment={canRegister ? async (input) => {
     const response = await fetch('/__register-cash', { method: 'POST', body: JSON.stringify(input) });
     if (!response.ok) throw new Error('No se pudo guardar el pago de prueba.');
     return response.json();
+  } : undefined}
+  onConfirmBankPayment={isAdmin ? async (input) => {
+    const response = await fetch('/__confirm-bank', { method: 'POST', body: JSON.stringify(input) });
+    if (!response.ok) throw new Error('No se pudo confirmar el pago bancario de prueba.');
+    const payment = await response.json() as Payment;
+    setPayments(current => current.some(row => row.id === payment.id) ? current : [...current, payment]);
+    return payment;
   } : undefined}
 />;
 }

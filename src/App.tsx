@@ -27,6 +27,7 @@ function AuthenticatedApp() {
     return (
       <AppShell
         userEmail={testBypassAuth ? "test-local@rentautos.app" : "local@rentautos.app"}
+        isAdmin
         permissions={permissions}
         canWriteOperationalData
         canManageSettings
@@ -103,6 +104,7 @@ function AuthenticatedApp() {
   return (
     <AppShell
       userId={authProfile.userId}
+      isAdmin={authProfile.role === "admin"}
       canReportRoutePayments={canReportRoutePayment(authProfile.role, authProfile.permissions)}
       userEmail={authProfile.userEmail}
       dataOwnerUserId={authProfile.dataOwnerUserId}

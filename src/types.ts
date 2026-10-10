@@ -318,6 +318,11 @@ export type PaymentIncomeEdit = {
 export type Payment = {
   id: string;
   source?: "route";
+  bankConfirmation?: {
+    routeReportId: string;
+    confirmedAt: string;
+    confirmedBy: string;
+  };
   createdBy?: string;
   receiptNumber: string;
   receiptDeliveryStatus?: "pending" | "sent";

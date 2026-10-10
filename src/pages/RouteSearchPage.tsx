@@ -42,6 +42,7 @@ export type RouteSearchPageProps = {
   currentUserId?: string;
   initialRouteFilter?: string;
   canReportPayment?: boolean;
+  canConfirmBankPayment?: boolean;
   dataOwnerUserId?: string | null;
   clients: Client[];
   payments: Payment[];
@@ -54,6 +55,12 @@ export type RouteSearchPageProps = {
     team: CollectionTeam;
     fundsReceivedDate?: string;
   }) => Promise<{ kind: "cash" | "bank"; receiptNumber?: string; payment?: Payment }>;
+  onConfirmBankPayment?: (input: {
+    reportId: string;
+    clientId: string;
+    amount: number;
+    fundsReceivedDate: string;
+  }) => Promise<Payment>;
 };
 
 const ALL_ACTIVE_ZONE_FILTER = "__all_zones__";
@@ -138,12 +145,14 @@ export default function RouteSearchPage({
   currentUserId,
   initialRouteFilter,
   canReportPayment = false,
+  canConfirmBankPayment = false,
   dataOwnerUserId,
   clients,
   payments,
   readOnly = true,
   canRemoveFromRoute = false,
-  onRegisterPayment
+  onRegisterPayment,
+  onConfirmBankPayment
 }: RouteSearchPageProps) {
   const preferredRouteFilter = initialRouteFilter
     ? activeRouteFilterValue(initialRouteFilter)
@@ -174,6 +183,7 @@ export default function RouteSearchPage({
   const [receiptOptions, setReceiptOptions] = useState<Payment[]>([]);
   const [receiptLoading, setReceiptLoading] = useState<string | null>(null);
   const [receiptError, setReceiptError] = useState("");
+  const [bankConfirmationSavingId, setBankConfirmationSavingId] = useState<string | null>(null);
   const [completedCash, setCompletedCash] = useState<{ unit: string; amount: number } | null>(null);
   const [reportTarget, setReportTarget] = useState<ActiveRouteItem | null>(null);
   const [reportAmount, setReportAmount] = useState("");
@@ -298,7 +308,7 @@ export default function RouteSearchPage({
   }
 
   async function returnReport(report: RoutePaymentReport): Promise<void> {
-    if (!canReportPayment || reportSaving) return;
+    if (!canConfirmBankPayment || reportSaving) return;
     setReportSaving(true);
     try {
       await cancelRoutePaymentReport(report.id);
@@ -307,6 +317,36 @@ export default function RouteSearchPage({
     } catch (cause) {
       setReportsError(buildCloudErrorMessage("No se pudo devolver el reporte.", cause, { includeRawFallback: true }));
     } finally { setReportSaving(false); }
+  }
+
+  async function confirmBankReport(report: RoutePaymentReport): Promise<void> {
+    if (!canConfirmBankPayment || !onConfirmBankPayment || !dataOwnerUserId || bankConfirmationSavingId) return;
+    setBankConfirmationSavingId(report.id);
+    setReportsError("");
+    setPaymentMessage("");
+    try {
+      const latest = await loadRoutePaymentReport(dataOwnerUserId, report.id);
+      const pendingBankAmount = latest ? Math.max(0, latest.bank_amount - latest.confirmed_bank_amount) : 0;
+      if (!latest || latest.status !== "review" || pendingBankAmount <= 0) {
+        throw new Error("Este pago bancario ya fue confirmado o cambió. Actualiza la ruta.");
+      }
+      await onConfirmBankPayment({
+        reportId: latest.id,
+        clientId: latest.client_id,
+        amount: pendingBankAmount,
+        fundsReceivedDate: getBusinessDateKey(new Date(latest.reported_at))
+      });
+      const refreshed = await loadRoutePaymentReport(dataOwnerUserId, latest.id);
+      setReports((current) => applyRouteReportDelta(current, { id: latest.id, report: refreshed }));
+      await refreshItem(latest.client_id);
+      setPaymentMessage(`${latest.snapshot.unitId}: pago confirmado en banco por el administrador.`);
+      setRouteActionMessage(`${latest.snapshot.unitId} pasó a Decisión pendiente.`);
+    } catch (cause) {
+      console.error("No se pudo confirmar el pago bancario de Ruta.", cause);
+      setReportsError(buildCloudErrorMessage("No se pudo confirmar el pago en banco.", cause, { includeRawFallback: true }));
+    } finally {
+      setBankConfirmationSavingId(null);
+    }
   }
   const [changingRoute, setChangingRoute] = useState<string | null>(null);
   const [changeRouteError, setChangeRouteError] = useState("");
@@ -1247,7 +1287,9 @@ export default function RouteSearchPage({
               changingRoute={changingRoute !== null}
               routeOptions={routeAssignmentOptions}
               inactiveSaving={Boolean(inactiveSavingByClient[item.clientId])} elapsedNow={elapsedNow}
-              canReturnReport={Boolean(item.report?.status === "review" && canReportPayment && (item.report.reported_by === currentUserId || canRemoveFromRoute))}
+              canReturnReport={Boolean(item.report?.status === "review" && canConfirmBankPayment)}
+              canConfirmBank={Boolean(item.report?.status === "review" && item.report.bank_amount > item.report.confirmed_bank_amount && canConfirmBankPayment && onConfirmBankPayment)}
+              bankConfirmationSaving={bankConfirmationSavingId === item.report?.id}
               bankNotices={!item.report ? bankNoticesByClient.get(item.clientId) ?? [] : []}
               onReport={() => { setReportTarget(item); setReportAmount(""); setReportMethod(""); setReportCashAmount(""); setReportBankAmount(""); setReportCashTeam(operatorCollectionTeam || asCollectionTeam(item.routeAssignment)); setReportError(""); }}
               onRegister={() => openPaymentDialog(item, item.report)}
@@ -1256,6 +1298,7 @@ export default function RouteSearchPage({
               onRemove={() => { setRemoveTarget(item); setRemoveError(""); }}
               onKeep={() => void keepInRouteAfterPartialPayment(item, paidRent)}
               onReturnReport={() => { if (item.report) void returnReport(item.report); }}
+              onConfirmBank={() => { if (item.report) void confirmBankReport(item.report); }}
               onZone={value => { setZoneError(""); setZoneDrafts(current => ({ ...current, [item.clientId]: value })); }} onSaveZone={() => void commitZone(item)}
               onComment={value => { setCommentError(""); setCommentDrafts(current => ({ ...current, [item.clientId]: value.slice(0, 25) })); }} onSaveComment={() => void commitComment(item)}
               onRoute={route => void changeTeam(item, route)}

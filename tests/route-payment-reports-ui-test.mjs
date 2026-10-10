@@ -7,7 +7,7 @@ const owner='11111111-1111-4111-8111-111111111111';
 const seeker='22222222-2222-4222-8222-222222222222';
 const item={clientId:'c1',unitId:'RA-042',clientName:'Carlos',routeAssignment:'PTY',zone:'Centro',releaseAmount:60,pendingAmount:120,overdueBalance:120,rentAmount:30,daysLate:4,publishedAt:'2026-09-04T12:00:00Z',routeStartedAt:'2026-09-04T12:00:00Z'};
 const receipt={id:'receipt-55',receiptNumber:'REC-CASH-55',clientId:'c1',clientName:'Carlos',clientUnit:'RA-042',dateApplied:'2026-09-05',paymentMethod:'Efectivo',collectionTeam:'WC',amountReceived:55,appliedToRent:55,centavosAhorro:0,installmentsDeducted:1,balanceBefore:120,balanceAfter:65,savingsBefore:0,savingsAfter:0,installmentsPaidAfter:1,installmentsRemainingAfter:2,rentAmount:30,frequency:'daily',createdAt:'2026-09-05T12:00:00Z'};
-let reports=[],fail=false,writes=[],routeChanges=[],inactiveChanges=[],cashRegistrations=[],custody=false,custodyWrites=[],removeWrites=[];
+  let reports=[],fail=false,writes=[],routeChanges=[],inactiveChanges=[],cashRegistrations=[],bankConfirmations=[],custody=false,custodyWrites=[],removeWrites=[];
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4197','--strictPort'],{windowsHide:true,stdio:'pipe',env:{...process.env,VITE_SUPABASE_URL:'https://route-tests.invalid',VITE_SUPABASE_ANON_KEY:'synthetic-test-key'}});
 let browser;
 try {
@@ -26,6 +26,13 @@ try {
           registeredReport.status=registeredReport.confirmed_bank_amount>=registeredReport.bank_amount?'confirmed':'review';
         }
         return route.fulfill({json:{kind:'cash',receiptNumber:'REC-CASH-55',payment:receipt}});
+      }
+      if(url.pathname==='/__confirm-bank'){
+        const confirmation=JSON.parse(req.postData());bankConfirmations.push(confirmation);
+        const report=reports.find(candidate=>candidate.id===confirmation.reportId);
+        if(!report)return route.fulfill({status:404,json:{message:'Reporte no encontrado'}});
+        report.confirmed_bank_amount=report.bank_amount;report.status='confirmed';report.confirmed_at=new Date().toISOString();
+        return route.fulfill({json:{id:'admin-bank-confirmed',receiptNumber:'REC-BANK-ADMIN',clientId:'c1',clientName:'Carlos',clientUnit:'RA-042',dateApplied:new Intl.DateTimeFormat('en-CA',{timeZone:'America/Panama'}).format(new Date()),fundsReceivedDate:confirmation.fundsReceivedDate,paymentMethod:'Transferencia Bancaria',amountReceived:confirmation.amount,appliedToRent:Math.floor(confirmation.amount),createdAt:new Date().toISOString()}});
       }
       if(url.pathname==='/__route-test')return route.fulfill({contentType:'text/html',body:`<meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script type="module">import RefreshRuntime from '/@react-refresh';RefreshRuntime.injectIntoGlobalHook(window);window.$RefreshReg$=()=>{};window.$RefreshSig$=()=>type=>type;window.__vite_plugin_react_preamble_installed__=true;</script><script type="module" src="/tests/fixtures/route-reports.tsx"></script>`});
       return route.continue();
@@ -88,7 +95,7 @@ try {
     if(url.pathname.endsWith('/rpc/cancel_route_payment_report')){reports=[];return route.fulfill({status:204});}
     throw Error('Unexpected request: '+req.method()+' '+url.pathname);
   });
-  await page.goto(base+'/__route-test');
+  await page.goto(base+'/__route-test?admin');
   const picker=page.getByRole('combobox',{name:'Ruta de RA-042'});
   await picker.waitFor({state:'visible'});
   assert.deepEqual(await picker.locator('option').allTextContents(),['PTY','WC','CL','+ Nueva ruta']);
@@ -141,9 +148,11 @@ try {
   assert.match(await page.locator('.route-search-report-status').innerText(),/75.25.*Banca/);
   assert.equal(await page.getByRole('button',{name:'Registrar pago',exact:true}).count(),0);
   assert.equal(await page.getByRole('button',{name:'Sacar de ruta',exact:true}).count(),0);
+  await page.getByRole('button',{name:'Confirmado en banco',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Vehículo en custodia',exact:true}).count(),0);
   await page.screenshot({path:'.tmp/route-reports/mobile-review.png',fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-  await page.getByRole('button',{name:'Devolver a Trabajo',exact:true}).click();
+  await page.getByRole('button',{name:'No confirmado',exact:true}).click();
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).click();
   await page.getByRole('button',{name:'Notificar pago',exact:true}).click();
   await modal.getByLabel('Cuánto pagó ($)').fill('60');await modal.getByLabel('Cómo pagó').selectOption('cash');
@@ -152,8 +161,22 @@ try {
   item.removedAt=new Date().toISOString();
   await page.getByRole('button',{name:'Actualizar',exact:true}).click();
   assert.equal(await page.getByRole('button',{name:/^Pagos confirmados/}).count(),0);
-  assert.equal(await page.getByRole('button',{name:'Devolver a Trabajo',exact:true}).count(),0);
+  assert.equal(await page.getByRole('button',{name:'No confirmado',exact:true}).count(),0);
   reports=[];delete item.removedAt;
+  // El administrador confirma visualmente el banco y el pago parcial pasa a Decisión pendiente.
+  await page.goto(base+'/__route-test?admin&editor');
+  await page.getByRole('button',{name:'Notificar pago',exact:true}).click();
+  await modal.getByLabel('Cuánto pagó ($)').fill('20');await modal.getByLabel('Cómo pagó').selectOption('bank');
+  await modal.getByRole('button',{name:'Notificar pago'}).click();await modal.waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'Pagos por revisar (1)',exact:true}).click();
+  await page.getByRole('button',{name:'Confirmado en banco',exact:true}).click();
+  await page.getByText('Decisión pendiente',{exact:true}).waitFor();
+  await page.getByText('Pagó $20.00',{exact:true}).waitFor();
+  assert.equal(bankConfirmations.at(-1).amount,20);
+  assert.equal(await page.getByRole('button',{name:'Confirmado en banco',exact:true}).count(),0);
+  await page.screenshot({path:'.tmp/route-reports/mobile-admin-bank-confirmation.png',fullPage:true});
+  reports=[];delete item.partialDecisionRentAmount;
+  await page.evaluate(() => window.dispatchEvent(new Event('test:clear-admin-bank')));
   await page.goto(base+'/__route-test');
   await page.setViewportSize({width:390,height:844});
   await page.getByRole('button',{name:'Notificar pago',exact:true}).click();

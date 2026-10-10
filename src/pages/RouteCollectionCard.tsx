@@ -37,6 +37,8 @@ type Props = {
   inactiveSaving: boolean;
   elapsedNow: number;
   canReturnReport: boolean;
+  canConfirmBank: boolean;
+  bankConfirmationSaving: boolean;
   bankNotices: Array<{ id: string; amount: number; collectionTeam?: string }>;
   onReport: () => void;
   onRegister: () => void;
@@ -45,6 +47,7 @@ type Props = {
   onRemove: () => void;
   onKeep: () => void;
   onReturnReport: () => void;
+  onConfirmBank: () => void;
   onZone: (value: string) => void;
   onSaveZone: () => void;
   onComment: (value: string) => void;
@@ -174,11 +177,12 @@ export default function RouteCollectionCard(props: Props) {
     <div className="route-collection-actions">
       {view === "confirmed" && report ? <button type="button" className="button primary" disabled={props.receiptLoading} onClick={props.onReceipt}>{props.receiptLoading ? "Abriendo…" : "Ver recibo"}</button> : null}
       {view === "partial" && canRemove && !acknowledged ? <button type="button" className="button primary" disabled={saving} onClick={props.onKeep}>Debe pagar más</button> : null}
+      {view === "review" && report && props.canConfirmBank ? <button type="button" className="button primary" disabled={saving || props.bankConfirmationSaving} onClick={props.onConfirmBank}>{props.bankConfirmationSaving ? "Confirmando…" : "Confirmado en banco"}</button> : null}
       {view === "work" && canReport && !props.hasPendingReport ? <button type="button" className="button primary" disabled={props.reportDisabled || saving} onClick={props.onReport}>Notificar pago</button> : null}
       {view === "work" && canReport && !report ? <button type="button" className={`button ${item.routeInactiveAt ? "route-collection-inactive-action" : "ghost"}`} disabled={props.inactiveSaving || saving} onClick={props.onInactive}>{props.inactiveSaving ? "Guardando…" : item.routeInactiveAt ? "Marcar como disponible" : "Marcar Inactivo"}</button> : null}
       {view === "custody" && canReport ? <button type="button" className="button primary" disabled={saving} onClick={props.onCustody}>Sacar de custodia</button> : null}
-      {view !== "confirmed" && view !== "custody" && canReport && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button ghost" disabled={saving} onClick={props.onCustody}>Vehículo en custodia</button> : null}
-        {props.canReturnReport ? <button type="button" className="button ghost" disabled={saving} onClick={props.onReturnReport}>Devolver a Trabajo</button> : null}
+      {view !== "confirmed" && view !== "custody" && view !== "review" && canReport && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button ghost" disabled={saving} onClick={props.onCustody}>Vehículo en custodia</button> : null}
+        {props.canReturnReport ? <button type="button" className="button ghost" disabled={saving} onClick={props.onReturnReport}>No confirmado</button> : null}
       {canRemove && props.hasActiveRoute && (!report || view === "partial") ? <button type="button" className="button ghost route-collection-remove" disabled={saving} onClick={props.onRemove}>Sacar de ruta</button> : null}
     </div>
     <details className="route-collection-details">

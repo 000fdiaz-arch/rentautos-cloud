@@ -128,6 +128,7 @@ const SETTINGS_MIRROR_KEYS = [
 
 type AppShellProps = {
   userId?: string;
+  isAdmin?: boolean;
   canReportRoutePayments?: boolean;
   userEmail?: string;
   dataOwnerUserId?: string | null;
@@ -163,6 +164,7 @@ function getFirstVisiblePage(visibility: {
 
 export default function AppShell({
   userId,
+  isAdmin = false,
   canReportRoutePayments = false,
   userEmail,
   dataOwnerUserId,
@@ -716,6 +718,64 @@ export default function AppShell({
     return { kind: "cash", receiptNumber: savedReceiptNumber, payment: transaction.payment };
   }
 
+  async function confirmRouteBankPayment(input: {
+    reportId: string;
+    clientId: string;
+    amount: number;
+    fundsReceivedDate: string;
+  }): Promise<Payment> {
+    if (!isAdmin || !canEditPayments || !canReportRoutePayments) {
+      throw new Error("Solo el administrador con acceso a Pagos y Ruta puede confirmar pagos vistos en banca.");
+    }
+    if (!Number.isFinite(input.amount) || input.amount <= 0) throw new Error("El monto bancario pendiente no es válido.");
+
+    const existing = payments.find((payment) => payment.bankConfirmation?.routeReportId === input.reportId);
+    if (existing) return existing;
+
+    const localClient = clients.find((candidate) => candidate.id === input.clientId);
+    const client = cloudDataUserId
+      ? await loadCloudClient(cloudDataUserId, input.clientId)
+      : localClient;
+    if (!client) throw new Error("No se encontró el cliente de esta ruta.");
+    const paymentClients = localClient
+      ? clients.map((candidate) => candidate.id === client.id ? client : candidate)
+      : [...clients, client];
+    const operationalDateKey = getBusinessDateKey();
+    const transaction = buildManualPaymentTransaction({
+      clients: paymentClients,
+      payments,
+      selectedClient: client,
+      form: {
+        clientId: client.id,
+        dateApplied: operationalDateKey,
+        paymentMethod: "Transferencia Bancaria",
+        cashDeliveryStatus: "",
+        collectionTeam: "",
+        reference: `FOLIO:RUTA-${input.reportId} | CONFIRMADO EN BANCO`,
+        amountReceived: String(input.amount)
+      },
+      manualOtherChargesInput: {},
+      retentionByClient: otherChargesRetentionByClient,
+      lateFeeSettings,
+      operationalDateKey,
+      overrideForcedOtherCharges: false,
+      receiptNumber: cloudDataUserId ? "" : nextReceiptNumber(),
+      currentActor: userEmail || userId || "Administrador"
+    });
+    const confirmedAt = new Date().toISOString();
+    transaction.payment.source = "route";
+    transaction.payment.fundsReceivedDate = input.fundsReceivedDate;
+    transaction.payment.bankConfirmation = {
+      routeReportId: input.reportId,
+      confirmedAt,
+      confirmedBy: userEmail || userId || "Administrador"
+    };
+    transaction.payment.incomeComment = "Pago de Ruta confirmado visualmente en banca por el administrador";
+    const saved = await persistClientsAndPayments(transaction.updatedClients, [...payments, transaction.payment], "route");
+    if (!saved) throw new Error("No se pudo guardar el pago confirmado en banca.");
+    return transaction.payment;
+  }
+
   async function persistDeletedPayments(nextClients: Client[], nextPayments: Payment[], deletedPaymentIds: string[]): Promise<boolean> {
     if (!canEditPayments) return false;
     if (userId && !cloudReady) return false;
@@ -1116,6 +1176,7 @@ export default function AppShell({
             onRefreshPayments={refreshPaymentsFromSource}
             streetManagementData={parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>}
             routePermissions={{ paymentsLoading: !cloudReady, currentUserId: userId, canReportPayment: canReportRoutePayments,
+              canConfirmBankPayment: isAdmin && canEditPayments && canReportRoutePayments, onConfirmBankPayment: confirmRouteBankPayment,
               initialRouteFilter: operatorRouteFilter,
               readOnly: !canEditRouteSearch, canRemoveFromRoute: canEditRouteSearch, onRegisterPayment: registerRoutePayment }}
             onStreetManagementPersist={async (value) => {
@@ -1129,6 +1190,7 @@ export default function AppShell({
           <RouteSearchPage
             paymentsLoading={!cloudReady}
             currentUserId={userId}
+            canConfirmBankPayment={isAdmin && canEditPayments && canReportRoutePayments}
             initialRouteFilter={operatorRouteFilter}
             canReportPayment={canReportRoutePayments}
             dataOwnerUserId={cloudDataUserId}
@@ -1137,6 +1199,7 @@ export default function AppShell({
             readOnly={!canEditRouteSearch}
             canRemoveFromRoute={canEditRouteSearch}
             onRegisterPayment={registerRoutePayment}
+            onConfirmBankPayment={confirmRouteBankPayment}
           />
         )}
         {page === "incidents" && canViewIncidents && (
