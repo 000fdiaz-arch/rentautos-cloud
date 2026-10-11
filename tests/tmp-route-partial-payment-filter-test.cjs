@@ -12,6 +12,7 @@ assert(source.includes('useState<RouteWorkflowView>("work")'), "La revision de p
 assert(rules.includes("payment.dateApplied === dateKey"), "El filtro debe considerar solamente pagos aplicados en el dia.");
 assert(rules.includes("payment.clientId === item.clientId"), "La suma diaria debe pertenecer al cliente de la ruta.");
 assert(rules.includes("sum + Math.max(0, payment.appliedToRent)"), "El filtro debe sumar solamente lo aplicado a renta.");
+assert(rules.includes("report.bank_confirmed_visually_at") && rules.includes("report.confirmed_bank_amount"), "La decisión debe sumar la confirmación visual sin crear un pago.");
 assert(rules.includes("confirmedRentAmount <= 0 || confirmedRentAmount >= item.releaseAmount"), "Solo deben revisarse montos mayores a cero y menores al minimo para liberar.");
 assert(rules.includes("routeRentAmountForDay(payments, item, dateKey, index) >= item.releaseAmount"), "La salida debe comparar el minimo con la suma diaria aplicada a renta.");
 assert(!rules.includes("sum + payment.amountReceived"), "El total recibido no debe contar como renta.");

@@ -22,10 +22,13 @@ try {
     { id: "other", clientId: "c2", dateApplied: "2026-09-21", createdAt: "2026-09-21T14:00:00Z", appliedToRent: 99 }
   ];
   const item = { clientId: "c1", publishedAt: "2026-09-21T12:00:00Z", routeStartedAt: "2026-09-21T12:00:00Z", releaseAmount: 100 };
-  const reports = [{ id: "r1", client_id: "c1", published_at: item.publishedAt, status: "review" }];
+  const reports = [
+    { id: "r1", client_id: "c1", published_at: item.publishedAt, status: "review" },
+    { id: "r2", client_id: "c1", published_at: item.publishedAt, status: "confirmed", confirmed_bank_amount: 20, bank_confirmed_visually_at: "2026-09-21T14:00:00Z" }
+  ];
   const index = rules.buildRouteReviewIndex(payments, reports);
   assert.equal(rules.routeRentAmountForDay(payments, item, "2026-09-21"), 40);
-  assert.equal(rules.routeRentAmountForDay(payments, item, "2026-09-21", index), 40, "El indice debe respetar inicio de ruta y fecha.");
+  assert.equal(rules.routeRentAmountForDay(payments, item, "2026-09-21", index), 60, "El índice debe sumar la confirmación visual sin crear un pago.");
   assert.deepEqual(
     rules.getActiveRouteReviewItems([item], payments, "2026-09-21", reports, index),
     rules.getActiveRouteReviewItems([item], payments, "2026-09-21", reports),

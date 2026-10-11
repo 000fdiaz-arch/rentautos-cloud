@@ -27,6 +27,7 @@ type Props = {
   reportDisabled: boolean;
   saving: boolean;
   receiptLoading: boolean;
+  hasReceipt: boolean;
   zone: string;
   zoneOptions: string[];
   zoneSaving: boolean;
@@ -97,6 +98,7 @@ export default function RouteCollectionCard(props: Props) {
     && report.confirmed_bank_savings_amount > 0
     && report.confirmed_bank_received_amount > 0
     && Math.abs(report.confirmed_bank_received_amount - report.confirmed_bank_savings_amount - report.bank_amount) < 0.005;
+  const visuallyConfirmedBank = Boolean(report?.bank_confirmed_visually_at);
   const confirmedReceivedAmount = report
     ? report.cash_amount + (report.bank_amount > 0 ? report.confirmed_bank_received_amount : 0)
     : 0;
@@ -157,7 +159,7 @@ export default function RouteCollectionCard(props: Props) {
       <span className="route-collection-tag">Vehículo en custodia</span>
       <p className="route-collection-context">Desde {formatRouteDateTime(item.custodySince)}</p>
     </> : report && (view === "review" || view === "confirmed") ? <>
-      <span className={`route-collection-tag ${view === "confirmed" ? "route-collection-tag--confirmed" : ""}`}>{acceptedBankSavings ? "Pago confirmado con diferencia" : view === "confirmed" ? "Pago confirmado" : `Pago notificado · ${pendingCash && report.bank_amount <= report.confirmed_bank_amount ? "Efectivo pendiente" : report.method === "cash" ? "Efectivo pendiente" : report.method === "mixed" ? "Pago mixto por confirmar" : "Banca por confirmar"}`}</span>
+      <span className={`route-collection-tag ${view === "confirmed" ? "route-collection-tag--confirmed" : ""}`}>{acceptedBankSavings ? "Pago confirmado con diferencia" : visuallyConfirmedBank ? "Confirmado en banco" : view === "confirmed" ? "Pago confirmado" : `Pago notificado · ${pendingCash && report.bank_amount <= report.confirmed_bank_amount ? "Efectivo pendiente" : report.method === "cash" ? "Efectivo pendiente" : report.method === "mixed" ? "Pago mixto por confirmar" : "Banca por confirmar"}`}</span>
       <p className="route-collection-amount">{report.method === "cash" || view === "confirmed" ? "Pagó" : "Reportó"} {formatCurrency(report.amount)}</p>
       {acceptedBankSavings ? <div className="route-collection-accepted-difference" aria-label="Diferencia bancaria aceptada">
         <span>Reportó <strong>{formatCurrency(report.amount)}</strong></span>
@@ -175,7 +177,7 @@ export default function RouteCollectionCard(props: Props) {
       {canEdit && !report ? <label className="route-collection-field route-collection-comment">Comentario<input aria-label={`Comentario de ${item.unitId}`} value={props.comment} maxLength={25} placeholder="Agregar comentario…" disabled={props.commentSaving} onChange={event => props.onComment(event.target.value)} onBlur={props.onSaveComment} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></label> : item.comment ? <p>{item.comment}</p> : null}
     {props.managementFields}
     <div className="route-collection-actions">
-      {view === "confirmed" && report ? <button type="button" className="button primary" disabled={props.receiptLoading} onClick={props.onReceipt}>{props.receiptLoading ? "Abriendo…" : "Ver recibo"}</button> : null}
+      {view === "confirmed" && report && props.hasReceipt ? <button type="button" className="button primary" disabled={props.receiptLoading} onClick={props.onReceipt}>{props.receiptLoading ? "Abriendo…" : "Ver recibo"}</button> : null}
       {view === "partial" && canRemove && !acknowledged ? <button type="button" className="button primary" disabled={saving} onClick={props.onKeep}>Debe pagar más</button> : null}
       {view === "review" && report && props.canConfirmBank ? <button type="button" className="button primary" disabled={saving || props.bankConfirmationSaving} onClick={props.onConfirmBank}>{props.bankConfirmationSaving ? "Confirmando…" : "Confirmado en banco"}</button> : null}
       {view === "work" && canReport && !props.hasPendingReport ? <button type="button" className="button primary" disabled={props.reportDisabled || saving} onClick={props.onReport}>Notificar pago</button> : null}
@@ -194,7 +196,7 @@ export default function RouteCollectionCard(props: Props) {
         <strong>{acceptedBankSavings ? "Pago confirmado con diferencia aceptada" : report.status === "confirmed" ? "Pago confirmado" : "Pago reportado · Pendiente de confirmar"}</strong>
         <span>{formatCurrency(report.amount)} · {report.method === "mixed" ? "Mixto" : report.method === "cash" ? "Efectivo" : "Banca"}</span>
         <span>Reportado por {report.reporter_name} · {formatRouteDateTime(report.reported_at)}</span>
-        {report.confirmed_at ? <span>Confirmado · {formatRouteDateTime(report.confirmed_at)}</span> : null}
+        {report.bank_confirmed_visually_at ? <span>Confirmado visualmente en banco · {formatRouteDateTime(report.bank_confirmed_visually_at)}</span> : report.confirmed_at ? <span>Confirmado · {formatRouteDateTime(report.confirmed_at)}</span> : null}
       </div> : null}
     </details>
   </article>;

@@ -53,13 +53,13 @@ export function buildRouteReviewIndex(payments: Payment[], reports: RoutePayment
 
 export function routeRentAmountForDay(
   payments: Payment[],
-  item: Pick<ActiveRouteItem, "clientId"> & Partial<Pick<ActiveRouteItem, "routeStartedAt">>,
+  item: Pick<ActiveRouteItem, "clientId"> & Partial<Pick<ActiveRouteItem, "routeStartedAt" | "publishedAt">>,
   dateKey: string,
   index?: RouteReviewIndex
 ): number {
   const routeStartedAt = item.routeStartedAt ? Date.parse(item.routeStartedAt) : Number.NaN;
   const candidatePayments = index?.paymentsByClientAndDate.get(paymentIndexKey(item.clientId, dateKey)) ?? payments;
-  const total = candidatePayments
+  const paymentTotal = candidatePayments
     .filter((payment) => {
       if (!(payment.clientId === item.clientId && payment.dateApplied === dateKey)) return false;
       if (!Number.isFinite(routeStartedAt)) return true;
@@ -67,6 +67,13 @@ export function routeRentAmountForDay(
       return !Number.isFinite(paymentCreatedAt) || paymentCreatedAt >= routeStartedAt;
     })
     .reduce((sum, payment) => sum + Math.max(0, payment.appliedToRent), 0);
+  const visualBankTotal = (index && item.publishedAt
+    ? index.reportsByRouteItem.get(routeItemIndexKey(item.clientId, item.publishedAt)) ?? []
+    : [])
+    .filter((report) => report.bank_confirmed_visually_at
+      && routeReportBusinessDateKey(report.bank_confirmed_visually_at) === dateKey)
+    .reduce((sum, report) => sum + Math.max(0, report.confirmed_bank_amount), 0);
+  const total = paymentTotal + visualBankTotal;
   return Math.round(total * 100) / 100;
 }
 

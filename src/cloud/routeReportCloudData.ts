@@ -16,6 +16,8 @@ export type RoutePaymentReport = {
   confirmed_bank_amount: number;
   confirmed_bank_received_amount: number;
   confirmed_bank_savings_amount: number;
+  bank_confirmed_visually_at: string | null;
+  bank_confirmed_visually_by: string | null;
   status: "review" | "confirmed";
   reported_by: string;
   reporter_name: string;
@@ -33,9 +35,17 @@ function normalizeRoutePaymentReport(row: Record<string, unknown>): RoutePayment
     confirmed_cash_amount: Number(row.confirmed_cash_amount ?? 0),
     confirmed_bank_amount: Number(row.confirmed_bank_amount ?? 0),
     confirmed_bank_received_amount: Number(row.confirmed_bank_received_amount ?? 0),
-    confirmed_bank_savings_amount: Number(row.confirmed_bank_savings_amount ?? 0)
+    confirmed_bank_savings_amount: Number(row.confirmed_bank_savings_amount ?? 0),
+    bank_confirmed_visually_at: typeof row.bank_confirmed_visually_at === "string" ? row.bank_confirmed_visually_at : null,
+    bank_confirmed_visually_by: typeof row.bank_confirmed_visually_by === "string" ? row.bank_confirmed_visually_by : null
   } as RoutePaymentReport;
 }
+
+export type RouteBankConfirmationResult = {
+  outcome: "decision" | "removed";
+  confirmedAmount: number;
+  releaseAmount: number;
+};
 
 export type RouteReportDelta = { id: string; report: RoutePaymentReport | null };
 
@@ -61,6 +71,7 @@ export function applyRouteReportDelta(reports: RoutePaymentReport[], delta: Rout
 export type RoutePaymentReportLoadOptions = {
   pendingCashOnly?: boolean;
   reviewOnly?: boolean;
+  reviewRelevantOnly?: boolean;
 };
 
 export type RoutePaymentReportPage = {
@@ -74,9 +85,10 @@ export async function loadRoutePaymentReports(
 ): Promise<RoutePaymentReport[]> {
   const pendingCashOnly = typeof options === "boolean" ? options : options.pendingCashOnly === true;
   const reviewOnly = typeof options === "boolean" ? false : options.reviewOnly === true;
+  const reviewRelevantOnly = typeof options === "boolean" ? false : options.reviewRelevantOnly === true;
   return dedupeLoad(
-    `route-payment-reports:${ownerId}:${pendingCashOnly ? "pending-cash" : reviewOnly ? "review" : "all"}`,
-    () => loadRoutePaymentReportsUncached(ownerId, { pendingCashOnly, reviewOnly })
+    `route-payment-reports:${ownerId}:${pendingCashOnly ? "pending-cash" : reviewOnly ? "review" : reviewRelevantOnly ? "review-relevant" : "all"}`,
+    () => loadRoutePaymentReportsUncached(ownerId, { pendingCashOnly, reviewOnly, reviewRelevantOnly })
   );
 }
 
@@ -86,7 +98,8 @@ async function loadRoutePaymentReportsUncached(ownerId: string, options: RoutePa
     let query = getCloudClient().from("route_payment_reports").select("*")
       .eq("user_id", ownerId).neq("status", "cancelled").order("reported_at", { ascending: false })
       .order("id").range(offset, offset + PAGE_SIZE - 1);
-    if (options.reviewOnly || options.pendingCashOnly) query = query.eq("status", "review");
+    if (options.reviewRelevantOnly) query = query.or("status.eq.review,bank_confirmed_visually_at.not.is.null");
+    else if (options.reviewOnly || options.pendingCashOnly) query = query.eq("status", "review");
     if (options.pendingCashOnly) query = query.gt("cash_amount", 0).eq("confirmed_cash_amount", 0);
     const { data, error } = await query;
     if (error) throw error;
@@ -149,6 +162,17 @@ export async function reportRoutePayment(ownerId: string, item: ActiveRouteItem,
 export async function cancelRoutePaymentReport(reportId: string): Promise<void> {
   const { error } = await getCloudClient().rpc("cancel_route_payment_report", { p_report_id: reportId });
   if (error) throw error;
+}
+
+export async function confirmRouteBankReport(reportId: string): Promise<RouteBankConfirmationResult> {
+  const { data, error } = await getCloudClient().rpc("confirm_route_bank_report", { p_report_id: reportId });
+  if (error) throw error;
+  const row = data && typeof data === "object" ? data as Record<string, unknown> : {};
+  return {
+    outcome: row.outcome === "removed" ? "removed" : "decision",
+    confirmedAmount: Number(row.confirmedAmount ?? 0),
+    releaseAmount: Number(row.releaseAmount ?? 0)
+  };
 }
 
 export async function changeRouteAssignment(ownerId: string, item: ActiveRouteItem, route: string): Promise<void> {

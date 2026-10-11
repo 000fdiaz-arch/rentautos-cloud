@@ -3,7 +3,7 @@ import RoutePendingCashPanel from "./RoutePendingCashPanel";
 import RouteCollectionCard, { type RouteWorkflowView } from "./RouteCollectionCard";
 import RouteTeamSummary from "./RouteTeamSummary";
 import { PaymentPreviewDialog } from "./payments/PaymentDialogs";
-import { applyRouteReportDelta, changeRouteAssignment, cancelRoutePaymentReport, loadRoutePaymentReport, loadRoutePaymentReportForItem, loadRoutePaymentReports, loadRoutePaymentReportsPage, loadRouteReportReceipts, reportRoutePayment, routeReportDeltaFromPayload, setRouteCustody, setRouteInactiveStatus, type RoutePaymentReport, type RouteReportDelta } from "../cloud/routeReportCloudData";
+import { applyRouteReportDelta, changeRouteAssignment, cancelRoutePaymentReport, loadRoutePaymentReport, loadRoutePaymentReportForItem, loadRoutePaymentReports, loadRoutePaymentReportsPage, loadRouteReportReceipts, reportRoutePayment, routeReportDeltaFromPayload, setRouteCustody, setRouteInactiveStatus, type RouteBankConfirmationResult, type RoutePaymentReport, type RouteReportDelta } from "../cloud/routeReportCloudData";
 import {
   ALL_ACTIVE_ROUTE_FILTER,
   EMPTY_ACTIVE_ROUTE_FILTER,
@@ -58,10 +58,7 @@ export type RouteSearchPageProps = {
   }) => Promise<{ kind: "cash" | "bank"; receiptNumber?: string; payment?: Payment }>;
   onConfirmBankPayment?: (input: {
     reportId: string;
-    clientId: string;
-    amount: number;
-    fundsReceivedDate: string;
-  }) => Promise<Payment>;
+  }) => Promise<RouteBankConfirmationResult>;
 };
 
 const ALL_ACTIVE_ZONE_FILTER = "__all_zones__";
@@ -332,17 +329,14 @@ export default function RouteSearchPage({
       if (!latest || latest.status !== "review" || pendingBankAmount <= 0) {
         throw new Error("Este pago bancario ya fue confirmado o cambió. Actualiza la ruta.");
       }
-      await onConfirmBankPayment({
-        reportId: latest.id,
-        clientId: latest.client_id,
-        amount: pendingBankAmount,
-        fundsReceivedDate: getBusinessDateKey(new Date(latest.reported_at))
-      });
+      const result = await onConfirmBankPayment({ reportId: latest.id });
       const refreshed = await loadRoutePaymentReport(dataOwnerUserId, latest.id);
       setReports((current) => applyRouteReportDelta(current, { id: latest.id, report: refreshed }));
       await refreshItem(latest.client_id);
       setPaymentMessage(`${latest.snapshot.unitId}: pago confirmado en banco por el administrador.`);
-      setRouteActionMessage(`${latest.snapshot.unitId} pasó a Decisión pendiente.`);
+      setRouteActionMessage(result.outcome === "removed"
+        ? `${latest.snapshot.unitId} salió de Ruta: el monto confirmado cubre lo solicitado.`
+        : `${latest.snapshot.unitId} pasó a Decisión pendiente.`);
     } catch (cause) {
       console.error("No se pudo confirmar el pago bancario de Ruta.", cause);
       setReportsError(buildCloudErrorMessage("No se pudo confirmar el pago en banco.", cause, { includeRawFallback: true }));
@@ -1286,6 +1280,7 @@ export default function RouteSearchPage({
               hasActiveRoute={Boolean(activeRoute && !activeRoute.removedAt)} reportDisabled={!reportsReady}
               saving={reportSaving || paymentSaving || custodySaving || Boolean(partialDecisionSavingByClient[item.clientId]) || removeSaving}
               receiptLoading={receiptLoading === item.report?.id}
+              hasReceipt={Boolean(item.report && (!item.report.bank_confirmed_visually_at || item.report.confirmed_cash_amount > 0))}
               zone={zoneDrafts[item.clientId] ?? item.zone ?? ""} zoneSaving={Boolean(zoneSavingByClient[item.clientId]) || !dataOwnerUserId}
               zoneOptions={(zoneOptionsByRoute.get(activeRouteFilterValue(item.routeAssignment)) ?? []).filter(option => option.value !== EMPTY_ACTIVE_ZONE_FILTER).map(option => option.label)}
               comment={commentDrafts[item.clientId] ?? item.comment ?? ""} commentSaving={Boolean(commentSavingByClient[item.clientId]) || !dataOwnerUserId}

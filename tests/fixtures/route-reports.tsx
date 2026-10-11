@@ -20,12 +20,10 @@ function Harness() {
     const changePartial = (event: Event) => setPayments(current => current.map(payment => payment.id === "partial"
       ? { ...payment, appliedToRent: Number((event as CustomEvent).detail) } : payment));
     const deliver = () => setPayments(current => current.map(payment => payment.id === "old" ? { ...payment, moneyDelivered: true } : payment));
-    const clearAdminBank = () => setPayments(current => current.filter(payment => payment.id !== "admin-bank-confirmed"));
     window.addEventListener("test:partial", partial);
     window.addEventListener("test:change-partial", changePartial);
     window.addEventListener("test:deliver-cash", deliver);
-    window.addEventListener("test:clear-admin-bank", clearAdminBank);
-    return () => { window.removeEventListener("test:clear-admin-bank", clearAdminBank); window.removeEventListener("test:deliver-cash", deliver); window.removeEventListener("test:partial", partial); window.removeEventListener("test:change-partial", changePartial); };
+    return () => { window.removeEventListener("test:deliver-cash", deliver); window.removeEventListener("test:partial", partial); window.removeEventListener("test:change-partial", changePartial); };
   }, []);
   return <RouteSearchPage
   dataOwnerUserId="11111111-1111-4111-8111-111111111111"
@@ -43,9 +41,7 @@ function Harness() {
   onConfirmBankPayment={isAdmin ? async (input) => {
     const response = await fetch('/__confirm-bank', { method: 'POST', body: JSON.stringify(input) });
     if (!response.ok) throw new Error('No se pudo confirmar el pago bancario de prueba.');
-    const payment = await response.json() as Payment;
-    setPayments(current => current.some(row => row.id === payment.id) ? current : [...current, payment]);
-    return payment;
+    return response.json();
   } : undefined}
 />;
 }
