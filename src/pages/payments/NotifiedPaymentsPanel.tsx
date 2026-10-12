@@ -96,12 +96,12 @@ export default function NotifiedPaymentsPanel({
   return (
     <section id="payment-panel-notified" role="tabpanel" aria-labelledby="payment-tab-notified" ref={notifiedSectionRef} className="panel" style={{ display: isNotifiedOpen ? undefined : "none" }}>
             <div className="panel-head">
-              <h2>Pagos notificados (pendientes)</h2>
+              <h2>Pagos notificados</h2>
             </div>
 
             {isNotifiedOpen && (
             <>
-            <p className="hint">Ingresa la unidad y el monto. Si la unidad está activa en Ruta en calle, también aparecerá allí como Pago notificado.</p>
+            <p className="hint">Ingresa la unidad y el monto. Si la unidad está activa en Ruta en calle, también aparecerá allí como Pago notificado. Los pagos confirmados en banco permanecen visibles en esta lista.</p>
 
             <div className="payment-form-grid" style={{ marginTop: 12 }}>
               <div className="payment-field-group">
@@ -160,7 +160,7 @@ export default function NotifiedPaymentsPanel({
             </div>
 
             {rows.length === 0 ? (
-              <p className="empty">No hay pagos notificados pendientes.</p>
+              <p className="empty">No hay pagos notificados.</p>
             ) : (
               <div className="table-scroll" style={{ marginTop: 14 }}>
                 <table>
@@ -196,6 +196,7 @@ export default function NotifiedPaymentsPanel({
                       const client = clients.find((c) => c.id === row.clientId);
                       const isEditing = editingNotifiedId === row.id;
                       const isRouteReview = Boolean(row.routeReportId);
+                      const isRouteBankConfirmed = Boolean(row.routeBankConfirmedAt);
                       const routeMethodLabel = row.routePaymentMethod === "cash"
                         ? "Efectivo"
                         : row.routePaymentMethod === "mixed" ? "Mixto" : "Banca";
@@ -236,7 +237,7 @@ export default function NotifiedPaymentsPanel({
                             )}
                           </td>
                           <td>{new Date(row.createdAt).toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })}</td>
-                          <td>{isRouteReview ? `Pago notificado · ${routeMethodLabel}` : row.paymentMethod === "bank" ? "Por confirmar banca" : "Notificado"}</td>
+                          <td>{isRouteBankConfirmed ? "Confirmado en banco" : isRouteReview ? `Pago notificado · ${routeMethodLabel}` : row.paymentMethod === "bank" ? "Por confirmar banca" : "Notificado"}</td>
                           <td>{row.routeAssignment || row.collectionTeam || "—"}</td>
                           <td className="actions-cell">
                             {isEditing ? (
@@ -265,14 +266,16 @@ export default function NotifiedPaymentsPanel({
                                 Editar
                               </button>
                             ) : null}
-                            <button
-                              type="button"
-                              className="button danger small"
-                              disabled={notifiedSavingId === row.id}
-                              onClick={() => handleDeleteNotifiedPayment(row)}
-                            >
-                              {notifiedSavingId === row.id ? "Procesando..." : isRouteReview ? "Devolver" : "Eliminar"}
-                            </button>
+                            {!isRouteBankConfirmed ? (
+                              <button
+                                type="button"
+                                className="button danger small"
+                                disabled={notifiedSavingId === row.id}
+                                onClick={() => handleDeleteNotifiedPayment(row)}
+                              >
+                                {notifiedSavingId === row.id ? "Procesando..." : isRouteReview ? "Devolver" : "Eliminar"}
+                              </button>
+                            ) : null}
                           </td>
                         </tr>
                       );

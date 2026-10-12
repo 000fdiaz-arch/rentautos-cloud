@@ -497,17 +497,21 @@ export default function PaymentsPage({
 
   useEffect(() => {
     if (!dataOwnerUserId || !routeReviewReady) return;
-    const activeReportIds = new Set(routeReviewReports.map((report) => report.id));
-    const reconciled = notifiedPayments.filter((notice) => !notice.routeReportId || activeReportIds.has(notice.routeReportId));
+    const pendingReportIds = new Set(routeReviewReports
+      .filter((report) => report.status === "review" && !report.bank_confirmed_visually_at)
+      .map((report) => report.id));
+    const reconciled = notifiedPayments.filter((notice) => !notice.routeReportId || pendingReportIds.has(notice.routeReportId));
     if (reconciled.length !== notifiedPayments.length) replaceNotifiedPayments(reconciled);
   }, [dataOwnerUserId, notifiedPayments, replaceNotifiedPayments, routeReviewReady, routeReviewReports]);
 
   const routeReviewRows = useMemo<NotifiedPayment[]>(() => routeReviewReports
-    .filter((report) => report.bank_amount > report.confirmed_bank_amount)
+    .filter((report) => report.bank_amount > report.confirmed_bank_amount || Boolean(report.bank_confirmed_visually_at))
     .map((report) => ({
       id: `route-review:${report.id}`,
       clientId: report.client_id,
-      amount: roundMoney(report.bank_amount - report.confirmed_bank_amount),
+      amount: roundMoney(report.bank_confirmed_visually_at
+        ? report.confirmed_bank_amount
+        : report.bank_amount - report.confirmed_bank_amount),
       createdAt: report.reported_at,
       paymentMethod: "bank",
       collectionTeam: report.snapshot.routeAssignment === "PTY" || report.snapshot.routeAssignment === "WC"
@@ -516,7 +520,8 @@ export default function PaymentsPage({
       source: "route-review",
       routeReportId: report.id,
       routePaymentMethod: "bank",
-      routeAssignment: report.snapshot.routeAssignment
+      routeAssignment: report.snapshot.routeAssignment,
+      routeBankConfirmedAt: report.bank_confirmed_visually_at ?? undefined
     })), [routeReviewReports]);
 
   const {

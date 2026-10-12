@@ -21,6 +21,7 @@ export type NotifiedPayment = {
   routeReportId?: string;
   routePaymentMethod?: "cash" | "bank" | "mixed";
   routeAssignment?: string;
+  routeBankConfirmedAt?: string;
 };
 
 export type NotifiedPaymentForm = {

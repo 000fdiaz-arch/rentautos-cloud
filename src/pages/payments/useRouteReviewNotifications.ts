@@ -11,9 +11,12 @@ export default function useRouteReviewNotifications(dataOwnerUserId?: string | n
   const [reports, setReports] = useState<RoutePaymentReport[]>([]);
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
+  const keepNotifiedReport = useCallback((report: RoutePaymentReport) => (
+    report.status === "review" || Boolean(report.bank_confirmed_visually_at)
+  ), []);
   const upsertRouteReviewReport = useCallback((report: RoutePaymentReport) => {
-    setReports((current) => applyRouteReportDelta(current, { id: report.id, report }).filter((row) => row.status === "review"));
-  }, []);
+    setReports((current) => applyRouteReportDelta(current, { id: report.id, report }).filter(keepNotifiedReport));
+  }, [keepNotifiedReport]);
 
   useEffect(() => {
     let active = true;
@@ -27,9 +30,9 @@ export default function useRouteReviewNotifications(dataOwnerUserId?: string | n
         return;
       }
       try {
-        const next = await loadRoutePaymentReports(dataOwnerUserId, { reviewOnly: true });
+        const next = await loadRoutePaymentReports(dataOwnerUserId, { reviewRelevantOnly: true });
         if (!active) return;
-        setReports(next.filter((report) => report.status === "review"));
+        setReports(next.filter(keepNotifiedReport));
         setError("");
         setReady(true);
       } catch (cause) {
@@ -54,7 +57,7 @@ export default function useRouteReviewNotifications(dataOwnerUserId?: string | n
             void reload();
             return;
           }
-          setReports((current) => applyRouteReportDelta(current, delta).filter((report) => report.status === "review"));
+          setReports((current) => applyRouteReportDelta(current, delta).filter(keepNotifiedReport));
         }
       )
       .subscribe((status) => {
@@ -65,7 +68,7 @@ export default function useRouteReviewNotifications(dataOwnerUserId?: string | n
       active = false;
       void supabase?.removeChannel(channel);
     };
-  }, [dataOwnerUserId]);
+  }, [dataOwnerUserId, keepNotifiedReport]);
 
   return { routeReviewReports: reports, routeReviewError: error, routeReviewReady: ready, upsertRouteReviewReport };
 }
