@@ -97,7 +97,12 @@ try {
   assert.match(saveSource, /\.upsert\(/);
   assert.match(saveSource, /\.single\(\)/);
   assert.doesNotMatch(saveSource, /localStorage|sessionStorage/);
+  assert.match(cloudSource, /export async function clearCloudDailyContactAttempts/);
+  assert.match(cloudSource, /\.delete\(\)[\s\S]*\.eq\("contact_date", contactDate\)/);
   assert.match(pageSource, /const saved = await saveCloudDailyContactAttempt/);
+  assert.match(pageSource, /const todayDateKey = useMemo\(\(\) => getBusinessDateKey\(now\), \[now\]\)/);
+  assert.match(pageSource, /await clearCloudDailyContactAttempts\(dataOwnerUserId, todayDateKey\)/);
+  assert.doesNotMatch(pageSource, /receivablesDateKey/);
   assert.ok(
     pageSource.indexOf("applyDailyContactCloudAttempt(saved)") > pageSource.indexOf("const saved = await saveCloudDailyContactAttempt"),
     "El gancho visible solo debe cambiar despues de la confirmacion de Supabase."

@@ -1670,6 +1670,21 @@ export async function saveCloudDailyContactAttempt(
   });
 }
 
+export async function clearCloudDailyContactAttempts(
+  userId: string,
+  contactDate: string
+): Promise<void> {
+  await withCloudRetry(async () => {
+    const client = getCloudClient();
+    const { error } = await client
+      .from("daily_contact_attempts_cloud")
+      .delete()
+      .eq("user_id", userId)
+      .eq("contact_date", contactDate);
+    if (error) throw error;
+  });
+}
+
 export async function loadCloudStreetManagement(userId: string): Promise<Record<string, unknown>> {
   return dedupeLoad(`street-management:${userId}`, () => loadCloudStreetManagementUncached(userId));
 }

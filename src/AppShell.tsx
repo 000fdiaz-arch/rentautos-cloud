@@ -235,7 +235,6 @@ export default function AppShell({
       canViewSettingsPage
     });
   });
-  const [receivablesDateKey, setReceivablesDateKey] = useState<string>(() => getBusinessDateKey());
   const [clients, setClients] = useState<Client[]>(() => (isSupabaseOnlyMode ? [] : loadClients()));
   const [payments, setPayments] = useState<Payment[]>(() => (isSupabaseOnlyMode ? [] : loadPayments()));
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
@@ -1110,7 +1109,6 @@ export default function AppShell({
             isPaymentHistoryLoaded={fullPaymentHistoryLoaded}
             onRefreshPayments={refreshPaymentsFromSource}
             onCashClose={() => void runBackup("cash_closing", true)}
-            onCashClosingDateChange={setReceivablesDateKey}
             quickCashPrefill={cashPaymentPrefill}
             onQuickCashPrefillConsumed={() => setCashPaymentPrefill(null)}
             currentActor={userEmail || userId || "Usuario"}
@@ -1124,7 +1122,6 @@ export default function AppShell({
             onClientsChange={persistClients}
             dataOwnerUserId={cloudDataUserId}
             readOnly={isReadOnlyReceivables}
-            receivablesDateKey={receivablesDateKey}
             isPaymentHistoryLoaded={fullPaymentHistoryLoaded}
             onRefreshPayments={refreshPaymentsFromSource}
             streetManagementData={parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>}

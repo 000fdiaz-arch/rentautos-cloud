@@ -90,7 +90,6 @@ type Props = {
   isPaymentHistoryLoaded?: boolean;
   onRefreshPayments?: () => Promise<void>;
   onCashClose?: () => void;
-  onCashClosingDateChange?: (dateKey: string) => void;
   quickCashPrefill?: {
     dateApplied: string;
     clientId: string;
@@ -118,7 +117,6 @@ export default function PaymentsPage({
   isPaymentHistoryLoaded = true,
   onRefreshPayments,
   onCashClose,
-  onCashClosingDateChange,
   quickCashPrefill,
   onQuickCashPrefillConsumed,
   currentActor = "Usuario",
@@ -172,9 +170,6 @@ export default function PaymentsPage({
     dataOwnerUserId
   });
 
-  useEffect(() => {
-    onCashClosingDateChange?.(cashClosingDate);
-  }, [cashClosingDate, onCashClosingDateChange]);
   const [pendingBankItems, setPendingBankItems] = useState<PendingBankItem[]>(() => loadPendingBankItems());
   const [pendingImportError, setPendingImportError] = useState("");
   const [manualOverrideForcedOtherCharges, setManualOverrideForcedOtherCharges] = useState(false);

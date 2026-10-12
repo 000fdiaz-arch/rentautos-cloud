@@ -16,6 +16,7 @@ import { formatCurrency, formatDate } from "../format";
 import {
   activeRouteDeltaFromPayload,
   applyActiveRouteDelta,
+  clearCloudDailyContactAttempts,
   cloudDailyContactAttemptFromRow,
   loadCloudCollectionClosures,
   loadCloudDailyContactAttempts,
@@ -146,7 +147,6 @@ type Props = {
   onClientsChange?: (next: Client[]) => void | Promise<void>;
   dataOwnerUserId?: string | null;
   readOnly?: boolean;
-  receivablesDateKey?: string;
   isPaymentHistoryLoaded?: boolean;
   onRefreshPayments?: () => Promise<void>;
   streetManagementData?: Record<string, unknown>;
@@ -459,7 +459,6 @@ export default function ReceivablesPage({
   onClientsChange,
   dataOwnerUserId,
   readOnly = false,
-  receivablesDateKey,
   streetManagementData,
   onStreetManagementPersist
 }: Props) {
@@ -968,13 +967,7 @@ export default function ReceivablesPage({
     }
   }, [collectionClosuresByDate, selectedHistoryDate]);
 
-  const todayDateKey = useMemo(() => {
-    const fallbackYear = now.getFullYear();
-    const fallbackMonth = String(now.getMonth() + 1).padStart(2, "0");
-    const fallbackDay = String(now.getDate()).padStart(2, "0");
-    const fallback = `${fallbackYear}-${fallbackMonth}-${fallbackDay}`;
-    return receivablesDateKey && /^\d{4}-\d{2}-\d{2}$/.test(receivablesDateKey) ? receivablesDateKey : fallback;
-  }, [now, receivablesDateKey]);
+  const todayDateKey = useMemo(() => getBusinessDateKey(now), [now]);
 
   const applyDailyContactCloudAttempt = useCallback((attempt: CloudDailyContactAttempt): void => {
     setDailyContactCloudAttemptsByClient((current) => ({
@@ -2171,6 +2164,10 @@ export default function ReceivablesPage({
     setStatusSavingByClient({});
     setCollectionStatusByClient(nextStatusByClient);
     if (dataOwnerUserId) {
+      dailyContactLoadIdRef.current += 1;
+      await clearCloudDailyContactAttempts(dataOwnerUserId, todayDateKey);
+      setDailyContactCloudAttemptsByClient({});
+      setDailyContactSaveStatesByClient({});
       await saveCloudStreetManagement(dataOwnerUserId, nextStatusByClient as Record<string, unknown>);
       const cloudData = await loadCloudStreetManagement(dataOwnerUserId);
       const remaining = Object.keys(parseCollectionStatusMapFromStorage(JSON.stringify(cloudData)));
