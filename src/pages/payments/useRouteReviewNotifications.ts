@@ -12,7 +12,8 @@ export default function useRouteReviewNotifications(dataOwnerUserId?: string | n
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
   const keepNotifiedReport = useCallback((report: RoutePaymentReport) => (
-    report.status === "review" || Boolean(report.bank_confirmed_visually_at)
+    report.status === "review"
+    || (Boolean(report.bank_confirmed_visually_at) && !report.bank_settled_payment_id)
   ), []);
   const upsertRouteReviewReport = useCallback((report: RoutePaymentReport) => {
     setReports((current) => applyRouteReportDelta(current, { id: report.id, report }).filter(keepNotifiedReport));

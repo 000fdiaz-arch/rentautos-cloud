@@ -48,6 +48,7 @@ Para instalaciones existentes que ya ejecutaron las migraciones de cuentas por c
 - `supabase/105-route-bank-receipt-upsert.sql` (permite copiar y marcar como enviado un recibo bancario de Ruta ya existente sin confundirlo con una confirmación nueva)
 - `supabase/106-route-cash-report-link.sql` (vincula cada recibo de efectivo con su aviso de Ruta por identificador, sin depender del reloj del navegador)
 - `supabase/107-visual-route-bank-confirmation.sql` (convierte la confirmación bancaria de Ruta en una validación visual sin pago ni recibo y resuelve la salida o decisión pendiente)
+- `supabase/108-route-visual-bank-payment-settlement.sql` (mantiene la confirmación visual en Pago notificado hasta que una factura bancaria coincidente la liquide)
 
 En Vercel, produccion debe usar `VITE_PERSISTENCE_MODE=SUPABASE_ONLY`. `LOCAL_ONLY` queda limitado a desarrollo, salvo que se habilite deliberadamente `VITE_ALLOW_PRODUCTION_LOCAL_ONLY=1`.
 5. Crea una cuenta desde la pantalla de registro de la app.

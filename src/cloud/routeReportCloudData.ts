@@ -18,6 +18,8 @@ export type RoutePaymentReport = {
   confirmed_bank_savings_amount: number;
   bank_confirmed_visually_at: string | null;
   bank_confirmed_visually_by: string | null;
+  bank_settled_payment_id: string | null;
+  bank_settled_at: string | null;
   status: "review" | "confirmed";
   reported_by: string;
   reporter_name: string;
@@ -37,7 +39,9 @@ function normalizeRoutePaymentReport(row: Record<string, unknown>): RoutePayment
     confirmed_bank_received_amount: Number(row.confirmed_bank_received_amount ?? 0),
     confirmed_bank_savings_amount: Number(row.confirmed_bank_savings_amount ?? 0),
     bank_confirmed_visually_at: typeof row.bank_confirmed_visually_at === "string" ? row.bank_confirmed_visually_at : null,
-    bank_confirmed_visually_by: typeof row.bank_confirmed_visually_by === "string" ? row.bank_confirmed_visually_by : null
+    bank_confirmed_visually_by: typeof row.bank_confirmed_visually_by === "string" ? row.bank_confirmed_visually_by : null,
+    bank_settled_payment_id: typeof row.bank_settled_payment_id === "string" ? row.bank_settled_payment_id : null,
+    bank_settled_at: typeof row.bank_settled_at === "string" ? row.bank_settled_at : null
   } as RoutePaymentReport;
 }
 

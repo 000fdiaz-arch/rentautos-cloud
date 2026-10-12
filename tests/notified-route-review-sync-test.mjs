@@ -17,7 +17,7 @@ assert.match(page, /if \(!item \|\| item\.removedAt\) return null;/, "off-route 
 assert.match(page, /reportRoutePayment\(dataOwnerUserId, item, 0, amount\)/, "a matching notified payment becomes a bank route report");
 assert.match(page, /pendingRoutePayments/, "Payments shares existing pending route payments with the notified-payment form");
 assert.match(page, /routeReportId: report\.id/, "the notification keeps its route report link");
-assert.match(page, /report\.bank_amount > report\.confirmed_bank_amount \|\| Boolean\(report\.bank_confirmed_visually_at\)/, "Payments keeps visually confirmed bank reports in Pago notificado");
+assert.match(page, /Boolean\(report\.bank_confirmed_visually_at\) && !report\.bank_settled_payment_id/, "Payments keeps only visually confirmed reports without a matching invoiced payment");
 assert.match(page, /amount: roundMoney\(report\.bank_amount - report\.confirmed_bank_amount\)/, "a mixed report shows only its outstanding bank portion");
 assert.match(page, /routeBankConfirmedAt: report\.bank_confirmed_visually_at/, "the notified row keeps its visual confirmation state");
 assert.match(page, /report\.status === "review" && !report\.bank_confirmed_visually_at/, "a stale pending copy cannot hide the confirmed route row");
@@ -28,6 +28,7 @@ assert.match(hook, /window\.confirm\(buildAdditionalPaymentConfirmation/, "an ad
 assert.match(hook, /¿Agregar otro pago de/, "the confirmation explains the existing and new amounts");
 assert.match(routeHook, /route_payment_reports/, "Payments listens to the shared route review source");
 assert.match(routeHook, /reviewRelevantOnly: true/, "Payments loads review and visually confirmed route reports");
+assert.match(routeHook, /!report\.bank_settled_payment_id/, "a matched invoiced payment removes the visual confirmation from Pago notificado");
 assert.match(panel, /linkedReportIds\.has\(row\.routeReportId\)/, "the shared record is rendered only once");
 assert.match(panel, /isRouteBankConfirmed \? "Confirmado en banco"/, "confirmed route notices remain visibly identified");
 assert.match(panel, /!isRouteBankConfirmed \? \(/, "a confirmed notice cannot be returned as if it were pending");

@@ -505,7 +505,8 @@ export default function PaymentsPage({
   }, [dataOwnerUserId, notifiedPayments, replaceNotifiedPayments, routeReviewReady, routeReviewReports]);
 
   const routeReviewRows = useMemo<NotifiedPayment[]>(() => routeReviewReports
-    .filter((report) => report.bank_amount > report.confirmed_bank_amount || Boolean(report.bank_confirmed_visually_at))
+    .filter((report) => report.bank_amount > report.confirmed_bank_amount
+      || (Boolean(report.bank_confirmed_visually_at) && !report.bank_settled_payment_id))
     .map((report) => ({
       id: `route-review:${report.id}`,
       clientId: report.client_id,
