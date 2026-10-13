@@ -33,7 +33,7 @@ export default function RouteManagedList({ actions }: Props) {
       </div>}
       <details className="route-managed-details">
         <summary>Ver registro</summary>
-        <span>Gestionado por {routeDeltaLabel(action.delta)} · {formatRouteDateTime(action.occurredAt)}</span>
+        <span>Gestionado por {routeDeltaLabel(action.delta)} · {formatRouteDateTime(action.occurredAt)}{action.actionCount > 1 ? ` · ${action.actionCount} movimientos consolidados` : ""}</span>
       </details>
     </article>)}
   </div>;

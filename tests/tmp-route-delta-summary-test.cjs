@@ -29,6 +29,9 @@ assert.doesNotMatch(page, /route-time-alert-summary/, "El panel de próxima aten
 assert.match(tracking, /report\.reported_by/, "Los cobros deben atribuirse al usuario que los reportó.");
 assert.match(tracking, /capture\.reported_by/, "La custodia debe atribuirse al usuario que la declaró.");
 assert.match(tracking, /item\.routeInactiveBy/, "Las ausencias deben atribuirse al usuario que las marcó.");
+assert.match(tracking, /const byCar = new Map<string, RouteManagedAction>/, "El resumen debe consolidar los movimientos por carro.");
+assert.match(tracking, /current\.cashAmount \+= action\.cashAmount/, "Los abonos sucesivos del carro deben acumularse sin duplicarlo.");
+assert.match(summary, /Carros únicos gestionados hoy por Delta/, "El resumen debe aclarar que cuenta carros únicos.");
 assert.match(managed, /route-managed-payment/, "El listado debe separar efectivo y transferencia.");
 assert.match(styles, /@media \(max-width: 600px\)[\s\S]*route-managed-row/, "El listado debe adaptarse a celulares.");
 assert.match(styles, /@media \(min-width: 601px\) and \(max-width: 900px\)/, "El listado debe adaptarse a tablets.");

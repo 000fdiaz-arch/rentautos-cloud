@@ -27,7 +27,7 @@ export default function RouteTeamSummary({ actions, activeDelta, activeRoute, on
 
   return <section className="route-team-summary" aria-label="Resumen del equipo">
     <div className="route-team-summary-head">
-      <div><strong>Resumen del equipo</strong><span>Resultados de hoy por Delta</span></div>
+      <div><strong>Resumen del equipo</strong><span>Carros únicos gestionados hoy por Delta</span></div>
       <b>{received} recibidas</b>
     </div>
     <div className="route-team-summary-table" role="table" aria-label="Resultados de los tres Deltas">

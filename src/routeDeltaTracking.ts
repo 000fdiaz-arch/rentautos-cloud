@@ -23,6 +23,7 @@ export type RouteManagedAction = {
   occurredAt: string;
   cashAmount: number;
   bankAmount: number;
+  actionCount: number;
   report?: RoutePaymentReport;
   capture?: RouteCaptureEvent;
   item?: ActiveRouteItem;
@@ -95,6 +96,7 @@ export function buildRouteManagedActions(input: IdentitySource & { items: Active
       occurredAt: report.reported_at,
       cashAmount: report.cash_amount,
       bankAmount: report.bank_amount,
+      actionCount: 1,
       report
     });
   });
@@ -114,6 +116,7 @@ export function buildRouteManagedActions(input: IdentitySource & { items: Active
       occurredAt: capture.reported_at,
       cashAmount: 0,
       bankAmount: 0,
+      actionCount: 1,
       capture
     });
   });
@@ -133,11 +136,25 @@ export function buildRouteManagedActions(input: IdentitySource & { items: Active
       occurredAt: item.routeInactiveAt,
       cashAmount: 0,
       bankAmount: 0,
+      actionCount: 1,
       item
     });
   });
 
-  return actions.sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || left.id.localeCompare(right.id));
+  const sorted = actions.sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || left.id.localeCompare(right.id));
+  const byCar = new Map<string, RouteManagedAction>();
+  sorted.forEach((action) => {
+    const key = `${action.clientId}\u0000${action.unitId}`;
+    const current = byCar.get(key);
+    if (!current) {
+      byCar.set(key, { ...action });
+      return;
+    }
+    current.cashAmount += action.cashAmount;
+    current.bankAmount += action.bankAmount;
+    current.actionCount += action.actionCount;
+  });
+  return Array.from(byCar.values());
 }
 
 export function routeDeltaLabel(key: RouteDeltaKey): string {

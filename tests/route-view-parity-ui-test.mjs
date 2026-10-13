@@ -7,6 +7,7 @@ const amounts={A10:40,B79:68,C10:90,D92:204,T18:55};
 const active=Object.entries(amounts).map(([unit,amount])=>({client_id:unit,in_custody:unit==='T18',custody_since:pub,data:{clientId:unit,unitId:unit,clientName:unit+' Cliente',releaseAmount:amount,routeAssignment:unit==='A10'?'CL':unit==='C10'?'ROBADO':'PTY',zone:unit==='A10'?'Norte':undefined,publishedAt:pub,routeStartedAt:pub,overdueBalance:200,daysLate:2,rentAmount:34,partialDecisionRentAmount:unit==='A10'?32:undefined}}));
 const reports=['A10','B79','C10','D92'].map(unit=>{const confirmed=['A10','B79'].includes(unit),bankReport=unit==='A10'||!confirmed,delta=['A10','B79'].includes(unit)?'delta1':'delta3';return {id:unit,client_id:unit,published_at:pub,snapshot:active.find(x=>x.client_id===unit).data,status:confirmed?'confirmed':'review',method:bankReport?'bank':'cash',amount:amounts[unit],cash_amount:bankReport?0:amounts[unit],confirmed_cash_amount:confirmed&&!bankReport?amounts[unit]:0,bank_amount:bankReport?amounts[unit]:0,confirmed_bank_amount:confirmed&&bankReport?amounts[unit]:0,confirmed_bank_received_amount:bankReport?amounts[unit]+0.1:0,confirmed_bank_savings_amount:bankReport?0.1:0,reported_by:delta+'-id',reporter_name:delta+'@auth.rentautos.local',reported_at:new Date().toISOString(),confirmed_at:confirmed?new Date().toISOString():null};});
 reports.push({...reports[1],id:'historical',client_id:'OLD',snapshot:{...reports[1].snapshot,clientId:'OLD',unitId:'OLD'},reported_at:'2020-01-01T12:00:00Z',confirmed_at:'2020-01-01T12:00:00Z'});
+reports.push({...reports[1],id:'B79-followup',amount:12,cash_amount:12,confirmed_cash_amount:12,reported_at:new Date(Date.now()+1000).toISOString(),confirmed_at:new Date(Date.now()+1000).toISOString()});
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4203','--strictPort'],{windowsHide:true,stdio:'pipe',env:{...process.env,VITE_SUPABASE_URL:'https://tests.invalid',VITE_SUPABASE_ANON_KEY:'synthetic'}});
 let browser;
 try{
@@ -36,6 +37,7 @@ try{
       await delta1.click();
       await panel.getByRole('button',{name:'Gestionados hoy (2)',exact:true}).waitFor();
       assert.equal(await panel.locator('.route-managed-row').count(),2);
+      assert.match(await panel.locator('.route-managed-row',{hasText:'B79'}).innerText(),/\$80\.00/,'Los abonos del mismo carro deben consolidarse sin duplicar la unidad.');
       await delta1.click();
       await panel.getByRole('button',{name:'Gestionados hoy (4)',exact:true}).waitFor();
       assert.equal(await panel.locator('.route-managed-row').count(),4);
