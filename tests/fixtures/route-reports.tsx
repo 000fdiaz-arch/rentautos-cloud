@@ -31,6 +31,7 @@ function Harness() {
   initialRouteFilter={autoCash ? (routeParams.has("delta2") ? "WC" : "PTY") : undefined}
   canReportPayment={canReportRoutePayment(role, getRoleScreenPermissions(role))}
   canConfirmBankPayment={isAdmin}
+  canConfirmCaptures={isAdmin}
   canRemoveFromRoute={new URLSearchParams(location.search).has("editor")}
   clients={[]} payments={payments} readOnly={!canRegister}
   onRegisterPayment={canRegister ? async (input) => {

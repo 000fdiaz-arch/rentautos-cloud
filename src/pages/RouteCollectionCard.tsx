@@ -1,6 +1,7 @@
 import { useId } from "react";
 import type { ActiveRouteItem } from "../cloudData";
 import type { RoutePaymentReport } from "../cloud/routeReportCloudData";
+import type { RouteCaptureEvent } from "../cloud/routeCaptureCloudData";
 import { formatCurrency } from "../format";
 import { isPendingCashRouteReport } from "../routeReviewRules";
 import { effectiveRouteUrgency, formatRouteDateTime, routeUrgencyLabel, routeVisualRedIntensity } from "../routeTimeUrgency";
@@ -14,6 +15,7 @@ export type RouteCardItem = ActiveRouteItem & { report?: RoutePaymentReport };
 type Props = {
   managementFields?: React.ReactNode;
   item: RouteCardItem;
+  capture?: RouteCaptureEvent;
   view: RouteCardView;
   paidRent: number;
   balance: number;
@@ -156,8 +158,9 @@ export default function RouteCollectionCard(props: Props) {
       <b>{elapsedSince(item.routeInactiveAt, props.elapsedNow)}</b>
     </div> : null}
     {view === "custody" ? <>
-      <span className="route-collection-tag">Vehículo en custodia</span>
+      <span className="route-collection-tag">{props.capture?.status === "confirmed" ? "Captación confirmada" : "Captación pendiente"}</span>
       <p className="route-collection-context">Desde {formatRouteDateTime(item.custodySince)}</p>
+      {props.capture ? <p className="route-collection-context">Reportada por {props.capture.reporter_name.split("@")[0]} · Ruta {props.capture.route_assignment || "Sin ruta"}{props.capture.confirmed_at ? <><br />Confirmada {formatRouteDateTime(props.capture.confirmed_at)}</> : null}</p> : null}
     </> : report && (view === "review" || view === "confirmed") ? <>
       <span className={`route-collection-tag ${view === "confirmed" ? "route-collection-tag--confirmed" : ""}`}>{acceptedBankSavings ? "Pago confirmado con diferencia" : visuallyConfirmedBank ? "Confirmado en banco" : view === "confirmed" ? "Pago confirmado" : `Pago notificado · ${pendingCash && report.bank_amount <= report.confirmed_bank_amount ? "Efectivo pendiente" : report.method === "cash" ? "Efectivo pendiente" : report.method === "mixed" ? "Pago mixto por confirmar" : "Banca por confirmar"}`}</span>
       <p className="route-collection-amount">{report.method === "cash" || view === "confirmed" ? "Pagó" : "Reportó"} {formatCurrency(report.amount)}</p>
@@ -183,7 +186,7 @@ export default function RouteCollectionCard(props: Props) {
       {view === "work" && canReport && !props.hasPendingReport ? <button type="button" className="button primary" disabled={props.reportDisabled || saving} onClick={props.onReport}>Notificar pago</button> : null}
       {view === "work" && canReport && !report ? <button type="button" className={`button ${item.routeInactiveAt ? "route-collection-inactive-action" : "ghost"}`} disabled={props.inactiveSaving || saving} onClick={props.onInactive}>{props.inactiveSaving ? "Guardando…" : item.routeInactiveAt ? "Marcar como disponible" : "Marcar Inactivo"}</button> : null}
       {view === "custody" && canReport ? <button type="button" className="button primary" disabled={saving} onClick={props.onCustody}>Sacar de custodia</button> : null}
-      {view !== "confirmed" && view !== "custody" && view !== "review" && canReport && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button ghost" disabled={saving} onClick={props.onCustody}>Vehículo en custodia</button> : null}
+      {view !== "confirmed" && view !== "custody" && view !== "review" && canReport && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button ghost" disabled={saving} onClick={props.onCustody}>Registrar captación</button> : null}
         {props.canReturnReport ? <button type="button" className="button ghost" disabled={saving} onClick={props.onReturnReport}>No confirmado</button> : null}
       {canRemove && props.hasActiveRoute && (!report || view === "partial") ? <button type="button" className="button ghost route-collection-remove" disabled={saving} onClick={props.onRemove}>Sacar de ruta</button> : null}
     </div>

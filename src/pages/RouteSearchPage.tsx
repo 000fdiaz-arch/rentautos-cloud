@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import RoutePendingCashPanel from "./RoutePendingCashPanel";
 import RouteCollectionCard, { type RouteWorkflowView } from "./RouteCollectionCard";
+import RouteCaptureSummary from "./RouteCaptureSummary";
 import RouteTeamSummary from "./RouteTeamSummary";
 import { PaymentPreviewDialog } from "./payments/PaymentDialogs";
 import { applyRouteReportDelta, changeRouteAssignment, cancelRoutePaymentReport, loadRoutePaymentReport, loadRoutePaymentReportForItem, loadRoutePaymentReports, loadRoutePaymentReportsPage, loadRouteReportReceipts, reportRoutePayment, routeReportDeltaFromPayload, setRouteCustody, setRouteInactiveStatus, type RouteBankConfirmationResult, type RoutePaymentReport, type RouteReportDelta } from "../cloud/routeReportCloudData";
@@ -35,6 +36,7 @@ import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentS
 import type { NotifiedPayment } from "./payments/paymentTypes";
 import { normalizeRouteAssignment, ROUTE_ASSIGNMENT_OPTIONS } from "./receivables/receivablesPageRules";
 import { fieldManagementLabel, type FieldManagementType } from "./receivables/receivablesTypes";
+import { confirmRouteCapture, confirmRouteRun, loadRouteCaptureEvents, loadRouteRuns, startRouteRun, submitRouteRun, type RouteCaptureEvent, type RouteRun } from "../cloud/routeCaptureCloudData";
 
 export type RouteSearchPageProps = {
   renderManagementFields?: (item: ActiveRouteItem) => React.ReactNode;
@@ -43,6 +45,7 @@ export type RouteSearchPageProps = {
   initialRouteFilter?: string;
   canReportPayment?: boolean;
   canConfirmBankPayment?: boolean;
+  canConfirmCaptures?: boolean;
   dataOwnerUserId?: string | null;
   clients: Client[];
   payments: Payment[];
@@ -144,6 +147,7 @@ export default function RouteSearchPage({
   initialRouteFilter,
   canReportPayment = false,
   canConfirmBankPayment = false,
+  canConfirmCaptures = false,
   dataOwnerUserId,
   clients,
   payments,
@@ -166,6 +170,11 @@ export default function RouteSearchPage({
   const [confirmedPeriod, setConfirmedPeriod] = useState<"today" | "previous">("today");
   const [items, setItems] = useState<ActiveRouteItem[]>([]);
   const [reports, setReports] = useState<RoutePaymentReport[]>([]);
+  const [captureEvents, setCaptureEvents] = useState<RouteCaptureEvent[]>([]);
+  const [routeRuns, setRouteRuns] = useState<RouteRun[]>([]);
+  const [captureError, setCaptureError] = useState("");
+  const [captureSavingId, setCaptureSavingId] = useState<string | null>(null);
+  const [runSavingId, setRunSavingId] = useState<string | null>(null);
   const itemLoadIdRef = useRef(0);
   const itemLoadingRef = useRef(false);
   const pendingItemDeltasRef = useRef<ActiveRouteDelta[]>([]);
@@ -228,6 +237,25 @@ export default function RouteSearchPage({
         reportLoadingRef.current = false;
         pendingReportDeltasRef.current = [];
       }
+    }
+  }
+
+  async function reloadCaptures(): Promise<void> {
+    if (!dataOwnerUserId) {
+      setCaptureEvents([]);
+      setRouteRuns([]);
+      return;
+    }
+    try {
+      const [nextCaptures, nextRuns] = await Promise.all([
+        loadRouteCaptureEvents(dataOwnerUserId),
+        loadRouteRuns(dataOwnerUserId)
+      ]);
+      setCaptureEvents(nextCaptures);
+      setRouteRuns(nextRuns);
+      setCaptureError("");
+    } catch (cause) {
+      setCaptureError(buildCloudErrorMessage("No se pudo cargar el control de captaciones.", cause));
     }
   }
 
@@ -523,6 +551,7 @@ export default function RouteSearchPage({
   useEffect(() => {
     void reload();
     void reloadBankNotices();
+    void reloadCaptures();
     setReports([]);
     setReportsReady(false);
     void reloadReports();
@@ -563,6 +592,12 @@ export default function RouteSearchPage({
         if (itemLoadingRef.current) pendingItemDeltasRef.current.push(delta);
         setItems((current) => applyActiveRouteDelta(current, delta));
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "route_capture_events", filter: `user_id=eq.${dataOwnerUserId}` }, () => {
+        void reloadCaptures();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "route_runs", filter: `user_id=eq.${dataOwnerUserId}` }, () => {
+        void reloadCaptures();
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "notified_payments_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, () => {
         void reloadBankNotices();
       })
@@ -572,6 +607,7 @@ export default function RouteSearchPage({
           void reload();
           void reloadReports();
           void reloadBankNotices();
+          void reloadCaptures();
         }
         subscribed = true;
       });
@@ -583,6 +619,14 @@ export default function RouteSearchPage({
   const routeReviewIndex = useMemo(() => buildRouteReviewIndex(payments, reports), [payments, reports]);
   const workItems = useMemo(() => getRouteWorkItems(items, payments, businessDateKey, reports, routeReviewIndex), [items, payments, businessDateKey, reports, routeReviewIndex]);
   const custodyItems = useMemo(() => items.filter((item) => item.inCustody && !item.removedAt), [items]);
+  const captureByRouteItem = useMemo(() => {
+    const byItem = new Map<string, RouteCaptureEvent>();
+    captureEvents.forEach((event) => {
+      const key = `${event.client_id}\u0000${event.published_at}`;
+      if (!byItem.has(key)) byItem.set(key, event);
+    });
+    return byItem;
+  }, [captureEvents]);
 
   const partialReviewItems = useMemo(() => (
     getActiveRouteReviewItems(items, payments, businessDateKey, reports, routeReviewIndex).map((item) => ({
@@ -1003,14 +1047,78 @@ export default function RouteSearchPage({
     setCustodySaving(true); setCustodyError("");
     try {
       await setRouteCustody(dataOwnerUserId, custodyTarget, !custodyTarget.inCustody);
-      setRouteActionMessage(custodyTarget.inCustody ? `${custodyTarget.unitId} salió de custodia. Aparecerá en Trabajo si tiene cobros pendientes y no tiene un pago notificado.` : `${custodyTarget.unitId} pasó a Vehículo en custodia.`);
+      setRouteActionMessage(custodyTarget.inCustody ? `${custodyTarget.unitId} salió de custodia. Aparecerá en Trabajo si tiene cobros pendientes y no tiene un pago notificado.` : `${custodyTarget.unitId}: captación registrada y pendiente de confirmación administrativa.`);
       const clientId = custodyTarget.clientId;
       const inCustody = !custodyTarget.inCustody;
       setItems((current) => current.map((item) => item.clientId === clientId ? { ...item, inCustody } : item));
       void refreshItem(clientId).catch((refreshError) => console.warn("La custodia cambió, pero no se pudo actualizar la unidad.", refreshError));
+      void reloadCaptures();
       setCustodyTarget(null);
     } catch (cause) { setCustodyError(buildCloudErrorMessage("No se pudo cambiar la custodia.", cause, { includeRawFallback: true })); }
     finally { setCustodySaving(false); }
+  }
+
+  async function confirmCapture(event: RouteCaptureEvent): Promise<void> {
+    if (!canConfirmCaptures || captureSavingId) return;
+    setCaptureSavingId(event.id);
+    setCaptureError("");
+    try {
+      await confirmRouteCapture(event.id);
+      setCaptureEvents((current) => current.map((item) => item.id === event.id
+        ? { ...item, status: "confirmed", confirmed_at: new Date().toISOString(), confirmed_by: currentUserId ?? null }
+        : item));
+      setRouteActionMessage(`${event.unit_id}: captación de ${event.reporter_name.split("@")[0]} confirmada.`);
+      void reloadCaptures();
+    } catch (cause) {
+      setCaptureError(buildCloudErrorMessage("No se pudo confirmar la captación.", cause, { includeRawFallback: true }));
+    } finally {
+      setCaptureSavingId(null);
+    }
+  }
+
+  async function beginRouteRun(): Promise<void> {
+    if (!dataOwnerUserId || !initialRouteFilter || !canReportPayment || runSavingId) return;
+    setRunSavingId("start");
+    setCaptureError("");
+    try {
+      await startRouteRun(dataOwnerUserId, initialRouteFilter);
+      setRouteActionMessage(`Ruta ${initialRouteFilter} iniciada.`);
+      await reloadCaptures();
+    } catch (cause) {
+      setCaptureError(buildCloudErrorMessage("No se pudo iniciar la ruta.", cause, { includeRawFallback: true }));
+    } finally {
+      setRunSavingId(null);
+    }
+  }
+
+  async function closeRouteRun(run: RouteRun): Promise<void> {
+    if (runSavingId) return;
+    setRunSavingId(run.id);
+    setCaptureError("");
+    try {
+      await submitRouteRun(run.id);
+      setRouteActionMessage(`Ruta ${run.route_assignment} cerrada y enviada para confirmación.`);
+      await reloadCaptures();
+    } catch (cause) {
+      setCaptureError(buildCloudErrorMessage("No se pudo cerrar la ruta.", cause, { includeRawFallback: true }));
+    } finally {
+      setRunSavingId(null);
+    }
+  }
+
+  async function validateRouteRun(run: RouteRun): Promise<void> {
+    if (!canConfirmCaptures || runSavingId) return;
+    setRunSavingId(run.id);
+    setCaptureError("");
+    try {
+      await confirmRouteRun(run.id);
+      setRouteActionMessage(`Ruta ${run.route_assignment} de ${run.operator_name.split("@")[0]} confirmada.`);
+      await reloadCaptures();
+    } catch (cause) {
+      setCaptureError(buildCloudErrorMessage("No se pudo confirmar la ruta.", cause, { includeRawFallback: true }));
+    } finally {
+      setRunSavingId(null);
+    }
   }
 
   async function openReportReceipt(report: RoutePaymentReport): Promise<void> {
@@ -1104,7 +1212,7 @@ export default function RouteSearchPage({
       <header className="route-search-header">
         <div>
           <h1>Cobro en Ruta</h1>
-          <p>{visibleItems.length} unidades · {workflowView === "work" ? "Trabajo" : workflowView === "review" ? "Pagos por revisar" : workflowView === "custody" ? "Vehículo en custodia" : "Cobro en ruta"}{publishedAt ? ` | Publicada ${publishedAt}` : ""}</p>
+          <p>{visibleItems.length} unidades · {workflowView === "work" ? "Trabajo" : workflowView === "review" ? "Pagos por revisar" : workflowView === "custody" ? "Captaciones" : "Cobro en ruta"}{publishedAt ? ` | Publicada ${publishedAt}` : ""}</p>
         </div>
         <div className="route-search-header-actions">
           {workflowView === "work" ? <button
@@ -1128,6 +1236,11 @@ export default function RouteSearchPage({
       </section> : null}
 
       {workflowView === "work" ? <RouteTeamSummary workItems={workItems} reports={reports} confirmedToday={confirmedToday} routes={routeAssignmentOptions} /> : null}
+      {workflowView === "work" || workflowView === "custody" ? <RouteCaptureSummary events={captureEvents} runs={routeRuns} businessDateKey={businessDateKey}
+        currentUserId={currentUserId} operatorRoute={initialRouteFilter} canStartRoute={canReportPayment}
+        canConfirm={canConfirmCaptures} savingId={captureSavingId} runSavingId={runSavingId}
+        onConfirm={(event) => void confirmCapture(event)} onStartRoute={() => void beginRouteRun()}
+        onSubmitRoute={(run) => void closeRouteRun(run)} onConfirmRoute={(run) => void validateRouteRun(run)} /> : null}
       {extraRouteOptions.length > 0 ? <section className="route-search-extra-routes" aria-label="Rutas creadas">
         <div className="route-search-extra-routes-copy">
           <strong>Rutas creadas · {extraRouteItemCount} unidad{extraRouteItemCount === 1 ? "" : "es"}</strong>
@@ -1157,7 +1270,7 @@ export default function RouteSearchPage({
       </section> : null}
       <details className="route-collection-cash-summary"><summary>Efectivo pendiente de entrega</summary><RoutePendingCashPanel payments={payments} dateKey={businessDateKey} loading={paymentsLoading} /></details>
       <div className="route-search-workflow-tabs" aria-label="Estado de las unidades">
-        {([['work', 'Trabajo', workItems.length], ['review', 'Pagos por revisar', paymentReviewItems.length], ['custody', 'Vehículo en custodia', custodyItems.length]] as const).map(([view, label, count]) => (
+        {([['work', 'Trabajo', workItems.length], ['review', 'Pagos por revisar', paymentReviewItems.length], ['custody', 'Captaciones', custodyItems.length]] as const).map(([view, label, count]) => (
           <button type="button" key={view} className={`button ${workflowView === view ? 'primary' : 'ghost'} route-search-workflow-tab route-search-workflow-tab--${view}${count > 0 ? ' route-search-workflow-tab--has-items' : ''}`} aria-pressed={workflowView === view}
             onClick={() => openWorkflow(view)}>
             {label} ({count})
@@ -1165,6 +1278,7 @@ export default function RouteSearchPage({
         ))}
       </div>
       {reportsError ? <p className="error-text" role="alert">{reportsError}</p> : null}
+      {captureError ? <p className="error-text" role="alert">{captureError}</p> : null}
 
       <label className="route-search-box">
         <span>Buscar</span>
@@ -1265,7 +1379,7 @@ export default function RouteSearchPage({
       {loading && visibleItems.length === 0 ? (
         <div className="route-search-empty">Cargando ruta...</div>
       ) : visibleItems.length === 0 ? (
-        <div className="route-search-empty">{workflowView === "work" ? "No hay unidades pendientes con estos filtros." : workflowView === "review" ? "No hay pagos pendientes de revisión con estos filtros." : workflowView === "custody" ? "No hay vehículos en custodia con estos filtros." : "No hay pagos confirmados con estos filtros."}</div>
+        <div className="route-search-empty">{workflowView === "work" ? "No hay unidades pendientes con estos filtros." : workflowView === "review" ? "No hay pagos pendientes de revisión con estos filtros." : workflowView === "custody" ? "No hay vehículos captados actualmente en custodia con estos filtros." : "No hay pagos confirmados con estos filtros."}</div>
       ) : (
         <div className="route-search-list">
           {visibleItems.map((item) => {
@@ -1273,6 +1387,7 @@ export default function RouteSearchPage({
             const paidRent = routeRentAmountForDay(payments, item, businessDateKey, routeReviewIndex);
             const cardView = workflowView === "review" && item.reviewKind === "partial" ? "partial" : workflowView;
             return <RouteCollectionCard key={workflowView + '-' + (item.reviewKind ?? 'standard') + '-' + (item.report?.id ?? item.clientId)} item={item} view={cardView}
+              capture={captureByRouteItem.get(`${item.clientId}\u0000${item.publishedAt}`)}
               managementFields={activeRoute && !activeRoute.removedAt && cardView !== "review" && cardView !== "confirmed" ? renderManagementFields?.(activeRoute) : undefined}
               paidRent={paidRent} balance={currentBalance(item)} travelFundBalance={travelFundBalanceByClient.get(item.clientId) ?? 0} canReport={canReportPayment} canEdit={!readOnly}
               canRemove={canRemoveFromRoute} canRegister={!readOnly && Boolean(onRegisterPayment) && (!item.report || (isPendingCashRouteReport(item.report) && !registeredReportIds.includes(item.report.id)))}
@@ -1347,9 +1462,9 @@ export default function RouteSearchPage({
         <button type="button" className="button ghost" onClick={() => setReceiptOptions([])}>Cerrar</button>
       </div></div> : null}
       {custodyTarget ? <div className="modal-overlay route-search-payment-overlay"><div className="modal route-search-payment-modal" role="dialog" aria-modal="true" aria-labelledby="route-custody-title">
-        <h2 id="route-custody-title">{custodyTarget.inCustody ? "Sacar de custodia" : "Vehículo en custodia"}</h2>
+        <h2 id="route-custody-title">{custodyTarget.inCustody ? "Sacar de custodia" : "Registrar captación"}</h2>
         <p>{custodyTarget.unitId} · {custodyTarget.clientName}</p>
-        <p>{custodyTarget.inCustody ? "La unidad volverá a Trabajo si tiene cobros pendientes y no tiene un pago notificado." : "La unidad saldrá de Trabajo y quedará en la lista de custodia."} Se conservan los pagos y el historial. Los saldos y los cobros automáticos siguen igual.</p>
+        <p>{custodyTarget.inCustody ? "La unidad volverá a Trabajo si tiene cobros pendientes y no tiene un pago notificado." : "La unidad saldrá de Trabajo, quedará en custodia y la captación será atribuida a tu usuario para confirmación administrativa."} Se conservan los pagos y el historial. Los saldos y los cobros automáticos siguen igual.</p>
         {custodyError ? <p className="error-text" role="alert">{custodyError}</p> : null}
         <div className="modal-actions"><button type="button" className="button ghost" disabled={custodySaving} onClick={() => setCustodyTarget(null)}>Cancelar</button><button type="button" className="button primary" disabled={custodySaving} onClick={() => void changeCustody()}>{custodySaving ? "Guardando…" : "Confirmar"}</button></div>
       </div></div> : null}

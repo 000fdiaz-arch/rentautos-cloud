@@ -1,6 +1,7 @@
 const ROUTE_BY_OPERATOR_EMAIL: Record<string, string> = {
   "delta1@auth.rentautos.local": "PTY",
-  "delta2@auth.rentautos.local": "WC"
+  "delta2@auth.rentautos.local": "WC",
+  "delta3@auth.rentautos.local": "PTY"
 };
 
 export function routeFilterForOperatorEmail(email: string | undefined): string | undefined {

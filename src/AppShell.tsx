@@ -1127,6 +1127,7 @@ export default function AppShell({
             streetManagementData={parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>}
             routePermissions={{ paymentsLoading: !cloudReady, currentUserId: userId, canReportPayment: canReportRoutePayments,
               canConfirmBankPayment: isAdmin && canEditPayments && canReportRoutePayments, onConfirmBankPayment: confirmRouteBankPayment,
+              canConfirmCaptures: isAdmin && canEditRouteSearch,
               initialRouteFilter: operatorRouteFilter,
               readOnly: !canEditRouteSearch, canRemoveFromRoute: canEditRouteSearch, onRegisterPayment: registerRoutePayment }}
             onStreetManagementPersist={async (value) => {
@@ -1141,6 +1142,7 @@ export default function AppShell({
             paymentsLoading={!cloudReady}
             currentUserId={userId}
             canConfirmBankPayment={isAdmin && canEditPayments && canReportRoutePayments}
+            canConfirmCaptures={isAdmin && canEditRouteSearch}
             initialRouteFilter={operatorRouteFilter}
             canReportPayment={canReportRoutePayments}
             dataOwnerUserId={cloudDataUserId}
