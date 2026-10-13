@@ -33,12 +33,12 @@ export async function registerCloudRouteBankNotice(
 
 export async function deleteCloudNotifiedPayment(userId: string, noticeId: string): Promise<void> {
   const client = getCloudClient();
-  const { error } = await client
-    .from("notified_payments_cloud")
-    .delete()
-    .eq("user_id", userId)
-    .eq("id", noticeId);
+  const { data, error } = await client.rpc("delete_notified_payment", {
+    p_user_id: userId,
+    p_notice_id: noticeId
+  });
   if (error) throw error;
+  if (data !== true) throw new Error("El pago notificado ya no existe o no se pudo eliminar. Actualiza la lista e intenta nuevamente.");
 }
 
 export async function loadCloudNotifiedPayments(userId: string): Promise<NotifiedPayment[]> {

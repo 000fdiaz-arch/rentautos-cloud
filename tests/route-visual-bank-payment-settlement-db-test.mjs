@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PGlite } from "../.tmp/lead-portal-tests/node_modules/@electric-sql/pglite/dist/index.js";
 
+const cloudOperations = readFileSync("src/cloud/operationsCloudData.ts", "utf8");
+assert.match(cloudOperations, /rpc\("delete_notified_payment"/, "manual deletion uses the verified server operation");
+assert.match(cloudOperations, /if \(data !== true\)/, "manual deletion cannot silently report a zero-row success");
+
 const sql = readFileSync("supabase/108-route-visual-bank-payment-settlement.sql", "utf8");
 assert.equal(
   sql,
@@ -29,6 +33,22 @@ assert.match(
   /notified_payments_cloud_route_report_idx/,
   "closing a report needs a fast path for its linked notice"
 );
+const savingsSettlementSql = readFileSync("supabase/111-route-bank-savings-settlement.sql", "utf8");
+assert.equal(
+  savingsSettlementSql,
+  readFileSync("supabase/migrations/20261013000400_route_bank_savings_settlement.sql", "utf8"),
+  "the savings settlement SQL and migration must remain identical"
+);
+assert.match(
+  savingsSettlementSql,
+  /amountReceived'[\s\S]*centavosAhorro/,
+  "visual settlement compares the received amount after savings"
+);
+assert.match(
+  savingsSettlementSql,
+  /delete_notified_payment/,
+  "manual notices use a verified server-side delete"
+);
 
 const noticeSql = readFileSync("supabase/98-notified-payment-atomic-consumption.sql", "utf8");
 const db = new PGlite();
@@ -46,11 +66,12 @@ const report = (id, clientId, amount, reportedAt, visuallyConfirmed = true) => (
   confirmed_payment_id: null
 });
 
-const payment = (id, clientId, amount, createdAt, fundsReceivedDate) => ({
+const payment = (id, clientId, amount, createdAt, fundsReceivedDate, savings = 0) => ({
   id,
   clientId,
   clientUnit: clientId.toUpperCase(),
   amountReceived: amount,
+  centavosAhorro: savings,
   paymentMethod: "ACH Express",
   paymentContext: "regular",
   dateApplied: fundsReceivedDate,
@@ -159,6 +180,8 @@ try {
   await db.exec(sql);
   await db.exec(fastPathSql);
   await db.exec(fastPathSql);
+  await db.exec(savingsSettlementSql);
+  await db.exec(savingsSettlementSql);
 
   assert.equal(
     (await settlement(a27Report.id)).bank_settled_payment_id,
@@ -169,6 +192,23 @@ try {
     (await settlement(linkedReport.id)).bank_settled_payment_id,
     "linked-bank-payment",
     "an existing bank receipt link also settles a visual confirmation"
+  );
+
+  const savingsReport = report(
+    "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    "c49",
+    50,
+    "2026-10-12T19:06:22.566Z"
+  );
+  await insertReport(savingsReport);
+  await insertPayment(
+    "c49-payment-with-savings",
+    payment("c49-payment-with-savings", "c49", 50.49, "2026-10-12T19:30:55.945Z", "2026-10-12", 0.49)
+  );
+  assert.equal(
+    (await settlement(savingsReport.id)).bank_settled_payment_id,
+    "c49-payment-with-savings",
+    "a bank payment settles its visual notice after subtracting savings cents"
   );
 
   const laterReport = report(
