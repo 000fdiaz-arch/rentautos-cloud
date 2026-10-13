@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "../.tmp/lead-portal-tests/node_modules/@electric-sql/pglite/dist/index.js";
 
 const cloudOperations = readFileSync("src/cloud/operationsCloudData.ts", "utf8");
-assert.match(cloudOperations, /rpc\("delete_notified_payment"/, "manual deletion uses the verified server operation");
-assert.match(cloudOperations, /if \(data !== true\)/, "manual deletion cannot silently report a zero-row success");
+assert.match(cloudOperations, /delete\(\)[\s\S]*select\("id"\)/, "manual deletion verifies the deleted cloud row");
+assert.match(cloudOperations, /data\?\.some/, "manual deletion cannot silently report a zero-row success");
 
 const sql = readFileSync("supabase/108-route-visual-bank-payment-settlement.sql", "utf8");
 assert.equal(
@@ -44,12 +44,6 @@ assert.match(
   /amountReceived'[\s\S]*centavosAhorro/,
   "visual settlement compares the received amount after savings"
 );
-assert.match(
-  savingsSettlementSql,
-  /delete_notified_payment/,
-  "manual notices use a verified server-side delete"
-);
-
 const noticeSql = readFileSync("supabase/98-notified-payment-atomic-consumption.sql", "utf8");
 const db = new PGlite();
 const owner = "11111111-1111-4111-8111-111111111111";

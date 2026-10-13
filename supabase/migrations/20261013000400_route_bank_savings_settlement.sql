@@ -1,7 +1,6 @@
 -- Concilia las confirmaciones visuales de Ruta con el monto operativo del pago.
 -- Los centavos identificadores se conservan como ahorro y no deben impedir que
--- una factura bancaria liquide su aviso. Tambien ofrece un borrado verificado
--- para los avisos manuales de Pagos.
+-- una factura bancaria liquide su aviso.
 
 create or replace function public.visual_route_bank_report_matches_payment(
   r public.route_payment_reports,
@@ -53,41 +52,6 @@ exception when others then
   return false;
 end;
 $$;
-
-create or replace function public.delete_notified_payment(
-  p_user_id uuid,
-  p_notice_id text
-)
-returns boolean
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  v_deleted integer;
-begin
-  if auth.uid() is null
-    or not coalesce(public.can_edit_owner_screen(p_user_id, 'payments'), false) then
-    raise exception 'No tienes permiso para eliminar este pago notificado.';
-  end if;
-  if nullif(btrim(p_notice_id), '') is null then
-    raise exception 'No se indico el pago notificado.';
-  end if;
-
-  delete from public.notified_payments_cloud
-  where user_id = p_user_id and id = p_notice_id;
-  get diagnostics v_deleted = row_count;
-
-  return v_deleted > 0 or exists (
-    select 1
-    from public.notified_payment_tombstones t
-    where t.user_id = p_user_id and t.notice_id = p_notice_id
-  );
-end;
-$$;
-
-revoke all on function public.delete_notified_payment(uuid, text) from public, anon;
-grant execute on function public.delete_notified_payment(uuid, text) to authenticated;
 
 -- Reprocesa confirmaciones visuales que quedaron visibles por comparar el
 -- monto bruto en lugar del monto recibido menos el ahorro.
