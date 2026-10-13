@@ -1,11 +1,11 @@
 # Control de captaciones en Ruta en calle
 
-Aplicar `supabase/migrations/20261013000100_route_capture_control.sql` antes de publicar el frontend. Para instalaciones manuales por SQL Editor se puede aplicar `supabase/109-route-capture-control.sql`; ambos archivos contienen el mismo cambio.
+Aplicar `supabase/migrations/20261013000100_route_capture_control.sql` y después `supabase/migrations/20261013000300_route_capture_auto_start.sql` antes de publicar el frontend. Para instalaciones manuales por SQL Editor se pueden aplicar `supabase/109-route-capture-control.sql` y `supabase/111-route-capture-auto-start.sql`.
 
 ## Flujo
 
 - Delta 1 y Delta 3 trabajan en PTY. Delta 2 trabaja en WC.
-- Cada Delta debe pulsar **Iniciar ruta** antes de registrar captaciones. El servidor impide que un Delta inicie una ruta distinta a la asignada.
+- La primera captación inicia automáticamente el recorrido del Delta en su ruta asignada. Delta 1 y Delta 3 inician PTY; Delta 2 inicia WC.
 - Al pulsar **Registrar captación**, el servidor toma el usuario autenticado, la unidad, el cliente, la publicación y la ruta vigente. El navegador no puede elegir ni modificar el Delta atribuido.
 - La unidad pasa a custodia y la captación queda **Pendiente de administración**.
 - Un administrador con permiso de edición en Ruta en calle puede pulsar **Confirmar captación**. La confirmación conserva autor y fecha.

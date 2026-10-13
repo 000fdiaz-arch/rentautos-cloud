@@ -14,7 +14,6 @@ type Props = {
   savingId: string | null;
   runSavingId: string | null;
   onConfirm: (event: RouteCaptureEvent) => void;
-  onStartRoute: () => void;
   onSubmitRoute: (run: RouteRun) => void;
   onConfirmRoute: (run: RouteRun) => void;
 };
@@ -37,7 +36,7 @@ function operatorLabel(value: string): string {
   return login.replace(/^delta\s*(\d+)$/i, "Delta $1");
 }
 
-export default function RouteCaptureSummary({ events, runs, businessDateKey, currentUserId, operatorRoute, canStartRoute, canConfirm, savingId, runSavingId, onConfirm, onStartRoute, onSubmitRoute, onConfirmRoute }: Props) {
+export default function RouteCaptureSummary({ events, runs, businessDateKey, currentUserId, operatorRoute, canStartRoute, canConfirm, savingId, runSavingId, onConfirm, onSubmitRoute, onConfirmRoute }: Props) {
   const todayEvents = useMemo(() => events.filter((event) => {
     const date = new Date(event.reported_at);
     return !Number.isNaN(date.getTime()) && getBusinessDateKey(date) === businessDateKey;
@@ -83,12 +82,10 @@ export default function RouteCaptureSummary({ events, runs, businessDateKey, cur
     {operatorRoute && canStartRoute ? <div className="route-run-control">
       <div>
         <strong>Ruta {operatorRoute}</strong>
-        <span>{activeRun ? `En curso desde ${formatRouteDateTime(activeRun.started_at)} · ${capturesForRun(activeRun.id)} captaciones` : submittedRun ? "Enviada para confirmación administrativa" : "Sin recorrido iniciado"}</span>
+        <span>{activeRun ? `En curso desde ${formatRouteDateTime(activeRun.started_at)} · ${capturesForRun(activeRun.id)} captaciones` : submittedRun ? "Enviada para confirmación administrativa" : "Se iniciará automáticamente con la primera captación"}</span>
       </div>
       {activeRun ? <button type="button" className="button primary small" disabled={runSavingId !== null} onClick={() => onSubmitRoute(activeRun)}>
         {runSavingId === activeRun.id ? "Cerrando…" : "Cerrar y enviar"}
-      </button> : !submittedRun ? <button type="button" className="button primary small" disabled={runSavingId !== null} onClick={onStartRoute}>
-        {runSavingId === "start" ? "Iniciando…" : "Iniciar ruta"}
       </button> : null}
     </div> : null}
     <div className="route-capture-summary-table" role="table" aria-label="Captaciones de hoy por Delta">

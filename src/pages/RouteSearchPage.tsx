@@ -36,7 +36,7 @@ import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentS
 import type { NotifiedPayment } from "./payments/paymentTypes";
 import { normalizeRouteAssignment, ROUTE_ASSIGNMENT_OPTIONS } from "./receivables/receivablesPageRules";
 import { fieldManagementLabel, type FieldManagementType } from "./receivables/receivablesTypes";
-import { confirmRouteCapture, confirmRouteRun, loadRouteCaptureEvents, loadRouteRuns, startRouteRun, submitRouteRun, type RouteCaptureEvent, type RouteRun } from "../cloud/routeCaptureCloudData";
+import { confirmRouteCapture, confirmRouteRun, loadRouteCaptureEvents, loadRouteRuns, submitRouteRun, type RouteCaptureEvent, type RouteRun } from "../cloud/routeCaptureCloudData";
 
 export type RouteSearchPageProps = {
   renderManagementFields?: (item: ActiveRouteItem) => React.ReactNode;
@@ -1076,21 +1076,6 @@ export default function RouteSearchPage({
     }
   }
 
-  async function beginRouteRun(): Promise<void> {
-    if (!dataOwnerUserId || !initialRouteFilter || !canReportPayment || runSavingId) return;
-    setRunSavingId("start");
-    setCaptureError("");
-    try {
-      await startRouteRun(dataOwnerUserId, initialRouteFilter);
-      setRouteActionMessage(`Ruta ${initialRouteFilter} iniciada.`);
-      await reloadCaptures();
-    } catch (cause) {
-      setCaptureError(buildCloudErrorMessage("No se pudo iniciar la ruta.", cause, { includeRawFallback: true }));
-    } finally {
-      setRunSavingId(null);
-    }
-  }
-
   async function closeRouteRun(run: RouteRun): Promise<void> {
     if (runSavingId) return;
     setRunSavingId(run.id);
@@ -1239,7 +1224,7 @@ export default function RouteSearchPage({
       {workflowView === "work" || workflowView === "custody" ? <RouteCaptureSummary events={captureEvents} runs={routeRuns} businessDateKey={businessDateKey}
         currentUserId={currentUserId} operatorRoute={initialRouteFilter} canStartRoute={canReportPayment}
         canConfirm={canConfirmCaptures} savingId={captureSavingId} runSavingId={runSavingId}
-        onConfirm={(event) => void confirmCapture(event)} onStartRoute={() => void beginRouteRun()}
+        onConfirm={(event) => void confirmCapture(event)}
         onSubmitRoute={(run) => void closeRouteRun(run)} onConfirmRoute={(run) => void validateRouteRun(run)} /> : null}
       {extraRouteOptions.length > 0 ? <section className="route-search-extra-routes" aria-label="Rutas creadas">
         <div className="route-search-extra-routes-copy">

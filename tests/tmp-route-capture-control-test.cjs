@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const root = path.resolve(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const migration = read("supabase/migrations/20261013000100_route_capture_control.sql");
+const autoStartMigration = read("supabase/migrations/20261013000300_route_capture_auto_start.sql");
 const scope = read("src/routeOperatorScope.ts");
 const page = read("src/pages/RouteSearchPage.tsx");
 const summary = read("src/pages/RouteCaptureSummary.tsx");
@@ -32,7 +33,13 @@ assert.match(page, /Registrar captación/,
   "La acción de custodia debe presentarse como registro de captación.");
 assert.match(summary, /Delta 1[\s\S]*Delta 2[\s\S]*Delta 3/,
   "El resumen debe separar los tres Delta.");
-for (const action of ["Iniciar ruta", "Cerrar y enviar", "Confirmar ruta"]) {
+assert.match(autoStartMigration, /v_run_id := public\.start_route_run/,
+  "La primera captación de un Delta debe iniciar automáticamente su recorrido.");
+assert.doesNotMatch(summary, />Iniciar ruta</,
+  "El Delta no debe necesitar un paso manual para iniciar el recorrido.");
+assert.match(summary, /Se iniciará automáticamente con la primera captación/,
+  "La pantalla debe explicar el inicio automático.");
+for (const action of ["Cerrar y enviar", "Confirmar ruta"]) {
   assert.ok(summary.includes(action), `La pantalla debe mostrar la acción ${action}.`);
 }
 assert.match(cloud, /rpc\("confirm_route_capture"/,
