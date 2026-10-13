@@ -8,8 +8,8 @@ import { effectiveRouteUrgency, formatRouteDateTime, routeUrgencyLabel, routeVis
 import { fieldManagementLabel } from "./receivables/receivablesTypes";
 import "./routeTimeUrgency.css";
 
-export type RouteWorkflowView = "work" | "review" | "confirmed" | "custody";
-export type RouteCardView = RouteWorkflowView | "partial";
+export type RouteWorkflowView = "work" | "review" | "confirmed" | "custody" | "managed";
+export type RouteCardView = Exclude<RouteWorkflowView, "managed"> | "partial";
 export type RouteCardItem = ActiveRouteItem & { report?: RoutePaymentReport };
 
 type Props = {
@@ -158,7 +158,7 @@ export default function RouteCollectionCard(props: Props) {
       <b>{elapsedSince(item.routeInactiveAt, props.elapsedNow)}</b>
     </div> : null}
     {view === "custody" ? <>
-      <span className="route-collection-tag">{props.capture?.status === "confirmed" ? "Captación confirmada" : "Captación pendiente"}</span>
+      <span className="route-collection-tag">{props.capture?.status === "confirmed" ? "En custodia · confirmada" : "En custodia · pendiente"}</span>
       <p className="route-collection-context">Desde {formatRouteDateTime(item.custodySince)}</p>
       {props.capture ? <p className="route-collection-context">Reportada por {props.capture.reporter_name.split("@")[0]} · Ruta {props.capture.route_assignment || "Sin ruta"}{props.capture.confirmed_at ? <><br />Confirmada {formatRouteDateTime(props.capture.confirmed_at)}</> : null}</p> : null}
     </> : report && (view === "review" || view === "confirmed") ? <>
@@ -186,7 +186,7 @@ export default function RouteCollectionCard(props: Props) {
       {view === "work" && canReport && !props.hasPendingReport ? <button type="button" className="button primary" disabled={props.reportDisabled || saving} onClick={props.onReport}>Notificar pago</button> : null}
       {view === "work" && canReport && !report ? <button type="button" className={`button ${item.routeInactiveAt ? "route-collection-inactive-action" : "ghost"}`} disabled={props.inactiveSaving || saving} onClick={props.onInactive}>{props.inactiveSaving ? "Guardando…" : item.routeInactiveAt ? "Marcar como disponible" : "Marcar Inactivo"}</button> : null}
       {view === "custody" && canReport ? <button type="button" className="button primary" disabled={saving} onClick={props.onCustody}>Sacar de custodia</button> : null}
-      {view !== "confirmed" && view !== "custody" && view !== "review" && canReport && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button ghost" disabled={saving} onClick={props.onCustody}>Registrar captación</button> : null}
+      {view !== "confirmed" && view !== "custody" && view !== "review" && canReport && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button ghost" disabled={saving} onClick={props.onCustody}>Declarar carro en custodia</button> : null}
         {props.canReturnReport ? <button type="button" className="button ghost" disabled={saving} onClick={props.onReturnReport}>No confirmado</button> : null}
       {canRemove && props.hasActiveRoute && (!report || view === "partial") ? <button type="button" className="button ghost route-collection-remove" disabled={saving} onClick={props.onRemove}>Sacar de ruta</button> : null}
     </div>

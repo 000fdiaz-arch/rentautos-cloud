@@ -125,7 +125,7 @@ try {
   await page.getByText('Inactivo · no está encendido',{exact:true}).waitFor();await page.getByText(/^Hace /).waitFor();
   assert.equal(inactiveChanges.at(-1).p_inactive,true);assert.equal(await page.getByRole('alert').count(),0);
   const summary=page.getByRole('region',{name:'Resumen del equipo'});
-  assert.match(await summary.innerText(),/PTY[\s\S]*0[\s\S]*Por visitar[\s\S]*1[\s\S]*Inactivos/);
+  assert.match(await summary.innerText(),/0 recibidas[\s\S]*Delta 1[\s\S]*Delta 2[\s\S]*Delta 3/);
   mkdirSync('.tmp/route-reports',{recursive:true});await page.screenshot({path:'.tmp/route-reports/mobile-inactive-latest-format.png',fullPage:true});
   await page.getByRole('button',{name:'Marcar como disponible'}).click();
   await page.getByRole('status').filter({hasText:'RA-042 volvió a estar disponible.'}).waitFor();
@@ -156,7 +156,7 @@ try {
   assert.equal(await page.getByRole('button',{name:'Registrar pago',exact:true}).count(),0);
   assert.equal(await page.getByRole('button',{name:'Sacar de ruta',exact:true}).count(),0);
   await page.getByRole('button',{name:'Confirmado en banco',exact:true}).waitFor();
-  assert.equal(await page.getByRole('button',{name:'Registrar captación',exact:true}).count(),0);
+  assert.equal(await page.getByRole('button',{name:'Declarar carro en custodia',exact:true}).count(),0);
   await page.screenshot({path:'.tmp/route-reports/mobile-review.png',fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.getByRole('button',{name:'No confirmado',exact:true}).click();
@@ -226,7 +226,7 @@ try {
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
   const partialTab=page.getByRole('button',{name:'Pagos por revisar (1)',exact:true});
   await partialTab.waitFor();
-  assert.equal(await page.locator('.route-search-workflow-tabs button').count(),3);
+  assert.equal(await page.locator('.route-search-workflow-tabs button').count(),4);
   await page.getByPlaceholder('Unidad, cliente, cedula, telefono o zona...').fill('no-match');
   await partialTab.click();
   await page.getByPlaceholder('Unidad, cliente, cedula, telefono o zona...').fill('');
@@ -312,23 +312,23 @@ try {
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Notificar pago',exact:true}).count(),0);
   assert.equal(await page.getByRole('combobox',{name:'Ruta de RA-042'}).count(),0);
-  assert.equal(await page.getByRole('button',{name:'Registrar captación',exact:true}).count(),0);
+  assert.equal(await page.getByRole('button',{name:'Declarar carro en custodia',exact:true}).count(),0);
   await page.goto(base+'/__route-test');
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
   assert.equal(await page.getByLabel('Zona de RA-042').isVisible(),true);
   assert.equal(await page.locator('.route-collection-details input, .route-collection-details select, .route-collection-details button').count(),0);
-  await page.getByRole('button',{name:'Registrar captación',exact:true}).click();
+  await page.getByRole('button',{name:'Declarar carro en custodia',exact:true}).click();
   await modal.getByRole('button',{name:'Cancelar',exact:true}).click();assert.equal(custodyWrites.length,0);
-  await page.getByRole('button',{name:'Registrar captación',exact:true}).click();
+  await page.getByRole('button',{name:'Declarar carro en custodia',exact:true}).click();
   fail=true;await modal.getByRole('button',{name:'Confirmar',exact:true}).click();await modal.getByRole('alert').waitFor();assert.equal(custody,false);
   fail=false;await modal.getByRole('button',{name:'Confirmar',exact:true}).click();await modal.waitFor({state:'hidden'});
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
-  await page.getByRole('button',{name:'Captaciones (1)',exact:true}).click();
+  await page.getByRole('button',{name:'En custodia (1)',exact:true}).click();
   await page.getByRole('button',{name:'Sacar de custodia',exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Sacar de ruta',exact:true}).count(),0);
   assert.equal(await page.getByRole('button',{name:'Notificar pago',exact:true}).count(),0);
   await page.reload();await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
-  await page.getByRole('button',{name:'Captaciones (1)',exact:true}).click();
+  await page.getByRole('button',{name:'En custodia (1)',exact:true}).click();
   await page.screenshot({path:'.tmp/route-reports/mobile-custody.png',fullPage:true});
   await page.getByRole('button',{name:'Sacar de custodia',exact:true}).click();
   await modal.getByRole('button',{name:'Confirmar',exact:true}).click();await modal.waitFor({state:'hidden'});
@@ -406,7 +406,7 @@ try {
   assert.equal(await page.getByRole('button',{name:'Cerrar vista previa',exact:true}).count(),0);
   reports=[];delete item.removedAt;delete item.removedReason;custody=true;
   await page.goto(base+'/__route-test?editor');
-  await page.getByRole('button',{name:'Captaciones (1)',exact:true}).click();
+  await page.getByRole('button',{name:'En custodia (1)',exact:true}).click();
   await page.getByRole('button',{name:'Sacar de custodia',exact:true}).waitFor();
   await page.getByRole('button',{name:'Sacar de ruta',exact:true}).waitFor();
   await page.getByRole('button',{name:'Sacar de ruta',exact:true}).click();
@@ -419,9 +419,9 @@ try {
   await removeDialog.getByRole('alert').waitFor();assert.equal(removeWrites.length,1);assert.equal(custody,true);
   fail=false;await removeDialog.getByRole('button',{name:'Sí, sacar de ruta',exact:true}).click();
   await removeDialog.waitFor({state:'hidden'});
-  await page.getByRole('button',{name:'Captaciones (0)',exact:true}).waitFor();
+  await page.getByRole('button',{name:'En custodia (0)',exact:true}).waitFor();
   assert.deepEqual(removeWrites.at(-1),{p_user_id:owner,p_client_id:'c1'});assert.equal(custody,false);
-  await page.reload();await page.getByRole('button',{name:'Captaciones (0)',exact:true}).waitFor();
+  await page.reload();await page.getByRole('button',{name:'En custodia (0)',exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Sacar de ruta',exact:true}).count(),0);
   assert.deepEqual(errors,[]);console.log('OK: WC/PTY from shared payments, zero extra queries, historical receipts, live delivered removal, read-only; report form, mixed split and confirmation');
 } finally {await browser?.close();server.kill();}

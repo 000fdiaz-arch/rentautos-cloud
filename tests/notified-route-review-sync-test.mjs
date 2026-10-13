@@ -35,7 +35,7 @@ assert.match(panel, /!isRouteBankConfirmed \? \(/, "a confirmed notice cannot be
 assert.match(sql, /can_view_owner_screen\(user_id, 'payments'\)/, "Payments can read shared route reports");
 assert.match(sql, /route_report_remove_linked_notice/, "closing a route report removes its linked persisted notification");
 assert.match(routePage, /'review', 'Pagos por revisar'/, "the Route tab uses the combined review name");
-assert.match(summary, /<small>Pago notificado<\/small>/, "the Route summary uses the unified visible name");
+assert.match(summary, /Cobrado/, "the Route summary keeps paid actions visible in the Delta totals");
 
 const db = new PGlite();
 const owner = "11111111-1111-4111-8111-111111111111";

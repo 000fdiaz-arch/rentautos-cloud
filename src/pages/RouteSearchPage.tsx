@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import RoutePendingCashPanel from "./RoutePendingCashPanel";
 import RouteCollectionCard, { type RouteWorkflowView } from "./RouteCollectionCard";
-import RouteCaptureSummary from "./RouteCaptureSummary";
+import RouteManagedList from "./RouteManagedList";
 import RouteTeamSummary from "./RouteTeamSummary";
 import { PaymentPreviewDialog } from "./payments/PaymentDialogs";
 import { applyRouteReportDelta, changeRouteAssignment, cancelRoutePaymentReport, loadRoutePaymentReport, loadRoutePaymentReportForItem, loadRoutePaymentReports, loadRoutePaymentReportsPage, loadRouteReportReceipts, reportRoutePayment, routeReportDeltaFromPayload, setRouteCustody, setRouteInactiveStatus, type RouteBankConfirmationResult, type RoutePaymentReport, type RouteReportDelta } from "../cloud/routeReportCloudData";
@@ -30,7 +30,8 @@ import {
 import { formatCurrency, formatDate } from "../format";
 import { supabase } from "../lib/supabase";
 import { buildRouteReviewIndex, getActiveRouteReviewItems, getRouteWorkItems, isPendingCashRouteReport, routeRentAmountForDay } from "../routeReviewRules";
-import { compareRouteWorkItemsByUrgency, summarizeRouteTimeUrgency } from "../routeTimeUrgency";
+import { compareRouteWorkItemsByUrgency } from "../routeTimeUrgency";
+import { buildRouteDeltaIdentityMap, buildRouteManagedActions, routeDeltaForActor, routeDeltaLabel, ROUTE_DELTAS, type RouteDeltaIdentityMap, type RouteDeltaKey } from "../routeDeltaTracking";
 import type { Client, CollectionTeam, Payment } from "../types";
 import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentStorage";
 import type { NotifiedPayment } from "./payments/paymentTypes";
@@ -42,6 +43,7 @@ export type RouteSearchPageProps = {
   renderManagementFields?: (item: ActiveRouteItem) => React.ReactNode;
   paymentsLoading?: boolean;
   currentUserId?: string;
+  currentUserEmail?: string;
   initialRouteFilter?: string;
   canReportPayment?: boolean;
   canConfirmBankPayment?: boolean;
@@ -79,6 +81,16 @@ type RouteDisplayItem = ActiveRouteItem & {
   report?: RoutePaymentReport;
   reviewKind?: "partial" | "notified";
 };
+
+function deltaForDisplayItem(item: RouteDisplayItem, view: RouteWorkflowView, captureByRouteItem: Map<string, RouteCaptureEvent>, identities: RouteDeltaIdentityMap): RouteDeltaKey | null {
+  if (item.report) return routeDeltaForActor(item.report.reported_by, item.report.reporter_name, identities);
+  if (view === "custody") {
+    const capture = captureByRouteItem.get(`${item.clientId}\u0000${item.publishedAt}`);
+    return routeDeltaForActor(capture?.reported_by, capture?.reporter_name, identities);
+  }
+  if (view === "work" && item.routeInactiveAt) return routeDeltaForActor(item.routeInactiveBy, undefined, identities);
+  return null;
+}
 
 function normalizeZoneName(value: string | undefined): string {
   return (value ?? "").trim().replace(/\s+/g, " ");
@@ -144,6 +156,7 @@ export default function RouteSearchPage({
   renderManagementFields,
   paymentsLoading = false,
   currentUserId,
+  currentUserEmail,
   initialRouteFilter,
   canReportPayment = false,
   canConfirmBankPayment = false,
@@ -449,6 +462,7 @@ export default function RouteSearchPage({
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [routeFilter, setRouteFilter] = useState(preferredRouteFilter ?? ALL_ACTIVE_ROUTE_FILTER);
+  const [deltaFilter, setDeltaFilter] = useState<RouteDeltaKey | null>(null);
   const [zoneFilter, setZoneFilter] = useState(ALL_ACTIVE_ZONE_FILTER);
   const [zoneFilterLabel, setZoneFilterLabel] = useState("");
   const [zoneDrafts, setZoneDrafts] = useState<Record<string, string>>({});
@@ -657,15 +671,58 @@ export default function RouteSearchPage({
       ...notifiedReviewItems
     ];
   }, [notifiedReviewItems, partialReviewItems]);
-  const routeTimeSummary = useMemo(() => summarizeRouteTimeUrgency(workItems, elapsedNow), [elapsedNow, workItems]);
+  const deltaIdentityMap = useMemo(() => buildRouteDeltaIdentityMap({
+    reports,
+    captures: captureEvents,
+    runs: routeRuns,
+    currentUserId,
+    currentUserEmail
+  }), [captureEvents, currentUserEmail, currentUserId, reports, routeRuns]);
+  const managedActions = useMemo(() => buildRouteManagedActions({
+    reports,
+    captures: captureEvents,
+    runs: routeRuns,
+    items,
+    businessDateKey,
+    currentUserId,
+    currentUserEmail
+  }), [businessDateKey, captureEvents, currentUserEmail, currentUserId, items, reports, routeRuns]);
 
-  const activeItems = useMemo<RouteDisplayItem[]>(() => (
-    workflowView === "work" ? workItems : workflowView === "custody" ? custodyItems : workflowView === "review" ? paymentReviewItems : visibleConfirmedReports
-      .map((report) => ({ ...report.snapshot, inCustody: items.some((item) => item.clientId === report.client_id && item.publishedAt === report.published_at && item.inCustody), report }))
-  ), [workflowView, workItems, paymentReviewItems, custodyItems, items, visibleConfirmedReports]);
+  const activeItems = useMemo<RouteDisplayItem[]>(() => {
+    const rows = workflowView === "work" ? workItems : workflowView === "custody" ? custodyItems : workflowView === "review" ? paymentReviewItems : workflowView === "confirmed" ? visibleConfirmedReports
+      .map((report) => ({ ...report.snapshot, inCustody: items.some((item) => item.clientId === report.client_id && item.publishedAt === report.published_at && item.inCustody), report })) : [];
+    return deltaFilter ? rows.filter((item) => deltaForDisplayItem(item, workflowView, captureByRouteItem, deltaIdentityMap) === deltaFilter) : rows;
+  }, [captureByRouteItem, custodyItems, deltaFilter, deltaIdentityMap, items, paymentReviewItems, visibleConfirmedReports, workflowView, workItems]);
+
+  const workflowCounts = useMemo(() => {
+    const byDelta = (rows: RouteDisplayItem[], view: RouteWorkflowView) => deltaFilter
+      ? rows.filter((item) => deltaForDisplayItem(item, view, captureByRouteItem, deltaIdentityMap) === deltaFilter).length
+      : rows.length;
+    return {
+      work: byDelta(workItems, "work"),
+      review: byDelta(paymentReviewItems, "review"),
+      custody: byDelta(custodyItems, "custody"),
+      managed: deltaFilter ? managedActions.filter((action) => action.delta === deltaFilter).length : managedActions.length
+    };
+  }, [captureByRouteItem, custodyItems, deltaFilter, deltaIdentityMap, managedActions, paymentReviewItems, workItems]);
 
   function openWorkflow(view: RouteWorkflowView): void {
     setWorkflowView(view); setConfirmedPeriod("today"); setCompletedCash(null); setRouteActionMessage(""); setRouteUndo(null);
+  }
+
+  function toggleDeltaFilter(delta: RouteDeltaKey): void {
+    setDeltaFilter((current) => current === delta ? null : delta);
+    setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
+    setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
+    setZoneFilterLabel("");
+    openWorkflow("managed");
+  }
+
+  function toggleRouteFilter(route: string): void {
+    setRouteFilter((current) => current === route ? ALL_ACTIVE_ROUTE_FILTER : route);
+    setDeltaFilter(null);
+    setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
+    setZoneFilterLabel("");
   }
 
   async function loadMoreReportHistory(): Promise<void> {
@@ -718,10 +775,11 @@ export default function RouteSearchPage({
   }, [items, reports]);
 
   const routeFilterOptions = useMemo(() => {
-    const options = new Set(activeItems.map((item) => activeRouteFilterValue(item.routeAssignment)));
+    const managed = deltaFilter ? managedActions.filter((action) => action.delta === deltaFilter) : managedActions;
+    const options = new Set((workflowView === "managed" ? managed : activeItems).map((item) => activeRouteFilterValue(item.routeAssignment)));
     if (routeFilter !== ALL_ACTIVE_ROUTE_FILTER) options.add(routeFilter);
     return Array.from(options).sort(compareActiveRouteFilterValues);
-  }, [activeItems, routeFilter]);
+  }, [activeItems, deltaFilter, managedActions, routeFilter, workflowView]);
 
   const extraRouteOptions = useMemo(() => {
     const counts = new Map<string, number>();
@@ -815,6 +873,28 @@ export default function RouteSearchPage({
         return compareActiveRouteItems(left, right);
       });
   }, [activeItems, elapsedNow, query, routeFilter, workflowView, zoneFilter]);
+
+  const visibleManagedActions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return managedActions
+      .filter((action) => !deltaFilter || action.delta === deltaFilter)
+      .filter((action) => routeFilter === ALL_ACTIVE_ROUTE_FILTER || activeRouteFilterValue(action.routeAssignment) === routeFilter)
+      .filter((action) => {
+        if (!normalizedQuery) return true;
+        const actionLabel = action.kind === "paid" ? "cobrado" : action.kind === "custody" ? "custodia" : "ausente";
+        return [action.unitId, action.clientName, action.routeAssignment, routeDeltaLabel(action.delta), actionLabel]
+          .some((value) => value.toLowerCase().includes(normalizedQuery));
+      });
+  }, [deltaFilter, managedActions, query, routeFilter]);
+
+  const routeTotals = useMemo(() => {
+    const managed = deltaFilter ? managedActions.filter((action) => action.delta === deltaFilter) : managedActions;
+    const source = workflowView === "managed" ? managed : activeItems;
+    return Array.from(new Set(ROUTE_DELTAS.map((delta) => delta.route))).map((route) => ({
+      route,
+      count: source.filter((item) => activeRouteFilterValue(item.routeAssignment) === route).length
+    }));
+  }, [activeItems, deltaFilter, managedActions, workflowView]);
 
   const selectedZoneLabel = useMemo(() => {
     if (zoneFilter === ALL_ACTIVE_ZONE_FILTER) return "";
@@ -1047,7 +1127,7 @@ export default function RouteSearchPage({
     setCustodySaving(true); setCustodyError("");
     try {
       await setRouteCustody(dataOwnerUserId, custodyTarget, !custodyTarget.inCustody);
-      setRouteActionMessage(custodyTarget.inCustody ? `${custodyTarget.unitId} salió de custodia. Aparecerá en Trabajo si tiene cobros pendientes y no tiene un pago notificado.` : `${custodyTarget.unitId}: captación registrada y pendiente de confirmación administrativa.`);
+      setRouteActionMessage(custodyTarget.inCustody ? `${custodyTarget.unitId} salió de custodia. Aparecerá en Trabajo si tiene cobros pendientes y no tiene un pago notificado.` : `${custodyTarget.unitId}: carro declarado en custodia.`);
       const clientId = custodyTarget.clientId;
       const inCustody = !custodyTarget.inCustody;
       setItems((current) => current.map((item) => item.clientId === clientId ? { ...item, inCustody } : item));
@@ -1197,7 +1277,7 @@ export default function RouteSearchPage({
       <header className="route-search-header">
         <div>
           <h1>Cobro en Ruta</h1>
-          <p>{visibleItems.length} unidades · {workflowView === "work" ? "Trabajo" : workflowView === "review" ? "Pagos por revisar" : workflowView === "custody" ? "Captaciones" : "Cobro en ruta"}{publishedAt ? ` | Publicada ${publishedAt}` : ""}</p>
+          <p>{workflowView === "managed" ? visibleManagedActions.length : visibleItems.length} unidades · {workflowView === "work" ? "Trabajo" : workflowView === "review" ? "Pagos por revisar" : workflowView === "custody" ? "En custodia" : workflowView === "managed" ? "Gestionados hoy" : "Cobro en ruta"}{deltaFilter ? ` · ${routeDeltaLabel(deltaFilter)}` : ""}{publishedAt ? ` | Publicada ${publishedAt}` : ""}</p>
         </div>
         <div className="route-search-header-actions">
           {workflowView === "work" ? <button
@@ -1214,18 +1294,16 @@ export default function RouteSearchPage({
         </div>
       </header>
 
-      {workflowView === "work" ? <section className="route-time-alert-summary" aria-label="Alertas por tiempo en ruta">
-        <div className="route-time-alert-metric route-time-alert-metric--upcoming"><span>Próxima atención · 2–4 h</span><strong>{routeTimeSummary.upcoming}</strong></div>
-        <div className="route-time-alert-metric route-time-alert-metric--attention"><span>Atención · 4–8 h</span><strong>{routeTimeSummary.attention}</strong></div>
-        <div className="route-time-alert-metric route-time-alert-metric--urgent"><span>Urgente · 8 h o más</span><strong>{routeTimeSummary.urgent}</strong></div>
-      </section> : null}
+      <section className="route-search-route-totals" aria-label="Carros por ruta">
+        {routeTotals.map((total) => <button type="button" key={total.route} className={routeFilter === total.route ? "is-active" : ""}
+          aria-pressed={routeFilter === total.route} onClick={() => toggleRouteFilter(total.route)}>
+          <span><strong>Ruta {total.route}</strong><small>{workflowView === "managed" ? "Gestionados hoy" : "Carros en esta vista"}</small></span>
+          <b>{total.count}</b>
+        </button>)}
+      </section>
 
-      {workflowView === "work" ? <RouteTeamSummary workItems={workItems} reports={reports} confirmedToday={confirmedToday} routes={routeAssignmentOptions} /> : null}
-      {workflowView === "work" || workflowView === "custody" ? <RouteCaptureSummary events={captureEvents} runs={routeRuns} businessDateKey={businessDateKey}
-        currentUserId={currentUserId} operatorRoute={initialRouteFilter} canStartRoute={canReportPayment}
-        canConfirm={canConfirmCaptures} savingId={captureSavingId} runSavingId={runSavingId}
-        onConfirm={(event) => void confirmCapture(event)}
-        onSubmitRoute={(run) => void closeRouteRun(run)} onConfirmRoute={(run) => void validateRouteRun(run)} /> : null}
+      {workflowView === "work" || workflowView === "managed" ? <RouteTeamSummary actions={managedActions} activeDelta={deltaFilter}
+        activeRoute={routeFilter === ALL_ACTIVE_ROUTE_FILTER ? "" : routeFilter} onDeltaChange={toggleDeltaFilter} /> : null}
       {extraRouteOptions.length > 0 ? <section className="route-search-extra-routes" aria-label="Rutas creadas">
         <div className="route-search-extra-routes-copy">
           <strong>Rutas creadas · {extraRouteItemCount} unidad{extraRouteItemCount === 1 ? "" : "es"}</strong>
@@ -1239,6 +1317,7 @@ export default function RouteSearchPage({
             aria-pressed={routeFilter === option.value}
             onClick={() => {
               setRouteFilter(option.value);
+              setDeltaFilter(null);
               setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
               setZoneFilterLabel("");
             }}
@@ -1249,19 +1328,25 @@ export default function RouteSearchPage({
         </div>
         <button type="button" className="route-search-extra-routes-all" onClick={() => {
           setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
+          setDeltaFilter(null);
           setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
           setZoneFilterLabel("");
         }}>Ver todas →</button>
       </section> : null}
       <details className="route-collection-cash-summary"><summary>Efectivo pendiente de entrega</summary><RoutePendingCashPanel payments={payments} dateKey={businessDateKey} loading={paymentsLoading} /></details>
       <div className="route-search-workflow-tabs" aria-label="Estado de las unidades">
-        {([['work', 'Trabajo', workItems.length], ['review', 'Pagos por revisar', paymentReviewItems.length], ['custody', 'Captaciones', custodyItems.length]] as const).map(([view, label, count]) => (
+        {([['work', 'Trabajo', workflowCounts.work], ['review', 'Pagos por revisar', workflowCounts.review], ['custody', 'En custodia', workflowCounts.custody], ['managed', 'Gestionados hoy', workflowCounts.managed]] as const).map(([view, label, count]) => (
           <button type="button" key={view} className={`button ${workflowView === view ? 'primary' : 'ghost'} route-search-workflow-tab route-search-workflow-tab--${view}${count > 0 ? ' route-search-workflow-tab--has-items' : ''}`} aria-pressed={workflowView === view}
             onClick={() => openWorkflow(view)}>
             {label} ({count})
           </button>
         ))}
       </div>
+      {deltaFilter ? <div className="route-search-delta-filter" role="status">
+        <div><strong>{workflowCounts.managed} carros gestionados hoy por {routeDeltaLabel(deltaFilter)}</strong>
+          <span>Cobrado {managedActions.filter((action) => action.delta === deltaFilter && action.kind === "paid").length} · En custodia {managedActions.filter((action) => action.delta === deltaFilter && action.kind === "custody").length} · Ausente {managedActions.filter((action) => action.delta === deltaFilter && action.kind === "absent").length}</span></div>
+        <button type="button" className="button ghost small" onClick={() => setDeltaFilter(null)}>Ver todos</button>
+      </div> : null}
       {reportsError ? <p className="error-text" role="alert">{reportsError}</p> : null}
       {captureError ? <p className="error-text" role="alert">{captureError}</p> : null}
 
@@ -1302,6 +1387,7 @@ export default function RouteSearchPage({
               aria-pressed={routeFilter === ALL_ACTIVE_ROUTE_FILTER}
               onClick={() => {
                 setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
+                setDeltaFilter(null);
                 setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
                 setZoneFilterLabel("");
               }}
@@ -1316,6 +1402,7 @@ export default function RouteSearchPage({
                 aria-pressed={routeFilter === option}
                 onClick={() => {
                   setRouteFilter(option);
+                  setDeltaFilter(null);
                   setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
                   setZoneFilterLabel("");
                 }}
@@ -1327,7 +1414,7 @@ export default function RouteSearchPage({
         </div>
       ) : null}
 
-      {routeFilter !== ALL_ACTIVE_ROUTE_FILTER ? (
+      {routeFilter !== ALL_ACTIVE_ROUTE_FILTER && workflowView !== "managed" ? (
         <div className="route-search-filter-block route-search-zone-filter-block">
           <span className="route-search-filter-label">Zona</span>
           <div className="route-search-filters route-search-zone-filters" aria-label="Filtrar por zona">
@@ -1361,12 +1448,16 @@ export default function RouteSearchPage({
       ) : null}
 
       </details>
-      {loading && visibleItems.length === 0 ? (
+      {workflowView === "managed" ? (
+        visibleManagedActions.length === 0
+          ? <div className="route-search-empty">No hay carros gestionados hoy con estos filtros.</div>
+          : <RouteManagedList actions={visibleManagedActions} />
+      ) : loading && visibleItems.length === 0 ? (
         <div className="route-search-empty">Cargando ruta...</div>
       ) : visibleItems.length === 0 ? (
-        <div className="route-search-empty">{workflowView === "work" ? "No hay unidades pendientes con estos filtros." : workflowView === "review" ? "No hay pagos pendientes de revisión con estos filtros." : workflowView === "custody" ? "No hay vehículos captados actualmente en custodia con estos filtros." : "No hay pagos confirmados con estos filtros."}</div>
+        <div className="route-search-empty">{workflowView === "work" ? "No hay unidades pendientes con estos filtros." : workflowView === "review" ? "No hay pagos pendientes de revisión con estos filtros." : workflowView === "custody" ? "No hay vehículos actualmente en custodia con estos filtros." : "No hay pagos confirmados con estos filtros."}</div>
       ) : (
-        <div className="route-search-list">
+        <div className={`route-search-list${workflowView === "work" ? "" : " route-search-list--rows"}`}>
           {visibleItems.map((item) => {
             const activeRoute = items.find(active => active.clientId === item.clientId && active.publishedAt === item.publishedAt);
             const paidRent = routeRentAmountForDay(payments, item, businessDateKey, routeReviewIndex);
@@ -1447,9 +1538,9 @@ export default function RouteSearchPage({
         <button type="button" className="button ghost" onClick={() => setReceiptOptions([])}>Cerrar</button>
       </div></div> : null}
       {custodyTarget ? <div className="modal-overlay route-search-payment-overlay"><div className="modal route-search-payment-modal" role="dialog" aria-modal="true" aria-labelledby="route-custody-title">
-        <h2 id="route-custody-title">{custodyTarget.inCustody ? "Sacar de custodia" : "Registrar captación"}</h2>
+        <h2 id="route-custody-title">{custodyTarget.inCustody ? "Sacar de custodia" : "Declarar carro en custodia"}</h2>
         <p>{custodyTarget.unitId} · {custodyTarget.clientName}</p>
-        <p>{custodyTarget.inCustody ? "La unidad volverá a Trabajo si tiene cobros pendientes y no tiene un pago notificado." : "La unidad saldrá de Trabajo, quedará en custodia y la captación será atribuida a tu usuario para confirmación administrativa."} Se conservan los pagos y el historial. Los saldos y los cobros automáticos siguen igual.</p>
+        <p>{custodyTarget.inCustody ? "La unidad volverá a Trabajo si tiene cobros pendientes y no tiene un pago notificado." : "La unidad saldrá de Trabajo, quedará en custodia y la declaración será atribuida a tu usuario."} Se conservan los pagos y el historial. Los saldos y los cobros automáticos siguen igual.</p>
         {custodyError ? <p className="error-text" role="alert">{custodyError}</p> : null}
         <div className="modal-actions"><button type="button" className="button ghost" disabled={custodySaving} onClick={() => setCustodyTarget(null)}>Cancelar</button><button type="button" className="button primary" disabled={custodySaving} onClick={() => void changeCustody()}>{custodySaving ? "Guardando…" : "Confirmar"}</button></div>
       </div></div> : null}

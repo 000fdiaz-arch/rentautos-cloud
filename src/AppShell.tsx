@@ -1125,7 +1125,7 @@ export default function AppShell({
             isPaymentHistoryLoaded={fullPaymentHistoryLoaded}
             onRefreshPayments={refreshPaymentsFromSource}
             streetManagementData={parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>}
-            routePermissions={{ paymentsLoading: !cloudReady, currentUserId: userId, canReportPayment: canReportRoutePayments,
+            routePermissions={{ paymentsLoading: !cloudReady, currentUserId: userId, currentUserEmail: userEmail, canReportPayment: canReportRoutePayments,
               canConfirmBankPayment: isAdmin && canEditPayments && canReportRoutePayments, onConfirmBankPayment: confirmRouteBankPayment,
               canConfirmCaptures: isAdmin && canEditRouteSearch,
               initialRouteFilter: operatorRouteFilter,
@@ -1141,6 +1141,7 @@ export default function AppShell({
           <RouteSearchPage
             paymentsLoading={!cloudReady}
             currentUserId={userId}
+            currentUserEmail={userEmail}
             canConfirmBankPayment={isAdmin && canEditPayments && canReportRoutePayments}
             canConfirmCaptures={isAdmin && canEditRouteSearch}
             initialRouteFilter={operatorRouteFilter}

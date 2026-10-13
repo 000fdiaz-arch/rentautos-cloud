@@ -11,5 +11,5 @@ const clients=units.map(unit=>({id:unit,unitId:unit,name:unit+' Cliente',rentAmo
 const payments=[['A10',32],['B79',34],['B79',34],['D92',50]].map(([clientId,amount],index)=>({id:String(index),clientId,clientUnit:clientId,dateApplied:getBusinessDateKey(),appliedToRent:amount,amountReceived:amount,createdAt:new Date().toISOString(),paymentMethod:'Efectivo'} as Payment));
 const params=new URLSearchParams(location.search);
 const operator=params.get('operator');
-const props={dataOwnerUserId:'11111111-1111-4111-8111-111111111111',clients,payments,readOnly:!location.search.includes("editor"),initialRouteFilter:routeFilterForOperatorEmail(operator?`${operator}@auth.rentautos.local`:undefined)};
+const props={dataOwnerUserId:'11111111-1111-4111-8111-111111111111',clients,payments,readOnly:!location.search.includes("editor"),currentUserEmail:operator?`${operator}@auth.rentautos.local`:undefined,initialRouteFilter:routeFilterForOperatorEmail(operator?`${operator}@auth.rentautos.local`:undefined)};
 createRoot(document.getElementById('root')!).render(location.search.includes('accounts')?<ReceivablesPage {...props}/>:<RouteSearchPage {...props}/>);

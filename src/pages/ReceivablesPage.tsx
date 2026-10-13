@@ -141,7 +141,7 @@ function measureReceivablesSync<T>(label: string, task: () => T): T {
 }
 
 type Props = {
-  routePermissions?: Pick<RouteSearchPageProps, "currentUserId" | "canReportPayment" | "canConfirmBankPayment" | "canConfirmCaptures" | "initialRouteFilter" | "readOnly" | "canRemoveFromRoute" | "onRegisterPayment" | "onConfirmBankPayment" | "paymentsLoading">;
+  routePermissions?: Pick<RouteSearchPageProps, "currentUserId" | "currentUserEmail" | "canReportPayment" | "canConfirmBankPayment" | "canConfirmCaptures" | "initialRouteFilter" | "readOnly" | "canRemoveFromRoute" | "onRegisterPayment" | "onConfirmBankPayment" | "paymentsLoading">;
   clients: Client[];
   payments: Payment[];
   onClientsChange?: (next: Client[]) => void | Promise<void>;

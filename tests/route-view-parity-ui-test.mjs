@@ -5,8 +5,8 @@ import { chromium } from 'playwright';
 const base='http://127.0.0.1:4203',pub='2026-09-05T12:00:00Z';
 const amounts={A10:40,B79:68,C10:90,D92:204,T18:55};
 const active=Object.entries(amounts).map(([unit,amount])=>({client_id:unit,in_custody:unit==='T18',custody_since:pub,data:{clientId:unit,unitId:unit,clientName:unit+' Cliente',releaseAmount:amount,routeAssignment:unit==='A10'?'CL':unit==='C10'?'ROBADO':'PTY',zone:unit==='A10'?'Norte':undefined,publishedAt:pub,routeStartedAt:pub,overdueBalance:200,daysLate:2,rentAmount:34,partialDecisionRentAmount:unit==='A10'?32:undefined}}));
-const reports=['A10','B79','C10','D92'].map(unit=>{const confirmed=['A10','B79'].includes(unit),bankReport=unit==='A10'||!confirmed;return {id:unit,client_id:unit,published_at:pub,snapshot:active.find(x=>x.client_id===unit).data,status:confirmed?'confirmed':'review',method:bankReport?'bank':'cash',amount:amounts[unit],cash_amount:bankReport?0:amounts[unit],confirmed_cash_amount:confirmed&&!bankReport?amounts[unit]:0,bank_amount:bankReport?amounts[unit]:0,confirmed_bank_amount:confirmed&&bankReport?amounts[unit]:0,confirmed_bank_received_amount:bankReport?amounts[unit]+0.1:0,confirmed_bank_savings_amount:bankReport?0.1:0,reported_at:pub,confirmed_at:confirmed?new Date().toISOString():null};});
-reports.push({...reports[1],id:'historical',client_id:'OLD',snapshot:{...reports[1].snapshot,clientId:'OLD',unitId:'OLD'},confirmed_at:'2020-01-01T12:00:00Z'});
+const reports=['A10','B79','C10','D92'].map(unit=>{const confirmed=['A10','B79'].includes(unit),bankReport=unit==='A10'||!confirmed,delta=['A10','B79'].includes(unit)?'delta1':'delta3';return {id:unit,client_id:unit,published_at:pub,snapshot:active.find(x=>x.client_id===unit).data,status:confirmed?'confirmed':'review',method:bankReport?'bank':'cash',amount:amounts[unit],cash_amount:bankReport?0:amounts[unit],confirmed_cash_amount:confirmed&&!bankReport?amounts[unit]:0,bank_amount:bankReport?amounts[unit]:0,confirmed_bank_amount:confirmed&&bankReport?amounts[unit]:0,confirmed_bank_received_amount:bankReport?amounts[unit]+0.1:0,confirmed_bank_savings_amount:bankReport?0.1:0,reported_by:delta+'-id',reporter_name:delta+'@auth.rentautos.local',reported_at:new Date().toISOString(),confirmed_at:confirmed?new Date().toISOString():null};});
+reports.push({...reports[1],id:'historical',client_id:'OLD',snapshot:{...reports[1].snapshot,clientId:'OLD',unitId:'OLD'},reported_at:'2020-01-01T12:00:00Z',confirmed_at:'2020-01-01T12:00:00Z'});
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4203','--strictPort'],{windowsHide:true,stdio:'pipe',env:{...process.env,VITE_SUPABASE_URL:'https://tests.invalid',VITE_SUPABASE_ANON_KEY:'synthetic'}});
 let browser;
 try{
@@ -30,8 +30,23 @@ try{
     await panel.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
     await panel.getByText('$8.00',{exact:true}).waitFor();
     const routeSummary=panel.getByRole('region',{name:'Resumen del equipo'});
-    assert.match(await routeSummary.innerText(),/CL[\s\S]*1[\s\S]*Por visitar/);
-    assert.match(await routeSummary.innerText(),/ROBADO[\s\S]*1[\s\S]*Pago notificado/);
+    assert.match(await routeSummary.innerText(),/Recibidas[\s\S]*Cobrado[\s\S]*Custodia[\s\S]*Ausente[\s\S]*Delta 1/i);
+    if(!mode){
+      const delta1=routeSummary.getByRole('button',{name:/Delta 1/});
+      await delta1.click();
+      await panel.getByRole('button',{name:'Gestionados hoy (2)',exact:true}).waitFor();
+      assert.equal(await panel.locator('.route-managed-row').count(),2);
+      await delta1.click();
+      await panel.getByRole('button',{name:'Gestionados hoy (4)',exact:true}).waitFor();
+      assert.equal(await panel.locator('.route-managed-row').count(),4);
+      mkdirSync('.tmp/route-parity',{recursive:true});
+      await page.screenshot({path:'.tmp/route-parity/delta-desktop.png',fullPage:true});
+      await page.setViewportSize({width:390,height:900});
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+      await page.screenshot({path:'.tmp/route-parity/delta-mobile.png',fullPage:true});
+      await page.setViewportSize({width:1280,height:900});
+      await panel.getByRole('button',{name:'Trabajo (1)',exact:true}).click();
+    }
     await panel.locator('.route-collection-filters > summary').click();
     await panel.getByLabel('Filtrar por ruta').getByRole('button',{name:'CL',exact:true}).click();
     await panel.getByLabel('Filtrar por zona').getByRole('button',{name:'Norte (1)',exact:true}).click();
@@ -47,7 +62,7 @@ try{
     await panel.getByLabel('Filtrar por ruta').getByRole('button',{name:'Todas',exact:true}).click();
     await panel.getByLabel('Buscar').fill('');
     const snapshot={tabs:await panel.locator('.route-search-workflow-tabs').innerText(),views:{}};
-    for(const label of ['Trabajo (1)','Pagos por revisar (2)','Captaciones (1)']){
+    for(const label of ['Trabajo (1)','Pagos por revisar (2)','En custodia (1)']){
       await panel.getByRole('button',{name:label,exact:true}).click();
       snapshot.views[label]=await panel.locator('.route-collection-card').allInnerTexts();
     }

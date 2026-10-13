@@ -14,7 +14,7 @@ assert(shell.includes("routeAlertCount={routeMenuAlertCount}"), "AppShell debe e
 assert(navigation.includes('badge: routeAlertCount'), "Ruta en calle debe mostrar una insignia de alertas en el menu.");
 assert(navigation.includes("gestiones pendientes"), "La insignia debe describir el total de gestiones pendientes.");
 assert(routePage.includes("getActiveRouteReviewItems(items, payments, businessDateKey, reports, routeReviewIndex)"), "La pestaña debe usar la misma selección de pendientes que el menú.");
-assert(routePage.includes("'Pagos por revisar', paymentReviewItems.length"), "La revisión debe usar una sola pestaña con el conteo combinado.");
+assert(routePage.includes("'Pagos por revisar', workflowCounts.review"), "La revisión debe usar una sola pestaña con el conteo combinado.");
 assert(routePage.includes("route-search-workflow-tab--has-items"), "Las pestañas con trabajo deben activar su alerta visual.");
 assert(styles.includes("route-search-workflow-tab--work.route-search-workflow-tab--has-items"), "Trabajo debe tener un color de alerta propio.");
 assert(styles.includes("route-search-workflow-tab--custody.route-search-workflow-tab--has-items"), "Custodia debe tener un color de alerta propio.");
