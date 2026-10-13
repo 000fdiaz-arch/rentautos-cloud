@@ -8,6 +8,27 @@ assert.equal(
   readFileSync("supabase/migrations/20261012000100_route_visual_bank_payment_settlement.sql", "utf8"),
   "the numbered SQL and migration must remain identical"
 );
+const fastPathSql = readFileSync("supabase/110-route-bank-confirmation-timeout-fast-path.sql", "utf8");
+assert.equal(
+  fastPathSql,
+  readFileSync("supabase/migrations/20261013000200_route_bank_confirmation_timeout_fast_path.sql", "utf8"),
+  "the timeout fast-path SQL and migration must remain identical"
+);
+assert.match(
+  fastPathSql,
+  /p\.data->>'clientId' = v_report\.client_id[\s\S]*visual_route_bank_report_matches_payment/,
+  "settlement must narrow payments by client before applying the complete matcher"
+);
+assert.match(
+  fastPathSql,
+  /payments_cloud_route_bank_settlement_candidates_idx/,
+  "settlement candidates need a dedicated partial index"
+);
+assert.match(
+  fastPathSql,
+  /notified_payments_cloud_route_report_idx/,
+  "closing a report needs a fast path for its linked notice"
+);
 
 const noticeSql = readFileSync("supabase/98-notified-payment-atomic-consumption.sql", "utf8");
 const db = new PGlite();
@@ -136,6 +157,8 @@ try {
 
   await db.exec(sql);
   await db.exec(sql);
+  await db.exec(fastPathSql);
+  await db.exec(fastPathSql);
 
   assert.equal(
     (await settlement(a27Report.id)).bank_settled_payment_id,

@@ -50,6 +50,7 @@ Para instalaciones existentes que ya ejecutaron las migraciones de cuentas por c
 - `supabase/107-visual-route-bank-confirmation.sql` (convierte la confirmación bancaria de Ruta en una validación visual sin pago ni recibo y resuelve la salida o decisión pendiente)
 - `supabase/108-route-visual-bank-payment-settlement.sql` (mantiene la confirmación visual en Pago notificado hasta que una factura bancaria coincidente la liquide)
 - `supabase/109-route-capture-control.sql` (registra cada captación por Delta y ruta, conserva su historial y permite confirmación administrativa)
+- `supabase/110-route-bank-confirmation-timeout-fast-path.sql` (evita timeouts al confirmar banca limitando la conciliación a pagos candidatos del cliente)
 
 En Vercel, produccion debe usar `VITE_PERSISTENCE_MODE=SUPABASE_ONLY`. `LOCAL_ONLY` queda limitado a desarrollo, salvo que se habilite deliberadamente `VITE_ALLOW_PRODUCTION_LOCAL_ONLY=1`.
 5. Crea una cuenta desde la pantalla de registro de la app.
