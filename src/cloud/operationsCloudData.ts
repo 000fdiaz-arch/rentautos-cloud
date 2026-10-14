@@ -2218,8 +2218,8 @@ export async function changeCloudActiveRouteDelta(input: {
   userId: string;
   clientId: string;
   publishedAt: string;
-  previousDelta?: "delta1" | "delta2" | "delta3";
-  delta: "delta1" | "delta2" | "delta3";
+  previousDelta?: "delta1" | "delta3";
+  delta: "delta1" | "delta3";
 }): Promise<void> {
   const { error } = await getCloudClient().rpc("change_active_route_delta_assignment", {
     p_user_id: input.userId,

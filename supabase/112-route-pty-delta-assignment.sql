@@ -1,5 +1,5 @@
 -- Reparte de forma persistente la ruta PTY entre Delta 1 y Delta 3.
--- Delta 2 queda disponible para asignaciones manuales de contingencia.
+-- La ruta WC siempre queda asignada de forma fija a Delta 2.
 create or replace function public.assign_active_route_pty_delta()
 returns trigger
 language plpgsql
@@ -15,13 +15,25 @@ declare
 begin
   v_route := upper(btrim(regexp_replace(coalesce(new.data->>'routeAssignment', ''), '[[:space:]]+', ' ', 'g')));
 
-  if v_route <> 'PTY' then
+  if v_route = 'WC' then
+    if lower(btrim(coalesce(new.data->>'assignedDelta', ''))) = 'delta2' then
+      return new;
+    end if;
+    new.data := jsonb_set(
+      jsonb_set(
+        jsonb_set(new.data - 'assignedDeltaBy', '{assignedDelta}', '"delta2"'::jsonb, true),
+        '{assignedDeltaAt}', to_jsonb(clock_timestamp()), true
+      ),
+      '{assignedDeltaMode}', '"route-fixed"'::jsonb, true
+    );
+    return new;
+  elsif v_route <> 'PTY' then
     new.data := new.data - 'assignedDelta' - 'assignedDeltaAt' - 'assignedDeltaBy' - 'assignedDeltaMode';
     return new;
   end if;
 
   v_current := lower(btrim(coalesce(new.data->>'assignedDelta', '')));
-  if v_current in ('delta1', 'delta2', 'delta3') then
+  if v_current in ('delta1', 'delta3') then
     return new;
   end if;
 
@@ -61,6 +73,14 @@ create trigger active_route_assign_pty_delta
 before insert or update of data on public.active_route_items_cloud
 for each row execute function public.assign_active_route_pty_delta();
 
+-- Normaliza también los carros WC que ya estaban activos al instalar la regla.
+update public.active_route_items_cloud
+set data = data,
+    updated_at = now()
+where upper(btrim(regexp_replace(coalesce(data->>'routeAssignment', ''), '[[:space:]]+', ' ', 'g'))) = 'WC'
+  and coalesce(data->>'removedAt', '') = ''
+  and lower(btrim(coalesce(data->>'assignedDelta', ''))) <> 'delta2';
+
 -- Conservar la distribución acordada para la ruta activa del 14 de octubre de 2026.
 with fixed_assignments(unit_id, delta) as (
   values
@@ -93,7 +113,7 @@ set data = data,
     updated_at = now()
 where upper(btrim(regexp_replace(coalesce(data->>'routeAssignment', ''), '[[:space:]]+', ' ', 'g'))) = 'PTY'
   and coalesce(data->>'removedAt', '') = ''
-  and lower(btrim(coalesce(data->>'assignedDelta', ''))) not in ('delta1', 'delta2', 'delta3');
+  and lower(btrim(coalesce(data->>'assignedDelta', ''))) not in ('delta1', 'delta3');
 
 create or replace function public.change_active_route_delta_assignment(
   p_user_id uuid,
@@ -111,14 +131,18 @@ declare
   v_previous_delta text;
   v_delta text;
 begin
+  if coalesce(public.current_user_role()::text = 'buscador', false) then
+    raise exception 'Los buscadores no pueden cambiar al responsable de búsqueda.';
+  end if;
+
   if not coalesce(public.can_edit_owner_screen(p_user_id, 'route_search'), false) then
     raise exception 'Solo un editor de Ruta puede cambiar el buscador asignado.';
   end if;
 
   v_previous_delta := lower(btrim(coalesce(p_previous_delta, '')));
   v_delta := lower(btrim(coalesce(p_delta, '')));
-  if v_delta not in ('delta1', 'delta2', 'delta3') then
-    raise exception 'Selecciona Delta 1, Delta 2 o Delta 3.';
+  if v_delta not in ('delta1', 'delta3') then
+    raise exception 'Los carros PTY solo se asignan a Delta 1 o Delta 3.';
   end if;
 
   update public.active_route_items_cloud

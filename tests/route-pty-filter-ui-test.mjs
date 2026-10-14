@@ -19,7 +19,7 @@ const makeItem = (clientId, unitId, routeAssignment, assignedDelta) => ({
   routeStartedAt: publishedAt
 });
 const pty = makeItem("pty", "PTY-01", "PTY", "delta1");
-const wc = makeItem("wc", "WC-01", "WC");
+const wc = makeItem("wc", "WC-01", "WC", "delta2");
 
 const server = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", "4203", "--strictPort"], {
   windowsHide: true,
@@ -68,12 +68,16 @@ try {
   assert.equal(await page.getByText("WC-01", { exact: false }).count(), 0);
 
   assert.equal(await page.getByRole("button", { name: /Todos PTY/ }).count(), 0);
+  await page.getByRole("button", { name: "Delta 2 (1)", exact: true }).click();
+  assert.equal(await page.getByText("PTY-01", { exact: false }).count(), 0);
+  assert.equal(await page.getByText("WC-01", { exact: false }).count() > 0, true, "Delta 2 debe mostrar la ruta WC.");
+
   await page.getByText("Filtrar por ruta y zona", { exact: false }).click();
   await page.getByRole("button", { name: "PTY", exact: true }).click();
   assert.equal(await page.getByText("PTY-01", { exact: false }).count() > 0, true);
   assert.equal(await page.getByText("WC-01", { exact: false }).count(), 0, "El filtro de ruta PTY nunca debe incluir unidades WC.");
 
-  console.log("OK filtro PTY: Mis carros y el filtro de ruta PTY excluyen unidades WC.");
+  console.log("OK filtro Delta: Delta 2 muestra WC y la ruta PTY excluye WC.");
 } finally {
   if (browser) await browser.close();
   server.kill();

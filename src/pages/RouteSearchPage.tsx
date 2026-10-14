@@ -71,7 +71,8 @@ const ALL_ACTIVE_ZONE_FILTER = "__all_zones__";
 const EMPTY_ACTIVE_ZONE_FILTER = "__empty_zone__";
 const STANDARD_ACTIVE_ROUTES = new Set<string>(ROUTE_ASSIGNMENT_OPTIONS);
 const ROUTE_REPORT_PAGE_SIZE = 200;
-type PtyAssignedDelta = "delta1" | "delta2" | "delta3";
+type AssignedDelta = "delta1" | "delta2" | "delta3";
+type PtyAssignedDelta = "delta1" | "delta3";
 
 type ZoneOption = {
   value: string;
@@ -94,13 +95,14 @@ function deltaForDisplayItem(item: RouteDisplayItem, view: RouteWorkflowView, ca
   return null;
 }
 
-function isPtyAssignedDelta(value: RouteDeltaKey | null): value is PtyAssignedDelta {
-  return value === "delta1" || value === "delta3";
+function isAssignedDelta(value: RouteDeltaKey | null): value is AssignedDelta {
+  return value === "delta1" || value === "delta2" || value === "delta3";
 }
 
-function matchesPtyAssignedDelta(item: ActiveRouteItem, delta: PtyAssignedDelta | null): boolean {
+function matchesAssignedDelta(item: ActiveRouteItem, delta: AssignedDelta | null): boolean {
   if (!delta) return true;
-  return activeRouteFilterValue(item.routeAssignment) === "PTY" && item.assignedDelta === delta;
+  const expectedRoute = delta === "delta2" ? "WC" : "PTY";
+  return activeRouteFilterValue(item.routeAssignment) === expectedRoute && item.assignedDelta === delta;
 }
 
 function normalizeZoneName(value: string | undefined): string {
@@ -185,7 +187,8 @@ export default function RouteSearchPage({
     : null;
   const operatorCollectionTeam = asCollectionTeam(initialRouteFilter);
   const signedInDelta = routeDeltaFromName(currentUserEmail);
-  const signedInPtyDelta = isPtyAssignedDelta(signedInDelta) ? signedInDelta : null;
+  const signedInAssignedDelta = isAssignedDelta(signedInDelta) ? signedInDelta : null;
+  const canEditAssignedDelta = !readOnly && signedInDelta === null;
   const [businessDateKey, setBusinessDateKey] = useState(() => getBusinessDateKey());
   useEffect(() => {
     const updateDay = () => setBusinessDateKey(getBusinessDateKey());
@@ -420,8 +423,16 @@ export default function RouteSearchPage({
     try {
       await changeRouteAssignment(dataOwnerUserId, item, route);
       setItems(current => current.map(row => row.clientId === item.clientId && row.publishedAt === item.publishedAt
-        ? { ...row, routeAssignment: route } : row));
-      setRouteUndo(isUndo ? null : { item: { ...item, routeAssignment: route }, previous, current: route });
+        ? {
+            ...row,
+            routeAssignment: route,
+            assignedDelta: route === "WC"
+              ? "delta2"
+              : route === "PTY" && (row.assignedDelta === "delta1" || row.assignedDelta === "delta3")
+                ? row.assignedDelta
+                : undefined
+          } : row));
+      setRouteUndo(isUndo ? null : { item: { ...item, routeAssignment: route, assignedDelta: route === "WC" ? "delta2" : undefined }, previous, current: route });
       setRouteActionMessage(isUndo ? `${item.unitId} volvió a ${route}.` : `${item.unitId} cambió a ${route}.`);
       return true;
     } catch (cause) {
@@ -433,7 +444,7 @@ export default function RouteSearchPage({
     if (routeUndo) await changeTeam(routeUndo.item, routeUndo.previous, true);
   }
   async function changeAssignedDelta(item: ActiveRouteItem, delta: PtyAssignedDelta): Promise<void> {
-    if (readOnly || !dataOwnerUserId || changingAssignedDelta || item.assignedDelta === delta) return;
+    if (!canEditAssignedDelta || !dataOwnerUserId || changingAssignedDelta || item.assignedDelta === delta) return;
     setChangingAssignedDelta(item.clientId);
     setAssignedDeltaError("");
     setRouteActionMessage("");
@@ -442,7 +453,7 @@ export default function RouteSearchPage({
         userId: dataOwnerUserId,
         clientId: item.clientId,
         publishedAt: item.publishedAt,
-        previousDelta: item.assignedDelta,
+        previousDelta: item.assignedDelta === "delta1" || item.assignedDelta === "delta3" ? item.assignedDelta : undefined,
         delta
       });
       setItems(current => current.map(row => row.clientId === item.clientId && row.publishedAt === item.publishedAt
@@ -500,7 +511,7 @@ export default function RouteSearchPage({
   const [query, setQuery] = useState("");
   const [routeFilter, setRouteFilter] = useState(preferredRouteFilter ?? ALL_ACTIVE_ROUTE_FILTER);
   const [deltaFilter, setDeltaFilter] = useState<RouteDeltaKey | null>(null);
-  const [assignedDeltaFilter, setAssignedDeltaFilter] = useState<PtyAssignedDelta | null>(signedInPtyDelta);
+  const [assignedDeltaFilter, setAssignedDeltaFilter] = useState<AssignedDelta | null>(signedInAssignedDelta);
   const [assignmentManagerOpen, setAssignmentManagerOpen] = useState(false);
   const [zoneFilter, setZoneFilter] = useState(ALL_ACTIVE_ZONE_FILTER);
   const [zoneFilterLabel, setZoneFilterLabel] = useState("");
@@ -539,8 +550,8 @@ export default function RouteSearchPage({
   }, [preferredRouteFilter]);
 
   useEffect(() => {
-    setAssignedDeltaFilter(signedInPtyDelta);
-  }, [signedInPtyDelta]);
+    setAssignedDeltaFilter(signedInAssignedDelta);
+  }, [signedInAssignedDelta]);
 
   const currentBalanceByClient = useMemo(
     () => new Map(clients.map((client) => [client.id, Math.max(0, client.balance)] as const)),
@@ -742,21 +753,21 @@ export default function RouteSearchPage({
       .filter(item => activeRouteFilterValue(item.routeAssignment) === "PTY")
       .sort(compareActiveRouteItems)
   ), [workItems]);
-  const ptyAssignmentCounts = useMemo(() => {
+  const deltaAssignmentCounts = useMemo(() => {
     return {
-      all: ptyAssignedWorkItems.length,
+      all: workItems.filter(item => item.assignedDelta && matchesAssignedDelta(item, item.assignedDelta)).length,
       delta1: ptyAssignedWorkItems.filter(item => item.assignedDelta === "delta1").length,
-      delta2: ptyAssignedWorkItems.filter(item => item.assignedDelta === "delta2").length,
+      delta2: workItems.filter(item => activeRouteFilterValue(item.routeAssignment) === "WC" && item.assignedDelta === "delta2").length,
       delta3: ptyAssignedWorkItems.filter(item => item.assignedDelta === "delta3").length
     };
-  }, [ptyAssignedWorkItems]);
+  }, [ptyAssignedWorkItems, workItems]);
 
   const workflowCounts = useMemo(() => {
     const byDelta = (rows: RouteDisplayItem[], view: RouteWorkflowView) => {
       const actionFiltered = deltaFilter
         ? rows.filter((item) => deltaForDisplayItem(item, view, captureByRouteItem, deltaIdentityMap) === deltaFilter)
         : rows;
-      return actionFiltered.filter(item => matchesPtyAssignedDelta(item, assignedDeltaFilter)).length;
+      return actionFiltered.filter(item => matchesAssignedDelta(item, assignedDeltaFilter)).length;
     };
     return {
       work: byDelta(workItems, "work"),
@@ -914,7 +925,7 @@ export default function RouteSearchPage({
   const visibleItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return activeItems
-      .filter((item) => matchesPtyAssignedDelta(item, assignedDeltaFilter))
+      .filter((item) => matchesAssignedDelta(item, assignedDeltaFilter))
       .filter((item) => routeFilter === ALL_ACTIVE_ROUTE_FILTER || activeRouteFilterValue(item.routeAssignment) === routeFilter)
       .filter((item) => zoneFilter === ALL_ACTIVE_ZONE_FILTER || activeZoneFilterValue(item.zone) === zoneFilter)
       .filter((item) => {
@@ -1443,20 +1454,20 @@ export default function RouteSearchPage({
         <span>{routeActionMessage}</span>
         {routeUndo && routeActionMessage === `${routeUndo.item.unitId} cambió a ${routeUndo.current}.` ? <button type="button" className="button ghost small" disabled={changingRoute !== null} onClick={() => void undoRouteChange()}>{changingRoute ? "Deshaciendo…" : "Deshacer"}</button> : null}
       </div> : null}
-      {ptyAssignmentCounts.all > 0 && workflowView !== "managed" ? (
+      {deltaAssignmentCounts.all > 0 && workflowView !== "managed" ? (
         <div className="route-search-delta-toolbar">
           <span className="route-search-filter-label">Delta</span>
-          <div className="route-search-filters route-search-delta-assignment-filters" aria-label="Filtrar PTY por Delta asignado">
+          <div className="route-search-filters route-search-delta-assignment-filters" aria-label="Filtrar por Delta asignado">
             {(["delta1", "delta2", "delta3"] as const).map(delta => (
-              <button key={delta} type="button" className={assignedDeltaFilter === delta && routeFilter === "PTY" ? "is-active" : ""} aria-pressed={assignedDeltaFilter === delta && routeFilter === "PTY"}
-                onClick={() => { setAssignedDeltaFilter(delta); setRouteFilter("PTY"); setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel(""); }}>
-                {signedInPtyDelta === delta ? "Mis carros" : routeDeltaLabel(delta)} ({ptyAssignmentCounts[delta]})
+              <button key={delta} type="button" className={assignedDeltaFilter === delta && routeFilter === (delta === "delta2" ? "WC" : "PTY") ? "is-active" : ""} aria-pressed={assignedDeltaFilter === delta && routeFilter === (delta === "delta2" ? "WC" : "PTY")}
+                onClick={() => { setAssignedDeltaFilter(delta); setRouteFilter(delta === "delta2" ? "WC" : "PTY"); setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel(""); }}>
+                {signedInAssignedDelta === delta ? "Mis carros" : routeDeltaLabel(delta)} ({deltaAssignmentCounts[delta]})
               </button>
             ))}
-            <button type="button" className="route-search-organize-inline" disabled={readOnly}
-              title={readOnly ? "Solo Administración o un editor de Ruta puede cambiar las asignaciones." : "Cambiar carros entre Delta 1, Delta 2 y Delta 3"}
+            <button type="button" className="route-search-organize-inline" disabled={!canEditAssignedDelta}
+              title={!canEditAssignedDelta ? "Los buscadores no pueden cambiar al responsable de búsqueda." : "Cambiar carros PTY entre Delta 1 y Delta 3"}
               onClick={() => setAssignmentManagerOpen(true)}>
-              {readOnly ? "Editar · Solo Administración" : "Editar asignación"}
+              {!canEditAssignedDelta ? "Editar · Solo Administración" : "Editar asignación"}
             </button>
           </div>
         </div>
@@ -1491,7 +1502,7 @@ export default function RouteSearchPage({
                 onClick={() => {
                   setRouteFilter(option);
                   setDeltaFilter(null);
-                  if (option !== "PTY") setAssignedDeltaFilter(null);
+                  setAssignedDeltaFilter(null);
                   setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
                   setZoneFilterLabel("");
                 }}
@@ -1568,7 +1579,7 @@ export default function RouteSearchPage({
               comment={commentDrafts[item.clientId] ?? item.comment ?? ""} commentSaving={Boolean(commentSavingByClient[item.clientId]) || !dataOwnerUserId}
               changingRoute={changingRoute !== null}
               changingAssignedDelta={changingAssignedDelta === item.clientId}
-              canEditAssignedDelta={!readOnly && Boolean(activeRoute && !activeRoute.removedAt)}
+              canEditAssignedDelta={canEditAssignedDelta && Boolean(activeRoute && !activeRoute.removedAt)}
               routeOptions={routeAssignmentOptions}
               inactiveSaving={Boolean(inactiveSavingByClient[item.clientId])} elapsedNow={elapsedNow}
               canReturnReport={Boolean(item.report?.status === "review" && canConfirmBankPayment)}
@@ -1593,7 +1604,7 @@ export default function RouteSearchPage({
         </div>
       )}
 
-      {assignmentManagerOpen && !readOnly ? (
+      {assignmentManagerOpen && canEditAssignedDelta ? (
         <div className="modal-overlay route-search-payment-overlay">
           <div className="modal route-assignment-manager" role="dialog" aria-modal="true" aria-labelledby="route-assignment-manager-title">
             <div className="modal-header">
@@ -1604,9 +1615,8 @@ export default function RouteSearchPage({
               <button type="button" className="button ghost small" onClick={() => setAssignmentManagerOpen(false)}>Cerrar</button>
             </div>
             <div className="route-assignment-manager-summary">
-              <span><strong>Delta 1</strong><b>{ptyAssignmentCounts.delta1}</b></span>
-              <span><strong>Delta 2</strong><b>{ptyAssignmentCounts.delta2}</b></span>
-              <span><strong>Delta 3</strong><b>{ptyAssignmentCounts.delta3}</b></span>
+              <span><strong>Delta 1</strong><b>{deltaAssignmentCounts.delta1}</b></span>
+              <span><strong>Delta 3</strong><b>{deltaAssignmentCounts.delta3}</b></span>
             </div>
             <div className="route-assignment-manager-list">
               {ptyAssignedWorkItems.map(item => <label key={`${item.clientId}:${item.publishedAt}`} className="route-assignment-manager-row">
@@ -1616,7 +1626,6 @@ export default function RouteSearchPage({
                   onChange={event => void changeAssignedDelta(item, event.target.value as PtyAssignedDelta)}>
                   {!item.assignedDelta ? <option value="">Sin asignar</option> : null}
                   <option value="delta1">Delta 1</option>
-                  <option value="delta2">Delta 2</option>
                   <option value="delta3">Delta 3</option>
                 </select>
               </label>)}

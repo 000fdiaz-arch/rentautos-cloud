@@ -58,7 +58,7 @@ type Props = {
   onComment: (value: string) => void;
   onSaveComment: () => void;
   onRoute: (route: string) => void;
-  onAssignedDelta: (delta: "delta1" | "delta2" | "delta3") => void;
+  onAssignedDelta: (delta: "delta1" | "delta3") => void;
   onCreateRoute: () => void;
   onInactive: () => void;
 };
@@ -191,10 +191,9 @@ export default function RouteCollectionCard(props: Props) {
         Responsable de búsqueda
         <select aria-label={`Buscador asignado a ${item.unitId}`} value={item.assignedDelta ?? ""}
           disabled={props.changingAssignedDelta || saving}
-          onChange={event => props.onAssignedDelta(event.target.value as "delta1" | "delta2" | "delta3")}>
+          onChange={event => props.onAssignedDelta(event.target.value as "delta1" | "delta3")}>
           {!item.assignedDelta ? <option value="">Sin asignar</option> : null}
           <option value="delta1">Delta 1</option>
-          <option value="delta2">Delta 2</option>
           <option value="delta3">Delta 3</option>
         </select>
       </label> : <p className="route-collection-delta-badge">
