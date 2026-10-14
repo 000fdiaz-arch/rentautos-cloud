@@ -69,7 +69,6 @@ export type RouteSearchPageProps = {
 
 const ALL_ACTIVE_ZONE_FILTER = "__all_zones__";
 const EMPTY_ACTIVE_ZONE_FILTER = "__empty_zone__";
-const STANDARD_ACTIVE_ROUTES = new Set<string>(ROUTE_ASSIGNMENT_OPTIONS);
 const ROUTE_REPORT_PAGE_SIZE = 200;
 type AssignedDelta = "delta1" | "delta2" | "delta3";
 type PtyAssignedDelta = "delta1" | "delta3";
@@ -861,24 +860,6 @@ export default function RouteSearchPage({
     return Array.from(options).sort(compareActiveRouteFilterValues);
   }, [activeItems, deltaFilter, managedActions, routeFilter, workflowView]);
 
-  const extraRouteOptions = useMemo(() => {
-    const counts = new Map<string, number>();
-    activeItems
-      .forEach((item) => {
-        const routeValue = activeRouteFilterValue(item.routeAssignment);
-        if (routeValue === EMPTY_ACTIVE_ROUTE_FILTER || STANDARD_ACTIVE_ROUTES.has(routeValue)) return;
-        counts.set(routeValue, (counts.get(routeValue) ?? 0) + 1);
-      });
-    return Array.from(counts.entries())
-      .sort(([left], [right]) => compareActiveRouteFilterValues(left, right))
-      .map(([value, count]) => ({ value, count }));
-  }, [activeItems]);
-
-  const extraRouteItemCount = useMemo(
-    () => extraRouteOptions.reduce((total, option) => total + option.count, 0),
-    [extraRouteOptions]
-  );
-
   const zoneOptionsByRoute = useMemo(() => {
     const byRoute = new Map<string, Map<string, ZoneOption>>();
     activeItems.forEach((item) => {
@@ -971,7 +952,13 @@ export default function RouteSearchPage({
   const routeTotals = useMemo(() => {
     const managed = deltaFilter ? managedActions.filter((action) => action.delta === deltaFilter) : managedActions;
     const source = workflowView === "managed" ? managed : activeItems;
-    return Array.from(new Set(ROUTE_DELTAS.map((delta) => delta.route))).map((route) => ({
+    const standardRoutes = Array.from(new Set(ROUTE_DELTAS.map((delta) => delta.route)));
+    const standardRouteSet = new Set<string>(standardRoutes);
+    const additionalRoutes = Array.from(new Set(source
+      .map((item) => activeRouteFilterValue(item.routeAssignment))
+      .filter((route) => route !== EMPTY_ACTIVE_ROUTE_FILTER && !standardRouteSet.has(route))))
+      .sort(compareActiveRouteFilterValues);
+    return [...standardRoutes, ...additionalRoutes].map((route) => ({
       route,
       count: source.filter((item) => activeRouteFilterValue(item.routeAssignment) === route).length
     }));
@@ -1385,37 +1372,6 @@ export default function RouteSearchPage({
 
       {workflowView === "work" || workflowView === "managed" ? <RouteTeamSummary actions={managedActions} activeDelta={deltaFilter}
         activeRoute={routeFilter === ALL_ACTIVE_ROUTE_FILTER ? "" : routeFilter} onDeltaChange={toggleDeltaFilter} /> : null}
-      {extraRouteOptions.length > 0 ? <section className="route-search-extra-routes" aria-label="Rutas creadas">
-        <div className="route-search-extra-routes-copy">
-          <strong>Rutas creadas · {extraRouteItemCount} unidad{extraRouteItemCount === 1 ? "" : "es"}</strong>
-          <span>Rutas personalizadas activas</span>
-        </div>
-        <div className="route-search-extra-route-options">
-          {extraRouteOptions.map((option) => <button
-            key={option.value}
-            type="button"
-            className={routeFilter === option.value ? "is-active" : ""}
-            aria-pressed={routeFilter === option.value}
-            onClick={() => {
-              setRouteFilter(option.value);
-              setDeltaFilter(null);
-              setAssignedDeltaFilter(null);
-              setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
-              setZoneFilterLabel("");
-            }}
-          >
-            <span>{activeRouteFilterLabel(option.value)}</span>
-            <strong>{option.count}</strong>
-          </button>)}
-        </div>
-        <button type="button" className="route-search-extra-routes-all" onClick={() => {
-          setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
-          setDeltaFilter(null);
-          setAssignedDeltaFilter(null);
-          setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
-          setZoneFilterLabel("");
-        }}>Ver todas →</button>
-      </section> : null}
       <details className="route-collection-cash-summary"><summary>Efectivo pendiente de entrega</summary><RoutePendingCashPanel payments={payments} dateKey={businessDateKey} loading={paymentsLoading} /></details>
       <div className="route-search-workflow-tabs" aria-label="Estado de las unidades">
         {([['work', 'Trabajo', workflowCounts.work], ['review', 'Pagos por revisar', workflowCounts.review], ['custody', 'En custodia', workflowCounts.custody], ['managed', 'Gestionados hoy', workflowCounts.managed]] as const).map(([view, label, count]) => (

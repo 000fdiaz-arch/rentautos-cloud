@@ -19629,59 +19629,6 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 .route-team-summary-delta strong { color: var(--color-primary); }
 .route-team-summary-delta small { color: var(--color-text-muted); font-size: .68rem; font-weight: 500; }
 .route-team-summary-row > b { font-size: 1.05rem; }
-.route-search-extra-routes {
-  display: grid;
-  grid-template-columns: minmax(145px, .9fr) minmax(220px, 1.4fr) auto;
-  align-items: center;
-  gap: 12px;
-  margin: 10px 0 12px;
-  padding: 10px 12px;
-  border: 1px solid #fdba74;
-  border-radius: 12px;
-  background: #fff7ed;
-}
-.route-search-extra-routes-copy { display: grid; gap: 2px; }
-.route-search-extra-routes-copy strong { color: #9a3412; }
-.route-search-extra-routes-copy span { color: var(--color-text-muted); font-size: .78rem; }
-.route-search-extra-route-options { display: flex; flex-wrap: wrap; gap: 8px; }
-.route-search-extra-route-options button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 38px;
-  padding: 7px 11px;
-  border: 1px solid #fdba74;
-  border-radius: 999px;
-  background: var(--color-surface);
-  color: var(--color-text);
-  cursor: pointer;
-  font: inherit;
-  font-size: .82rem;
-  font-weight: 800;
-}
-.route-search-extra-route-options button strong {
-  color: #9a3412;
-  font-size: .76rem;
-}
-.route-search-extra-route-options button.is-active {
-  border-color: #c2410c;
-  background: #ffedd5;
-  color: #9a3412;
-}
-.route-search-extra-routes-all {
-  min-height: 38px;
-  padding: 6px 4px;
-  border: 0;
-  background: transparent;
-  color: #9a3412;
-  cursor: pointer;
-  font: inherit;
-  font-size: .82rem;
-  font-weight: 800;
-  white-space: nowrap;
-}
-.route-search-extra-route-options button:focus-visible,
-.route-search-extra-routes-all:focus-visible { outline: 3px solid #0f766e; outline-offset: 2px; }
 .route-pending-cash { margin: 12px 0; }
 .route-pending-cash-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .route-pending-cash-teams { display: grid; gap: 0; }
@@ -19975,8 +19922,6 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   .route-team-summary-row > b::before { color: var(--color-text-muted); content: attr(data-label); font-size: .72rem; font-weight: 600; }
   .route-search-delta-filter { align-items: stretch; flex-direction: column; }
   .route-search-delta-filter .button { width: 100%; min-height: 44px; }
-  .route-search-extra-routes { grid-template-columns: minmax(0, 1fr); }
-  .route-search-extra-routes-all { justify-self: start; padding-left: 0; }
   .route-search-page--compact .route-search-list { grid-template-columns: minmax(0, 1fr); }
   .route-search-page--compact .route-search-workflow-tabs .button { flex-basis: 130px; font-size: .8rem; }
   .route-search-page--compact .route-search-header { flex-wrap: wrap; }
