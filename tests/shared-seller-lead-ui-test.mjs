@@ -6,7 +6,11 @@ import { chromium } from "playwright";
 // A local browser test with all Supabase calls mocked. No production data is sent.
 const base = "http://127.0.0.1:4192";
 const portal = "11111111-1111-4111-8111-111111111111";
-const server = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", "4192", "--strictPort"], { stdio: "pipe", windowsHide: true });
+const server = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", "4192", "--strictPort"], {
+  stdio: "pipe",
+  windowsHide: true,
+  env: { ...process.env, VITE_SUPABASE_URL: "https://seller-tests.invalid", VITE_SUPABASE_ANON_KEY: "synthetic-test-key" }
+});
 let browser;
 let cases = 0;
 const check = (name) => { cases++; console.log("OK", name); };
@@ -29,18 +33,22 @@ try {
   await page.route("**/*", async route => {
     const request = route.request();
     if (request.url().startsWith(base)) return route.continue();
+    if (request.url().includes("/functions/v1/submit-seller-lead-document")) {
+      sent++;
+      const input = request.postDataJSON();
+      assert.equal(input.mode, "shared");
+      assert.equal(input.portalId, portal);
+      assert.equal(input.cedula, "8-888-888");
+      assert.equal(input.birthDate, "1990-01-01");
+      assert.equal(input.attachmentName, "camera-large.jpg");
+      assert.match(input.attachmentDataUrl, /^data:image\/jpeg;base64,/);
+      assert.ok(Buffer.from(input.attachmentDataUrl.split(",")[1], "base64").length <= 4 * 1024 * 1024);
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({status:"pending_review"}) });
+    }
     if (request.url().includes("/rest/v1/rpc/")) {
       const name = request.url().split("/").pop();
       if (rateLimit) return route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ message: "PORTAL_RATE_LIMIT" }) });
       if (slow) await new Promise(resolve => setTimeout(resolve, 250));
-      if (name === "submit_shared_seller_lead") {
-        sent++;
-        const input = request.postDataJSON();
-        assert.equal(input.p_cedula, "8-888-888");
-        assert.equal(input.p_birth_date, "1990-01-01");
-        assert.match(input.p_attachment_data_url, /^data:image\/png;base64,/);
-        return route.fulfill({ json: {status:"pending_review"} });
-      }
       if (name === "get_seller_lead_request") return route.fulfill({ json: {status:"reviewed",decision:"aplica",extraDeposit:0} });
       assert.equal(name, "lookup_seller_lead");
       return route.fulfill({ json: status === "reviewed" ? {status,decision,extraDeposit:decision === "aplica_con_abono" ? 150 : 0} : {status} });
@@ -88,13 +96,40 @@ try {
   status = "not_found";
   await consult.click();
   await page.getByLabel("Fecha de nacimiento").fill("1990-01-01");
-  await page.locator("input[type=file]").setInputFiles({
-    name:"sample.png", mimeType:"image/png", buffer:Buffer.from("iVBORw0KGgo=", "base64")
+  const fileInput = page.locator("input[type=file]");
+  const accepted = await fileInput.getAttribute("accept");
+  assert.match(accepted, /image\/\*/);
+  assert.match(accepted, /\.heic/);
+  assert.match(accepted, /application\/pdf/);
+  const chooserPromise = page.waitForEvent("filechooser");
+  await fileInput.click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles({ name:"camera.JPG", mimeType:"application/octet-stream", buffer:Buffer.from("iVBORw0KGgo=", "base64") });
+  await page.getByText("Documento: camera.JPG", {exact:true}).waitFor();
+  check("mobile picker accepts broad image types and infers JPEG when the phone reports a generic MIME");
+
+  const largePng = await page.evaluate(async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1600; canvas.height = 1600;
+    const context = canvas.getContext("2d");
+    const pixels = context.createImageData(canvas.width, canvas.height);
+    for (let offset = 0; offset < pixels.data.length; offset += 65536) {
+      crypto.getRandomValues(pixels.data.subarray(offset, Math.min(offset + 65536, pixels.data.length)));
+    }
+    for (let index = 3; index < pixels.data.length; index += 4) pixels.data[index] = 255;
+    context.putImageData(pixels, 0, 0);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+    return new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.readAsDataURL(blob); });
   });
+  const largeBuffer = Buffer.from(largePng.split(",")[1], "base64");
+  assert.ok(largeBuffer.length > 4 * 1024 * 1024);
+  await fileInput.setInputFiles({ name:"camera-large.png", mimeType:"image/png", buffer:largeBuffer });
+  await page.getByText("La foto fue convertida y optimizada para poder enviarla.", {exact:true}).waitFor();
+  await page.getByText("Documento: camera-large.jpg", {exact:true}).waitFor();
   await page.getByRole("button", {name:"Enviar a verificación",exact:true}).click();
   await page.getByText(/La información de esta persona está en revisión/).waitFor();
   assert.equal(sent, 1);
-  check("new person form submits only identity fields and then locks");
+  check("large mobile photo is compressed below 4 MB, converted to JPEG, submitted and then locked");
 
   status = "incomplete";
   await consult.click();

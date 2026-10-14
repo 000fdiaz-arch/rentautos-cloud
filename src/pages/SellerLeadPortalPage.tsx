@@ -3,6 +3,7 @@ import type { ChangeEvent, FormEvent } from "react";
 import { loadPublicSellerLeadRequest, lookupPublicSellerLead, submitPublicSellerLeadRequest, submitSharedSellerLead } from "../cloud/sellerLeadRequestCloudData";
 import type { PublicSellerLeadRequest } from "../types";
 import { SELLER_PENDING_MESSAGE, sellerDecisionMessage, validSellerBirthDate, validSellerCedula, validSellerCedulaInput } from "../sellerLeadPortalRules";
+import { prepareSellerLeadDocument } from "../sellerLeadDocument";
 
 type Props = { token?: string; portalId?: string };
 
@@ -12,6 +13,7 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
   const [birthDate, setBirthDate] = useState("");
   const [attachmentName, setAttachmentName] = useState("");
   const [attachmentDataUrl, setAttachmentDataUrl] = useState("");
+  const [attachmentOptimized, setAttachmentOptimized] = useState(false);
   const [loading, setLoading] = useState(Boolean(token));
   const [saving, setSaving] = useState(false);
   const [readingFile, setReadingFile] = useState(false);
@@ -50,6 +52,7 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
     setBirthDate("");
     setAttachmentName("");
     setAttachmentDataUrl("");
+    setAttachmentOptimized(false);
     setError("");
   }
 
@@ -79,27 +82,20 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
     const file = event.target.files?.[0];
     setAttachmentDataUrl("");
     setAttachmentName("");
+    setAttachmentOptimized(false);
     setReadingFile(false);
     if (!file) return;
-    if (file.size === 0 || file.size > 4 * 1024 * 1024 || !["image/png", "image/jpeg", "image/webp", "application/pdf"].includes(file.type)) {
-      setError("Adjunta un archivo PNG, JPEG, WebP o PDF de hasta 4 MB.");
-      event.target.value = "";
-      return;
-    }
     setReadingFile(true);
     try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result ?? ""));
-        reader.onerror = () => reject(new Error("No se pudo leer el documento."));
-        reader.readAsDataURL(file);
-      });
+      const prepared = await prepareSellerLeadDocument(file);
       if (current !== fileOperation.current) return;
-      setAttachmentName(file.name.slice(0, 240));
-      setAttachmentDataUrl(dataUrl);
+      setAttachmentName(prepared.name);
+      setAttachmentDataUrl(prepared.dataUrl);
+      setAttachmentOptimized(prepared.optimized);
       setError("");
-    } catch {
-      if (current === fileOperation.current) setError("No se pudo leer el documento. Selecciónalo nuevamente.");
+    } catch (cause) {
+      event.target.value = "";
+      if (current === fileOperation.current) setError(cause instanceof Error ? cause.message : "No se pudo leer el documento. Selecciónalo nuevamente.");
     } finally {
       if (current === fileOperation.current) setReadingFile(false);
     }
@@ -126,6 +122,7 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
       setBirthDate("");
       setAttachmentName("");
       setAttachmentDataUrl("");
+      setAttachmentOptimized(false);
     } catch (cause) {
       setError(portalId && cause instanceof Error ? cause.message : "No pudimos enviar la información. Intenta nuevamente.");
     } finally {
@@ -173,11 +170,12 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
               <label>Fecha de nacimiento<input required type="date" min="1900-01-01" max={new Date().toISOString().slice(0, 10)}
                 value={birthDate} onChange={(event) => setBirthDate(event.target.value)} disabled={locked} /></label>
               <label className="seller-lead-file">Foto de cédula o licencia
-                <input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(event) => void handleFile(event)} disabled={locked} />
+                <input type="file" accept="image/*,application/pdf,.heic,.heif" aria-describedby="seller-lead-file-help" onChange={(event) => void handleFile(event)} disabled={locked} />
               </label>
             </div>
-            <p className="hint">PNG, JPEG, WebP o PDF. Máximo 4 MB. Comparte estos documentos solo con autorización de la persona.</p>
+            <p className="hint" id="seller-lead-file-help">Puedes tomar una foto o elegirla del teléfono, incluso HEIC/HEIF. Las fotos grandes se optimizan automáticamente; PDF máximo 4 MB. Comparte estos documentos solo con autorización de la persona.</p>
             {attachmentName && <p className="hint">Documento: {attachmentName}</p>}
+            {attachmentOptimized && <p className="hint">La foto fue convertida y optimizada para poder enviarla.</p>}
             <button type="submit" className="button primary seller-lead-submit" disabled={locked}>
               {readingFile ? "Leyendo documento..." : saving ? "Enviando..." : "Enviar a verificación"}
             </button>
