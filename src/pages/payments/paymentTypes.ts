@@ -1,4 +1,4 @@
-import type { Client, CollectionTeam, OtherCharge, PaymentMethod } from "../../types";
+import type { Client, CollectionTeam, OtherCharge, OtherChargesRetentionEvent, PaymentMethod } from "../../types";
 
 export type PaymentForm = {
   clientId: string;
@@ -278,4 +278,5 @@ export type ManualPaymentAllocation = {
   totalTickets: number;
   ticketsApplied: OtherCharge[];
   forcedOtherChargesRuleApplied: boolean;
+  otherChargesRetentionEvent?: OtherChargesRetentionEvent;
 };

@@ -24,6 +24,7 @@ import {
   removeCloudActiveRouteItemFromSearch,
   saveCloudActiveRouteComment,
   saveCloudActiveRouteZone,
+  changeCloudActiveRouteDelta,
   type ActiveRouteItem,
   type ActiveRouteDelta
 } from "../cloudData";
@@ -31,7 +32,7 @@ import { formatCurrency, formatDate } from "../format";
 import { supabase } from "../lib/supabase";
 import { buildRouteReviewIndex, getActiveRouteReviewItems, getRouteWorkItems, isPendingCashRouteReport, routeRentAmountForDay } from "../routeReviewRules";
 import { compareRouteWorkItemsByUrgency } from "../routeTimeUrgency";
-import { buildRouteDeltaIdentityMap, buildRouteManagedActions, routeDeltaForActor, routeDeltaLabel, ROUTE_DELTAS, type RouteDeltaIdentityMap, type RouteDeltaKey } from "../routeDeltaTracking";
+import { buildRouteDeltaIdentityMap, buildRouteManagedActions, routeDeltaForActor, routeDeltaFromName, routeDeltaLabel, ROUTE_DELTAS, type RouteDeltaIdentityMap, type RouteDeltaKey } from "../routeDeltaTracking";
 import type { Client, CollectionTeam, Payment } from "../types";
 import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentStorage";
 import type { NotifiedPayment } from "./payments/paymentTypes";
@@ -70,6 +71,7 @@ const ALL_ACTIVE_ZONE_FILTER = "__all_zones__";
 const EMPTY_ACTIVE_ZONE_FILTER = "__empty_zone__";
 const STANDARD_ACTIVE_ROUTES = new Set<string>(ROUTE_ASSIGNMENT_OPTIONS);
 const ROUTE_REPORT_PAGE_SIZE = 200;
+type PtyAssignedDelta = "delta1" | "delta2" | "delta3";
 
 type ZoneOption = {
   value: string;
@@ -90,6 +92,15 @@ function deltaForDisplayItem(item: RouteDisplayItem, view: RouteWorkflowView, ca
   }
   if (view === "work" && item.routeInactiveAt) return routeDeltaForActor(item.routeInactiveBy, undefined, identities);
   return null;
+}
+
+function isPtyAssignedDelta(value: RouteDeltaKey | null): value is PtyAssignedDelta {
+  return value === "delta1" || value === "delta3";
+}
+
+function matchesPtyAssignedDelta(item: ActiveRouteItem, delta: PtyAssignedDelta | null): boolean {
+  if (!delta) return true;
+  return activeRouteFilterValue(item.routeAssignment) === "PTY" && item.assignedDelta === delta;
 }
 
 function normalizeZoneName(value: string | undefined): string {
@@ -173,6 +184,8 @@ export default function RouteSearchPage({
     ? activeRouteFilterValue(initialRouteFilter)
     : null;
   const operatorCollectionTeam = asCollectionTeam(initialRouteFilter);
+  const signedInDelta = routeDeltaFromName(currentUserEmail);
+  const signedInPtyDelta = isPtyAssignedDelta(signedInDelta) ? signedInDelta : null;
   const [businessDateKey, setBusinessDateKey] = useState(() => getBusinessDateKey());
   useEffect(() => {
     const updateDay = () => setBusinessDateKey(getBusinessDateKey());
@@ -386,6 +399,8 @@ export default function RouteSearchPage({
     }
   }
   const [changingRoute, setChangingRoute] = useState<string | null>(null);
+  const [changingAssignedDelta, setChangingAssignedDelta] = useState<string | null>(null);
+  const [assignedDeltaError, setAssignedDeltaError] = useState("");
   const [changeRouteError, setChangeRouteError] = useState("");
   const [routeUndo, setRouteUndo] = useState<{ item: ActiveRouteItem; previous: string; current: string } | null>(null);
   const [routeCreateTarget, setRouteCreateTarget] = useState<ActiveRouteItem | null>(null);
@@ -416,6 +431,28 @@ export default function RouteSearchPage({
   }
   async function undoRouteChange(): Promise<void> {
     if (routeUndo) await changeTeam(routeUndo.item, routeUndo.previous, true);
+  }
+  async function changeAssignedDelta(item: ActiveRouteItem, delta: PtyAssignedDelta): Promise<void> {
+    if (readOnly || !dataOwnerUserId || changingAssignedDelta || item.assignedDelta === delta) return;
+    setChangingAssignedDelta(item.clientId);
+    setAssignedDeltaError("");
+    setRouteActionMessage("");
+    try {
+      await changeCloudActiveRouteDelta({
+        userId: dataOwnerUserId,
+        clientId: item.clientId,
+        publishedAt: item.publishedAt,
+        previousDelta: item.assignedDelta,
+        delta
+      });
+      setItems(current => current.map(row => row.clientId === item.clientId && row.publishedAt === item.publishedAt
+        ? { ...row, assignedDelta: delta } : row));
+      setRouteActionMessage(`${item.unitId} quedó asignado a ${routeDeltaLabel(delta)}.`);
+    } catch (cause) {
+      setAssignedDeltaError(buildCloudErrorMessage("No se pudo cambiar el buscador asignado.", cause, { includeRawFallback: true }));
+    } finally {
+      setChangingAssignedDelta(null);
+    }
   }
   async function createRoute(): Promise<void> {
     if (!routeCreateTarget || changingRoute) return;
@@ -463,6 +500,8 @@ export default function RouteSearchPage({
   const [query, setQuery] = useState("");
   const [routeFilter, setRouteFilter] = useState(preferredRouteFilter ?? ALL_ACTIVE_ROUTE_FILTER);
   const [deltaFilter, setDeltaFilter] = useState<RouteDeltaKey | null>(null);
+  const [assignedDeltaFilter, setAssignedDeltaFilter] = useState<PtyAssignedDelta | null>(signedInPtyDelta);
+  const [assignmentManagerOpen, setAssignmentManagerOpen] = useState(false);
   const [zoneFilter, setZoneFilter] = useState(ALL_ACTIVE_ZONE_FILTER);
   const [zoneFilterLabel, setZoneFilterLabel] = useState("");
   const [zoneDrafts, setZoneDrafts] = useState<Record<string, string>>({});
@@ -498,6 +537,10 @@ export default function RouteSearchPage({
     setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
     setZoneFilterLabel("");
   }, [preferredRouteFilter]);
+
+  useEffect(() => {
+    setAssignedDeltaFilter(signedInPtyDelta);
+  }, [signedInPtyDelta]);
 
   const currentBalanceByClient = useMemo(
     () => new Map(clients.map((client) => [client.id, Math.max(0, client.balance)] as const)),
@@ -694,25 +737,44 @@ export default function RouteSearchPage({
     return deltaFilter ? rows.filter((item) => deltaForDisplayItem(item, workflowView, captureByRouteItem, deltaIdentityMap) === deltaFilter) : rows;
   }, [captureByRouteItem, custodyItems, deltaFilter, deltaIdentityMap, items, paymentReviewItems, visibleConfirmedReports, workflowView, workItems]);
 
+  const ptyAssignedWorkItems = useMemo(() => (
+    workItems
+      .filter(item => activeRouteFilterValue(item.routeAssignment) === "PTY")
+      .sort(compareActiveRouteItems)
+  ), [workItems]);
+  const ptyAssignmentCounts = useMemo(() => {
+    return {
+      all: ptyAssignedWorkItems.length,
+      delta1: ptyAssignedWorkItems.filter(item => item.assignedDelta === "delta1").length,
+      delta2: ptyAssignedWorkItems.filter(item => item.assignedDelta === "delta2").length,
+      delta3: ptyAssignedWorkItems.filter(item => item.assignedDelta === "delta3").length
+    };
+  }, [ptyAssignedWorkItems]);
+
   const workflowCounts = useMemo(() => {
-    const byDelta = (rows: RouteDisplayItem[], view: RouteWorkflowView) => deltaFilter
-      ? rows.filter((item) => deltaForDisplayItem(item, view, captureByRouteItem, deltaIdentityMap) === deltaFilter).length
-      : rows.length;
+    const byDelta = (rows: RouteDisplayItem[], view: RouteWorkflowView) => {
+      const actionFiltered = deltaFilter
+        ? rows.filter((item) => deltaForDisplayItem(item, view, captureByRouteItem, deltaIdentityMap) === deltaFilter)
+        : rows;
+      return actionFiltered.filter(item => matchesPtyAssignedDelta(item, assignedDeltaFilter)).length;
+    };
     return {
       work: byDelta(workItems, "work"),
       review: byDelta(paymentReviewItems, "review"),
       custody: byDelta(custodyItems, "custody"),
       managed: deltaFilter ? managedActions.filter((action) => action.delta === deltaFilter).length : managedActions.length
     };
-  }, [captureByRouteItem, custodyItems, deltaFilter, deltaIdentityMap, managedActions, paymentReviewItems, workItems]);
+  }, [assignedDeltaFilter, captureByRouteItem, custodyItems, deltaFilter, deltaIdentityMap, managedActions, paymentReviewItems, workItems]);
 
   function openWorkflow(view: RouteWorkflowView): void {
     setWorkflowView(view); setConfirmedPeriod("today"); setCompletedCash(null); setRouteActionMessage(""); setRouteUndo(null);
   }
 
   function toggleDeltaFilter(delta: RouteDeltaKey): void {
-    setDeltaFilter((current) => current === delta ? null : delta);
-    setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
+    const nextDelta = deltaFilter === delta ? null : delta;
+    const deltaRoute = ROUTE_DELTAS.find((row) => row.key === delta)?.route;
+    setDeltaFilter(nextDelta);
+    setRouteFilter(nextDelta && deltaRoute ? activeRouteFilterValue(deltaRoute) : ALL_ACTIVE_ROUTE_FILTER);
     setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
     setZoneFilterLabel("");
     openWorkflow("managed");
@@ -720,6 +782,7 @@ export default function RouteSearchPage({
 
   function toggleRouteFilter(route: string): void {
     setRouteFilter((current) => current === route ? ALL_ACTIVE_ROUTE_FILTER : route);
+    if (route !== "PTY") setAssignedDeltaFilter(null);
     setDeltaFilter(null);
     setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
     setZoneFilterLabel("");
@@ -851,6 +914,7 @@ export default function RouteSearchPage({
   const visibleItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return activeItems
+      .filter((item) => matchesPtyAssignedDelta(item, assignedDeltaFilter))
       .filter((item) => routeFilter === ALL_ACTIVE_ROUTE_FILTER || activeRouteFilterValue(item.routeAssignment) === routeFilter)
       .filter((item) => zoneFilter === ALL_ACTIVE_ZONE_FILTER || activeZoneFilterValue(item.zone) === zoneFilter)
       .filter((item) => {
@@ -872,7 +936,7 @@ export default function RouteSearchPage({
         }
         return compareActiveRouteItems(left, right);
       });
-  }, [activeItems, elapsedNow, query, routeFilter, workflowView, zoneFilter]);
+  }, [activeItems, assignedDeltaFilter, elapsedNow, query, routeFilter, workflowView, zoneFilter]);
 
   const visibleManagedActions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -1318,6 +1382,7 @@ export default function RouteSearchPage({
             onClick={() => {
               setRouteFilter(option.value);
               setDeltaFilter(null);
+              setAssignedDeltaFilter(null);
               setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
               setZoneFilterLabel("");
             }}
@@ -1329,6 +1394,7 @@ export default function RouteSearchPage({
         <button type="button" className="route-search-extra-routes-all" onClick={() => {
           setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
           setDeltaFilter(null);
+          setAssignedDeltaFilter(null);
           setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
           setZoneFilterLabel("");
         }}>Ver todas →</button>
@@ -1367,6 +1433,7 @@ export default function RouteSearchPage({
       {lastRefreshAt ? <p className="route-search-refresh">Ultima actualizacion: {lastRefreshAt}</p> : null}
       {error ? <p className="error-text">{error}</p> : null}
       {changeRouteError ? <p className="error-text" role="alert">{changeRouteError}</p> : null}
+      {assignedDeltaError ? <p className="error-text" role="alert">{assignedDeltaError}</p> : null}
       {inactiveError ? <p className="error-text" role="alert">{inactiveError}</p> : null}
       {zoneError ? <p className="error-text" role="alert">{zoneError}</p> : null}
       {commentError ? <p className="error-text" role="alert">{commentError}</p> : null}
@@ -1376,7 +1443,27 @@ export default function RouteSearchPage({
         <span>{routeActionMessage}</span>
         {routeUndo && routeActionMessage === `${routeUndo.item.unitId} cambió a ${routeUndo.current}.` ? <button type="button" className="button ghost small" disabled={changingRoute !== null} onClick={() => void undoRouteChange()}>{changingRoute ? "Deshaciendo…" : "Deshacer"}</button> : null}
       </div> : null}
-      <details className="route-collection-filters"><summary>Filtrar por ruta y zona{routeFilter !== ALL_ACTIVE_ROUTE_FILTER ? ' · ' + activeRouteFilterLabel(routeFilter) + (zoneFilterLabel ? ' · ' + zoneFilterLabel : '') : ''}</summary>
+      {ptyAssignmentCounts.all > 0 && workflowView !== "managed" ? (
+        <div className="route-search-delta-toolbar">
+          <span className="route-search-filter-label">Delta</span>
+          <div className="route-search-filters route-search-delta-assignment-filters" aria-label="Filtrar PTY por Delta asignado">
+            {(["delta1", "delta2", "delta3"] as const).map(delta => (
+              <button key={delta} type="button" className={assignedDeltaFilter === delta && routeFilter === "PTY" ? "is-active" : ""} aria-pressed={assignedDeltaFilter === delta && routeFilter === "PTY"}
+                onClick={() => { setAssignedDeltaFilter(delta); setRouteFilter("PTY"); setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel(""); }}>
+                {signedInPtyDelta === delta ? "Mis carros" : routeDeltaLabel(delta)} ({ptyAssignmentCounts[delta]})
+              </button>
+            ))}
+            <button type="button" className="route-search-organize-inline" disabled={readOnly}
+              title={readOnly ? "Solo Administración o un editor de Ruta puede cambiar las asignaciones." : "Cambiar carros entre Delta 1, Delta 2 y Delta 3"}
+              onClick={() => setAssignmentManagerOpen(true)}>
+              {readOnly ? "Editar · Solo Administración" : "Editar asignación"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <details className="route-collection-filters"><summary>Filtrar por ruta y zona{routeFilter !== ALL_ACTIVE_ROUTE_FILTER ? ' · ' + activeRouteFilterLabel(routeFilter) : ''}{zoneFilterLabel ? ' · ' + zoneFilterLabel : ''}</summary>
+      <div className="route-search-filter-line">
       {routeFilterOptions.length > 0 ? (
         <div className="route-search-filter-block">
           <span className="route-search-filter-label">Ruta</span>
@@ -1388,6 +1475,7 @@ export default function RouteSearchPage({
               onClick={() => {
                 setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
                 setDeltaFilter(null);
+                setAssignedDeltaFilter(null);
                 setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
                 setZoneFilterLabel("");
               }}
@@ -1403,6 +1491,7 @@ export default function RouteSearchPage({
                 onClick={() => {
                   setRouteFilter(option);
                   setDeltaFilter(null);
+                  if (option !== "PTY") setAssignedDeltaFilter(null);
                   setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
                   setZoneFilterLabel("");
                 }}
@@ -1447,6 +1536,8 @@ export default function RouteSearchPage({
         </div>
       ) : null}
 
+      </div>
+
       </details>
       {workflowView === "managed" ? (
         visibleManagedActions.length === 0
@@ -1476,6 +1567,8 @@ export default function RouteSearchPage({
               zoneOptions={(zoneOptionsByRoute.get(activeRouteFilterValue(item.routeAssignment)) ?? []).filter(option => option.value !== EMPTY_ACTIVE_ZONE_FILTER).map(option => option.label)}
               comment={commentDrafts[item.clientId] ?? item.comment ?? ""} commentSaving={Boolean(commentSavingByClient[item.clientId]) || !dataOwnerUserId}
               changingRoute={changingRoute !== null}
+              changingAssignedDelta={changingAssignedDelta === item.clientId}
+              canEditAssignedDelta={!readOnly && Boolean(activeRoute && !activeRoute.removedAt)}
               routeOptions={routeAssignmentOptions}
               inactiveSaving={Boolean(inactiveSavingByClient[item.clientId])} elapsedNow={elapsedNow}
               canReturnReport={Boolean(item.report?.status === "review" && canConfirmBankPayment)}
@@ -1493,11 +1586,45 @@ export default function RouteSearchPage({
               onZone={value => { setZoneError(""); setZoneDrafts(current => ({ ...current, [item.clientId]: value })); }} onSaveZone={() => void commitZone(item)}
               onComment={value => { setCommentError(""); setCommentDrafts(current => ({ ...current, [item.clientId]: value.slice(0, 25) })); }} onSaveComment={() => void commitComment(item)}
               onRoute={route => void changeTeam(item, route)}
+              onAssignedDelta={delta => void changeAssignedDelta(item, delta)}
               onCreateRoute={() => { setRouteCreateTarget(item); setRouteCreateDraft(""); setRouteCreateError(""); }}
               onInactive={() => void toggleInactive(item)} />;
           })}
         </div>
       )}
+
+      {assignmentManagerOpen && !readOnly ? (
+        <div className="modal-overlay route-search-payment-overlay">
+          <div className="modal route-assignment-manager" role="dialog" aria-modal="true" aria-labelledby="route-assignment-manager-title">
+            <div className="modal-header">
+              <div>
+                <h2 id="route-assignment-manager-title">Organizar carros PTY</h2>
+                <p>Cambia el responsable de búsqueda. Los buscadores no pueden editar esta lista.</p>
+              </div>
+              <button type="button" className="button ghost small" onClick={() => setAssignmentManagerOpen(false)}>Cerrar</button>
+            </div>
+            <div className="route-assignment-manager-summary">
+              <span><strong>Delta 1</strong><b>{ptyAssignmentCounts.delta1}</b></span>
+              <span><strong>Delta 2</strong><b>{ptyAssignmentCounts.delta2}</b></span>
+              <span><strong>Delta 3</strong><b>{ptyAssignmentCounts.delta3}</b></span>
+            </div>
+            <div className="route-assignment-manager-list">
+              {ptyAssignedWorkItems.map(item => <label key={`${item.clientId}:${item.publishedAt}`} className="route-assignment-manager-row">
+                <span><strong>{item.unitId}</strong><small>{item.clientName}</small></span>
+                <select aria-label={`Cambiar responsable de ${item.unitId}`} value={item.assignedDelta ?? ""}
+                  disabled={changingAssignedDelta !== null}
+                  onChange={event => void changeAssignedDelta(item, event.target.value as PtyAssignedDelta)}>
+                  {!item.assignedDelta ? <option value="">Sin asignar</option> : null}
+                  <option value="delta1">Delta 1</option>
+                  <option value="delta2">Delta 2</option>
+                  <option value="delta3">Delta 3</option>
+                </select>
+              </label>)}
+            </div>
+            {assignedDeltaError ? <p className="error-text" role="alert">{assignedDeltaError}</p> : null}
+          </div>
+        </div>
+      ) : null}
 
       {routeCreateTarget ? (
         <div className="modal-overlay route-search-payment-overlay">

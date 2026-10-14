@@ -430,6 +430,23 @@ function normalizePayment(item: unknown): Payment | null {
       raw.receiptDeliveryStatus === "pending" || raw.receiptDeliveryStatus === "sent"
         ? raw.receiptDeliveryStatus
         : undefined,
+    otherChargesRetentionEvent:
+      raw.otherChargesRetentionEvent && typeof raw.otherChargesRetentionEvent === "object" && !Array.isArray(raw.otherChargesRetentionEvent)
+        ? (() => {
+            const event = raw.otherChargesRetentionEvent as Record<string, unknown>;
+            const cycle = event.cycle;
+            if ((event.mode !== "automatic" && event.mode !== "manual") ||
+              (cycle !== "daily" && cycle !== "weekly" && cycle !== "biweekly" && cycle !== "monthly" && cycle !== "when_payment")) return undefined;
+            return {
+              mode: event.mode,
+              cycle,
+              baseAmount: parseNonNegativeNumber(event.baseAmount),
+              cyclesElapsed: parseNonNegativeInteger(event.cyclesElapsed),
+              calculatedAmount: parseNonNegativeNumber(event.calculatedAmount),
+              appliedAmount: parseNonNegativeNumber(event.appliedAmount)
+            };
+          })()
+        : undefined,
     clientId: raw.clientId,
     clientName: raw.clientName,
     clientUnit: raw.clientUnit,

@@ -227,6 +227,15 @@ export type OtherChargesRetentionConfig = {
 
 export type OtherChargesRetentionByClient = Record<string, OtherChargesRetentionConfig>;
 
+export type OtherChargesRetentionEvent = {
+  mode: "automatic" | "manual";
+  cycle: OtherChargesRetentionCycle;
+  baseAmount: number;
+  cyclesElapsed: number;
+  calculatedAmount: number;
+  appliedAmount: number;
+};
+
 export type LateFeeReason = "DAILY_MISSED_PROOF" | "WEEKLY_LATE_DAY" | "SCHEDULED_LATE_DAY";
 
 export type LateFeeLedgerEntry = {
@@ -327,6 +336,7 @@ export type Payment = {
   createdBy?: string;
   receiptNumber: string;
   receiptDeliveryStatus?: "pending" | "sent";
+  otherChargesRetentionEvent?: OtherChargesRetentionEvent;
   otherChargesApplied?: OtherCharge[];
   otherChargesDueAfter?: OtherCharge[];
   finesApplied?: OtherCharge[];

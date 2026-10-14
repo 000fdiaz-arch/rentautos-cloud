@@ -177,6 +177,7 @@ export function buildManualPaymentTransaction({
     createdBy: currentActor,
     receiptNumber,
     receiptDeliveryStatus: "pending",
+    otherChargesRetentionEvent: allocation.otherChargesRetentionEvent,
     clientId: selectedClient.id,
     clientName: selectedClient.name,
     clientUnit: selectedClient.unitId,

@@ -5,6 +5,7 @@ Aplicar `supabase/migrations/20261013000100_route_capture_control.sql` y despué
 ## Flujo
 
 - Delta 1 y Delta 3 trabajan en PTY. Delta 2 trabaja en WC.
+- Los carros activos de PTY se reparten de forma persistente entre Delta 1 y Delta 3. Cada buscador inicia con el filtro **Mi ruta**, pero puede consultar **Todos**. Un editor de Ruta puede cambiar el Delta asignado; los buscadores no pueden editarlo. Las nuevas unidades se asignan al Delta con menos carros y, si están empatados, se decide al azar.
 - La primera captación inicia automáticamente el recorrido del Delta en su ruta asignada. Delta 1 y Delta 3 inician PTY; Delta 2 inicia WC.
 - Al pulsar **Registrar captación**, el servidor toma el usuario autenticado, la unidad, el cliente, la publicación y la ruta vigente. El navegador no puede elegir ni modificar el Delta atribuido.
 - La unidad pasa a custodia y la captación queda **Pendiente de administración**.

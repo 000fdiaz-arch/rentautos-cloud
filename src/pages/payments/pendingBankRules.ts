@@ -342,6 +342,7 @@ export function buildPendingPaymentApplication(
     createdBy,
     receiptNumber,
     receiptDeliveryStatus: "pending",
+    otherChargesRetentionEvent: remainingOtherChargesAllocation.retentionEvent,
     clientId: client.id,
     clientName: client.name,
     clientUnit: client.unitId,

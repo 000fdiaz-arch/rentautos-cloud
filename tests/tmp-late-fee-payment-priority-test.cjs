@@ -48,6 +48,8 @@ function makeClient(unitId = "T03") {
   fs.writeFileSync(path.join(TMP, "package.json"), JSON.stringify({ type: "commonjs" }));
   [
     "billing.ts",
+    "provisionalRentals.ts",
+    "otherCharges.ts",
     "pages/payments/paymentRules.ts"
   ].forEach(transpile);
 

@@ -9,6 +9,7 @@ import type {
   OtherCharge,
   OtherChargesRetentionByClient,
   OtherChargesRetentionCycle,
+  OtherChargesRetentionEvent,
   Payment
 } from "../../types";
 import type {
@@ -182,6 +183,32 @@ export function getLastPaymentDateKey(clientId: string, payments: Payment[], bef
   return last?.dateApplied ?? null;
 }
 
+function isLegacyOtherChargesRetentionPayment(payment: Payment): boolean {
+  return (payment.otherChargesApplied ?? []).some((charge) => !isLateFeeOtherCharge(charge));
+}
+
+function getLastOtherChargesRetentionPayment(clientId: string, payments: Payment[], beforeOrOnDateKey: string): Payment | null {
+  return payments
+    .filter((payment) => payment.clientId === clientId && payment.dateApplied <= beforeOrOnDateKey)
+    .filter((payment) => !!payment.otherChargesRetentionEvent || isLegacyOtherChargesRetentionPayment(payment))
+    .sort((left, right) => {
+      const dateComparison = right.dateApplied.localeCompare(left.dateApplied);
+      return dateComparison !== 0 ? dateComparison : right.createdAt.localeCompare(left.createdAt);
+    })[0] ?? null;
+}
+
+export function getLastOtherChargesRetentionDateKey(clientId: string, payments: Payment[], beforeOrOnDateKey: string): string | null {
+  return getLastOtherChargesRetentionPayment(clientId, payments, beforeOrOnDateKey)?.dateApplied ?? null;
+}
+
+function getFirstPendingOtherChargeDateKey(client: Client, beforeOrOnDateKey: string): string | null {
+  const dates = (client.otherCharges ?? [])
+    .map((charge) => charge.createdAt?.slice(0, 10) ?? "")
+    .filter((dateKey) => !!parseDateKey(dateKey) && dateKey <= beforeOrOnDateKey)
+    .sort((left, right) => left.localeCompare(right));
+  return dates[0] ?? null;
+}
+
 export function getRetentionCycleClient(client: Client, cycle: OtherChargesRetentionCycle): Client {
   if (cycle === "when_payment") return client;
   const base: Client = { ...client, frequency: cycle as BillingFrequency };
@@ -229,17 +256,46 @@ export function computeConfiguredRetentionForPayment(
   payments: Payment[],
   paymentDateKey: string
 ): number {
+  return computeConfiguredRetentionCalculation(client, retentionByClient, payments, paymentDateKey).amount;
+}
+
+export type ConfiguredRetentionCalculation = {
+  amount: number;
+  cyclesElapsed: number;
+  checkpointDateKey: string | null;
+};
+
+export function computeConfiguredRetentionCalculation(
+  client: Client,
+  retentionByClient: OtherChargesRetentionByClient,
+  payments: Payment[],
+  paymentDateKey: string
+): ConfiguredRetentionCalculation {
   const config = getConfiguredOtherChargesRetentionConfig(client, retentionByClient);
-  if (config.amount <= 0) return 0;
-  if (config.cycle === "when_payment") return config.amount;
+  if (config.amount <= 0) return { amount: 0, cyclesElapsed: 0, checkpointDateKey: null };
+  if (config.cycle === "when_payment") return { amount: config.amount, cyclesElapsed: 1, checkpointDateKey: null };
   const paymentDate = parseDateKey(paymentDateKey) ?? startOfDay(new Date());
-  const lastPaymentDateKey = getLastPaymentDateKey(client.id, payments, paymentDateKey);
-  if (!lastPaymentDateKey) return config.amount;
-  const lastPaymentDate = parseDateKey(lastPaymentDateKey);
-  if (!lastPaymentDate) return config.amount;
-  const events = countRetentionEventsInRange(client, config.cycle, lastPaymentDate, paymentDate);
-  if (events <= 0) return 0;
-  return roundMoney(config.amount * events);
+  const checkpointPayment = getLastOtherChargesRetentionPayment(client.id, payments, paymentDateKey);
+  const checkpointDateKey = checkpointPayment?.dateApplied ?? null;
+  const firstChargeDateKey = getFirstPendingOtherChargeDateKey(client, paymentDateKey);
+  const anchorDateKey = checkpointDateKey && firstChargeDateKey
+    ? (checkpointDateKey > firstChargeDateKey ? checkpointDateKey : firstChargeDateKey)
+    : checkpointDateKey ?? firstChargeDateKey;
+  if (!anchorDateKey) return { amount: config.amount, cyclesElapsed: 1, checkpointDateKey: null };
+  const anchorDate = parseDateKey(anchorDateKey);
+  if (!anchorDate) return { amount: config.amount, cyclesElapsed: 1, checkpointDateKey };
+  const countedEvents = countRetentionEventsInRange(client, config.cycle, anchorDate, paymentDate);
+  const cyclesElapsed = checkpointDateKey ? countedEvents : Math.max(1, countedEvents);
+  const previousUnpaidRetention = checkpointPayment?.otherChargesRetentionEvent?.mode === "automatic"
+    ? roundMoney(Math.max(0,
+      checkpointPayment.otherChargesRetentionEvent.calculatedAmount - checkpointPayment.otherChargesRetentionEvent.appliedAmount
+    ))
+    : 0;
+  return {
+    amount: roundMoney(config.amount * cyclesElapsed + previousUnpaidRetention),
+    cyclesElapsed,
+    checkpointDateKey
+  };
 }
 
 export function shouldForceRetentionToOtherCharges(
@@ -506,27 +562,47 @@ export function computeEffectiveOtherChargesAllocation(
   payments: Payment[],
   paymentDateKey: string,
   allowManualOverrideForForcedRule = false
-): { otherChargesApplied: OtherCharge[]; totalOtherCharges: number; forcedRuleApplied: boolean } {
+): { otherChargesApplied: OtherCharge[]; totalOtherCharges: number; forcedRuleApplied: boolean; retentionEvent?: OtherChargesRetentionEvent } {
+  const config = getConfiguredOtherChargesRetentionConfig(client, retentionByClient);
   if (!shouldForceRetentionToOtherCharges(client, retentionByClient, payments, paymentDateKey) || allowManualOverrideForForcedRule) {
     const manual = computeAppliedOtherCharges(client.otherCharges, manualInput, wholePart);
+    const isManualCheckpoint = allowManualOverrideForForcedRule || Object.keys(manualInput).length > 0;
     return {
       otherChargesApplied: manual.otherChargesApplied,
       totalOtherCharges: manual.totalOtherCharges,
-      forcedRuleApplied: false
+      forcedRuleApplied: false,
+      retentionEvent: isManualCheckpoint ? {
+        mode: "manual",
+        cycle: config.cycle,
+        baseAmount: config.amount,
+        cyclesElapsed: 0,
+        calculatedAmount: manual.totalOtherCharges,
+        appliedAmount: manual.totalOtherCharges
+      } : undefined
     };
   }
 
   const pendingOtherCharges = roundMoney(
     (client.otherCharges ?? []).reduce((sum, charge) => sum + roundMoney(Math.max(0, charge.amount)), 0)
   );
-  const configuredRetention = computeConfiguredRetentionForPayment(client, retentionByClient, payments, paymentDateKey);
-  const forcedAmount = roundMoney(Math.min(configuredRetention, Math.max(0, wholePart), pendingOtherCharges));
+  const calculation = computeConfiguredRetentionCalculation(client, retentionByClient, payments, paymentDateKey);
+  const configuredRetention = calculation.amount;
+  const collectibleRetention = roundMoney(Math.min(configuredRetention, pendingOtherCharges));
+  const forcedAmount = roundMoney(Math.min(collectibleRetention, Math.max(0, wholePart)));
   const otherChargesApplied = distributeAcrossOtherCharges(client.otherCharges, forcedAmount);
   const totalOtherCharges = roundMoney(otherChargesApplied.reduce((sum, charge) => sum + charge.amount, 0));
   return {
     otherChargesApplied,
     totalOtherCharges,
-    forcedRuleApplied: totalOtherCharges > 0
+    forcedRuleApplied: totalOtherCharges > 0,
+    retentionEvent: totalOtherCharges > 0 ? {
+      mode: "automatic",
+      cycle: config.cycle,
+      baseAmount: config.amount,
+      cyclesElapsed: calculation.cyclesElapsed,
+      calculatedAmount: collectibleRetention,
+      appliedAmount: totalOtherCharges
+    } : undefined
   };
 }
 
@@ -607,7 +683,8 @@ export function computeManualPaymentAllocation(
     ticketsApplied,
     totalOtherCharges,
     otherChargesApplied,
-    forcedOtherChargesRuleApplied: forcedRuleApplied
+    forcedOtherChargesRuleApplied: forcedRuleApplied,
+    otherChargesRetentionEvent: remainingOtherChargesAllocation.retentionEvent
   };
 }
 

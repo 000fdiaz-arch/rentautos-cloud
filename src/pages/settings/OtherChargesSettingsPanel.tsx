@@ -61,7 +61,8 @@ export default function OtherChargesSettingsPanel({ clients, settings, onChange 
       setErrors(["La retencion debe ser un numero mayor o igual a 0."]);
       return;
     }
-    const previous = settings[clientId] ?? { amount: DEFAULT_RETENTION, cycle: "daily" as const };
+    const client = clients.find((candidate) => candidate.id === clientId);
+    const previous = settings[clientId] ?? (client ? configFor(client) : { amount: DEFAULT_RETENTION, cycle: "daily" as const });
     onChange({ ...settings, [clientId]: { ...previous, amount } });
     setDrafts((current) => { const next = { ...current }; delete next[clientId]; return next; });
     setErrors([]);

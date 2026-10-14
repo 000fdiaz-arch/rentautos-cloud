@@ -36,6 +36,8 @@ type Props = {
   comment: string;
   commentSaving: boolean;
   changingRoute: boolean;
+  changingAssignedDelta: boolean;
+  canEditAssignedDelta: boolean;
   routeOptions: string[];
   inactiveSaving: boolean;
   elapsedNow: number;
@@ -56,6 +58,7 @@ type Props = {
   onComment: (value: string) => void;
   onSaveComment: () => void;
   onRoute: (route: string) => void;
+  onAssignedDelta: (delta: "delta1" | "delta2" | "delta3") => void;
   onCreateRoute: () => void;
   onInactive: () => void;
 };
@@ -183,6 +186,22 @@ export default function RouteCollectionCard(props: Props) {
       {view === "work" ? <p className="route-collection-instruction">{fieldManagementLabel(item.managementType)}</p> : null}
       </>}
     </div>
+    {view === "work" && (item.routeAssignment ?? "").trim().toUpperCase() === "PTY" ? (
+      props.canEditAssignedDelta ? <label className="route-collection-field route-collection-delta">
+        Responsable de búsqueda
+        <select aria-label={`Buscador asignado a ${item.unitId}`} value={item.assignedDelta ?? ""}
+          disabled={props.changingAssignedDelta || saving}
+          onChange={event => props.onAssignedDelta(event.target.value as "delta1" | "delta2" | "delta3")}>
+          {!item.assignedDelta ? <option value="">Sin asignar</option> : null}
+          <option value="delta1">Delta 1</option>
+          <option value="delta2">Delta 2</option>
+          <option value="delta3">Delta 3</option>
+        </select>
+      </label> : <p className="route-collection-delta-badge">
+        <small>Responsable de búsqueda</small>
+        <strong>{item.assignedDelta === "delta1" ? "Delta 1" : item.assignedDelta === "delta2" ? "Delta 2" : item.assignedDelta === "delta3" ? "Delta 3" : "Sin asignar"}</strong>
+      </p>
+    ) : null}
       {canEdit && !report ? <label className="route-collection-field route-collection-comment">Comentario<input aria-label={`Comentario de ${item.unitId}`} value={props.comment} maxLength={25} placeholder="Agregar comentario…" disabled={props.commentSaving} onChange={event => props.onComment(event.target.value)} onBlur={props.onSaveComment} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></label> : item.comment ? <p className="route-collection-saved-comment"><small>Comentario</small>{item.comment}</p> : null}
     {props.managementFields ? listLayout ? <div className="route-collection-management">{props.managementFields}</div> : props.managementFields : null}
     <div className="route-collection-actions">

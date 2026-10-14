@@ -210,12 +210,12 @@ export default function usePendingBankWorkflow(options: Options) {
     saveManualBankAssignmentAudit(nextAudit);
   }
 
-  async function applyPendingItem(item: PendingBankItem, client: Client, reservedReceipt?: string) {
+  async function applyPendingItem(item: PendingBankItem, client: Client, reservedReceipt?: string, paymentHistory: Payment[] = payments) {
     const receiptNumber = reservedReceipt ?? (
       dataOwnerUserId && isSupabaseOnlyMode ? "" : await reserveReceiptNumber()
     );
     return buildPendingPaymentApplication(item, client, {
-      payments,
+      payments: paymentHistory,
       retentionByClient,
       lateFeeSettings,
       receiptNumber,
@@ -345,7 +345,7 @@ export default function usePendingBankWorkflow(options: Options) {
         }
         const client = updatedClients.get(item.suggestedClientId ?? "");
         if (!client) continue;
-        const result = await applyPendingItem(item, client, receipts[index]);
+        const result = await applyPendingItem(item, client, receipts[index], [...payments, ...newPayments]);
         attachNotifiedRouteMetadata(result.payment, item, client.id);
         updatedClients.set(result.updatedClient.id, result.updatedClient);
         newPayments.push(result.payment);

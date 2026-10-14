@@ -2014,6 +2014,7 @@ export type ActiveRouteItem = {
   clientCedula?: string;
   whatsAppPhone?: string;
   routeAssignment?: string;
+  assignedDelta?: "delta1" | "delta2" | "delta3";
   zone?: string;
   managementType?: "solo_cobrar" | "cobrar_o_quitar" | "desiste" | "quitar";
   urgency?: "normal" | "urgent" | "very_urgent";
@@ -2058,6 +2059,7 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
     clientCedula: typeof row.clientCedula === "string" ? row.clientCedula : undefined,
     whatsAppPhone: typeof row.whatsAppPhone === "string" ? row.whatsAppPhone : undefined,
     routeAssignment: typeof row.routeAssignment === "string" ? row.routeAssignment : undefined,
+    assignedDelta: row.assignedDelta === "delta1" || row.assignedDelta === "delta2" || row.assignedDelta === "delta3" ? row.assignedDelta : undefined,
     zone: typeof row.zone === "string" && row.zone.trim().length > 0 ? row.zone.trim() : undefined,
     managementType: row.managementType === "cobrar_o_quitar" || row.managementType === "desiste" || row.managementType === "quitar"
       ? row.managementType
@@ -2209,6 +2211,23 @@ export async function saveCloudActiveRouteItem(userId: string, item: ActiveRoute
       data: item,
       updated_at: new Date().toISOString()
     }, { onConflict: "user_id,client_id" });
+  if (error) throw error;
+}
+
+export async function changeCloudActiveRouteDelta(input: {
+  userId: string;
+  clientId: string;
+  publishedAt: string;
+  previousDelta?: "delta1" | "delta2" | "delta3";
+  delta: "delta1" | "delta2" | "delta3";
+}): Promise<void> {
+  const { error } = await getCloudClient().rpc("change_active_route_delta_assignment", {
+    p_user_id: input.userId,
+    p_client_id: input.clientId,
+    p_published_at: input.publishedAt,
+    p_previous_delta: input.previousDelta ?? "",
+    p_delta: input.delta
+  });
   if (error) throw error;
 }
 
