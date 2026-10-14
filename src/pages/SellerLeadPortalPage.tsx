@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import { loadPublicSellerLeadRequest, lookupPublicSellerLead, submitPublicSellerLeadRequest, submitSharedSellerLead } from "../cloud/sellerLeadRequestCloudData";
+import { isSellerLeadPortalAvailable, loadPublicSellerLeadRequest, lookupPublicSellerLead, submitPublicSellerLeadRequest, submitSharedSellerLead } from "../cloud/sellerLeadRequestCloudData";
 import type { PublicSellerLeadRequest } from "../types";
 import { SELLER_PENDING_MESSAGE, sellerDecisionMessage, validSellerBirthDate, validSellerCedula, validSellerCedulaInput } from "../sellerLeadPortalRules";
 import { prepareSellerLeadDocument } from "../sellerLeadDocument";
 
 type Props = { token?: string; portalId?: string };
+type PortalAvailability = "checking" | "available" | "unavailable" | "error";
 
 export default function SellerLeadPortalPage({ token, portalId }: Props) {
   const [request, setRequest] = useState<PublicSellerLeadRequest | null>(null);
@@ -18,6 +19,7 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
   const [saving, setSaving] = useState(false);
   const [readingFile, setReadingFile] = useState(false);
   const [error, setError] = useState("");
+  const [portalAvailability, setPortalAvailability] = useState<PortalAvailability>(portalId ? "checking" : "available");
   const operation = useRef(0);
   const fileOperation = useRef(0);
 
@@ -35,6 +37,22 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [token]);
+
+  useEffect(() => {
+    if (!portalId) return;
+    let cancelled = false;
+    setPortalAvailability("checking");
+    setError("");
+    void isSellerLeadPortalAvailable(portalId).then((available) => {
+      if (!cancelled) setPortalAvailability(available ? "available" : "unavailable");
+    }).catch(() => {
+      if (!cancelled) {
+        setPortalAvailability("error");
+        setError("No se pudo validar este enlace. Revisa tu conexión y vuelve a cargar la página.");
+      }
+    });
+    return () => { cancelled = true; };
+  }, [portalId]);
 
   function changeCedula(value: string): void {
     if (!validSellerCedulaInput(value)) {
@@ -138,7 +156,7 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
       <section className="seller-lead-card">
         <div className="seller-lead-brand">RENTAUTOS</div>
         <h1>Consulta de personas</h1>
-        {portalId && (
+        {portalId && portalAvailability === "available" && (
           <form className="seller-lead-search" onSubmit={(event) => void consult(event)}>
             <p>Vendedor: introduce la cédula de la persona para conocer el siguiente paso.</p>
             <label>Cédula de la persona
@@ -152,8 +170,12 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
         )}
         <div aria-live="polite">
           {loading && !portalId && <p className="hint">Cargando solicitud...</p>}
+          {portalAvailability === "checking" && <p className="hint">Validando enlace...</p>}
           {error && <p role="alert" className="error-banner">{error}</p>}
         </div>
+        {portalId && portalAvailability === "unavailable" && (
+          <div className="seller-lead-state"><strong>Este enlace no está disponible</strong><p>Solicita a Rentautos un enlace actualizado para continuar.</p></div>
+        )}
         {!loading && request?.status === "expired" && (
           <div className="seller-lead-state"><strong>Este enlace venció</strong><p>Solicita a Rentautos el enlace de consulta para continuar.</p></div>
         )}

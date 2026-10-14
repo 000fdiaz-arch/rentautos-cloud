@@ -198,6 +198,14 @@ export async function getSellerLeadPortalId(userId: string): Promise<string> {
   return data;
 }
 
+export async function isSellerLeadPortalAvailable(portalId: string): Promise<boolean> {
+  const client = createEphemeralSupabaseClient();
+  if (!client) throw new Error("El servicio de consulta no está configurado.");
+  const { data, error } = await client.rpc("is_seller_lead_portal_available", { p_portal_id: portalId });
+  if (error) throw error;
+  return data === true;
+}
+
 function publicPortalError(error: { message?: string }): Error {
   if (error.message?.includes("PORTAL_RATE_LIMIT")) return new Error("Se alcanzó el límite de consultas o envíos. Intenta más tarde o comunícate con Rentautos.");
   if (error.message?.includes("PORTAL_UNAVAILABLE")) return new Error("Este enlace no está disponible. Comunícate con Rentautos.");

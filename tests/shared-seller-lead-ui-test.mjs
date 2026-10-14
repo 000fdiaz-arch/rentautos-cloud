@@ -30,6 +30,7 @@ try {
   let rateLimit = false;
   let slow = false;
   let sent = 0;
+  let portalAvailable = true;
   await page.route("**/*", async route => {
     const request = route.request();
     if (request.url().startsWith(base)) return route.continue();
@@ -47,6 +48,7 @@ try {
     }
     if (request.url().includes("/rest/v1/rpc/")) {
       const name = request.url().split("/").pop();
+      if (name === "is_seller_lead_portal_available") return route.fulfill({ json: portalAvailable });
       if (rateLimit) return route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ message: "PORTAL_RATE_LIMIT" }) });
       if (slow) await new Promise(resolve => setTimeout(resolve, 250));
       if (name === "get_seller_lead_request") return route.fulfill({ json: {status:"reviewed",decision:"aplica",extraDeposit:0} });
@@ -56,6 +58,7 @@ try {
     return route.abort();
   });
   await page.goto(base + "/consulta-vendedores/" + portal);
+  await page.getByRole("button", {name:"Consultar",exact:true}).waitFor();
   const cedula = page.getByLabel("Cédula de la persona");
   const consult = page.getByRole("button", {name:"Consultar",exact:true});
   assert.equal(await page.getByText("Iniciar sesion").count(), 0);
@@ -160,6 +163,13 @@ try {
   await page.screenshot({path:".tmp/lead-portal-tests/screenshots/mobile.png",fullPage:true});
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   check("mobile layout has no horizontal overflow");
+
+  portalAvailable = false;
+  await page.reload();
+  await page.getByText("Este enlace no está disponible", {exact:true}).waitFor();
+  assert.equal(await page.getByRole("button", {name:"Consultar",exact:true}).count(), 0);
+  check("revoked shared link is blocked immediately before the search form is shown");
+  portalAvailable = true;
 
   await page.goto(base + "/consulta-vendedor/" + portal);
   await page.getByText("¡Listo! Puedes avanzar con el proceso de esta persona.", {exact:true}).waitFor();
