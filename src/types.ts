@@ -210,6 +210,7 @@ export type PaymentMethod =
   | "Descuento";
 
 export type CollectionTeam = "PTY" | "WC";
+export type CollectionDelta = "delta1" | "delta2" | "delta3";
 
 export type LateFeeSettings = {
   active: boolean;
@@ -318,6 +319,8 @@ export type PaymentIncomeEdit = {
   nextComment?: string;
   previousCollectionTeam?: CollectionTeam;
   nextCollectionTeam?: CollectionTeam;
+  previousCollectionDelta?: CollectionDelta;
+  nextCollectionDelta?: CollectionDelta;
   previousMoneyDelivered?: boolean;
   nextMoneyDelivered?: boolean;
   previousMoneyDeliveryDate?: string;
@@ -375,6 +378,7 @@ export type Payment = {
   fundsReceivedDate?: string;
   incomeComment?: string;
   collectionTeam?: CollectionTeam;
+  collectionDelta?: CollectionDelta;
   incomeEdits?: PaymentIncomeEdit[];
   moneyDelivered?: boolean;
   moneyDeliveryDate?: string;

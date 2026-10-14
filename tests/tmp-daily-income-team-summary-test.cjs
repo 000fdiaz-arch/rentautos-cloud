@@ -25,28 +25,30 @@ try {
   fs.writeFileSync(path.join(tmp, "package.json"), JSON.stringify({ type: "commonjs" }));
   transpile("pages/payments/paymentConstants.ts");
   transpile("pages/payments/dailyIncomeRules.ts");
-  const { buildPendingCashRowsByTeam } = require(path.join(tmp, "src", "pages", "payments", "dailyIncomeRules.js"));
-  const payment = (id, amount, team, moneyDelivered, dateApplied = "2026-08-13", method = "Efectivo") => ({
-    id, amountReceived: amount, collectionTeam: team, moneyDelivered, dateApplied, paymentMethod: method, createdAt: `${dateApplied}T12:00:00.000Z`
+  const { buildPendingCashRowsByDelta } = require(path.join(tmp, "src", "pages", "payments", "dailyIncomeRules.js"));
+  const payment = (id, amount, delta, moneyDelivered, dateApplied = "2026-08-13", method = "Efectivo") => ({
+    id, amountReceived: amount, collectionDelta: delta, moneyDelivered, dateApplied, paymentMethod: method, createdAt: `${dateApplied}T12:00:00.000Z`
   });
-  const grouped = buildPendingCashRowsByTeam([
-    payment("pty-today", 10, "PTY", false),
-    payment("pty-previous", 15, "PTY", false, "2026-08-12"),
-    payment("wc", 20, "WC", false),
-    payment("delivered", 99, "PTY", true),
-    payment("bank", 50, "WC", false, "2026-08-13", "ACH Express"),
-    payment("future", 40, "WC", false, "2026-08-14"),
+  const grouped = buildPendingCashRowsByDelta([
+    payment("delta1-today", 10, "delta1", false),
+    payment("delta1-previous", 15, "delta1", false, "2026-08-12"),
+    payment("delta2", 20, "delta2", false),
+    payment("delta3", 30, "delta3", false),
+    payment("delivered", 99, "delta1", true),
+    payment("bank", 50, "delta2", false, "2026-08-13", "ACH Express"),
+    payment("future", 40, "delta2", false, "2026-08-14"),
     payment("unknown", 5, undefined, false)
-  ], "2026-08-13");
-  assert(grouped.PTY.reduce((sum, item) => sum + item.amountReceived, 0) === 25, "PTY debe incluir pendientes de hoy y dias anteriores.");
-  assert(grouped.WC.reduce((sum, item) => sum + item.amountReceived, 0) === 20, "WC debe incluir solo efectivo pendiente hasta la fecha.");
-  assert(grouped.unassigned.reduce((sum, item) => sum + item.amountReceived, 0) === 5, "El efectivo sin equipo debe quedar alertado aparte.");
+  ], "2026-08-13", (item) => item.collectionDelta);
+  assert(grouped.delta1.reduce((sum, item) => sum + item.amountReceived, 0) === 25, "Delta 1 debe incluir pendientes de hoy y dias anteriores.");
+  assert(grouped.delta2.reduce((sum, item) => sum + item.amountReceived, 0) === 20, "Delta 2 debe incluir solo efectivo pendiente hasta la fecha.");
+  assert(grouped.delta3.reduce((sum, item) => sum + item.amountReceived, 0) === 30, "Delta 3 debe incluir sus pendientes.");
+  assert(grouped.unassigned.reduce((sum, item) => sum + item.amountReceived, 0) === 5, "El efectivo sin Delta debe quedar alertado aparte.");
   const panelSource = fs.readFileSync(path.join(root, "src", "pages", "payments", "DailyIncomePanel.tsx"), "utf8");
   assert(panelSource.includes("filterPendingCashByTeam(item.team)"), "La tarjeta del equipo debe activar su filtro.");
   assert(panelSource.includes("markTeamCashDelivered(item.team)"), "Cada equipo debe permitir marcar todos sus cobros como entregados.");
   assert(panelSource.includes("openDelivery(pendingCashByTeam[team])"), "La entrega masiva debe limitarse al efectivo pendiente del equipo.");
   assert(panelSource.includes("buildPendingCashRows(filteredPayments, dateKey)"), "Falta entregar debe usar la misma regla de pendientes que Ruta en calle.");
-  console.log("OK ingresos por equipo: PTY, WC y efectivo sin asignar quedan consolidados.");
+  console.log("OK ingresos por Delta: Delta 1, Delta 2, Delta 3 y efectivo sin asignar quedan consolidados.");
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }

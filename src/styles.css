@@ -4321,6 +4321,9 @@ select.control-op-badge {
 .income-team-badge, .income-team-card-filter .income-team-badge { display: inline-flex; justify-self: start; align-items: center; width: fit-content; padding: 7px 12px; border-radius: 7px; color: #fff; font-size: 1rem; font-weight: 900; line-height: 1.25; letter-spacing: .035em; }
 .income-team-badge--pty { background: #1d4ed8; }
 .income-team-badge--wc { background: #9a3412; }
+.income-team-badge--delta1 { background: #1d4ed8; }
+.income-team-badge--delta2 { background: #9a3412; }
+.income-team-badge--delta3 { background: #6d28d9; }
 .income-cash-receipt--no-team { border: 2px solid #dc2626; background: #fff7f7; }
 .income-cash-selection { margin: 0 0 12px; padding: 14px; border: 1px solid var(--color-border); border-radius: var(--radius); background: #f0fdfa; }
 .income-cash-selection p { margin: 0 0 10px; font-size: .85rem; }
@@ -4346,6 +4349,9 @@ select.control-op-badge {
 .income-zone-team-filter[aria-pressed="true"] { background: #334155; color: #fff; border-color: #334155; }
 .income-zone-team-filter--pty[aria-pressed="true"] { background: #1d4ed8; border-color: #1d4ed8; }
 .income-zone-team-filter--wc[aria-pressed="true"] { background: #9a3412; border-color: #9a3412; }
+.income-zone-team-filter--delta1[aria-pressed="true"] { background: #1d4ed8; border-color: #1d4ed8; }
+.income-zone-team-filter--delta2[aria-pressed="true"] { background: #9a3412; border-color: #9a3412; }
+.income-zone-team-filter--delta3[aria-pressed="true"] { background: #6d28d9; border-color: #6d28d9; }
 .income-zone-team-filter:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 @media (max-width: 600px) {
   .income-cash-list { padding: 12px; }
@@ -4363,6 +4369,9 @@ select.control-op-badge {
 .income-cash-receipt { padding: 16px; border: 1px solid var(--color-border); border-radius: var(--radius); min-width: 0; }
 .income-cash-receipt--pty { border-left: 6px solid #1d4ed8; background: #f5f9ff; }
 .income-cash-receipt--wc { border-left: 6px solid #c2410c; background: #fff8f3; }
+.income-cash-receipt--delta1 { border-left: 6px solid #1d4ed8; background: #f5f9ff; }
+.income-cash-receipt--delta2 { border-left: 6px solid #c2410c; background: #fff8f3; }
+.income-cash-receipt--delta3 { border-left: 6px solid #7c3aed; background: #faf7ff; }
 .income-cash-receipt-main .income-no-team-badge { justify-self: start; }
 .income-cash-receipt-main { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
 .income-cash-receipt-main > div { display: grid; gap: 4px; overflow-wrap: anywhere; min-width: 0; }
@@ -4397,6 +4406,9 @@ select.control-op-badge {
 .income-team-card { display: grid; overflow: hidden; border: 1px solid #bfdbfe; border-radius: 12px; background: #fff; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
 .income-team-card--pty { border-left: 5px solid #2563eb; }
 .income-team-card--wc { border-left: 5px solid #f97316; }
+.income-team-card--delta1 { border-left: 5px solid #2563eb; }
+.income-team-card--delta2 { border-left: 5px solid #f97316; }
+.income-team-card--delta3 { border-left: 5px solid #7c3aed; }
 .income-team-card:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(15, 23, 42, .08); }
 .income-team-card--active { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(15, 118, 110, .16); }
 .income-team-card-filter { display: grid; gap: 5px; width: 100%; padding: 15px 16px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }

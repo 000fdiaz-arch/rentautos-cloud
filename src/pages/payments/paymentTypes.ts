@@ -1,4 +1,4 @@
-import type { Client, CollectionTeam, OtherCharge, OtherChargesRetentionEvent, PaymentMethod } from "../../types";
+import type { Client, CollectionDelta, CollectionTeam, OtherCharge, OtherChargesRetentionEvent, PaymentMethod } from "../../types";
 
 export type PaymentForm = {
   clientId: string;
@@ -6,6 +6,7 @@ export type PaymentForm = {
   paymentMethod: PaymentMethod;
   cashDeliveryStatus: "" | "delivered" | "pending";
   collectionTeam?: CollectionTeam | "";
+  collectionDelta?: CollectionDelta | "";
   reference: string;
   amountReceived: string;
 };

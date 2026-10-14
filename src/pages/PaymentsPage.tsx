@@ -8,6 +8,7 @@ import {
 import type {
   BankRule,
   Client,
+  CollectionDelta,
   LateFeeSettings,
   OtherChargesRetentionByClient,
   Payment,
@@ -32,7 +33,7 @@ import usePendingBankWorkflow from "./payments/usePendingBankWorkflow";
 import usePaymentsNavigation from "./payments/usePaymentsNavigation";
 import { getPaymentSaveErrorMessage } from "./payments/paymentPersistenceErrors";
 import { buildManualPaymentTransaction } from "./payments/manualPaymentWorkflow";
-import { CASH_TEAM_REQUIRED_MESSAGE, hasCollectionTeam } from "../cashTeamRules";
+import { CASH_TEAM_REQUIRED_MESSAGE, hasCollectionDelta } from "../cashTeamRules";
 import { getLastClosableDateKey } from "../cashClosingRules";
 import {
   buildPendingBankPreview,
@@ -73,7 +74,8 @@ import {
 } from "./payments/paymentRules";
 import { applyPaymentToProvisionalRental, getCollectibleProvisionalRental, nextProvisionalRentalChargeDate, restoreProvisionalRentalPayment } from "../provisionalRentals";
 import { deleteCloudNotifiedPayment, loadCloudActiveRouteItem } from "../cloud/operationsCloudData";
-import { cancelRoutePaymentReport, loadRoutePaymentReportForItem, reportRoutePayment } from "../cloud/routeReportCloudData";
+import { cancelRoutePaymentReport, loadRoutePaymentReportForItem, loadRoutePaymentReports, reportRoutePayment } from "../cloud/routeReportCloudData";
+import { routeDeltaFromName } from "../routeDeltaTracking";
 import type { NotifiedPayment } from "./payments/paymentTypes";
 type Props = {
   clients: Client[];
@@ -385,10 +387,10 @@ export default function PaymentsPage({
     const amount = parseFloat(form.amountReceived);
     if (!Number.isFinite(amount) || amount <= 0) return;
     if (form.paymentMethod === "Efectivo" && !form.cashDeliveryStatus) return;
-    if (form.paymentMethod === "Efectivo" && form.cashDeliveryStatus === "pending" && !hasCollectionTeam(form.collectionTeam)) return;
+    if (form.paymentMethod === "Efectivo" && form.cashDeliveryStatus === "pending" && !hasCollectionDelta(form.collectionDelta)) return;
     void handleConfirmPaymentClick();
     setPendingQuickCashSubmitToken(null);
-  }, [pendingQuickCashSubmitToken, selectedClient, form.amountReceived, form.paymentMethod, form.cashDeliveryStatus, form.collectionTeam]);
+  }, [pendingQuickCashSubmitToken, selectedClient, form.amountReceived, form.paymentMethod, form.cashDeliveryStatus, form.collectionDelta]);
 
 
   async function handleConfirmPaymentClick(): Promise<void> {
@@ -431,6 +433,28 @@ export default function PaymentsPage({
   const isCardPayment = form.paymentMethod === "Tarjeta";
 
   const { routeReviewReports, routeReviewError, routeReviewReady, upsertRouteReviewReport } = useRouteReviewNotifications(dataOwnerUserId);
+  const [routeDeltaByReportId, setRouteDeltaByReportId] = useState<Record<string, CollectionDelta>>({});
+
+  useEffect(() => {
+    if (!isIncomeOpen || !dataOwnerUserId) return;
+    let cancelled = false;
+    void loadRoutePaymentReports(dataOwnerUserId)
+      .then((reports) => {
+        if (cancelled) return;
+        const next: Record<string, CollectionDelta> = {};
+        reports.forEach((report) => {
+          const snapshotDelta = report.snapshot.assignedDelta;
+          const delta = snapshotDelta === "delta1" || snapshotDelta === "delta2" || snapshotDelta === "delta3"
+            ? snapshotDelta
+            : routeDeltaFromName(report.reporter_name);
+          if (delta) next[report.id] = delta;
+        });
+        setRouteDeltaByReportId(next);
+      })
+      .catch((error) => console.error("No se pudieron identificar los Delta de los ingresos de ruta.", error));
+    return () => { cancelled = true; };
+  }, [dataOwnerUserId, isIncomeOpen]);
+
   const createRouteReview = useCallback(async (clientId: string, amount: number) => {
     if (!dataOwnerUserId) return null;
     const item = await loadCloudActiveRouteItem(dataOwnerUserId, clientId);
@@ -711,7 +735,7 @@ export default function PaymentsPage({
     if (form.paymentMethod === "Efectivo" && !form.cashDeliveryStatus) {
       errs.push("Debes indicar si el dinero en efectivo ya fue entregado o está pendiente de entrega.");
     }
-    if (form.paymentMethod === "Efectivo" && form.cashDeliveryStatus === "pending" && !hasCollectionTeam(form.collectionTeam)) errs.push(CASH_TEAM_REQUIRED_MESSAGE);
+    if (form.paymentMethod === "Efectivo" && form.cashDeliveryStatus === "pending" && !hasCollectionDelta(form.collectionDelta)) errs.push(CASH_TEAM_REQUIRED_MESSAGE);
     if (form.paymentMethod === "Tarjeta") {
       const enteredFolios = extractFoliosFromReference(form.reference);
       if (enteredFolios.length > 0) {
@@ -1085,6 +1109,7 @@ export default function PaymentsPage({
         currentActor={currentActor}
         readOnly={readOnly}
         isPaymentHistoryLoaded={isPaymentHistoryLoaded}
+        routeDeltaByReportId={routeDeltaByReportId}
       />
       <PaymentHistoryPanel
         historySectionRef={historySectionRef}

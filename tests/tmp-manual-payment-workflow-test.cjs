@@ -75,13 +75,14 @@ function makeClient() {
 
   const cash = buildManualPaymentTransaction({
     ...base,
-    form: { clientId: "client-1", dateApplied: "2026-07-09", paymentMethod: "Efectivo", cashDeliveryStatus: "pending", collectionTeam: "PTY", reference: "", amountReceived: "30" }
+    form: { clientId: "client-1", dateApplied: "2026-07-09", paymentMethod: "Efectivo", cashDeliveryStatus: "pending", collectionDelta: "delta3", collectionTeam: "PTY", reference: "", amountReceived: "30" }
   });
   assert(cash.payment.createdBy === base.currentActor, "El pago debe conservar quién lo registró.");
   assert(cash.payment.amountReceived === 30, "El pago efectivo debe conservar el monto recibido.");
   assert(cash.updatedClients[0].balance === 70, `El saldo efectivo debe quedar en 70, recibido ${cash.updatedClients[0].balance}.`);
   assert(!cash.pendingCard, "El efectivo no debe crear pendiente de tarjeta.");
   assert(cash.payment.moneyDelivered === false, "El efectivo pendiente debe conservarse como no entregado.");
+  assert(cash.payment.collectionDelta === "delta3", "El efectivo pendiente debe conservar el Delta responsable.");
   assert(!cash.payment.moneyDeliveryDate, "El efectivo pendiente no debe tener fecha de entrega.");
 
   const deliveredCash = buildManualPaymentTransaction({

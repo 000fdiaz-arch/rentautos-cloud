@@ -1,7 +1,7 @@
 import type { Client, LateFeeSettings, OtherChargesRetentionByClient, Payment, PendingCardItem } from "../../types";
 import { extractFoliosFromReference } from "./bankPaymentRules";
 import type { PaymentForm } from "./paymentTypes";
-import { CASH_TEAM_REQUIRED_MESSAGE, hasCollectionTeam } from "../../cashTeamRules";
+import { CASH_TEAM_REQUIRED_MESSAGE, collectionTeamForDelta, hasCollectionDelta } from "../../cashTeamRules";
 import {
   applyPaymentToProvisionalRental,
   getCollectibleProvisionalRental,
@@ -58,7 +58,7 @@ export function buildManualPaymentTransaction({
   currentActor
 }: BuildManualPaymentParams): ManualPaymentTransaction {
   if (form.paymentMethod === "Efectivo" && !form.cashDeliveryStatus) throw new Error("Indica si el efectivo está entregado o pendiente.");
-  if (form.paymentMethod === "Efectivo" && form.cashDeliveryStatus === "pending" && !hasCollectionTeam(form.collectionTeam)) {
+  if (form.paymentMethod === "Efectivo" && form.cashDeliveryStatus === "pending" && !hasCollectionDelta(form.collectionDelta)) {
     throw new Error(CASH_TEAM_REQUIRED_MESSAGE);
   }
   const amountReceived = roundMoney(Number(form.amountReceived));
@@ -102,7 +102,8 @@ export function buildManualPaymentTransaction({
       paymentMethod: form.paymentMethod,
       reference,
       moneyDelivered: cashWasDelivered,
-      collectionTeam: isCash && hasCollectionTeam(form.collectionTeam) ? form.collectionTeam : undefined,
+      collectionTeam: isCash && hasCollectionDelta(form.collectionDelta) ? collectionTeamForDelta(form.collectionDelta) : undefined,
+      collectionDelta: isCash && hasCollectionDelta(form.collectionDelta) ? form.collectionDelta : undefined,
       moneyDeliveryDate: cashWasDelivered ? operationalDateKey : undefined,
       moneyDeliveryUpdatedAt: isCash ? createdAt : undefined,
       moneyDeliveryUpdatedBy: isCash ? currentActor : undefined,
@@ -186,7 +187,8 @@ export function buildManualPaymentTransaction({
     paymentMethod: form.paymentMethod,
     reference,
     moneyDelivered: cashWasDelivered,
-    collectionTeam: isCash && hasCollectionTeam(form.collectionTeam) ? form.collectionTeam : undefined,
+    collectionTeam: isCash && hasCollectionDelta(form.collectionDelta) ? collectionTeamForDelta(form.collectionDelta) : undefined,
+    collectionDelta: isCash && hasCollectionDelta(form.collectionDelta) ? form.collectionDelta : undefined,
     moneyDeliveryDate: cashWasDelivered ? operationalDateKey : undefined,
     moneyDeliveryUpdatedAt: isCash ? createdAt : undefined,
     moneyDeliveryUpdatedBy: isCash ? currentActor : undefined,

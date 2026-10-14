@@ -1,7 +1,7 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { formatCurrency, formatDate } from "../../format";
-import { hasCollectionTeam } from "../../cashTeamRules";
-import type { Client, LateFeeSettings, OtherChargesRetentionCycle, Payment, PaymentMethod } from "../../types";
+import { collectionTeamForDelta, hasCollectionDelta } from "../../cashTeamRules";
+import type { Client, CollectionDelta, LateFeeSettings, OtherChargesRetentionCycle, Payment, PaymentMethod } from "../../types";
 import {
   getOtherChargeKey,
   isLateFeeListClient,
@@ -275,11 +275,18 @@ export default function RegisterPaymentPanel({
                       Pendiente
                     </button>
                   </div>
-                  {form.cashDeliveryStatus === "pending" && <label className="payment-label">Equipo responsable (obligatorio)
-                    <select className="payment-input" value={form.collectionTeam ?? ""} required aria-invalid={!hasCollectionTeam(form.collectionTeam)} onChange={event => setForm(current => ({ ...current, collectionTeam: event.target.value as "" | "PTY" | "WC" }))}>
-                      <option value="">Selecciona PTY o WC</option><option value="PTY">PTY</option><option value="WC">WC</option>
+                  {form.cashDeliveryStatus === "pending" && <label className="payment-label">Delta responsable (obligatorio)
+                    <select className="payment-input" value={form.collectionDelta ?? ""} required aria-invalid={!hasCollectionDelta(form.collectionDelta)} onChange={event => {
+                      const collectionDelta = event.target.value as "" | CollectionDelta;
+                      setForm(current => ({
+                        ...current,
+                        collectionDelta,
+                        collectionTeam: collectionDelta ? collectionTeamForDelta(collectionDelta) : ""
+                      }));
+                    }}>
+                      <option value="">Selecciona un Delta</option><option value="delta1">Delta 1</option><option value="delta2">Delta 2</option><option value="delta3">Delta 3</option>
                     </select>
-                    <span className="payment-inline-hint">Indica qué equipo tiene el efectivo pendiente de entrega.</span>
+                    <span className="payment-inline-hint">Indica qué Delta tiene el efectivo pendiente de entrega.</span>
                   </label>}
                 </div>
               )}
@@ -550,7 +557,7 @@ export default function RegisterPaymentPanel({
                 type="button"
                 className="button primary"
                 onClick={() => void handleConfirmPaymentClick()}
-                disabled={!form.clientId || !preview || (form.paymentMethod === "Efectivo" && (!form.cashDeliveryStatus || (form.cashDeliveryStatus === "pending" && !hasCollectionTeam(form.collectionTeam)))) || isDateClosed(operationalDateKey) || isConfirmingPayment}
+                disabled={!form.clientId || !preview || (form.paymentMethod === "Efectivo" && (!form.cashDeliveryStatus || (form.cashDeliveryStatus === "pending" && !hasCollectionDelta(form.collectionDelta)))) || isDateClosed(operationalDateKey) || isConfirmingPayment}
               >
                 {isConfirmingPayment ? "Guardando pago..." : "Confirmar pago y generar recibo"}
               </button>

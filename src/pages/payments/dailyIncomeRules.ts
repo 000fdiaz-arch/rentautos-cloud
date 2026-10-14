@@ -1,4 +1,4 @@
-import type { BankRule, Payment } from "../../types";
+import type { BankRule, CollectionDelta, Payment } from "../../types";
 import { BANK_PAYMENT_METHODS } from "./paymentConstants";
 
 export type DailyIncomeStatus = "received" | "pending" | "non_cash";
@@ -78,13 +78,22 @@ export function buildPendingCashRows(payments: Payment[], dateKey: string): Paym
     && !isMoneyDelivered(payment) && getIncomeDate(payment) <= dateKey);
 }
 
+export function buildPendingCashRowsByDelta(
+  payments: Payment[],
+  dateKey: string,
+  resolveDelta: (payment: Payment) => CollectionDelta | undefined
+): Record<CollectionDelta | "unassigned", Payment[]> {
+  const rows: Record<CollectionDelta | "unassigned", Payment[]> = { delta1: [], delta2: [], delta3: [], unassigned: [] };
+  for (const payment of buildPendingCashRows(payments, dateKey)) {
+    rows[resolveDelta(payment) ?? "unassigned"].push(payment);
+  }
+  return rows;
+}
+
 export function buildPendingCashRowsByTeam(payments: Payment[], dateKey: string): Record<"PTY" | "WC" | "unassigned", Payment[]> {
   const rows: Record<"PTY" | "WC" | "unassigned", Payment[]> = { PTY: [], WC: [], unassigned: [] };
   for (const payment of buildPendingCashRows(payments, dateKey)) {
-    const team = payment.collectionTeam === "PTY" || payment.collectionTeam === "WC"
-      ? payment.collectionTeam
-      : "unassigned";
-    rows[team].push(payment);
+    rows[payment.collectionTeam === "PTY" || payment.collectionTeam === "WC" ? payment.collectionTeam : "unassigned"].push(payment);
   }
   return rows;
 }

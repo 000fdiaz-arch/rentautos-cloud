@@ -1,14 +1,14 @@
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { formatCurrency } from "../../format";
-import type { BankRule, CollectionTeam, Payment, PaymentIncomeEdit } from "../../types";
+import type { BankRule, CollectionDelta, Payment, PaymentIncomeEdit } from "../../types";
 import { getBusinessDateKey } from "../../billing";
-import { CASH_TEAM_REQUIRED_MESSAGE, hasCollectionTeam, isPendingCashWithoutTeam } from "../../cashTeamRules";
+import { CASH_TEAM_REQUIRED_MESSAGE, collectionDeltaFromPayment, collectionDeltaLabel, collectionTeamForDelta, hasCollectionDelta } from "../../cashTeamRules";
 import { BANK_PAYMENT_METHODS } from "./paymentConstants";
 import { PAYMENT_METHODS } from "./paymentConstants";
 import {
   buildDailyIncomeGroups,
   buildDeliveredFromPreviousRows,
-  buildPendingCashRowsByTeam,
+  buildPendingCashRowsByDelta,
   buildPendingCashRows,
   buildPendingDeliveryRows,
   getDailyIncomeStatus,
@@ -29,20 +29,33 @@ type Props = {
   currentActor: string;
   readOnly?: boolean;
   isPaymentHistoryLoaded?: boolean;
+  routeDeltaByReportId?: Record<string, CollectionDelta>;
 };
 
 type ShareScope = "full" | "filtered" | "cash" | "pending";
-type TeamFilter = "all" | "PTY" | "WC" | "unassigned";
+type TeamFilter = "all" | CollectionDelta | "unassigned";
 type CashSort = "oldest" | "newest" | "amount_desc" | "amount_asc" | "unit";
 type CashFilters = { search: string; team: TeamFilter; sort: CashSort };
 const DEFAULT_PENDING_FILTERS: CashFilters = { search: "", team: "all", sort: "oldest" };
 const DEFAULT_DELIVERED_FILTERS: CashFilters = { search: "", team: "all", sort: "newest" };
 
-function matchesCashFilters(payment: Payment, filters: CashFilters): boolean {
-  if (filters.team === "unassigned" && hasCollectionTeam(payment.collectionTeam)) return false;
-  if (filters.team !== "all" && filters.team !== "unassigned" && payment.collectionTeam !== filters.team) return false;
+function resolvePaymentDelta(payment: Payment, routeDeltaByReportId: Record<string, CollectionDelta>): CollectionDelta | undefined {
+  return collectionDeltaFromPayment(payment) ?? (payment.routeReportId ? routeDeltaByReportId[payment.routeReportId] : undefined);
+}
+
+function getDisplayIncomeComment(payment: Payment, routeDeltaByReportId: Record<string, CollectionDelta>): string {
+  const comment = payment.incomeComment?.trim() ?? "";
+  const delta = resolvePaymentDelta(payment, routeDeltaByReportId);
+  if (delta && /^Cobro en Ruta · Equipo (PTY|WC)$/i.test(comment)) return `Cobro en Ruta · ${collectionDeltaLabel(delta)}`;
+  return comment;
+}
+
+function matchesCashFilters(payment: Payment, filters: CashFilters, routeDeltaByReportId: Record<string, CollectionDelta>): boolean {
+  const delta = resolvePaymentDelta(payment, routeDeltaByReportId);
+  if (filters.team === "unassigned" && delta) return false;
+  if (filters.team !== "all" && filters.team !== "unassigned" && delta !== filters.team) return false;
   const query = filters.search.trim().toLocaleLowerCase("es");
-  return !query || [payment.clientName, payment.clientUnit, payment.receiptNumber, payment.reference ?? "", payment.incomeComment ?? "", payment.collectionTeam ?? "PAGADO EN CAJA"]
+  return !query || [payment.clientName, payment.clientUnit, payment.receiptNumber, payment.reference ?? "", getDisplayIncomeComment(payment, routeDeltaByReportId), delta ? collectionDeltaLabel(delta) : "PAGADO EN CAJA"]
     .some(value => value.toLocaleLowerCase("es").includes(query));
 }
 
@@ -103,7 +116,8 @@ export default function DailyIncomePanel({
   onPaymentsChange,
   currentActor,
   readOnly = false,
-  isPaymentHistoryLoaded = true
+  isPaymentHistoryLoaded = true,
+  routeDeltaByReportId = {}
 }: Props) {
   const [dateKey, setDateKey] = useState(getBusinessDateKey());
   const [incomeView, setIncomeView] = useState<"other" | "cash">("cash");
@@ -127,7 +141,7 @@ export default function DailyIncomePanel({
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [markPendingAfterEdit, setMarkPendingAfterEdit] = useState(false);
   const [editAccount, setEditAccount] = useState("");
-  const [editTeam, setEditTeam] = useState<"" | CollectionTeam>("");
+  const [editTeam, setEditTeam] = useState<"" | CollectionDelta>("");
   const [editComment, setEditComment] = useState("");
   const [editReason, setEditReason] = useState("");
   const [editError, setEditError] = useState("");
@@ -162,7 +176,7 @@ export default function DailyIncomePanel({
   const filteredPayments = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
     return viewPayments.filter((payment) => {
-      if (incomeView === "cash") return matchesCashFilters(payment, isMoneyDelivered(payment) ? deliveredFilters : pendingFilters);
+      if (incomeView === "cash") return matchesCashFilters(payment, isMoneyDelivered(payment) ? deliveredFilters : pendingFilters, routeDeltaByReportId);
       const status = getDailyIncomeStatus(payment);
       if (methodFilter !== "all" && payment.paymentMethod !== methodFilter) return false;
       const destination = getDailyIncomeDestination(payment, bankRules);
@@ -175,23 +189,24 @@ export default function DailyIncomePanel({
         if (deliveryFilter === "yes" && !isMoneyDelivered(payment)) return false;
         if (deliveryFilter === "no" && isMoneyDelivered(payment)) return false;
       }
-      if (teamFilter === "unassigned" && (payment.collectionTeam === "PTY" || payment.collectionTeam === "WC")) return false;
-      if (teamFilter !== "all" && teamFilter !== "unassigned" && payment.collectionTeam !== teamFilter) return false;
+      const collectionDelta = resolvePaymentDelta(payment, routeDeltaByReportId);
+      if (teamFilter === "unassigned" && collectionDelta) return false;
+      if (teamFilter !== "all" && teamFilter !== "unassigned" && collectionDelta !== teamFilter) return false;
       if (normalizedSearch && ![
         payment.clientName,
         payment.clientUnit,
         payment.receiptNumber,
         payment.reference ?? "",
-        payment.incomeComment ?? "",
+        getDisplayIncomeComment(payment, routeDeltaByReportId),
         payment.bankAccountNumber ?? "",
         payment.bankGroupCode ?? "",
-        payment.collectionTeam ?? "",
+        collectionDelta ? collectionDeltaLabel(collectionDelta) : "",
         destination.label,
         payment.paymentMethod
       ].some((value) => value.toLowerCase().includes(normalizedSearch))) return false;
       return true;
     });
-  }, [viewPayments, bankRules, search, methodFilter, destinationFilter, statusFilter, deliveryFilter, teamFilter, incomeView, pendingFilters, deliveredFilters]);
+  }, [viewPayments, bankRules, search, methodFilter, destinationFilter, statusFilter, deliveryFilter, teamFilter, incomeView, pendingFilters, deliveredFilters, routeDeltaByReportId]);
   const groups = useMemo(() => buildDailyIncomeGroups(filteredPayments, dateKey, bankRules), [filteredPayments, dateKey, bankRules]);
   const bankGroups = groups.filter((group) => group.key.startsWith("bank:"));
   const nonBankGroups = groups.filter((group) => !group.key.startsWith("bank:"));
@@ -207,8 +222,8 @@ export default function DailyIncomePanel({
   const allPendingSelected = cashPendingRows.length > 0 && selectedCashRows.length === cashPendingRows.length;
   const deliveredFromPrevious = useMemo(() => buildDeliveredFromPreviousRows(filteredPayments, dateKey), [filteredPayments, dateKey]);
   const deliveredFromPreviousTotal = deliveredFromPrevious.reduce((sum, payment) => sum + payment.amountReceived, 0);
-  const pendingCashByTeam = useMemo(() => buildPendingCashRowsByTeam(payments, dateKey), [payments, dateKey]);
-  const pendingCashTeamSummary = (["PTY", "WC"] as const).map((team) => ({
+  const pendingCashByTeam = useMemo(() => buildPendingCashRowsByDelta(payments, dateKey, (payment) => resolvePaymentDelta(payment, routeDeltaByReportId)), [payments, dateKey, routeDeltaByReportId]);
+  const pendingCashTeamSummary = (["delta1", "delta2", "delta3"] as const).map((team) => ({
     team,
     payments: pendingCashByTeam[team],
     total: pendingCashByTeam[team].reduce((sum, payment) => sum + payment.amountReceived, 0)
@@ -269,7 +284,7 @@ export default function DailyIncomePanel({
     return [...new Map(rows.map((payment) => [payment.id, payment])).values()];
   }, [shareGroups, sharePendingDeliveries, shareDeliveredFromPrevious]);
   const shareComments = shareRelevantPayments.filter((payment) => payment.incomeComment);
-  const sharePendingByTeam = buildPendingCashRowsByTeam(shareSourcePayments, dateKey);
+  const sharePendingByTeam = buildPendingCashRowsByDelta(shareSourcePayments, dateKey, (payment) => resolvePaymentDelta(payment, routeDeltaByReportId));
   const shareSummaryDestinations = shareConsolidatedGroups.slice(0, 7);
   const shareAdditionalDestinationPages = chunkItems(shareConsolidatedGroups.slice(7), 10);
   const shareBankDetailPages = chunkItems(shareReceivedBankGroups, 10);
@@ -320,9 +335,9 @@ export default function DailyIncomePanel({
     }
     if (shareSourcePayments.some(payment => payment.paymentMethod === "Efectivo")) {
       lines.push("", `*Efectivo pendiente de entrega:* ${formatCurrency(shareCashPendingTotal)}`);
-      for (const team of ["PTY", "WC", "unassigned"] as const) {
+      for (const team of ["delta1", "delta2", "delta3", "unassigned"] as const) {
         const rows = sharePendingByTeam[team];
-        if (rows.length > 0) lines.push(`• ${team === "unassigned" ? "PAGADO EN CAJA — pendiente" : `Equipo ${team} debe entregar`}: ${formatCurrency(rows.reduce((sum, payment) => sum + payment.amountReceived, 0))} (${rows.length})`);
+        if (rows.length > 0) lines.push(`• ${team === "unassigned" ? "PAGADO EN CAJA — pendiente" : `${collectionDeltaLabel(team)} debe entregar`}: ${formatCurrency(rows.reduce((sum, payment) => sum + payment.amountReceived, 0))} (${rows.length})`);
       }
     }
     if (shareCashPendingRows.length > 0) {
@@ -331,7 +346,7 @@ export default function DailyIncomePanel({
     if (shareCardPendingTotal > 0) lines.push(`*Tarjetas pendientes:* ${formatCurrency(shareCardPendingTotal)}`);
     if (shareNonCashTotal > 0) lines.push(`*Sin entrada de dinero:* ${formatCurrency(shareNonCashTotal)}`);
     if (shareComments.length > 0) {
-      lines.push("", "*Comentarios:*", ...shareComments.map((payment) => `• ${payment.clientUnit}: ${payment.incomeComment}`));
+      lines.push("", "*Comentarios:*", ...shareComments.map((payment) => `• ${payment.clientUnit}: ${getDisplayIncomeComment(payment, routeDeltaByReportId)}`));
     }
     lines.push("", `Generado: ${new Date().toLocaleString("es-PA")}`);
     return lines.join("\n");
@@ -439,9 +454,9 @@ export default function DailyIncomePanel({
     setEditingPayment(payment);
     setMarkPendingAfterEdit(false);
     setEditAccount(payment.bankAccountNumber ?? "");
-    setEditTeam(payment.collectionTeam ?? "");
-    setEditComment(payment.incomeComment ?? "");
-    setEditReason(isPendingCashWithoutTeam(payment) ? "Asignación de equipo a efectivo pendiente" : "");
+    setEditTeam(resolvePaymentDelta(payment, routeDeltaByReportId) ?? "");
+    setEditComment(getDisplayIncomeComment(payment, routeDeltaByReportId));
+    setEditReason(!resolvePaymentDelta(payment, routeDeltaByReportId) ? "Asignación de Delta a efectivo pendiente" : "");
     setEditError("");
   }
 
@@ -453,7 +468,7 @@ export default function DailyIncomePanel({
     }
     const previousDelivered = isMoneyDelivered(payment);
     if (previousDelivered === delivered) return;
-    if (payment.paymentMethod === "Efectivo" && !delivered && !hasCollectionTeam(payment.collectionTeam)) {
+    if (payment.paymentMethod === "Efectivo" && !delivered && !resolvePaymentDelta(payment, routeDeltaByReportId)) {
       openEdit(payment);
       setMarkPendingAfterEdit(true);
       setEditReason("Asignación de equipo para dejar el efectivo pendiente");
@@ -481,12 +496,12 @@ export default function DailyIncomePanel({
     } : row));
   }
 
-  function filterPendingCashByTeam(team: "PTY" | "WC"): void {
+  function filterPendingCashByTeam(team: CollectionDelta): void {
     setPendingFilters({ ...DEFAULT_PENDING_FILTERS, team: pendingFilters.team === team ? "all" : team });
     setTeamDeliveryMessage("");
   }
 
-  function markTeamCashDelivered(team: "PTY" | "WC"): void {
+  function markTeamCashDelivered(team: CollectionDelta): void {
     if (readOnly) return;
     openDelivery(pendingCashByTeam[team]);
   }
@@ -556,18 +571,21 @@ export default function DailyIncomePanel({
     if (readOnly || !editingPayment) return;
     const nextAccount = editAccount.trim();
     const previousAccount = editingPayment.bankAccountNumber?.trim() ?? "";
-    const previousTeam = editingPayment.collectionTeam ?? "";
+    const previousTeam = resolvePaymentDelta(editingPayment, routeDeltaByReportId) ?? "";
     const nextTeam = editTeam;
-    if (isPendingCashWithoutTeam({ ...editingPayment, moneyDelivered: markPendingAfterEdit ? false : editingPayment.moneyDelivered, collectionTeam: nextTeam || undefined })) {
+    if (editingPayment.paymentMethod === "Efectivo" && (markPendingAfterEdit || !isMoneyDelivered(editingPayment)) && !hasCollectionDelta(nextTeam)) {
       setEditError(CASH_TEAM_REQUIRED_MESSAGE);
       return;
     }
     const teamChanged = nextTeam !== previousTeam;
     const enteredComment = editComment.trim();
     const previousComment = editingPayment.incomeComment?.trim() ?? "";
-    const routeComment = previousTeam ? `Cobro en Ruta · Equipo ${previousTeam}` : "";
-    const nextComment = teamChanged && enteredComment === routeComment && nextTeam
-      ? `Cobro en Ruta · Equipo ${nextTeam}`
+    const routeComments = [
+      previousTeam ? `Cobro en Ruta · ${collectionDeltaLabel(previousTeam)}` : "",
+      editingPayment.collectionTeam ? `Cobro en Ruta · Equipo ${editingPayment.collectionTeam}` : ""
+    ];
+    const nextComment = teamChanged && routeComments.includes(enteredComment) && nextTeam
+      ? `Cobro en Ruta · ${collectionDeltaLabel(nextTeam)}`
       : enteredComment;
     const accountChanged = nextAccount !== previousAccount;
     const commentChanged = nextComment !== previousComment;
@@ -589,8 +607,10 @@ export default function DailyIncomePanel({
       nextAccountNumber: nextAccount || undefined,
       previousComment: commentChanged ? previousComment || undefined : undefined,
       nextComment: commentChanged ? nextComment || undefined : undefined,
-      previousCollectionTeam: teamChanged ? previousTeam || undefined : undefined,
-      nextCollectionTeam: teamChanged ? nextTeam || undefined : undefined,
+      previousCollectionTeam: teamChanged ? editingPayment.collectionTeam : undefined,
+      nextCollectionTeam: teamChanged && nextTeam ? collectionTeamForDelta(nextTeam) : undefined,
+      previousCollectionDelta: teamChanged ? previousTeam || undefined : undefined,
+      nextCollectionDelta: teamChanged ? nextTeam || undefined : undefined,
       ...(markPendingAfterEdit ? {
         previousMoneyDelivered: isMoneyDelivered(editingPayment), nextMoneyDelivered: false,
         previousMoneyDeliveryDate: getDailyIncomeReportDate(editingPayment)
@@ -600,7 +620,8 @@ export default function DailyIncomePanel({
       ...payment,
       bankAccountNumber: nextAccount || undefined,
       bankGroupCode: matchedRule?.groupCode || (nextAccount === previousAccount ? payment.bankGroupCode : undefined),
-      collectionTeam: nextTeam || undefined,
+      collectionTeam: nextTeam ? collectionTeamForDelta(nextTeam) : undefined,
+      collectionDelta: nextTeam || undefined,
       incomeComment: nextComment || undefined,
       ...(markPendingAfterEdit ? {
         moneyDelivered: false, moneyDeliveryDate: undefined,
@@ -614,15 +635,15 @@ export default function DailyIncomePanel({
   function renderPaymentTable(rows: Payment[]) {
     return <div className="income-day-table-wrap">
       <table className="income-day-table">
-        <thead><tr><th>Hora</th><th>Unidad / cliente</th><th>Recibo</th><th>Forma</th><th>Equipo</th><th>Referencia</th><th>Comentario</th><th>Dinero entregado</th><th>Monto</th><th /></tr></thead>
+        <thead><tr><th>Hora</th><th>Unidad / cliente</th><th>Recibo</th><th>Forma</th><th>Delta</th><th>Referencia</th><th>Comentario</th><th>Dinero entregado</th><th>Monto</th><th /></tr></thead>
         <tbody>{rows.map((payment) => <tr key={payment.id}>
           <td>{formatTime(payment.createdAt)}</td>
           <td><strong>{payment.clientUnit}</strong><small>{payment.clientName}</small></td>
           <td>{payment.receiptNumber}</td>
           <td>{payment.paymentMethod}{payment.bankAccountNumber && <small>{maskAccountNumber(payment.bankAccountNumber)}</small>}</td>
-          <td>{payment.collectionTeam || "—"}</td>
+          <td>{resolvePaymentDelta(payment, routeDeltaByReportId) ? collectionDeltaLabel(resolvePaymentDelta(payment, routeDeltaByReportId)!) : "—"}</td>
           <td className="income-day-reference">{payment.reference || "—"}</td>
-          <td>{payment.incomeComment || "—"}{payment.incomeComment && <small>{formatCommentDate(payment)}</small>}{getDailyIncomeStatus(payment) !== "non_cash" && <small className="income-delivery-context">{getDeliveryContext(payment)}</small>}{(payment.incomeEdits?.length ?? 0) > 0 && <small>Última edición: {payment.incomeEdits?.[payment.incomeEdits.length - 1]?.actor}</small>}</td>
+          <td>{getDisplayIncomeComment(payment, routeDeltaByReportId) || "—"}{payment.incomeComment && <small>{formatCommentDate(payment)}</small>}{getDailyIncomeStatus(payment) !== "non_cash" && <small className="income-delivery-context">{getDeliveryContext(payment)}</small>}{(payment.incomeEdits?.length ?? 0) > 0 && <small>Última edición: {payment.incomeEdits?.[payment.incomeEdits.length - 1]?.actor}</small>}</td>
           <td>{getDailyIncomeStatus(payment) === "non_cash" ? <span className="income-delivery-badge">No aplica</span> : readOnly ? <span className={`income-delivery-badge ${isMoneyDelivered(payment) ? "income-delivery-badge--yes" : "income-delivery-badge--no"}`}>{isMoneyDelivered(payment) ? "Sí" : "No"}</span> : <select className={`income-delivery-select ${isMoneyDelivered(payment) ? "income-delivery-select--yes" : "income-delivery-select--no"}`} aria-label={`Dinero entregado ${payment.receiptNumber}`} value={isMoneyDelivered(payment) ? "yes" : "no"} onChange={(event) => changeMoneyDelivered(payment, event.target.value === "yes")}><option value="yes">Sí</option><option value="no">No</option></select>}</td>
           <td><strong>{formatCurrency(payment.amountReceived)}</strong></td>
           <td>{!readOnly && <><button type="button" className="button ghost small" onClick={() => openEdit(payment)}>Editar</button>{payment.paymentMethod === "Efectivo" && isMoneyDelivered(payment) && <button type="button" className="button ghost small" onClick={() => openDelivery([payment])}>Cambiar fecha de entrega</button>}</>}</td>
@@ -645,33 +666,35 @@ export default function DailyIncomePanel({
         </select></label>
         <button type="button" className="button ghost small" aria-label={`Limpiar filtros de ${label}`} disabled={!active} onClick={() => setFilters(defaults)}>Limpiar</button>
       </div>
-      <div className="income-zone-team-filters" role="group" aria-label={`Equipo de ${label}`}>
-        {([['all', 'Todos'], ['PTY', 'PTY'], ['WC', 'WC'], ['unassigned', 'PAGADO EN CAJA']] as const).map(([value, name]) => <button key={value} type="button" className={`income-zone-team-filter income-zone-team-filter--${value.toLowerCase()}`} aria-pressed={filters.team === value} onClick={() => setFilters(current => ({ ...current, team: value }))}>{name}</button>)}
+      <div className="income-zone-team-filters" role="group" aria-label={`Delta de ${label}`}>
+        {([['all', 'Todos'], ['delta1', 'Delta 1'], ['delta2', 'Delta 2'], ['delta3', 'Delta 3'], ['unassigned', 'PAGADO EN CAJA']] as const).map(([value, name]) => <button key={value} type="button" className={`income-zone-team-filter income-zone-team-filter--${value.toLowerCase()}`} aria-pressed={filters.team === value} onClick={() => setFilters(current => ({ ...current, team: value }))}>{name}</button>)}
       </div>
     </div>;
   }
 
   function renderCashReceipts(rows: Payment[]) {
-    return <div className="income-cash-receipts">{rows.map(payment => <article className={`income-cash-receipt${hasCollectionTeam(payment.collectionTeam) ? ` income-cash-receipt--${payment.collectionTeam.toLowerCase()}` : ""}${isPendingCashWithoutTeam(payment) ? " income-cash-receipt--no-team" : ""}${!isMoneyDelivered(payment) && selectedCashSet.has(payment.id) ? " income-cash-receipt--selected" : ""}`} key={payment.id} aria-label={`Recibo ${payment.receiptNumber}`}>
+    return <div className="income-cash-receipts">{rows.map(payment => {
+      const collectionDelta = resolvePaymentDelta(payment, routeDeltaByReportId);
+      return <article className={`income-cash-receipt${collectionDelta ? ` income-cash-receipt--${collectionDelta}` : ""}${!collectionDelta ? " income-cash-receipt--no-team" : ""}${!isMoneyDelivered(payment) && selectedCashSet.has(payment.id) ? " income-cash-receipt--selected" : ""}`} key={payment.id} aria-label={`Recibo ${payment.receiptNumber}`}>
       {!readOnly && !isMoneyDelivered(payment) && <label className="income-cash-select"><input type="checkbox" aria-label={`Seleccionar recibo ${payment.receiptNumber}`} checked={selectedCashSet.has(payment.id)} onChange={event => {
         const checked = event.target.checked;
         setSelectedCashIds(current => checked ? [...new Set([...current, payment.id])] : current.filter(id => id !== payment.id));
       }} />{selectedCashSet.has(payment.id) ? "Seleccionado" : "Seleccionar"}</label>}
       <div className="income-cash-receipt-main">
-        <div><strong>{payment.clientUnit} · {payment.clientName}</strong><small>Recibo {payment.receiptNumber}</small>{hasCollectionTeam(payment.collectionTeam) ? <span className={`income-team-badge income-team-badge--${payment.collectionTeam.toLowerCase()}`}>EQUIPO {payment.collectionTeam}</span> : <span className="income-no-team-badge">PAGADO EN CAJA</span>}</div>
+        <div><strong>{payment.clientUnit} · {payment.clientName}</strong><small>Recibo {payment.receiptNumber}</small>{collectionDelta ? <span className={`income-team-badge income-team-badge--${collectionDelta}`}>{collectionDeltaLabel(collectionDelta).toUpperCase()}</span> : <span className="income-no-team-badge">PAGADO EN CAJA</span>}</div>
         <strong className="income-cash-amount">{formatCurrency(payment.amountReceived)}</strong>
       </div>
       <div className="income-cash-receipt-dates"><span>Cobrado: {formatMoneyDay(getIncomeDate(payment))}</span>{isMoneyDelivered(payment) && <span>Entregado: {formatMoneyDay(getDailyIncomeReportDate(payment))}</span>}</div>
-      {payment.incomeComment && <p className="income-cash-comment">{payment.incomeComment}</p>}
+      {payment.incomeComment && <p className="income-cash-comment">{getDisplayIncomeComment(payment, routeDeltaByReportId)}</p>}
       {!readOnly && <div className="income-cash-receipt-actions">
-        {isPendingCashWithoutTeam(payment) && <button type="button" className="button primary small" onClick={() => openEdit(payment)}>Asignar equipo</button>}
+        {!collectionDelta && <button type="button" className="button primary small" onClick={() => openEdit(payment)}>Asignar Delta</button>}
         <button type="button" className={`button ${isMoneyDelivered(payment) ? "ghost" : "primary"} small`} onClick={() => openDelivery([payment])}>{isMoneyDelivered(payment) ? "Cambiar fecha de entrega" : "Registrar entrega"}</button>
         <details className="income-cash-more"><summary>Más opciones</summary><div>
           <button type="button" className="button ghost small" onClick={() => openEdit(payment)}>Editar datos</button>
           {isMoneyDelivered(payment) && <button type="button" className="button ghost small" onClick={() => changeMoneyDelivered(payment, false)}>Dejar pendiente</button>}
         </div></details>
       </div>}
-    </article>)}</div>;
+    </article>;})}</div>;
   }
 
   async function exportExcel(): Promise<void> {
@@ -687,12 +710,12 @@ export default function DailyIncomePanel({
       "Detalle del destino": group.label,
       Cuenta: payment.bankAccountNumber ?? "",
       Forma: payment.paymentMethod,
-      Equipo: payment.collectionTeam ?? "",
+      Delta: resolvePaymentDelta(payment, routeDeltaByReportId) ? collectionDeltaLabel(resolvePaymentDelta(payment, routeDeltaByReportId)!) : "",
       Recibo: payment.receiptNumber,
       Unidad: payment.clientUnit,
       Cliente: payment.clientName,
       Referencia: payment.reference ?? "",
-      Comentario: payment.incomeComment ?? "",
+      Comentario: getDisplayIncomeComment(payment, routeDeltaByReportId),
       "Fecha del comentario": payment.incomeComment ? formatCommentDate(payment) : "",
       "Dinero entregado": getDailyIncomeStatus(payment) === "non_cash" ? "No aplica" : isMoneyDelivered(payment) ? "Sí" : "No",
       "Día al que corresponde el dinero": getIncomeDate(payment),
@@ -711,9 +734,10 @@ export default function DailyIncomePanel({
       ...nonBankGroups.map((group) => [group.label, group.status, group.payments.length, group.total]),
       [],
       ...(incomeView === "cash" ? [
-      ["Efectivo por entregar · PTY", "pending", pendingCashTeamSummary[0].payments.length, pendingCashTeamSummary[0].total],
-      ["Efectivo por entregar · WC", "pending", pendingCashTeamSummary[1].payments.length, pendingCashTeamSummary[1].total],
-      ["Total efectivo por entregar de equipos", "pending", pendingCashTeamSummary[0].payments.length + pendingCashTeamSummary[1].payments.length, pendingCashTeamTotal],
+      ["Efectivo por entregar · Delta 1", "pending", pendingCashTeamSummary[0].payments.length, pendingCashTeamSummary[0].total],
+      ["Efectivo por entregar · Delta 2", "pending", pendingCashTeamSummary[1].payments.length, pendingCashTeamSummary[1].total],
+      ["Efectivo por entregar · Delta 3", "pending", pendingCashTeamSummary[2].payments.length, pendingCashTeamSummary[2].total],
+      ["Total efectivo por entregar de Deltas", "pending", pendingCashTeamSummary.reduce((sum, item) => sum + item.payments.length, 0), pendingCashTeamTotal],
       ...(unassignedPendingCashTotal > 0 ? [["PAGADO EN CAJA — pendiente", "pending", pendingCashByTeam.unassigned.length, unassignedPendingCashTotal]] : [])
       ] : []),
       [],
@@ -780,7 +804,7 @@ export default function DailyIncomePanel({
         </div>
         <div id="cash-status-panel-pending" className="income-cash-status-panel" role="tabpanel" aria-labelledby="cash-status-tab-pending" hidden={cashStatus !== "pending"}>
         {pendingCashByTeam.unassigned.length > 0 && <article className="income-other-cash income-missing-team-alert" aria-label="Efectivo pendiente PAGADO EN CAJA">
-          <div><h4>PAGADO EN CAJA</h4><p>{pendingCashByTeam.unassigned.length} {pendingCashByTeam.unassigned.length === 1 ? "recibo pendiente necesita" : "recibos pendientes necesitan"} un equipo. Selecciona PTY o WC en cada recibo.</p></div>
+          <div><h4>PAGADO EN CAJA</h4><p>{pendingCashByTeam.unassigned.length} {pendingCashByTeam.unassigned.length === 1 ? "recibo pendiente necesita" : "recibos pendientes necesitan"} un responsable. Selecciona Delta 1, Delta 2 o Delta 3 en cada recibo.</p></div>
           <strong>{formatCurrency(unassignedPendingCashTotal)}</strong>
           <button type="button" className="button ghost small" onClick={() => {
             setPendingFilters({ ...DEFAULT_PENDING_FILTERS, team: "unassigned" });
@@ -788,12 +812,12 @@ export default function DailyIncomePanel({
           }}>Ver estos recibos</button>
         </article>}
         <details className="income-cash-teams">
-          <summary>Ver pendientes y entregas por equipo</summary>
-          <section className="income-team-closing" aria-label="Efectivo pendiente por equipo">
+          <summary>Ver pendientes y entregas por Delta</summary>
+          <section className="income-team-closing" aria-label="Efectivo pendiente por Delta">
         <div className="income-team-closing-head">
           <div>
-            <h3>Falta entregar por equipo</h3>
-            <p>Todos los recibos pendientes hasta el día elegido. Puedes registrar juntos los de un equipo.</p>
+            <h3>Falta entregar por Delta</h3>
+            <p>Todos los recibos pendientes hasta el día elegido. Puedes registrar juntos los de un Delta.</p>
           </div>
           <div><span>Total por entregar</span><strong>{formatCurrency(pendingCashTeamTotal + unassignedPendingCashTotal)}</strong></div>
         </div>
@@ -801,11 +825,11 @@ export default function DailyIncomePanel({
           {pendingCashTeamSummary.map((item) => (
             <article key={item.team} className={`income-team-card income-team-card--${item.team.toLowerCase()}${pendingFilters.team === item.team ? " income-team-card--active" : ""}`}>
               <button type="button" className="income-team-card-filter" aria-pressed={pendingFilters.team === item.team} onClick={() => filterPendingCashByTeam(item.team)}>
-                <span className={`income-team-badge income-team-badge--${item.team.toLowerCase()}`}>EQUIPO {item.team}</span>
+                <span className={`income-team-badge income-team-badge--${item.team.toLowerCase()}`}>{collectionDeltaLabel(item.team).toUpperCase()}</span>
                 <strong>{formatCurrency(item.total)}</strong>
-                <small>{item.payments.length} recibo(s) pendientes · Ver recibos del equipo</small>
+                <small>{item.payments.length} recibo(s) pendientes · Ver recibos del Delta</small>
               </button>
-              {!readOnly && item.payments.length > 0 ? <button type="button" className="income-team-deliver-all" disabled={!isPaymentHistoryLoaded} onClick={() => markTeamCashDelivered(item.team)}>Registrar entrega del equipo {item.team}</button> : null}
+              {!readOnly && item.payments.length > 0 ? <button type="button" className="income-team-deliver-all" disabled={!isPaymentHistoryLoaded} onClick={() => markTeamCashDelivered(item.team)}>Registrar entrega de {collectionDeltaLabel(item.team)}</button> : null}
             </article>
           ))}
         </div>
@@ -847,13 +871,13 @@ export default function DailyIncomePanel({
         </div>
         <div className="income-day-table-wrap">
           <table className="income-day-table">
-            <thead><tr><th>Dinero correspondiente a</th><th>Unidad / cliente</th><th>Recibo</th><th>Forma</th><th>Equipo</th><th>Monto</th><th>Dinero entregado</th></tr></thead>
+            <thead><tr><th>Dinero correspondiente a</th><th>Unidad / cliente</th><th>Recibo</th><th>Forma</th><th>Delta</th><th>Monto</th><th>Dinero entregado</th></tr></thead>
             <tbody>{pendingDeliveries.map((payment) => <tr key={`pending-delivery-${payment.id}`}>
               <td>{getIncomeDate(payment)}</td>
               <td><strong>{payment.clientUnit}</strong><small>{payment.clientName}</small></td>
               <td>{payment.receiptNumber}</td>
               <td>{payment.paymentMethod}</td>
-              <td>{payment.collectionTeam || "—"}</td>
+              <td>{resolvePaymentDelta(payment, routeDeltaByReportId) ? collectionDeltaLabel(resolvePaymentDelta(payment, routeDeltaByReportId)!) : "—"}</td>
               <td><strong>{formatCurrency(payment.amountReceived)}</strong></td>
               <td>{readOnly ? <span className="income-delivery-badge income-delivery-badge--no">No</span> : <button type="button" className="button primary small" onClick={() => changeMoneyDelivered(payment, true)}>Marcar Sí</button>}</td>
             </tr>)}</tbody>
@@ -868,13 +892,13 @@ export default function DailyIncomePanel({
         </div>
         <div className="income-day-table-wrap">
           <table className="income-day-table">
-            <thead><tr><th>Dinero correspondiente a</th><th>Unidad / cliente</th><th>Recibo</th><th>Forma</th><th>Equipo</th><th>Monto</th><th>Entrega</th></tr></thead>
+            <thead><tr><th>Dinero correspondiente a</th><th>Unidad / cliente</th><th>Recibo</th><th>Forma</th><th>Delta</th><th>Monto</th><th>Entrega</th></tr></thead>
             <tbody>{deliveredFromPrevious.map((payment) => <tr key={`completed-delivery-${payment.id}`}>
               <td>{formatMoneyDay(getIncomeDate(payment))}</td>
               <td><strong>{payment.clientUnit}</strong><small>{payment.clientName}</small></td>
               <td>{payment.receiptNumber}</td>
               <td>{payment.paymentMethod}</td>
-              <td>{payment.collectionTeam || "—"}</td>
+              <td>{resolvePaymentDelta(payment, routeDeltaByReportId) ? collectionDeltaLabel(resolvePaymentDelta(payment, routeDeltaByReportId)!) : "—"}</td>
               <td><strong>{formatCurrency(payment.amountReceived)}</strong></td>
               <td><span className="income-delivery-badge income-delivery-badge--yes">Entregado en esta fecha</span>{!readOnly && payment.paymentMethod === "Efectivo" && <button type="button" className="button ghost small" onClick={() => openDelivery([payment])}>Cambiar fecha de entrega</button>}</td>
             </tr>)}</tbody>
@@ -888,7 +912,7 @@ export default function DailyIncomePanel({
         <label>Cuenta o destino<select value={destinationFilter} onChange={(event) => setDestinationFilter(event.target.value)}><option value="all">Todos</option>{destinationOptions.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
         <label>Estado<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Todos</option><option value="received">Recibido</option><option value="pending">Pendiente</option><option value="non_cash">Sin entrada de dinero</option></select></label>
         <label>Dinero entregado<select value={deliveryFilter} onChange={(event) => setDeliveryFilter(event.target.value)}><option value="all">Todos</option><option value="yes">Sí</option><option value="no">No</option></select></label>
-        <label>Equipo<select value={teamFilter} onChange={(event) => { setTeamFilter(event.target.value as TeamFilter); setTeamDeliveryMessage(""); }}><option value="all">Todos</option><option value="PTY">PTY</option><option value="WC">WC</option><option value="unassigned">PAGADO EN CAJA</option></select></label>
+        <label>Delta<select value={teamFilter} onChange={(event) => { setTeamFilter(event.target.value as TeamFilter); setTeamDeliveryMessage(""); }}><option value="all">Todos</option><option value="delta1">Delta 1</option><option value="delta2">Delta 2</option><option value="delta3">Delta 3</option><option value="unassigned">PAGADO EN CAJA</option></select></label>
         <button type="button" className="button ghost" onClick={clearFilters} disabled={!filtersActive}>Limpiar filtros</button>
       </div>
 
@@ -951,7 +975,7 @@ export default function DailyIncomePanel({
       </div>}
       {editingPayment && <div className="modal-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingPayment(null); }}>
         <div className="modal income-edit-modal" role="dialog" aria-modal="true" aria-labelledby="income-edit-title">
-          <div className="modal-header"><h2 id="income-edit-title">{markPendingAfterEdit ? "Asignar equipo y dejar pendiente" : isPendingCashWithoutTeam(editingPayment) ? "Asignar equipo" : "Editar ingreso"} · {editingPayment.receiptNumber}</h2><button type="button" className="modal-close" onClick={() => setEditingPayment(null)}>×</button></div>
+          <div className="modal-header"><h2 id="income-edit-title">{markPendingAfterEdit ? "Asignar Delta y dejar pendiente" : !resolvePaymentDelta(editingPayment, routeDeltaByReportId) ? "Asignar Delta" : "Editar ingreso"} · {editingPayment.receiptNumber}</h2><button type="button" className="modal-close" onClick={() => setEditingPayment(null)}>×</button></div>
           <div className="modal-body income-edit-form">
             {BANK_PAYMENT_METHODS.has(editingPayment.paymentMethod) || editingPayment.paymentMethod === "Tarjeta" ? <label>Cuenta receptora
               <select value={editAccount} onChange={(event) => setEditAccount(event.target.value)}>
@@ -960,15 +984,16 @@ export default function DailyIncomePanel({
                 {accountOptions.map((rule) => <option key={rule.id} value={rule.accountNumber}>{rule.accountName || "Cuenta bancaria"} · {maskAccountNumber(rule.accountNumber)} · Grupo {rule.groupCode}</option>)}
               </select>
             </label> : null}
-            <label>Equipo{(markPendingAfterEdit || (editingPayment.paymentMethod === "Efectivo" && !isMoneyDelivered(editingPayment))) ? " (obligatorio)" : ""}
-              <select required={markPendingAfterEdit || (editingPayment.paymentMethod === "Efectivo" && !isMoneyDelivered(editingPayment))} value={editTeam} onChange={(event) => setEditTeam(event.target.value as "" | CollectionTeam)}>
-                <option value="">PAGADO EN CAJA — selecciona PTY o WC</option>
-                <option value="PTY">PTY</option>
-                <option value="WC">WC</option>
+            <label>Delta{(markPendingAfterEdit || (editingPayment.paymentMethod === "Efectivo" && !isMoneyDelivered(editingPayment))) ? " (obligatorio)" : ""}
+              <select required={markPendingAfterEdit || (editingPayment.paymentMethod === "Efectivo" && !isMoneyDelivered(editingPayment))} value={editTeam} onChange={(event) => setEditTeam(event.target.value as "" | CollectionDelta)}>
+                <option value="">PAGADO EN CAJA — selecciona un Delta</option>
+                <option value="delta1">Delta 1</option>
+                <option value="delta2">Delta 2</option>
+                <option value="delta3">Delta 3</option>
               </select>
             </label>
             <label>Comentario<textarea rows={3} value={editComment} onChange={(event) => setEditComment(event.target.value)} placeholder="Comentario opcional" /></label>
-            {(editAccount.trim() !== (editingPayment.bankAccountNumber?.trim() ?? "") || editTeam !== (editingPayment.collectionTeam ?? "")) && <label>Motivo de la corrección<input value={editReason} onChange={(event) => setEditReason(event.target.value)} placeholder="Obligatorio al cambiar cuenta o equipo" /></label>}
+            {(editAccount.trim() !== (editingPayment.bankAccountNumber?.trim() ?? "") || editTeam !== (resolvePaymentDelta(editingPayment, routeDeltaByReportId) ?? "")) && <label>Motivo de la corrección<input value={editReason} onChange={(event) => setEditReason(event.target.value)} placeholder="Obligatorio al cambiar cuenta o Delta" /></label>}
             {editError && <p className="hint error-text">{editError}</p>}
             {(editingPayment.incomeEdits?.length ?? 0) > 0 && <details><summary>Historial de ediciones ({editingPayment.incomeEdits?.length})</summary><ul className="income-edit-audit">{[...(editingPayment.incomeEdits ?? [])].reverse().map((edit) => <li key={edit.id}><strong>{edit.actor}</strong> · {new Date(edit.createdAt).toLocaleString("es-PA")}{edit.reason ? ` · ${edit.reason}` : ""}{(edit.previousMoneyDeliveryDate || edit.nextMoneyDeliveryDate) && <small> · Entrega: {edit.previousMoneyDeliveryDate || "Pendiente"} → {edit.nextMoneyDeliveryDate || "Pendiente"}</small>}</li>)}</ul></details>}
             <div className="modal-actions"><button type="button" className="button ghost" onClick={() => setEditingPayment(null)}>Cancelar</button><button type="button" className="button primary" onClick={saveEdit}>Guardar cambios</button></div>
@@ -1036,7 +1061,7 @@ export default function DailyIncomePanel({
                 const pageNumber = 2 + shareAdditionalDestinationPages.length + shareBankDetailPages.length + shareCashDeliveredPages.length + shareCashPendingPages.length + pageIndex;
                 return <article className="income-whatsapp-card income-whatsapp-page" key={`share-comments-page-${pageIndex}`}>
                   <header><span>RENTAUTOS</span><strong>COMENTARIOS IMPORTANTES</strong><small>{formatMoneyDay(dateKey)} · observaciones</small></header>
-                  <section className="income-whatsapp-comments income-whatsapp-page-content">{commentPage.map((payment) => <p key={`share-comment-${payment.id}`}><strong>{payment.clientUnit}:</strong> {payment.incomeComment}</p>)}</section>
+                  <section className="income-whatsapp-comments income-whatsapp-page-content">{commentPage.map((payment) => <p key={`share-comment-${payment.id}`}><strong>{payment.clientUnit}:</strong> {getDisplayIncomeComment(payment, routeDeltaByReportId)}</p>)}</section>
                   <footer><span>Observaciones del reporte</span><small>Página {pageNumber} de {sharePageCount}</small></footer>
                 </article>;
               })}

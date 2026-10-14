@@ -348,6 +348,8 @@ function normalizePaymentIncomeEdits(value: unknown): PaymentIncomeEdit[] | unde
       nextComment: optionalText(raw.nextComment),
       previousCollectionTeam: raw.previousCollectionTeam === "PTY" || raw.previousCollectionTeam === "WC" ? raw.previousCollectionTeam : undefined,
       nextCollectionTeam: raw.nextCollectionTeam === "PTY" || raw.nextCollectionTeam === "WC" ? raw.nextCollectionTeam : undefined,
+      previousCollectionDelta: raw.previousCollectionDelta === "delta1" || raw.previousCollectionDelta === "delta2" || raw.previousCollectionDelta === "delta3" ? raw.previousCollectionDelta : undefined,
+      nextCollectionDelta: raw.nextCollectionDelta === "delta1" || raw.nextCollectionDelta === "delta2" || raw.nextCollectionDelta === "delta3" ? raw.nextCollectionDelta : undefined,
       previousMoneyDelivered: typeof raw.previousMoneyDelivered === "boolean" ? raw.previousMoneyDelivered : undefined,
       nextMoneyDelivered: typeof raw.nextMoneyDelivered === "boolean" ? raw.nextMoneyDelivered : undefined,
       previousMoneyDeliveryDate: optionalText(raw.previousMoneyDeliveryDate),
@@ -495,6 +497,7 @@ function normalizePayment(item: unknown): Payment | null {
         : undefined,
     incomeEdits: normalizePaymentIncomeEdits(raw.incomeEdits),
     collectionTeam: raw.collectionTeam === "PTY" || raw.collectionTeam === "WC" ? raw.collectionTeam : undefined,
+    collectionDelta: raw.collectionDelta === "delta1" || raw.collectionDelta === "delta2" || raw.collectionDelta === "delta3" ? raw.collectionDelta : undefined,
     moneyDelivered: typeof raw.moneyDelivered === "boolean" ? raw.moneyDelivered : undefined,
     moneyDeliveryDate:
       typeof raw.moneyDeliveryDate === "string" && raw.moneyDeliveryDate.trim()
