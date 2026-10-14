@@ -24,6 +24,7 @@ assert.match(page, /current === delta \? null : delta/, "El segundo toque del De
 assert.match(page, /'managed', 'Gestionados hoy'/, "Debe existir la vista de carros gestionados hoy.");
 assert.match(page, /RouteManagedList actions=\{visibleManagedActions\}/, "La vista gestionada debe usar el formato listado.");
 assert.match(card, /Declarar carro en custodia/, "La acción debe usar el texto aprobado.");
+assert.match(card, /view === "work"[\s\S]*Declarar carro en custodia/, "Custodia solo debe declararse desde Trabajo, nunca desde Pagos por revisar.");
 assert.match(page, /'custody', 'En custodia'/, "La pestaña debe llamarse En custodia.");
 assert.doesNotMatch(page, /route-time-alert-summary/, "El panel de próxima atención y urgente debe eliminarse.");
 assert.match(tracking, /report\.reported_by/, "Los cobros deben atribuirse al usuario que los reportó.");

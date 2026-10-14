@@ -192,7 +192,7 @@ export default function RouteCollectionCard(props: Props) {
       {view === "work" && canReport && !props.hasPendingReport ? <button type="button" className="button primary" disabled={props.reportDisabled || saving} onClick={props.onReport}>Notificar pago</button> : null}
       {view === "work" && canReport && !report ? <button type="button" className={`button ${item.routeInactiveAt ? "route-collection-inactive-action" : "ghost"}`} disabled={props.inactiveSaving || saving} onClick={props.onInactive}>{props.inactiveSaving ? "Guardando…" : item.routeInactiveAt ? "Marcar como disponible" : "Marcar Inactivo"}</button> : null}
       {view === "custody" && canReport ? <button type="button" className="button primary" disabled={saving} onClick={props.onCustody}>Sacar de custodia</button> : null}
-      {view !== "confirmed" && view !== "custody" && view !== "review" && canReport && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button ghost" disabled={saving} onClick={props.onCustody}>Declarar carro en custodia</button> : null}
+      {view === "work" && canReport && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button ghost" disabled={saving} onClick={props.onCustody}>Declarar carro en custodia</button> : null}
         {props.canReturnReport ? <button type="button" className="button ghost" disabled={saving} onClick={props.onReturnReport}>No confirmado</button> : null}
       {canRemove && props.hasActiveRoute && (!report || view === "partial") ? <button type="button" className="button ghost route-collection-remove" disabled={saving} onClick={props.onRemove}>Sacar de ruta</button> : null}
     </div>
