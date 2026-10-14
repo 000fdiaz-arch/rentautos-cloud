@@ -20,8 +20,12 @@ for (const column of ["Recibidas", "Cobrado", "Custodia", "Ausente"]) {
 assert.doesNotMatch(summary, /Confirmación|Confirmados/, "El nuevo resumen no debe incluir confirmación.");
 assert.match(page, /route-search-route-totals/, "Deben mostrarse los conteos superiores por ruta.");
 assert.match(page, /toggleRouteFilter/, "Los conteos de ruta deben filtrar la pantalla.");
-assert.match(page, /current === delta \? null : delta/, "El segundo toque del Delta debe volver a todos los datos.");
+assert.match(page, /deltaFilter === delta \? null : delta/, "El segundo toque del Delta debe volver a todos los datos.");
 assert.match(page, /'managed', 'Gestionados hoy'/, "Debe existir la vista de carros gestionados hoy.");
+assert.match(page, /Filtrar gestionados por Delta/, "Gestionado hoy debe mostrar un filtro Delta visible.");
+assert.match(page, /Todos \(\{managedActions\.length\}\)/, "Gestionado hoy debe permitir volver a todos los Delta.");
+assert.match(page, /\["delta1", "delta2", "delta3"\][\s\S]*managedActions\.filter/, "Gestionado hoy debe filtrar y contar cada Delta por separado.");
+assert.match(page, /function clearManagedDeltaFilter[\s\S]*setRouteFilter\(ALL_ACTIVE_ROUTE_FILTER\)/, "Ver todos debe limpiar también el filtro de ruta.");
 assert.match(page, /RouteManagedList actions=\{visibleManagedActions\}/, "La vista gestionada debe usar el formato listado.");
 assert.match(card, /Declarar carro en custodia/, "La acción debe usar el texto aprobado.");
 assert.match(card, /view === "work"[\s\S]*Declarar carro en custodia/, "Custodia solo debe declararse desde Trabajo, nunca desde Pagos por revisar.");

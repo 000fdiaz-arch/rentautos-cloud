@@ -783,12 +783,18 @@ export default function RouteSearchPage({
 
   function toggleDeltaFilter(delta: RouteDeltaKey): void {
     const nextDelta = deltaFilter === delta ? null : delta;
-    const deltaRoute = ROUTE_DELTAS.find((row) => row.key === delta)?.route;
     setDeltaFilter(nextDelta);
-    setRouteFilter(nextDelta && deltaRoute ? activeRouteFilterValue(deltaRoute) : ALL_ACTIVE_ROUTE_FILTER);
+    setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
     setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
     setZoneFilterLabel("");
     openWorkflow("managed");
+  }
+
+  function clearManagedDeltaFilter(): void {
+    setDeltaFilter(null);
+    setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
+    setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
+    setZoneFilterLabel("");
   }
 
   function toggleRouteFilter(route: string): void {
@@ -1422,7 +1428,7 @@ export default function RouteSearchPage({
       {deltaFilter ? <div className="route-search-delta-filter" role="status">
         <div><strong>{workflowCounts.managed} carros gestionados hoy por {routeDeltaLabel(deltaFilter)}</strong>
           <span>Cobrado {managedActions.filter((action) => action.delta === deltaFilter && action.kind === "paid").length} · En custodia {managedActions.filter((action) => action.delta === deltaFilter && action.kind === "custody").length} · Ausente {managedActions.filter((action) => action.delta === deltaFilter && action.kind === "absent").length}</span></div>
-        <button type="button" className="button ghost small" onClick={() => setDeltaFilter(null)}>Ver todos</button>
+        <button type="button" className="button ghost small" onClick={clearManagedDeltaFilter}>Ver todos</button>
       </div> : null}
       {reportsError ? <p className="error-text" role="alert">{reportsError}</p> : null}
       {captureError ? <p className="error-text" role="alert">{captureError}</p> : null}
@@ -1454,6 +1460,21 @@ export default function RouteSearchPage({
         <span>{routeActionMessage}</span>
         {routeUndo && routeActionMessage === `${routeUndo.item.unitId} cambió a ${routeUndo.current}.` ? <button type="button" className="button ghost small" disabled={changingRoute !== null} onClick={() => void undoRouteChange()}>{changingRoute ? "Deshaciendo…" : "Deshacer"}</button> : null}
       </div> : null}
+      {workflowView === "managed" ? (
+        <div className="route-search-delta-toolbar route-search-managed-delta-toolbar">
+          <span className="route-search-filter-label">Filtrar gestionados por Delta</span>
+          <div className="route-search-filters route-search-delta-assignment-filters" aria-label="Filtrar gestionados hoy por Delta">
+            <button type="button" className={deltaFilter === null ? "is-active" : ""} aria-pressed={deltaFilter === null} onClick={clearManagedDeltaFilter}>
+              Todos ({managedActions.length})
+            </button>
+            {(["delta1", "delta2", "delta3"] as const).map((delta) => (
+              <button key={delta} type="button" className={deltaFilter === delta ? "is-active" : ""} aria-pressed={deltaFilter === delta} onClick={() => toggleDeltaFilter(delta)}>
+                {routeDeltaLabel(delta)} ({managedActions.filter((action) => action.delta === delta).length})
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {deltaAssignmentCounts.all > 0 && workflowView !== "managed" ? (
         <div className="route-search-delta-toolbar">
           <span className="route-search-filter-label">Delta</span>
