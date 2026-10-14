@@ -67,6 +67,29 @@ try{
     for(const label of ['Trabajo (1)','Pagos por revisar (2)','En custodia (1)']){
       await panel.getByRole('button',{name:label,exact:true}).click();
       snapshot.views[label]=await panel.locator('.route-collection-card').allInnerTexts();
+      if(label==='Pagos por revisar (2)'){
+        assert.equal(await panel.locator('.route-collection-card--review-list').count(),2);
+        assert.equal(await panel.locator('.route-collection-card--workflow-list').count(),2);
+      }
+      if(label==='En custodia (1)'){
+        assert.equal(await panel.locator('.route-collection-card--custody-list').count(),1);
+        assert.equal(await panel.locator('.route-collection-card--workflow-list').count(),1);
+      }
+    }
+    if(!mode){
+      for(const viewport of [{name:'laptop',width:1280,height:900},{name:'tablet',width:820,height:1000},{name:'mobile',width:390,height:900}]){
+        await page.setViewportSize({width:viewport.width,height:viewport.height});
+        for(const label of ['Pagos por revisar (2)','En custodia (1)']){
+          await panel.getByRole('button',{name:label,exact:true}).click();
+          assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`${label} produjo desplazamiento horizontal en ${viewport.name}.`);
+          const cards=panel.locator('.route-collection-card--workflow-list');
+          assert.ok(await cards.count()>0,`${label} no usó el formato listado en ${viewport.name}.`);
+          for(let index=0;index<await cards.count();index++)assert.ok((await cards.nth(index).boundingBox())?.width<=viewport.width,`${label} excedió el ancho en ${viewport.name}.`);
+        }
+        await panel.getByRole('button',{name:'Pagos por revisar (2)',exact:true}).click();
+        await page.screenshot({path:`.tmp/route-parity/review-${viewport.name}.png`,fullPage:true});
+      }
+      await page.setViewportSize({width:1280,height:900});
     }
     assert.equal(await panel.getByRole('button',{name:/^Pagos confirmados/}).count(),0);
     await panel.getByRole('button',{name:'Trabajo (1)',exact:true}).click();
