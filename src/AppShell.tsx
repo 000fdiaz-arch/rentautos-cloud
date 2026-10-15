@@ -53,7 +53,7 @@ import { isSupabaseOnlyMode } from "./persistenceMode";
 import { analyzeBackupFileContent, type BackupImportReport } from "./backupImport";
 import type { BackupExtraData } from "./autobackup";
 import { canEditScreen, canViewScreen, type AppPermissions } from "./auth/permissions";
-import type { BankRule, Client, CollectionTeam, LateFeeSettings, LeadEvaluation, OtherChargesRetentionByClient, Payment } from "./types";
+import type { BankRule, Client, CollectionDelta, CollectionTeam, LateFeeSettings, LeadEvaluation, OtherChargesRetentionByClient, Payment } from "./types";
 import { parseLocalJson } from "./app/appShellRules";
 import AppNavigation, { type AppPage } from "./app/AppNavigation";
 import { appPageFromPathname, appPagePath, isCanonicalAppPagePath } from "./app/appRoutes";
@@ -649,6 +649,7 @@ export default function AppShell({
     amount: number;
     method: "cash" | "bank";
     team: CollectionTeam;
+    delta?: CollectionDelta;
     reportId?: string;
     fundsReceivedDate?: string;
   }): Promise<{ kind: "cash" | "bank"; receiptNumber?: string; payment?: Payment }> {
@@ -684,6 +685,10 @@ export default function AppShell({
       return { kind: "bank" };
     }
 
+    if (!input.delta) {
+      throw new Error("No se pudo identificar qué Delta recibió el efectivo.");
+    }
+
     const operationalDateKey = getBusinessDateKey();
     const receiptNumber = cloudDataUserId ? "" : nextReceiptNumber();
     const transaction = buildManualPaymentTransaction({
@@ -696,6 +701,7 @@ export default function AppShell({
         paymentMethod: "Efectivo",
         cashDeliveryStatus: "pending",
         collectionTeam: input.team,
+        collectionDelta: input.delta,
         reference: "",
         amountReceived: String(input.amount)
       },

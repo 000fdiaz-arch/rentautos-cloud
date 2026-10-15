@@ -28,7 +28,9 @@ function Harness() {
   return <RouteSearchPage
   dataOwnerUserId="11111111-1111-4111-8111-111111111111"
   currentUserId="22222222-2222-4222-8222-222222222222"
-  currentUserEmail="delta1@auth.rentautos.local"
+  currentUserEmail={isAdmin
+    ? "admin@auth.rentautos.local"
+    : routeParams.has("delta2") ? "delta2@auth.rentautos.local" : "delta1@auth.rentautos.local"}
   initialRouteFilter={autoCash ? (routeParams.has("delta2") ? "WC" : "PTY") : undefined}
   canReportPayment={canReportRoutePayment(role, getRoleScreenPermissions(role))}
   canConfirmBankPayment={isAdmin}

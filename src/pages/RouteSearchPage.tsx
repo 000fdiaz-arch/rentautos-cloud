@@ -34,7 +34,7 @@ import { buildRouteReviewIndex, getActiveRouteReviewItems, getRouteWorkItems, is
 import { compareRouteWorkItemsByUrgency } from "../routeTimeUrgency";
 import { buildRouteDeltaIdentityMap, buildRouteManagedActions, routeDeltaForActor, routeDeltaFromName, routeDeltaLabel, ROUTE_DELTAS, type RouteDeltaIdentityMap, type RouteDeltaKey } from "../routeDeltaTracking";
 import { isDelta1OnlyRouteClient } from "../routeDeltaAssignmentRules";
-import type { Client, CollectionTeam, Payment } from "../types";
+import type { Client, CollectionDelta, CollectionTeam, Payment } from "../types";
 import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentStorage";
 import type { NotifiedPayment } from "./payments/paymentTypes";
 import { normalizeRouteAssignment, ROUTE_ASSIGNMENT_OPTIONS } from "./receivables/receivablesPageRules";
@@ -60,6 +60,7 @@ export type RouteSearchPageProps = {
     amount: number;
     method: "cash" | "bank";
     team: CollectionTeam;
+    delta?: CollectionDelta;
     reportId?: string;
     fundsReceivedDate?: string;
   }) => Promise<{ kind: "cash" | "bank"; receiptNumber?: string; payment?: Payment }>;
@@ -117,6 +118,17 @@ function activeZoneFilterValue(value: string | undefined): string {
 function asCollectionTeam(value: string | undefined): CollectionTeam | "" {
   const normalized = (value ?? "").trim().toUpperCase();
   return normalized === "PTY" || normalized === "WC" ? normalized : "";
+}
+
+function paymentCollectionDelta(
+  item: ActiveRouteItem,
+  signedInDelta: AssignedDelta | null,
+  team: CollectionTeam
+): CollectionDelta | null {
+  if (signedInDelta) return signedInDelta;
+  const assignedDelta = item.assignedDelta ?? null;
+  if (isAssignedDelta(assignedDelta)) return assignedDelta;
+  return team === "WC" ? "delta2" : null;
 }
 
 function toTimestamp(value: string | undefined): number {
@@ -303,6 +315,13 @@ export default function RouteSearchPage({
       setReportError("Selecciona el equipo PTY o WC que recibió el efectivo.");
       return;
     }
+    const reportCashDelta = cashAmount > 0 && reportCashTeam
+      ? paymentCollectionDelta(reportTarget, signedInAssignedDelta, reportCashTeam)
+      : null;
+    if (cashAmount > 0 && onRegisterPayment && !reportCashDelta) {
+      setReportError("No se pudo identificar qué Delta recibió el efectivo. Actualiza la ruta e intenta nuevamente.");
+      return;
+    }
     setReportSaving(true);
     setReportError("");
     let savedReport: RoutePaymentReport | null = null;
@@ -322,12 +341,14 @@ export default function RouteSearchPage({
       if (cashAmount > 0 && onRegisterPayment) {
         if (!savedReport) throw new Error("El pago se notificó, pero no se pudo preparar el recibo. Actualiza la ruta para generarlo.");
         if (!reportCashTeam) throw new Error("El pago se notificó, pero falta identificar el equipo que recibió el efectivo.");
+        if (!reportCashDelta) throw new Error("El pago se notificó, pero falta identificar el Delta que recibió el efectivo.");
         const cashTeam = reportCashTeam;
         const result = await onRegisterPayment({
           clientId: reportTarget.clientId,
           amount: cashAmount,
           method: "cash",
           team: cashTeam,
+          delta: reportCashDelta,
           reportId: savedReport.id,
           fundsReceivedDate: getBusinessDateKey(new Date(savedReport.reported_at))
         });
@@ -1145,6 +1166,11 @@ export default function RouteSearchPage({
       setPaymentError("Selecciona el equipo PTY o WC.");
       return;
     }
+    const paymentDelta = paymentCollectionDelta(paymentTarget, signedInAssignedDelta, paymentTeam);
+    if (paymentMethod === "cash" && !paymentDelta) {
+      setPaymentError("No se pudo identificar qué Delta recibió el efectivo. Actualiza la ruta e intenta nuevamente.");
+      return;
+    }
     paymentSubmitLock.current = true;
     setPaymentSaving(true);
     setPaymentError("");
@@ -1164,6 +1190,7 @@ export default function RouteSearchPage({
         amount,
         method: paymentMethod,
         team: paymentTeam,
+        delta: paymentDelta ?? undefined,
         ...(paymentReport ? {
           reportId: paymentReport.id,
           fundsReceivedDate: getBusinessDateKey(new Date(paymentReport.reported_at))

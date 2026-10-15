@@ -386,12 +386,12 @@ try {
   await page.getByText('Pago gestionado · RA-042',{exact:true}).waitFor();
   assert.equal(cashRegistrations.length,registrationsBeforeAutoCash+1);
   assert.equal(cashRegistrations.at(-1).reportId,reports[0].id);
-  assert.deepEqual({...cashRegistrations.at(-1),reportId:undefined,fundsReceivedDate:undefined},{clientId:'c1',amount:55,method:'cash',team:'PTY',reportId:undefined,fundsReceivedDate:undefined});
+  assert.deepEqual({...cashRegistrations.at(-1),reportId:undefined,fundsReceivedDate:undefined},{clientId:'c1',amount:55,method:'cash',team:'PTY',delta:'delta1',reportId:undefined,fundsReceivedDate:undefined});
   await page.getByText('RA-042: pago en efectivo registrado correctamente · Equipo PTY.',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Cerrar vista previa',exact:true}).count(),0);
   assert.equal(await page.getByRole('button',{name:'Ver recibo',exact:true}).count(),0);
   // Delta 2 uses WC for the same immediate-cash flow.
-  reports=[];item.routeAssignment='WC';
+  reports=[];item.routeAssignment='WC';item.assignedDelta='delta2';
   const registrationsBeforeDelta2=cashRegistrations.length;
   await page.goto(base+'/__route-test?autocash&delta2');
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
@@ -403,8 +403,9 @@ try {
   await page.getByText('RA-042: pago en efectivo registrado correctamente · Equipo WC.',{exact:true}).waitFor();
   assert.equal(cashRegistrations.length,registrationsBeforeDelta2+1);
   assert.equal(cashRegistrations.at(-1).team,'WC');
+  assert.equal(cashRegistrations.at(-1).delta,'delta2');
   assert.equal(await page.getByRole('button',{name:'Cerrar vista previa',exact:true}).count(),0);
-  reports=[];delete item.removedAt;delete item.removedReason;custody=true;
+  reports=[];delete item.removedAt;delete item.removedReason;item.routeAssignment='PTY';item.assignedDelta='delta1';custody=true;
   await page.goto(base+'/__route-test?editor');
   await page.getByRole('button',{name:'En custodia (1)',exact:true}).click();
   await page.getByRole('button',{name:'Sacar de custodia',exact:true}).waitFor();

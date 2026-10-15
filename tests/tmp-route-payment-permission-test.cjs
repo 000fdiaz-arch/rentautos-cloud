@@ -21,6 +21,7 @@ const routeRegistration = app.slice(
   app.indexOf("async function registerRoutePayment"),
   app.indexOf("async function persistDeletedPayments")
 );
+assert(routeRegistration.includes('collectionDelta: input.delta'), "Ruta debe enviar el Delta exacto al flujo que genera el recibo de efectivo.");
 assert(!routeRegistration.includes("reserveCloudReceiptNumber"), "Ruta no debe intentar leer la secuencia ni recorrer el historial antes de registrar el pago.");
 assert(routeRegistration.includes('const receiptNumber = cloudDataUserId ? "" : nextReceiptNumber();'), "En nube, Ruta debe permitir que la RPC reserve el recibo atomico.");
 assert(routeRegistration.includes("transaction.payment.receiptNumber.trim()"), "Ruta debe devolver el recibo reservado por Supabase.");
