@@ -2318,6 +2318,20 @@ export async function removeCloudActiveRouteItemFromSearch(input: {
   if (error) throw error;
 }
 
+export async function removeCloudActiveRouteItemFromReceivables(input: {
+  userId: string;
+  clientId: string;
+  expectedUpdatedAt?: string;
+}): Promise<string> {
+  const { data, error } = await getCloudClient().rpc("remove_active_route_item_from_receivables", {
+    p_user_id: input.userId,
+    p_client_id: input.clientId,
+    p_expected_updated_at: input.expectedUpdatedAt ?? ""
+  });
+  if (error) throw error;
+  return typeof data === "string" && data ? data : new Date().toISOString();
+}
+
 export async function keepCloudActiveRouteItemAfterPartialPayment(input: {
   userId: string;
   clientId: string;

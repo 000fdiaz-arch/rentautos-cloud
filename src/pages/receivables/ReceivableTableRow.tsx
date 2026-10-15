@@ -53,7 +53,7 @@ type Props = {
   onSelectDetail: (row: ReceivableRow) => void;
   onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
   onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
-  onRouteTagChange: (clientId: string, tagged: boolean) => void;
+  onRouteTagChange: (clientId: string, tagged: boolean) => boolean | Promise<boolean>;
   onRouteManagementTypeChange: (clientId: string, value: FieldManagementType) => void;
   onRouteManagementCommentChange: (clientId: string, value: string) => void;
   onRouteAssignmentChange: (clientId: string, value: string) => void;
@@ -527,6 +527,9 @@ function ReceivableTableRowComponent({
   const [contactTimeDraft, setContactTimeDraft] = useState(statusRecord?.contactTime ?? "");
   const [customRouteEditorOpen, setCustomRouteEditorOpen] = useState(false);
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
+  const [isRouteRemovalOpen, setIsRouteRemovalOpen] = useState(false);
+  const [routeRemovalSaving, setRouteRemovalSaving] = useState(false);
+  const [routeRemovalError, setRouteRemovalError] = useState("");
   const [routePreparationDraft, setRoutePreparationDraft] = useState<RoutePreparationDraft | null>(null);
   const routeReleaseAmount = statusRecord?.routeReleaseAmount ?? statusRecord?.managementAmount;
   const routeAssignment = statusRecord?.routeAssignment ?? "";
@@ -572,6 +575,35 @@ function ReceivableTableRowComponent({
     setIsRouteModalOpen(true);
   }
 
+  function openRouteRemoval(): void {
+    setRouteRemovalError("");
+    setIsRouteRemovalOpen(true);
+  }
+
+  function closeRouteRemoval(): void {
+    if (routeRemovalSaving) return;
+    setRouteRemovalError("");
+    setIsRouteRemovalOpen(false);
+  }
+
+  async function confirmRouteRemoval(): Promise<void> {
+    if (routeRemovalSaving) return;
+    setRouteRemovalSaving(true);
+    setRouteRemovalError("");
+    try {
+      const removed = await onRouteTagChange(row.id, false);
+      if (!removed) {
+        setRouteRemovalError("No se pudo sacar la unidad de la ruta. Actualiza e intenta nuevamente.");
+        return;
+      }
+      setIsRouteRemovalOpen(false);
+    } catch {
+      setRouteRemovalError("No se pudo sacar la unidad de la ruta. Actualiza e intenta nuevamente.");
+    } finally {
+      setRouteRemovalSaving(false);
+    }
+  }
+
   function finishRoutePreparation(): void {
     if (!routePreparationDraft) {
       closeRoutePreparationModal();
@@ -592,13 +624,15 @@ function ReceivableTableRowComponent({
   }, [statusRecord?.contactTime]);
 
   useEffect(() => {
-    if (!isRouteModalOpen) return undefined;
+    if (!isRouteModalOpen && !isRouteRemovalOpen) return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeRoutePreparationModal();
+      if (event.key !== "Escape") return;
+      if (isRouteRemovalOpen) closeRouteRemoval();
+      else closeRoutePreparationModal();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isRouteModalOpen]);
+  }, [isRouteModalOpen, isRouteRemovalOpen, routeRemovalSaving]);
 
   function handleConfirmWhatsAppSent(): void {
     onWhatsAppMessageSent(row.id, whatsAppMessage);
@@ -819,14 +853,35 @@ function ReceivableTableRowComponent({
                     ) : (
                       <div className="ar-daily-contact-collapsed">Contactado ✓</div>
                     )}
-                    <button
-                      type="button"
-                      className={`ar-essential-route-button ${statusRecord?.isRouteTagged ? "is-in-route" : ""}`}
-                      onClick={() => statusRecord?.isRouteTagged && isRoutePreparationComplete ? onOpenRoute() : onOpenRoutePreparation(row.id)}
-                      disabled={isTodayCollectionClosed}
-                    >
-                      {statusRecord?.isRouteTagged ? (isRoutePreparationComplete ? "Ver en ruta" : "Completar ruta") : "Enviar a ruta"}
-                    </button>
+                    {statusRecord?.isRouteTagged && isRoutePreparationComplete ? (
+                      <div className="ar-essential-route-actions">
+                        <button
+                          type="button"
+                          className="ar-essential-route-button is-in-route"
+                          onClick={onOpenRoute}
+                          disabled={isTodayCollectionClosed || routeRemovalSaving}
+                        >
+                          Ver en ruta
+                        </button>
+                        <button
+                          type="button"
+                          className="ar-essential-route-remove-button"
+                          onClick={openRouteRemoval}
+                          disabled={isTodayCollectionClosed || routeRemovalSaving}
+                        >
+                          Sacar de ruta
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className={`ar-essential-route-button ${statusRecord?.isRouteTagged ? "is-in-route" : ""}`}
+                        onClick={() => onOpenRoutePreparation(row.id)}
+                        disabled={isTodayCollectionClosed}
+                      >
+                        {statusRecord?.isRouteTagged ? "Completar ruta" : "Enviar a ruta"}
+                      </button>
+                    )}
                   </>
                 ) : (
                   <>
@@ -1271,14 +1326,46 @@ function ReceivableTableRowComponent({
                 <button type="button" className="button ghost" onClick={() => {
                   if (routePreparationDraft) closeRoutePreparationModal();
                   else {
-                    onRouteTagChange(row.id, false);
                     closeRoutePreparationModal();
+                    openRouteRemoval();
                   }
                 }} disabled={isTodayCollectionClosed}>
                   {routePreparationDraft ? "Cancelar" : "Quitar de ruta"}
                 </button>
                 <button type="button" className="button primary" onClick={finishRoutePreparation} disabled={!isModalRoutePreparationComplete}>
                   Listo
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        ) : null}
+        {isRouteRemovalOpen && typeof document !== "undefined" ? createPortal(
+          <div className="modal-overlay ar-route-modal-overlay" onClick={closeRouteRemoval}>
+            <div
+              className="modal ar-route-removal-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={`route-removal-title-${row.id}`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-header ar-route-modal-header">
+                <div>
+                  <span className="ar-route-modal-kicker">Confirmar salida</span>
+                  <h2 id={`route-removal-title-${row.id}`}>Sacar {row.unitId} de la ruta</h2>
+                  <p>{row.name}</p>
+                </div>
+                <button type="button" className="modal-close" onClick={closeRouteRemoval} disabled={routeRemovalSaving} aria-label="Cerrar">×</button>
+              </div>
+              <div className="ar-route-removal-copy">
+                <p>La unidad dejará de aparecer en Ruta en calle y volverá a Pendiente en Gestión.</p>
+                <p>Los pagos y el historial se conservarán.</p>
+                {routeRemovalError ? <p className="error-text" role="alert">{routeRemovalError}</p> : null}
+              </div>
+              <div className="ar-route-modal-actions">
+                <button type="button" className="button ghost" onClick={closeRouteRemoval} disabled={routeRemovalSaving}>Cancelar</button>
+                <button type="button" className="button ar-route-removal-confirm" onClick={() => void confirmRouteRemoval()} disabled={routeRemovalSaving}>
+                  {routeRemovalSaving ? "Sacando…" : "Sí, sacar de ruta"}
                 </button>
               </div>
             </div>

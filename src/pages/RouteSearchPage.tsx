@@ -33,6 +33,7 @@ import { supabase } from "../lib/supabase";
 import { buildRouteReviewIndex, getActiveRouteReviewItems, getRouteWorkItems, isPendingCashRouteReport, routeRentAmountForDay } from "../routeReviewRules";
 import { compareRouteWorkItemsByUrgency } from "../routeTimeUrgency";
 import { buildRouteDeltaIdentityMap, buildRouteManagedActions, routeDeltaForActor, routeDeltaFromName, routeDeltaLabel, ROUTE_DELTAS, type RouteDeltaIdentityMap, type RouteDeltaKey } from "../routeDeltaTracking";
+import { isDelta1OnlyRouteClient } from "../routeDeltaAssignmentRules";
 import type { Client, CollectionTeam, Payment } from "../types";
 import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentStorage";
 import type { NotifiedPayment } from "./payments/paymentTypes";
@@ -444,6 +445,10 @@ export default function RouteSearchPage({
   }
   async function changeAssignedDelta(item: ActiveRouteItem, delta: PtyAssignedDelta): Promise<void> {
     if (!canEditAssignedDelta || !dataOwnerUserId || changingAssignedDelta || item.assignedDelta === delta) return;
+    if (delta === "delta3" && isDelta1OnlyRouteClient(item.clientName)) {
+      setAssignedDeltaError(`${item.clientName} debe permanecer asignado a Delta 1.`);
+      return;
+    }
     setChangingAssignedDelta(item.clientId);
     setAssignedDeltaError("");
     setRouteActionMessage("");
@@ -1603,7 +1608,7 @@ export default function RouteSearchPage({
                   onChange={event => void changeAssignedDelta(item, event.target.value as PtyAssignedDelta)}>
                   {!item.assignedDelta ? <option value="">Sin asignar</option> : null}
                   <option value="delta1">Delta 1</option>
-                  <option value="delta3">Delta 3</option>
+                  <option value="delta3" disabled={isDelta1OnlyRouteClient(item.clientName)}>Delta 3{isDelta1OnlyRouteClient(item.clientName) ? " · No permitido" : ""}</option>
                 </select>
               </label>)}
             </div>

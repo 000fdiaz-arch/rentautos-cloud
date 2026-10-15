@@ -26,6 +26,7 @@ import {
   loadCloudStreetManagement,
   loadControlUnits,
   removeCloudActiveRouteItem,
+  removeCloudActiveRouteItemFromReceivables,
   saveCloudActiveRouteItem,
   saveCloudCollectionClosures,
   saveCloudDailyContactAttempt,
@@ -2254,15 +2255,14 @@ export default function ReceivablesPage({
     applyCollectionCutStatus(clientId, nextStatus as CollectionStatus);
   }
 
-  function handleRouteTagChange(clientId: string, tagged: boolean): void {
-    if (isCollectionLocked) return;
+  async function handleRouteTagChange(clientId: string, tagged: boolean): Promise<boolean> {
+    if (isCollectionLocked) return false;
     if (!tagged) {
-      if (activeVisibleRouteClientIds.has(clientId)) void handleRemoveFromPublishedRoute(clientId);
-      else handleRemoveFromRoute(clientId);
-      return;
+      if (activeVisibleRouteClientIds.has(clientId)) return handleRemoveFromPublishedRoute(clientId);
+      return handleRemoveFromRoute(clientId);
     }
     const routeCandidate = baseRows.find((row) => row.id === clientId);
-    if (!routeCandidate || !hasActiveOperationalClient(routeCandidate)) return;
+    if (!routeCandidate || !hasActiveOperationalClient(routeCandidate)) return false;
     const nowIso = new Date().toISOString();
     markClientStatusAsSaving(clientId);
     setCollectionStatusByClient((current) => {
@@ -2297,6 +2297,7 @@ export default function ReceivablesPage({
       optimisticStatusByClientRef.current[clientId] = updatedRecord;
       return { ...current, [clientId]: updatedRecord };
     });
+    return true;
   }
 
   function handlePrioritySendToRoute(request: PriorityRouteRequest): void {
@@ -2670,33 +2671,59 @@ export default function ReceivablesPage({
     }
   }
 
-  function handleRemoveFromRoute(clientId: string): void {
-    if (isCollectionLocked) return;
-    const nowIso = new Date().toISOString();
-    markClientStatusAsSaving(clientId);
-    if (dataOwnerUserId) {
-      void removeCloudActiveRouteItem(dataOwnerUserId, clientId, "manual_management").catch((error) => {
-        console.error("No se pudo sacar de la Ruta en calle.", error);
+  async function handleRemoveFromRoute(clientId: string): Promise<boolean> {
+    if (isCollectionLocked) return false;
+    const previousRecord = collectionStatusByClient[clientId];
+    let removedAt = new Date().toISOString();
+    setActiveRouteError("");
+    try {
+      if (dataOwnerUserId) {
+        removedAt = await removeCloudActiveRouteItemFromReceivables({
+          userId: dataOwnerUserId,
+          clientId,
+          expectedUpdatedAt: previousRecord?.updatedAt
+        });
+      }
+      const nextActiveRouteItems: ActiveRouteItem[] = activeRouteItemsRef.current.map((item) => (
+        item.clientId === clientId && !item.removedAt
+          ? { ...item, inCustody: false, custodySince: undefined, removedAt, removedReason: "manual_management" }
+          : item
+      ));
+      activeRouteItemsRef.current = nextActiveRouteItems;
+      setActiveRouteItems(nextActiveRouteItems);
+      markClientStatusAsSaving(clientId);
+      setCollectionStatusByClient((current) => {
+        const previous = current[clientId];
+        if (!previous) return current;
+        const updatedRecord = buildPendingRouteRecord(previous, removedAt);
+        optimisticStatusByClientRef.current[clientId] = updatedRecord;
+        return {
+          ...current,
+          [clientId]: updatedRecord
+        };
       });
+      setActiveRouteMessage("La unidad fue retirada de Ruta en calle y volvió a Pendiente.");
+      return true;
+    } catch (error) {
+      console.error("No se pudo sacar de la Ruta en calle.", error);
+      setActiveRouteError("No se pudo sacar de la Ruta en calle. Actualiza e intenta nuevamente.");
+      return false;
     }
-    setCollectionStatusByClient((current) => {
-      const previous = current[clientId];
-      if (!previous) return current;
-      const updatedRecord = buildPendingRouteRecord(previous, nowIso);
-      optimisticStatusByClientRef.current[clientId] = updatedRecord;
-      return {
-        ...current,
-        [clientId]: updatedRecord
-      };
-    });
   }
 
-  async function handleRemoveFromPublishedRoute(clientId: string): Promise<void> {
-    if (readOnly || !dataOwnerUserId) return;
+  async function handleRemoveFromPublishedRoute(clientId: string): Promise<boolean> {
+    if (readOnly) return false;
     setActiveRouteError("");
-    const removedAt = new Date().toISOString();
+    const previousRecord = collectionStatusByClient[clientId];
+    let removedAt = new Date().toISOString();
     try {
-      await removeCloudActiveRouteItem(dataOwnerUserId, clientId, "manual_published");
+      if (dataOwnerUserId) {
+        removedAt = await removeCloudActiveRouteItemFromReceivables({
+          userId: dataOwnerUserId,
+          clientId,
+          expectedUpdatedAt: previousRecord?.updatedAt
+        });
+      }
       setPublishedRouteAmountDraftByClient((current) => {
         const next = { ...current };
         delete next[clientId];
@@ -2708,8 +2735,8 @@ export default function ReceivablesPage({
         return next;
       });
       const nextActiveRouteItems: ActiveRouteItem[] = activeRouteItemsRef.current.map((item) => (
-        item.clientId === clientId
-          ? { ...item, removedAt, removedReason: "manual_published" }
+        item.clientId === clientId && !item.removedAt
+          ? { ...item, inCustody: false, custodySince: undefined, removedAt, removedReason: "manual_management" }
           : item
       ));
       activeRouteItemsRef.current = nextActiveRouteItems;
@@ -2724,9 +2751,12 @@ export default function ReceivablesPage({
           [clientId]: updatedRecord
         };
       });
+      setActiveRouteMessage("La unidad fue retirada de Ruta en calle y volvió a Pendiente.");
+      return true;
     } catch (error) {
       console.error("No se pudo sacar de la Ruta en calle.", error);
-      setActiveRouteError("No se pudo sacar de la Ruta en calle.");
+      setActiveRouteError("No se pudo sacar de la Ruta en calle. Actualiza e intenta nuevamente.");
+      return false;
     }
   }
 

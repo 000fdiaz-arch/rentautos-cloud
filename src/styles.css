@@ -9357,6 +9357,28 @@ button.ar-route-publish-copy.is-active {
   border: 1px solid #fdba74;
 }
 
+.ar-route-removal-modal {
+  max-width: 500px;
+  border: 1px solid #fdba74;
+}
+
+.ar-route-removal-copy {
+  display: grid;
+  gap: 8px;
+  padding: 18px 22px;
+  color: #7c2d12;
+}
+
+.ar-route-removal-copy p {
+  margin: 0;
+}
+
+.ar-route-removal-confirm {
+  border-color: #c2410c;
+  background: #c2410c;
+  color: #ffffff;
+}
+
 .ar-route-modal-header {
   background: linear-gradient(135deg, #fff7ed 0%, #fffbeb 100%);
 }
@@ -20488,6 +20510,36 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   cursor: pointer;
 }
 
+.ar-essential-route-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+}
+
+.ar-essential-route-remove-button {
+  min-height: 34px;
+  padding: 7px 8px;
+  border: 1px solid #c2410c;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #9a3412;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 900;
+  line-height: 1.25;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.ar-essential-route-remove-button:hover:not(:disabled) {
+  background: #fff7ed;
+}
+
+.ar-essential-route-remove-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .ar-essential-route-button.is-in-route {
   border-color: #c2410c;
   background: #fff7ed;
@@ -20705,6 +20757,7 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   .ar-essential-filter select,
   .ar-essential-management select,
   .ar-essential-route-button,
+  .ar-essential-route-remove-button,
   .ar-essential-review-button,
   .ar-essential-notes input {
     min-height: 44px;
