@@ -29,6 +29,26 @@ try {
   const index = rules.buildRouteReviewIndex(payments, reports);
   assert.equal(rules.routeRentAmountForDay(payments, item, "2026-09-21"), 40);
   assert.equal(rules.routeRentAmountForDay(payments, item, "2026-09-21", index), 60, "El índice debe sumar la confirmación visual sin crear un pago.");
+  const settledReport = {
+    id: "settled-r1",
+    client_id: "c1",
+    published_at: item.publishedAt,
+    status: "confirmed",
+    confirmed_bank_amount: 40,
+    bank_confirmed_visually_at: "2026-09-21T14:00:00Z",
+    bank_settled_payment_id: "after"
+  };
+  const settledIndex = rules.buildRouteReviewIndex(payments, [settledReport]);
+  assert.equal(
+    rules.routeRentAmountForDay(payments, item, "2026-09-21", settledIndex),
+    40,
+    "Una confirmación visual conciliada con su recibo real no debe contar el mismo dinero dos veces."
+  );
+  assert.deepEqual(
+    rules.getActiveRouteReviewItems([item], payments, "2026-09-21", [settledReport], settledIndex),
+    [item],
+    "Un abono real menor al mínimo debe permanecer en Pagos por revisar después de conciliarse."
+  );
   assert.deepEqual(
     rules.getActiveRouteReviewItems([item], payments, "2026-09-21", reports, index),
     rules.getActiveRouteReviewItems([item], payments, "2026-09-21", reports),

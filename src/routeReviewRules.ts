@@ -71,6 +71,7 @@ export function routeRentAmountForDay(
     ? index.reportsByRouteItem.get(routeItemIndexKey(item.clientId, item.publishedAt)) ?? []
     : [])
     .filter((report) => report.bank_confirmed_visually_at
+      && !report.bank_settled_payment_id
       && routeReportBusinessDateKey(report.bank_confirmed_visually_at) === dateKey)
     .reduce((sum, report) => sum + Math.max(0, report.confirmed_bank_amount), 0);
   const total = paymentTotal + visualBankTotal;
