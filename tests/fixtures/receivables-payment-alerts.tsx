@@ -70,6 +70,7 @@ const clients: Client[] = [
     rentAmount: 299,
     frequency: "biweekly",
     balance: 299,
+    createdAt: "2026-01-01T12:00:00Z",
     otherCharges: [{ id: "charge-3", label: "OTRO CARGO PARA PAGAR LUEGO", amount: 300 }]
   }
 ];

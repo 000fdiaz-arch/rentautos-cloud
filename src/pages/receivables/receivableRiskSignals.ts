@@ -14,8 +14,7 @@ export type ReceivableRiskSignal = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NEW_CLIENT_FIRST_PAYMENT_DAYS = 30;
-const NEW_CLIENT_FEW_PAYMENTS_DAYS = 90;
-const FEW_PAYMENTS_MAX = 3;
+const NEW_CLIENT_MAX_DAYS = 90;
 const REPEATED_UNDERPAYMENT_MIN = 2;
 
 function elapsedDays(value: string | undefined, now: Date): number | null {
@@ -46,12 +45,16 @@ function newClientSignal(row: ReceivableRow, now: Date): ReceivableRiskSignal | 
     };
   }
 
-  if (tenureDays <= NEW_CLIENT_FEW_PAYMENTS_DAYS && row.installmentsPaid >= 1 && row.installmentsPaid <= FEW_PAYMENTS_MAX) {
+  if (tenureDays <= NEW_CLIENT_MAX_DAYS) {
+    const coveredInstallments = Math.max(0, row.installmentsPaid);
+    const paymentSummary = coveredInstallments > 0
+      ? `ha cubierto ${coveredInstallments} letra${coveredInstallments === 1 ? "" : "s"}`
+      : "aún no ha cubierto ninguna letra";
     return {
       kind: "new_client",
-      title: "Cliente nuevo · pocas letras cubiertas",
-      message: `Lleva ${row.installmentsPaid} letra${row.installmentsPaid === 1 ? "" : "s"} cubierta${row.installmentsPaid === 1 ? "" : "s"} en sus primeros ${tenureDays} días.`,
-      valueLabel: `${row.installmentsPaid} de ${FEW_PAYMENTS_MAX}`
+      title: "Cliente nuevo",
+      message: `Lleva ${tenureDays} día${tenureDays === 1 ? "" : "s"} como cliente y ${paymentSummary}. Se mantiene como nuevo durante sus primeros ${NEW_CLIENT_MAX_DAYS} días.`,
+      valueLabel: `${tenureDays} de ${NEW_CLIENT_MAX_DAYS} días`
     };
   }
 

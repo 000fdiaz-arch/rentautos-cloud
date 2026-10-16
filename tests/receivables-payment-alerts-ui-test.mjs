@@ -45,11 +45,13 @@ try {
   await page.getByRole("heading", { name: "Clientes que requieren atención" }).waitFor();
   assert.equal(await page.getByText("con alerta", { exact: true }).count(), 1);
   assert.equal(await page.locator(".ar-payment-alert").count(), 3);
-  assert.equal(await page.locator(".ar-risk-signal").count(), 3);
+  assert.equal(await page.locator(".ar-risk-signal").count(), 4);
 
-  await page.getByRole("button", { name: /Nuevo \/ pocos pagos 1/ }).click();
-  assert.equal(await page.locator(".ar-essential-card").count(), 1);
+  await page.getByRole("button", { name: /Clientes nuevos 2/ }).click();
+  assert.equal(await page.locator(".ar-essential-card").count(), 2);
   await page.getByText("Primer pago pendiente", { exact: true }).waitFor();
+  await page.getByText("Cliente nuevo", { exact: true }).waitFor();
+  await page.getByText(/ha cubierto 10 letras/).waitFor();
   await page.getByRole("button", { name: "Ver toda la cartera" }).click();
 
   await page.getByRole("button", { name: /Abonos bajos repetidos 1/ }).click();

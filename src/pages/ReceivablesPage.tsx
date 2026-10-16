@@ -3667,7 +3667,7 @@ export default function ReceivablesPage({
                 <div>
                   <span className="ar-risk-overview-kicker">Señales para revisar primero</span>
                   <h2 id="ar-risk-overview-title">Clientes que requieren atención</h2>
-                  <p>Detecta primer pago pendiente, hasta 3 letras cubiertas en los primeros 90 días, abonos bajos repetidos, multas, boletas y recargos por mora pendientes.</p>
+                  <p>Detecta clientes en sus primeros 90 días, primer pago pendiente, abonos bajos repetidos, multas, boletas y recargos por mora pendientes.</p>
                 </div>
                 <button
                   type="button"
@@ -3684,7 +3684,7 @@ export default function ReceivablesPage({
               </div>
               <div className="ar-risk-overview-actions" aria-label="Filtros de señales de riesgo">
                 {([
-                  ["new_client", "Nuevo / pocos pagos", riskSignalSummary.newClient],
+                  ["new_client", "Clientes nuevos", riskSignalSummary.newClient],
                   ["repeated_underpayment", "Abonos bajos repetidos", riskSignalSummary.repeatedUnderpayment],
                   ["charges", "Multas, boletas y recargos", riskSignalSummary.charges]
                 ] as const).map(([kind, label, count]) => (
