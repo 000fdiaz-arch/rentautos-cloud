@@ -8236,6 +8236,45 @@ button.ar-route-publish-copy.is-active {
   padding: 12px;
 }
 
+.ar-ledger-pagination {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) minmax(0, 1fr) minmax(96px, auto);
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+
+.ar-ledger-pagination-button {
+  min-height: 44px;
+}
+
+.ar-ledger-pagination-status {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 0;
+  color: #334155;
+  font-size: 0.84rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.ar-ledger-pagination-status strong {
+  color: #0f766e;
+  font-size: 0.98rem;
+}
+
+.ar-ledger-pagination-status small {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
 .ar-empty-results {
   display: grid;
   justify-items: center;
@@ -11014,6 +11053,17 @@ button.ar-route-publish-copy.is-active {
     max-height: none;
     overflow: visible;
     padding: 0 8px 14px;
+  }
+
+  .ar-ledger-pagination {
+    grid-template-columns: minmax(82px, auto) minmax(0, 1fr) minmax(82px, auto);
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .ar-ledger-pagination-button {
+    min-height: 46px;
+    padding-inline: 10px;
   }
 
   .ar-route-list-table {

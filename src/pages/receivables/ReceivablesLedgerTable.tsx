@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState, type RefObject } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { STATE_LABEL, type ReceivableRow, type ReceivableState } from "../../receivables";
 import type { Client } from "../../types";
@@ -29,6 +29,12 @@ import {
 } from "./receivablesPageRules";
 
 const RECEIVABLE_ROWS_PAGE_SIZE = 75;
+const RECEIVABLE_ROWS_COMPACT_PAGE_SIZE = 15;
+const RECEIVABLE_COMPACT_VIEW_QUERY = "(max-width: 900px)";
+
+function isCompactReceivablesViewport(): boolean {
+  return typeof window !== "undefined" && window.matchMedia(RECEIVABLE_COMPACT_VIEW_QUERY).matches;
+}
 
 export type ReceivablesHistoryRow = {
   clientId: string;
@@ -187,8 +193,16 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   const [customRouteEditorByClient, setCustomRouteEditorByClient] = useState<Record<string, boolean>>({});
   const [routeAmountDraftByClient, setRouteAmountDraftByClient] = useState<Record<string, string>>({});
   const [visibleRowLimit, setVisibleRowLimit] = useState(RECEIVABLE_ROWS_PAGE_SIZE);
-  const visibleRows = rows.slice(0, visibleRowLimit);
-  const hasMoreRows = visibleRows.length < rows.length;
+  const [isCompactViewport, setIsCompactViewport] = useState(isCompactReceivablesViewport);
+  const [compactPage, setCompactPage] = useState(0);
+  const compactPageCount = Math.max(1, Math.ceil(rows.length / RECEIVABLE_ROWS_COMPACT_PAGE_SIZE));
+  const currentCompactPage = Math.min(compactPage, compactPageCount - 1);
+  const compactPageStart = currentCompactPage * RECEIVABLE_ROWS_COMPACT_PAGE_SIZE;
+  const rowSetKey = useMemo(() => rows.map((row) => row.id).join("|"), [rows]);
+  const visibleRows = isCompactViewport
+    ? rows.slice(compactPageStart, compactPageStart + RECEIVABLE_ROWS_COMPACT_PAGE_SIZE)
+    : rows.slice(0, visibleRowLimit);
+  const hasMoreRows = !isCompactViewport && visibleRows.length < rows.length;
   const stableOnSelectDetail = useStableEvent(onSelectDetail);
   const stableOnCollectionCutStatusChange = useStableEvent(onCollectionCutStatusChange);
   const stableOnCollectionCutCommentChange = useStableEvent(onCollectionCutCommentChange);
@@ -206,6 +220,23 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   const stableOnOperationalReviewChange = useStableEvent(onOperationalReviewChange);
   const stableOnOpenRoutePreparation = useStableEvent(onOpenRoutePreparation);
   const stableOnOpenRoute = useStableEvent(onOpenRoute);
+
+  useEffect(() => {
+    const compactQuery = window.matchMedia(RECEIVABLE_COMPACT_VIEW_QUERY);
+    const handleViewportChange = (): void => {
+      setIsCompactViewport(compactQuery.matches);
+      setCompactPage(0);
+    };
+
+    handleViewportChange();
+    compactQuery.addEventListener("change", handleViewportChange);
+    return () => compactQuery.removeEventListener("change", handleViewportChange);
+  }, []);
+
+  useEffect(() => {
+    setCompactPage(0);
+  }, [rowSetKey]);
+
   const collectionCutItemsByClient = useMemo(() => {
     const byClient = new Map<string, Partial<Record<CollectionCutKey, CollectionClosureItem>>>();
     for (const row of rows) byClient.set(row.id, getCutItemsForClient(todayCollectionCuts, row.id));
@@ -217,6 +248,55 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
       ...current,
       [clientId]: value
     }));
+  }
+
+  function changeCompactPage(nextPage: number): void {
+    setCompactPage(Math.max(0, Math.min(compactPageCount - 1, nextPage)));
+    window.requestAnimationFrame(() => tableScrollRef.current?.scrollIntoView({ block: "start" }));
+  }
+
+  function renderRowsNavigation() {
+    if (rows.length === 0) return null;
+
+    if (isCompactViewport && compactPageCount > 1) {
+      const visibleStart = compactPageStart + 1;
+      const visibleEnd = Math.min(compactPageStart + visibleRows.length, rows.length);
+      return (
+        <nav className="ar-ledger-pagination" aria-label="Páginas de clientes en cuentas por cobrar">
+          <button
+            type="button"
+            className="button ghost ar-ledger-pagination-button"
+            onClick={() => changeCompactPage(currentCompactPage - 1)}
+            disabled={currentCompactPage === 0}
+          >
+            Anterior
+          </button>
+          <span className="ar-ledger-pagination-status" aria-live="polite">
+            <strong>{visibleStart}-{visibleEnd}</strong> de {rows.length}
+            <small>Página {currentCompactPage + 1} de {compactPageCount}</small>
+          </span>
+          <button
+            type="button"
+            className="button ghost ar-ledger-pagination-button"
+            onClick={() => changeCompactPage(currentCompactPage + 1)}
+            disabled={currentCompactPage >= compactPageCount - 1}
+          >
+            Siguiente
+          </button>
+        </nav>
+      );
+    }
+
+    if (!hasMoreRows) return null;
+    return (
+      <button
+        type="button"
+        className="button ghost ar-ledger-load-more"
+        onClick={() => setVisibleRowLimit((current) => current + RECEIVABLE_ROWS_PAGE_SIZE)}
+      >
+        Mostrar más ({rows.length - visibleRows.length} restantes)
+      </button>
+    );
   }
 
   function commitRouteAmountDraft(clientId: string): void {
@@ -553,15 +633,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
             );
           })}
         </div>
-        {hasMoreRows ? (
-          <button
-            type="button"
-            className="button ghost ar-ledger-load-more"
-            onClick={() => setVisibleRowLimit((current) => current + RECEIVABLE_ROWS_PAGE_SIZE)}
-          >
-            Mostrar más ({rows.length - visibleRows.length} restantes)
-          </button>
-        ) : null}
+        {renderRowsNavigation()}
       </div>
     );
   }
@@ -648,15 +720,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
           ))}
         </tbody>
       </table>
-      {viewMode === "cartera" && hasMoreRows ? (
-        <button
-          type="button"
-          className="button ghost ar-ledger-load-more"
-          onClick={() => setVisibleRowLimit((current) => current + RECEIVABLE_ROWS_PAGE_SIZE)}
-        >
-          Mostrar más ({rows.length - visibleRows.length} restantes)
-        </button>
-      ) : null}
+      {viewMode === "cartera" ? renderRowsNavigation() : null}
     </div>
   );
 });
