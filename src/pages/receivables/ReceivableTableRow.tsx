@@ -35,9 +35,12 @@ import {
   type CollectionCutKey,
   type ReceivablesWorkflowTab
 } from "./receivablesPageRules";
+import { expectedPaymentAlertForRow } from "./receivablePaymentAlerts";
+import type { ReceivableRiskSignal } from "./receivableRiskSignals";
 
 type Props = {
   row: ReceivableRow;
+  riskSignals: ReceivableRiskSignal[];
   statusRecord?: CollectionStatusRecord;
   operationalStatus: string;
   tenureLabel: string;
@@ -458,6 +461,7 @@ function pendingRentLettersLabel(amount: number, rentAmount: number): string {
 
 function ReceivableTableRowComponent({
   row,
+  riskSignals,
   statusRecord,
   operationalStatus,
   tenureLabel,
@@ -491,6 +495,8 @@ function ReceivableTableRowComponent({
   onOpenRoute
 }: Props) {
   const [isCopyingBalanceImage, setIsCopyingBalanceImage] = useState(false);
+  const [isPaymentAlertCalculationOpen, setIsPaymentAlertCalculationOpen] = useState(false);
+  const expectedPaymentAlert = expectedPaymentAlertForRow(row);
   const statementWasSentRecently = hasTimestampWithinWindow(statusRecord?.whatsAppMessageSentAt, now, STATEMENT_SUGGESTION_WINDOW_MS);
   const isEligibleForWhatsApp = isWhatsAppEligibleUnit(row, operationalStatus);
   const canSendToRoute = isWhatsAppEligibleUnit(row, operationalStatus);
@@ -752,6 +758,77 @@ function ReceivableTableRowComponent({
             </section>
 
             <section className="ar-essential-financial" aria-label={`Información de cuenta de ${row.unitId}`}>
+              {riskSignals.length > 0 ? (
+                <div className="ar-risk-signals" aria-label={`Señales de riesgo de ${row.unitId}`}>
+                  {riskSignals.map((signal) => (
+                    <div className={`ar-risk-signal ar-risk-signal--${signal.kind}`} key={signal.kind}>
+                      <span className="ar-risk-signal-icon" aria-hidden="true">
+                        {signal.kind === "new_client" ? "N" : signal.kind === "repeated_underpayment" ? "↓" : "$"}
+                      </span>
+                      <span className="ar-risk-signal-copy">
+                        <strong>{signal.title}</strong>
+                        <small>{signal.message}</small>
+                      </span>
+                      {signal.valueLabel ? <b>{signal.valueLabel}</b> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {expectedPaymentAlert ? (
+                <div className={`ar-payment-alert ar-payment-alert--${expectedPaymentAlert.kind}`}>
+                  <div className="ar-payment-alert-icon" aria-hidden="true">!</div>
+                  <div className="ar-payment-alert-copy">
+                    <div className="ar-payment-alert-heading">
+                      <strong>{expectedPaymentAlert.title}</strong>
+                      <b>
+                        {expectedPaymentAlert.overdueInstallments} letra{expectedPaymentAlert.overdueInstallments === 1 ? "" : "s"} pendiente{expectedPaymentAlert.overdueInstallments === 1 ? "" : "s"}
+                        {" · "}{formatCurrency(expectedPaymentAlert.totalOverdueAmount)} vencido
+                      </b>
+                    </div>
+                    <span>{expectedPaymentAlert.message}</span>
+                    {expectedPaymentAlert.kind === "partial" ? (
+                      <span className="ar-payment-alert-oldest">
+                        Letra más antigua: pagó {formatCurrency(expectedPaymentAlert.amountAppliedToOldestInstallment)} de {formatCurrency(expectedPaymentAlert.installmentAmount)}; faltan <strong>{formatCurrency(expectedPaymentAlert.amountMissingFromOldestInstallment)}</strong>.
+                      </span>
+                    ) : null}
+                    {isPaymentAlertCalculationOpen ? (
+                      <div className="ar-payment-alert-breakdown">
+                        {expectedPaymentAlert.kind === "partial" ? (
+                          <>
+                            <span>
+                              <strong>Letra más antigua · parcial</strong>
+                              <b>{formatCurrency(expectedPaymentAlert.amountMissingFromOldestInstallment)} pendiente</b>
+                            </span>
+                            {expectedPaymentAlert.fullUnpaidInstallments > 0 ? (
+                              <span>
+                                <strong>
+                                  {expectedPaymentAlert.fullUnpaidInstallments} letra{expectedPaymentAlert.fullUnpaidInstallments === 1 ? "" : "s"} completa{expectedPaymentAlert.fullUnpaidInstallments === 1 ? "" : "s"} sin cubrir
+                                </strong>
+                                <b>{formatCurrency(expectedPaymentAlert.fullUnpaidAmount)}</b>
+                              </span>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span>
+                            <strong>{expectedPaymentAlert.calculationLabel}</strong>
+                          </span>
+                        )}
+                        <span className="ar-payment-alert-breakdown-total">
+                          <strong>Total vencido</strong>
+                          <b>{formatCurrency(expectedPaymentAlert.totalOverdueAmount)}</b>
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsPaymentAlertCalculationOpen((current) => !current)}
+                    aria-expanded={isPaymentAlertCalculationOpen}
+                  >
+                    {isPaymentAlertCalculationOpen ? "Ocultar desglose" : "Ver desglose de letras"}
+                  </button>
+                </div>
+              ) : null}
               <div className="ar-essential-value">
                 <span>Tiempo de atraso</span>
                 <strong>{row.daysLate > 0 ? `${row.daysLate} días` : "Sin atraso"}</strong>
@@ -1379,6 +1456,7 @@ function ReceivableTableRowComponent({
 
 export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, next) => (
   previous.row === next.row &&
+  previous.riskSignals === next.riskSignals &&
   previous.statusRecord === next.statusRecord &&
   previous.operationalStatus === next.operationalStatus &&
   previous.tenureLabel === next.tenureLabel &&

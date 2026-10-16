@@ -12,6 +12,7 @@ import {
   type FieldManagementType
 } from "./receivablesTypes";
 import { ReceivableTableRow } from "./ReceivableTableRow";
+import type { ReceivableRiskSignal } from "./receivableRiskSignals";
 import {
   COLLECTION_CUT_OPTIONS,
   COLLECTION_STATUS_HELP,
@@ -49,6 +50,7 @@ type Props = {
   collectionStatusByClient: Record<string, CollectionStatusRecord>;
   dailyContactCloudAttemptsByClient: Record<string, DailyContactCloudAttempts>;
   dailyContactSaveStatesByClient: Record<string, DailyContactSaveStates>;
+  riskSignalsByClient: Map<string, ReceivableRiskSignal[]>;
   clientStatusById: Map<string, Client["status"]>;
   tenureLabelByClient: Map<string, string>;
   todayDateKey: string;
@@ -150,6 +152,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   collectionStatusByClient,
   dailyContactCloudAttemptsByClient,
   dailyContactSaveStatesByClient,
+  riskSignalsByClient,
   clientStatusById,
   tenureLabelByClient,
   todayDateKey,
@@ -612,6 +615,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               statusRecord={collectionStatusByClient[row.id]}
               dailyContactCloudAttempts={dailyContactCloudAttemptsByClient[row.id]}
               dailyContactSaveStates={dailyContactSaveStatesByClient[row.id]}
+              riskSignals={riskSignalsByClient.get(row.id) ?? []}
               operationalStatus={row.operationalStatus ?? clientStatusById.get(row.id) ?? "activo"}
               tenureLabel={tenureLabelByClient.get(row.id) ?? "Sin antigüedad"}
               todayDateKey={todayDateKey}

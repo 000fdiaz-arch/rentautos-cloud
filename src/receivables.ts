@@ -68,6 +68,9 @@ export type ReceivableRow = {
   totalPaid: number;
   state: ReceivableState;
   totalOtherCharges: number;
+  outstandingFineAmount?: number;
+  outstandingTicketAmount?: number;
+  clientCreatedAt?: string;
   recentPayments: ReceivablePaymentSnapshot[];
   hasActiveClient: boolean;
   operationalStatus?: string;
@@ -130,6 +133,20 @@ function daysBetween(from: Date, to: Date): number {
 
 function sumOtherCharges(client: Client): number {
   return roundMoney((client.otherCharges ?? []).reduce((sum, charge) => sum + Math.max(0, charge.amount), 0));
+}
+
+function sumOutstandingFines(client: Client): number {
+  return roundMoney((client.fines ?? []).reduce(
+    (sum, fine) => sum + Math.max(0, fine.amount - fine.amountPaid),
+    0
+  ));
+}
+
+function sumOutstandingTickets(client: Client): number {
+  return roundMoney((client.tickets ?? []).reduce(
+    (sum, ticket) => sum + Math.max(0, ticket.amount - ticket.amountPaid),
+    0
+  ));
 }
 
 export function getGroupFromUnit(unitId: string): string {
@@ -331,6 +348,9 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
         totalPaid,
         state,
         totalOtherCharges: provisionalRental ? 0 : sumOtherCharges(client),
+        outstandingFineAmount: provisionalRental ? 0 : sumOutstandingFines(client),
+        outstandingTicketAmount: provisionalRental ? 0 : sumOutstandingTickets(client),
+        clientCreatedAt: client.createdAt,
         recentPayments: clientPayments.slice(0, 5).map((payment) => ({
           id: payment.id,
           dateApplied: payment.dateApplied,
@@ -373,6 +393,8 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
       totalPaid: 0,
       state: "alDia",
       totalOtherCharges: 0,
+      outstandingFineAmount: 0,
+      outstandingTicketAmount: 0,
       recentPayments: [],
       hasActiveClient: false,
       operationalStatus: String(unit.operational_status ?? "libre")

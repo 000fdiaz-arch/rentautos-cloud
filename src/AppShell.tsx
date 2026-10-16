@@ -1125,6 +1125,7 @@ export default function AppShell({
           <ReceivablesPage
             clients={clients}
             payments={payments}
+            lateFeeSettings={lateFeeSettings}
             onClientsChange={persistClients}
             dataOwnerUserId={cloudDataUserId}
             readOnly={isReadOnlyReceivables}

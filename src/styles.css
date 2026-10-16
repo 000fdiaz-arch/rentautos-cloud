@@ -20010,6 +20010,272 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   padding-bottom: 14px;
 }
 
+.ar-expected-payment-panel {
+  margin: 0 16px 14px;
+  overflow: hidden;
+  border: 1px solid #99d8d0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #ecfdf5 0%, #f0fdfa 54%, #ffffff 100%);
+  box-shadow: 0 8px 24px rgba(15, 118, 110, 0.08);
+}
+
+.ar-expected-payment-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px 13px;
+}
+
+.ar-expected-payment-kicker {
+  display: block;
+  margin-bottom: 4px;
+  color: #0f766e;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ar-expected-payment-heading h2 {
+  margin: 0;
+  color: #134e4a;
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+
+.ar-expected-payment-heading p {
+  max-width: 780px;
+  margin: 5px 0 0;
+  color: #486b68;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.ar-expected-payment-total {
+  display: grid;
+  flex: 0 0 auto;
+  min-width: 102px;
+  padding: 9px 14px;
+  border: 1px solid #5eead4;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #0f766e;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.ar-expected-payment-total strong {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.ar-expected-payment-total span {
+  margin-top: 4px;
+  font-size: 0.67rem;
+  font-weight: 800;
+}
+
+.ar-expected-payment-total.is-active {
+  border-color: #0f766e;
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.ar-expected-payment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 10px 18px 13px;
+  border-top: 1px solid rgba(153, 216, 208, 0.72);
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.ar-expected-payment-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid #cbdedb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ar-expected-payment-actions button strong {
+  min-width: 24px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #e6fffb;
+  color: #0f766e;
+  font-size: 0.68rem;
+}
+
+.ar-expected-payment-actions button:hover,
+.ar-expected-payment-actions button.is-active {
+  border-color: #0f766e;
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.ar-expected-payment-actions button.is-active strong {
+  background: #ffffff;
+  color: #0f766e;
+}
+
+.ar-expected-payment-actions .ar-expected-payment-clear {
+  margin-left: auto;
+  border-color: transparent;
+  background: transparent;
+  color: #0f766e;
+}
+
+.ar-expected-payment-actions .ar-expected-payment-clear:hover {
+  border-color: #99d8d0;
+  background: #ffffff;
+  color: #115e59;
+}
+
+.ar-risk-overview-panel {
+  margin: 0 16px 14px;
+  overflow: hidden;
+  border: 1px solid #c4b5fd;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f5f3ff 0%, #faf5ff 56%, #ffffff 100%);
+  box-shadow: 0 8px 24px rgba(109, 40, 217, 0.07);
+}
+
+.ar-risk-overview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px 13px;
+}
+
+.ar-risk-overview-kicker {
+  display: block;
+  margin-bottom: 4px;
+  color: #7c3aed;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ar-risk-overview-heading h2 {
+  margin: 0;
+  color: #4c1d95;
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+
+.ar-risk-overview-heading p {
+  max-width: 780px;
+  margin: 5px 0 0;
+  color: #65547a;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.ar-risk-overview-total {
+  display: grid;
+  flex: 0 0 auto;
+  min-width: 118px;
+  padding: 9px 14px;
+  border: 1px solid #c4b5fd;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #6d28d9;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.ar-risk-overview-total strong {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.ar-risk-overview-total span {
+  margin-top: 4px;
+  font-size: 0.67rem;
+  font-weight: 800;
+}
+
+.ar-risk-overview-total.is-active {
+  border-color: #6d28d9;
+  background: #6d28d9;
+  color: #ffffff;
+}
+
+.ar-risk-overview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 10px 18px 13px;
+  border-top: 1px solid rgba(196, 181, 253, 0.7);
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.ar-risk-overview-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid #ddd6fe;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ar-risk-overview-actions button strong {
+  min-width: 24px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #ede9fe;
+  color: #6d28d9;
+  font-size: 0.68rem;
+}
+
+.ar-risk-overview-actions button:hover,
+.ar-risk-overview-actions button.is-active {
+  border-color: #6d28d9;
+  background: #6d28d9;
+  color: #ffffff;
+}
+
+.ar-risk-overview-actions button.is-active strong {
+  background: #ffffff;
+  color: #6d28d9;
+}
+
+.ar-risk-overview-actions .ar-risk-overview-clear {
+  margin-left: auto;
+  border-color: transparent;
+  background: transparent;
+  color: #6d28d9;
+}
+
+.ar-risk-overview-actions .ar-risk-overview-clear:hover {
+  border-color: #c4b5fd;
+  background: #ffffff;
+  color: #4c1d95;
+}
+
 .ar-essential-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -20256,6 +20522,266 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   gap: 9px 16px;
   min-width: 0;
   padding: 13px 15px;
+}
+
+.ar-payment-alert {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 11px;
+  border: 1px solid #fdba74;
+  border-radius: 9px;
+  background: #fff7ed;
+}
+
+.ar-risk-signals {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 7px;
+}
+
+.ar-risk-signal {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #c4b5fd;
+  border-radius: 9px;
+  background: #f5f3ff;
+}
+
+.ar-risk-signal--repeated_underpayment {
+  border-color: #fbbf24;
+  background: #fffbeb;
+}
+
+.ar-risk-signal--charges {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.ar-risk-signal-icon {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: #7c3aed;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.ar-risk-signal--repeated_underpayment .ar-risk-signal-icon {
+  background: #b45309;
+}
+
+.ar-risk-signal--charges .ar-risk-signal-icon {
+  background: #b91c1c;
+}
+
+.ar-risk-signal-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ar-risk-signal-copy strong {
+  color: #5b21b6;
+  font-size: 0.71rem;
+}
+
+.ar-risk-signal--repeated_underpayment .ar-risk-signal-copy strong {
+  color: #92400e;
+}
+
+.ar-risk-signal--charges .ar-risk-signal-copy strong {
+  color: #991b1b;
+}
+
+.ar-risk-signal-copy small {
+  color: #65547a;
+  font-size: 0.64rem;
+  line-height: 1.35;
+}
+
+.ar-risk-signal--repeated_underpayment .ar-risk-signal-copy small {
+  color: #78350f;
+}
+
+.ar-risk-signal--charges .ar-risk-signal-copy small {
+  color: #7f1d1d;
+}
+
+.ar-risk-signal > b {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #5b21b6;
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ar-risk-signal--repeated_underpayment > b {
+  color: #92400e;
+}
+
+.ar-risk-signal--charges > b {
+  color: #991b1b;
+}
+
+.ar-payment-alert--partial {
+  border-color: #f9a8d4;
+  background: #fdf2f8;
+}
+
+.ar-payment-alert-icon {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #c2410c;
+  color: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.ar-payment-alert--partial .ar-payment-alert-icon {
+  background: #be185d;
+}
+
+.ar-payment-alert-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ar-payment-alert-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px 10px;
+}
+
+.ar-payment-alert-copy strong {
+  color: #9a3412;
+  font-size: 0.75rem;
+}
+
+.ar-payment-alert--partial .ar-payment-alert-copy strong {
+  color: #9d174d;
+}
+
+.ar-payment-alert-heading > b {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #7c2d12;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ar-payment-alert--partial .ar-payment-alert-heading > b {
+  color: #9d174d;
+}
+
+.ar-payment-alert-copy span {
+  color: #713f12;
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.ar-payment-alert--partial .ar-payment-alert-copy span {
+  color: #831843;
+}
+
+.ar-payment-alert-oldest {
+  font-weight: 700;
+}
+
+.ar-payment-alert-oldest strong {
+  font-size: inherit;
+}
+
+.ar-payment-alert-breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 3px;
+  padding-top: 7px;
+  border-top: 1px dashed rgba(154, 52, 18, 0.28);
+}
+
+.ar-payment-alert-breakdown > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.ar-payment-alert-breakdown > span strong {
+  color: #713f12;
+  font-size: 0.65rem;
+}
+
+.ar-payment-alert--partial .ar-payment-alert-breakdown > span strong {
+  color: #831843;
+}
+
+.ar-payment-alert-breakdown > span b {
+  color: #7c2d12;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ar-payment-alert--partial .ar-payment-alert-breakdown > span b {
+  color: #9d174d;
+}
+
+.ar-payment-alert-breakdown .ar-payment-alert-breakdown-total {
+  grid-column: 1 / -1;
+  border: 1px solid rgba(190, 24, 93, 0.18);
+  background: #ffffff;
+}
+
+.ar-payment-alert-calculation {
+  padding-top: 5px;
+  border-top: 1px dashed rgba(154, 52, 18, 0.28);
+  color: #7c2d12;
+  font-size: 0.67rem;
+  font-weight: 800;
+}
+
+.ar-payment-alert button {
+  min-height: 30px;
+  padding: 6px 8px;
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  background: transparent;
+  color: #9a3412;
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.ar-payment-alert--partial button {
+  color: #9d174d;
 }
 
 .ar-essential-value {
@@ -20575,6 +21101,42 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 }
 
 @media (max-width: 720px) {
+  .ar-expected-payment-panel,
+  .ar-risk-overview-panel {
+    margin: 0 10px 12px;
+  }
+
+  .ar-expected-payment-heading,
+  .ar-risk-overview-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ar-expected-payment-total,
+  .ar-risk-overview-total {
+    grid-template-columns: auto auto;
+    justify-content: center;
+    gap: 7px;
+    width: 100%;
+  }
+
+  .ar-expected-payment-total span,
+  .ar-risk-overview-total span {
+    margin-top: 0;
+  }
+
+  .ar-expected-payment-actions button,
+  .ar-risk-overview-actions button {
+    flex: 1 1 calc(50% - 7px);
+    min-height: 42px;
+  }
+
+  .ar-expected-payment-actions .ar-expected-payment-clear,
+  .ar-risk-overview-actions .ar-risk-overview-clear {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+
   .ar-essential-toolbar {
     align-items: stretch;
     flex-direction: column;
@@ -20612,6 +21174,33 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 
   .ar-essential-financial {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ar-payment-alert {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .ar-risk-signals {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-payment-alert-breakdown {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-payment-alert-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ar-payment-alert-breakdown .ar-payment-alert-breakdown-total {
+    grid-column: 1;
+  }
+
+  .ar-payment-alert button {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-height: 38px;
   }
 
   .ar-essential-followup {

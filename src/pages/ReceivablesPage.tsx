@@ -53,7 +53,7 @@ import {
   type ReceivableState,
   type SortDirection
 } from "../receivables";
-import type { BillingFrequency, Client, Payment } from "../types";
+import type { BillingFrequency, Client, LateFeeSettings, Payment } from "../types";
 import type {
   CollectionStatus,
   CollectionStatusRecord,
@@ -71,6 +71,15 @@ import { ReceivableDetailModal } from "./receivables/ReceivableDetailModal";
 import { ReceivablesFiltersPanel } from "./receivables/ReceivablesFiltersPanel";
 import { ReceivablesLedgerTable, type ReceivablesHistoryRow } from "./receivables/ReceivablesLedgerTable";
 import { ReceivablesPriorityList, type PriorityRouteRequest } from "./receivables/ReceivablesPriorityList";
+import {
+  expectedPaymentAlertForRow,
+  type ExpectedPaymentAlertKind
+} from "./receivables/receivablePaymentAlerts";
+import {
+  pendingLateFeeAmountForClient,
+  receivableRiskSignalsForRow,
+  type ReceivableRiskSignalKind
+} from "./receivables/receivableRiskSignals";
 import {
   buildPriorityReceivables,
   formatCalendarDuration,
@@ -145,6 +154,7 @@ type Props = {
   routePermissions?: Pick<RouteSearchPageProps, "currentUserId" | "currentUserEmail" | "canReportPayment" | "canConfirmBankPayment" | "canConfirmCaptures" | "initialRouteFilter" | "readOnly" | "canRemoveFromRoute" | "onRegisterPayment" | "onConfirmBankPayment" | "paymentsLoading">;
   clients: Client[];
   payments: Payment[];
+  lateFeeSettings: LateFeeSettings;
   onClientsChange?: (next: Client[]) => void | Promise<void>;
   dataOwnerUserId?: string | null;
   readOnly?: boolean;
@@ -175,6 +185,8 @@ type EssentialInstallmentFilter = "all" | `${number}`;
 type EssentialPaymentDaysFilter = "all" | "no-payments" | `${number}`;
 type EssentialTenureFilter = "all" | PriorityTenureBucket;
 type EssentialContactChecklistFilter = "all" | `${DailyContactShift}:pending` | `${DailyContactShift}:contacted`;
+type ExpectedPaymentAlertFilter = "none" | "all" | ExpectedPaymentAlertKind;
+type RiskSignalFilter = "none" | "all" | ReceivableRiskSignalKind;
 type EssentialFilterKey =
   | "search"
   | "portfolio"
@@ -185,7 +197,9 @@ type EssentialFilterKey =
   | "installments"
   | "paymentDays"
   | "tenure"
-  | "contactChecklist";
+  | "contactChecklist"
+  | "expectedPayment"
+  | "riskSignal";
 
 const STATEMENT_SUGGESTION_WINDOW_MS = 24 * 60 * 60 * 1000;
 const CLEAR_COLLECTION_MANAGEMENT_CONFIRMATION = "LIMPIAR GESTION";
@@ -457,6 +471,7 @@ export default function ReceivablesPage({
   routePermissions,
   clients,
   payments,
+  lateFeeSettings,
   onClientsChange,
   dataOwnerUserId,
   readOnly = false,
@@ -488,6 +503,8 @@ export default function ReceivablesPage({
   const [essentialPaymentDaysFilter, setEssentialPaymentDaysFilter] = useState<EssentialPaymentDaysFilter>("all");
   const [essentialTenureFilter, setEssentialTenureFilter] = useState<EssentialTenureFilter>("all");
   const [essentialContactChecklistFilter, setEssentialContactChecklistFilter] = useState<EssentialContactChecklistFilter>("all");
+  const [expectedPaymentAlertFilter, setExpectedPaymentAlertFilter] = useState<ExpectedPaymentAlertFilter>("none");
+  const [riskSignalFilter, setRiskSignalFilter] = useState<RiskSignalFilter>("none");
   const viewMode: ReceivablesViewMode = "cartera";
   const [collectionClosuresByDate, setCollectionClosuresByDate] = useState<CollectionClosuresByDate>({});
   const [collectionClosuresLoaded, setCollectionClosuresLoaded] = useState<boolean>(false);
@@ -1570,20 +1587,57 @@ export default function ReceivablesPage({
     () => new Map(essentialPriorityRows.map((item) => [item.row.id, item])),
     [essentialPriorityRows]
   );
+  const clientById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
   const essentialTenureLabelByClient = useMemo(() => {
     const priorityByClient = new Map(essentialPriorityRows.map((item) => [item.row.id, item]));
-    const clientsById = new Map(clients.map((client) => [client.id, client]));
     return new Map(baseRows.map((row) => {
       const priorityItem = priorityByClient.get(row.id);
       if (priorityItem) return [row.id, formatCalendarDuration(priorityItem.tenureStart, now)] as const;
-      const client = clientsById.get(row.id);
+      const client = clientById.get(row.id);
       const createdAt = client?.createdAt ? new Date(client.createdAt) : null;
       const label = createdAt && !Number.isNaN(createdAt.getTime())
         ? formatCalendarDuration(createdAt, now)
         : "Sin antigüedad";
       return [row.id, label] as const;
     }));
-  }, [baseRows, clients, essentialPriorityRows, now]);
+  }, [baseRows, clientById, essentialPriorityRows, now]);
+  const expectedPaymentAlertByClient = useMemo(() => (
+    new Map(baseRows.flatMap((row) => {
+      const alert = expectedPaymentAlertForRow(row);
+      return alert ? [[row.id, alert] as const] : [];
+    }))
+  ), [baseRows]);
+  const expectedPaymentAlertSummary = useMemo(() => {
+    const alerts = baseRows.flatMap((row) => {
+      const alert = expectedPaymentAlertByClient.get(row.id);
+      return alert ? [{ row, alert }] : [];
+    });
+    return {
+      total: alerts.length,
+      missing: alerts.filter((item) => item.alert.kind === "missing").length,
+      partial: alerts.filter((item) => item.alert.kind === "partial").length,
+      daily: alerts.filter((item) => item.row.plan === "daily").length,
+      weekly: alerts.filter((item) => item.row.plan === "weekly").length,
+      biweekly: alerts.filter((item) => item.row.plan === "biweekly").length,
+      monthly: alerts.filter((item) => item.row.plan === "monthly").length
+    };
+  }, [baseRows, expectedPaymentAlertByClient]);
+  const riskSignalsByClient = useMemo(() => (
+    new Map(baseRows.map((row) => {
+      const client = clientById.get(row.id);
+      const pendingLateFeeAmount = client ? pendingLateFeeAmountForClient(client, lateFeeSettings) : 0;
+      return [row.id, receivableRiskSignalsForRow(row, receivablesDate, pendingLateFeeAmount)] as const;
+    }))
+  ), [baseRows, clientById, lateFeeSettings, receivablesDate]);
+  const riskSignalSummary = useMemo(() => {
+    const signalLists = [...riskSignalsByClient.values()];
+    return {
+      total: signalLists.filter((signals) => signals.length > 0).length,
+      newClient: signalLists.filter((signals) => signals.some((signal) => signal.kind === "new_client")).length,
+      repeatedUnderpayment: signalLists.filter((signals) => signals.some((signal) => signal.kind === "repeated_underpayment")).length,
+      charges: signalLists.filter((signals) => signals.some((signal) => signal.kind === "charges")).length
+    };
+  }, [riskSignalsByClient]);
   const matchesEssentialFilters = useCallback((row: ReceivableRow, omittedFilter?: EssentialFilterKey): boolean => {
     const search = normalizeEssentialFilterValue(essentialSearch);
     const operationalStatus = row.operationalStatus ?? clientStatusById.get(row.id) ?? "activo";
@@ -1614,6 +1668,8 @@ export default function ReceivablesPage({
     const priorityItem = essentialPriorityByClient.get(row.id);
     const overdueInstallments = priorityOverdueInstallmentCount(row.overdueBalance, row.rentAmount);
     const paymentDays = essentialPaymentDaysAgo(row.lastPaymentDate, now);
+    const expectedPaymentAlert = expectedPaymentAlertByClient.get(row.id);
+    const riskSignals = riskSignalsByClient.get(row.id) ?? [];
 
     return (omittedFilter === "search" || !search || normalizeEssentialFilterValue(`${row.unitId} ${row.name}`).includes(search))
       && (omittedFilter === "portfolio" || essentialPortfolioFilter === "all" || portfolioValue === essentialPortfolioFilter)
@@ -1627,8 +1683,12 @@ export default function ReceivablesPage({
       && (omittedFilter === "tenure" || essentialTenureFilter === "all"
         || (priorityItem ? priorityTenureBucket(priorityItem.tenureDays) === essentialTenureFilter : false))
       && (omittedFilter === "contactChecklist" || essentialContactChecklistFilter === "all"
-        || (isOperationallyActive && (checklistStatus === "contacted" ? checklistIsContacted : !checklistIsContacted)));
-  }, [clientStatusById, collectionStatusByClient, dailyContactCloudAttemptsByClient, essentialContactChecklistFilter, essentialInstallmentFilter, essentialManagementFilter, essentialOperationalFilter, essentialPaymentDaysFilter, essentialPlanFilter, essentialPortfolioFilter, essentialPriorityByClient, essentialPriorityLevelFilter, essentialSearch, essentialTenureFilter, now, todayDateKey]);
+        || (isOperationallyActive && (checklistStatus === "contacted" ? checklistIsContacted : !checklistIsContacted)))
+      && (omittedFilter === "expectedPayment" || expectedPaymentAlertFilter === "none"
+        || (expectedPaymentAlertFilter === "all" ? !!expectedPaymentAlert : expectedPaymentAlert?.kind === expectedPaymentAlertFilter))
+      && (omittedFilter === "riskSignal" || riskSignalFilter === "none"
+        || (riskSignalFilter === "all" ? riskSignals.length > 0 : riskSignals.some((signal) => signal.kind === riskSignalFilter)));
+  }, [clientStatusById, collectionStatusByClient, dailyContactCloudAttemptsByClient, essentialContactChecklistFilter, essentialInstallmentFilter, essentialManagementFilter, essentialOperationalFilter, essentialPaymentDaysFilter, essentialPlanFilter, essentialPortfolioFilter, essentialPriorityByClient, essentialPriorityLevelFilter, essentialSearch, essentialTenureFilter, expectedPaymentAlertByClient, expectedPaymentAlertFilter, now, riskSignalFilter, riskSignalsByClient, todayDateKey]);
   const essentialOperationalOptions = useMemo(() => {
     const options = new Map<string, string>();
     for (const row of baseRows) {
@@ -1767,6 +1827,8 @@ export default function ReceivablesPage({
     setEssentialPaymentDaysFilter("all");
     setEssentialTenureFilter("all");
     setEssentialContactChecklistFilter("all");
+    setExpectedPaymentAlertFilter("none");
+    setRiskSignalFilter("none");
     setMobileFiltersOpen(false);
   }
 
@@ -3522,6 +3584,134 @@ export default function ReceivablesPage({
 
         {workflowTab === "management" ? (
           <>
+            <section className="ar-expected-payment-panel" aria-labelledby="ar-expected-payment-title">
+              <div className="ar-expected-payment-heading">
+                <div>
+                  <span className="ar-expected-payment-kicker">Detección automática</span>
+                  <h2 id="ar-expected-payment-title">Pagos esperados no cubiertos</h2>
+                  <p>Compara la letra vencida con el saldo aplicado. Un abono menor mantiene la alerta hasta completar la letra.</p>
+                </div>
+                <button
+                  type="button"
+                  className={`ar-expected-payment-total ${expectedPaymentAlertFilter === "all" ? "is-active" : ""}`}
+                  aria-pressed={expectedPaymentAlertFilter === "all"}
+                  onClick={() => {
+                    setRiskSignalFilter("none");
+                    setExpectedPaymentAlertFilter((current) => current === "all" ? "none" : "all");
+                  }}
+                >
+                  <strong>{expectedPaymentAlertSummary.total}</strong>
+                  <span>con alerta</span>
+                </button>
+              </div>
+              <div className="ar-expected-payment-actions" aria-label="Filtros de pagos esperados">
+                <button
+                  type="button"
+                  className={expectedPaymentAlertFilter === "missing" ? "is-active" : ""}
+                  aria-pressed={expectedPaymentAlertFilter === "missing"}
+                  onClick={() => {
+                    setRiskSignalFilter("none");
+                    setExpectedPaymentAlertFilter((current) => current === "missing" ? "none" : "missing");
+                  }}
+                >
+                  <span>Sin cubrir</span><strong>{expectedPaymentAlertSummary.missing}</strong>
+                </button>
+                <button
+                  type="button"
+                  className={expectedPaymentAlertFilter === "partial" ? "is-active" : ""}
+                  aria-pressed={expectedPaymentAlertFilter === "partial"}
+                  onClick={() => {
+                    setRiskSignalFilter("none");
+                    setExpectedPaymentAlertFilter((current) => current === "partial" ? "none" : "partial");
+                  }}
+                >
+                  <span>Abono incompleto</span><strong>{expectedPaymentAlertSummary.partial}</strong>
+                </button>
+                {([
+                  ["daily", "Diarios", expectedPaymentAlertSummary.daily],
+                  ["weekly", "Semanales", expectedPaymentAlertSummary.weekly],
+                  ["biweekly", "Quincenales", expectedPaymentAlertSummary.biweekly],
+                  ["monthly", "Mensuales", expectedPaymentAlertSummary.monthly]
+                ] as const).map(([plan, label, count]) => (
+                  <button
+                    type="button"
+                    key={plan}
+                    className={expectedPaymentAlertFilter === "all" && essentialPlanFilter === plan ? "is-active" : ""}
+                    aria-pressed={expectedPaymentAlertFilter === "all" && essentialPlanFilter === plan}
+                    onClick={() => {
+                      const isActive = expectedPaymentAlertFilter === "all" && essentialPlanFilter === plan;
+                      setRiskSignalFilter("none");
+                      setExpectedPaymentAlertFilter(isActive ? "none" : "all");
+                      setEssentialPlanFilter(isActive ? "all" : plan);
+                    }}
+                  >
+                    <span>{label}</span><strong>{count}</strong>
+                  </button>
+                ))}
+                {expectedPaymentAlertFilter !== "none" ? (
+                  <button
+                    type="button"
+                    className="ar-expected-payment-clear"
+                    onClick={() => {
+                      setExpectedPaymentAlertFilter("none");
+                      setEssentialPlanFilter("all");
+                    }}
+                  >
+                    Ver toda la cartera
+                  </button>
+                ) : null}
+              </div>
+            </section>
+            <section className="ar-risk-overview-panel" aria-labelledby="ar-risk-overview-title">
+              <div className="ar-risk-overview-heading">
+                <div>
+                  <span className="ar-risk-overview-kicker">Señales para revisar primero</span>
+                  <h2 id="ar-risk-overview-title">Clientes que requieren atención</h2>
+                  <p>Detecta primer pago pendiente, hasta 3 letras cubiertas en los primeros 90 días, abonos bajos repetidos, multas, boletas y recargos por mora pendientes.</p>
+                </div>
+                <button
+                  type="button"
+                  className={`ar-risk-overview-total ${riskSignalFilter === "all" ? "is-active" : ""}`}
+                  aria-pressed={riskSignalFilter === "all"}
+                  onClick={() => {
+                    setExpectedPaymentAlertFilter("none");
+                    setRiskSignalFilter((current) => current === "all" ? "none" : "all");
+                  }}
+                >
+                  <strong>{riskSignalSummary.total}</strong>
+                  <span>clientes señalados</span>
+                </button>
+              </div>
+              <div className="ar-risk-overview-actions" aria-label="Filtros de señales de riesgo">
+                {([
+                  ["new_client", "Nuevo / pocos pagos", riskSignalSummary.newClient],
+                  ["repeated_underpayment", "Abonos bajos repetidos", riskSignalSummary.repeatedUnderpayment],
+                  ["charges", "Multas, boletas y recargos", riskSignalSummary.charges]
+                ] as const).map(([kind, label, count]) => (
+                  <button
+                    type="button"
+                    key={kind}
+                    className={riskSignalFilter === kind ? "is-active" : ""}
+                    aria-pressed={riskSignalFilter === kind}
+                    onClick={() => {
+                      setExpectedPaymentAlertFilter("none");
+                      setRiskSignalFilter((current) => current === kind ? "none" : kind);
+                    }}
+                  >
+                    <span>{label}</span><strong>{count}</strong>
+                  </button>
+                ))}
+                {riskSignalFilter !== "none" ? (
+                  <button
+                    type="button"
+                    className="ar-risk-overview-clear"
+                    onClick={() => setRiskSignalFilter("none")}
+                  >
+                    Ver toda la cartera
+                  </button>
+                ) : null}
+              </div>
+            </section>
             <div className="ar-essential-toolbar">
               <div className="ar-essential-toolbar-fields">
                 <label className="ar-essential-filter ar-essential-filter--search">
@@ -3843,6 +4033,7 @@ export default function ReceivablesPage({
             collectionStatusByClient={collectionStatusByClient}
             dailyContactCloudAttemptsByClient={dailyContactCloudAttemptsByClient}
             dailyContactSaveStatesByClient={dailyContactSaveStatesByClient}
+            riskSignalsByClient={riskSignalsByClient}
             clientStatusById={clientStatusById}
             tenureLabelByClient={essentialTenureLabelByClient}
             todayDateKey={todayDateKey}
