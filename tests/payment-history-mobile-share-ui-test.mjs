@@ -49,7 +49,7 @@ try {
           throw new DOMException("Share cancelled", "AbortError");
         }
         window.__sharedReceipt = {
-          title: data.title,
+          fields: Object.keys(data).sort(),
           fileName: data.files?.[0]?.name,
           fileType: data.files?.[0]?.type
         };
@@ -78,7 +78,7 @@ try {
   await confirmation.waitFor({ state: "visible" });
   assert.equal(await page.locator("#payment-status").textContent(), "pending");
   assert.deepEqual(await page.evaluate(() => window.__sharedReceipt), {
-    title: "Recibo REC-MOBILE",
+    fields: ["files"],
     fileName: "A01-REC_MOBILE-18_10_2026.png",
     fileType: "image/png"
   });
@@ -116,7 +116,7 @@ try {
   );
 
   await page.screenshot({ path: ".tmp/payment-history-share/mobile-sent.png", fullPage: true });
-  console.log("OK historial móvil: comparte PNG, conserva pendiente al cancelar y marca enviado solo al confirmar.");
+  console.log("OK historial móvil: comparte solo el PNG, conserva pendiente al cancelar y marca enviado solo al confirmar.");
 } finally {
   if (browser) await browser.close();
   server.kill();

@@ -185,11 +185,7 @@ export async function prepareHistoryPaymentReceiptDelivery(
     accountClient
   });
   const file = new File([blob], fileName, { type: "image/png" });
-  const shareData: ShareData = {
-    title: `Recibo ${payment.receiptNumber}`,
-    text: `Recibo ${payment.receiptNumber} de ${payment.clientName}`,
-    files: [file]
-  };
+  const shareData: ShareData = { files: [file] };
 
   if (typeof navigator.share === "function" && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
     try {
