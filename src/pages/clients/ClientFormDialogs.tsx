@@ -1,4 +1,4 @@
-import type { Dispatch, FormEvent, SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { getBusinessDateKey } from "../../billing";
 import type { BillingFrequency, WeeklyChargeDay } from "../../types";
 import { FREQUENCY_LABEL } from "./clientConstants";
@@ -6,6 +6,7 @@ import {
   clearIncompatibleFirstChargeDate,
   createOtherChargeForm,
   findFirstCompatibleChargeDate,
+  getFirstChargeDatePlanError,
   normalizePhoneDigits
 } from "./clientRules";
 import type { ClientForm, EditClientTab } from "./clientTypes";
@@ -71,6 +72,7 @@ function FirstChargeDateField({
   planError: string | null;
   newContract?: boolean;
 }) {
+  const [selectionError, setSelectionError] = useState<string | null>(null);
   const minimumDate = newContract
     ? findFirstCompatibleChargeDate(form, getBusinessDateKey())
     : undefined;
@@ -81,6 +83,30 @@ function FirstChargeDateField({
   const selectedDateLabel = selectedDate && !Number.isNaN(selectedDate.getTime())
     ? selectedDate.toLocaleDateString("es-PA", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })
     : "";
+  const displayedError = planError ?? selectionError;
+
+  useEffect(() => {
+    setSelectionError(null);
+  }, [form.frequency, form.chargeFirstSunday, form.weeklyChargeDay, form.monthlyChargeDay]);
+
+  const handleDateChange = (value: string) => {
+    if (!value) {
+      setSelectionError(null);
+      setForm((current) => ({ ...current, firstChargeDate: "" }));
+      return;
+    }
+
+    const candidate = { ...form, firstChargeDate: value };
+    const candidateError = getFirstChargeDatePlanError(candidate);
+    if (candidateError) {
+      setSelectionError(candidateError);
+      return;
+    }
+
+    setSelectionError(null);
+    setForm((current) => ({ ...current, firstChargeDate: value }));
+  };
+
   return (
     <label>
       Fecha primer cobro
@@ -89,14 +115,14 @@ function FirstChargeDateField({
         value={form.firstChargeDate}
         min={minimumDate}
         step={weeklyStep}
-        onChange={(event) => setForm((current) => ({ ...current, firstChargeDate: event.target.value }))}
-        className={errorFields.has("firstChargeDate") || planError ? "input-error" : undefined}
-        aria-invalid={Boolean(errorFields.has("firstChargeDate") || planError)}
+        onChange={(event) => handleDateChange(event.target.value)}
+        className={errorFields.has("firstChargeDate") || displayedError ? "input-error" : undefined}
+        aria-invalid={Boolean(errorFields.has("firstChargeDate") || displayedError)}
         aria-describedby="first-charge-date-help"
         required
       />
-      <small id="first-charge-date-help" className={planError ? "form-field-error" : "hint"}>
-        {planError ?? (selectedDateLabel
+      <small id="first-charge-date-help" className={displayedError ? "form-field-error" : "hint"}>
+        {displayedError ?? (selectedDateLabel
           ? `Primera letra: ${selectedDateLabel}.`
           : "Solo se aceptan fechas compatibles con el plan y el dia de cobro seleccionados.")}
       </small>

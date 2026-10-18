@@ -30,6 +30,11 @@ const dialogSource = fs.readFileSync(path.join(root, "src", "pages", "clients", 
 assert(dialogSource.includes("clearIncompatibleFirstChargeDate"), "El formulario debe limpiar la fecha al cambiar a un plan incompatible.");
 assert(dialogSource.includes("min={minimumDate}"), "El alta debe anclar el calendario en la primera fecha valida.");
 assert(dialogSource.includes("step={weeklyStep}"), "El alta semanal debe restringir el calendario en saltos de siete dias.");
+assert(dialogSource.includes("getFirstChargeDatePlanError(candidate)"), "El campo debe validar cada fecha en el momento de seleccionarla.");
+assert(
+  dialogSource.includes("if (candidateError)") && dialogSource.includes("setSelectionError(candidateError)"),
+  "El campo debe rechazar inmediatamente una fecha incompatible y explicar el motivo."
+);
 assert(dialogSource.includes("Primera letra:"), "El formulario debe confirmar visualmente la fecha de la primera letra.");
 
 const base = {
