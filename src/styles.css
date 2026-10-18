@@ -12571,6 +12571,10 @@ button.ar-route-publish-copy.is-active {
   display: none;
 }
 
+.history-mobile-unit-filter {
+  display: none;
+}
+
 @media (max-width: 900px) {
   .payments-page {
     min-width: 0;
@@ -12644,6 +12648,25 @@ button.ar-route-publish-copy.is-active {
     width: 100% !important;
     max-width: 100%;
     min-width: 0;
+  }
+
+  .history-mobile-unit-filter {
+    display: grid;
+    flex: 1 1 100%;
+    gap: 5px;
+    width: 100%;
+    min-width: 0;
+    color: var(--color-text-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .history-mobile-unit-filter .payment-input {
+    width: 100%;
+    min-width: 0;
+    text-transform: none;
   }
 
   .history-delivery-summary {

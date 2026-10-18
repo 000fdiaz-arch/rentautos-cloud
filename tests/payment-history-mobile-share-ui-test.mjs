@@ -33,10 +33,15 @@ try {
   });
 
   browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
   page.setDefaultTimeout(15000);
   page.setDefaultNavigationTimeout(30000);
   await page.addInitScript(() => {
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/140 Safari/537.36"
+    });
     Object.defineProperty(navigator, "canShare", {
       configurable: true,
       value: (data) => !location.search.includes("copy-only") && Array.isArray(data?.files) && data.files.length === 1
@@ -64,7 +69,7 @@ try {
       }
     });
   });
-  await page.route("**/*", (route) => {
+  await page.context().route("**/*", (route) => {
     const url = new URL(route.request().url());
     if (url.origin !== base) return route.abort();
     if (url.pathname === "/payment-history-share-test") {
@@ -79,10 +84,23 @@ try {
     return route.continue();
   });
 
-  const pendingButton = () => page.getByRole("button", { name: "Compartir el recibo REC-MOBILE" });
-  const confirmation = () => page.getByRole("group", { name: "Confirmar envío de REC-MOBILE" });
+  const pendingButton = () => page.getByRole("button", { name: "Compartir el recibo REC-9" });
+  const confirmation = () => page.getByRole("group", { name: "Confirmar envío de REC-9" });
 
   await page.goto(`${base}/payment-history-share-test?cancel-share`, { waitUntil: "domcontentloaded" });
+  assert.deepEqual(
+    await page.locator("#payment-panel-history tbody tr td:nth-child(4) strong").allTextContents(),
+    ["REC-9", "REC-10", "REC-20"],
+    "Los pagos del mismo día deben mantener la secuencia natural de recibos."
+  );
+  const unitSearch = page.getByRole("searchbox", { name: "Buscar unidad" });
+  await unitSearch.fill("B02");
+  assert.deepEqual(
+    await page.locator("#payment-panel-history tbody tr td:nth-child(4) strong").allTextContents(),
+    ["REC-20"],
+    "El filtro móvil debe encontrar una unidad."
+  );
+  await unitSearch.fill("");
   await pendingButton().click();
   await page.getByRole("status").filter({ hasText: /Compartir cancelado.*continúa "Por enviar"/ }).waitFor({ state: "visible" });
   assert.equal(await confirmation().count(), 0);
@@ -93,12 +111,12 @@ try {
   await page.waitForFunction(() => document.querySelector("#payment-status")?.textContent === "sent");
   assert.deepEqual(await page.evaluate(() => window.__sharedReceipt), {
     fields: ["files"],
-    fileName: "A01-REC_MOBILE-18_10_2026.png",
+    fileName: "A01-REC_9-18_10_2026.png",
     fileType: "image/png"
   });
   assert.equal(await confirmation().count(), 0);
   assert.match(
-    await page.getByRole("button", { name: "Compartir nuevamente el recibo REC-MOBILE" }).innerText(),
+    await page.getByRole("button", { name: "Compartir nuevamente el recibo REC-9" }).innerText(),
     /Enviado/
   );
 
@@ -113,7 +131,7 @@ try {
     "El intento pendiente debe limpiarse después de recuperar el estado Enviado."
   );
   assert.match(
-    await page.getByRole("button", { name: "Compartir nuevamente el recibo REC-MOBILE" }).innerText(),
+    await page.getByRole("button", { name: "Compartir nuevamente el recibo REC-9" }).innerText(),
     /Enviado/
   );
 
@@ -146,12 +164,37 @@ try {
   await confirmation().getByRole("button", { name: "Sí, enviado" }).click();
   await page.waitForFunction(() => document.querySelector("#payment-status")?.textContent === "sent");
   assert.match(
-    await page.getByRole("button", { name: "Compartir nuevamente el recibo REC-MOBILE" }).innerText(),
+    await page.getByRole("button", { name: "Compartir nuevamente el recibo REC-9" }).innerText(),
     /Enviado/
   );
 
   await page.screenshot({ path: ".tmp/payment-history-share/mobile-sent.png", fullPage: true });
-  console.log("OK historial móvil: compartir marca enviado al volver o recargar; cancelar conserva pendiente; copiar todavía exige confirmación.");
+
+  const desktopPage = await page.context().newPage();
+  await desktopPage.setViewportSize({ width: 1440, height: 900 });
+  await desktopPage.addInitScript(() => {
+    window.__desktopSharedReceipt = false;
+    window.__desktopCopiedReceipt = false;
+    Object.defineProperty(navigator, "canShare", { configurable: true, value: () => true });
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: async () => { window.__desktopSharedReceipt = true; }
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { write: async () => { window.__desktopCopiedReceipt = true; } }
+    });
+  });
+  await desktopPage.goto(`${base}/payment-history-share-test`, { waitUntil: "domcontentloaded" });
+  await desktopPage.getByRole("button", { name: "Compartir el recibo REC-9" }).click();
+  await desktopPage.getByRole("group", { name: "Confirmar envío de REC-9" }).waitFor({ state: "visible" });
+  assert.deepEqual(await desktopPage.evaluate(() => ({
+    copied: window.__desktopCopiedReceipt,
+    shared: window.__desktopSharedReceipt
+  })), { copied: true, shared: false });
+  await desktopPage.close();
+
+  console.log("OK historial: laptop copia durante el clic; móvil comparte, recupera el estado, filtra unidades y ordena la secuencia.");
 } finally {
   if (browser) await browser.close();
   server.kill();

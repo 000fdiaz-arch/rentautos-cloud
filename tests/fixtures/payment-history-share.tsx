@@ -6,7 +6,7 @@ import "../../src/styles.css";
 
 const pendingPayment: Payment = {
   id: "payment-mobile-share",
-  receiptNumber: "REC-MOBILE",
+  receiptNumber: "REC-9",
   clientId: "client-mobile-share",
   clientName: "Cliente móvil",
   clientUnit: "A01",
@@ -28,8 +28,32 @@ const pendingPayment: Payment = {
   receiptDeliveryStatus: "pending"
 };
 
+const secondSequentialPayment: Payment = {
+  ...pendingPayment,
+  id: "payment-mobile-share-second",
+  receiptNumber: "REC-10",
+  amountReceived: 28,
+  appliedToRent: 28,
+  centavosAhorro: 0,
+  balanceBefore: 28,
+  balanceAfter: 0,
+  createdAt: "2026-10-18T12:05:00Z",
+  receiptDeliveryStatus: "sent"
+};
+
+const otherUnitPayment: Payment = {
+  ...pendingPayment,
+  id: "payment-other-unit",
+  receiptNumber: "REC-20",
+  clientId: "client-other-unit",
+  clientName: "Otro cliente",
+  clientUnit: "B02",
+  createdAt: "2026-10-18T12:10:00Z",
+  receiptDeliveryStatus: "sent"
+};
+
 function Harness() {
-  const [payments, setPayments] = useState<Payment[]>([pendingPayment]);
+  const [payments, setPayments] = useState<Payment[]>([secondSequentialPayment, otherUnitPayment, pendingPayment]);
   const historyRef = useRef<HTMLElement>(null);
 
   return (
@@ -50,7 +74,7 @@ function Harness() {
         focusRequest={null}
         onPreviewPayment={() => undefined}
       />
-      <output id="payment-status" hidden>{payments[0]?.receiptDeliveryStatus}</output>
+      <output id="payment-status" hidden>{payments.find((payment) => payment.id === pendingPayment.id)?.receiptDeliveryStatus}</output>
     </main>
   );
 }

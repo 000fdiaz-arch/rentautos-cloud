@@ -8,6 +8,19 @@ export function isBankPaymentWithoutCentsOnDate(payment: Payment, dateKey: strin
   return payment.dateApplied === dateKey && BANK_PAYMENT_METHODS.has(payment.paymentMethod) && cents === 0;
 }
 
+export function compareReceiptSequence(first: Payment, second: Payment): number {
+  const byReceipt = first.receiptNumber.localeCompare(second.receiptNumber, "es", {
+    numeric: true,
+    sensitivity: "base"
+  });
+  if (byReceipt !== 0) return byReceipt;
+
+  const byCreatedAt = first.createdAt.localeCompare(second.createdAt);
+  if (byCreatedAt !== 0) return byCreatedAt;
+
+  return first.id.localeCompare(second.id);
+}
+
 function compareNewestPayment(first: Payment, second: Payment): number {
   const byAppliedDate = second.dateApplied.localeCompare(first.dateApplied);
   if (byAppliedDate !== 0) return byAppliedDate;
@@ -15,7 +28,7 @@ function compareNewestPayment(first: Payment, second: Payment): number {
   const byCreatedAt = second.createdAt.localeCompare(first.createdAt);
   if (byCreatedAt !== 0) return byCreatedAt;
 
-  const byReceipt = second.receiptNumber.localeCompare(first.receiptNumber);
+  const byReceipt = second.receiptNumber.localeCompare(first.receiptNumber, "es", { numeric: true, sensitivity: "base" });
   if (byReceipt !== 0) return byReceipt;
 
   return second.id.localeCompare(first.id);

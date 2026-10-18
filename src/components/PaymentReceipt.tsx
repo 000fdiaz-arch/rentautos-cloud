@@ -169,6 +169,13 @@ type HistoryReceiptDeliveryCallbacks = {
   onNativeShareAbandoned?: () => void;
 };
 
+function shouldUseNativeReceiptShare(): boolean {
+  const userAgent = navigator.userAgent ?? "";
+  const isMobileBrowser = /Android|webOS|iPhone|iPad|iPod|Mobile/i.test(userAgent);
+  const isIPadDesktopMode = /Macintosh/i.test(userAgent) && navigator.maxTouchPoints > 1;
+  return isMobileBrowser || isIPadDesktopMode;
+}
+
 function downloadPaymentReceiptBlob(fileName: string, blob: Blob): void {
   const link = document.createElement("a");
   const href = URL.createObjectURL(blob);
@@ -186,6 +193,22 @@ export async function prepareHistoryPaymentReceiptDelivery(
   accountClient?: Client,
   callbacks: HistoryReceiptDeliveryCallbacks = {}
 ): Promise<HistoryReceiptDeliveryMethod> {
+  if (!shouldUseNativeReceiptShare()) {
+    try {
+      // En escritorio se llama Clipboard.write durante el clic. Esperar a renderizar
+      // primero hace que Chrome pierda la activacion del usuario y rechace la copia.
+      await copyHistoryPaymentReceiptImage(payment, accountClient);
+      return "copied";
+    } catch {
+      const { fileName, blob } = await buildPaymentReceiptImageBlob(payment, {
+        format: "history",
+        accountClient
+      });
+      downloadPaymentReceiptBlob(fileName, blob);
+      return "downloaded";
+    }
+  }
+
   const { fileName, blob } = await buildPaymentReceiptImageBlob(payment, {
     format: "history",
     accountClient

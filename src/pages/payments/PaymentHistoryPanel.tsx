@@ -12,7 +12,7 @@ import {
 import { formatCurrency, formatDate } from "../../format";
 import type { Client, Payment } from "../../types";
 import { EMPTY_HISTORY_COLUMN_FILTERS } from "./paymentConstants";
-import { isBankPaymentWithoutCentsOnDate, PAYMENT_HISTORY_LIMIT } from "./paymentHistory";
+import { compareReceiptSequence, isBankPaymentWithoutCentsOnDate, PAYMENT_HISTORY_LIMIT } from "./paymentHistory";
 import { getInstallmentsTotalInPayment } from "./paymentRules";
 import type {
   HistoryColumnFilters,
@@ -410,8 +410,14 @@ const filteredHistoryRows = useMemo(() => {
   const dir = historySortDirection === "asc" ? 1 : -1;
   const sorted = [...filtered].sort((a, b) => {
     let comparison = 0;
-    if (historySortField === "receipt") comparison = a.receiptNumber.localeCompare(b.receiptNumber);
-    if (historySortField === "date") comparison = a.dateApplied.localeCompare(b.dateApplied);
+    if (historySortField === "receipt") comparison = compareReceiptSequence(a, b);
+    if (historySortField === "date") {
+      comparison = a.dateApplied.localeCompare(b.dateApplied);
+      if (comparison !== 0) return comparison * dir;
+      // En un mismo día se conserva la secuencia natural de recibos para que
+      // saldo anterior -> saldo nuevo se lea en el orden en que se aplicó.
+      return compareReceiptSequence(a, b);
+    }
     if (historySortField === "unit") comparison = a.clientUnit.localeCompare(b.clientUnit);
     if (historySortField === "client") comparison = a.clientName.localeCompare(b.clientName);
     if (historySortField === "amount") comparison = a.amountReceived - b.amountReceived;
@@ -420,7 +426,7 @@ const filteredHistoryRows = useMemo(() => {
     if (historySortField === "installments") comparison = getInstallmentsTotalInPayment(a) - getInstallmentsTotalInPayment(b);
     if (historySortField === "method") comparison = a.paymentMethod.localeCompare(b.paymentMethod);
     if (comparison !== 0) return comparison * dir;
-    return b.createdAt.localeCompare(a.createdAt);
+    return compareReceiptSequence(a, b);
   });
   return sorted;
 }, [payments, operationalDateKey, historyNoCentsTodayOnly, historyAttentionView, dailyAttentionPaymentIds, historyClientId, historyGroupFilter, historyDeliveryFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
@@ -741,6 +747,17 @@ async function handleRefreshHistory(): Promise<void> {
                   <option key={c.id} value={c.id}>{c.unitId} - {c.name}</option>
                 ))}
               </select>
+              <label className="history-mobile-unit-filter">
+                <span>Buscar unidad</span>
+                <input
+                  type="search"
+                  className="payment-input"
+                  value={historyColumnFilters.unit}
+                  onChange={(event) => updateHistoryColumnFilter("unit", event.target.value)}
+                  placeholder="Ej. A46"
+                  aria-label="Buscar unidad"
+                />
+              </label>
               <button
                 type="button"
                 className="button ghost small"
