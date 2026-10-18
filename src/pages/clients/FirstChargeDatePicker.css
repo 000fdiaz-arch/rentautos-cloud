@@ -1,0 +1,184 @@
+.first-charge-date-picker {
+  position: relative;
+  align-self: end;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.first-charge-date-label {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.first-charge-date-trigger {
+  display: flex;
+  min-height: 43px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.95rem;
+  text-align: left;
+}
+
+.first-charge-date-trigger:hover,
+.first-charge-date-trigger:focus-visible {
+  border-color: var(--color-primary);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.first-charge-date-trigger.input-error {
+  border-color: var(--color-debt);
+  background: #fff5f5;
+}
+
+.first-charge-calendar {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% - 30px);
+  left: 0;
+  width: min(320px, calc(100vw - 48px));
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--color-surface);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.2);
+}
+
+.first-charge-calendar-header {
+  display: grid;
+  grid-template-columns: 38px 1fr 38px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.first-charge-calendar-header strong {
+  color: var(--color-text);
+  font-size: 0.92rem;
+  text-align: center;
+  text-transform: capitalize;
+}
+
+.first-charge-calendar-header button {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: #f8fafc;
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 1.35rem;
+}
+
+.first-charge-calendar-header button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.first-charge-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.first-charge-calendar-weekday {
+  padding: 5px 0;
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.first-charge-calendar-day,
+.first-charge-calendar-blank {
+  aspect-ratio: 1;
+  min-width: 0;
+}
+
+.first-charge-calendar-day {
+  border: 1px solid #99d8d0;
+  border-radius: 8px;
+  background: #f0fdfa;
+  color: #115e59;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.first-charge-calendar-day:hover:not(:disabled),
+.first-charge-calendar-day:focus-visible {
+  border-color: var(--color-primary);
+  outline: 2px solid rgba(15, 118, 110, 0.22);
+  background: #ccfbf1;
+}
+
+.first-charge-calendar-day:disabled {
+  border-color: #e2e8f0;
+  background: #f1f5f9;
+  color: #b0bac7;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+.first-charge-calendar-day.is-today {
+  box-shadow: inset 0 0 0 2px #0f766e;
+}
+
+.first-charge-calendar-day.is-selected {
+  border-color: #0f766e;
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.first-charge-calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+}
+
+.first-charge-calendar-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.first-charge-calendar-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.first-charge-calendar-legend .is-compatible {
+  border: 1px solid #99d8d0;
+  background: #f0fdfa;
+}
+
+.first-charge-calendar-legend .is-blocked {
+  border: 1px solid #e2e8f0;
+  background: #f1f5f9;
+}
+
+@media (max-width: 520px) {
+  .first-charge-calendar {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: min(340px, calc(100vw - 28px));
+    transform: translate(-50%, -50%);
+  }
+}

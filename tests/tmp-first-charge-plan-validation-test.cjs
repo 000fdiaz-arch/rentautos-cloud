@@ -27,15 +27,16 @@ function assert(condition, message) {
 }
 
 const dialogSource = fs.readFileSync(path.join(root, "src", "pages", "clients", "ClientFormDialogs.tsx"), "utf8");
+const pickerSource = fs.readFileSync(path.join(root, "src", "pages", "clients", "FirstChargeDatePicker.tsx"), "utf8");
 assert(dialogSource.includes("clearIncompatibleFirstChargeDate"), "El formulario debe limpiar la fecha al cambiar a un plan incompatible.");
-assert(dialogSource.includes("min={minimumDate}"), "El alta debe anclar el calendario en la primera fecha valida.");
-assert(dialogSource.includes("step={weeklyStep}"), "El alta semanal debe restringir el calendario en saltos de siete dias.");
-assert(dialogSource.includes("getFirstChargeDatePlanError(candidate)"), "El campo debe validar cada fecha en el momento de seleccionarla.");
+assert(dialogSource.includes("FirstChargeDatePicker"), "El formulario debe usar el calendario de fechas compatibles.");
+assert(pickerSource.includes("getFirstChargeDatePlanError"), "El calendario debe validar cada dia contra el plan.");
 assert(
-  dialogSource.includes("if (candidateError)") && dialogSource.includes("setSelectionError(candidateError)"),
-  "El campo debe rechazar inmediatamente una fecha incompatible y explicar el motivo."
+  pickerSource.includes("disabled={Boolean(reason)}") && pickerSource.includes("if (disabledReason(dateKey)) return"),
+  "Los dias incompatibles deben estar bloqueados y no deben cambiar la fecha."
 );
-assert(dialogSource.includes("Primera letra:"), "El formulario debe confirmar visualmente la fecha de la primera letra.");
+assert(!pickerSource.includes('type="date"'), "El calendario no debe usar el control nativo que corrige fechas cercanas.");
+assert(pickerSource.includes("Primera letra:"), "El formulario debe confirmar visualmente la fecha de la primera letra.");
 
 const base = {
   unitId: "D15",

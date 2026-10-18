@@ -44,6 +44,12 @@ function randomSuffix() {
   return String(Date.now()).slice(-6);
 }
 
+async function selectFirstCompatibleChargeDate(page) {
+  await page.getByLabel("Fecha primer cobro").click();
+  const calendar = page.getByRole("dialog", { name: "Escoger fecha del primer cobro" });
+  await calendar.locator("button.first-charge-calendar-day:not(:disabled)").first().click();
+}
+
 async function run() {
   if (!TEST_ID || !TEST_PASSWORD) {
     throw new Error(
@@ -89,8 +95,7 @@ async function run() {
     await page.getByLabel("UNIDAD/ID").fill(unitId);
     await page.getByLabel("Cedula").fill(cedula);
     await page.getByLabel("Nombre").fill(clientName);
-    const firstChargeDateInput = page.getByLabel("Fecha primer cobro");
-    await firstChargeDateInput.fill(await firstChargeDateInput.getAttribute("min") ?? "");
+    await selectFirstCompatibleChargeDate(page);
     await page.getByLabel("Renta (USD)").fill(rentAmount);
     await page.getByLabel("Cuotas pactadas").fill("3");
     await page.getByLabel("Cuotas restantes").fill("3");
@@ -111,8 +116,7 @@ async function run() {
     await page.getByLabel("UNIDAD/ID").fill(unitId);
     await page.getByLabel("Cedula").fill("8-654-321");
     await page.getByLabel("Nombre").fill("CLIENTE DUPLICADO");
-    const duplicateFirstChargeDateInput = page.getByLabel("Fecha primer cobro");
-    await duplicateFirstChargeDateInput.fill(await duplicateFirstChargeDateInput.getAttribute("min") ?? "");
+    await selectFirstCompatibleChargeDate(page);
     await page.getByLabel("Renta (USD)").fill("50");
     await page.getByLabel("Cuotas pactadas").fill("2");
     await page.getByLabel("Cuotas restantes").fill("2");

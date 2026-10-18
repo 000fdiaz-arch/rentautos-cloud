@@ -1,14 +1,12 @@
-import { useEffect, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
-import { getBusinessDateKey } from "../../billing";
+import type { Dispatch, FormEvent, SetStateAction } from "react";
 import type { BillingFrequency, WeeklyChargeDay } from "../../types";
 import { FREQUENCY_LABEL } from "./clientConstants";
 import {
   clearIncompatibleFirstChargeDate,
   createOtherChargeForm,
-  findFirstCompatibleChargeDate,
-  getFirstChargeDatePlanError,
   normalizePhoneDigits
 } from "./clientRules";
+import { FirstChargeDatePicker } from "./FirstChargeDatePicker";
 import type { ClientForm, EditClientTab } from "./clientTypes";
 
 type SharedProps = {
@@ -57,77 +55,6 @@ function updateSchedule(
   changes: Partial<Pick<ClientForm, "frequency" | "chargeFirstSunday" | "weeklyChargeDay" | "monthlyChargeDay">>
 ): void {
   setForm((current) => clearIncompatibleFirstChargeDate(current, changes));
-}
-
-function FirstChargeDateField({
-  form,
-  setForm,
-  errorFields,
-  planError,
-  newContract = false
-}: {
-  form: ClientForm;
-  setForm: Dispatch<SetStateAction<ClientForm>>;
-  errorFields: Set<string>;
-  planError: string | null;
-  newContract?: boolean;
-}) {
-  const [selectionError, setSelectionError] = useState<string | null>(null);
-  const minimumDate = newContract
-    ? findFirstCompatibleChargeDate(form, getBusinessDateKey())
-    : undefined;
-  const weeklyStep = newContract && form.frequency === "weekly" ? 7 : undefined;
-  const selectedDate = form.firstChargeDate
-    ? new Date(`${form.firstChargeDate}T12:00:00`)
-    : null;
-  const selectedDateLabel = selectedDate && !Number.isNaN(selectedDate.getTime())
-    ? selectedDate.toLocaleDateString("es-PA", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })
-    : "";
-  const displayedError = planError ?? selectionError;
-
-  useEffect(() => {
-    setSelectionError(null);
-  }, [form.frequency, form.chargeFirstSunday, form.weeklyChargeDay, form.monthlyChargeDay]);
-
-  const handleDateChange = (value: string) => {
-    if (!value) {
-      setSelectionError(null);
-      setForm((current) => ({ ...current, firstChargeDate: "" }));
-      return;
-    }
-
-    const candidate = { ...form, firstChargeDate: value };
-    const candidateError = getFirstChargeDatePlanError(candidate);
-    if (candidateError) {
-      setSelectionError(candidateError);
-      return;
-    }
-
-    setSelectionError(null);
-    setForm((current) => ({ ...current, firstChargeDate: value }));
-  };
-
-  return (
-    <label>
-      Fecha primer cobro
-      <input
-        type="date"
-        value={form.firstChargeDate}
-        min={minimumDate}
-        step={weeklyStep}
-        onChange={(event) => handleDateChange(event.target.value)}
-        className={errorFields.has("firstChargeDate") || displayedError ? "input-error" : undefined}
-        aria-invalid={Boolean(errorFields.has("firstChargeDate") || displayedError)}
-        aria-describedby="first-charge-date-help"
-        required
-      />
-      <small id="first-charge-date-help" className={displayedError ? "form-field-error" : "hint"}>
-        {displayedError ?? (selectedDateLabel
-          ? `Primera letra: ${selectedDateLabel}.`
-          : "Solo se aceptan fechas compatibles con el plan y el dia de cobro seleccionados.")}
-      </small>
-    </label>
-  );
 }
 
 export function EditClientDialog({
@@ -269,7 +196,7 @@ export function EditClientDialog({
                             <input type="number" min="1" max="31" step="1" value={form.monthlyChargeDay} onChange={(e) => updateSchedule(setForm, { monthlyChargeDay: e.target.value })} className={errorFields.has("monthlyChargeDay") ? "input-error" : undefined} required />
                           </label>
                         )}
-                        <FirstChargeDateField
+                        <FirstChargeDatePicker
                           form={form}
                           setForm={setForm}
                           errorFields={errorFields}
@@ -443,7 +370,7 @@ export function CreateClientDialog({
                     <input type="number" min="1" max="31" step="1" value={form.monthlyChargeDay} onChange={(e) => updateSchedule(setForm, { monthlyChargeDay: e.target.value })} className={errorFields.has("monthlyChargeDay") ? "input-error" : undefined} required />
                   </label>
                 )}
-                <FirstChargeDateField
+                <FirstChargeDatePicker
                   form={form}
                   setForm={setForm}
                   errorFields={errorFields}
