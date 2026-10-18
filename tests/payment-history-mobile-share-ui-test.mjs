@@ -88,19 +88,26 @@ try {
   const confirmation = () => page.getByRole("group", { name: "Confirmar envío de REC-9" });
 
   await page.goto(`${base}/payment-history-share-test?cancel-share`, { waitUntil: "domcontentloaded" });
+  assert.equal(await page.locator(".history-client-select").isHidden(), true);
   assert.deepEqual(
     await page.locator("#payment-panel-history tbody tr td:nth-child(4) strong").allTextContents(),
     ["REC-9", "REC-10", "REC-20"],
     "Los pagos del mismo día deben mantener la secuencia natural de recibos."
   );
-  const unitSearch = page.getByRole("searchbox", { name: "Buscar unidad" });
-  await unitSearch.fill("B02");
+  const clientSearch = page.getByRole("searchbox", { name: "Buscar cliente o unidad" });
+  await clientSearch.fill("Otro cliente");
   assert.deepEqual(
     await page.locator("#payment-panel-history tbody tr td:nth-child(4) strong").allTextContents(),
     ["REC-20"],
-    "El filtro móvil debe encontrar una unidad."
+    "El filtro móvil debe encontrar un cliente por nombre."
   );
-  await unitSearch.fill("");
+  await clientSearch.fill("B02");
+  assert.deepEqual(
+    await page.locator("#payment-panel-history tbody tr td:nth-child(4) strong").allTextContents(),
+    ["REC-20"],
+    "El filtro móvil debe encontrar un cliente por unidad."
+  );
+  await clientSearch.fill("");
   await pendingButton().click();
   await page.getByRole("status").filter({ hasText: /Compartir cancelado.*continúa "Por enviar"/ }).waitFor({ state: "visible" });
   assert.equal(await confirmation().count(), 0);
@@ -186,6 +193,8 @@ try {
     });
   });
   await desktopPage.goto(`${base}/payment-history-share-test`, { waitUntil: "domcontentloaded" });
+  assert.equal(await desktopPage.locator(".history-client-select").isVisible(), true);
+  assert.equal(await desktopPage.getByRole("searchbox", { name: "Buscar cliente o unidad" }).isHidden(), true);
   await desktopPage.getByRole("button", { name: "Compartir el recibo REC-9" }).click();
   await desktopPage.getByRole("group", { name: "Confirmar envío de REC-9" }).waitFor({ state: "visible" });
   assert.deepEqual(await desktopPage.evaluate(() => ({
@@ -194,7 +203,7 @@ try {
   })), { copied: true, shared: false });
   await desktopPage.close();
 
-  console.log("OK historial: laptop copia durante el clic; móvil comparte, recupera el estado, filtra unidades y ordena la secuencia.");
+  console.log("OK historial: laptop copia durante el clic; móvil comparte, recupera el estado, busca clientes por nombre o unidad y ordena la secuencia.");
 } finally {
   if (browser) await browser.close();
   server.kill();

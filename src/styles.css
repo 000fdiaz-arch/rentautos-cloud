@@ -12571,7 +12571,7 @@ button.ar-route-publish-copy.is-active {
   display: none;
 }
 
-.history-mobile-unit-filter {
+.history-mobile-client-filter {
   display: none;
 }
 
@@ -12650,7 +12650,11 @@ button.ar-route-publish-copy.is-active {
     min-width: 0;
   }
 
-  .history-mobile-unit-filter {
+  .history-client-select {
+    display: none;
+  }
+
+  .history-mobile-client-filter {
     display: grid;
     flex: 1 1 100%;
     gap: 5px;
@@ -12663,7 +12667,7 @@ button.ar-route-publish-copy.is-active {
     text-transform: uppercase;
   }
 
-  .history-mobile-unit-filter .payment-input {
+  .history-mobile-client-filter .payment-input {
     width: 100%;
     min-width: 0;
     text-transform: none;

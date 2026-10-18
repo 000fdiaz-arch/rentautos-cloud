@@ -122,6 +122,7 @@ export default function PaymentHistoryPanel({
   readOnly = false
 }: Props) {
   const [historyClientId, setHistoryClientId] = useState<string>("all");
+  const [historyMobileClientQuery, setHistoryMobileClientQuery] = useState("");
   const [historyGroupFilter, setHistoryGroupFilter] = useState<string>("all");
   const [historyDeliveryFilter, setHistoryDeliveryFilter] = useState<HistoryDeliveryFilter>("all");
   const [historyDateFrom, setHistoryDateFrom] = useState<string>("");
@@ -169,6 +170,7 @@ export default function PaymentHistoryPanel({
   useEffect(() => {
     if (!focusRequest) return;
     setHistoryClientId(focusRequest.clientId);
+    setHistoryMobileClientQuery("");
     setHistoryGroupFilter("all");
     setHistoryDeliveryFilter("all");
     setHistoryDateFrom("");
@@ -287,6 +289,7 @@ function clearHistoryColumnFilters(): void {
 
 function clearHistoryFilters(): void {
   setHistoryClientId("all");
+  setHistoryMobileClientQuery("");
   setHistoryGroupFilter("all");
   setHistoryDeliveryFilter("all");
   setHistoryDateFrom("");
@@ -327,13 +330,14 @@ const hasHistoryColumnFilters = useMemo(
 const hasHistoryFilters = useMemo(
   () =>
     historyClientId !== "all" ||
+    Boolean(historyMobileClientQuery.trim()) ||
     historyGroupFilter !== "all" ||
     historyDeliveryFilter !== "all" ||
     Boolean(historyDateFrom) ||
     Boolean(historyDateTo) ||
     historyNoCentsTodayOnly ||
     hasHistoryColumnFilters,
-  [historyClientId, historyGroupFilter, historyDeliveryFilter, historyDateFrom, historyDateTo, historyNoCentsTodayOnly, hasHistoryColumnFilters]
+  [historyClientId, historyMobileClientQuery, historyGroupFilter, historyDeliveryFilter, historyDateFrom, historyDateTo, historyNoCentsTodayOnly, hasHistoryColumnFilters]
 );
 
 const todayNoCentsPayments = useMemo(
@@ -367,9 +371,16 @@ const filteredHistoryRows = useMemo(() => {
         (historyAttentionView === "called") === dailyAttentionPaymentIds.has(payment.id)
       ))
     : payments;
+  const mobileClientQuery = historyMobileClientQuery.trim().toLocaleLowerCase("es");
+  const byMobileClientQuery = mobileClientQuery
+    ? byNoCents.filter((payment) => (
+        payment.clientUnit.toLocaleLowerCase("es").includes(mobileClientQuery) ||
+        payment.clientName.toLocaleLowerCase("es").includes(mobileClientQuery)
+      ))
+    : byNoCents;
   const byClient = historyClientId === "all"
-    ? byNoCents
-    : byNoCents.filter((p) => p.clientId === historyClientId);
+    ? byMobileClientQuery
+    : byMobileClientQuery.filter((p) => p.clientId === historyClientId);
   const byGroup = historyGroupFilter === "all"
     ? byClient
     : byClient.filter((p) => getValidHistoryGroupCode(p.clientUnit, getGroupCode) === historyGroupFilter);
@@ -429,7 +440,7 @@ const filteredHistoryRows = useMemo(() => {
     return compareReceiptSequence(a, b);
   });
   return sorted;
-}, [payments, operationalDateKey, historyNoCentsTodayOnly, historyAttentionView, dailyAttentionPaymentIds, historyClientId, historyGroupFilter, historyDeliveryFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
+}, [payments, operationalDateKey, historyNoCentsTodayOnly, historyAttentionView, dailyAttentionPaymentIds, historyClientId, historyMobileClientQuery, historyGroupFilter, historyDeliveryFilter, historyDateFrom, historyDateTo, historySortDirection, historySortField, historyDateRangeError, historyColumnFilters]);
 
 const historyRows = useMemo(
   () => filteredHistoryRows.slice(0, historyVisibleLimit),
@@ -740,22 +751,25 @@ async function handleRefreshHistory(): Promise<void> {
                   setHistoryClientId(e.target.value);
                   setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
                 }}
-                className="history-filter-select"
+                className="history-filter-select history-client-select"
               >
                 <option value="all">Todos los clientes</option>
                 {activeClients.map((c) => (
                   <option key={c.id} value={c.id}>{c.unitId} - {c.name}</option>
                 ))}
               </select>
-              <label className="history-mobile-unit-filter">
-                <span>Buscar unidad</span>
+              <label className="history-mobile-client-filter">
+                <span>Buscar cliente o unidad</span>
                 <input
                   type="search"
                   className="payment-input"
-                  value={historyColumnFilters.unit}
-                  onChange={(event) => updateHistoryColumnFilter("unit", event.target.value)}
-                  placeholder="Ej. A46"
-                  aria-label="Buscar unidad"
+                  value={historyMobileClientQuery}
+                  onChange={(event) => {
+                    setHistoryMobileClientQuery(event.target.value);
+                    setHistoryVisibleLimit(PAYMENT_HISTORY_LIMIT);
+                  }}
+                  placeholder="Ej. A46 o María"
+                  aria-label="Buscar cliente o unidad"
                 />
               </label>
               <button
