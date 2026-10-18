@@ -512,6 +512,17 @@ select.input-error:focus {
   color: var(--color-debt);
 }
 
+.form-field-error {
+  display: block;
+  margin-top: 6px;
+  color: var(--color-debt);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.35;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 /* -- Other charges -- */
 
 .other-charges-section {

@@ -1,7 +1,13 @@
 import type { Dispatch, FormEvent, SetStateAction } from "react";
+import { getBusinessDateKey } from "../../billing";
 import type { BillingFrequency, WeeklyChargeDay } from "../../types";
 import { FREQUENCY_LABEL } from "./clientConstants";
-import { createOtherChargeForm, normalizePhoneDigits } from "./clientRules";
+import {
+  clearIncompatibleFirstChargeDate,
+  createOtherChargeForm,
+  findFirstCompatibleChargeDate,
+  normalizePhoneDigits
+} from "./clientRules";
 import type { ClientForm, EditClientTab } from "./clientTypes";
 
 type SharedProps = {
@@ -12,6 +18,7 @@ type SharedProps = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
   onInstallmentChange: (field: "installmentsAgreed" | "installmentsRemaining", value: string) => void;
   installmentLiveError: string | null;
+  firstChargeDatePlanError: string | null;
   errors: string[];
 };
 
@@ -44,6 +51,59 @@ function IssuedInstallmentsSummary({ value }: { value: string }) {
   );
 }
 
+function updateSchedule(
+  setForm: Dispatch<SetStateAction<ClientForm>>,
+  changes: Partial<Pick<ClientForm, "frequency" | "chargeFirstSunday" | "weeklyChargeDay" | "monthlyChargeDay">>
+): void {
+  setForm((current) => clearIncompatibleFirstChargeDate(current, changes));
+}
+
+function FirstChargeDateField({
+  form,
+  setForm,
+  errorFields,
+  planError,
+  newContract = false
+}: {
+  form: ClientForm;
+  setForm: Dispatch<SetStateAction<ClientForm>>;
+  errorFields: Set<string>;
+  planError: string | null;
+  newContract?: boolean;
+}) {
+  const minimumDate = newContract
+    ? findFirstCompatibleChargeDate(form, getBusinessDateKey())
+    : undefined;
+  const weeklyStep = newContract && form.frequency === "weekly" ? 7 : undefined;
+  const selectedDate = form.firstChargeDate
+    ? new Date(`${form.firstChargeDate}T12:00:00`)
+    : null;
+  const selectedDateLabel = selectedDate && !Number.isNaN(selectedDate.getTime())
+    ? selectedDate.toLocaleDateString("es-PA", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })
+    : "";
+  return (
+    <label>
+      Fecha primer cobro
+      <input
+        type="date"
+        value={form.firstChargeDate}
+        min={minimumDate}
+        step={weeklyStep}
+        onChange={(event) => setForm((current) => ({ ...current, firstChargeDate: event.target.value }))}
+        className={errorFields.has("firstChargeDate") || planError ? "input-error" : undefined}
+        aria-invalid={Boolean(errorFields.has("firstChargeDate") || planError)}
+        aria-describedby="first-charge-date-help"
+        required
+      />
+      <small id="first-charge-date-help" className={planError ? "form-field-error" : "hint"}>
+        {planError ?? (selectedDateLabel
+          ? `Primera letra: ${selectedDateLabel}.`
+          : "Solo se aceptan fechas compatibles con el plan y el dia de cobro seleccionados.")}
+      </small>
+    </label>
+  );
+}
+
 export function EditClientDialog({
   editingClientId,
   existingAdvanceBalance,
@@ -64,6 +124,7 @@ export function EditClientDialog({
   onSubmit: handleSubmitClient,
   onInstallmentChange: handleInstallmentChange,
   installmentLiveError,
+  firstChargeDatePlanError,
   errors
 }: EditProps) {
   const willClearAdvanceBalance = Number(form.initialBalance) > 0 && existingAdvanceBalance > 0;
@@ -141,9 +202,6 @@ export function EditClientDialog({
                         <label>WhatsApp
                           <input type="tel" inputMode="numeric" pattern="[0-9]*" value={form.whatsAppPhone} onChange={(e) => setForm((c) => ({ ...c, whatsAppPhone: normalizePhoneDigits(e.target.value) }))} placeholder="Ej. 68842222" />
                         </label>
-                        <label>Fecha primer cobro
-                          <input type="date" value={form.firstChargeDate} onChange={(e) => setForm((c) => ({ ...c, firstChargeDate: e.target.value }))} className={errorFields.has("firstChargeDate") ? "input-error" : undefined} required />
-                        </label>
                       </>
                     )}
                     {editClientTab === "plan" && (
@@ -152,7 +210,7 @@ export function EditClientDialog({
                           <input type="number" step="0.01" min="0" value={form.rentAmount} onChange={(e) => setForm((c) => ({ ...c, rentAmount: e.target.value }))} placeholder="0.00" className={errorFields.has("rentAmount") ? "input-error" : undefined} required />
                         </label>
                         <label>Frecuencia
-                          <select value={form.frequency} onChange={(e) => setForm((c) => ({ ...c, frequency: e.target.value as BillingFrequency }))}>
+                          <select value={form.frequency} onChange={(e) => updateSchedule(setForm, { frequency: e.target.value as BillingFrequency })}>
                             <option value="daily">Diario</option>
                             <option value="weekly">Semanal</option>
                             <option value="biweekly">Quincenal</option>
@@ -162,7 +220,7 @@ export function EditClientDialog({
                         {form.frequency === "daily" && (
                           <label>
                             <span style={{ textTransform: "none", letterSpacing: "normal", fontWeight: 600 }}>Cobrar primer domingo</span>
-                            <select value={form.chargeFirstSunday ? "yes" : "no"} onChange={(e) => setForm((c) => ({ ...c, chargeFirstSunday: e.target.value === "yes" }))}>
+                            <select value={form.chargeFirstSunday ? "yes" : "no"} onChange={(e) => updateSchedule(setForm, { chargeFirstSunday: e.target.value === "yes" })}>
                               <option value="no">No</option>
                               <option value="yes">Si</option>
                             </select>
@@ -170,7 +228,7 @@ export function EditClientDialog({
                         )}
                         {form.frequency === "weekly" && (
                           <label>Dia de cobro semanal
-                            <select value={form.weeklyChargeDay} onChange={(e) => setForm((c) => ({ ...c, weeklyChargeDay: e.target.value as WeeklyChargeDay }))}>
+                            <select value={form.weeklyChargeDay} onChange={(e) => updateSchedule(setForm, { weeklyChargeDay: e.target.value as WeeklyChargeDay })}>
                               <option value="monday">Lunes</option>
                               <option value="tuesday">Martes</option>
                               <option value="wednesday">Miercoles</option>
@@ -182,9 +240,15 @@ export function EditClientDialog({
                         )}
                         {form.frequency === "monthly" && (
                           <label>Dia del mes para cobrar
-                            <input type="number" min="1" max="31" step="1" value={form.monthlyChargeDay} onChange={(e) => setForm((c) => ({ ...c, monthlyChargeDay: e.target.value }))} className={errorFields.has("monthlyChargeDay") ? "input-error" : undefined} required />
+                            <input type="number" min="1" max="31" step="1" value={form.monthlyChargeDay} onChange={(e) => updateSchedule(setForm, { monthlyChargeDay: e.target.value })} className={errorFields.has("monthlyChargeDay") ? "input-error" : undefined} required />
                           </label>
                         )}
+                        <FirstChargeDateField
+                          form={form}
+                          setForm={setForm}
+                          errorFields={errorFields}
+                          planError={firstChargeDatePlanError}
+                        />
                         <label>Cuotas pactadas
                           <input type="number" step="1" min="0" value={form.installmentsAgreed} onChange={(e) => handleInstallmentChange("installmentsAgreed", e.target.value)} className={errorFields.has("installmentsAgreed") ? "input-error" : undefined} required />
                         </label>
@@ -245,7 +309,7 @@ export function EditClientDialog({
                   </form>
                   {form.frequency === "daily" && <p className="hint">Regla diaria: cobro automatico de lunes a sabado.</p>}
                   {form.frequency === "daily" && form.chargeFirstSunday && <p className="hint">Incluye el primer domingo automaticamente una sola vez.</p>}
-                  {form.frequency === "biweekly" && <p className="hint">Regla quincenal: cobros fijos dia 15 y fin de mes.</p>}
+                  {form.frequency === "biweekly" && <p className="hint">Regla quincenal: cobros fijos dia 15 y 30; en febrero se usa el ultimo dia.</p>}
                   {form.frequency === "monthly" && <p className="hint">Regla mensual: si el dia configurado cae domingo, el cobro se mueve al lunes siguiente.</p>}
                   {errors.length > 0 && <ul className="error-list">{errors.map((e) => <li key={e}>{e}</li>)}</ul>}
                   {installmentLiveError !== null && <ul className="error-list"><li>{installmentLiveError}</li></ul>}
@@ -272,6 +336,7 @@ export function CreateClientDialog({
   onSubmit: handleSubmitClient,
   onInstallmentChange: handleInstallmentChange,
   installmentLiveError,
+  firstChargeDatePlanError,
   errors
 }: CreateProps) {
   const setIsFormOpen = (open: boolean) => {
@@ -312,16 +377,12 @@ export function CreateClientDialog({
                   <input type="tel" inputMode="numeric" pattern="[0-9]*" value={form.whatsAppPhone} onChange={(e) => setForm((c) => ({ ...c, whatsAppPhone: normalizePhoneDigits(e.target.value) }))} placeholder="Ej. 68842222" />
                 </label>
                 <label>
-                  Fecha primer cobro
-                  <input type="date" value={form.firstChargeDate} onChange={(e) => setForm((c) => ({ ...c, firstChargeDate: e.target.value }))} className={errorFields.has("firstChargeDate") ? "input-error" : undefined} required />
-                </label>
-                <label>
                   Renta (USD)
                   <input type="number" step="0.01" min="0" value={form.rentAmount} onChange={(e) => setForm((c) => ({ ...c, rentAmount: e.target.value }))} placeholder="0.00" className={errorFields.has("rentAmount") ? "input-error" : undefined} required />
                 </label>
                 <label>
                   Frecuencia
-                  <select value={form.frequency} onChange={(e) => setForm((c) => ({ ...c, frequency: e.target.value as BillingFrequency }))}>
+                  <select value={form.frequency} onChange={(e) => updateSchedule(setForm, { frequency: e.target.value as BillingFrequency })}>
                     <option value="daily">Diario</option>
                     <option value="weekly">Semanal</option>
                     <option value="biweekly">Quincenal</option>
@@ -331,7 +392,7 @@ export function CreateClientDialog({
                 {form.frequency === "daily" && (
                   <label>
                     <span style={{ textTransform: "none", letterSpacing: "normal", fontWeight: 600 }}>Cobrar primer domingo</span>
-                    <select value={form.chargeFirstSunday ? "yes" : "no"} onChange={(e) => setForm((c) => ({ ...c, chargeFirstSunday: e.target.value === "yes" }))}>
+                    <select value={form.chargeFirstSunday ? "yes" : "no"} onChange={(e) => updateSchedule(setForm, { chargeFirstSunday: e.target.value === "yes" })}>
                       <option value="no">No</option>
                       <option value="yes">Si</option>
                     </select>
@@ -340,7 +401,7 @@ export function CreateClientDialog({
                 {form.frequency === "weekly" && (
                   <label>
                     Dia de cobro semanal
-                    <select value={form.weeklyChargeDay} onChange={(e) => setForm((c) => ({ ...c, weeklyChargeDay: e.target.value as WeeklyChargeDay }))}>
+                    <select value={form.weeklyChargeDay} onChange={(e) => updateSchedule(setForm, { weeklyChargeDay: e.target.value as WeeklyChargeDay })}>
                       <option value="monday">Lunes</option>
                       <option value="tuesday">Martes</option>
                       <option value="wednesday">Miercoles</option>
@@ -353,9 +414,16 @@ export function CreateClientDialog({
                 {form.frequency === "monthly" && (
                   <label>
                     Dia del mes para cobrar
-                    <input type="number" min="1" max="31" step="1" value={form.monthlyChargeDay} onChange={(e) => setForm((c) => ({ ...c, monthlyChargeDay: e.target.value }))} required />
+                    <input type="number" min="1" max="31" step="1" value={form.monthlyChargeDay} onChange={(e) => updateSchedule(setForm, { monthlyChargeDay: e.target.value })} className={errorFields.has("monthlyChargeDay") ? "input-error" : undefined} required />
                   </label>
                 )}
+                <FirstChargeDateField
+                  form={form}
+                  setForm={setForm}
+                  errorFields={errorFields}
+                  planError={firstChargeDatePlanError}
+                  newContract
+                />
                 <label>
                   Cuotas pactadas
                   <input type="number" step="1" min="0" value={form.installmentsAgreed} onChange={(e) => handleInstallmentChange("installmentsAgreed", e.target.value)} className={errorFields.has("installmentsAgreed") ? "input-error" : undefined} required />
@@ -403,7 +471,7 @@ export function CreateClientDialog({
                   </form>
                   {form.frequency === "daily" && <p className="hint">Regla diaria: cobro automatico de lunes a sabado.</p>}
                   {form.frequency === "daily" && form.chargeFirstSunday && <p className="hint">Incluye el primer domingo automaticamente una sola vez.</p>}
-                  {form.frequency === "biweekly" && <p className="hint">Regla quincenal: cobros fijos dia 15 y fin de mes.</p>}
+                  {form.frequency === "biweekly" && <p className="hint">Regla quincenal: cobros fijos dia 15 y 30; en febrero se usa el ultimo dia.</p>}
                   {form.frequency === "monthly" && <p className="hint">Regla mensual: si el dia configurado cae domingo, el cobro se mueve al lunes siguiente.</p>}
                   {errors.length > 0 && <ul className="error-list">{errors.map((error) => <li key={error}>{error}</li>)}</ul>}
                   {installmentLiveError !== null && <ul className="error-list"><li>{installmentLiveError}</li></ul>}

@@ -43,7 +43,9 @@ import {
   buildClient,
   calculateIssuedInstallmentsForContract,
   createOtherChargeForm,
+  getFirstChargeDatePlanError,
   getOperationalReferenceDate,
+  hasBillingScheduleChanged,
   hasContractTermsChanged,
   normalizePhoneDigits,
   parseIntegerOrNull,
@@ -104,6 +106,12 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
     [clients, editingClientId]
   );
   const contractTermsChanged = editingClient ? hasContractTermsChanged(editingClient, form) : false;
+  const firstChargeDatePlanError = useMemo(() => {
+    const planError = getFirstChargeDatePlanError(form);
+    if (!planError) return null;
+    if (editingClient && !hasBillingScheduleChanged(editingClient, form)) return null;
+    return planError;
+  }, [editingClient, form]);
   const issuanceNeedsReview = Boolean(editingClient && (
     editingClient.installmentsIssuedEstimateNeedsReview ||
     (editingClient.installmentsIssued ?? 0) > editingClient.installmentsAgreed
@@ -511,6 +519,15 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
         messages.push("La fecha de primer cobro no puede ser menor a hoy.");
         fields.add("firstChargeDate");
       }
+      const existing = currentEditingId === null
+        ? null
+        : clients.find((client) => client.id === currentEditingId) ?? null;
+      const scheduleChanged = !existing || hasBillingScheduleChanged(existing, input);
+      const planError = getFirstChargeDatePlanError(input);
+      if (scheduleChanged && planError) {
+        messages.push(planError);
+        fields.add("firstChargeDate");
+      }
     }
 
     const rentAmount = Number(input.rentAmount);
@@ -893,6 +910,7 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
         onSubmit={handleSubmitClient}
         onInstallmentChange={handleInstallmentChange}
         installmentLiveError={installmentLiveError}
+        firstChargeDatePlanError={firstChargeDatePlanError}
         errors={errors}
       />
 
@@ -929,6 +947,7 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
         onSubmit={handleSubmitClient}
         onInstallmentChange={handleInstallmentChange}
         installmentLiveError={installmentLiveError}
+        firstChargeDatePlanError={firstChargeDatePlanError}
         errors={errors}
       />
 
