@@ -471,6 +471,24 @@ function findAccountClient(payment: Payment): Client | undefined {
     ?? activeClients.find((client) => client.unitId.trim().toUpperCase() === payment.clientUnit.trim().toUpperCase());
 }
 
+async function saveHistoryReceiptAsSent(payment: Payment): Promise<void> {
+  if (payment.receiptDeliveryStatus === "pending") {
+    await onPaymentsChange(
+      payments.map((row) =>
+        row.id === payment.id
+          ? { ...row, receiptDeliveryStatus: "sent" }
+          : row
+      )
+    );
+  }
+  setHistoryCopiedPaymentIds((previous) => {
+    if (previous.has(payment.id)) return previous;
+    const next = new Set(previous);
+    next.add(payment.id);
+    return next;
+  });
+}
+
 async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
   if (historyCopyingPaymentId || historyDeliveryConfirmation) return;
 
@@ -486,10 +504,26 @@ async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
     const method = await prepareHistoryPaymentReceiptDelivery(payment, findAccountClient(payment));
 
     if (!wasAlreadySent && !readOnly) {
+      if (method === "shared") {
+        try {
+          await saveHistoryReceiptAsSent(payment);
+          setHistoryCopyFeedback({
+            paymentId: payment.id,
+            tone: "success",
+            message: `${payment.receiptNumber} compartido y marcado como "Enviado".`
+          });
+        } catch {
+          setHistoryCopyFeedback({
+            paymentId: payment.id,
+            tone: "error",
+            message: `${payment.receiptNumber} se compartió, pero no se pudo guardar como enviado. Intenta nuevamente.`
+          });
+        }
+        return;
+      }
+
       setHistoryDeliveryConfirmation({ paymentId: payment.id, method });
-      const instruction = method === "shared"
-        ? "Confirma si lo enviaste desde la aplicación elegida."
-        : method === "copied"
+      const instruction = method === "copied"
         ? "Pega la imagen y confirma cuando la hayas enviado."
         : "Adjunta la imagen descargada y confirma cuando la hayas enviado.";
       setHistoryCopyFeedback({
@@ -525,21 +559,7 @@ async function handleConfirmHistoryReceiptSent(payment: Payment): Promise<void> 
   if (historyCopyingPaymentId || historyDeliveryConfirmation?.paymentId !== payment.id) return;
   setHistoryCopyingPaymentId(payment.id);
   try {
-    if (payment.receiptDeliveryStatus === "pending") {
-      await onPaymentsChange(
-        payments.map((row) =>
-          row.id === payment.id
-            ? { ...row, receiptDeliveryStatus: "sent" }
-            : row
-        )
-      );
-    }
-    setHistoryCopiedPaymentIds((previous) => {
-      if (previous.has(payment.id)) return previous;
-      const next = new Set(previous);
-      next.add(payment.id);
-      return next;
-    });
+    await saveHistoryReceiptAsSent(payment);
     setHistoryDeliveryConfirmation(null);
     setHistoryCopyFeedback({
       paymentId: payment.id,

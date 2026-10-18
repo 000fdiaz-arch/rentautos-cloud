@@ -21,13 +21,15 @@ assert.match(migration, /if tg_op = 'UPDATE'[\s\S]*old\.data->>'dateApplied' is 
 assert.match(migration, /update public\.latest_payments_by_client_cloud[\s\S]*payment_id = new\.id/);
 
 const copyHandler = historyPanel.slice(
-  historyPanel.indexOf("async function handleCopyHistoryReceipt"),
+  historyPanel.indexOf("async function saveHistoryReceiptAsSent"),
   historyPanel.indexOf("async function handleRefreshHistory")
 );
 assert.match(copyHandler, /await prepareHistoryPaymentReceiptDelivery\(/,
   "Por enviar debe preparar el recibo para compartir en celular.");
 assert.match(copyHandler, /setHistoryDeliveryConfirmation\(/,
-  "Compartir no debe marcar el recibo como enviado sin confirmacion.");
+  "Copiar o descargar debe conservar una confirmacion manual.");
+assert.match(copyHandler, /method === "shared"[\s\S]*await saveHistoryReceiptAsSent\(payment\)/,
+  "Compartir desde el menu nativo debe marcar enviado al volver a la app.");
 assert.match(copyHandler, /await onPaymentsChange\(/, "La pantalla debe esperar la confirmacion del guardado.");
 assert.ok(
   copyHandler.indexOf("await onPaymentsChange(") < copyHandler.indexOf("setHistoryCopiedPaymentIds("),

@@ -39,13 +39,12 @@ try {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "canShare", {
       configurable: true,
-      value: (data) => Array.isArray(data?.files) && data.files.length === 1
+      value: (data) => !location.search.includes("copy-only") && Array.isArray(data?.files) && data.files.length === 1
     });
     Object.defineProperty(navigator, "share", {
       configurable: true,
       value: async (data) => {
-        if (window.__cancelNextShare) {
-          window.__cancelNextShare = false;
+        if (location.search.includes("cancel-share")) {
           throw new DOMException("Share cancelled", "AbortError");
         }
         window.__sharedReceipt = {
@@ -53,6 +52,12 @@ try {
           fileName: data.files?.[0]?.name,
           fileType: data.files?.[0]?.type
         };
+      }
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        write: async () => { window.__copiedReceipt = true; }
       }
     });
   });
@@ -71,17 +76,34 @@ try {
     return route.continue();
   });
 
-  await page.goto(`${base}/payment-history-share-test`, { waitUntil: "domcontentloaded" });
-  const pendingButton = page.getByRole("button", { name: "Compartir el recibo REC-MOBILE" });
-  await pendingButton.click();
-  const confirmation = page.getByRole("group", { name: "Confirmar envío de REC-MOBILE" });
-  await confirmation.waitFor({ state: "visible" });
+  const pendingButton = () => page.getByRole("button", { name: "Compartir el recibo REC-MOBILE" });
+  const confirmation = () => page.getByRole("group", { name: "Confirmar envío de REC-MOBILE" });
+
+  await page.goto(`${base}/payment-history-share-test?cancel-share`, { waitUntil: "domcontentloaded" });
+  await pendingButton().click();
+  await page.getByRole("status").filter({ hasText: /Compartir cancelado.*continúa "Por enviar"/ }).waitFor({ state: "visible" });
+  assert.equal(await confirmation().count(), 0);
   assert.equal(await page.locator("#payment-status").textContent(), "pending");
+
+  await page.goto(`${base}/payment-history-share-test`, { waitUntil: "domcontentloaded" });
+  await pendingButton().click();
+  await page.waitForFunction(() => document.querySelector("#payment-status")?.textContent === "sent");
   assert.deepEqual(await page.evaluate(() => window.__sharedReceipt), {
     fields: ["files"],
     fileName: "A01-REC_MOBILE-18_10_2026.png",
     fileType: "image/png"
   });
+  assert.equal(await confirmation().count(), 0);
+  assert.match(
+    await page.getByRole("button", { name: "Compartir nuevamente el recibo REC-MOBILE" }).innerText(),
+    /Enviado/
+  );
+
+  await page.goto(`${base}/payment-history-share-test?copy-only`, { waitUntil: "domcontentloaded" });
+  await pendingButton().click();
+  await confirmation().waitFor({ state: "visible" });
+  assert.equal(await page.locator("#payment-status").textContent(), "pending");
+  assert.equal(await page.evaluate(() => window.__copiedReceipt), true);
   const mobileLayout = await page.evaluate(() => ({
     viewportWidth: innerWidth,
     documentWidth: document.documentElement.scrollWidth,
@@ -100,15 +122,10 @@ try {
   mkdirSync(".tmp/payment-history-share", { recursive: true });
   await page.screenshot({ path: ".tmp/payment-history-share/mobile-confirmation.png", fullPage: true });
 
-  await confirmation.getByRole("button", { name: "Aún no" }).click();
+  await confirmation().getByRole("button", { name: "Aún no" }).click();
   assert.equal(await page.locator("#payment-status").textContent(), "pending");
-  await page.evaluate(() => { window.__cancelNextShare = true; });
-  await pendingButton.click();
-  await page.getByRole("status").filter({ hasText: /Compartir cancelado.*continúa "Por enviar"/ }).waitFor({ state: "visible" });
-  assert.equal(await confirmation.count(), 0);
-  assert.equal(await page.locator("#payment-status").textContent(), "pending");
-  await pendingButton.click();
-  await confirmation.getByRole("button", { name: "Sí, enviado" }).click();
+  await pendingButton().click();
+  await confirmation().getByRole("button", { name: "Sí, enviado" }).click();
   await page.waitForFunction(() => document.querySelector("#payment-status")?.textContent === "sent");
   assert.match(
     await page.getByRole("button", { name: "Compartir nuevamente el recibo REC-MOBILE" }).innerText(),
@@ -116,7 +133,7 @@ try {
   );
 
   await page.screenshot({ path: ".tmp/payment-history-share/mobile-sent.png", fullPage: true });
-  console.log("OK historial móvil: comparte solo el PNG, conserva pendiente al cancelar y marca enviado solo al confirmar.");
+  console.log("OK historial móvil: compartir marca enviado al volver; cancelar conserva pendiente; copiar todavía exige confirmación.");
 } finally {
   if (browser) await browser.close();
   server.kill();
