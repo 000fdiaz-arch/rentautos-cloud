@@ -164,6 +164,11 @@ export async function copyHistoryPaymentReceiptImage(payment: Payment, accountCl
 
 export type HistoryReceiptDeliveryMethod = "shared" | "copied" | "downloaded";
 
+type HistoryReceiptDeliveryCallbacks = {
+  onNativeShareStart?: () => void;
+  onNativeShareAbandoned?: () => void;
+};
+
 function downloadPaymentReceiptBlob(fileName: string, blob: Blob): void {
   const link = document.createElement("a");
   const href = URL.createObjectURL(blob);
@@ -178,7 +183,8 @@ function downloadPaymentReceiptBlob(fileName: string, blob: Blob): void {
 
 export async function prepareHistoryPaymentReceiptDelivery(
   payment: Payment,
-  accountClient?: Client
+  accountClient?: Client,
+  callbacks: HistoryReceiptDeliveryCallbacks = {}
 ): Promise<HistoryReceiptDeliveryMethod> {
   const { fileName, blob } = await buildPaymentReceiptImageBlob(payment, {
     format: "history",
@@ -188,10 +194,12 @@ export async function prepareHistoryPaymentReceiptDelivery(
   const shareData: ShareData = { files: [file] };
 
   if (typeof navigator.share === "function" && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+    callbacks.onNativeShareStart?.();
     try {
       await navigator.share(shareData);
       return "shared";
     } catch (error) {
+      callbacks.onNativeShareAbandoned?.();
       if (error instanceof DOMException && error.name === "AbortError") throw error;
     }
   }

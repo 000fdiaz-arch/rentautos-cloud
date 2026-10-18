@@ -23,6 +23,52 @@ import type {
 } from "./paymentTypes";
 
 const VALID_HISTORY_GROUPS = new Set(["A", "B", "C", "D", "T"]);
+const HISTORY_SHARE_INTENT_KEY = "rentautos.payment-history-share-intent.v1";
+const HISTORY_SHARE_INTENT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+type HistoryShareIntent = {
+  paymentId: string;
+  receiptNumber: string;
+  createdAt: number;
+};
+
+function readHistoryShareIntent(): HistoryShareIntent | null {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(HISTORY_SHARE_INTENT_KEY) ?? "null") as Partial<HistoryShareIntent> | null;
+    if (!value || typeof value.paymentId !== "string" || typeof value.receiptNumber !== "string" || typeof value.createdAt !== "number") {
+      return null;
+    }
+    if (Date.now() - value.createdAt > HISTORY_SHARE_INTENT_MAX_AGE_MS) {
+      window.localStorage.removeItem(HISTORY_SHARE_INTENT_KEY);
+      return null;
+    }
+    return value as HistoryShareIntent;
+  } catch {
+    return null;
+  }
+}
+
+function writeHistoryShareIntent(payment: Payment): void {
+  try {
+    window.localStorage.setItem(HISTORY_SHARE_INTENT_KEY, JSON.stringify({
+      paymentId: payment.id,
+      receiptNumber: payment.receiptNumber,
+      createdAt: Date.now()
+    } satisfies HistoryShareIntent));
+  } catch {
+    // El guardado normal al volver sigue disponible si el almacenamiento local está bloqueado.
+  }
+}
+
+function clearHistoryShareIntent(paymentId: string): void {
+  const intent = readHistoryShareIntent();
+  if (!intent || intent.paymentId !== paymentId) return;
+  try {
+    window.localStorage.removeItem(HISTORY_SHARE_INTENT_KEY);
+  } catch {
+    // No bloquea el estado principal del recibo.
+  }
+}
 
 export type HistoryFocusRequest = {
   clientId: string;
@@ -106,6 +152,7 @@ export default function PaymentHistoryPanel({
   const historyTopScrollRef = useRef<HTMLDivElement>(null);
   const historyTopInnerRef = useRef<HTMLDivElement>(null);
   const historyBottomScrollRef = useRef<HTMLDivElement>(null);
+  const historyShareSavePromiseRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     if (!historyCopyFeedback || historyCopyFeedback.tone === "info") return;
@@ -173,6 +220,46 @@ export default function PaymentHistoryPanel({
         .catch(() => setDailyAttentionError("No se pudo sincronizar el seguimiento de llamados."));
     });
   }, [dataOwnerUserId, isHistoryOpen, operationalDateKey]);
+
+  useEffect(() => {
+    if (readOnly) return;
+    const finishInterruptedShare = () => {
+      if (document.visibilityState === "hidden") return;
+      const intent = readHistoryShareIntent();
+      if (!intent) return;
+      const payment = payments.find((row) => row.id === intent.paymentId);
+      if (!payment) return;
+      if (payment.receiptDeliveryStatus !== "pending") {
+        clearHistoryShareIntent(payment.id);
+        return;
+      }
+      setHistoryCopyingPaymentId(payment.id);
+      void persistSharedHistoryReceipt(payment)
+        .then(() => {
+          setHistoryCopyFeedback({
+            paymentId: payment.id,
+            tone: "success",
+            message: `${payment.receiptNumber} compartido y marcado como "Enviado".`
+          });
+        })
+        .catch(() => {
+          setHistoryCopyFeedback({
+            paymentId: payment.id,
+            tone: "error",
+            message: `No se pudo guardar ${payment.receiptNumber} como enviado. Se intentará nuevamente al volver.`
+          });
+        })
+        .finally(() => setHistoryCopyingPaymentId(null));
+    };
+
+    document.addEventListener("visibilitychange", finishInterruptedShare);
+    window.addEventListener("pageshow", finishInterruptedShare);
+    finishInterruptedShare();
+    return () => {
+      document.removeEventListener("visibilitychange", finishInterruptedShare);
+      window.removeEventListener("pageshow", finishInterruptedShare);
+    };
+  }, [payments, readOnly]);
 
 function handleSortHistory(field: HistorySortField): void {
   if (historySortField === field) {
@@ -489,6 +576,17 @@ async function saveHistoryReceiptAsSent(payment: Payment): Promise<void> {
   });
 }
 
+function persistSharedHistoryReceipt(payment: Payment): Promise<void> {
+  if (historyShareSavePromiseRef.current) return historyShareSavePromiseRef.current;
+  const task = saveHistoryReceiptAsSent(payment)
+    .then(() => clearHistoryShareIntent(payment.id))
+    .finally(() => {
+      historyShareSavePromiseRef.current = null;
+    });
+  historyShareSavePromiseRef.current = task;
+  return task;
+}
+
 async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
   if (historyCopyingPaymentId || historyDeliveryConfirmation) return;
 
@@ -501,12 +599,16 @@ async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
   });
 
   try {
-    const method = await prepareHistoryPaymentReceiptDelivery(payment, findAccountClient(payment));
+    const method = await prepareHistoryPaymentReceiptDelivery(payment, findAccountClient(payment), {
+      onNativeShareStart: () => writeHistoryShareIntent(payment),
+      onNativeShareAbandoned: () => clearHistoryShareIntent(payment.id)
+    });
 
     if (!wasAlreadySent && !readOnly) {
       if (method === "shared") {
         try {
-          await saveHistoryReceiptAsSent(payment);
+          const intent = readHistoryShareIntent();
+          if (intent?.paymentId === payment.id) await persistSharedHistoryReceipt(payment);
           setHistoryCopyFeedback({
             paymentId: payment.id,
             tone: "success",

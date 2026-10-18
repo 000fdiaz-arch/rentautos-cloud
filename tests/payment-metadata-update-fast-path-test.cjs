@@ -28,8 +28,12 @@ assert.match(copyHandler, /await prepareHistoryPaymentReceiptDelivery\(/,
   "Por enviar debe preparar el recibo para compartir en celular.");
 assert.match(copyHandler, /setHistoryDeliveryConfirmation\(/,
   "Copiar o descargar debe conservar una confirmacion manual.");
-assert.match(copyHandler, /method === "shared"[\s\S]*await saveHistoryReceiptAsSent\(payment\)/,
+assert.match(copyHandler, /method === "shared"[\s\S]*await persistSharedHistoryReceipt\(payment\)/,
   "Compartir desde el menu nativo debe marcar enviado al volver a la app.");
+assert.match(historyPanel, /onNativeShareStart: \(\) => writeHistoryShareIntent\(payment\)/,
+  "El intento de compartir debe persistirse antes de abrir la app externa.");
+assert.match(historyPanel, /visibilitychange[\s\S]*pageshow[\s\S]*finishInterruptedShare\(\)/,
+  "La pantalla debe recuperar el envío al volver o recargar.");
 assert.match(copyHandler, /await onPaymentsChange\(/, "La pantalla debe esperar la confirmacion del guardado.");
 assert.ok(
   copyHandler.indexOf("await onPaymentsChange(") < copyHandler.indexOf("setHistoryCopiedPaymentIds("),

@@ -52,6 +52,9 @@ try {
           fileName: data.files?.[0]?.name,
           fileType: data.files?.[0]?.type
         };
+        if (location.search.includes("reload-during-share")) {
+          await new Promise(() => undefined);
+        }
       }
     });
     Object.defineProperty(navigator, "clipboard", {
@@ -99,6 +102,21 @@ try {
     /Enviado/
   );
 
+  await page.goto(`${base}/payment-history-share-test?reload-during-share`, { waitUntil: "domcontentloaded" });
+  await pendingButton().click();
+  await page.waitForFunction(() => localStorage.getItem("rentautos.payment-history-share-intent.v1") !== null);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => document.querySelector("#payment-status")?.textContent === "sent");
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("rentautos.payment-history-share-intent.v1")),
+    null,
+    "El intento pendiente debe limpiarse después de recuperar el estado Enviado."
+  );
+  assert.match(
+    await page.getByRole("button", { name: "Compartir nuevamente el recibo REC-MOBILE" }).innerText(),
+    /Enviado/
+  );
+
   await page.goto(`${base}/payment-history-share-test?copy-only`, { waitUntil: "domcontentloaded" });
   await pendingButton().click();
   await confirmation().waitFor({ state: "visible" });
@@ -133,7 +151,7 @@ try {
   );
 
   await page.screenshot({ path: ".tmp/payment-history-share/mobile-sent.png", fullPage: true });
-  console.log("OK historial móvil: compartir marca enviado al volver; cancelar conserva pendiente; copiar todavía exige confirmación.");
+  console.log("OK historial móvil: compartir marca enviado al volver o recargar; cancelar conserva pendiente; copiar todavía exige confirmación.");
 } finally {
   if (browser) await browser.close();
   server.kill();
