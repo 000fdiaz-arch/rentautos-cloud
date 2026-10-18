@@ -162,6 +162,61 @@ export async function copyHistoryPaymentReceiptImage(payment: Payment, accountCl
   await copyPaymentReceiptImage(payment, { format: "history", accountClient });
 }
 
+export type HistoryReceiptDeliveryMethod = "shared" | "copied" | "downloaded";
+
+function downloadPaymentReceiptBlob(fileName: string, blob: Blob): void {
+  const link = document.createElement("a");
+  const href = URL.createObjectURL(blob);
+  link.download = fileName;
+  link.href = href;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+}
+
+export async function prepareHistoryPaymentReceiptDelivery(
+  payment: Payment,
+  accountClient?: Client
+): Promise<HistoryReceiptDeliveryMethod> {
+  const { fileName, blob } = await buildPaymentReceiptImageBlob(payment, {
+    format: "history",
+    accountClient
+  });
+  const file = new File([blob], fileName, { type: "image/png" });
+  const shareData: ShareData = {
+    title: `Recibo ${payment.receiptNumber}`,
+    text: `Recibo ${payment.receiptNumber} de ${payment.clientName}`,
+    files: [file]
+  };
+
+  if (typeof navigator.share === "function" && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+    try {
+      await navigator.share(shareData);
+      return "shared";
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+    }
+  }
+
+  if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "image/png": blob
+        })
+      ]);
+      return "copied";
+    } catch {
+      // La descarga mantiene un camino util en navegadores sin permiso de portapapeles.
+    }
+  }
+
+  downloadPaymentReceiptBlob(fileName, blob);
+  return "downloaded";
+}
+
 export function ReceiptCardContent({ payment, format = "standard", accountClient }: { payment: Payment; format?: ReceiptFormat; accountClient?: Client }) {
   const receiptCreator = formatReceiptCreator(payment.createdBy);
   const isProvisionalRental = payment.paymentContext === "provisional_rental";

@@ -5,7 +5,10 @@ import {
   setCloudDailyPaymentAttention,
   subscribeCloudDailyPaymentAttention
 } from "../../cloudData";
-import { copyHistoryPaymentReceiptImage } from "../../components/PaymentReceipt";
+import {
+  prepareHistoryPaymentReceiptDelivery,
+  type HistoryReceiptDeliveryMethod
+} from "../../components/PaymentReceipt";
 import { formatCurrency, formatDate } from "../../format";
 import type { Client, Payment } from "../../types";
 import { EMPTY_HISTORY_COLUMN_FILTERS } from "./paymentConstants";
@@ -90,6 +93,10 @@ export default function PaymentHistoryPanel({
   const [historySelectedPaymentIds, setHistorySelectedPaymentIds] = useState<string[]>([]);
   const [historyCopiedPaymentIds, setHistoryCopiedPaymentIds] = useState<Set<string>>(() => new Set());
   const [historyCopyingPaymentId, setHistoryCopyingPaymentId] = useState<string | null>(null);
+  const [historyDeliveryConfirmation, setHistoryDeliveryConfirmation] = useState<{
+    paymentId: string;
+    method: HistoryReceiptDeliveryMethod;
+  } | null>(null);
   const [historyCopyFeedback, setHistoryCopyFeedback] = useState<HistoryCopyFeedback | null>(null);
   const [isHistoryRefreshing, setIsHistoryRefreshing] = useState(false);
   const [historyRefreshFeedback, setHistoryRefreshFeedback] = useState<{
@@ -465,21 +472,60 @@ function findAccountClient(payment: Payment): Client | undefined {
 }
 
 async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
-  if (historyCopyingPaymentId) return;
+  if (historyCopyingPaymentId || historyDeliveryConfirmation) return;
 
   const wasAlreadySent = payment.receiptDeliveryStatus !== "pending" || historyCopiedPaymentIds.has(payment.id);
-  let receiptWasCopied = false;
   setHistoryCopyingPaymentId(payment.id);
   setHistoryCopyFeedback({
     paymentId: payment.id,
     tone: "info",
-    message: `Preparando ${payment.receiptNumber} para copiar...`
+    message: `Preparando ${payment.receiptNumber} para compartir...`
   });
 
   try {
-    await copyHistoryPaymentReceiptImage(payment, findAccountClient(payment));
-    receiptWasCopied = true;
-    if (!readOnly && payment.receiptDeliveryStatus === "pending") {
+    const method = await prepareHistoryPaymentReceiptDelivery(payment, findAccountClient(payment));
+
+    if (!wasAlreadySent && !readOnly) {
+      setHistoryDeliveryConfirmation({ paymentId: payment.id, method });
+      const instruction = method === "shared"
+        ? "Confirma si lo enviaste desde la aplicación elegida."
+        : method === "copied"
+        ? "Pega la imagen y confirma cuando la hayas enviado."
+        : "Adjunta la imagen descargada y confirma cuando la hayas enviado.";
+      setHistoryCopyFeedback({
+        paymentId: payment.id,
+        tone: "info",
+        message: `${payment.receiptNumber} está listo. ${instruction}`
+      });
+      return;
+    }
+
+    setHistoryCopyFeedback({
+      paymentId: payment.id,
+      tone: "success",
+      message: wasAlreadySent
+        ? `${payment.receiptNumber} se preparó nuevamente. El estado se mantiene en "Enviado".`
+        : `${payment.receiptNumber} se preparó, pero el estado no puede cambiar en modo de solo lectura.`
+    });
+  } catch (error) {
+    const sharingWasCancelled = error instanceof DOMException && error.name === "AbortError";
+    setHistoryCopyFeedback({
+      paymentId: payment.id,
+      tone: sharingWasCancelled ? "info" : "error",
+      message: sharingWasCancelled
+        ? `Compartir cancelado. ${payment.receiptNumber} continúa "Por enviar".`
+        : `No se pudo preparar ${payment.receiptNumber} para compartir. Intenta nuevamente.`
+    });
+  } finally {
+    setHistoryCopyingPaymentId(null);
+  }
+}
+
+async function handleConfirmHistoryReceiptSent(payment: Payment): Promise<void> {
+  if (historyCopyingPaymentId || historyDeliveryConfirmation?.paymentId !== payment.id) return;
+  setHistoryCopyingPaymentId(payment.id);
+  try {
+    if (payment.receiptDeliveryStatus === "pending") {
       await onPaymentsChange(
         payments.map((row) =>
           row.id === payment.id
@@ -494,24 +540,31 @@ async function handleCopyHistoryReceipt(payment: Payment): Promise<void> {
       next.add(payment.id);
       return next;
     });
+    setHistoryDeliveryConfirmation(null);
     setHistoryCopyFeedback({
       paymentId: payment.id,
       tone: "success",
-      message: wasAlreadySent
-        ? `${payment.receiptNumber} se copió nuevamente. El estado se mantiene en "Enviado".`
-        : `${payment.receiptNumber} copiado. El estado cambió a "Enviado".`
+      message: `${payment.receiptNumber} confirmado como "Enviado".`
     });
   } catch {
     setHistoryCopyFeedback({
       paymentId: payment.id,
       tone: "error",
-      message: receiptWasCopied
-        ? `${payment.receiptNumber} se copió, pero no se pudo marcar como enviado. Intenta nuevamente.`
-        : `No se pudo copiar ${payment.receiptNumber}. Permite el acceso al portapapeles e intenta nuevamente.`
+      message: `No se pudo guardar ${payment.receiptNumber} como enviado. Puedes intentar confirmar nuevamente.`
     });
   } finally {
     setHistoryCopyingPaymentId(null);
   }
+}
+
+function handleKeepHistoryReceiptPending(payment: Payment): void {
+  if (historyDeliveryConfirmation?.paymentId !== payment.id) return;
+  setHistoryDeliveryConfirmation(null);
+  setHistoryCopyFeedback({
+    paymentId: payment.id,
+    tone: "info",
+    message: `${payment.receiptNumber} continúa "Por enviar".`
+  });
 }
 
 async function handleRefreshHistory(): Promise<void> {
@@ -850,6 +903,7 @@ async function handleRefreshHistory(): Promise<void> {
                     {historyRows.map((p) => {
                       const isSent = p.receiptDeliveryStatus !== "pending" || historyCopiedPaymentIds.has(p.id);
                       const isCopying = historyCopyingPaymentId === p.id;
+                      const isAwaitingDeliveryConfirmation = historyDeliveryConfirmation?.paymentId === p.id;
                       return (
                       <tr key={p.id} className={historySelectedIdSet.has(p.id) ? "history-row--selected" : ""}>
                         <td>
@@ -861,18 +915,42 @@ async function handleRefreshHistory(): Promise<void> {
                           >Ver</button>
                         </td>
                         <td className="history-send-cell">
-                          <button
-                            type="button"
-                            className={`history-send-button ${isSent ? "history-send-button--sent" : "history-send-button--pending"}`}
-                            onClick={() => void handleCopyHistoryReceipt(p)}
-                            disabled={historyCopyingPaymentId !== null}
-                            aria-label={`${isSent ? "Copiar nuevamente" : "Copiar"} el recibo ${p.receiptNumber}`}
-                            aria-describedby={historyCopyFeedback?.paymentId === p.id ? `copy-feedback-${p.id}` : undefined}
-                            title={isSent ? "Copiar nuevamente el recibo" : "Copiar el recibo y marcarlo como enviado"}
-                          >
-                            <span aria-hidden="true">{isSent ? "✓" : "↗"}</span>
-                            {isCopying ? "Por enviar" : isSent ? "Enviado" : "Por enviar"}
-                          </button>
+                          {isAwaitingDeliveryConfirmation ? (
+                            <div className="history-send-confirmation" role="group" aria-label={`Confirmar envío de ${p.receiptNumber}`}>
+                              <span>¿Lo enviaste?</span>
+                              <div>
+                                <button
+                                  type="button"
+                                  className="button primary small"
+                                  onClick={() => void handleConfirmHistoryReceiptSent(p)}
+                                  disabled={isCopying}
+                                >
+                                  {isCopying ? "Guardando..." : "Sí, enviado"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button ghost small"
+                                  onClick={() => handleKeepHistoryReceiptPending(p)}
+                                  disabled={isCopying}
+                                >
+                                  Aún no
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className={`history-send-button ${isSent ? "history-send-button--sent" : "history-send-button--pending"}`}
+                              onClick={() => void handleCopyHistoryReceipt(p)}
+                              disabled={historyCopyingPaymentId !== null || historyDeliveryConfirmation !== null}
+                              aria-label={`${isSent ? "Compartir nuevamente" : "Compartir"} el recibo ${p.receiptNumber}`}
+                              aria-describedby={historyCopyFeedback?.paymentId === p.id ? `copy-feedback-${p.id}` : undefined}
+                              title={isSent ? "Compartir nuevamente el recibo" : "Compartir el recibo y confirmar el envío"}
+                            >
+                              <span aria-hidden="true">{isSent ? "✓" : "↗"}</span>
+                              {isCopying ? "Preparando..." : isSent ? "Enviado" : "Por enviar"}
+                            </button>
+                          )}
                           {historyCopyFeedback?.paymentId === p.id && (
                             <span id={`copy-feedback-${p.id}`} className="sr-only">
                               {historyCopyFeedback.message}

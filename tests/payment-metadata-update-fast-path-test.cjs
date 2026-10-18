@@ -24,11 +24,18 @@ const copyHandler = historyPanel.slice(
   historyPanel.indexOf("async function handleCopyHistoryReceipt"),
   historyPanel.indexOf("async function handleRefreshHistory")
 );
+assert.match(copyHandler, /await prepareHistoryPaymentReceiptDelivery\(/,
+  "Por enviar debe preparar el recibo para compartir en celular.");
+assert.match(copyHandler, /setHistoryDeliveryConfirmation\(/,
+  "Compartir no debe marcar el recibo como enviado sin confirmacion.");
 assert.match(copyHandler, /await onPaymentsChange\(/, "La pantalla debe esperar la confirmacion del guardado.");
 assert.ok(
   copyHandler.indexOf("await onPaymentsChange(") < copyHandler.indexOf("setHistoryCopiedPaymentIds("),
   "El estado Enviado solo debe mostrarse despues de guardar."
 );
-assert.match(copyHandler, /se copió, pero no se pudo marcar como enviado/);
+assert.match(copyHandler, /continúa \"Por enviar\"/,
+  "Cancelar o rechazar la confirmacion debe conservar el estado pendiente.");
+assert.match(copyHandler, /confirmado como \"Enviado\"/,
+  "La confirmacion explicita debe informar el cambio de estado.");
 
 console.log("OK recibos: UPDATE de metadata usa fast path y la UI espera el guardado.");

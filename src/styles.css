@@ -30,6 +30,18 @@
   box-sizing: border-box;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 body {
   margin: 0;
 }
@@ -4649,6 +4661,37 @@ select.control-op-badge {
 .history-send-button:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+
+.history-send-confirmation {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  min-width: 220px;
+  padding: 9px;
+  border: 1px solid #f0c36b;
+  border-radius: 10px;
+  background: #fff8e7;
+  color: #8a4b08;
+  text-align: left;
+}
+
+.history-send-confirmation > span {
+  font-size: 12px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.history-send-confirmation > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.history-send-confirmation .button {
+  min-width: 0;
+  padding-inline: 8px;
+  white-space: normal;
 }
 
 .history-copy-feedback {
@@ -12680,6 +12723,7 @@ button.ar-route-publish-copy.is-active {
     width: 100%;
   }
 
+  #payment-panel-history .table-scroll tbody td:nth-child(2),
   #payment-panel-history .table-scroll tbody td:nth-child(3),
   #payment-panel-history .table-scroll tbody td:nth-child(7),
   #payment-panel-history .table-scroll tbody td:nth-child(13) {
