@@ -154,6 +154,60 @@ try {
     "Un cargo nuevo no debe acumular semanas anteriores a su creación."
   );
 
+  const dailyClient = {
+    ...client,
+    id: "client-a99",
+    unitId: "A99",
+    frequency: "daily",
+    otherCharges: [{ id: "charge-a99", label: "DEUDA ANTERIOR", amount: 21, createdAt: "2026-09-09" }]
+  };
+  const persistedCheckpoint = {
+    clientId: "client-a99",
+    paymentId: "payment-a99-2026-10-17",
+    dateApplied: "2026-10-17",
+    createdAt: "2026-10-17T13:45:20.025Z",
+    retentionEvent: {
+      mode: "automatic",
+      cycle: "daily",
+      baseAmount: 2,
+      cyclesElapsed: 1,
+      calculatedAmount: 2,
+      appliedAmount: 2
+    }
+  };
+  const truncatedHistory = [{
+    id: "ordinary-a99-2026-10-18",
+    clientId: "client-a99",
+    dateApplied: "2026-10-18",
+    createdAt: "2026-10-18T17:35:34.526Z"
+  }];
+  assert.equal(
+    rules.computeConfiguredRetentionForPayment(
+      dailyClient,
+      { "client-a99": { amount: 2, cycle: "daily" } },
+      truncatedHistory,
+      "2026-10-19",
+      persistedCheckpoint
+    ),
+    2,
+    "El punto de control persistido debe evitar cobrar todo cuando el historial local está truncado."
+  );
+  assert.equal(
+    rules.computeManualPaymentAllocation(
+      dailyClient,
+      9,
+      {},
+      { "client-a99": { amount: 2, cycle: "daily" } },
+      truncatedHistory,
+      "2026-10-19",
+      false,
+      undefined,
+      persistedCheckpoint
+    ).totalOtherCharges,
+    2,
+    "A99 debe aplicar solo $2 de un pago de $9 aun sin cargar el historial completo."
+  );
+
   const manualSource = fs.readFileSync(path.join(ROOT, "src", "pages", "payments", "manualPaymentWorkflow.ts"), "utf8");
   const bankSource = fs.readFileSync(path.join(ROOT, "src", "pages", "payments", "pendingBankRules.ts"), "utf8");
   assert.match(manualSource, /otherChargesRetentionEvent: allocation\.otherChargesRetentionEvent/);

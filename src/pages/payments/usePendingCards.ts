@@ -4,6 +4,7 @@ import type {
   Client,
   LateFeeSettings,
   OtherChargesRetentionByClient,
+  OtherChargesRetentionCheckpointsByClient,
   Payment,
   PendingBankItem,
   PendingCardItem
@@ -27,6 +28,7 @@ type Options = {
   operationalDateKey: string;
   currentActor: string;
   retentionByClient: OtherChargesRetentionByClient;
+  retentionCheckpointsByClient?: OtherChargesRetentionCheckpointsByClient;
   lateFeeSettings?: LateFeeSettings;
   onPaymentsChange: (payments: Payment[]) => void;
   replacePendingBankItems: (items: PendingBankItem[]) => void;
@@ -43,6 +45,7 @@ export default function usePendingCards({
   operationalDateKey,
   currentActor,
   retentionByClient,
+  retentionCheckpointsByClient,
   lateFeeSettings,
   onPaymentsChange,
   replacePendingBankItems,
@@ -201,7 +204,8 @@ export default function usePendingCards({
       payments,
       dateApplied,
       false,
-      lateFeeSettings
+      lateFeeSettings,
+      retentionCheckpointsByClient?.[client.id]
     );
     const projectedClient = allocation.projectedClient;
     const payment: Payment = {

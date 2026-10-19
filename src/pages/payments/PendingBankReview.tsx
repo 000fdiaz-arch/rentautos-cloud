@@ -1,7 +1,7 @@
 import { findNextChargeDay, parseDateKey, startOfDay } from "../../billing";
 import { formatCurrency, formatDate } from "../../format";
 import { otherChargeDateKey, sortOtherChargesOldestFirst } from "../../otherCharges";
-import type { Client, LateFeeSettings, OtherChargesRetentionByClient, Payment, PendingBankItem } from "../../types";
+import type { Client, LateFeeSettings, OtherChargesRetentionByClient, OtherChargesRetentionCheckpoint, Payment, PendingBankItem } from "../../types";
 import {
   computeOtherChargesDueAfter,
   computeEffectiveOtherChargesAllocation,
@@ -23,6 +23,7 @@ type Props = {
   client: Client | null;
   payments: Payment[];
   retentionByClient: OtherChargesRetentionByClient;
+  retentionCheckpoint?: OtherChargesRetentionCheckpoint;
   lateFeeSettings: LateFeeSettings;
   otherChargesInput: Record<string, string>;
   manualOverride: boolean;
@@ -39,6 +40,7 @@ export default function PendingBankReview({
   client,
   payments,
   retentionByClient,
+  retentionCheckpoint,
   lateFeeSettings,
   otherChargesInput,
   manualOverride,
@@ -77,7 +79,7 @@ export default function PendingBankReview({
   const totalTickets = roundMoney(ticketsApplied.reduce((sum, ticket) => sum + ticket.amount, 0));
   const wholeAfterPriorityCharges = roundMoney(Math.max(0, wholeAfterFines - totalTickets));
   const retentionConfig = getConfiguredOtherChargesRetentionConfig(client, retentionByClient);
-  const hasForcedRule = shouldForceRetentionToOtherCharges(client, retentionByClient, payments, item.dateApplied);
+  const hasForcedRule = shouldForceRetentionToOtherCharges(client, retentionByClient, payments, item.dateApplied, retentionCheckpoint);
   const forcedRuleActive = hasForcedRule && !manualOverride;
   const { totalOtherCharges, forcedRuleApplied } = computeEffectiveOtherChargesAllocation(
     clientAfterLateFees,
@@ -86,7 +88,8 @@ export default function PendingBankReview({
     retentionByClient,
     payments,
     item.dateApplied,
-    manualOverride
+    manualOverride,
+    retentionCheckpoint
   );
   const totalRegularOtherCharges = totalOtherCharges;
   const capitalForRent = roundMoney(Math.max(0, wholeAfterPriorityCharges - totalRegularOtherCharges));

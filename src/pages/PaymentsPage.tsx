@@ -11,6 +11,7 @@ import type {
   CollectionDelta,
   LateFeeSettings,
   OtherChargesRetentionByClient,
+  OtherChargesRetentionCheckpointsByClient,
   Payment,
   PendingBankItem
 } from "../types";
@@ -82,6 +83,9 @@ type Props = {
   bankRules: BankRule[];
   lateFeeSettings: LateFeeSettings;
   otherChargesRetentionByClient: OtherChargesRetentionByClient;
+  otherChargesRetentionCheckpointsByClient?: OtherChargesRetentionCheckpointsByClient;
+  otherChargesRetentionCheckpointsReady?: boolean;
+  otherChargesRetentionCheckpointsError?: string;
   onClientsChange: (next: Client[]) => void;
   payments: Payment[];
   onPaymentsChange: (next: Payment[]) => void | Promise<void>;
@@ -109,6 +113,9 @@ export default function PaymentsPage({
   bankRules,
   lateFeeSettings,
   otherChargesRetentionByClient,
+  otherChargesRetentionCheckpointsByClient = {},
+  otherChargesRetentionCheckpointsReady = true,
+  otherChargesRetentionCheckpointsError = "",
   onClientsChange,
   payments,
   onPaymentsChange,
@@ -248,6 +255,7 @@ export default function PaymentsPage({
     operationalDateKey,
     currentActor,
     retentionByClient: otherChargesRetentionByClient,
+    retentionCheckpointsByClient: otherChargesRetentionCheckpointsByClient,
     lateFeeSettings,
     onPaymentsChange,
     replacePendingBankItems,
@@ -364,9 +372,10 @@ export default function PaymentsPage({
       payments,
       effectiveDateKey,
       manualOverrideForcedOtherCharges,
-      lateFeeSettings
+      lateFeeSettings,
+      otherChargesRetentionCheckpointsByClient[selectedClient.id]
     );
-  }, [form.amountReceived, form.dateApplied, lateFeeSettings, manualOtherChargesInput, otherChargesRetentionByClient, payments, selectedClient, manualOverrideForcedOtherCharges]);
+  }, [form.amountReceived, form.dateApplied, lateFeeSettings, manualOtherChargesInput, otherChargesRetentionByClient, otherChargesRetentionCheckpointsByClient, payments, selectedClient, manualOverrideForcedOtherCharges]);
 
   const {
     paymentInfo,
@@ -413,10 +422,10 @@ export default function PaymentsPage({
   const isForcedOtherChargesRuleClient = useMemo(
     () => (
       selectedClient
-        ? shouldForceRetentionToOtherCharges(selectedClient, otherChargesRetentionByClient, payments, form.dateApplied || getBusinessDateKey())
+        ? shouldForceRetentionToOtherCharges(selectedClient, otherChargesRetentionByClient, payments, form.dateApplied || getBusinessDateKey(), otherChargesRetentionCheckpointsByClient[selectedClient.id])
         : false
     ),
-    [form.dateApplied, otherChargesRetentionByClient, payments, selectedClient]
+    [form.dateApplied, otherChargesRetentionByClient, otherChargesRetentionCheckpointsByClient, payments, selectedClient]
   );
   const isForcedOtherChargesRuleActive = isForcedOtherChargesRuleClient && !manualOverrideForcedOtherCharges;
   const selectedClientRetentionConfig = useMemo(
@@ -576,6 +585,7 @@ export default function PaymentsPage({
     pendingCardItems,
     notifiedPayments,
     retentionByClient: otherChargesRetentionByClient,
+    retentionCheckpointsByClient: otherChargesRetentionCheckpointsByClient,
     lateFeeSettings,
     operationalDateKey,
     currentActor,
@@ -657,6 +667,7 @@ export default function PaymentsPage({
         client={clients.find((candidate) => candidate.id === pendingClassifyClientId) ?? null}
         payments={payments}
         retentionByClient={otherChargesRetentionByClient}
+        retentionCheckpoint={clients.find((candidate) => candidate.id === pendingClassifyClientId) ? otherChargesRetentionCheckpointsByClient[pendingClassifyClientId] : undefined}
         lateFeeSettings={lateFeeSettings}
         otherChargesInput={pendingOtherChargesInput}
         manualOverride={pendingManualOverrideForcedOtherCharges}
@@ -753,6 +764,9 @@ export default function PaymentsPage({
       }
     }
     if (isDateClosed(operationalDateKey)) errs.push(`La caja de ${operationalDateKey} ya esta cerrada.`);
+    if (!otherChargesRetentionCheckpointsReady) {
+      errs.push(otherChargesRetentionCheckpointsError || "Espera mientras se comprueba el ultimo descuento de Otros cargos.");
+    }
     return errs;
   }
 
@@ -776,6 +790,7 @@ export default function PaymentsPage({
       form,
       manualOtherChargesInput,
       retentionByClient: otherChargesRetentionByClient,
+      retentionCheckpoint: otherChargesRetentionCheckpointsByClient[selectedClient.id],
       operationalDateKey,
       overrideForcedOtherCharges: manualOverrideForcedOtherCharges,
       lateFeeSettings,
@@ -931,10 +946,11 @@ export default function PaymentsPage({
     (item: PendingBankItem, client: Client | null) => buildPendingBankPreview(item, client, {
       payments,
       retentionByClient: otherChargesRetentionByClient,
+      retentionCheckpointsByClient: otherChargesRetentionCheckpointsByClient,
       operationalDate,
       lateFeeSettings
     }),
-    [lateFeeSettings, operationalDate, otherChargesRetentionByClient, payments]
+    [lateFeeSettings, operationalDate, otherChargesRetentionByClient, otherChargesRetentionCheckpointsByClient, payments]
   );
 
 

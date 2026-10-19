@@ -237,6 +237,16 @@ export type OtherChargesRetentionEvent = {
   appliedAmount: number;
 };
 
+export type OtherChargesRetentionCheckpoint = {
+  clientId: string;
+  paymentId: string;
+  dateApplied: string;
+  createdAt: string;
+  retentionEvent?: OtherChargesRetentionEvent;
+};
+
+export type OtherChargesRetentionCheckpointsByClient = Record<string, OtherChargesRetentionCheckpoint>;
+
 export type LateFeeReason = "DAILY_MISSED_PROOF" | "WEEKLY_LATE_DAY" | "SCHEDULED_LATE_DAY";
 
 export type LateFeeLedgerEntry = {

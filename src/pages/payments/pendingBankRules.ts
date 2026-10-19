@@ -3,6 +3,7 @@ import type {
   Client,
   LateFeeSettings,
   OtherChargesRetentionByClient,
+  OtherChargesRetentionCheckpointsByClient,
   Payment,
   PendingBankItem,
   PendingCardItem
@@ -95,6 +96,7 @@ export function getPendingSimilaritySignals(
 type PreviewOptions = {
   payments: Payment[];
   retentionByClient: OtherChargesRetentionByClient;
+  retentionCheckpointsByClient?: OtherChargesRetentionCheckpointsByClient;
   operationalDate: Date;
   lateFeeSettings?: LateFeeSettings;
 };
@@ -102,7 +104,7 @@ type PreviewOptions = {
 export function buildPendingBankPreview(
   item: PendingBankItem,
   client: Client | null,
-  { payments, retentionByClient, operationalDate, lateFeeSettings }: PreviewOptions
+  { payments, retentionByClient, retentionCheckpointsByClient, operationalDate, lateFeeSettings }: PreviewOptions
 ): PendingBankPreview | null {
   if (!client) return null;
   const collectibleRental = getCollectibleProvisionalRental(client);
@@ -153,7 +155,9 @@ export function buildPendingBankPreview(
     wholeAfterPriorityCharges,
     retentionByClient,
     payments,
-    item.dateApplied
+    item.dateApplied,
+    false,
+    retentionCheckpointsByClient?.[client.id]
   );
   const totalChargesBeforeRent = roundMoney(totalLateFees + totalFines + totalTickets + totalOtherCharges);
   const capitalForRent = roundMoney(Math.max(0, wholePart - totalChargesBeforeRent));
@@ -206,6 +210,7 @@ export function buildPendingBankPreview(
 type ApplicationOptions = {
   payments: Payment[];
   retentionByClient: OtherChargesRetentionByClient;
+  retentionCheckpointsByClient?: OtherChargesRetentionCheckpointsByClient;
   receiptNumber: string;
   createdBy: string;
   referenceTag: "AUTO-ALTA-SIMILITUD" | "CLASIFICADO-MANUAL";
@@ -220,6 +225,7 @@ export function buildPendingPaymentApplication(
   {
     payments,
     retentionByClient,
+    retentionCheckpointsByClient,
     receiptNumber,
     createdBy,
     referenceTag,
@@ -310,7 +316,8 @@ export function buildPendingPaymentApplication(
     retentionByClient,
     payments,
     item.dateApplied,
-    allowManualOverrideForForcedRule
+    allowManualOverrideForForcedRule,
+    retentionCheckpointsByClient?.[client.id]
   );
   const otherChargesApplied = [...lateFeesApplied, ...remainingOtherChargesAllocation.otherChargesApplied];
   const totalOtherCharges = roundMoney(totalLateFees + remainingOtherChargesAllocation.totalOtherCharges);

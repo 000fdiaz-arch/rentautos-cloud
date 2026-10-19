@@ -1,4 +1,4 @@
-import type { Client, LateFeeSettings, OtherChargesRetentionByClient, Payment, PendingCardItem } from "../../types";
+import type { Client, LateFeeSettings, OtherChargesRetentionByClient, OtherChargesRetentionCheckpoint, Payment, PendingCardItem } from "../../types";
 import { extractFoliosFromReference } from "./bankPaymentRules";
 import type { PaymentForm } from "./paymentTypes";
 import { CASH_TEAM_REQUIRED_MESSAGE, collectionTeamForDelta, hasCollectionDelta } from "../../cashTeamRules";
@@ -29,6 +29,7 @@ type BuildManualPaymentParams = {
   form: PaymentForm;
   manualOtherChargesInput: Record<string, string>;
   retentionByClient: OtherChargesRetentionByClient;
+  retentionCheckpoint?: OtherChargesRetentionCheckpoint;
   lateFeeSettings?: LateFeeSettings;
   operationalDateKey: string;
   overrideForcedOtherCharges: boolean;
@@ -51,6 +52,7 @@ export function buildManualPaymentTransaction({
   form,
   manualOtherChargesInput,
   retentionByClient,
+  retentionCheckpoint,
   lateFeeSettings,
   operationalDateKey,
   overrideForcedOtherCharges,
@@ -160,7 +162,8 @@ export function buildManualPaymentTransaction({
     payments,
     operationalDateKey,
     overrideForcedOtherCharges,
-    lateFeeSettings
+    lateFeeSettings,
+    retentionCheckpoint
   );
   const isCard = form.paymentMethod === "Tarjeta";
   const enteredFolios = isCard ? extractFoliosFromReference(form.reference) : [];

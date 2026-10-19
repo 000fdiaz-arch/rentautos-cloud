@@ -1,4 +1,11 @@
-import type { Client, Payment } from "../types";
+import type {
+  Client,
+  OtherChargesRetentionCheckpoint,
+  OtherChargesRetentionCheckpointsByClient,
+  OtherChargesRetentionCycle,
+  OtherChargesRetentionEvent,
+  Payment
+} from "../types";
 import { dedupeLoad, getCloudClient, hasRowChanged, PAGE_SIZE, withCloudRetry, type DataRow } from "./cloudClient";
 
 const BANK_PAYMENT_METHODS = new Set(["ACH Express", "Deposito Bancario", "Transferencia Bancaria"]);
@@ -24,6 +31,75 @@ type DailyPaymentAttentionRow = {
   work_date?: string | null;
   payment_ids?: string[] | null;
 };
+
+type OtherChargesRetentionCheckpointRow = {
+  client_id?: string | null;
+  payment_id?: string | null;
+  date_applied?: string | null;
+  payment_created_at?: string | null;
+  retention_event?: unknown;
+};
+
+const OTHER_CHARGES_RETENTION_CYCLES = new Set<OtherChargesRetentionCycle>([
+  "daily",
+  "weekly",
+  "biweekly",
+  "monthly",
+  "when_payment"
+]);
+
+function normalizeOtherChargesRetentionEvent(value: unknown): OtherChargesRetentionEvent | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  if (raw.mode !== "automatic" && raw.mode !== "manual") return undefined;
+  if (typeof raw.cycle !== "string" || !OTHER_CHARGES_RETENTION_CYCLES.has(raw.cycle as OtherChargesRetentionCycle)) return undefined;
+  const baseAmount = Number(raw.baseAmount);
+  const cyclesElapsed = Number(raw.cyclesElapsed);
+  const calculatedAmount = Number(raw.calculatedAmount);
+  const appliedAmount = Number(raw.appliedAmount);
+  if (![baseAmount, cyclesElapsed, calculatedAmount, appliedAmount].every(Number.isFinite)) return undefined;
+  return {
+    mode: raw.mode,
+    cycle: raw.cycle as OtherChargesRetentionCycle,
+    baseAmount,
+    cyclesElapsed,
+    calculatedAmount,
+    appliedAmount
+  };
+}
+
+export function otherChargesRetentionCheckpointFromRow(value: unknown): OtherChargesRetentionCheckpoint | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as OtherChargesRetentionCheckpointRow;
+  const clientId = typeof row.client_id === "string" ? row.client_id.trim() : "";
+  const paymentId = typeof row.payment_id === "string" ? row.payment_id.trim() : "";
+  const dateApplied = typeof row.date_applied === "string" ? row.date_applied.trim() : "";
+  const createdAt = typeof row.payment_created_at === "string" ? row.payment_created_at.trim() : "";
+  if (!clientId || !paymentId || !/^\d{4}-\d{2}-\d{2}$/.test(dateApplied)) return null;
+  return {
+    clientId,
+    paymentId,
+    dateApplied,
+    createdAt,
+    retentionEvent: normalizeOtherChargesRetentionEvent(row.retention_event)
+  };
+}
+
+export async function loadCloudOtherChargesRetentionCheckpoints(
+  userId: string
+): Promise<OtherChargesRetentionCheckpointsByClient> {
+  const { data, error } = await getCloudClient()
+    .from("other_charges_retention_checkpoints_cloud")
+    .select("client_id,payment_id,date_applied,payment_created_at,retention_event")
+    .eq("user_id", userId);
+  if (error) throw error;
+  const checkpoints: OtherChargesRetentionCheckpointsByClient = {};
+  for (const row of data ?? []) {
+    const checkpoint = otherChargesRetentionCheckpointFromRow(row);
+    if (checkpoint) checkpoints[checkpoint.clientId] = checkpoint;
+  }
+  return checkpoints;
+}
 
 function normalizeCloudFolioToken(value: string): string {
   return value

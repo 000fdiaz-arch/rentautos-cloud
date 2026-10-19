@@ -61,6 +61,7 @@ import { useBackupManager } from "./app/useBackupManager";
 import { useCoreCloudSync } from "./app/useCoreCloudSync";
 import { useLeadCloudData } from "./app/useLeadCloudData";
 import { usePendingLeadReviewCount } from "./app/usePendingLeadReviewCount";
+import { useOtherChargesRetentionCheckpoints } from "./app/useOtherChargesRetentionCheckpoints";
 import { getBusinessDateKey, withResolvedInstallmentIssuance } from "./billing";
 import { supabase } from "./lib/supabase";
 import { getRouteMenuAlertCounts } from "./routeReviewRules";
@@ -240,6 +241,11 @@ export default function AppShell({
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
   const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
   const [otherChargesRetentionByClient, setOtherChargesRetentionByClient] = useState<OtherChargesRetentionByClient>(() => loadOtherChargesRetentionByClient());
+  const {
+    checkpoints: otherChargesRetentionCheckpointsByClient,
+    ready: otherChargesRetentionCheckpointsReady,
+    error: otherChargesRetentionCheckpointsError
+  } = useOtherChargesRetentionCheckpoints(cloudDataUserId);
   const leads = useLeadCloudData(cloudDataUserId, canViewLeads, page === "leads");
   const pendingLeadReviewCount = usePendingLeadReviewCount(cloudDataUserId, canViewLeads);
   const leadEvaluations = leads.evaluations;
@@ -656,6 +662,9 @@ export default function AppShell({
     if (!canReportRoutePayments) {
       throw new Error("No tienes permiso para registrar pagos desde Ruta en calle.");
     }
+    if (!otherChargesRetentionCheckpointsReady) {
+      throw new Error(otherChargesRetentionCheckpointsError || "Espera mientras se comprueba el ultimo descuento de Otros cargos.");
+    }
     const localClient = clients.find((candidate) => candidate.id === input.clientId);
     const client = cloudDataUserId
       ? await loadCloudClient(cloudDataUserId, input.clientId)
@@ -707,6 +716,7 @@ export default function AppShell({
       },
       manualOtherChargesInput: {},
       retentionByClient: otherChargesRetentionByClient,
+      retentionCheckpoint: otherChargesRetentionCheckpointsByClient[client.id],
       lateFeeSettings,
       operationalDateKey,
       overrideForcedOtherCharges: false,
@@ -1099,12 +1109,20 @@ export default function AppShell({
             ownerUserId={cloudDataUserId}
           />
         )}
-        {page === "payments" && canViewPayments && (
+        {page === "payments" && canViewPayments && !otherChargesRetentionCheckpointsReady && (
+          <section className="panel">
+            <p className="hint">{otherChargesRetentionCheckpointsError || "Comprobando el ultimo descuento de Otros cargos..."}</p>
+          </section>
+        )}
+        {page === "payments" && canViewPayments && otherChargesRetentionCheckpointsReady && (
           <PaymentsPage
             clients={clients}
             bankRules={bankRules}
             lateFeeSettings={lateFeeSettings}
             otherChargesRetentionByClient={otherChargesRetentionByClient}
+            otherChargesRetentionCheckpointsByClient={otherChargesRetentionCheckpointsByClient}
+            otherChargesRetentionCheckpointsReady={otherChargesRetentionCheckpointsReady}
+            otherChargesRetentionCheckpointsError={otherChargesRetentionCheckpointsError}
             onClientsChange={persistClients}
             payments={payments}
             onPaymentsChange={persistPayments}

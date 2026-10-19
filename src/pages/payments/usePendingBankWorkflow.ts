@@ -13,6 +13,7 @@ import type {
   LateFeeSettings,
   ManualBankAssignmentAudit,
   OtherChargesRetentionByClient,
+  OtherChargesRetentionCheckpointsByClient,
   Payment,
   PendingBankItem,
   PendingCardItem
@@ -33,6 +34,7 @@ type Options = {
   pendingCardItems: PendingCardItem[];
   notifiedPayments: NotifiedPayment[];
   retentionByClient: OtherChargesRetentionByClient;
+  retentionCheckpointsByClient?: OtherChargesRetentionCheckpointsByClient;
   lateFeeSettings?: LateFeeSettings;
   operationalDateKey: string;
   currentActor: string;
@@ -59,6 +61,7 @@ export default function usePendingBankWorkflow(options: Options) {
     pendingCardItems,
     notifiedPayments,
     retentionByClient,
+    retentionCheckpointsByClient,
     lateFeeSettings,
     operationalDateKey,
     currentActor,
@@ -217,6 +220,7 @@ export default function usePendingBankWorkflow(options: Options) {
     return buildPendingPaymentApplication(item, client, {
       payments: paymentHistory,
       retentionByClient,
+      retentionCheckpointsByClient,
       lateFeeSettings,
       receiptNumber,
       createdBy: currentActor,
@@ -251,6 +255,7 @@ export default function usePendingBankWorkflow(options: Options) {
       const { updatedClient, payment } = buildPendingPaymentApplication(pendingClassifyTarget, client, {
         payments,
         retentionByClient,
+        retentionCheckpointsByClient,
         lateFeeSettings,
         receiptNumber,
         createdBy: currentActor,

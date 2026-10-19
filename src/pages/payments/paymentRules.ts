@@ -7,6 +7,7 @@ import type {
   ClientTicket,
   LateFeeSettings,
   OtherCharge,
+  OtherChargesRetentionCheckpoint,
   OtherChargesRetentionByClient,
   OtherChargesRetentionCycle,
   OtherChargesRetentionEvent,
@@ -187,18 +188,57 @@ function isLegacyOtherChargesRetentionPayment(payment: Payment): boolean {
   return (payment.otherChargesApplied ?? []).some((charge) => !isLateFeeOtherCharge(charge));
 }
 
-function getLastOtherChargesRetentionPayment(clientId: string, payments: Payment[], beforeOrOnDateKey: string): Payment | null {
-  return payments
-    .filter((payment) => payment.clientId === clientId && payment.dateApplied <= beforeOrOnDateKey)
-    .filter((payment) => !!payment.otherChargesRetentionEvent || isLegacyOtherChargesRetentionPayment(payment))
-    .sort((left, right) => {
-      const dateComparison = right.dateApplied.localeCompare(left.dateApplied);
-      return dateComparison !== 0 ? dateComparison : right.createdAt.localeCompare(left.createdAt);
-    })[0] ?? null;
+type OtherChargesRetentionReference = {
+  paymentId: string;
+  dateApplied: string;
+  createdAt: string;
+  retentionEvent?: OtherChargesRetentionEvent;
+};
+
+function compareRetentionReferencesDesc(left: OtherChargesRetentionReference, right: OtherChargesRetentionReference): number {
+  const dateComparison = right.dateApplied.localeCompare(left.dateApplied);
+  if (dateComparison !== 0) return dateComparison;
+  const createdComparison = right.createdAt.localeCompare(left.createdAt);
+  if (createdComparison !== 0) return createdComparison;
+  return right.paymentId.localeCompare(left.paymentId);
 }
 
-export function getLastOtherChargesRetentionDateKey(clientId: string, payments: Payment[], beforeOrOnDateKey: string): string | null {
-  return getLastOtherChargesRetentionPayment(clientId, payments, beforeOrOnDateKey)?.dateApplied ?? null;
+function getLastOtherChargesRetentionPayment(
+  clientId: string,
+  payments: Payment[],
+  beforeOrOnDateKey: string,
+  persistedCheckpoint?: OtherChargesRetentionCheckpoint
+): OtherChargesRetentionReference | null {
+  const localReference = payments
+    .filter((payment) => payment.clientId === clientId && payment.dateApplied <= beforeOrOnDateKey)
+    .filter((payment) => !!payment.otherChargesRetentionEvent || isLegacyOtherChargesRetentionPayment(payment))
+    .map((payment) => ({
+      paymentId: payment.id,
+      dateApplied: payment.dateApplied,
+      createdAt: payment.createdAt,
+      retentionEvent: payment.otherChargesRetentionEvent
+    }))
+    .sort(compareRetentionReferencesDesc)[0] ?? null;
+  const cloudReference = persistedCheckpoint?.clientId === clientId && persistedCheckpoint.dateApplied <= beforeOrOnDateKey
+    ? {
+        paymentId: persistedCheckpoint.paymentId,
+        dateApplied: persistedCheckpoint.dateApplied,
+        createdAt: persistedCheckpoint.createdAt,
+        retentionEvent: persistedCheckpoint.retentionEvent
+      }
+    : null;
+  if (!localReference) return cloudReference;
+  if (!cloudReference) return localReference;
+  return compareRetentionReferencesDesc(localReference, cloudReference) <= 0 ? localReference : cloudReference;
+}
+
+export function getLastOtherChargesRetentionDateKey(
+  clientId: string,
+  payments: Payment[],
+  beforeOrOnDateKey: string,
+  persistedCheckpoint?: OtherChargesRetentionCheckpoint
+): string | null {
+  return getLastOtherChargesRetentionPayment(clientId, payments, beforeOrOnDateKey, persistedCheckpoint)?.dateApplied ?? null;
 }
 
 function getFirstPendingOtherChargeDateKey(client: Client, beforeOrOnDateKey: string): string | null {
@@ -254,9 +294,10 @@ export function computeConfiguredRetentionForPayment(
   client: Client,
   retentionByClient: OtherChargesRetentionByClient,
   payments: Payment[],
-  paymentDateKey: string
+  paymentDateKey: string,
+  persistedCheckpoint?: OtherChargesRetentionCheckpoint
 ): number {
-  return computeConfiguredRetentionCalculation(client, retentionByClient, payments, paymentDateKey).amount;
+  return computeConfiguredRetentionCalculation(client, retentionByClient, payments, paymentDateKey, persistedCheckpoint).amount;
 }
 
 export type ConfiguredRetentionCalculation = {
@@ -269,13 +310,14 @@ export function computeConfiguredRetentionCalculation(
   client: Client,
   retentionByClient: OtherChargesRetentionByClient,
   payments: Payment[],
-  paymentDateKey: string
+  paymentDateKey: string,
+  persistedCheckpoint?: OtherChargesRetentionCheckpoint
 ): ConfiguredRetentionCalculation {
   const config = getConfiguredOtherChargesRetentionConfig(client, retentionByClient);
   if (config.amount <= 0) return { amount: 0, cyclesElapsed: 0, checkpointDateKey: null };
   if (config.cycle === "when_payment") return { amount: config.amount, cyclesElapsed: 1, checkpointDateKey: null };
   const paymentDate = parseDateKey(paymentDateKey) ?? startOfDay(new Date());
-  const checkpointPayment = getLastOtherChargesRetentionPayment(client.id, payments, paymentDateKey);
+  const checkpointPayment = getLastOtherChargesRetentionPayment(client.id, payments, paymentDateKey, persistedCheckpoint);
   const checkpointDateKey = checkpointPayment?.dateApplied ?? null;
   const firstChargeDateKey = getFirstPendingOtherChargeDateKey(client, paymentDateKey);
   const anchorDateKey = checkpointDateKey && firstChargeDateKey
@@ -286,9 +328,9 @@ export function computeConfiguredRetentionCalculation(
   if (!anchorDate) return { amount: config.amount, cyclesElapsed: 1, checkpointDateKey };
   const countedEvents = countRetentionEventsInRange(client, config.cycle, anchorDate, paymentDate);
   const cyclesElapsed = checkpointDateKey ? countedEvents : Math.max(1, countedEvents);
-  const previousUnpaidRetention = checkpointPayment?.otherChargesRetentionEvent?.mode === "automatic"
+  const previousUnpaidRetention = checkpointPayment?.retentionEvent?.mode === "automatic"
     ? roundMoney(Math.max(0,
-      checkpointPayment.otherChargesRetentionEvent.calculatedAmount - checkpointPayment.otherChargesRetentionEvent.appliedAmount
+      checkpointPayment.retentionEvent.calculatedAmount - checkpointPayment.retentionEvent.appliedAmount
     ))
     : 0;
   return {
@@ -302,11 +344,12 @@ export function shouldForceRetentionToOtherCharges(
   client: Client,
   retentionByClient: OtherChargesRetentionByClient,
   payments: Payment[],
-  paymentDateKey: string
+  paymentDateKey: string,
+  persistedCheckpoint?: OtherChargesRetentionCheckpoint
 ): boolean {
   const hasPendingOtherCharges = (client.otherCharges ?? []).some((charge) => roundMoney(charge.amount) > 0);
   if (!hasPendingOtherCharges) return false;
-  return computeConfiguredRetentionForPayment(client, retentionByClient, payments, paymentDateKey) > 0;
+  return computeConfiguredRetentionForPayment(client, retentionByClient, payments, paymentDateKey, persistedCheckpoint) > 0;
 }
 
 export function getOtherChargeKey(charge: Pick<OtherCharge, "id" | "label">, fallbackIndex = 0): string {
@@ -561,10 +604,11 @@ export function computeEffectiveOtherChargesAllocation(
   retentionByClient: OtherChargesRetentionByClient,
   payments: Payment[],
   paymentDateKey: string,
-  allowManualOverrideForForcedRule = false
+  allowManualOverrideForForcedRule = false,
+  persistedCheckpoint?: OtherChargesRetentionCheckpoint
 ): { otherChargesApplied: OtherCharge[]; totalOtherCharges: number; forcedRuleApplied: boolean; retentionEvent?: OtherChargesRetentionEvent } {
   const config = getConfiguredOtherChargesRetentionConfig(client, retentionByClient);
-  if (!shouldForceRetentionToOtherCharges(client, retentionByClient, payments, paymentDateKey) || allowManualOverrideForForcedRule) {
+  if (!shouldForceRetentionToOtherCharges(client, retentionByClient, payments, paymentDateKey, persistedCheckpoint) || allowManualOverrideForForcedRule) {
     const manual = computeAppliedOtherCharges(client.otherCharges, manualInput, wholePart);
     const isManualCheckpoint = allowManualOverrideForForcedRule || Object.keys(manualInput).length > 0;
     return {
@@ -585,7 +629,7 @@ export function computeEffectiveOtherChargesAllocation(
   const pendingOtherCharges = roundMoney(
     (client.otherCharges ?? []).reduce((sum, charge) => sum + roundMoney(Math.max(0, charge.amount)), 0)
   );
-  const calculation = computeConfiguredRetentionCalculation(client, retentionByClient, payments, paymentDateKey);
+  const calculation = computeConfiguredRetentionCalculation(client, retentionByClient, payments, paymentDateKey, persistedCheckpoint);
   const configuredRetention = calculation.amount;
   const collectibleRetention = roundMoney(Math.min(configuredRetention, pendingOtherCharges));
   const forcedAmount = roundMoney(Math.min(collectibleRetention, Math.max(0, wholePart)));
@@ -615,7 +659,8 @@ export function computeManualPaymentAllocation(
   payments: Payment[],
   paymentDateKey: string,
   allowManualOverrideForForcedRule = false,
-  lateFeeSettings?: LateFeeSettings
+  lateFeeSettings?: LateFeeSettings,
+  persistedCheckpoint?: OtherChargesRetentionCheckpoint
 ): ManualPaymentAllocation {
   const projectedClient = client;
   const amount = roundMoney(Math.max(0, rawAmount));
@@ -642,7 +687,8 @@ export function computeManualPaymentAllocation(
     retentionByClient,
     payments,
     paymentDateKey,
-    allowManualOverrideForForcedRule
+    allowManualOverrideForForcedRule,
+    persistedCheckpoint
   );
   const otherChargesApplied = [...lateFeesApplied, ...remainingOtherChargesAllocation.otherChargesApplied];
   const totalOtherCharges = roundMoney(totalLateFees + remainingOtherChargesAllocation.totalOtherCharges);
