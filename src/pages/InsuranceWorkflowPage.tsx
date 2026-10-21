@@ -140,6 +140,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   const [savingFudInsurer, setSavingFudInsurer] = useState<boolean>(false);
   const [fudUploadingId, setFudUploadingId] = useState<string>("");
   const [damagePhotosUploadingId, setDamagePhotosUploadingId] = useState<string>("");
+  const [damagePhotoDeletingPath, setDamagePhotoDeletingPath] = useState<string>("");
   const [settlementDates, setSettlementDates] = useState<Record<string, string>>({});
   const [followUpSavingId, setFollowUpSavingId] = useState<string>("");
   const [followUpComments, setFollowUpComments] = useState<Record<string, string>>({});
@@ -644,6 +645,12 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       setMessage("El FUD debe ser un PDF o una imagen de 10 MB o menos.");
       return;
     }
+    const activeClaim = claims.find((claim) => claim.id === completingFudClaimId);
+    if (activeClaim?.damagePhotos.some((photo) => photo.name === file.name)) {
+      setFudCompletionFile(null);
+      setMessage("Esta imagen ya está guardada como foto de daños. Elige una copia del FUD diferente.");
+      return;
+    }
     setFudCompletionFile(file);
     setMessage("");
   }
@@ -815,6 +822,10 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       setMessage("El FUD debe ser un PDF o una imagen de 10 MB o menos.");
       return;
     }
+    if (claim.damagePhotos.some((photo) => photo.name === file.name)) {
+      setMessage("Esta imagen ya está guardada como foto de daños. Elige una copia del FUD diferente.");
+      return;
+    }
     setFudUploadingId(claim.id);
     setMessage("");
     let uploadedPath = "";
@@ -864,6 +875,10 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       setMessage("Cada foto de daños debe pesar 10 MB o menos.");
       return;
     }
+    if (claim.fudAttachment && selectedFiles.some((file) => file.name === claim.fudAttachment?.name)) {
+      setMessage("La copia del FUD no puede guardarse también como foto de daños. Selecciona fotos distintas del vehículo.");
+      return;
+    }
     setDamagePhotosUploadingId(claim.id);
     setMessage("");
     const uploaded: InsuranceDamagePhotoAttachment[] = [];
@@ -888,6 +903,40 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       setMessage("No se pudieron guardar las fotos de daños en la nube.");
     } finally {
       setDamagePhotosUploadingId("");
+    }
+  }
+
+  async function deleteDamagePhoto(claim: InsuranceClaimRecord, photo: InsuranceDamagePhotoAttachment): Promise<void> {
+    if (!dataOwnerUserId || readOnly || damagePhotoDeletingPath) return;
+    if (!window.confirm(`¿Eliminar “${photo.name}” de las fotos de daños? El FUD y los demás documentos no se modificarán.`)) return;
+    const remainingPhotos = claim.damagePhotos.filter((item) => item.path !== photo.path);
+    const keepRemovedName = remainingPhotos.some((item) => item.name === photo.name);
+    const now = new Date().toISOString();
+    const updatedClaim: InsuranceClaimRecord = {
+      ...claim,
+      damagePhotos: remainingPhotos,
+      damagePhotoNames: keepRemovedName
+        ? claim.damagePhotoNames
+        : claim.damagePhotoNames.filter((name) => name !== photo.name),
+      editHistory: [...claim.editHistory, { editedAt: now, justification: `Foto de daños eliminada: ${photo.name}.` }],
+      updatedAt: now
+    };
+    setDamagePhotoDeletingPath(photo.path);
+    setMessage("");
+    try {
+      await saveInsuranceClaim(dataOwnerUserId, updatedClaim);
+      setClaims((current) => current.map((item) => item.id === claim.id ? updatedClaim : item));
+      try {
+        await removeInsuranceDamagePhotos([photo.path]);
+      } catch (cleanupError) {
+        console.warn("La foto se retiró del reclamo, pero no se pudo limpiar el archivo almacenado.", cleanupError);
+      }
+      setMessage("Foto de daños eliminada. El FUD y los demás documentos se conservaron.");
+    } catch (error) {
+      console.error("No se pudo eliminar la foto de daños.", error);
+      setMessage("No se pudo eliminar la foto de daños en la nube.");
+    } finally {
+      setDamagePhotoDeletingPath("");
     }
   }
 
@@ -1531,7 +1580,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                   <div className="workflow-damage-photos-head">
                     <div>
                       <strong>Fotos de los daños</strong>
-                      <span>{claim.damagePhotos.length} de {MAX_DAMAGE_PHOTOS} fotos guardadas</span>
+                      <span>{claim.damagePhotos.length === 1 ? "1 foto guardada" : `${claim.damagePhotos.length} fotos guardadas`} · {claim.damagePhotos.length >= MAX_DAMAGE_PHOTOS ? "límite alcanzado" : `puedes agregar ${MAX_DAMAGE_PHOTOS - claim.damagePhotos.length} más`}</span>
                     </div>
                     <label className="button">
                       {damagePhotosUploadingId === claim.id
@@ -1547,7 +1596,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                           void handleDamagePhotosUpload(claim, event.target.files);
                           event.target.value = "";
                         }}
-                        disabled={readOnly || editingClaimId === claim.id || editSavingId === claim.id || statusSavingId === claim.id || settlementSavingId === claim.id || settlementUploadingId === claim.id || damagePhotosUploadingId === claim.id || followUpSavingId === claim.id || claim.damagePhotos.length >= MAX_DAMAGE_PHOTOS}
+                        disabled={readOnly || editingClaimId === claim.id || editSavingId === claim.id || statusSavingId === claim.id || settlementSavingId === claim.id || settlementUploadingId === claim.id || damagePhotosUploadingId === claim.id || Boolean(damagePhotoDeletingPath) || followUpSavingId === claim.id || claim.damagePhotos.length >= MAX_DAMAGE_PHOTOS}
                       />
                     </label>
                   </div>
@@ -1559,9 +1608,10 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                             <strong>Foto {index + 1}</strong>
                             <small title={photo.name}>{photo.name}</small>
                           </div>
-                          <button type="button" className="button" onClick={() => setPhotoGallery({ photos: claim.damagePhotos, index })}>
-                            Ver galería
-                          </button>
+                          <div className="workflow-damage-photo-actions">
+                            <button type="button" className="button" onClick={() => setPhotoGallery({ photos: claim.damagePhotos, index })} disabled={Boolean(damagePhotoDeletingPath)}>Ver galería</button>
+                            <button type="button" className="button danger" onClick={() => void deleteDamagePhoto(claim, photo)} disabled={readOnly || Boolean(damagePhotoDeletingPath)}>{damagePhotoDeletingPath === photo.path ? "Eliminando..." : "Eliminar"}</button>
+                          </div>
                         </div>
                       ))}
                     </div>

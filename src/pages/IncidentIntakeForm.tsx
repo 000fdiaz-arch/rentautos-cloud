@@ -86,6 +86,12 @@ const MAX_FUD_SIZE = 10 * 1024 * 1024;
 function normalizeUnit(value: string): string { return value.trim().toUpperCase(); }
 function normalizeInsurer(value: string): string { return value.trim().toUpperCase(); }
 function normalizePersonName(value: string): string { return value.trim().toLocaleUpperCase("es").replace(/\s+/g, " "); }
+function isSameSelectedFile(left: File, right: File): boolean {
+  return left.name === right.name
+    && left.size === right.size
+    && left.type === right.type
+    && left.lastModified === right.lastModified;
+}
 
 function incidentSaveErrorMessage(step: string, error: unknown): string {
   const detail = error && typeof error === "object" && "message" in error && typeof error.message === "string"
@@ -203,6 +209,11 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     const selected = Array.from(files ?? []);
     if (selected.some((file) => !file.type.startsWith("image/"))) { setDamagePhotoFiles([]); setMessage("Solo se permiten archivos de imagen para las fotos de daños."); return; }
     if (selected.some((file) => file.size > MAX_PHOTO_SIZE)) { setDamagePhotoFiles([]); setMessage("Cada foto de daños debe pesar 10 MB o menos."); return; }
+    if (fudFile && selected.some((file) => isSameSelectedFile(file, fudFile))) {
+      setDamagePhotoFiles([]);
+      setMessage("La copia del FUD no puede guardarse también como foto de daños. Selecciona fotos distintas del vehículo.");
+      return;
+    }
     setDamagePhotoFiles(selected.slice(0, MAX_DAMAGE_PHOTOS));
     setMessage(selected.length > MAX_DAMAGE_PHOTOS ? `Solo se guardarán las primeras ${MAX_DAMAGE_PHOTOS} fotos.` : "");
   }
@@ -256,6 +267,11 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     if (file.size > MAX_FUD_SIZE) {
       setFudFile(null);
       setMessage("El FUD debe pesar 10 MB o menos.");
+      return;
+    }
+    if (damagePhotoFiles.some((photo) => isSameSelectedFile(photo, file))) {
+      setFudFile(null);
+      setMessage("Esta imagen ya está seleccionada como foto de daños. Elige una copia del FUD diferente.");
       return;
     }
     setFudFile(file);
@@ -340,6 +356,7 @@ export default function IncidentIntakeForm({ clients, dataOwnerUserId, canViewJu
     if (destination === "insurance" && requiresInsuranceFud(form.documentationAvailable) && !form.fudPhysicalDeliveryDate) { setMessage("Indica la fecha en que el FUD original fue entregado presencialmente."); return; }
     if (destination === "insurance" && requiresInsuranceClaimDetails(form.documentationAvailable) && (!form.insurer || !form.hasClaimNumber)) { setMessage("Completa aseguradora e indica si tienes el número de reclamo."); return; }
     if (destination === "insurance" && requiresInsuranceClaimDetails(form.documentationAvailable) && form.hasClaimNumber === "yes" && !form.claimNumber.trim()) { setMessage("Escribe el número de reclamo."); return; }
+    if (destination === "insurance" && fudFile && damagePhotoFiles.some((photo) => isSameSelectedFile(photo, fudFile))) { setMessage("La copia del FUD no puede guardarse también como foto de daños."); return; }
 
     setSaving(true); setMessage("");
     const now = new Date().toISOString();

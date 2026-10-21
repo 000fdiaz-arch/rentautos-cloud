@@ -32,6 +32,12 @@ assertIncludes(workflow, "insuranceClaimStatusAfterFudCompletion(claim.status, c
 assertIncludes(workflow, "Copia digital del FUD no adjunta", "El expediente debe alertar cuando falta la copia digital.");
 assertIncludes(workflow, "Adjuntar FUD", "El expediente debe permitir cargar posteriormente la copia digital.");
 assertIncludes(workflow, "La alerta fue retirada", "La carga posterior debe confirmar que la alerta desapareció.");
+assertIncludes(intake, "isSameSelectedFile", "El registro debe detectar si se selecciona el mismo archivo como FUD y foto de daños.");
+assertIncludes(intake, "La copia del FUD no puede guardarse también como foto de daños", "El registro debe impedir que el FUD se duplique como foto del vehículo.");
+assertIncludes(workflow, "async function deleteDamagePhoto", "El expediente debe permitir retirar una foto de daños cargada por error.");
+assertIncludes(workflow, "El FUD y los demás documentos no se modificarán", "La eliminación debe aclarar que no afectará el FUD.");
+assertIncludes(workflow, "1 foto guardada", "El contador no debe dar a entender que existen cinco fotos.");
+assertIncludes(workflow, "puedes agregar", "El contador debe explicar cuántas fotos adicionales admite el reclamo.");
 
 assertIncludes(cloud, "claim.documentationPending === true || !fudPhysicalDeliveryConfirmed", "Los reclamos anteriores sin confirmación deben normalizarse como pendientes.");
 assertIncludes(cloud, 'documentationBasis?: "FUD" | "JUDICIAL_RESOLUTION"', "El reclamo debe distinguir el documento que origina el flujo.");

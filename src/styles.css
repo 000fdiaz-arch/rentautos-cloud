@@ -15714,6 +15714,12 @@ button.ar-route-publish-copy.is-active {
   min-width: 0;
 }
 
+.workflow-damage-photo-row > .workflow-damage-photo-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .workflow-damage-photo-row small {
   overflow: hidden;
   color: var(--color-text-muted);
