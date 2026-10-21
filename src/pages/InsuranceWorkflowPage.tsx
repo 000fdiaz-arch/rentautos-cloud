@@ -135,6 +135,9 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
   const [fudCompletionForm, setFudCompletionForm] = useState<FudCompletionForm>(EMPTY_FUD_COMPLETION_FORM);
   const [fudCompletionFile, setFudCompletionFile] = useState<File | null>(null);
   const [fudCompletionSavingId, setFudCompletionSavingId] = useState<string>("");
+  const [addingFudInsurer, setAddingFudInsurer] = useState<boolean>(false);
+  const [newFudInsurerDraft, setNewFudInsurerDraft] = useState<string>("");
+  const [savingFudInsurer, setSavingFudInsurer] = useState<boolean>(false);
   const [fudUploadingId, setFudUploadingId] = useState<string>("");
   const [damagePhotosUploadingId, setDamagePhotosUploadingId] = useState<string>("");
   const [settlementDates, setSettlementDates] = useState<Record<string, string>>({});
@@ -585,6 +588,8 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       managementNote: ""
     });
     setFudCompletionFile(null);
+    setAddingFudInsurer(false);
+    setNewFudInsurerDraft("");
     setMessage("");
   }
 
@@ -592,6 +597,41 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
     setCompletingFudClaimId(null);
     setFudCompletionForm(EMPTY_FUD_COMPLETION_FORM);
     setFudCompletionFile(null);
+    setAddingFudInsurer(false);
+    setNewFudInsurerDraft("");
+  }
+
+  function handleFudInsurerChange(value: string): void {
+    if (value === "__new__") {
+      if (readOnly) return;
+      setAddingFudInsurer(true);
+      setNewFudInsurerDraft("");
+      return;
+    }
+    setAddingFudInsurer(false);
+    setNewFudInsurerDraft("");
+    setFudCompletionForm((current) => ({ ...current, insurer: value }));
+  }
+
+  async function saveNewFudInsurer(): Promise<void> {
+    if (!dataOwnerUserId || readOnly || savingFudInsurer) return;
+    const insurer = normalizeInsurer(newFudInsurerDraft);
+    if (!insurer) return;
+    setSavingFudInsurer(true);
+    setMessage("");
+    try {
+      await saveInsuranceInsurer(dataOwnerUserId, insurer);
+      setInsurers((current) => Array.from(new Set([...current, insurer]))
+        .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" })));
+      setFudCompletionForm((current) => ({ ...current, insurer }));
+      setAddingFudInsurer(false);
+      setNewFudInsurerDraft("");
+    } catch (error) {
+      console.error("No se pudo guardar la aseguradora del FUD.", error);
+      setMessage("No se pudo guardar la aseguradora en la nube.");
+    } finally {
+      setSavingFudInsurer(false);
+    }
   }
 
   function selectFudCompletionFile(file: File | undefined): void {
@@ -1318,7 +1358,8 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                   ) : (
                     <div className="workflow-claim-edit-panel">
                       <div className="workflow-claim-edit-grid">
-                        <label className={!fudCompletionForm.insurer.trim() ? "workflow-required-field" : ""}>Aseguradora<input list={`fud-insurers-${claim.id}`} value={fudCompletionForm.insurer} onChange={(event) => setFudCompletionForm((current) => ({ ...current, insurer: event.target.value }))} /><datalist id={`fud-insurers-${claim.id}`}>{insurers.map((insurer) => <option key={insurer} value={insurer} />)}</datalist></label>
+                        <label className={!fudCompletionForm.insurer.trim() ? "workflow-required-field" : ""}>Aseguradora<select value={fudCompletionForm.insurer} onChange={(event) => handleFudInsurerChange(event.target.value)} disabled={readOnly || savingFudInsurer}><option value="">Seleccionar aseguradora</option>{insurers.map((insurer) => <option key={insurer} value={insurer}>{insurer}</option>)}<option value="__new__">+ Nueva aseguradora</option></select></label>
+                        {addingFudInsurer && <div className="incident-inline-create workflow-claim-edit-wide"><label>Nombre de la nueva aseguradora<input autoFocus value={newFudInsurerDraft} onChange={(event) => setNewFudInsurerDraft(event.target.value)} placeholder="Ej. Seguros Panamá" disabled={savingFudInsurer} /></label><div><button type="button" className="button" onClick={() => { setAddingFudInsurer(false); setNewFudInsurerDraft(""); }} disabled={savingFudInsurer}>Cancelar</button><button type="button" className="button primary" onClick={() => void saveNewFudInsurer()} disabled={!newFudInsurerDraft.trim() || savingFudInsurer}>{savingFudInsurer ? "Guardando..." : "Agregar aseguradora"}</button></div></div>}
                         <label>Monto del reclamo <small>Opcional por ahora</small><input type="number" min="0" step="0.01" placeholder="Puedes completarlo después" value={fudCompletionForm.amount} onChange={(event) => setFudCompletionForm((current) => ({ ...current, amount: event.target.value }))} /><span className="hint">Podrás agregarlo desde “Editar reclamo”.</span></label>
                         <label className={!fudCompletionForm.deliveryDate ? "workflow-required-field" : ""}>Fecha de entrega presencial<input type="date" value={fudCompletionForm.deliveryDate} onChange={(event) => setFudCompletionForm((current) => ({ ...current, deliveryDate: event.target.value }))} /></label>
                         <label className={!fudCompletionForm.hasClaimNumber ? "workflow-required-field" : ""}>¿Tienes el número de reclamo?<select value={fudCompletionForm.hasClaimNumber} onChange={(event) => { const hasClaimNumber = event.target.value as FudCompletionForm["hasClaimNumber"]; setFudCompletionForm((current) => ({ ...current, hasClaimNumber, ...(hasClaimNumber !== "yes" ? { claimNumber: "" } : {}) })); }}><option value="">Seleccionar Sí o No</option><option value="yes">Sí, tengo el número</option><option value="no">No, todavía no lo tengo</option></select></label>

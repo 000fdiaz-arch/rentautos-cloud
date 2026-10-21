@@ -40,5 +40,11 @@ if (!source.includes("Información pendiente para completar el FUD") || !source.
 if (!source.includes('hasClaimNumber: claim.claimNumber.trim() ? "yes" : "no"')) {
   throw new Error("Un expediente sin número debe abrir explícitamente con la opción No seleccionada.");
 }
+if (!source.includes('function handleFudInsurerChange') || !source.includes('<option value="__new__">+ Nueva aseguradora</option>')) {
+  throw new Error("Gestionar FUD debe ofrecer una acción visible para crear otra aseguradora.");
+}
+if (!source.includes('async function saveNewFudInsurer') || !source.includes('setFudCompletionForm((current) => ({ ...current, insurer }))')) {
+  throw new Error("La nueva aseguradora debe guardarse y seleccionarse en el FUD actual.");
+}
 
 console.log("OK FUD parcial: guarda aseguradora y avances sin fingir la recepción física.");
