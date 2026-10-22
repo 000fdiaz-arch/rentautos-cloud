@@ -71,6 +71,7 @@ export function ReopenCashDialog({
 type DeletePaymentDialogProps = {
   payment: Payment | null;
   isDateClosed: (dateKey: string) => boolean;
+  isDeleting: boolean;
   onCancel: () => void;
   onConfirm: (payment: Payment) => void;
 };
@@ -78,6 +79,7 @@ type DeletePaymentDialogProps = {
 export function DeletePaymentDialog({
   payment,
   isDateClosed,
+  isDeleting,
   onCancel,
   onConfirm
 }: DeletePaymentDialogProps) {
@@ -101,14 +103,14 @@ export function DeletePaymentDialog({
           )}
         </p>
         <div className="modal-actions">
-          <button type="button" className="button ghost" onClick={onCancel}>Cancelar</button>
+          <button type="button" className="button ghost" onClick={onCancel} disabled={isDeleting}>Cancelar</button>
           <button
             type="button"
             className="button danger"
-            disabled={isClosed}
+            disabled={isClosed || isDeleting}
             onClick={() => onConfirm(payment)}
           >
-            Eliminar
+            {isDeleting ? "Eliminando..." : "Eliminar"}
           </button>
         </div>
       </div>
@@ -119,6 +121,7 @@ export function DeletePaymentDialog({
 type DeletePaymentsDialogProps = {
   payments: Payment[];
   isDateClosed: (dateKey: string) => boolean;
+  isDeleting: boolean;
   onCancel: () => void;
   onConfirm: (payments: Payment[]) => void;
 };
@@ -126,6 +129,7 @@ type DeletePaymentsDialogProps = {
 export function DeletePaymentsDialog({
   payments,
   isDateClosed,
+  isDeleting,
   onCancel,
   onConfirm
 }: DeletePaymentsDialogProps) {
@@ -149,14 +153,14 @@ export function DeletePaymentsDialog({
           )}
         </p>
         <div className="modal-actions">
-          <button type="button" className="button ghost" onClick={onCancel}>Cancelar</button>
+          <button type="button" className="button ghost" onClick={onCancel} disabled={isDeleting}>Cancelar</button>
           <button
             type="button"
             className="button danger"
-            disabled={closedPayments.length > 0}
+            disabled={closedPayments.length > 0 || isDeleting}
             onClick={() => onConfirm(payments)}
           >
-            Eliminar seleccionados
+            {isDeleting ? "Eliminando..." : "Eliminar seleccionados"}
           </button>
         </div>
       </div>

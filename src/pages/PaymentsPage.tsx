@@ -147,6 +147,8 @@ export default function PaymentsPage({
   const [lastRegisteredPayment, setLastRegisteredPayment] = useState<Payment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
   const [bulkDeleteTargets, setBulkDeleteTargets] = useState<Payment[]>([]);
+  const deleteInFlightRef = useRef(false);
+  const [isDeletingPayments, setIsDeletingPayments] = useState(false);
   const {
     cashClosings,
     cashClosingDate,
@@ -846,53 +848,67 @@ export default function PaymentsPage({
   }
 
   async function handleDeletePayment(payment: Payment): Promise<void> {
-    if (readOnly) return;
+    if (readOnly || deleteInFlightRef.current) return;
     if (isDateClosed(payment.dateApplied)) {
       setErrors([`No se puede eliminar el recibo ${payment.receiptNumber}: la caja de ${payment.dateApplied} esta cerrada.`]);
       setDeleteTarget(null);
       return;
     }
-    const { updatedClients, updatedPayments } = buildStateAfterDeletedPayments([payment]);
-    if (onDeletePayment) {
-      const saved = await onDeletePayment(updatedClients, updatedPayments, payment.id);
-      if (!saved) {
-        setErrors([`No se pudo eliminar el recibo ${payment.receiptNumber} en nube. Actualiza el historial y vuelve a intentar.`]);
-        return;
+    deleteInFlightRef.current = true;
+    setIsDeletingPayments(true);
+    try {
+      const { updatedClients, updatedPayments } = buildStateAfterDeletedPayments([payment]);
+      if (onDeletePayment) {
+        const saved = await onDeletePayment(updatedClients, updatedPayments, payment.id);
+        if (!saved) {
+          setErrors([`No se pudo eliminar el recibo ${payment.receiptNumber} en nube. Actualiza el historial y vuelve a intentar.`]);
+          return;
+        }
+      } else {
+        onClientsChange(updatedClients);
+        onPaymentsChange(updatedPayments);
       }
-    } else {
-      onClientsChange(updatedClients);
-      onPaymentsChange(updatedPayments);
+      setDeleteTarget(null);
+    } finally {
+      deleteInFlightRef.current = false;
+      setIsDeletingPayments(false);
     }
-    setDeleteTarget(null);
   }
 
   async function handleDeletePayments(selectedPayments: Payment[]): Promise<void> {
-    if (readOnly || selectedPayments.length === 0) return;
+    if (readOnly || selectedPayments.length === 0 || deleteInFlightRef.current) return;
     const closedPayment = selectedPayments.find((payment) => isDateClosed(payment.dateApplied));
     if (closedPayment) {
       setErrors([`No se puede eliminar el recibo ${closedPayment.receiptNumber}: la caja de ${closedPayment.dateApplied} esta cerrada.`]);
       setBulkDeleteTargets([]);
       return;
     }
-    const { updatedClients, updatedPayments } = buildStateAfterDeletedPayments(selectedPayments);
-    const deletedPaymentIds = selectedPayments.map((payment) => payment.id);
-    if (onDeletePayments) {
-      const saved = await onDeletePayments(updatedClients, updatedPayments, deletedPaymentIds);
-      if (!saved) {
-        setErrors(["No se pudieron eliminar los recibos seleccionados en nube. Actualiza el historial y vuelve a intentar."]);
-        return;
+    deleteInFlightRef.current = true;
+    setIsDeletingPayments(true);
+    try {
+      const { updatedClients, updatedPayments } = buildStateAfterDeletedPayments(selectedPayments);
+      const deletedPaymentIds = selectedPayments.map((payment) => payment.id);
+      if (onDeletePayments) {
+        const saved = await onDeletePayments(updatedClients, updatedPayments, deletedPaymentIds);
+        if (!saved) {
+          setErrors(["No se pudieron eliminar los recibos seleccionados en nube. Actualiza el historial y vuelve a intentar."]);
+          return;
+        }
+      } else if (onDeletePayment && selectedPayments.length === 1) {
+        const saved = await onDeletePayment(updatedClients, updatedPayments, selectedPayments[0].id);
+        if (!saved) {
+          setErrors([`No se pudo eliminar el recibo ${selectedPayments[0].receiptNumber} en nube. Actualiza el historial y vuelve a intentar.`]);
+          return;
+        }
+      } else {
+        onClientsChange(updatedClients);
+        onPaymentsChange(updatedPayments);
       }
-    } else if (onDeletePayment && selectedPayments.length === 1) {
-      const saved = await onDeletePayment(updatedClients, updatedPayments, selectedPayments[0].id);
-      if (!saved) {
-        setErrors([`No se pudo eliminar el recibo ${selectedPayments[0].receiptNumber} en nube. Actualiza el historial y vuelve a intentar.`]);
-        return;
-      }
-    } else {
-      onClientsChange(updatedClients);
-      onPaymentsChange(updatedPayments);
+      setBulkDeleteTargets([]);
+    } finally {
+      deleteInFlightRef.current = false;
+      setIsDeletingPayments(false);
     }
-    setBulkDeleteTargets([]);
   }
 
 
@@ -1163,12 +1179,14 @@ export default function PaymentsPage({
       {!readOnly && <DeletePaymentDialog
         payment={deleteTarget}
         isDateClosed={isDateClosed}
+        isDeleting={isDeletingPayments}
         onCancel={() => setDeleteTarget(null)}
         onConfirm={(payment) => void handleDeletePayment(payment)}
       />}
       {!readOnly && <DeletePaymentsDialog
         payments={bulkDeleteTargets}
         isDateClosed={isDateClosed}
+        isDeleting={isDeletingPayments}
         onCancel={() => setBulkDeleteTargets([])}
         onConfirm={(selectedPayments) => void handleDeletePayments(selectedPayments)}
       />}

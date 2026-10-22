@@ -21,8 +21,7 @@ import {
   saveLateFeeLedger,
 } from "./storage";
 import {
-  deleteCloudPayment,
-  deleteCloudPayments,
+  deleteCloudPaymentsAtomic,
   loadCloudBankRules,
   loadCloudChargeRunsWithDetails,
   loadCloudClient,
@@ -750,35 +749,37 @@ export default function AppShell({
     const previousClients = clients;
     const previousPayments = payments;
     const normalizedNextClients = nextClients.map(withResolvedInstallmentIssuance);
+    let committedNextClients = normalizedNextClients;
 
     if (cloudDataUserId) {
       setSyncStatus("syncing");
       try {
-        await syncCloudClientsDelta(cloudDataUserId, previousClients, normalizedNextClients);
-        if (deletedPaymentIds.length === 1) {
-          await deleteCloudPayment(cloudDataUserId, deletedPaymentIds[0]);
-        } else {
-          await deleteCloudPayments(cloudDataUserId, deletedPaymentIds);
-        }
+        const deletion = await deleteCloudPaymentsAtomic(
+          cloudDataUserId,
+          previousClients,
+          normalizedNextClients,
+          previousPayments,
+          deletedPaymentIds
+        );
+        const savedClientsById = new Map(deletion.clients.map((client) => [client.id, client]));
+        const deletedIds = new Set(deletedPaymentIds);
+        committedNextClients = normalizedNextClients.map((client) => savedClientsById.get(client.id) ?? client);
+        setClients((current) => current.map((client) => savedClientsById.get(client.id) ?? client));
+        setPayments((current) => current.filter((payment) => !deletedIds.has(payment.id)));
       } catch (error) {
         console.error("No se pudo eliminar el pago en Supabase.", error);
-        try {
-          await syncCloudClientsDelta(cloudDataUserId, normalizedNextClients, previousClients);
-        } catch (rollbackError) {
-          console.error("No se pudo revertir el cliente despues de fallar eliminando pago.", rollbackError);
-        }
-        setClients(previousClients);
-        setPayments(previousPayments);
         setSyncStatus("error");
         setSyncErrorMessage("No se pudo eliminar el pago en nube. Actualiza el historial y vuelve a intentar.");
         return false;
       }
     }
 
-    setClients(normalizedNextClients);
-    setPayments(nextPayments);
+    if (!cloudDataUserId) {
+      setClients(normalizedNextClients);
+      setPayments(nextPayments);
+    }
     if (!isSupabaseOnlyMode) {
-      saveClients(normalizedNextClients);
+      saveClients(committedNextClients);
       savePayments(nextPayments);
     }
     setSyncStatus("ok");

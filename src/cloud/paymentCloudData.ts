@@ -908,6 +908,71 @@ export async function deleteCloudPayment(userId: string, paymentId: string): Pro
   if (error) throw error;
 }
 
+export type AtomicPaymentDeletionResult = {
+  clients: Client[];
+  deletedPaymentIds: string[];
+  idempotent: boolean;
+};
+
+export async function deleteCloudPaymentsAtomic(
+  userId: string,
+  previousClients: Client[],
+  nextClients: Client[],
+  previousPayments: Payment[],
+  paymentIds: string[]
+): Promise<AtomicPaymentDeletionResult> {
+  if (paymentIds.length === 0) return { clients: [], deletedPaymentIds: [], idempotent: true };
+
+  const previousClientsById = new Map(previousClients.map((item) => [item.id, item]));
+  const nextClientsById = new Map(nextClients.map((item) => [item.id, item]));
+  const paymentsById = new Map(previousPayments.map((item) => [item.id, item]));
+  const groupsByClientId = new Map<string, {
+    clientId: string;
+    previousClient: Client;
+    nextClient: Client;
+    paymentIds: string[];
+  }>();
+
+  for (const paymentId of [...new Set(paymentIds)]) {
+    const payment = paymentsById.get(paymentId);
+    if (!payment) throw new Error(`No se encontro el pago ${paymentId} antes de eliminarlo.`);
+    const previousClient = previousClientsById.get(payment.clientId);
+    const nextClient = nextClientsById.get(payment.clientId);
+    if (!previousClient || !nextClient) {
+      throw new Error(`No se encontro el cliente ${payment.clientId} antes de eliminar el pago.`);
+    }
+    const existingGroup = groupsByClientId.get(payment.clientId);
+    if (existingGroup) {
+      existingGroup.paymentIds.push(paymentId);
+    } else {
+      groupsByClientId.set(payment.clientId, {
+        clientId: payment.clientId,
+        previousClient,
+        nextClient,
+        paymentIds: [paymentId]
+      });
+    }
+  }
+
+  const { data } = await withCloudRetry(async () => {
+    const result = await getCloudClient().rpc("delete_client_payments_atomic", {
+      p_owner_user_id: userId,
+      p_changes: [...groupsByClientId.values()]
+    });
+    if (result.error) throw result.error;
+    return result;
+  });
+  const payload = data as { clients?: unknown; deletedPaymentIds?: unknown; idempotent?: unknown } | null;
+  if (!Array.isArray(payload?.clients) || !Array.isArray(payload.deletedPaymentIds)) {
+    throw new Error("Supabase no devolvio el resultado completo de la eliminacion de pagos.");
+  }
+  return {
+    clients: payload.clients as Client[],
+    deletedPaymentIds: payload.deletedPaymentIds.filter((item): item is string => typeof item === "string"),
+    idempotent: payload.idempotent === true
+  };
+}
+
 export async function deleteCloudPayments(userId: string, paymentIds: string[]): Promise<void> {
   if (paymentIds.length === 0) return;
   const client = getCloudClient();
