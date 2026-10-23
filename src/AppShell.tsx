@@ -665,9 +665,14 @@ export default function AppShell({
       throw new Error(otherChargesRetentionCheckpointsError || "Espera mientras se comprueba el ultimo descuento de Otros cargos.");
     }
     const localClient = clients.find((candidate) => candidate.id === input.clientId);
-    const client = cloudDataUserId
-      ? await loadCloudClient(cloudDataUserId, input.clientId)
-      : localClient;
+    const [client, routeRetentionByClient] = cloudDataUserId
+      ? await Promise.all([
+          loadCloudClient(cloudDataUserId, input.clientId),
+          input.method === "cash"
+            ? loadCloudOtherChargesRetention(cloudDataUserId).then((settings) => settings ?? {})
+            : Promise.resolve(otherChargesRetentionByClient)
+        ])
+      : [localClient, otherChargesRetentionByClient];
     if (!client) throw new Error("No se encontro el cliente de esta ruta.");
     const paymentClients = localClient
       ? clients.map((candidate) => candidate.id === client.id ? client : candidate)
@@ -714,7 +719,7 @@ export default function AppShell({
         amountReceived: String(input.amount)
       },
       manualOtherChargesInput: {},
-      retentionByClient: otherChargesRetentionByClient,
+      retentionByClient: routeRetentionByClient,
       retentionCheckpoint: otherChargesRetentionCheckpointsByClient[client.id],
       lateFeeSettings,
       operationalDateKey,
