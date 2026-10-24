@@ -75,6 +75,7 @@ import {
 } from "./payments/paymentRules";
 import { applyPaymentToProvisionalRental, getCollectibleProvisionalRental, nextProvisionalRentalChargeDate, restoreProvisionalRentalPayment } from "../provisionalRentals";
 import { deleteCloudNotifiedPayment, loadCloudActiveRouteItem } from "../cloud/operationsCloudData";
+import { loadCloudPendingBankItems } from "../cloud/insuranceBankPaymentCloudData";
 import { cancelRoutePaymentReport, loadRoutePaymentReportForItem, loadRoutePaymentReports, reportRoutePayment } from "../cloud/routeReportCloudData";
 import { routeDeltaFromName } from "../routeDeltaTracking";
 import type { NotifiedPayment } from "./payments/paymentTypes";
@@ -225,15 +226,18 @@ export default function PaymentsPage({
 
   useEffect(() => {
     let cancelled = false;
-    void loadPendingBankItemsFromIndexedDb()
+    void (dataOwnerUserId ? loadCloudPendingBankItems(dataOwnerUserId) : loadPendingBankItemsFromIndexedDb())
       .then((items) => {
-        if (!cancelled && items.length > 0) setPendingBankItems(items);
+        if (!cancelled) {
+          setPendingBankItems(items);
+          if (dataOwnerUserId) savePendingBankItems(items);
+        }
       })
-      .catch((error) => console.error("No se pudieron cargar pendientes bancarios desde IndexedDB.", error));
+      .catch((error) => console.error("No se pudieron cargar pendientes bancarios.", error));
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [dataOwnerUserId]);
 
   const {
     pendingCardItems,
@@ -569,6 +573,7 @@ export default function PaymentsPage({
     setPendingTravelFundInputByFolio,
     isPendingImporting,
     bulkPendingApplyingCount,
+    insuranceForwardingCount,
     handleImportBankCSV,
     handleOpenClassify,
     handleDismissPending,
@@ -577,6 +582,7 @@ export default function PaymentsPage({
     handleConfirmClassify,
     handleQuickApply,
     handleApplyAllAssigned,
+    handleSendPendingToInsurance,
     handleSavePendingClientTravelFund
   } = usePendingBankWorkflow({
     clients,
@@ -1116,6 +1122,7 @@ export default function PaymentsPage({
         getPendingBankPreview={getPendingPreview}
         isPendingImporting={isPendingImporting}
         bulkPendingApplyingCount={bulkPendingApplyingCount}
+        insuranceForwardingCount={insuranceForwardingCount}
         handleApplyAllAssigned={handleApplyAllAssigned}
         handleDismissAllPending={handleDismissAllPending}
         pendingClassifyTarget={pendingClassifyTarget}
@@ -1128,6 +1135,7 @@ export default function PaymentsPage({
         isPendingClassifySaving={isPendingClassifySaving}
         handleQuickApply={handleQuickApply}
         handleDismissPending={handleDismissPending}
+        handleSendPendingToInsurance={handleSendPendingToInsurance}
         renderPendingInlineReview={renderPendingInlineReview}
         />
       </>

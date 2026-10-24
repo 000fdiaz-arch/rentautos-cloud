@@ -13306,6 +13306,68 @@ button.ar-route-publish-copy.is-active {
   flex: 0 0 auto;
 }
 
+.incidents-control-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 5px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #eef3f8;
+}
+
+.incidents-control-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #526677;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.incidents-control-tabs button:hover {
+  background: rgba(255, 255, 255, 0.65);
+  color: #174b73;
+}
+
+.incidents-control-tabs button.active {
+  background: #ffffff;
+  color: #174b73;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.16);
+}
+
+.incidents-control-tabs button:focus-visible {
+  outline: 3px solid rgba(14, 116, 144, 0.28);
+  outline-offset: 2px;
+}
+
+.incidents-control-tabs button b {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #174b73;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.incidents-control-tabs button b.is-alert {
+  background: #fee2e2;
+  color: #b91c1c;
+  box-shadow: 0 0 0 1px #fecaca;
+}
+
 .incidents-area-tabs {
   border-color: #bfdbfe;
   background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
@@ -17858,6 +17920,15 @@ button.ar-route-publish-copy.is-active {
     width: 100%;
   }
 
+  .incidents-control-tabs {
+    width: 100%;
+  }
+
+  .incidents-control-tabs button {
+    flex: 1;
+    padding-inline: 10px;
+  }
+
   .unified-incidents-follow-up {
     padding: 12px;
   }
@@ -21545,5 +21616,380 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 
   .ar-essential-unit {
     font-size: 1.35rem;
+  }
+}
+
+/* Pagos bancarios enviados a Seguros */
+.pending-insurance-bulk {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid #b8d4ea;
+  border-radius: 10px;
+  background: #f2f8fd;
+}
+
+.pending-insurance-bulk__copy {
+  display: grid;
+  gap: 3px;
+}
+
+.pending-insurance-bulk__copy strong {
+  color: #174b73;
+}
+
+.pending-insurance-bulk__copy span {
+  color: #526677;
+  font-size: 0.82rem;
+}
+
+.pending-insurance-bulk__select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #30465a;
+  font-size: 0.86rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pending-insurance-bulk__select-all input,
+.table-scroll th:first-child input,
+.table-scroll td:first-child input {
+  width: 18px;
+  height: 18px;
+  accent-color: #174b73;
+}
+
+.pending-row--insurance-selected td {
+  background: #eef6ff !important;
+}
+
+.insurance-bank-payments-panel {
+  margin-bottom: 16px;
+}
+
+.insurance-bank-payments-head {
+  align-items: flex-start;
+}
+
+.insurance-bank-payments-head h2 {
+  margin: 2px 0 4px;
+}
+
+.insurance-bank-payment-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #dce4eb;
+}
+
+.insurance-bank-payment-tabs button {
+  border: 1px solid #ccd7e0;
+  border-radius: 999px;
+  background: #fff;
+  color: #30465a;
+  padding: 7px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.insurance-bank-payment-tabs button.active {
+  border-color: #174b73;
+  background: #174b73;
+  color: #fff;
+}
+
+.insurance-bank-payment-tabs b {
+  margin-left: 5px;
+}
+
+.insurance-bank-payment-workspace {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(360px, 1.1fr);
+  gap: 14px;
+  padding: 14px;
+}
+
+.insurance-bank-payment-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.insurance-bank-payment-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  width: 100%;
+  border: 1px solid #dce4eb;
+  border-radius: 10px;
+  background: #fff;
+  color: #1f2d3a;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.insurance-bank-payment-card:hover,
+.insurance-bank-payment-card.selected {
+  border-color: #2d6b98;
+  box-shadow: 0 0 0 2px rgba(45, 107, 152, 0.12);
+}
+
+.insurance-bank-payment-card span {
+  display: grid;
+  gap: 4px;
+}
+
+.insurance-bank-payment-card span:last-child {
+  text-align: right;
+}
+
+.insurance-bank-payment-card small {
+  color: #677888;
+  font-weight: 400;
+}
+
+.insurance-bank-payment-match {
+  border: 1px solid #dce4eb;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 14px;
+}
+
+.insurance-bank-payment-match-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #dce4eb;
+}
+
+.insurance-bank-payment-match-head div {
+  display: grid;
+  gap: 3px;
+}
+
+.insurance-bank-payment-match-head small {
+  color: #677888;
+}
+
+.insurance-bank-payment-match h3 {
+  margin: 12px 0 10px;
+}
+
+.insurance-linking-guide {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid #cfe0ee;
+  border-radius: 10px;
+  background: #f6faff;
+  color: #30465a;
+}
+
+.insurance-linking-guide ol {
+  margin: 7px 0 0;
+  padding-left: 20px;
+}
+
+.insurance-linking-guide li + li {
+  margin-top: 3px;
+}
+
+.insurance-claim-suggestions {
+  display: grid;
+  gap: 9px;
+}
+
+.insurance-claim-suggestions article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  border: 1px solid #dce4eb;
+  border-radius: 9px;
+  background: #fff;
+  padding: 11px;
+}
+
+.insurance-claim-suggestions article.best {
+  border-color: #81b69b;
+}
+
+.insurance-claim-suggestions article > div {
+  display: grid;
+  gap: 6px;
+}
+
+.insurance-claim-choice-details {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 6px;
+  margin: 3px 0;
+}
+
+.insurance-claim-choice-details div {
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  background: #f5f8fa;
+}
+
+.insurance-claim-choice-details dt {
+  color: #677888;
+  font-size: 0.72rem;
+}
+
+.insurance-claim-choice-details dd {
+  margin: 0;
+  color: #24384a;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.insurance-claim-choice-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.insurance-claim-suggestions ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #526677;
+  font-size: 0.82rem;
+}
+
+.insurance-match-confidence {
+  width: fit-content;
+  border-radius: 999px;
+  background: #edf1f5;
+  color: #526677;
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.insurance-match-confidence.high {
+  background: #e6f6ed;
+  color: #17663f;
+}
+
+.insurance-match-confidence.medium {
+  background: #fff4da;
+  color: #855600;
+}
+
+.insurance-bank-manual-match {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #d7e1e9;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.insurance-bank-manual-match__fields {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(280px, 1.1fr);
+  gap: 8px;
+}
+
+.insurance-bank-manual-match label {
+  display: grid;
+  gap: 5px;
+  color: #526677;
+  font-size: 0.82rem;
+}
+
+.insurance-bank-manual-match select,
+.insurance-bank-manual-match input {
+  min-height: 38px;
+  border: 1px solid #ccd7e0;
+  border-radius: 8px;
+  background: #fff;
+  padding: 7px 9px;
+}
+
+.insurance-manual-claim-preview {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: #f2f8fd;
+}
+
+.insurance-manual-claim-preview span {
+  color: #526677;
+  font-size: 0.8rem;
+}
+
+.insurance-bank-payment-details {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.insurance-bank-payment-details div {
+  border-radius: 8px;
+  background: #fff;
+  padding: 9px;
+}
+
+.insurance-bank-payment-details dt {
+  color: #677888;
+  font-size: 0.75rem;
+}
+
+.insurance-bank-payment-details dd {
+  margin: 4px 0 0;
+  font-weight: 700;
+}
+
+.insurance-bank-payment-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.insurance-return-payment {
+  margin-top: 10px;
+}
+
+@media (max-width: 800px) {
+  .pending-insurance-bulk {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .pending-insurance-bulk .button {
+    width: 100%;
+  }
+
+  .insurance-bank-payment-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .insurance-bank-payment-card,
+  .insurance-claim-suggestions article,
+  .insurance-bank-manual-match__fields,
+  .insurance-claim-choice-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .insurance-bank-payment-card span:last-child {
+    text-align: left;
+  }
+
+  .insurance-bank-payment-details {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

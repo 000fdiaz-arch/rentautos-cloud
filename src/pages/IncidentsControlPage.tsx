@@ -5,6 +5,7 @@ import IncidentIntakeForm, { type IncidentDestination } from "./IncidentIntakeFo
 import InsuranceWorkflowPage from "./InsuranceWorkflowPage";
 import PendingIncidentDestinationPage from "./PendingIncidentDestinationPage";
 import UnifiedIncidentsFollowUp, { type IncidentManagementAction } from "./UnifiedIncidentsFollowUp";
+import InsuranceBankPaymentsPanel from "./incidents/InsuranceBankPaymentsPanel";
 
 type Props = {
   clients: Client[];
@@ -17,6 +18,7 @@ type Props = {
 };
 
 type ManagementTarget = { destination: IncidentDestination; id: string; search: string; section?: "follow_up"; action?: IncidentManagementAction };
+type IncidentWorkspaceTab = "cases" | "banking";
 
 export default function IncidentsControlPage({
   clients,
@@ -31,6 +33,8 @@ export default function IncidentsControlPage({
   const [managementTarget, setManagementTarget] = useState<ManagementTarget | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [pageMessage, setPageMessage] = useState("");
+  const [workspaceTab, setWorkspaceTab] = useState<IncidentWorkspaceTab>("cases");
+  const [bankingPendingCount, setBankingPendingCount] = useState(0);
 
   function handleIncidentSaved(destination: IncidentDestination, missingDocumentation: string[] = []): void {
     setRefreshKey((current) => current + 1);
@@ -99,15 +103,64 @@ export default function IncidentsControlPage({
       </header>
       {pageMessage && <div className="workflow-message incident-save-confirmation" role="status"><span>{pageMessage}</span><button type="button" className="button ghost small" onClick={() => setPageMessage("")}>Cerrar</button></div>}
 
-      <UnifiedIncidentsFollowUp
-        dataOwnerUserId={dataOwnerUserId}
-        canViewJudicial={canViewIncidents}
-        canViewInsurance={canViewIncidents}
-        canEditIncidents={canEditIncidents}
-        refreshKey={refreshKey}
-        onAlertCountChange={onAlertCountChange}
-        onOpen={(destination, target) => setManagementTarget({ destination, ...target })}
-      />
+      <nav className="incidents-control-tabs" role="tablist" aria-label="Áreas de Control de siniestros">
+        <button
+          type="button"
+          id="incidents-control-tab-cases"
+          role="tab"
+          aria-selected={workspaceTab === "cases"}
+          aria-controls="incidents-control-panel-cases"
+          className={workspaceTab === "cases" ? "active" : ""}
+          onClick={() => setWorkspaceTab("cases")}
+        >
+          Siniestros y expedientes
+        </button>
+        <button
+          type="button"
+          id="incidents-control-tab-banking"
+          role="tab"
+          aria-selected={workspaceTab === "banking"}
+          aria-controls="incidents-control-panel-banking"
+          className={workspaceTab === "banking" ? "active" : ""}
+          aria-label={`Integración bancaria: ${bankingPendingCount} pendiente${bankingPendingCount === 1 ? "" : "s"} por revisar`}
+          onClick={() => setWorkspaceTab("banking")}
+        >
+          Integración bancaria
+          <b className={bankingPendingCount > 0 ? "is-alert" : ""}>{bankingPendingCount}</b>
+        </button>
+      </nav>
+
+      <div
+        id="incidents-control-panel-banking"
+        role="tabpanel"
+        aria-labelledby="incidents-control-tab-banking"
+        hidden={workspaceTab !== "banking"}
+      >
+        <InsuranceBankPaymentsPanel
+          dataOwnerUserId={dataOwnerUserId}
+          readOnly={!canEditIncidents}
+          refreshKey={refreshKey}
+          onPendingCountChange={setBankingPendingCount}
+          onOpenClaim={(id) => setManagementTarget({ destination: "insurance", id, search: "" })}
+        />
+      </div>
+
+      <div
+        id="incidents-control-panel-cases"
+        role="tabpanel"
+        aria-labelledby="incidents-control-tab-cases"
+        hidden={workspaceTab !== "cases"}
+      >
+        <UnifiedIncidentsFollowUp
+          dataOwnerUserId={dataOwnerUserId}
+          canViewJudicial={canViewIncidents}
+          canViewInsurance={canViewIncidents}
+          canEditIncidents={canEditIncidents}
+          refreshKey={refreshKey}
+          onAlertCountChange={onAlertCountChange}
+          onOpen={(destination, target) => setManagementTarget({ destination, ...target })}
+        />
+      </div>
 
       {registrationOpen && (
         <div className="incident-claim-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setRegistrationOpen(false); }}>

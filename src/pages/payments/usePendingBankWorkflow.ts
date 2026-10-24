@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { formatCurrency } from "../../format";
-import { reserveCloudReceiptNumbers } from "../../cloudData";
+import { forwardBankItemsToInsurance, reserveCloudReceiptNumbers } from "../../cloudData";
 import { isSupabaseOnlyMode } from "../../persistenceMode";
 import {
   loadManualBankAssignmentAudit,
@@ -87,6 +87,7 @@ export default function usePendingBankWorkflow(options: Options) {
   const [pendingTravelFundInputByFolio, setPendingTravelFundInputByFolio] = useState<Record<string, string>>({});
   const [isPendingImporting, setIsPendingImporting] = useState(false);
   const [bulkPendingApplyingCount, setBulkPendingApplyingCount] = useState(0);
+  const [insuranceForwardingCount, setInsuranceForwardingCount] = useState(0);
   const isBulkPendingApplyingRef = useRef(false);
 
   function attachNotifiedRouteMetadata(payment: Payment, item: PendingBankItem, clientId: string): void {
@@ -180,6 +181,50 @@ export default function usePendingBankWorkflow(options: Options) {
     replacePendingBankItems([]);
     setPendingClassifyTarget(null);
     setPendingImportError(`Se ignoraron ${pendingBankItems.length} pendiente(s) del banco.`);
+  }
+
+  async function handleSendPendingToInsurance(items: PendingBankItem[]): Promise<void> {
+    if (insuranceForwardingCount > 0 || items.length === 0) return;
+    if (!dataOwnerUserId) {
+      setErrors(["La integración con Seguros requiere conexión con la nube."]);
+      return;
+    }
+    const selectedFolios = new Set(items.map((item) => normalizeFolioToken(item.folio)));
+    const selectedItems = pendingBankItems.filter((item) => selectedFolios.has(normalizeFolioToken(item.folio)));
+    if (selectedItems.length !== selectedFolios.size) {
+      setErrors(["Uno de los movimientos seleccionados ya cambió. Actualiza la lista e intenta nuevamente."]);
+      return;
+    }
+    const total = roundMoney(selectedItems.reduce((sum, item) => sum + item.amountReceived, 0));
+    const confirmed = window.confirm(
+      `Vas a enviar ${selectedItems.length} movimiento(s) por ${formatCurrency(total)} a Seguros. `
+      + "No se aplicarán a clientes ni generarán recibos. ¿Deseas continuar?"
+    );
+    if (!confirmed) return;
+    setErrors([]);
+    setInsuranceForwardingCount(selectedItems.length);
+    try {
+      await forwardBankItemsToInsurance(dataOwnerUserId, selectedItems, currentActor);
+      replacePendingBankItems(pendingBankItems.filter((item) => !selectedFolios.has(normalizeFolioToken(item.folio))));
+      window.dispatchEvent(new Event("cobrapp:insurance-bank-updated"));
+      setPendingImportError(
+        `${selectedItems.length} movimiento(s) enviado(s) a Seguros por ${formatCurrency(total)}. `
+        + "No se modificó el saldo de ningún cliente."
+      );
+    } catch (error) {
+      console.error("No se pudieron enviar los movimientos bancarios a Seguros.", error);
+      const errorRecord = typeof error === "object" && error !== null
+        ? error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown }
+        : null;
+      const technicalMessage = [errorRecord?.message, errorRecord?.details, errorRecord?.hint]
+        .find((value): value is string => typeof value === "string" && value.trim().length > 0);
+      const message = error instanceof Error && error.message.trim()
+        ? error.message
+        : technicalMessage ?? "No se pudieron enviar los movimientos a Seguros.";
+      setErrors([message]);
+    } finally {
+      setInsuranceForwardingCount(0);
+    }
   }
 
   function handlePendingUnitChange(item: PendingBankItem, nextClientId: string): void {
@@ -412,6 +457,7 @@ export default function usePendingBankWorkflow(options: Options) {
     setPendingTravelFundInputByFolio,
     isPendingImporting,
     bulkPendingApplyingCount,
+    insuranceForwardingCount,
     handleImportBankCSV,
     handleOpenClassify,
     handleDismissPending,
@@ -420,6 +466,7 @@ export default function usePendingBankWorkflow(options: Options) {
     handleConfirmClassify,
     handleQuickApply,
     handleApplyAllAssigned,
+    handleSendPendingToInsurance,
     handleSavePendingClientTravelFund
   };
 }

@@ -276,6 +276,13 @@ export type PendingBankItem = {
   // Pre-matched client (e.g. auto-match blocked because client has otros cargos)
   suggestedClientId?: string;
   suggestedClientName?: string;
+  insuranceRoutingHistory?: Array<{
+    action: "forwarded" | "linked" | "unlinked" | "returned";
+    at: string;
+    by?: string;
+    byLabel?: string;
+    claimId?: string;
+  }>;
 };
 
 export type PendingCardItem = {

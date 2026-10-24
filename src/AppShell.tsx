@@ -34,6 +34,7 @@ import {
   loadCollisionCases,
   loadControlUnits,
   loadInsuranceClaims,
+  loadInsuranceBankPayments,
   loadPendingIncidents,
   registerCloudPaymentDeltas,
   registerCloudPaymentGroupsWithReceipts,
@@ -271,17 +272,28 @@ export default function AppShell({
       return;
     }
     let cancelled = false;
-    Promise.all([
-      loadCollisionCases(cloudDataUserId),
-      loadInsuranceClaims(cloudDataUserId),
-      loadPendingIncidents(cloudDataUserId),
-      import("./pages/UnifiedIncidentsFollowUp")
-    ]).then(([collisions, claims, pendingDestinations, incidentRules]) => {
-      if (!cancelled) setIncidentAlertCount(incidentRules.countIncidentAlerts(collisions, claims, true, pendingDestinations));
-    }).catch((error) => {
-      console.error("No se pudo cargar el contador de alertas de siniestros.", error);
-    });
-    return () => { cancelled = true; };
+    const refreshIncidentAlerts = () => {
+      Promise.all([
+        loadCollisionCases(cloudDataUserId),
+        loadInsuranceClaims(cloudDataUserId),
+        loadPendingIncidents(cloudDataUserId),
+        loadInsuranceBankPayments(cloudDataUserId),
+        import("./pages/UnifiedIncidentsFollowUp")
+      ]).then(([collisions, claims, pendingDestinations, insurancePayments, incidentRules]) => {
+        if (!cancelled) {
+          const pendingInsurancePayments = insurancePayments.filter((payment) => payment.status === "pending").length;
+          setIncidentAlertCount(incidentRules.countIncidentAlerts(collisions, claims, true, pendingDestinations) + pendingInsurancePayments);
+        }
+      }).catch((error) => {
+        console.error("No se pudo cargar el contador de alertas de siniestros.", error);
+      });
+    };
+    refreshIncidentAlerts();
+    window.addEventListener("cobrapp:insurance-bank-updated", refreshIncidentAlerts);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("cobrapp:insurance-bank-updated", refreshIncidentAlerts);
+    };
   }, [canViewIncidents, cloudDataUserId]);
 
   const {

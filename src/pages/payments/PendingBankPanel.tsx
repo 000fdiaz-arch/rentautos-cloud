@@ -32,6 +32,7 @@ type Props = {
   pendingErrors: string[];
   isPendingImporting?: boolean;
   bulkPendingApplyingCount: number;
+  insuranceForwardingCount: number;
   clients: Client[];
   activeClients: Client[];
   getSimilaritySignals: (item: PendingBankItem) => SimilaritySignals;
@@ -48,6 +49,7 @@ type Props = {
   isPendingClassifySaving: boolean;
   handleQuickApply: (item: PendingBankItem) => Promise<void>;
   handleDismissPending: (folio: string) => void;
+  handleSendPendingToInsurance: (items: PendingBankItem[]) => Promise<void>;
   renderPendingInlineReview: (item: PendingBankItem) => ReactNode;
 };
 
@@ -89,6 +91,7 @@ export default function PendingBankPanel({
   pendingErrors,
   isPendingImporting = false,
   bulkPendingApplyingCount,
+  insuranceForwardingCount,
   clients,
   activeClients,
   getSimilaritySignals,
@@ -105,6 +108,7 @@ export default function PendingBankPanel({
   isPendingClassifySaving,
   handleQuickApply,
   handleDismissPending,
+  handleSendPendingToInsurance,
   renderPendingInlineReview
 }: Props) {
   const [pendingFilters, setPendingFilters] = useState<PendingColumnFilters>(() => ({ ...EMPTY_PENDING_FILTERS }));
@@ -124,6 +128,7 @@ export default function PendingBankPanel({
     return index;
   }, [activeClients]);
   const [pendingPage, setPendingPage] = useState(1);
+  const [selectedInsuranceFolios, setSelectedInsuranceFolios] = useState<Set<string>>(() => new Set());
   const [assignmentEditorFolio, setAssignmentEditorFolio] = useState<string | null>(null);
   const [assignmentSearch, setAssignmentSearch] = useState("");
   const assignedPendingCount = useMemo(
@@ -231,6 +236,44 @@ const pagedPendingRows = useMemo<PendingRowModel[]>(() => {
     return { ...row, pendingPreview, previewLabel: getPreviewFilterLabel(pendingPreview) };
   });
 }, [getPendingBankPreview, previewFilteredPendingRows, visiblePendingPage]);
+
+const selectedInsuranceItems = useMemo(
+  () => pendingBankItems.filter((item) => selectedInsuranceFolios.has(item.folio)),
+  [pendingBankItems, selectedInsuranceFolios]
+);
+const visibleInsuranceFolios = useMemo(
+  () => pagedPendingRows.map(({ item }) => item.folio),
+  [pagedPendingRows]
+);
+const allVisibleInsuranceSelected = visibleInsuranceFolios.length > 0
+  && visibleInsuranceFolios.every((folio) => selectedInsuranceFolios.has(folio));
+
+useEffect(() => {
+  const available = new Set(pendingBankItems.map((item) => item.folio));
+  setSelectedInsuranceFolios((current) => {
+    const next = new Set([...current].filter((folio) => available.has(folio)));
+    if (next.size === current.size && [...next].every((folio) => current.has(folio))) return current;
+    return next;
+  });
+}, [pendingBankItems]);
+
+function toggleInsuranceSelection(folio: string): void {
+  setSelectedInsuranceFolios((current) => {
+    const next = new Set(current);
+    if (next.has(folio)) next.delete(folio);
+    else next.add(folio);
+    return next;
+  });
+}
+
+function toggleVisibleInsuranceSelection(): void {
+  setSelectedInsuranceFolios((current) => {
+    const next = new Set(current);
+    if (allVisibleInsuranceSelected) visibleInsuranceFolios.forEach((folio) => next.delete(folio));
+    else visibleInsuranceFolios.forEach((folio) => next.add(folio));
+    return next;
+  });
+}
 
 const assignmentMatches = useMemo(() => {
   if (!assignmentEditorFolio) return [];
@@ -342,7 +385,7 @@ useEffect(() => {
                   <button
                     type="button"
                     className="button primary small"
-                    disabled={bulkPendingApplyingCount > 0}
+                    disabled={bulkPendingApplyingCount > 0 || insuranceForwardingCount > 0}
                     onClick={() => void handleApplyAllAssigned()}
                   >
                     {bulkPendingApplyingCount > 0
@@ -351,11 +394,41 @@ useEffect(() => {
                   </button>
                 )}
                 {pendingBankItems.length > 0 && (
-                  <button type="button" className="button danger small" disabled={bulkPendingApplyingCount > 0} onClick={handleDismissAllPending}>
+                  <button type="button" className="button danger small" disabled={bulkPendingApplyingCount > 0 || insuranceForwardingCount > 0} onClick={handleDismissAllPending}>
                     Ignorar todos
                   </button>
                 )}
               </div>
+            </div>
+
+            <div className="pending-insurance-bulk" role="group" aria-label="Envio multiple a Seguros">
+              <div className="pending-insurance-bulk__copy">
+                <strong>Enviar varios a Seguros</strong>
+                <span>
+                  {pendingBankItems.length > 0
+                    ? "Marca los movimientos que correspondan a seguros y envialos juntos."
+                    : "Cuando haya movimientos bancarios pendientes, podras seleccionarlos y enviarlos juntos."}
+                </span>
+              </div>
+              <label className="pending-insurance-bulk__select-all">
+                <input
+                  type="checkbox"
+                  checked={allVisibleInsuranceSelected}
+                  disabled={visibleInsuranceFolios.length === 0 || insuranceForwardingCount > 0 || bulkPendingApplyingCount > 0}
+                  onChange={toggleVisibleInsuranceSelection}
+                />
+                Seleccionar visibles ({visibleInsuranceFolios.length})
+              </label>
+              <button
+                type="button"
+                className="button primary small"
+                disabled={selectedInsuranceItems.length === 0 || insuranceForwardingCount > 0 || bulkPendingApplyingCount > 0}
+                onClick={() => void handleSendPendingToInsurance(selectedInsuranceItems)}
+              >
+                {insuranceForwardingCount > 0
+                  ? `Enviando ${insuranceForwardingCount}...`
+                  : `Enviar seleccionados a Seguros (${selectedInsuranceItems.length})`}
+              </button>
             </div>
 
             {pendingImportError && (
@@ -399,6 +472,14 @@ useEffect(() => {
                     <table>
                       <thead>
                         <tr>
+                          <th>
+                            <input
+                              type="checkbox"
+                              aria-label="Seleccionar movimientos visibles para Seguros"
+                              checked={allVisibleInsuranceSelected}
+                              onChange={toggleVisibleInsuranceSelection}
+                            />
+                          </th>
                           <th>Folio</th>
                           <th>Cuenta</th>
                           <th>Grupo</th>
@@ -412,6 +493,7 @@ useEffect(() => {
                           <th>Acciones</th>
                         </tr>
                         <tr>
+                          <th />
                           <th><input type="text" className="payment-input" placeholder="Buscar" value={pendingFilters.folio} onChange={(e) => updatePendingFilter("folio", e.target.value)} /></th>
                           <th><input type="text" className="payment-input" placeholder="Buscar" value={pendingFilters.account} onChange={(e) => updatePendingFilter("account", e.target.value)} /></th>
                           <th><input type="text" className="payment-input" placeholder="Buscar" value={pendingFilters.group} onChange={(e) => updatePendingFilter("group", e.target.value)} /></th>
@@ -438,7 +520,16 @@ useEffect(() => {
                           const installmentsImpact = (pendingPreview?.installmentsDeducted ?? 0) + (pendingPreview?.installmentsCoveredByAdvance ?? 0);
                           const isInlineReviewOpen = pendingClassifyTarget?.folio === item.folio;
                           return [
-                            <tr key={`${item.folio}-row`} className={rowClass}>
+                            <tr key={`${item.folio}-row`} className={`${rowClass}${selectedInsuranceFolios.has(item.folio) ? " pending-row--insurance-selected" : ""}`}>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Seleccionar folio ${item.folio} para Seguros`}
+                                  checked={selectedInsuranceFolios.has(item.folio)}
+                                  disabled={insuranceForwardingCount > 0 || bulkPendingApplyingCount > 0}
+                                  onChange={() => toggleInsuranceSelection(item.folio)}
+                                />
+                              </td>
                               <td><code>{item.folio}</code></td>
                               <td>{item.accountNumber ? <code>{item.accountNumber}</code> : <span className="amount-muted">-</span>}</td>
                               <td>{item.mappedGroup ? `Grupo ${item.mappedGroup}` : <span className="amount-muted">-</span>}</td>
@@ -613,36 +704,44 @@ useEffect(() => {
                               </td>
                               <td style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.description}>{item.description}</td>
                               <td className="actions-cell">
+                                <button
+                                  type="button"
+                                  className="button ghost small"
+                                  disabled={pendingApplyingFolio !== null || isPendingClassifySaving || bulkPendingApplyingCount > 0 || insuranceForwardingCount > 0}
+                                  onClick={() => void handleSendPendingToInsurance([item])}
+                                >
+                                  Enviar a Seguros
+                                </button>
                                 {assignedClient && (
                                   <button
                                     type="button"
                                     className="button primary small"
-                                    disabled={pendingApplyingFolio !== null || isPendingClassifySaving || bulkPendingApplyingCount > 0}
+                                    disabled={pendingApplyingFolio !== null || isPendingClassifySaving || bulkPendingApplyingCount > 0 || insuranceForwardingCount > 0}
                                     onClick={() => void handleQuickApply(item)}
                                   >
                                     {pendingApplyingFolio === item.folio ? "Aplicando..." : (hasOtherCharges || hasFines || hasTickets) ? "Aplicar auto" : "Aplicar"}
                                   </button>
                                 )}
                                 {assignedClient && hasOtherCharges && (
-                                  <button type="button" className="button ghost small" disabled={bulkPendingApplyingCount > 0} onClick={() => handleOpenClassify(item)}>
+                                  <button type="button" className="button ghost small" disabled={bulkPendingApplyingCount > 0 || insuranceForwardingCount > 0} onClick={() => handleOpenClassify(item)}>
                                     {isInlineReviewOpen ? "Cerrar revision" : "Revisar cargos"}
                                   </button>
                                 )}
-                                <button type="button" className="button danger small" disabled={bulkPendingApplyingCount > 0} onClick={() => handleDismissPending(item.folio)}>
+                                <button type="button" className="button danger small" disabled={bulkPendingApplyingCount > 0 || insuranceForwardingCount > 0} onClick={() => handleDismissPending(item.folio)}>
                                   Ignorar
                                 </button>
                               </td>
                             </tr>,
                             isInlineReviewOpen ? (
                               <tr key={`${item.folio}-review`} className="pending-inline-review-row">
-                                <td colSpan={11}>{renderPendingInlineReview(item)}</td>
+                                <td colSpan={12}>{renderPendingInlineReview(item)}</td>
                               </tr>
                             ) : null
                           ];
                         })}
                         {previewFilteredPendingRows.length === 0 && (
                           <tr>
-                            <td colSpan={11}>
+                            <td colSpan={12}>
                               <span className="amount-muted">No hay resultados con los filtros actuales.</span>
                             </td>
                           </tr>
