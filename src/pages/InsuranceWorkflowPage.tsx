@@ -833,10 +833,16 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       const attachment = await uploadInsuranceSettlement(dataOwnerUserId, claim.id, file);
       uploadedPath = attachment.path;
       const now = new Date().toISOString();
+      const isReplacement = Boolean(claim.fudAttachment);
       const updatedClaim: InsuranceClaimRecord = {
         ...claim,
         fudAttachment: attachment,
-        editHistory: [...claim.editHistory, { editedAt: now, justification: "Copia digital del FUD adjuntada al expediente." }],
+        editHistory: [...claim.editHistory, {
+          editedAt: now,
+          justification: isReplacement
+            ? "Copia digital del FUD reemplazada para corregir el archivo adjunto."
+            : "Copia digital del FUD adjuntada al expediente."
+        }],
         updatedAt: now
       };
       await saveInsuranceClaim(dataOwnerUserId, updatedClaim);
@@ -844,13 +850,17 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
       if (claim.fudAttachment?.path) {
         try { await removeInsuranceSettlement(claim.fudAttachment.path); } catch { /* Limpieza de mejor esfuerzo. */ }
       }
-      setMessage("Copia digital del FUD adjuntada. La alerta fue retirada.");
+      setMessage(isReplacement
+        ? "Copia digital del FUD corregida correctamente."
+        : "Copia digital del FUD adjuntada. La alerta fue retirada.");
     } catch (error) {
       if (uploadedPath) {
         try { await removeInsuranceSettlement(uploadedPath); } catch { /* Limpieza de mejor esfuerzo. */ }
       }
-      console.error("No se pudo adjuntar la copia digital del FUD.", error);
-      setMessage("No se pudo guardar la copia digital del FUD en la nube.");
+      console.error("No se pudo guardar la copia digital del FUD.", error);
+      setMessage(claim.fudAttachment
+        ? "No se pudo reemplazar la copia digital del FUD. El archivo anterior se conserva."
+        : "No se pudo guardar la copia digital del FUD en la nube.");
     } finally {
       setFudUploadingId("");
     }
@@ -1556,7 +1566,7 @@ export default function InsuranceWorkflowPage({ clients, dataOwnerUserId, readOn
                     <div><dt>Resolución judicial</dt><dd>{claim.judicialResolutionAttachment ? <><span>{claim.judicialResolutionAttachment.name}</span><button type="button" className="button small" onClick={() => void viewJudicialResolution(claim.judicialResolutionAttachment!.path)}>Ver resolución</button></> : "Registrada en el expediente judicial"}</dd></div>
                   </> : <>
                     <div><dt>Entrega presencial del FUD</dt><dd>{claim.fudPhysicalDeliveryConfirmed ? `Confirmada${claim.fudPhysicalDeliveryDate ? ` · ${claim.fudPhysicalDeliveryDate}` : ""}` : "Pendiente de confirmar"}</dd></div>
-                    <div><dt>Copia digital del FUD</dt><dd>{claim.fudAttachment ? <><span>{claim.fudAttachment.name}</span><button type="button" className="button small" onClick={() => void viewSettlement(claim.fudAttachment!.path)}>Ver FUD</button></> : <strong className="workflow-claim-number-warning">No adjunta · alerta activa</strong>}</dd></div>
+                    <div><dt>Copia digital del FUD</dt><dd className="workflow-fud-attachment">{claim.fudAttachment ? <span title={claim.fudAttachment.name}>{claim.fudAttachment.name}</span> : <strong className="workflow-claim-number-warning">No adjunta · alerta activa</strong>}<span className="workflow-fud-attachment-actions">{claim.fudAttachment && <button type="button" className="button small" onClick={() => void viewSettlement(claim.fudAttachment!.path)}>Ver FUD</button>}<label className="button primary small">{fudUploadingId === claim.id ? "Guardando..." : claim.fudAttachment ? "Reemplazar FUD" : "Adjuntar FUD"}<input type="file" accept="application/pdf,image/*,.pdf" hidden disabled={readOnly || Boolean(fudUploadingId)} onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void handleFudAttachmentUpload(claim, file); }} /></label></span></dd></div>
                   </>}
                   {claim.status === "Finalizado" && <div><dt>Resultado final</dt><dd>{claim.closureOutcome || "-"}</dd></div>}
                   {claim.closureOutcome === "Declinado" && <div className="workflow-claim-damage"><dt>Justificación del rechazo</dt><dd>{claim.closureJustification}</dd></div>}
