@@ -54,6 +54,7 @@ Para instalaciones existentes que ya ejecutaron las migraciones de cuentas por c
 - `supabase/111-route-bank-savings-settlement.sql` (concilia confirmaciones visuales descontando los centavos de ahorro)
 - `supabase/115-atomic-payment-deletion.sql` (elimina facturas y revierte el saldo del cliente una sola vez, incluso ante doble clic o reintentos)
 - `supabase/116-payment-deletion-fast-paths.sql` (evita reconstrucciones de historial y retencion cuando la factura eliminada no puede afectar esos caches)
+- `supabase/119-active-route-delta-availability.sql` (evita asignar carros a cuentas Delta inactivas y reasigna sus rutas pendientes al desactivarlas)
 
 En Vercel, produccion debe usar `VITE_PERSISTENCE_MODE=SUPABASE_ONLY`. `LOCAL_ONLY` queda limitado a desarrollo, salvo que se habilite deliberadamente `VITE_ALLOW_PRODUCTION_LOCAL_ONLY=1`.
 5. Crea una cuenta desde la pantalla de registro de la app.
