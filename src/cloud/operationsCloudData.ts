@@ -93,6 +93,7 @@ export type ControlUnitRow = {
   color?: string | null;
   transmission?: string | null;
   transmission_type?: string | null;
+  key_coded?: boolean | null;
   mileage?: number | string | null;
   catalog_daily_rate?: number | string | null;
   catalog_weekly_rate?: number | string | null;
@@ -1993,14 +1994,33 @@ async function loadControlUnitsUncached(userId: string): Promise<ControlUnitRow[
     }
     return new Map<string, Partial<ControlUnitRow>>();
   });
+  const keyDetails = await loadFleetKeyDetails(userId).catch((error) => {
+    const record = error as { code?: unknown };
+    if (record?.code !== "42703" && record?.code !== "PGRST204") {
+      console.warn("No se pudo cargar el tipo de llave de los autos.", error);
+    }
+    return new Map<string, boolean | null>();
+  });
 
   return allRows.map((row) => ({
     ...row,
-    ...(catalogDetails.get(row.fleet_id) ?? {})
+    ...(catalogDetails.get(row.fleet_id) ?? {}),
+    key_coded: keyDetails.get(row.fleet_id) ?? row.key_coded ?? null
   }));
 }
 
 const FLEET_CATALOG_BUCKET = "fleet-catalog-photos";
+
+async function loadFleetKeyDetails(userId: string): Promise<Map<string, boolean | null>> {
+  const { data, error } = await getCloudClient()
+    .from("fleet_units_cloud")
+    .select("fleet_id,key_coded")
+    .eq("user_id", userId)
+    .is("retired_at", null);
+  if (error) throw error;
+  return new Map(((data ?? []) as Array<{ fleet_id: string; key_coded: boolean | null }>)
+    .map((row) => [row.fleet_id, row.key_coded]));
+}
 
 function isMissingFleetCatalogSchema(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -2085,6 +2105,7 @@ export type ControlUnitUpsertInput = {
   color?: string | null;
   transmission?: string | null;
   transmission_type?: string | null;
+  key_coded?: boolean | null;
   mileage?: number | string | null;
   kilometrage?: number | string | null;
   kilometraje?: number | string | null;
@@ -2445,6 +2466,7 @@ function toControlUnitCloudPayload(input: ControlUnitUpsertInput): Record<string
     model_year: input.model_year ?? input.year ?? null,
     color: input.color ?? null,
     transmission_type: input.transmission_type ?? input.transmission ?? null,
+    key_coded: input.key_coded ?? null,
     mileage: input.mileage ?? input.kilometrage ?? input.kilometraje ?? null
   };
   return payload;
@@ -2464,6 +2486,24 @@ export async function saveControlUnit(input: ControlUnitUpsertInput): Promise<Sa
   });
   if (error) throw error;
   return data && typeof data === "object" ? data as SaveControlUnitResult : {};
+}
+
+export async function saveFleetKeyCoded(input: {
+  userId: string;
+  fleetId: string;
+  keyCoded: boolean | null;
+}): Promise<boolean> {
+  const { error } = await getCloudClient().rpc("save_fleet_key_coded", {
+    p_owner_user_id: input.userId,
+    p_fleet_id: input.fleetId,
+    p_key_coded: input.keyCoded
+  });
+  if (!error) return true;
+  const record = error as { code?: unknown; message?: unknown };
+  const code = typeof record.code === "string" ? record.code : "";
+  const message = typeof record.message === "string" ? record.message.toLowerCase() : "";
+  if (code === "PGRST202" || code === "42883" || message.includes("save_fleet_key_coded")) return false;
+  throw error;
 }
 
 export type FleetCatalogSettingsInput = {

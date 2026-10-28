@@ -33,7 +33,6 @@ export const FleetMobileList = memo(function FleetMobileList({
           const year = optionalString(row, ["year", "model_year"]);
           const color = optionalString(row, ["color"]);
           const transmission = optionalString(row, ["transmission", "transmission_type"]);
-          const mileage = optionalString(row, ["mileage", "kilometraje", "kilometrage"]);
           return (
             <article className="fleet-mobile-card" key={`mobile-${row.fleet_id || `${row.user_id}-${row.unit_id}`}`}>
               <div className="fleet-mobile-card-head">
@@ -56,7 +55,6 @@ export const FleetMobileList = memo(function FleetMobileList({
                 <div><dt>Empresa</dt><dd>{row.company ?? "-"}</dd></div>
                 <div><dt>Ano</dt><dd>{year || "-"}</dd></div>
                 <div><dt>Color</dt><dd>{color || "-"}</dd></div>
-                <div><dt>Km</dt><dd>{mileage || "-"}</dd></div>
               </dl>
               <details className="fleet-mobile-tech">
                 <summary>Ficha tecnica</summary>
@@ -64,8 +62,8 @@ export const FleetMobileList = memo(function FleetMobileList({
                   <div><dt>Motor</dt><dd>{row.engine_serial ?? "-"}</dd></div>
                   <div><dt>Chasis</dt><dd>{row.chassis_serial ?? "-"}</dd></div>
                   <div><dt>Transmision</dt><dd>{transmission || "-"}</dd></div>
+                  <div><dt>Llave</dt><dd>{row.key_coded === true ? "Codificada" : row.key_coded === false ? "No codificada" : "Sin confirmar"}</dd></div>
                 </dl>
-                {row.observation && <p className="fleet-mobile-note">{row.observation}</p>}
               </details>
               {!readOnly && (
                 <div className="panel-actions" style={{ marginTop: 10, flexWrap: "wrap" }}>

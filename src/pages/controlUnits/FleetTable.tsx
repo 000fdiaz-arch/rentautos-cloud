@@ -42,22 +42,20 @@ export const FleetTable = memo(function FleetTable({
             <th>Chasis</th>
             <th>Color</th>
             <th>Transmision</th>
-            <th>Kilometraje</th>
-            <th>Observacion</th>
+            <th>Llave</th>
             {!readOnly && <th>Acciones</th>}
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={readOnly ? 13 : 14}><span className="hint">No hay unidades para los filtros seleccionados.</span></td>
+              <td colSpan={readOnly ? 12 : 13}><span className="hint">No hay unidades para los filtros seleccionados.</span></td>
             </tr>
           ) : (
             rows.map((row) => {
               const year = optionalString(row, ["year", "model_year"]);
               const color = optionalString(row, ["color"]);
               const transmission = optionalString(row, ["transmission", "transmission_type"]);
-              const mileage = optionalString(row, ["mileage", "kilometraje", "kilometrage"]);
               return (
                 <tr key={row.fleet_id || `${row.user_id}-${row.unit_id}`}>
                   <td><strong>{row.unit_id}</strong></td>
@@ -78,8 +76,7 @@ export const FleetTable = memo(function FleetTable({
                   <td>{row.chassis_serial ?? "-"}</td>
                   <td>{color || "-"}</td>
                   <td>{transmission || "-"}</td>
-                  <td>{mileage || "-"}</td>
-                  <td className="ar-truncate-line" title={row.observation ?? ""}>{row.observation ?? "-"}</td>
+                  <td>{row.key_coded === true ? "Codificada" : row.key_coded === false ? "No codificada" : "Sin confirmar"}</td>
                   {!readOnly && (
                     <td>
                       <div className="panel-actions" style={{ flexWrap: "wrap" }}>

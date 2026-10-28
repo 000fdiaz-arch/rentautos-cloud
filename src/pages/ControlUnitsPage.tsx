@@ -8,6 +8,7 @@ import {
   retireControlUnit,
   saveControlUnit,
   saveFleetCatalogSettings,
+  saveFleetKeyCoded,
   uploadFleetCatalogPhoto,
   removeFleetCatalogPhoto,
   type ActiveRouteItem,
@@ -21,6 +22,7 @@ import type { BankRule, Client } from "../types";
 import { FleetDashboard } from "./controlUnits/FleetDashboard";
 import { FleetCatalog } from "./controlUnits/FleetCatalog";
 import { FleetFilters } from "./controlUnits/FleetFilters";
+import { FleetIncompleteList } from "./controlUnits/FleetIncompleteList";
 import { FleetMobileList } from "./controlUnits/FleetMobileList";
 import { FleetMobileToolbar } from "./controlUnits/FleetMobileToolbar";
 import { FleetUnitHistoryModal, RenameFleetUnitModal, RestoreFleetUnitModal, RetireFleetUnitModal } from "./controlUnits/FleetLifecycleModals";
@@ -35,12 +37,14 @@ import {
   buildFleetPieData,
   describeStatusError,
   effectiveStatus,
+  findFleetIdentityDuplicate,
   filterAndSortFleetRows,
   getActiveFleetGroups,
   getActiveFleetRule,
   getFleetCompanyForGroup,
   getFleetCompanyOptions,
   getFleetFilterOptions,
+  getFleetCompleteness,
   isCatalogEligible,
   normalizeStatus,
   normalizeText,
@@ -90,8 +94,9 @@ export default function ControlUnitsPage({
   const [statusTarget, setStatusTarget] = useState<ControlUnitRow | null>(null);
   const [statusDraft, setStatusDraft] = useState<FleetStatus>("activo");
   const [form, setForm] = useState<UnitFormState>({ ...DEFAULT_FORM });
-  const [fleetView, setFleetView] = useState<"summary" | "catalog" | "table" | "retired">("catalog");
+  const [fleetView, setFleetView] = useState<"summary" | "catalog" | "table" | "incomplete" | "retired">("catalog");
   const [catalogSearch, setCatalogSearch] = useState<string>("");
+  const [incompleteSearch, setIncompleteSearch] = useState<string>("");
   const [catalogPhotoFile, setCatalogPhotoFile] = useState<File | null>(null);
   const [activeRouteItems, setActiveRouteItems] = useState<ActiveRouteItem[]>([]);
   const [catalogClock, setCatalogClock] = useState<number>(() => Date.now());
@@ -148,6 +153,17 @@ export default function ControlUnitsPage({
     });
   }, [catalogClock, catalogSearch, custodySinceByUnit, displayRows]);
   const pieData = useMemo(() => buildFleetPieData(displayRows), [displayRows]);
+  const incompleteRows = useMemo(() => {
+    const query = incompleteSearch.trim().toLocaleLowerCase("es");
+    return displayRows
+      .filter((row) => getFleetCompleteness(row).missing.length > 0)
+      .filter((row) => !query || [row.unit_id, row.brand_model, row.plate, row.engine_serial, row.chassis_serial]
+        .some((value) => String(value ?? "").toLocaleLowerCase("es").includes(query)))
+      .sort((left, right) => {
+        const difference = getFleetCompleteness(left).completed - getFleetCompleteness(right).completed;
+        return difference || String(left.unit_id ?? "").localeCompare(String(right.unit_id ?? ""), "es", { numeric: true });
+      });
+  }, [displayRows, incompleteSearch]);
   const kpiTotal = displayRows.length;
   const hasActiveFilters = search.trim().length > 0 ||
     groupFilter !== "all" ||
@@ -267,6 +283,11 @@ export default function ControlUnitsPage({
       setSaveError("La unidad es obligatoria.");
       return;
     }
+    const identityDuplicate = findFleetIdentityDuplicate([...rows, ...retiredRows], state, editTarget?.fleet_id);
+    if (identityDuplicate) {
+      setSaveError(`No se puede guardar: la ${identityDuplicate.label} ${identityDuplicate.value} ya está registrada en la unidad ${identityDuplicate.unitId}.`);
+      return;
+    }
     if (!/^[A-Z][0-9]{1,3}$/.test(unitId)) {
       setSaveError("Formato de unidad invalido. Usa la letra configurada en Regla bancaria y un numero, por ejemplo E1.");
       return;
@@ -296,6 +317,7 @@ export default function ControlUnitsPage({
     const dailyRate = optionalNumber(state.catalog_daily_rate);
     const weeklyRate = optionalNumber(state.catalog_weekly_rate);
     const biweeklyRate = optionalNumber(state.catalog_biweekly_rate);
+    const keyCoded = state.key_coded === "yes" ? true : state.key_coded === "no" ? false : null;
     if ((state.catalog_daily_rate.trim() && dailyRate === null) ||
       (state.catalog_weekly_rate.trim() && weeklyRate === null) ||
       (state.catalog_biweekly_rate.trim() && biweeklyRate === null) ||
@@ -326,12 +348,14 @@ export default function ControlUnitsPage({
       model_year: year,
       color: state.color.trim() || null,
       transmission_type: state.transmission.trim() || null,
+      key_coded: keyCoded,
       mileage
     };
     try {
       const saveResult = await saveControlUnit(payload);
       const fleetId = saveResult.fleet_id || editTarget?.fleet_id;
       if (!fleetId) throw new Error("No se pudo identificar el auto guardado para actualizar su ficha de catalogo.");
+      await saveFleetKeyCoded({ userId: dataOwnerUserId, fleetId, keyCoded });
       const previousPhotoPath = normalizeText(editTarget?.catalog_photo_path);
       let nextPhotoPath = previousPhotoPath || null;
       let uploadedPhotoPath = "";
@@ -620,6 +644,7 @@ export default function ControlUnitsPage({
         <button type="button" className={`button ghost small ${fleetView === "summary" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("summary")}>Resumen</button>
         <button type="button" className={`button ghost small ${fleetView === "catalog" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("catalog")}>Catálogo ({catalogRows.length})</button>
         <button type="button" className={`button ghost small ${fleetView === "table" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("table")}>Tabla ({rows.length})</button>
+        <button type="button" className={`button ghost small ${fleetView === "incomplete" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("incomplete")}>Pendientes ({incompleteRows.length})</button>
         <button type="button" className={`button ghost small ${fleetView === "retired" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("retired")}>Dados de baja ({retiredRows.length})</button>
       </div>
 
@@ -672,6 +697,18 @@ export default function ControlUnitsPage({
         </>
       )}
 
+      {fleetView === "incomplete" && (
+        <div className="fleet-incomplete-toolbar">
+          <div>
+            <strong>Pendientes de completar</strong>
+            <p className="hint">Prioriza primero los autos sin placa, motor o chasis. La preparación del catálogo se controla por separado.</p>
+          </div>
+          <label>Buscar unidad, modelo, placa, motor o chasis
+            <input value={incompleteSearch} onChange={(event) => setIncompleteSearch(event.target.value)} placeholder="Ejemplo: D47" />
+          </label>
+        </div>
+      )}
+
       {fleetView === "retired" && (
         <div className="form-grid" style={{ marginBottom: 12 }}>
           <label>Buscar en autos dados de baja
@@ -712,6 +749,8 @@ export default function ControlUnitsPage({
             onOpenStatusDialog={openStatusDialog}
           />
         </>
+      ) : fleetView === "incomplete" ? (
+        <FleetIncompleteList rows={incompleteRows} totalFleet={displayRows.length} readOnly={readOnly} onEdit={openEditDialog} />
       ) : fleetView === "retired" ? (
         <RetiredFleetList rows={filteredRetiredRows} readOnly={readOnly} onRestore={openRestoreDialog} onHistory={openHistoryDialog} />
       ) : null}
@@ -795,6 +834,7 @@ export default function ControlUnitsPage({
           saving={saving}
           error={saveError}
           photoFile={catalogPhotoFile}
+          existingRows={[...rows, ...retiredRows]}
           onFormChange={setForm}
           onUnitIdChange={changeUnitId}
           onPhotoFileChange={setCatalogPhotoFile}
@@ -802,6 +842,7 @@ export default function ControlUnitsPage({
           onSave={() => void persistUnit(form)}
         />
       )}
+
     </section>
   );
 }

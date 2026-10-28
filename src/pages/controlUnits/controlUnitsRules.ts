@@ -24,6 +24,7 @@ export type UnitFormState = {
   year: string;
   color: string;
   transmission: string;
+  key_coded: "" | "yes" | "no";
   mileage: string;
   operational_status: string;
   observation: string;
@@ -41,6 +42,21 @@ export type FleetPieSlice = {
   path: string;
 };
 
+export type FleetIdentityDuplicate = {
+  field: "plate" | "engine_serial" | "chassis_serial";
+  label: string;
+  value: string;
+  unitId: string;
+};
+
+export type FleetCompleteness = {
+  completed: number;
+  total: number;
+  percent: number;
+  missing: string[];
+  criticalMissing: string[];
+};
+
 export const DEFAULT_FORM: UnitFormState = {
   unit_id: "",
   company: "",
@@ -51,6 +67,7 @@ export const DEFAULT_FORM: UnitFormState = {
   year: "",
   color: "",
   transmission: "",
+  key_coded: "",
   mileage: "",
   operational_status: "libre",
   observation: "",
@@ -99,6 +116,62 @@ export function normalizeUnitIdInput(raw: string): string {
 
 export function normalizeText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+export function normalizeFleetIdentifier(value: unknown): string {
+  return normalizeText(value).toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+export function getFleetCompleteness(row: ControlUnitRow): FleetCompleteness {
+  const fields = [
+    { label: "Marca / modelo", complete: Boolean(normalizeText(row.brand_model)), critical: false },
+    { label: "Año", complete: Boolean(optionalString(row, ["year", "model_year"])), critical: false },
+    { label: "Placa", complete: Boolean(normalizeFleetIdentifier(row.plate)), critical: true },
+    { label: "Motor", complete: Boolean(normalizeFleetIdentifier(row.engine_serial)), critical: true },
+    { label: "Chasis", complete: Boolean(normalizeFleetIdentifier(row.chassis_serial)), critical: true },
+    { label: "Color", complete: Boolean(normalizeText(row.color)), critical: false },
+    { label: "Transmisión", complete: Boolean(optionalString(row, ["transmission", "transmission_type"])), critical: false },
+    { label: "Llave", complete: row.key_coded === true || row.key_coded === false, critical: false }
+  ];
+  const missingFields = fields.filter((field) => !field.complete);
+  const completed = fields.length - missingFields.length;
+  return {
+    completed,
+    total: fields.length,
+    percent: Math.round((completed / fields.length) * 100),
+    missing: missingFields.map((field) => field.label),
+    criticalMissing: missingFields.filter((field) => field.critical).map((field) => field.label)
+  };
+}
+
+export function findFleetIdentityDuplicate(
+  rows: ControlUnitRow[],
+  identity: { plate?: unknown; engine_serial?: unknown; chassis_serial?: unknown },
+  excludedFleetId?: string | null
+): FleetIdentityDuplicate | null {
+  const checks = [
+    { field: "plate", label: "placa", value: identity.plate },
+    { field: "chassis_serial", label: "serial de chasis", value: identity.chassis_serial },
+    { field: "engine_serial", label: "serial de motor", value: identity.engine_serial }
+  ] as const;
+  const normalizedExcludedFleetId = normalizeText(excludedFleetId);
+  for (const check of checks) {
+    const token = normalizeFleetIdentifier(check.value);
+    if (!token) continue;
+    const duplicate = rows.find((row) => {
+      if (normalizedExcludedFleetId && normalizeText(row.fleet_id) === normalizedExcludedFleetId) return false;
+      return normalizeFleetIdentifier(row[check.field]) === token;
+    });
+    if (duplicate) {
+      return {
+        field: check.field,
+        label: check.label,
+        value: normalizeText(check.value).toUpperCase(),
+        unitId: normalizeText(duplicate.unit_id).toUpperCase() || "sin nomenclatura"
+      };
+    }
+  }
+  return null;
 }
 
 export function normalizeStatus(value: unknown): string {
@@ -178,6 +251,7 @@ export function toFormState(row?: ControlUnitRow): UnitFormState {
     year: optionalString(row, ["year", "model_year"]),
     color: optionalString(row, ["color"]),
     transmission: optionalString(row, ["transmission", "transmission_type"]),
+    key_coded: row.key_coded === true ? "yes" : row.key_coded === false ? "no" : "",
     mileage: optionalString(row, ["mileage", "kilometraje", "kilometrage"]),
     operational_status: row.operational_status ?? "libre",
     observation: row.observation ?? "",
