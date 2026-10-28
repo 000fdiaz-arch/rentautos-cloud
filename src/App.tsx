@@ -7,15 +7,18 @@ import { isSupabaseConfigured } from "./lib/supabase";
 import { isLocalOnlyMode } from "./persistenceMode";
 import "./styles.css";
 import SellerLeadPortalPage from "./pages/SellerLeadPortalPage";
+import PublicFleetCatalogPage from "./pages/PublicFleetCatalogPage";
 
 const testBypassAuth = import.meta.env.VITE_RENTAUTOS_TEST_BYPASS_AUTH === "1";
 
 export default function App() {
   const sellerPortalMatch = window.location.pathname.match(/^\/consulta-vendedor\/([0-9a-f-]{36})\/?$/i);
   const sharedPortalMatch = window.location.pathname.match(/^\/consulta-vendedores\/([0-9a-f-]{36})\/?$/i);
+  const publicCatalogMatch = window.location.pathname.match(/^\/catalogo\/([0-9a-f-]{36})\/?$/i);
 
   if (sellerPortalMatch) return <SellerLeadPortalPage token={sellerPortalMatch[1]} />;
   if (sharedPortalMatch) return <SellerLeadPortalPage portalId={sharedPortalMatch[1]} />;
+  if (publicCatalogMatch) return <PublicFleetCatalogPage ownerUserId={publicCatalogMatch[1]} />;
   return <AuthenticatedApp />;
 }
 

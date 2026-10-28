@@ -27,6 +27,9 @@ export type UnitFormState = {
   mileage: string;
   operational_status: string;
   observation: string;
+  catalog_daily_rate: string;
+  catalog_weekly_rate: string;
+  catalog_biweekly_rate: string;
 };
 
 export type FleetPieSlice = {
@@ -50,7 +53,10 @@ export const DEFAULT_FORM: UnitFormState = {
   transmission: "",
   mileage: "",
   operational_status: "libre",
-  observation: ""
+  observation: "",
+  catalog_daily_rate: "",
+  catalog_weekly_rate: "",
+  catalog_biweekly_rate: ""
 };
 
 export const UNIT_GROUP_MAX = 100;
@@ -174,8 +180,23 @@ export function toFormState(row?: ControlUnitRow): UnitFormState {
     transmission: optionalString(row, ["transmission", "transmission_type"]),
     mileage: optionalString(row, ["mileage", "kilometraje", "kilometrage"]),
     operational_status: row.operational_status ?? "libre",
-    observation: row.observation ?? ""
+    observation: row.observation ?? "",
+    catalog_daily_rate: optionalString(row, ["catalog_daily_rate"]),
+    catalog_weekly_rate: optionalString(row, ["catalog_weekly_rate"]),
+    catalog_biweekly_rate: optionalString(row, ["catalog_biweekly_rate"])
   };
+}
+
+export function isCatalogEligible(
+  row: ControlUnitRow,
+  custodySinceByUnit: Map<string, string>,
+  now = Date.now()
+): boolean {
+  if (effectiveStatus(row) === "libre") return true;
+  const custodySince = custodySinceByUnit.get(normalizeText(row.unit_id).toUpperCase());
+  if (!custodySince) return false;
+  const startedAt = Date.parse(custodySince);
+  return Number.isFinite(startedAt) && now - startedAt >= 24 * 60 * 60 * 1000;
 }
 
 export function getFleetFilterOptions(rows: ControlUnitRow[]) {

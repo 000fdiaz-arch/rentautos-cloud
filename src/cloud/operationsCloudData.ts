@@ -94,6 +94,11 @@ export type ControlUnitRow = {
   transmission?: string | null;
   transmission_type?: string | null;
   mileage?: number | string | null;
+  catalog_daily_rate?: number | string | null;
+  catalog_weekly_rate?: number | string | null;
+  catalog_biweekly_rate?: number | string | null;
+  catalog_photo_path?: string | null;
+  catalog_photo_url?: string | null;
   kilometrage?: number | string | null;
   kilometraje?: number | string | null;
   created_at?: string | null;
@@ -1982,7 +1987,86 @@ async function loadControlUnitsUncached(userId: string): Promise<ControlUnitRow[
     from += PAGE_SIZE;
   }
 
-  return allRows;
+  const catalogDetails = await loadFleetCatalogDetails(userId).catch((error) => {
+    if (!isMissingFleetCatalogSchema(error)) {
+      console.warn("No se pudieron cargar los datos del catalogo de autos.", error);
+    }
+    return new Map<string, Partial<ControlUnitRow>>();
+  });
+
+  return allRows.map((row) => ({
+    ...row,
+    ...(catalogDetails.get(row.fleet_id) ?? {})
+  }));
+}
+
+const FLEET_CATALOG_BUCKET = "fleet-catalog-photos";
+
+function isMissingFleetCatalogSchema(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: unknown; message?: unknown };
+  const code = typeof record.code === "string" ? record.code : "";
+  const message = typeof record.message === "string" ? record.message.toLowerCase() : "";
+  return code === "42703" || code === "PGRST202" || code === "PGRST204" ||
+    message.includes("catalog_daily_rate") || message.includes("save_fleet_catalog_settings");
+}
+
+async function loadFleetCatalogDetails(userId: string): Promise<Map<string, Partial<ControlUnitRow>>> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("fleet_units_cloud")
+    .select("fleet_id,catalog_daily_rate,catalog_weekly_rate,catalog_biweekly_rate,catalog_photo_path")
+    .eq("user_id", userId)
+    .is("retired_at", null);
+  if (error) throw error;
+
+  const rows = (data ?? []) as Array<{
+    fleet_id: string;
+    catalog_daily_rate: number | string | null;
+    catalog_weekly_rate: number | string | null;
+    catalog_biweekly_rate: number | string | null;
+    catalog_photo_path: string | null;
+  }>;
+  const paths = rows.map((row) => row.catalog_photo_path).filter((path): path is string => Boolean(path));
+  const signedByPath = new Map<string, string>();
+  if (paths.length > 0) {
+    const { data: signedRows, error: signedError } = await client.storage
+      .from(FLEET_CATALOG_BUCKET)
+      .createSignedUrls(paths, 60 * 60);
+    if (!signedError) {
+      for (const item of signedRows ?? []) {
+        if (item.path && item.signedUrl) signedByPath.set(item.path, item.signedUrl);
+      }
+    }
+  }
+
+  return new Map(rows.map((row) => [row.fleet_id, {
+    catalog_daily_rate: row.catalog_daily_rate,
+    catalog_weekly_rate: row.catalog_weekly_rate,
+    catalog_biweekly_rate: row.catalog_biweekly_rate,
+    catalog_photo_path: row.catalog_photo_path,
+    catalog_photo_url: row.catalog_photo_path ? signedByPath.get(row.catalog_photo_path) ?? null : null
+  }]));
+}
+
+export async function loadPublicFleetCatalog(ownerUserId: string): Promise<ControlUnitRow[]> {
+  const client = getCloudClient();
+  const { data, error } = await client.rpc("get_public_fleet_catalog", {
+    p_owner_user_id: ownerUserId
+  });
+  if (error) throw error;
+  return ((data ?? []) as ControlUnitRow[]).map((row) => {
+    const photoPath = typeof row.catalog_photo_path === "string" ? row.catalog_photo_path : "";
+    const photoUrl = photoPath
+      ? client.storage.from(FLEET_CATALOG_BUCKET).getPublicUrl(photoPath).data.publicUrl
+      : null;
+    return {
+      ...row,
+      year: row.model_year ?? row.year,
+      transmission: row.transmission_type ?? row.transmission,
+      catalog_photo_url: photoUrl
+    };
+  });
 }
 
 export type ControlUnitUpsertInput = {
@@ -2366,12 +2450,62 @@ function toControlUnitCloudPayload(input: ControlUnitUpsertInput): Record<string
   return payload;
 }
 
-export async function saveControlUnit(input: ControlUnitUpsertInput): Promise<void> {
+export type SaveControlUnitResult = {
+  fleet_id?: string;
+  unit_id?: string;
+  saved?: boolean;
+};
+
+export async function saveControlUnit(input: ControlUnitUpsertInput): Promise<SaveControlUnitResult> {
   const client = getCloudClient();
-  const { error } = await client.rpc("save_fleet_unit", {
+  const { data, error } = await client.rpc("save_fleet_unit", {
     p_owner_user_id: input.user_id,
     p_unit: toControlUnitCloudPayload(input)
   });
+  if (error) throw error;
+  return data && typeof data === "object" ? data as SaveControlUnitResult : {};
+}
+
+export type FleetCatalogSettingsInput = {
+  userId: string;
+  fleetId: string;
+  dailyRate: number | null;
+  weeklyRate: number | null;
+  biweeklyRate: number | null;
+  photoPath: string | null;
+};
+
+export async function saveFleetCatalogSettings(input: FleetCatalogSettingsInput): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("save_fleet_catalog_settings", {
+    p_owner_user_id: input.userId,
+    p_fleet_id: input.fleetId,
+    p_daily_rate: input.dailyRate,
+    p_weekly_rate: input.weeklyRate,
+    p_biweekly_rate: input.biweeklyRate,
+    p_photo_path: input.photoPath
+  });
+  if (error) {
+    if (isMissingFleetCatalogSchema(error)) {
+      throw new Error("Falta aplicar la migracion del catalogo de autos en Supabase.");
+    }
+    throw error;
+  }
+}
+
+export async function uploadFleetCatalogPhoto(userId: string, fleetId: string, file: File): Promise<string> {
+  const client = getCloudClient();
+  const path = `${userId}/${fleetId}/${Date.now()}-${crypto.randomUUID()}-${safeStorageFileName(file.name)}`;
+  const { error } = await client.storage
+    .from(FLEET_CATALOG_BUCKET)
+    .upload(path, file, { contentType: file.type || undefined, upsert: false });
+  if (error) throw error;
+  return path;
+}
+
+export async function removeFleetCatalogPhoto(path: string): Promise<void> {
+  if (!path) return;
+  const { error } = await getCloudClient().storage.from(FLEET_CATALOG_BUCKET).remove([path]);
   if (error) throw error;
 }
 

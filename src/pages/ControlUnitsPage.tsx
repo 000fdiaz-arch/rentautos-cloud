@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  loadCloudActiveRouteItems,
   loadFleetUnitEvents,
   previewFleetUnitLifecycle,
   renameControlUnit,
   restoreControlUnit,
   retireControlUnit,
   saveControlUnit,
+  saveFleetCatalogSettings,
+  uploadFleetCatalogPhoto,
+  removeFleetCatalogPhoto,
+  type ActiveRouteItem,
   setControlUnitStatus,
   type ControlUnitRow,
   type ControlUnitUpsertInput,
@@ -14,6 +19,7 @@ import {
 } from "../cloudData";
 import type { BankRule, Client } from "../types";
 import { FleetDashboard } from "./controlUnits/FleetDashboard";
+import { FleetCatalog } from "./controlUnits/FleetCatalog";
 import { FleetFilters } from "./controlUnits/FleetFilters";
 import { FleetMobileList } from "./controlUnits/FleetMobileList";
 import { FleetMobileToolbar } from "./controlUnits/FleetMobileToolbar";
@@ -35,6 +41,7 @@ import {
   getFleetCompanyForGroup,
   getFleetCompanyOptions,
   getFleetFilterOptions,
+  isCatalogEligible,
   normalizeStatus,
   normalizeText,
   normalizeUnitIdInput,
@@ -49,6 +56,7 @@ import {
   type SortDirection,
   type UnitFormState
 } from "./controlUnits/controlUnitsRules";
+import { supabase } from "../lib/supabase";
 
 type Props = {
   dataOwnerUserId?: string | null;
@@ -82,7 +90,11 @@ export default function ControlUnitsPage({
   const [statusTarget, setStatusTarget] = useState<ControlUnitRow | null>(null);
   const [statusDraft, setStatusDraft] = useState<FleetStatus>("activo");
   const [form, setForm] = useState<UnitFormState>({ ...DEFAULT_FORM });
-  const [viewTab, setViewTab] = useState<"active" | "retired">("active");
+  const [fleetView, setFleetView] = useState<"summary" | "catalog" | "table" | "retired">("catalog");
+  const [catalogSearch, setCatalogSearch] = useState<string>("");
+  const [catalogPhotoFile, setCatalogPhotoFile] = useState<File | null>(null);
+  const [activeRouteItems, setActiveRouteItems] = useState<ActiveRouteItem[]>([]);
+  const [catalogClock, setCatalogClock] = useState<number>(() => Date.now());
   const [retiredSearch, setRetiredSearch] = useState<string>("");
   const [renameTarget, setRenameTarget] = useState<ControlUnitRow | null>(null);
   const [retireTarget, setRetireTarget] = useState<ControlUnitRow | null>(null);
@@ -124,6 +136,17 @@ export default function ControlUnitsPage({
     sortField,
     sortDirection
   }), [displayRows, search, groupFilter, companyFilter, modelFilter, statusFilter, sortField, sortDirection]);
+  const custodySinceByUnit = useMemo(() => new Map(activeRouteItems
+    .filter((item) => item.inCustody && !item.removedAt && item.custodySince)
+    .map((item) => [normalizeText(item.unitId).toUpperCase(), item.custodySince as string])), [activeRouteItems]);
+  const catalogRows = useMemo(() => {
+    const query = catalogSearch.trim().toLocaleLowerCase("es");
+    return displayRows.filter((row) => isCatalogEligible(row, custodySinceByUnit, catalogClock)).filter((row) => {
+      if (!query) return true;
+      return [row.brand_model, row.model_year, row.year, row.transmission_type, row.transmission]
+        .some((value) => String(value ?? "").toLocaleLowerCase("es").includes(query));
+    });
+  }, [catalogClock, catalogSearch, custodySinceByUnit, displayRows]);
   const pieData = useMemo(() => buildFleetPieData(displayRows), [displayRows]);
   const kpiTotal = displayRows.length;
   const hasActiveFilters = search.trim().length > 0 ||
@@ -173,12 +196,14 @@ export default function ControlUnitsPage({
 
   const openCreateDialog = useCallback((): void => {
     setForm({ ...DEFAULT_FORM });
+    setCatalogPhotoFile(null);
     setSaveError("");
     setCreateOpen(true);
   }, []);
 
   const openEditDialog = useCallback((row: ControlUnitRow): void => {
     setForm(toFormState(row));
+    setCatalogPhotoFile(null);
     setSaveError("");
     setEditTarget(row);
   }, []);
@@ -186,8 +211,39 @@ export default function ControlUnitsPage({
   const closeUnitDialog = useCallback((): void => {
     setCreateOpen(false);
     setEditTarget(null);
+    setCatalogPhotoFile(null);
     setSaveError("");
   }, []);
+
+  useEffect(() => {
+    const clock = window.setInterval(() => setCatalogClock(Date.now()), 60_000);
+    return () => window.clearInterval(clock);
+  }, []);
+
+  useEffect(() => {
+    if (!dataOwnerUserId) {
+      setActiveRouteItems([]);
+      return;
+    }
+    let cancelled = false;
+    const reloadCustody = () => {
+      void loadCloudActiveRouteItems(dataOwnerUserId).then((items) => {
+        if (!cancelled) setActiveRouteItems(items);
+      }).catch((error) => {
+        if (!cancelled) console.warn("No se pudo cargar custodia para el catalogo.", error);
+      });
+    };
+    reloadCustody();
+    if (!supabase) return () => { cancelled = true; };
+    const client = supabase;
+    const channel = client.channel(`fleet-catalog-custody-${dataOwnerUserId}-${crypto.randomUUID()}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "active_route_items_cloud", filter: `user_id=eq.${dataOwnerUserId}` }, reloadCustody)
+      .subscribe();
+    return () => {
+      cancelled = true;
+      void client.removeChannel(channel);
+    };
+  }, [dataOwnerUserId]);
 
   const changeUnitId = useCallback((rawUnitId: string): void => {
     const unitId = normalizeUnitIdInput(rawUnitId);
@@ -201,7 +257,7 @@ export default function ControlUnitsPage({
     setSaveError("");
   }, [bankRules, displayRows]);
 
-  async function persistUnit(state: UnitFormState, previousUnitId?: string): Promise<void> {
+  async function persistUnit(state: UnitFormState): Promise<void> {
     if (!dataOwnerUserId) {
       setSaveError("No hay owner de datos para guardar autos en Supabase.");
       return;
@@ -222,7 +278,8 @@ export default function ControlUnitsPage({
     }
     const numericPart = Number(unitId.slice(1));
     const maxAllowed = UNIT_GROUP_MAX;
-    if (!Number.isFinite(numericPart) || numericPart < 1 || numericPart > maxAllowed) {
+    const keepsExistingLegacyUnit = Boolean(editTarget && normalizeUnitIdInput(editTarget.unit_id) === unitId);
+    if (!Number.isFinite(numericPart) || numericPart < 1 || (numericPart > maxAllowed && !keepsExistingLegacyUnit)) {
       setSaveError(`Unidad fuera de rango para grupo ${group}. Rango permitido: ${group}1 a ${group}${maxAllowed}.`);
       return;
     }
@@ -234,6 +291,24 @@ export default function ControlUnitsPage({
     const mileage = optionalNumber(state.mileage);
     if (state.mileage.trim() && mileage === null) {
       setSaveError("Kilometraje debe ser un numero valido.");
+      return;
+    }
+    const dailyRate = optionalNumber(state.catalog_daily_rate);
+    const weeklyRate = optionalNumber(state.catalog_weekly_rate);
+    const biweeklyRate = optionalNumber(state.catalog_biweekly_rate);
+    if ((state.catalog_daily_rate.trim() && dailyRate === null) ||
+      (state.catalog_weekly_rate.trim() && weeklyRate === null) ||
+      (state.catalog_biweekly_rate.trim() && biweeklyRate === null) ||
+      [dailyRate, weeklyRate, biweeklyRate].some((value) => value !== null && value < 0)) {
+      setSaveError("Los planes deben tener importes validos y no negativos.");
+      return;
+    }
+    if (catalogPhotoFile && catalogPhotoFile.size > 8 * 1024 * 1024) {
+      setSaveError("La foto principal no puede superar 8 MB.");
+      return;
+    }
+    if (catalogPhotoFile && !["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"].includes(catalogPhotoFile.type.toLowerCase())) {
+      setSaveError("La foto debe estar en formato JPG, PNG, WebP o HEIC.");
       return;
     }
     setSaving(true);
@@ -254,22 +329,38 @@ export default function ControlUnitsPage({
       mileage
     };
     try {
-      await saveControlUnit(payload);
-      setRows((current) => {
-        const next = [...current];
-        const key = previousUnitId ?? unitId;
-        const index = next.findIndex((item) => item.unit_id === key);
-        const merged: ControlUnitRow = {
-          ...(index >= 0 ? next[index] : ({} as ControlUnitRow)),
-          ...payload,
-          unit_id: unitId
-        } as ControlUnitRow;
-        if (index >= 0) next[index] = merged;
-        else next.unshift(merged);
-        return next;
-      });
+      const saveResult = await saveControlUnit(payload);
+      const fleetId = saveResult.fleet_id || editTarget?.fleet_id;
+      if (!fleetId) throw new Error("No se pudo identificar el auto guardado para actualizar su ficha de catalogo.");
+      const previousPhotoPath = normalizeText(editTarget?.catalog_photo_path);
+      let nextPhotoPath = previousPhotoPath || null;
+      let uploadedPhotoPath = "";
+      try {
+        if (catalogPhotoFile) {
+          uploadedPhotoPath = await uploadFleetCatalogPhoto(dataOwnerUserId, fleetId, catalogPhotoFile);
+          nextPhotoPath = uploadedPhotoPath;
+        }
+        await saveFleetCatalogSettings({
+          userId: dataOwnerUserId,
+          fleetId,
+          dailyRate,
+          weeklyRate,
+          biweeklyRate,
+          photoPath: nextPhotoPath
+        });
+      } catch (error) {
+        if (uploadedPhotoPath) await removeFleetCatalogPhoto(uploadedPhotoPath).catch(() => undefined);
+        throw error;
+      }
+      if (uploadedPhotoPath && previousPhotoPath && previousPhotoPath !== uploadedPhotoPath) {
+        await removeFleetCatalogPhoto(previousPhotoPath).catch((error) => {
+          console.warn("La nueva foto se guardo, pero no se pudo eliminar la anterior.", error);
+        });
+      }
+      await reloadRows();
       setCreateOpen(false);
       setEditTarget(null);
+      setCatalogPhotoFile(null);
       setForm({ ...DEFAULT_FORM });
     } catch (error) {
       console.error("No se pudo guardar auto.", error);
@@ -454,7 +545,7 @@ export default function ControlUnitsPage({
       });
       await reloadAllRows();
       resetLifecycleDialog();
-      setViewTab("retired");
+      setFleetView("retired");
       setLifecycleMessage(`${retiredUnitId} fue dado de baja y su nomenclatura quedó libre.`);
     } catch (error) {
       setLifecycleError(describeStatusError(error));
@@ -477,7 +568,7 @@ export default function ControlUnitsPage({
       });
       await reloadAllRows();
       resetLifecycleDialog();
-      setViewTab("active");
+      setFleetView("catalog");
       setLifecycleMessage(`El auto fue reactivado como ${unitId}.`);
     } catch (error) {
       setLifecycleError(describeStatusError(error));
@@ -509,30 +600,52 @@ export default function ControlUnitsPage({
   return (
     <section className="panel">
       <div className="panel-head">
-        <h2>Autos</h2>
-        {!readOnly && dataOwnerUserId && viewTab === "active" && (
-          <button type="button" className="button primary" onClick={openCreateDialog}>
-            Nuevo auto
-          </button>
-        )}
+        <div>
+          <h2>Autos</h2>
+          <p className="hint fleet-catalog-subtitle">Gestiona la flota y publica automáticamente los autos disponibles.</p>
+        </div>
+        <div className="fleet-catalog-head-actions">
+          {dataOwnerUserId && (
+            <a className="fleet-public-link" href={`/catalogo/${dataOwnerUserId}`} target="_blank" rel="noreferrer">Catálogo</a>
+          )}
+          {!readOnly && dataOwnerUserId && fleetView !== "retired" && (
+            <button type="button" className="button primary" onClick={openCreateDialog}>
+              Nuevo auto
+            </button>
+          )}
+        </div>
       </div>
 
-      <p className="hint">Dashboard de flota con enfoque solo vehicular.</p>
-
-      <div className="cash-view-tabs" style={{ margin: "12px 0" }} role="tablist" aria-label="Estado de autos">
-        <button type="button" className={`button ghost small ${viewTab === "active" ? "cash-tab-active" : ""}`} onClick={() => setViewTab("active")}>Flota activa ({rows.length})</button>
-        <button type="button" className={`button ghost small ${viewTab === "retired" ? "cash-tab-active" : ""}`} onClick={() => setViewTab("retired")}>Autos dados de baja ({retiredRows.length})</button>
+      <div className="cash-view-tabs fleet-view-tabs" style={{ margin: "12px 0" }} role="tablist" aria-label="Vistas de autos">
+        <button type="button" className={`button ghost small ${fleetView === "summary" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("summary")}>Resumen</button>
+        <button type="button" className={`button ghost small ${fleetView === "catalog" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("catalog")}>Catálogo ({catalogRows.length})</button>
+        <button type="button" className={`button ghost small ${fleetView === "table" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("table")}>Tabla ({rows.length})</button>
+        <button type="button" className={`button ghost small ${fleetView === "retired" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("retired")}>Dados de baja ({retiredRows.length})</button>
       </div>
 
-      {viewTab === "active" ? (
-        <>
+      {fleetView === "summary" && (
           <FleetDashboard
             kpiTotal={kpiTotal}
             pieData={pieData}
             statusFilter={statusFilter}
             onStatusFilterChange={setStatusFilter}
           />
+      )}
 
+      {fleetView === "catalog" && (
+        <div className="fleet-catalog-toolbar">
+          <div>
+            <strong>Autos disponibles</strong>
+            <p className="hint">Solo se muestran autos libres. Los autos en custodia entran al catálogo después de 24 horas.</p>
+          </div>
+          <label className="fleet-catalog-search">Buscar por modelo, año o transmisión
+            <input value={catalogSearch} onChange={(event) => setCatalogSearch(event.target.value)} placeholder="Ejemplo: Kia Picanto" />
+          </label>
+        </div>
+      )}
+
+      {fleetView === "table" && (
+        <>
           <FleetFilters
             search={search}
             groupFilter={groupFilter}
@@ -557,7 +670,9 @@ export default function ControlUnitsPage({
             onClearFilters={clearFilters}
           />
         </>
-      ) : (
+      )}
+
+      {fleetView === "retired" && (
         <div className="form-grid" style={{ marginBottom: 12 }}>
           <label>Buscar en autos dados de baja
             <input value={retiredSearch} onChange={(event) => setRetiredSearch(event.target.value)} placeholder="Nomenclatura, placa, chasis, cliente o motivo" />
@@ -571,7 +686,9 @@ export default function ControlUnitsPage({
 
       {loading ? (
         <p className="hint">Cargando flota...</p>
-      ) : viewTab === "active" ? (
+      ) : fleetView === "catalog" ? (
+        <FleetCatalog rows={catalogRows} readOnly={readOnly} onEdit={openEditDialog} onHistory={openHistoryDialog} />
+      ) : fleetView === "table" ? (
         <>
           <FleetTable
             rows={filteredRows}
@@ -595,9 +712,9 @@ export default function ControlUnitsPage({
             onOpenStatusDialog={openStatusDialog}
           />
         </>
-      ) : (
+      ) : fleetView === "retired" ? (
         <RetiredFleetList rows={filteredRetiredRows} readOnly={readOnly} onRestore={openRestoreDialog} onHistory={openHistoryDialog} />
-      )}
+      ) : null}
 
       {statusTarget && !readOnly && (
         <FleetStatusModal
@@ -674,12 +791,15 @@ export default function ControlUnitsPage({
           form={form}
           editTarget={editTarget}
           companies={companyOptions}
+          groups={activeFleetGroups}
           saving={saving}
           error={saveError}
+          photoFile={catalogPhotoFile}
           onFormChange={setForm}
           onUnitIdChange={changeUnitId}
+          onPhotoFileChange={setCatalogPhotoFile}
           onCancel={closeUnitDialog}
-          onSave={() => void persistUnit(form, editTarget?.unit_id)}
+          onSave={() => void persistUnit(form)}
         />
       )}
     </section>
