@@ -148,7 +148,7 @@ export default function ControlUnitsPage({
     const query = catalogSearch.trim().toLocaleLowerCase("es");
     return displayRows.filter((row) => isCatalogEligible(row, custodySinceByUnit, catalogClock)).filter((row) => {
       if (!query) return true;
-      return [row.brand_model, row.model_year, row.year, row.transmission_type, row.transmission]
+      return [row.unit_id, row.brand_model, row.model_year, row.year, row.transmission_type, row.transmission]
         .some((value) => String(value ?? "").toLocaleLowerCase("es").includes(query));
     });
   }, [catalogClock, catalogSearch, custodySinceByUnit, displayRows]);
@@ -663,8 +663,8 @@ export default function ControlUnitsPage({
             <strong>Autos disponibles</strong>
             <p className="hint">Solo se muestran autos libres. Los autos en custodia entran al catálogo después de 24 horas.</p>
           </div>
-          <label className="fleet-catalog-search">Buscar por modelo, año o transmisión
-            <input value={catalogSearch} onChange={(event) => setCatalogSearch(event.target.value)} placeholder="Ejemplo: Kia Picanto" />
+          <label className="fleet-catalog-search">Buscar por nomenclatura, modelo, año o transmisión
+            <input value={catalogSearch} onChange={(event) => setCatalogSearch(event.target.value)} placeholder="Ejemplo: A01 o Kia Picanto" />
           </label>
         </div>
       )}
