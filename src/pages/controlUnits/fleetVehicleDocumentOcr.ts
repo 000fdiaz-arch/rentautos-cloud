@@ -53,6 +53,58 @@ async function renderFirstPdfPage(file: File): Promise<{ imageDataUrl: string; e
   }
 }
 
+async function cropTransmissionRegion(imageDataUrl: string): Promise<string> {
+  const image = new Image();
+  image.decoding = "async";
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error("No se pudo preparar la zona de transmisión del Registro Único."));
+    image.src = imageDataUrl;
+  });
+  const cropX = Math.round(image.naturalWidth * 0.04);
+  const cropY = Math.round(image.naturalHeight * 0.405);
+  const cropWidth = Math.round(image.naturalWidth * 0.21);
+  const cropHeight = Math.round(image.naturalHeight * 0.03);
+  const scale = Math.min(3, 1800 / cropWidth);
+  const canvas = window.document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(cropWidth * scale));
+  canvas.height = Math.max(1, Math.round(cropHeight * scale));
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("No se pudo preparar la lectura de transmisión.");
+  context.drawImage(
+    image,
+    cropX,
+    cropY,
+    cropWidth,
+    cropHeight,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+  const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+  for (let offset = 0; offset < pixels.data.length; offset += 4) {
+    const red = pixels.data[offset];
+    const green = pixels.data[offset + 1];
+    const blue = pixels.data[offset + 2];
+    if (red > 120 && red > green + 18 && red > blue + 18) {
+      pixels.data[offset] = 255;
+      pixels.data[offset + 1] = 255;
+      pixels.data[offset + 2] = 255;
+    }
+  }
+  context.putImageData(pixels, 0, 0);
+  const croppedDataUrl = canvas.toDataURL("image/png");
+  canvas.width = 1;
+  canvas.height = 1;
+  return croppedDataUrl;
+}
+
+function isRegistrationFile(file: File): boolean {
+  const name = file.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return name.includes("registro") || name.includes("unico");
+}
+
 function documentPriority(file: File): number {
   const name = file.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   if (name.includes("revisado") || name.includes("inspeccion")) return 0;
@@ -72,6 +124,10 @@ export async function analyzeFleetVehicleDocuments(
   let activeBaseProgress = 0;
   let activeFileShare = 1;
   let activeFileName = "";
+  const shouldStopAfter = (fileIndex: number): boolean => hasCoreFleetVehicleData(extracted) && (
+    Boolean(extracted.transmission) ||
+    !orderedFiles.slice(fileIndex + 1).some(isRegistrationFile)
+  );
 
   try {
     for (activeFileIndex = 0; activeFileIndex < orderedFiles.length; activeFileIndex += 1) {
@@ -87,7 +143,7 @@ export async function analyzeFleetVehicleDocuments(
         ? await renderFirstPdfPage(file)
         : { imageDataUrl: await imageFileDataUrl(file), embeddedText: "" };
       extracted = mergeFleetVehicleData(extracted, extractFleetVehicleDataFromText(prepared.embeddedText));
-      if (hasCoreFleetVehicleData(extracted)) break;
+      if (shouldStopAfter(activeFileIndex) && !(isRegistrationFile(file) && !extracted.transmission)) break;
 
       const tesseract = await import("tesseract.js");
       if (!worker) {
@@ -106,9 +162,30 @@ export async function analyzeFleetVehicleDocuments(
         });
       }
 
-      const recognition = await worker.recognize(prepared.imageDataUrl);
-      extracted = mergeFleetVehicleData(extracted, extractFleetVehicleDataFromText(recognition.data.text));
-      if (hasCoreFleetVehicleData(extracted)) break;
+      const onlyTransmissionIsMissing = isRegistrationFile(file) &&
+        hasCoreFleetVehicleData(extracted) &&
+        !extracted.transmission;
+      if (!onlyTransmissionIsMissing) {
+        const recognition = await worker.recognize(prepared.imageDataUrl);
+        extracted = mergeFleetVehicleData(extracted, extractFleetVehicleDataFromText(recognition.data.text));
+      }
+      if (isRegistrationFile(file) && !extracted.transmission) {
+        const transmissionRegion = await cropTransmissionRegion(prepared.imageDataUrl);
+        await worker.setParameters({
+          tessedit_pageseg_mode: tesseract.PSM.SINGLE_LINE,
+          preserve_interword_spaces: "1"
+        });
+        const focusedRecognition = await worker.recognize(transmissionRegion);
+        extracted = mergeFleetVehicleData(
+          extracted,
+          extractFleetVehicleDataFromText(focusedRecognition.data.text)
+        );
+        await worker.setParameters({
+          tessedit_pageseg_mode: tesseract.PSM.SPARSE_TEXT,
+          preserve_interword_spaces: "1"
+        });
+      }
+      if (shouldStopAfter(activeFileIndex)) break;
     }
     onProgress?.({
       progress: 1,

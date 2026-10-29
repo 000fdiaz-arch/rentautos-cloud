@@ -34,8 +34,34 @@ function firstMatch(text: string, patterns: RegExp[]): string {
   return "";
 }
 
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    let diagonal = previous[0];
+    previous[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const above = previous[rightIndex];
+      previous[rightIndex] = left[leftIndex - 1] === right[rightIndex - 1]
+        ? diagonal
+        : Math.min(diagonal, above, previous[rightIndex - 1]) + 1;
+      diagonal = above;
+    }
+  }
+  return previous[right.length];
+}
+
 function normalizeTransmission(value: string): string {
-  if (/AUTOM/.test(value)) return "Automático";
+  const words = value.match(/[A-Z0-9]{2,}/g) ?? [];
+  const candidates = words.flatMap((word, index) => [word, `${word}${words[index + 1] ?? ""}`]);
+  if (
+    /AUT[A-Z0-9]{0,3}MATI/.test(value) ||
+    candidates.some((candidate) => (
+      candidate.startsWith("A") &&
+      candidate.length >= 7 &&
+      candidate.length <= 12 &&
+      editDistance(candidate, "AUTOMATICA") <= 3
+    ))
+  ) return "Automático";
   if (/MANUAL|MECAN/.test(value)) return "Manual";
   return "";
 }
@@ -57,9 +83,13 @@ export function extractFleetVehicleDataFromText(rawText: string): FleetExtracted
   ]));
   const year = firstMatch(text, [/(?:^|\n)\s*A[NÑ]O\s*:\s*((?:19|20)\d{2})\b/m]);
   const color = cleanWords(firstMatch(text, [/(?:^|\n)\s*COLOR\s*:\s*([A-Z ]{2,24})/m]));
-  const transmission = normalizeTransmission(firstMatch(text, [
-    /(?:^|\n)\s*(?:TIPO\s+DE\s+)?TRANSMISION\s*:\s*([^\n]{3,24})/m
-  ]));
+  const transmissionText = firstMatch(text, [
+    /(?:^|\n)\s*(?:TIPO\s+DE\s+)?TRANSMISION\s*:\s*([^\n]{3,24})/m,
+    /\b(AUT[A-Z0-9]{0,3}MATI[A-Z]*)\b/
+  ]);
+  const transmission = normalizeTransmission(
+    transmissionText || (text.length <= 120 ? text : "")
+  );
 
   const result: FleetExtractedVehicleData = {};
   const brandModel = [brand, model].filter(Boolean).join(" ");
