@@ -23000,12 +23000,13 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 }
 
 .fleet-catalog-plans--compact {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
   gap: 7px;
 }
 
 .fleet-catalog-plan {
   display: grid;
+  min-width: 0;
   gap: 7px;
   padding: 11px 12px;
   border: 1px solid #d8e8e1;
@@ -23032,9 +23033,11 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 
 .fleet-catalog-plan b {
   display: block;
+  min-width: 0;
+  max-width: 100%;
   color: #29443e;
   font-size: 0.76rem;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .fleet-catalog-plan .fleet-catalog-plan-title {
