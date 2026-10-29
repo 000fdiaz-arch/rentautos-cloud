@@ -91,10 +91,11 @@ export default function ControlUnitsPage({
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [createOpen, setCreateOpen] = useState<boolean>(false);
   const [editTarget, setEditTarget] = useState<ControlUnitRow | null>(null);
+  const [unitEditorMode, setUnitEditorMode] = useState<"full" | "catalog">("full");
   const [statusTarget, setStatusTarget] = useState<ControlUnitRow | null>(null);
   const [statusDraft, setStatusDraft] = useState<FleetStatus>("activo");
   const [form, setForm] = useState<UnitFormState>({ ...DEFAULT_FORM });
-  const [fleetView, setFleetView] = useState<"summary" | "catalog" | "table" | "incomplete" | "retired">("catalog");
+  const [fleetView, setFleetView] = useState<"catalog" | "table" | "incomplete" | "retired">("catalog");
   const [catalogSearch, setCatalogSearch] = useState<string>("");
   const [incompleteSearch, setIncompleteSearch] = useState<string>("");
   const [catalogPhotoFile, setCatalogPhotoFile] = useState<File | null>(null);
@@ -214,6 +215,7 @@ export default function ControlUnitsPage({
     setForm({ ...DEFAULT_FORM });
     setCatalogPhotoFile(null);
     setSaveError("");
+    setUnitEditorMode("full");
     setCreateOpen(true);
   }, []);
 
@@ -221,12 +223,22 @@ export default function ControlUnitsPage({
     setForm(toFormState(row));
     setCatalogPhotoFile(null);
     setSaveError("");
+    setUnitEditorMode("full");
+    setEditTarget(row);
+  }, []);
+
+  const openCatalogEditDialog = useCallback((row: ControlUnitRow): void => {
+    setForm(toFormState(row));
+    setCatalogPhotoFile(null);
+    setSaveError("");
+    setUnitEditorMode("catalog");
     setEditTarget(row);
   }, []);
 
   const closeUnitDialog = useCallback((): void => {
     setCreateOpen(false);
     setEditTarget(null);
+    setUnitEditorMode("full");
     setCatalogPhotoFile(null);
     setSaveError("");
   }, []);
@@ -317,12 +329,23 @@ export default function ControlUnitsPage({
     const dailyRate = optionalNumber(state.catalog_daily_rate);
     const weeklyRate = optionalNumber(state.catalog_weekly_rate);
     const biweeklyRate = optionalNumber(state.catalog_biweekly_rate);
+    const contractMonths = optionalInteger(state.catalog_contract_months);
+    const dailyManagementFee = optionalNumber(state.catalog_daily_management_fee);
+    const weeklyManagementFee = optionalNumber(state.catalog_weekly_management_fee);
+    const biweeklyManagementFee = optionalNumber(state.catalog_biweekly_management_fee);
     const keyCoded = state.key_coded === "yes" ? true : state.key_coded === "no" ? false : null;
+    if (state.catalog_contract_months.trim() && (contractMonths === null || contractMonths < 1 || contractMonths > 120)) {
+      setSaveError("La duración del contrato debe estar entre 1 y 120 meses.");
+      return;
+    }
     if ((state.catalog_daily_rate.trim() && dailyRate === null) ||
       (state.catalog_weekly_rate.trim() && weeklyRate === null) ||
       (state.catalog_biweekly_rate.trim() && biweeklyRate === null) ||
-      [dailyRate, weeklyRate, biweeklyRate].some((value) => value !== null && value < 0)) {
-      setSaveError("Los planes deben tener importes validos y no negativos.");
+      (state.catalog_daily_management_fee.trim() && dailyManagementFee === null) ||
+      (state.catalog_weekly_management_fee.trim() && weeklyManagementFee === null) ||
+      (state.catalog_biweekly_management_fee.trim() && biweeklyManagementFee === null) ||
+      [dailyRate, weeklyRate, biweeklyRate, dailyManagementFee, weeklyManagementFee, biweeklyManagementFee].some((value) => value !== null && value < 0)) {
+      setSaveError("Los alquileres y cobros de gestión deben tener importes válidos y no negativos.");
       return;
     }
     if (catalogPhotoFile && catalogPhotoFile.size > 8 * 1024 * 1024) {
@@ -367,9 +390,13 @@ export default function ControlUnitsPage({
         await saveFleetCatalogSettings({
           userId: dataOwnerUserId,
           fleetId,
+          contractMonths,
           dailyRate,
           weeklyRate,
           biweeklyRate,
+          dailyManagementFee,
+          weeklyManagementFee,
+          biweeklyManagementFee,
           photoPath: nextPhotoPath
         });
       } catch (error) {
@@ -641,21 +668,11 @@ export default function ControlUnitsPage({
       </div>
 
       <div className="cash-view-tabs fleet-view-tabs" style={{ margin: "12px 0" }} role="tablist" aria-label="Vistas de autos">
-        <button type="button" className={`button ghost small ${fleetView === "summary" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("summary")}>Resumen</button>
         <button type="button" className={`button ghost small ${fleetView === "catalog" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("catalog")}>Catálogo ({catalogRows.length})</button>
-        <button type="button" className={`button ghost small ${fleetView === "table" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("table")}>Tabla ({rows.length})</button>
+        <button type="button" className={`button ghost small ${fleetView === "table" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("table")}>Resumen y tabla ({rows.length})</button>
         <button type="button" className={`button ghost small ${fleetView === "incomplete" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("incomplete")}>Pendientes ({incompleteRows.length})</button>
         <button type="button" className={`button ghost small ${fleetView === "retired" ? "cash-tab-active" : ""}`} onClick={() => setFleetView("retired")}>Dados de baja ({retiredRows.length})</button>
       </div>
-
-      {fleetView === "summary" && (
-          <FleetDashboard
-            kpiTotal={kpiTotal}
-            pieData={pieData}
-            statusFilter={statusFilter}
-            onStatusFilterChange={setStatusFilter}
-          />
-      )}
 
       {fleetView === "catalog" && (
         <div className="fleet-catalog-toolbar">
@@ -663,14 +680,26 @@ export default function ControlUnitsPage({
             <strong>Autos disponibles</strong>
             <p className="hint">Solo se muestran autos libres. Los autos en custodia entran al catálogo después de 24 horas.</p>
           </div>
-          <label className="fleet-catalog-search">Buscar por nomenclatura, modelo, año o transmisión
-            <input value={catalogSearch} onChange={(event) => setCatalogSearch(event.target.value)} placeholder="Ejemplo: A01 o Kia Picanto" />
+          <label className="fleet-catalog-search">
+            <input
+              aria-label="Buscar en el catálogo"
+              value={catalogSearch}
+              onChange={(event) => setCatalogSearch(event.target.value)}
+              placeholder="Buscar por marca, modelo, año o transmisión…"
+            />
           </label>
         </div>
       )}
 
       {fleetView === "table" && (
         <>
+          <FleetDashboard
+            kpiTotal={kpiTotal}
+            pieData={pieData}
+            statusFilter={statusFilter}
+            onStatusFilterChange={setStatusFilter}
+          />
+
           <FleetFilters
             search={search}
             groupFilter={groupFilter}
@@ -724,7 +753,7 @@ export default function ControlUnitsPage({
       {loading ? (
         <p className="hint">Cargando flota...</p>
       ) : fleetView === "catalog" ? (
-        <FleetCatalog rows={catalogRows} readOnly={readOnly} onEdit={openEditDialog} onHistory={openHistoryDialog} />
+        <FleetCatalog rows={catalogRows} readOnly={readOnly} onEdit={openCatalogEditDialog} onHistory={openHistoryDialog} />
       ) : fleetView === "table" ? (
         <>
           <FleetTable
@@ -829,6 +858,7 @@ export default function ControlUnitsPage({
         <UnitFormModal
           form={form}
           editTarget={editTarget}
+          catalogOnly={unitEditorMode === "catalog"}
           companies={companyOptions}
           groups={activeFleetGroups}
           saving={saving}

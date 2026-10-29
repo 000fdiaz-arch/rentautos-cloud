@@ -15,9 +15,13 @@ function hasCatalogValue(value: unknown): boolean {
 
 function isCatalogReady(row: ControlUnitRow): boolean {
   return Boolean(normalizeText(row.catalog_photo_path)) &&
+    hasCatalogValue(row.catalog_contract_months) &&
     hasCatalogValue(row.catalog_daily_rate) &&
     hasCatalogValue(row.catalog_weekly_rate) &&
-    hasCatalogValue(row.catalog_biweekly_rate);
+    hasCatalogValue(row.catalog_biweekly_rate) &&
+    hasCatalogValue(row.catalog_daily_management_fee) &&
+    hasCatalogValue(row.catalog_weekly_management_fee) &&
+    hasCatalogValue(row.catalog_biweekly_management_fee);
 }
 
 export const FleetIncompleteList = memo(function FleetIncompleteList({ rows, totalFleet, readOnly, onEdit }: Props) {

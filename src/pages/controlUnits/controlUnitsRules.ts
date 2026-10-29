@@ -28,9 +28,13 @@ export type UnitFormState = {
   mileage: string;
   operational_status: string;
   observation: string;
+  catalog_contract_months: string;
   catalog_daily_rate: string;
   catalog_weekly_rate: string;
   catalog_biweekly_rate: string;
+  catalog_daily_management_fee: string;
+  catalog_weekly_management_fee: string;
+  catalog_biweekly_management_fee: string;
 };
 
 export type FleetPieSlice = {
@@ -71,9 +75,13 @@ export const DEFAULT_FORM: UnitFormState = {
   mileage: "",
   operational_status: "libre",
   observation: "",
+  catalog_contract_months: "",
   catalog_daily_rate: "",
   catalog_weekly_rate: "",
-  catalog_biweekly_rate: ""
+  catalog_biweekly_rate: "",
+  catalog_daily_management_fee: "",
+  catalog_weekly_management_fee: "",
+  catalog_biweekly_management_fee: ""
 };
 
 export const UNIT_GROUP_MAX = 100;
@@ -255,9 +263,13 @@ export function toFormState(row?: ControlUnitRow): UnitFormState {
     mileage: optionalString(row, ["mileage", "kilometraje", "kilometrage"]),
     operational_status: row.operational_status ?? "libre",
     observation: row.observation ?? "",
+    catalog_contract_months: optionalString(row, ["catalog_contract_months"]),
     catalog_daily_rate: optionalString(row, ["catalog_daily_rate"]),
     catalog_weekly_rate: optionalString(row, ["catalog_weekly_rate"]),
-    catalog_biweekly_rate: optionalString(row, ["catalog_biweekly_rate"])
+    catalog_biweekly_rate: optionalString(row, ["catalog_biweekly_rate"]),
+    catalog_daily_management_fee: optionalString(row, ["catalog_daily_management_fee"]),
+    catalog_weekly_management_fee: optionalString(row, ["catalog_weekly_management_fee"]),
+    catalog_biweekly_management_fee: optionalString(row, ["catalog_biweekly_management_fee"])
   };
 }
 

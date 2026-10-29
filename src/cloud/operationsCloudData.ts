@@ -95,9 +95,13 @@ export type ControlUnitRow = {
   transmission_type?: string | null;
   key_coded?: boolean | null;
   mileage?: number | string | null;
+  catalog_contract_months?: number | string | null;
   catalog_daily_rate?: number | string | null;
   catalog_weekly_rate?: number | string | null;
   catalog_biweekly_rate?: number | string | null;
+  catalog_daily_management_fee?: number | string | null;
+  catalog_weekly_management_fee?: number | string | null;
+  catalog_biweekly_management_fee?: number | string | null;
   catalog_photo_path?: string | null;
   catalog_photo_url?: string | null;
   kilometrage?: number | string | null;
@@ -2028,25 +2032,41 @@ function isMissingFleetCatalogSchema(error: unknown): boolean {
   const code = typeof record.code === "string" ? record.code : "";
   const message = typeof record.message === "string" ? record.message.toLowerCase() : "";
   return code === "42703" || code === "PGRST202" || code === "PGRST204" ||
-    message.includes("catalog_daily_rate") || message.includes("save_fleet_catalog_settings");
+    message.includes("catalog_daily_rate") || message.includes("catalog_contract_months") ||
+    message.includes("catalog_daily_management_fee") || message.includes("save_fleet_catalog_settings");
 }
 
 async function loadFleetCatalogDetails(userId: string): Promise<Map<string, Partial<ControlUnitRow>>> {
   const client = getCloudClient();
-  const { data, error } = await client
-    .from("fleet_units_cloud")
-    .select("fleet_id,catalog_daily_rate,catalog_weekly_rate,catalog_biweekly_rate,catalog_photo_path")
-    .eq("user_id", userId)
-    .is("retired_at", null);
-  if (error) throw error;
-
-  const rows = (data ?? []) as Array<{
+  type CatalogDetailsRow = {
     fleet_id: string;
+    catalog_contract_months?: number | string | null;
     catalog_daily_rate: number | string | null;
     catalog_weekly_rate: number | string | null;
     catalog_biweekly_rate: number | string | null;
+    catalog_daily_management_fee?: number | string | null;
+    catalog_weekly_management_fee?: number | string | null;
+    catalog_biweekly_management_fee?: number | string | null;
     catalog_photo_path: string | null;
-  }>;
+  };
+  const detailedResult = await client
+    .from("fleet_units_cloud")
+    .select("fleet_id,catalog_contract_months,catalog_daily_rate,catalog_weekly_rate,catalog_biweekly_rate,catalog_daily_management_fee,catalog_weekly_management_fee,catalog_biweekly_management_fee,catalog_photo_path")
+    .eq("user_id", userId)
+    .is("retired_at", null);
+  let rows: CatalogDetailsRow[];
+  if (detailedResult.error) {
+    if (!isMissingFleetCatalogSchema(detailedResult.error)) throw detailedResult.error;
+    const legacyResult = await client
+      .from("fleet_units_cloud")
+      .select("fleet_id,catalog_daily_rate,catalog_weekly_rate,catalog_biweekly_rate,catalog_photo_path")
+      .eq("user_id", userId)
+      .is("retired_at", null);
+    if (legacyResult.error) throw legacyResult.error;
+    rows = (legacyResult.data ?? []) as CatalogDetailsRow[];
+  } else {
+    rows = (detailedResult.data ?? []) as CatalogDetailsRow[];
+  }
   const paths = rows.map((row) => row.catalog_photo_path).filter((path): path is string => Boolean(path));
   const signedByPath = new Map<string, string>();
   if (paths.length > 0) {
@@ -2061,9 +2081,13 @@ async function loadFleetCatalogDetails(userId: string): Promise<Map<string, Part
   }
 
   return new Map(rows.map((row) => [row.fleet_id, {
+    catalog_contract_months: row.catalog_contract_months,
     catalog_daily_rate: row.catalog_daily_rate,
     catalog_weekly_rate: row.catalog_weekly_rate,
     catalog_biweekly_rate: row.catalog_biweekly_rate,
+    catalog_daily_management_fee: row.catalog_daily_management_fee,
+    catalog_weekly_management_fee: row.catalog_weekly_management_fee,
+    catalog_biweekly_management_fee: row.catalog_biweekly_management_fee,
     catalog_photo_path: row.catalog_photo_path,
     catalog_photo_url: row.catalog_photo_path ? signedByPath.get(row.catalog_photo_path) ?? null : null
   }]));
@@ -2509,9 +2533,13 @@ export async function saveFleetKeyCoded(input: {
 export type FleetCatalogSettingsInput = {
   userId: string;
   fleetId: string;
+  contractMonths: number | null;
   dailyRate: number | null;
   weeklyRate: number | null;
   biweeklyRate: number | null;
+  dailyManagementFee: number | null;
+  weeklyManagementFee: number | null;
+  biweeklyManagementFee: number | null;
   photoPath: string | null;
 };
 
@@ -2520,13 +2548,31 @@ export async function saveFleetCatalogSettings(input: FleetCatalogSettingsInput)
   const { error } = await client.rpc("save_fleet_catalog_settings", {
     p_owner_user_id: input.userId,
     p_fleet_id: input.fleetId,
+    p_contract_months: input.contractMonths,
     p_daily_rate: input.dailyRate,
     p_weekly_rate: input.weeklyRate,
     p_biweekly_rate: input.biweeklyRate,
+    p_daily_management_fee: input.dailyManagementFee,
+    p_weekly_management_fee: input.weeklyManagementFee,
+    p_biweekly_management_fee: input.biweeklyManagementFee,
     p_photo_path: input.photoPath
   });
   if (error) {
     if (isMissingFleetCatalogSchema(error)) {
+      const hasNewCatalogValues = input.contractMonths !== null ||
+        input.dailyManagementFee !== null || input.weeklyManagementFee !== null || input.biweeklyManagementFee !== null;
+      if (hasNewCatalogValues) {
+        throw new Error("Falta aplicar la migracion de duración y gestión del catálogo de autos en Supabase.");
+      }
+      const { error: legacyError } = await client.rpc("save_fleet_catalog_settings", {
+        p_owner_user_id: input.userId,
+        p_fleet_id: input.fleetId,
+        p_daily_rate: input.dailyRate,
+        p_weekly_rate: input.weeklyRate,
+        p_biweekly_rate: input.biweeklyRate,
+        p_photo_path: input.photoPath
+      });
+      if (!legacyError) return;
       throw new Error("Falta aplicar la migracion del catalogo de autos en Supabase.");
     }
     throw error;

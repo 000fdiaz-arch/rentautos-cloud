@@ -3,10 +3,25 @@ import type { ControlUnitRow } from "../../cloudData";
 import { FLEET_STATUS_OPTIONS, findFleetIdentityDuplicate, type UnitFormState } from "./controlUnitsRules";
 import { FleetDocumentIntake } from "./FleetDocumentIntake";
 import { FleetDocumentsPanel } from "./FleetDocumentsPanel";
+import { CatalogPhotoEditor } from "./CatalogPhotoEditor";
+
+function previewMoney(value: string): string {
+  const amount = Number(value);
+  if (!value.trim() || !Number.isFinite(amount) || amount < 0) return "Por definir";
+  return new Intl.NumberFormat("es-PA", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(amount);
+}
+
+function previewTotal(rate: string, managementFee: string): string {
+  const rateAmount = Number(rate);
+  const feeAmount = Number(managementFee);
+  if (!rate.trim() || !managementFee.trim() || !Number.isFinite(rateAmount) || !Number.isFinite(feeAmount)) return "Por definir";
+  return previewMoney(String(rateAmount + feeAmount));
+}
 
 type Props = {
   form: UnitFormState;
   editTarget: ControlUnitRow | null;
+  catalogOnly?: boolean;
   companies: string[];
   groups: string[];
   saving: boolean;
@@ -23,6 +38,7 @@ type Props = {
 export const UnitFormModal = memo(function UnitFormModal({
   form,
   editTarget,
+  catalogOnly = false,
   companies,
   groups,
   saving,
@@ -37,7 +53,7 @@ export const UnitFormModal = memo(function UnitFormModal({
 }: Props) {
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string>("");
   const [createStep, setCreateStep] = useState<"documents" | "details">(editTarget ? "details" : "documents");
-  const [detailsTab, setDetailsTab] = useState<"vehicle" | "documents" | "catalog">("vehicle");
+  const [detailsTab, setDetailsTab] = useState<"vehicle" | "documents" | "catalog">(catalogOnly ? "catalog" : "vehicle");
   const [documentsApplied, setDocumentsApplied] = useState(false);
   const [documentDuplicateError, setDocumentDuplicateError] = useState("");
 
@@ -83,7 +99,7 @@ export const UnitFormModal = memo(function UnitFormModal({
     <div className="modal-overlay">
       <div className="modal fleet-create-modal">
         <div className="modal-header">
-          <h2>{editTarget ? `Editar auto ${editTarget.unit_id}` : "Nuevo auto"}</h2>
+          <h2>{catalogOnly && editTarget ? `Ficha del catálogo · ${editTarget.unit_id}` : editTarget ? `Editar auto ${editTarget.unit_id}` : "Nuevo auto"}</h2>
           <button type="button" className="modal-close" onClick={onCancel}>X</button>
         </div>
         <div className="modal-body">
@@ -109,7 +125,7 @@ export const UnitFormModal = memo(function UnitFormModal({
               <div><strong>Datos completados desde los documentos</strong><small>Revisa los campos resaltados y asigna la letra y número interno antes de guardar.</small></div>
             </div>
           )}
-          <div className="fleet-form-tabs" role="tablist" aria-label="Secciones del auto">
+          {!catalogOnly && <div className="fleet-form-tabs" role="tablist" aria-label="Secciones del auto">
             <button
               type="button"
               role="tab"
@@ -139,8 +155,8 @@ export const UnitFormModal = memo(function UnitFormModal({
             >
               Ficha del catálogo
             </button>
-          </div>
-          {detailsTab === "vehicle" && (
+          </div>}
+          {!catalogOnly && detailsTab === "vehicle" && (
           <div className="form-grid">
             <label>Letra / grupo del auto
               <select
@@ -217,45 +233,58 @@ export const UnitFormModal = memo(function UnitFormModal({
           </div>
           )}
 
-          {detailsTab === "documents" && editTarget && (
+          {!catalogOnly && detailsTab === "documents" && editTarget && (
             <FleetDocumentsPanel unitId={editTarget.unit_id} />
           )}
 
-          {detailsTab === "catalog" && (
+          {(catalogOnly || detailsTab === "catalog") && (
           <div className="fleet-catalog-form-section">
             <div>
               <h3>Ficha del catálogo</h3>
-              <p className="hint">Estos tres planes se muestran directamente en la tarjeta del auto.</p>
+              <p className="hint">Configura la duración del contrato, el alquiler y el cobro de gestión de cada plan.</p>
             </div>
-            <div className="form-grid">
-              <label>Plan diario
-                <input type="number" min="0" step="0.01" value={form.catalog_daily_rate} onChange={(event) => onFormChange((s) => ({ ...s, catalog_daily_rate: event.target.value }))} placeholder="25.00" />
+            <div className="fleet-catalog-contract-field">
+              <label>Duración del contrato (meses)
+                <input type="number" min="1" max="120" step="1" value={form.catalog_contract_months} onChange={(event) => onFormChange((s) => ({ ...s, catalog_contract_months: event.target.value }))} placeholder="36" />
               </label>
-              <label>Plan semanal
-                <input type="number" min="0" step="0.01" value={form.catalog_weekly_rate} onChange={(event) => onFormChange((s) => ({ ...s, catalog_weekly_rate: event.target.value }))} placeholder="150.00" />
-              </label>
-              <label>Plan quincenal
-                <input type="number" min="0" step="0.01" value={form.catalog_biweekly_rate} onChange={(event) => onFormChange((s) => ({ ...s, catalog_biweekly_rate: event.target.value }))} placeholder="280.00" />
-              </label>
-              <label style={{ gridColumn: "1 / -1" }}>Foto real del auto
-                <div className="fleet-catalog-photo-editor">
-                  {photoPreviewUrl ? (
-                    <img src={photoPreviewUrl} alt="Vista previa de la foto real del auto" />
-                  ) : (
-                    <div className="fleet-catalog-photo-editor-empty"><span aria-hidden="true">📷</span><strong>Aún no hay una foto</strong></div>
-                  )}
-                  <div>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-                      capture="environment"
-                      onChange={(event) => onPhotoFileChange(event.target.files?.[0] ?? null)}
-                    />
-                    <small className="hint">En el teléfono abre la cámara trasera. También puedes elegir una imagen existente; máximo 8 MB.</small>
-                    {photoFile && <small className="hint">Seleccionada: {photoFile.name}</small>}
-                  </div>
-                </div>
-              </label>
+              <p><span aria-hidden="true">▣</span><strong>{form.catalog_contract_months || "—"} meses</strong><small>Se muestra una sola vez porque aplica a todos los planes.</small></p>
+            </div>
+
+            <div className="fleet-catalog-plan-form-grid">
+              {([
+                ["Diario", "catalog_daily_rate", "catalog_daily_management_fee", "34.00"],
+                ["Semanal", "catalog_weekly_rate", "catalog_weekly_management_fee", "198.00"],
+                ["Quincenal", "catalog_biweekly_rate", "catalog_biweekly_management_fee", "390.00"]
+              ] as const).map(([label, rateKey, feeKey, placeholder]) => (
+                <fieldset key={label}>
+                  <legend>Plan {label.toLocaleLowerCase("es")}</legend>
+                  <label>Alquiler
+                    <input type="number" min="0" step="0.01" value={form[rateKey]} onChange={(event) => onFormChange((s) => ({ ...s, [rateKey]: event.target.value }))} placeholder={placeholder} />
+                  </label>
+                  <label>Gestión
+                    <input type="number" min="0" step="0.01" value={form[feeKey]} onChange={(event) => onFormChange((s) => ({ ...s, [feeKey]: event.target.value }))} placeholder="100.00" />
+                  </label>
+                  <div className="fleet-catalog-form-total"><span>Total al iniciar</span><strong>{previewTotal(form[rateKey], form[feeKey])}</strong></div>
+                </fieldset>
+              ))}
+            </div>
+
+            <div className="fleet-catalog-live-preview" aria-label="Vista previa de los planes">
+              <div><span>Vista previa</span><strong>Duración del contrato: {form.catalog_contract_months || "Por definir"}{form.catalog_contract_months ? " meses" : ""}</strong></div>
+              <div>
+                {([
+                  ["Diario", form.catalog_daily_rate, form.catalog_daily_management_fee],
+                  ["Semanal", form.catalog_weekly_rate, form.catalog_weekly_management_fee],
+                  ["Quincenal", form.catalog_biweekly_rate, form.catalog_biweekly_management_fee]
+                ] as const).map(([label, rate, fee]) => (
+                  <article key={label}><strong>{label}</strong><span>Alquiler: {previewMoney(rate)}</span><span>Gestión: {previewMoney(fee)}</span><em>Total al iniciar: {previewTotal(rate, fee)}</em></article>
+                ))}
+              </div>
+            </div>
+
+            <div className="fleet-catalog-photo-field">
+              <strong>Foto real del auto</strong>
+              <CatalogPhotoEditor photoPreviewUrl={photoPreviewUrl} photoFile={photoFile} onPhotoFileChange={onPhotoFileChange} />
             </div>
           </div>
           )}

@@ -16,6 +16,12 @@ function money(value: unknown): string {
   return new Intl.NumberFormat("es-PA", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(number);
 }
 
+function numberValue(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
 function transmission(row: ControlUnitRow): string {
   const value = optionalString(row, ["transmission", "transmission_type"]);
   return value || "Por definir";
@@ -37,18 +43,35 @@ function CatalogPhoto({ row, large = false }: { row: ControlUnitRow; large?: boo
 
 function Plans({ row, compact = false }: { row: ControlUnitRow; compact?: boolean }) {
   const plans = [
-    ["Diario", row.catalog_daily_rate],
-    ["Semanal", row.catalog_weekly_rate],
-    ["Quincenal", row.catalog_biweekly_rate]
+    ["Diario", row.catalog_daily_rate, row.catalog_daily_management_fee],
+    ["Semanal", row.catalog_weekly_rate, row.catalog_weekly_management_fee],
+    ["Quincenal", row.catalog_biweekly_rate, row.catalog_biweekly_management_fee]
   ] as const;
   return (
     <div className={`fleet-catalog-plans ${compact ? "fleet-catalog-plans--compact" : ""}`}>
-      {plans.map(([label, value]) => (
-        <div className="fleet-catalog-plan" key={label}>
-          <span>{label}</span>
-          <strong>{money(value)}</strong>
-        </div>
-      ))}
+      {plans.map(([label, rate, managementFee]) => {
+        const rateAmount = numberValue(rate);
+        const managementAmount = numberValue(managementFee);
+        const total = rateAmount !== null && managementAmount !== null ? rateAmount + managementAmount : null;
+        return (
+          <div className="fleet-catalog-plan" key={label}>
+            <strong className="fleet-catalog-plan-title">Plan {label.toLocaleLowerCase("es")}</strong>
+            <div><span>Alquiler</span><b>{money(rate)}</b></div>
+            <div><span>Gestión</span><b>{money(managementFee)}</b></div>
+            <div className="fleet-catalog-plan-total"><span>Total al iniciar</span><b>{money(total)}</b></div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ContractDuration({ row }: { row: ControlUnitRow }) {
+  const months = numberValue(row.catalog_contract_months);
+  return (
+    <div className="fleet-catalog-duration">
+      <span aria-hidden="true">▣</span>
+      <div><small>Duración del contrato</small><strong>{months === null ? "Por definir" : `${months} meses`}</strong></div>
     </div>
   );
 }
@@ -77,6 +100,7 @@ export const FleetCatalog = memo(function FleetCatalog({ rows, readOnly, onEdit,
                 <span aria-hidden="true">·</span>
                 <span className="fleet-catalog-transmission"><span aria-hidden="true">⚙</span> {transmission(row)}</span>
               </p>
+              <ContractDuration row={row} />
               <Plans row={row} compact />
               <div className="fleet-catalog-actions">
                 <button type="button" className="button primary" onClick={() => setDetail(row)}>Ver ficha</button>
@@ -105,6 +129,7 @@ export const FleetCatalog = memo(function FleetCatalog({ rows, readOnly, onEdit,
                   <span aria-hidden="true">·</span>
                   <span className="fleet-catalog-transmission"><span aria-hidden="true">⚙</span> {transmission(detail)}</span>
                 </p>
+                <ContractDuration row={detail} />
                 <h3>Planes disponibles</h3>
                 <Plans row={detail} />
                 <div className="fleet-catalog-actions">
