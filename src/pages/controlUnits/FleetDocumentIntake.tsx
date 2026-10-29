@@ -1,23 +1,27 @@
 import { useRef, useState, type ReactNode } from "react";
-import type { UnitFormState } from "./controlUnitsRules";
+import { analyzeFleetVehicleDocuments } from "./fleetVehicleDocumentOcr";
+import type { FleetExtractedVehicleData } from "./fleetVehicleDocumentParsing";
 import "./FleetDocumentIntake.css";
 
 type DocumentKey = "registro" | "revisado" | "seguro" | "panapass";
 
 type UploadedDocument = {
   fileName: string;
+  file?: File;
   note?: string;
 };
 
 type AnalysisResult = {
   fileCount: number;
   identifiedCount: number;
+  detectedFieldCount: number;
+  progress: number;
+  status: "reading" | "complete" | "error";
+  currentFile?: string;
+  message?: string;
 };
 
-export type FleetExtractedVehicleData = Partial<Pick<
-  UnitFormState,
-  "brand_model" | "year" | "plate" | "engine_serial" | "chassis_serial" | "color" | "transmission"
->>;
+export type { FleetExtractedVehicleData } from "./fleetVehicleDocumentParsing";
 
 const DOCUMENTS: Array<{ key: DocumentKey; icon: string; title: string; description: string }> = [
   { key: "registro", icon: "R", title: "Registro Único", description: "Datos técnicos y propiedad del vehículo" },
@@ -47,39 +51,15 @@ function classifyDocument(fileName: string): { key: DocumentKey | null; correcte
   return { key: null, correctedClassification: false };
 }
 
-function extractKnownVehicleData(fileNames: string[]): FleetExtractedVehicleData {
-  const normalizedNames = fileNames.map(normalizeForMatch);
-  const isKiaE21 = normalizedNames.some((name) =>
-    name.includes("e21") && (name.includes("kia rio") || name.includes("panapas") || name.includes("panapass"))
-  );
-  if (isKiaE21) {
-    const hasInspection = normalizedNames.some((name) => name.includes("kia rio") && name.includes("2024"));
-    return {
-      brand_model: "KIA RIO",
-      plate: "EL1528",
-      color: "BLANCO",
-      ...(hasInspection ? {
-        year: "2024",
-        engine_serial: "G4LCPE710891",
-        chassis_serial: "3KPA241ABRE627901"
-      } : {})
-    };
-  }
-
-  const isExampleSet = normalizedNames.some((name) => name === "registro unico.pdf");
-  if (isExampleSet) {
-    return {
-      brand_model: "HYUNDAI SANTA FE",
-      year: "2020",
-      plate: "DC5113",
-      engine_serial: "G4KEKD049968",
-      chassis_serial: "KMHS281EBLU203445",
-      color: "ROJO",
-      transmission: "Automático"
-    };
-  }
-  return {};
-}
+const EXAMPLE_VEHICLE_DATA: FleetExtractedVehicleData = {
+  brand_model: "HYUNDAI SANTA FE",
+  year: "2020",
+  plate: "DC5113",
+  engine_serial: "G4KEKD049968",
+  chassis_serial: "KMHS281EBLU203445",
+  color: "ROJO",
+  transmission: "Automático"
+};
 
 type Props = {
   error?: string;
@@ -96,9 +76,11 @@ export function FleetDocumentIntake({ error, saving, vehicleFields, onDetectedDa
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const completedCount = Object.keys(uploadedDocuments).length;
   const hasCorrectedClassification = Object.values(uploadedDocuments).some((document) => Boolean(document?.note));
+  const isAnalyzing = analysisResult?.status === "reading";
 
-  function handleFiles(files: FileList | null) {
+  async function handleFiles(files: FileList | null) {
     const selectedFiles = Array.from(files ?? []);
+    if (selectedFiles.length === 0) return;
     const matches: Array<{ file: File; key: DocumentKey; correctedClassification: boolean }> = [];
     for (const file of selectedFiles) {
       const classification = classifyDocument(file.name);
@@ -110,12 +92,48 @@ export function FleetDocumentIntake({ error, saving, vehicleFields, onDetectedDa
     for (const match of matches) {
       nextDocuments[match.key] = {
         fileName: match.file.name,
+        file: match.file,
         note: match.correctedClassification ? "Detectado por el contenido, no por el nombre del archivo" : undefined
       };
     }
     setUploadedDocuments(nextDocuments);
-    setAnalysisResult({ fileCount: selectedFiles.length, identifiedCount: matches.length });
-    onDetectedData(extractKnownVehicleData(Object.values(nextDocuments).map((document) => document?.fileName ?? "")));
+    const filesToAnalyze = Array.from(new Map(
+      [...Object.values(nextDocuments).flatMap((document) => document?.file ? [document.file] : []), ...selectedFiles]
+        .map((file) => [`${file.name}:${file.size}:${file.lastModified}`, file])
+    ).values());
+    const initialResult: AnalysisResult = {
+      fileCount: selectedFiles.length,
+      identifiedCount: matches.length,
+      detectedFieldCount: 0,
+      progress: 0,
+      status: "reading"
+    };
+    setAnalysisResult(initialResult);
+    try {
+      const extractedData = await analyzeFleetVehicleDocuments(filesToAnalyze, ({ progress, fileName }) => {
+        setAnalysisResult((current) => current ? { ...current, progress, currentFile: fileName } : current);
+      });
+      const detectedFieldCount = Object.values(extractedData).filter(Boolean).length;
+      onDetectedData(extractedData);
+      setAnalysisResult({
+        ...initialResult,
+        progress: 1,
+        status: "complete",
+        detectedFieldCount,
+        message: detectedFieldCount > 0
+          ? `${detectedFieldCount} datos del vehículo detectados y cargados en el formulario.`
+          : "Los documentos se identificaron, pero no se encontraron datos legibles para completar el formulario."
+      });
+    } catch (readingError) {
+      setAnalysisResult({
+        ...initialResult,
+        progress: 1,
+        status: "error",
+        message: readingError instanceof Error
+          ? `No se pudo leer el contenido: ${readingError.message}`
+          : "No se pudo leer el contenido de los documentos."
+      });
+    }
   }
 
   function loadExampleDocuments() {
@@ -126,8 +144,8 @@ export function FleetDocumentIntake({ error, saving, vehicleFields, onDetectedDa
       panapass: { fileName: "PANAPASS.pdf" }
     };
     setUploadedDocuments(examples);
-    setAnalysisResult({ fileCount: 4, identifiedCount: 4 });
-    onDetectedData(extractKnownVehicleData(Object.values(examples).map((document) => document?.fileName ?? "")));
+    setAnalysisResult({ fileCount: 4, identifiedCount: 4, detectedFieldCount: 7, progress: 1, status: "complete" });
+    onDetectedData(EXAMPLE_VEHICLE_DATA);
   }
 
   return (
@@ -144,17 +162,25 @@ export function FleetDocumentIntake({ error, saving, vehicleFields, onDetectedDa
           type="file"
           accept="application/pdf,image/*"
           multiple
+          disabled={isAnalyzing}
           onChange={(event) => {
-            handleFiles(event.target.files);
+            void handleFiles(event.target.files);
             event.currentTarget.value = "";
           }}
         />
       </label>
 
       {analysisResult ? (
-        <p className={`fleet-doc-demo-file-note ${analysisResult.identifiedCount === 0 ? "is-warning" : ""}`} role="status">
-          {analysisResult.identifiedCount > 0 ? "✓" : "!"} Lectura completada: {analysisResult.fileCount} archivo{analysisResult.fileCount === 1 ? "" : "s"} analizado{analysisResult.fileCount === 1 ? "" : "s"} y {analysisResult.identifiedCount} documento{analysisResult.identifiedCount === 1 ? "" : "s"} identificado{analysisResult.identifiedCount === 1 ? "" : "s"}.
-        </p>
+        <div className={`fleet-doc-demo-file-note fleet-doc-ocr-status ${analysisResult.status !== "complete" || analysisResult.detectedFieldCount === 0 ? "is-warning" : ""}`} role="status">
+          <span>
+            {analysisResult.status === "reading"
+              ? `Leyendo contenido real del documento${analysisResult.currentFile ? ` · ${analysisResult.currentFile}` : ""}`
+              : analysisResult.message ?? `Lectura completada: ${analysisResult.identifiedCount} documentos identificados.`}
+          </span>
+          {analysisResult.status === "reading" && (
+            <><progress max="1" value={analysisResult.progress} /><b>{Math.round(analysisResult.progress * 100)}%</b></>
+          )}
+        </div>
       ) : (
         <div className="fleet-doc-unified-empty">
           <span>Al cargar los archivos verás qué documentos llegaron, cuáles faltan y los datos detectados.</span>
@@ -183,7 +209,7 @@ export function FleetDocumentIntake({ error, saving, vehicleFields, onDetectedDa
                     {uploaded?.note && <em>{uploaded.note}</em>}
                   </span>
                   <b>{uploaded ? "Cargado" : "Falta"}</b>
-                  <button type="button" onClick={() => fileInputRef.current?.click()}>{uploaded ? "Reemplazar" : "Agregar"}</button>
+                  <button type="button" disabled={isAnalyzing} onClick={() => fileInputRef.current?.click()}>{uploaded ? "Reemplazar" : "Agregar"}</button>
                 </article>
               );
             })}
@@ -198,8 +224,8 @@ export function FleetDocumentIntake({ error, saving, vehicleFields, onDetectedDa
 
         <div className="fleet-doc-unified-data">
           <div className="fleet-doc-unified-data-heading">
-            <div><span className="fleet-doc-unified-eyebrow">Datos del auto</span><h3>{analysisResult ? "Datos detectados" : "Completa o carga los documentos"}</h3></div>
-            {analysisResult && analysisResult.identifiedCount > 0 && <span>✓ Lectura completada</span>}
+            <div><span className="fleet-doc-unified-eyebrow">Datos del auto</span><h3>{isAnalyzing ? "Leyendo documentos..." : analysisResult ? "Datos detectados" : "Completa o carga los documentos"}</h3></div>
+            {analysisResult?.status === "complete" && analysisResult.detectedFieldCount > 0 && <span>✓ {analysisResult.detectedFieldCount} datos detectados</span>}
           </div>
           {vehicleFields}
         </div>
@@ -214,8 +240,8 @@ export function FleetDocumentIntake({ error, saving, vehicleFields, onDetectedDa
 
       <div className="modal-actions fleet-doc-demo-actions fleet-doc-unified-actions">
         <button type="button" className="button ghost" onClick={onCancel}>Cancelar</button>
-        <button type="button" className="button primary" disabled={saving || completedCount === 0} onClick={onSave}>
-          {saving ? "Guardando..." : "Guardar auto"}
+        <button type="button" className="button primary" disabled={saving || isAnalyzing || completedCount === 0} onClick={onSave}>
+          {saving ? "Guardando..." : isAnalyzing ? "Leyendo documentos..." : "Guardar auto"}
         </button>
       </div>
     </div>
