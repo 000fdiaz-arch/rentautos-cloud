@@ -23191,9 +23191,25 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   font-size: 1.65rem;
 }
 
-.fleet-catalog-photo-editor input[type="file"] {
-  width: 100%;
+.fleet-catalog-photo-actions {
+  min-width: 0;
+}
+
+.fleet-catalog-photo-picker {
+  position: relative;
+  display: inline-flex;
   margin-bottom: 6px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.fleet-catalog-photo-picker input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .fleet-catalog-photo-editor small {
