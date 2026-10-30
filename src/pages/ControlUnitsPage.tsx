@@ -364,6 +364,7 @@ export default function ControlUnitsPage({
       company: normalizeText(getActiveFleetRule(bankRules, group)?.accountName) || state.company.trim() || null,
       brand_model: state.brand_model.trim() || null,
       plate: state.plate.trim().toUpperCase() || null,
+      panapass_number: state.panapass_number.trim() || null,
       engine_serial: state.engine_serial.trim() || null,
       chassis_serial: state.chassis_serial.trim() || null,
       observation: state.observation.trim() || null,

@@ -77,6 +77,7 @@ export type ControlUnitRow = {
   engine_serial: string | null;
   chassis_serial: string | null;
   plate: string | null;
+  panapass_number?: string | null;
   cupo: string | null;
   observation: string | null;
   is_exception: boolean | null;
@@ -2121,6 +2122,7 @@ export type ControlUnitUpsertInput = {
   engine_serial?: string | null;
   chassis_serial?: string | null;
   plate?: string | null;
+  panapass_number?: string | null;
   cupo?: string | null;
   observation?: string | null;
   operational_status?: string | null;
@@ -2514,6 +2516,7 @@ function toControlUnitCloudPayload(input: ControlUnitUpsertInput): Record<string
     engine_serial: input.engine_serial ?? null,
     chassis_serial: input.chassis_serial ?? null,
     plate: input.plate ?? null,
+    panapass_number: input.panapass_number ?? null,
     cupo: input.cupo ?? null,
     observation: input.observation ?? null,
     operational_status: input.operational_status ?? null,

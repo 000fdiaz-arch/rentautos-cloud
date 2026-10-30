@@ -100,9 +100,73 @@ async function cropTransmissionRegion(imageDataUrl: string): Promise<string> {
   return croppedDataUrl;
 }
 
+async function cropPanapassNumberCells(imageDataUrl: string): Promise<string[]> {
+  const image = new Image();
+  image.decoding = "async";
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error("No se pudo preparar la zona del número de Panapass."));
+    image.src = imageDataUrl;
+  });
+  const startX = image.naturalWidth * 0.19;
+  const cropY = Math.round(image.naturalHeight * 0.396);
+  const cellWidth = image.naturalWidth * 0.0525;
+  const cropHeight = Math.round(image.naturalHeight * 0.04);
+  const marginX = image.naturalWidth * 0.001;
+  const cellImages: string[] = [];
+  for (let cellIndex = 0; cellIndex < 8; cellIndex += 1) {
+    const cropX = Math.round(startX + (cellWidth * cellIndex) + marginX);
+    const cropWidth = Math.round(cellWidth - (marginX * 2));
+    const scale = Math.min(4, 420 / cropWidth);
+    const canvas = window.document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(cropWidth * scale));
+    canvas.height = Math.max(1, Math.round(cropHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("No se pudo preparar la lectura del número de Panapass.");
+    context.drawImage(image, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    const darkByRow = new Uint32Array(canvas.height);
+    for (let y = 0; y < canvas.height; y += 1) {
+      for (let x = 0; x < canvas.width; x += 1) {
+        const offset = ((y * canvas.width) + x) * 4;
+        const gray = Math.round(
+          (pixels.data[offset] * 0.3) +
+          (pixels.data[offset + 1] * 0.59) +
+          (pixels.data[offset + 2] * 0.11)
+        );
+        const monochrome = gray < 170 ? 0 : 255;
+        pixels.data[offset] = monochrome;
+        pixels.data[offset + 1] = monochrome;
+        pixels.data[offset + 2] = monochrome;
+        if (monochrome === 0) darkByRow[y] += 1;
+      }
+    }
+    darkByRow.forEach((count, row) => {
+      if (count <= canvas.width * 0.55) return;
+      for (let x = 0; x < canvas.width; x += 1) {
+        const offset = ((row * canvas.width) + x) * 4;
+        pixels.data[offset] = 255;
+        pixels.data[offset + 1] = 255;
+        pixels.data[offset + 2] = 255;
+      }
+    });
+    context.putImageData(pixels, 0, 0);
+    cellImages.push(canvas.toDataURL("image/png"));
+    canvas.width = 1;
+    canvas.height = 1;
+  }
+  return cellImages;
+}
+
 function isRegistrationFile(file: File): boolean {
   const name = file.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   return name.includes("registro") || name.includes("unico");
+}
+
+function isPanapassFile(file: File): boolean {
+  const name = file.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return name.includes("panapass") || name.includes("panapas");
 }
 
 function documentPriority(file: File): number {
@@ -124,10 +188,12 @@ export async function analyzeFleetVehicleDocuments(
   let activeBaseProgress = 0;
   let activeFileShare = 1;
   let activeFileName = "";
-  const shouldStopAfter = (fileIndex: number): boolean => hasCoreFleetVehicleData(extracted) && (
-    Boolean(extracted.transmission) ||
-    !orderedFiles.slice(fileIndex + 1).some(isRegistrationFile)
-  );
+  const shouldStopAfter = (fileIndex: number): boolean => {
+    const remainingFiles = orderedFiles.slice(fileIndex + 1);
+    return hasCoreFleetVehicleData(extracted) &&
+      (Boolean(extracted.transmission) || !remainingFiles.some(isRegistrationFile)) &&
+      (Boolean(extracted.panapass_number) || !remainingFiles.some(isPanapassFile));
+  };
 
   try {
     for (activeFileIndex = 0; activeFileIndex < orderedFiles.length; activeFileIndex += 1) {
@@ -143,7 +209,9 @@ export async function analyzeFleetVehicleDocuments(
         ? await renderFirstPdfPage(file)
         : { imageDataUrl: await imageFileDataUrl(file), embeddedText: "" };
       extracted = mergeFleetVehicleData(extracted, extractFleetVehicleDataFromText(prepared.embeddedText));
-      if (shouldStopAfter(activeFileIndex) && !(isRegistrationFile(file) && !extracted.transmission)) break;
+      const needsFocusedRead = (isRegistrationFile(file) && !extracted.transmission) ||
+        (isPanapassFile(file) && !extracted.panapass_number);
+      if (shouldStopAfter(activeFileIndex) && !needsFocusedRead) break;
 
       const tesseract = await import("tesseract.js");
       if (!worker) {
@@ -162,10 +230,8 @@ export async function analyzeFleetVehicleDocuments(
         });
       }
 
-      const onlyTransmissionIsMissing = isRegistrationFile(file) &&
-        hasCoreFleetVehicleData(extracted) &&
-        !extracted.transmission;
-      if (!onlyTransmissionIsMissing) {
+      const onlyFocusedDataIsMissing = hasCoreFleetVehicleData(extracted) && needsFocusedRead;
+      if (!onlyFocusedDataIsMissing) {
         const recognition = await worker.recognize(prepared.imageDataUrl);
         extracted = mergeFleetVehicleData(extracted, extractFleetVehicleDataFromText(recognition.data.text));
       }
@@ -173,7 +239,8 @@ export async function analyzeFleetVehicleDocuments(
         const transmissionRegion = await cropTransmissionRegion(prepared.imageDataUrl);
         await worker.setParameters({
           tessedit_pageseg_mode: tesseract.PSM.SINGLE_LINE,
-          preserve_interword_spaces: "1"
+          preserve_interword_spaces: "1",
+          tessedit_char_whitelist: ""
         });
         const focusedRecognition = await worker.recognize(transmissionRegion);
         extracted = mergeFleetVehicleData(
@@ -182,7 +249,37 @@ export async function analyzeFleetVehicleDocuments(
         );
         await worker.setParameters({
           tessedit_pageseg_mode: tesseract.PSM.SPARSE_TEXT,
-          preserve_interword_spaces: "1"
+          preserve_interword_spaces: "1",
+          tessedit_char_whitelist: ""
+        });
+      }
+      if (isPanapassFile(file) && !extracted.panapass_number) {
+        const panapassCells = await cropPanapassNumberCells(prepared.imageDataUrl);
+        await worker.setParameters({
+          tessedit_pageseg_mode: tesseract.PSM.SINGLE_WORD,
+          preserve_interword_spaces: "1",
+          tessedit_char_whitelist: "0123456789"
+        });
+        const recognizedCells: string[] = [];
+        let isReliableReading = true;
+        for (const [cellIndex, cellImage] of panapassCells.entries()) {
+          await worker.setParameters({
+            tessedit_pageseg_mode: cellIndex < 2 ? tesseract.PSM.SINGLE_WORD : tesseract.PSM.SINGLE_CHAR
+          });
+          const recognition = await worker.recognize(cellImage);
+          const digits = recognition.data.text.replace(/\D/g, "");
+          if (!digits || recognition.data.confidence < 60) isReliableReading = false;
+          recognizedCells.push(digits);
+        }
+        const panapassNumber = isReliableReading ? recognizedCells.join("") : "";
+        extracted = mergeFleetVehicleData(
+          extracted,
+          extractFleetVehicleDataFromText(panapassNumber)
+        );
+        await worker.setParameters({
+          tessedit_pageseg_mode: tesseract.PSM.SPARSE_TEXT,
+          preserve_interword_spaces: "1",
+          tessedit_char_whitelist: ""
         });
       }
       if (shouldStopAfter(activeFileIndex)) break;

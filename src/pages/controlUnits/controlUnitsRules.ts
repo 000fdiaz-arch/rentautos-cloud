@@ -19,6 +19,7 @@ export type UnitFormState = {
   company: string;
   brand_model: string;
   plate: string;
+  panapass_number: string;
   engine_serial: string;
   chassis_serial: string;
   year: string;
@@ -66,6 +67,7 @@ export const DEFAULT_FORM: UnitFormState = {
   company: "",
   brand_model: "",
   plate: "",
+  panapass_number: "",
   engine_serial: "",
   chassis_serial: "",
   year: "",
@@ -254,6 +256,7 @@ export function toFormState(row?: ControlUnitRow): UnitFormState {
     company: row.company ?? "",
     brand_model: row.brand_model ?? "",
     plate: row.plate ?? "",
+    panapass_number: optionalString(row, ["panapass_number"]),
     engine_serial: row.engine_serial ?? "",
     chassis_serial: row.chassis_serial ?? "",
     year: optionalString(row, ["year", "model_year"]),

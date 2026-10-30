@@ -57,6 +57,18 @@ export function FleetVehicleFields({ form, editTarget, groups, onFormChange, onU
       <label>Placa
         <input value={form.plate} onChange={(event) => onFormChange((s) => ({ ...s, plate: event.target.value }))} />
       </label>
+      <label>Número de Panapass
+        <input
+          inputMode="numeric"
+          value={form.panapass_number}
+          onChange={(event) => onFormChange((s) => ({
+            ...s,
+            panapass_number: event.target.value.replace(/\D/g, "")
+          }))}
+          placeholder="Ejemplo: 0011335608"
+        />
+        <small className="hint">Se intenta leer del documento; si está escrito a mano, confírmalo o ingrésalo aquí.</small>
+      </label>
       <label>Serial Motor
         <input value={form.engine_serial} onChange={(event) => onFormChange((s) => ({ ...s, engine_serial: event.target.value }))} />
       </label>

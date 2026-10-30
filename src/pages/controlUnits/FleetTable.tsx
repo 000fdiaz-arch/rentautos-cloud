@@ -38,6 +38,7 @@ export const FleetTable = memo(function FleetTable({
             <th>Ano</th>
             <th><button type="button" className="sort-button" onClick={() => onToggleSort("company")}>Empresa</button></th>
             <th><button type="button" className="sort-button" onClick={() => onToggleSort("plate")}>Placa</button></th>
+            <th>Panapass</th>
             <th>Motor</th>
             <th>Chasis</th>
             <th>Color</th>
@@ -49,7 +50,7 @@ export const FleetTable = memo(function FleetTable({
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={readOnly ? 12 : 13}><span className="hint">No hay unidades para los filtros seleccionados.</span></td>
+              <td colSpan={readOnly ? 13 : 14}><span className="hint">No hay unidades para los filtros seleccionados.</span></td>
             </tr>
           ) : (
             rows.map((row) => {
@@ -72,6 +73,7 @@ export const FleetTable = memo(function FleetTable({
                   <td>{year || "-"}</td>
                   <td>{row.company ?? "-"}</td>
                   <td>{row.plate ?? "-"}</td>
+                  <td>{row.panapass_number ?? "-"}</td>
                   <td>{row.engine_serial ?? "-"}</td>
                   <td>{row.chassis_serial ?? "-"}</td>
                   <td>{color || "-"}</td>

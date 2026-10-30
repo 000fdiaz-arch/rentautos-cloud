@@ -61,6 +61,7 @@ export const FleetMobileList = memo(function FleetMobileList({
                 <dl className="fleet-mobile-details">
                   <div><dt>Motor</dt><dd>{row.engine_serial ?? "-"}</dd></div>
                   <div><dt>Chasis</dt><dd>{row.chassis_serial ?? "-"}</dd></div>
+                  <div><dt>Panapass</dt><dd>{row.panapass_number ?? "-"}</dd></div>
                   <div><dt>Transmision</dt><dd>{transmission || "-"}</dd></div>
                   <div><dt>Llave</dt><dd>{row.key_coded === true ? "Codificada" : row.key_coded === false ? "No codificada" : "Sin confirmar"}</dd></div>
                 </dl>

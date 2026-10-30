@@ -26,6 +26,7 @@ export function RetiredFleetList({
             <th>Última nomenclatura</th>
             <th>Marca / Modelo</th>
             <th>Placa</th>
+            <th>Panapass</th>
             <th>Chasis</th>
             <th>Cliente anterior</th>
             <th>Motivo</th>
@@ -37,12 +38,13 @@ export function RetiredFleetList({
         </thead>
         <tbody>
           {rows.length === 0 ? (
-            <tr><td colSpan={10}><span className="hint">No hay autos dados de baja.</span></td></tr>
+            <tr><td colSpan={11}><span className="hint">No hay autos dados de baja.</span></td></tr>
           ) : rows.map((row) => (
             <tr key={row.fleet_id}>
               <td><strong>{row.unit_id}</strong></td>
               <td>{row.brand_model ?? "-"}</td>
               <td>{row.plate ?? "-"}</td>
+              <td>{row.panapass_number ?? "-"}</td>
               <td>{row.chassis_serial ?? "-"}</td>
               <td>{row.retired_client_name ?? "-"}</td>
               <td>{row.retired_reason ?? "-"}</td>

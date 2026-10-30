@@ -2,7 +2,7 @@ import type { UnitFormState } from "./controlUnitsRules";
 
 export type FleetExtractedVehicleData = Partial<Pick<
   UnitFormState,
-  "brand_model" | "year" | "plate" | "engine_serial" | "chassis_serial" | "color" | "transmission"
+  "brand_model" | "year" | "plate" | "panapass_number" | "engine_serial" | "chassis_serial" | "color" | "transmission"
 >>;
 
 function normalizeOcrText(value: string): string {
@@ -66,6 +66,11 @@ function normalizeTransmission(value: string): string {
   return "";
 }
 
+function normalizePanapassNumber(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  return digits.length >= 8 && digits.length <= 14 ? digits : "";
+}
+
 export function extractFleetVehicleDataFromText(rawText: string): FleetExtractedVehicleData {
   const text = normalizeOcrText(rawText);
   const brand = cleanWords(firstMatch(text, [/(?:^|\n)\s*MARCA\s*:\s*([^\n]{2,30})/m]));
@@ -90,12 +95,20 @@ export function extractFleetVehicleDataFromText(rawText: string): FleetExtracted
   const transmission = normalizeTransmission(
     transmissionText || (text.length <= 120 ? text : "")
   );
+  const panapassText = firstMatch(text, [
+    /NO\.?\s+DE\s+PANAPASS\s*:?\s*([0-9 OIL|.-]{8,30})/m,
+    /PANAPASS(?:\s+NO\.?)?\s*:?\s*([0-9 OIL|.-]{8,30})/m
+  ]);
+  const panapassNumber = normalizePanapassNumber(
+    panapassText || (text.length <= 80 ? text : "")
+  );
 
   const result: FleetExtractedVehicleData = {};
   const brandModel = [brand, model].filter(Boolean).join(" ");
   if (brandModel) result.brand_model = brandModel;
   if (year) result.year = year;
   if (plate) result.plate = plate;
+  if (panapassNumber) result.panapass_number = panapassNumber;
   if (engine) result.engine_serial = engine;
   if (chassis) result.chassis_serial = chassis;
   if (color) result.color = color;
