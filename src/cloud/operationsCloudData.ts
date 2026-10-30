@@ -2435,6 +2435,21 @@ export async function saveCloudActiveRouteComment(input: {
   if (error) throw error;
 }
 
+export async function saveCloudActiveRouteReleaseAmount(input: {
+  userId: string;
+  clientId: string;
+  publishedAt: string;
+  releaseAmount: number;
+}): Promise<void> {
+  const { error } = await getCloudClient().rpc("update_active_route_release_amount", {
+    p_user_id: input.userId,
+    p_client_id: input.clientId,
+    p_published_at: input.publishedAt,
+    p_release_amount: input.releaseAmount
+  });
+  if (error) throw error;
+}
+
 export async function removeCloudActiveRouteItemFromSearch(input: {
   userId: string;
   clientId: string;

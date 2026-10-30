@@ -23,12 +23,14 @@ type Props = {
   travelFundBalance: number;
   canReport: boolean;
   canEdit: boolean;
+  canEditAmount: boolean;
   canRemove: boolean;
   canRegister: boolean;
   hasPendingReport: boolean;
   hasActiveRoute: boolean;
   reportDisabled: boolean;
   saving: boolean;
+  amountSaving: boolean;
   receiptLoading: boolean;
   hasReceipt: boolean;
   zone: string;
@@ -47,6 +49,7 @@ type Props = {
   bankConfirmationSaving: boolean;
   bankNotices: Array<{ id: string; amount: number; collectionTeam?: string }>;
   onReport: () => void;
+  onEditAmount: () => void;
   onRegister: () => void;
   onReceipt: () => void;
   onCustody: () => void;
@@ -183,7 +186,14 @@ export default function RouteCollectionCard(props: Props) {
       {report.method === "mixed" ? <p className="route-collection-context"><span>Efectivo: {formatCurrency(report.cash_amount)} · {report.confirmed_cash_amount >= report.cash_amount ? "Confirmado" : "Pendiente"}</span><br /><span>Banca: {formatCurrency(report.bank_amount)} · {report.confirmed_bank_amount >= report.bank_amount ? "Confirmado" : "Pendiente"}</span></p> : null}
     </> : <>
       <span className="route-collection-tag">{view === "partial" ? "Decisión pendiente" : partial && acknowledged ? "Debe pagar más" : "Por cobrar"}</span>
-      <p className="route-collection-amount">{view === "partial" ? `Pagó ${formatCurrency(paidRent)}` : item.releaseAmount > 0 ? formatCurrency(remaining) : "Monto pendiente"}</p>
+      <div className="route-collection-amount-row">
+        <p className="route-collection-amount">{view === "partial" ? `Pagó ${formatCurrency(paidRent)}` : item.releaseAmount > 0 ? formatCurrency(remaining) : "Monto pendiente"}</p>
+        {view === "work" && props.canEditAmount && !report ? (
+          <button type="button" className="route-collection-amount-edit" aria-label={`Editar monto por cobrar de ${item.unitId}`} title="Editar monto por cobrar" disabled={props.amountSaving || saving} onClick={props.onEditAmount}>
+            <span aria-hidden="true">✎</span>
+          </button>
+        ) : null}
+      </div>
       <p className="route-collection-context">{view === "partial" ? `Faltan ${formatCurrency(remaining)} para liberar` : "Pendiente para liberar"}</p>
       {view === "work" ? <p className="route-collection-instruction">{fieldManagementLabel(item.managementType)}</p> : null}
       </>}

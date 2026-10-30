@@ -23,6 +23,7 @@ import {
   keepCloudActiveRouteItemAfterPartialPayment,
   removeCloudActiveRouteItemFromSearch,
   saveCloudActiveRouteComment,
+  saveCloudActiveRouteReleaseAmount,
   saveCloudActiveRouteZone,
   changeCloudActiveRouteDelta,
   type ActiveRouteItem,
@@ -201,6 +202,7 @@ export default function RouteSearchPage({
   const signedInDelta = routeDeltaFromName(currentUserEmail);
   const signedInAssignedDelta = isAssignedDelta(signedInDelta) ? signedInDelta : null;
   const canEditAssignedDelta = !readOnly && signedInDelta === null;
+  const canEditRouteAmount = !readOnly && signedInDelta === null;
   const [businessDateKey, setBusinessDateKey] = useState(() => getBusinessDateKey());
   useEffect(() => {
     const updateDay = () => setBusinessDateKey(getBusinessDateKey());
@@ -546,6 +548,10 @@ export default function RouteSearchPage({
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [commentSavingByClient, setCommentSavingByClient] = useState<Record<string, boolean>>({});
   const [commentError, setCommentError] = useState("");
+  const [amountEditTarget, setAmountEditTarget] = useState<{ item: ActiveRouteItem; paidRent: number } | null>(null);
+  const [amountEditDraft, setAmountEditDraft] = useState("");
+  const [amountEditSaving, setAmountEditSaving] = useState(false);
+  const [amountEditError, setAmountEditError] = useState("");
   const [removeTarget, setRemoveTarget] = useState<ActiveRouteItem | null>(null);
   const [removeSaving, setRemoveSaving] = useState(false);
   const [removeError, setRemoveError] = useState("");
@@ -1095,6 +1101,55 @@ export default function RouteSearchPage({
     }
   }
 
+  function openAmountEditor(item: ActiveRouteItem, paidRent: number): void {
+    if (!canEditRouteAmount) return;
+    setAmountEditTarget({ item, paidRent });
+    setAmountEditDraft(Math.max(0, item.releaseAmount - paidRent).toFixed(2));
+    setAmountEditError("");
+  }
+
+  async function saveEditedAmount(): Promise<void> {
+    if (!amountEditTarget || !dataOwnerUserId || amountEditSaving || !canEditRouteAmount) return;
+    const remainingAmount = Number(amountEditDraft);
+    if (!Number.isFinite(remainingAmount)
+      || remainingAmount <= 0
+      || remainingAmount > 9999999999.99
+      || Math.abs(remainingAmount * 100 - Math.round(remainingAmount * 100)) >= 0.00001) {
+      setAmountEditError("Escribe un monto válido, mayor que cero y con máximo dos decimales.");
+      return;
+    }
+
+    const nextReleaseAmount = Math.round((amountEditTarget.paidRent + remainingAmount) * 100) / 100;
+    if (Math.abs(nextReleaseAmount - amountEditTarget.item.releaseAmount) < 0.005) {
+      setAmountEditError("El nuevo monto es igual al monto actual.");
+      return;
+    }
+
+    setAmountEditSaving(true);
+    setAmountEditError("");
+    setRouteActionMessage("");
+    try {
+      await saveCloudActiveRouteReleaseAmount({
+        userId: dataOwnerUserId,
+        clientId: amountEditTarget.item.clientId,
+        publishedAt: amountEditTarget.item.publishedAt,
+        releaseAmount: nextReleaseAmount
+      });
+      setItems((current) => current.map((row) => (
+        row.clientId === amountEditTarget.item.clientId && row.publishedAt === amountEditTarget.item.publishedAt
+          ? { ...row, releaseAmount: nextReleaseAmount }
+          : row
+      )));
+      setRouteActionMessage(`${amountEditTarget.item.unitId}: monto por cobrar actualizado a ${formatCurrency(remainingAmount)}.`);
+      setAmountEditTarget(null);
+      setAmountEditDraft("");
+    } catch (cause) {
+      setAmountEditError(buildCloudErrorMessage("No se pudo actualizar el monto por cobrar.", cause, { includeRawFallback: true }));
+    } finally {
+      setAmountEditSaving(false);
+    }
+  }
+
   async function confirmRemoveFromRoute(): Promise<void> {
     if (!removeTarget || !dataOwnerUserId || !canRemoveFromRoute || removeSaving) return;
     setRemoveSaving(true);
@@ -1577,6 +1632,7 @@ export default function RouteSearchPage({
               capture={captureByRouteItem.get(`${item.clientId}\u0000${item.publishedAt}`)}
               managementFields={activeRoute && !activeRoute.removedAt && cardView !== "review" && cardView !== "confirmed" ? renderManagementFields?.(activeRoute) : undefined}
               paidRent={paidRent} balance={currentBalance(item)} travelFundBalance={travelFundBalanceByClient.get(item.clientId) ?? 0} canReport={canReportPayment} canEdit={!readOnly}
+              canEditAmount={canEditRouteAmount && Boolean(activeRoute && !activeRoute.removedAt)} amountSaving={amountEditSaving && amountEditTarget?.item.clientId === item.clientId}
               canRemove={canRemoveFromRoute} canRegister={!readOnly && Boolean(onRegisterPayment) && (!item.report || (isPendingCashRouteReport(item.report) && !registeredReportIds.includes(item.report.id)))}
               hasPendingReport={reports.some(report => report.status === "review" && report.client_id === item.clientId && report.published_at === item.publishedAt)}
               hasActiveRoute={Boolean(activeRoute && !activeRoute.removedAt)} reportDisabled={!reportsReady}
@@ -1596,6 +1652,7 @@ export default function RouteSearchPage({
               bankConfirmationSaving={bankConfirmationSavingId === item.report?.id}
               bankNotices={!item.report ? bankNoticesByClient.get(item.clientId) ?? [] : []}
               onReport={() => { setReportTarget(item); setReportAmount(""); setReportMethod(""); setReportCashAmount(""); setReportBankAmount(""); setReportCashTeam(operatorCollectionTeam || asCollectionTeam(item.routeAssignment)); setReportError(""); }}
+              onEditAmount={() => openAmountEditor(item, paidRent)}
               onRegister={() => openPaymentDialog(item, item.report)}
               onReceipt={() => { if (item.report) void openReportReceipt(item.report); }}
               onCustody={() => { if (activeRoute) { setCustodyTarget(activeRoute); setCustodyError(""); } }}
@@ -1671,6 +1728,31 @@ export default function RouteSearchPage({
             <div className="modal-actions">
               <button type="button" className="button ghost" disabled={changingRoute !== null} onClick={() => { setRouteCreateTarget(null); setRouteCreateDraft(""); setRouteCreateError(""); }}>Cancelar</button>
               <button type="submit" className="button primary" disabled={changingRoute !== null || !normalizeRouteAssignment(routeCreateDraft)}>{changingRoute ? "Guardando..." : "Crear y asignar"}</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {amountEditTarget ? (
+        <div className="modal-overlay route-search-payment-overlay" onMouseDown={() => !amountEditSaving && setAmountEditTarget(null)}>
+          <form className="modal route-search-payment-modal" role="dialog" aria-modal="true" aria-labelledby="route-amount-edit-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); void saveEditedAmount(); }}>
+            <div className="modal-header">
+              <div>
+                <h2 id="route-amount-edit-title">Editar monto por cobrar</h2>
+                <p>{amountEditTarget.item.unitId} · {amountEditTarget.item.clientName}</p>
+              </div>
+            </div>
+            <div className="route-search-payment-form">
+              <label>
+                <span>Nuevo monto ($)</span>
+                <input autoFocus type="number" min="0.01" max="9999999999.99" step="0.01" inputMode="decimal" value={amountEditDraft} disabled={amountEditSaving} onChange={(event) => { setAmountEditDraft(event.target.value); setAmountEditError(""); }} />
+              </label>
+              <p className="hint">Corrige el monto pendiente de esta tarjeta. No registra un pago ni cambia los pagos anteriores.</p>
+              {amountEditError ? <p className="error-text" role="alert">{amountEditError}</p> : null}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="button ghost" disabled={amountEditSaving} onClick={() => setAmountEditTarget(null)}>Cancelar</button>
+              <button type="submit" className="button primary" disabled={amountEditSaving}>{amountEditSaving ? "Guardando..." : "Guardar monto"}</button>
             </div>
           </form>
         </div>
