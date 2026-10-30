@@ -672,6 +672,42 @@ function ReceivableTableRowComponent({
     onPersistPendingChanges();
   }
 
+  function renderRouteRemovalModal() {
+    if (!isRouteRemovalOpen || typeof document === "undefined") return null;
+    return createPortal(
+      <div className="modal-overlay ar-route-modal-overlay" onClick={closeRouteRemoval}>
+        <div
+          className="modal ar-route-removal-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`route-removal-title-${row.id}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="modal-header ar-route-modal-header">
+            <div>
+              <span className="ar-route-modal-kicker">Confirmar salida</span>
+              <h2 id={`route-removal-title-${row.id}`}>Sacar {row.unitId} de la ruta</h2>
+              <p>{row.name}</p>
+            </div>
+            <button type="button" className="modal-close" onClick={closeRouteRemoval} disabled={routeRemovalSaving} aria-label="Cerrar">×</button>
+          </div>
+          <div className="ar-route-removal-copy">
+            <p>La unidad dejará de aparecer en Ruta en calle y volverá a Pendiente en Gestión.</p>
+            <p>Los pagos y el historial se conservarán.</p>
+            {routeRemovalError ? <p className="error-text" role="alert">{routeRemovalError}</p> : null}
+          </div>
+          <div className="ar-route-modal-actions">
+            <button type="button" className="button ghost" onClick={closeRouteRemoval} disabled={routeRemovalSaving}>Cancelar</button>
+            <button type="button" className="button ar-route-removal-confirm" onClick={() => void confirmRouteRemoval()} disabled={routeRemovalSaving}>
+              {routeRemovalSaving ? "Sacando…" : "Sí, sacar de ruta"}
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
   if ((workflowTab as string) === "management") {
     const isOperationallyActive = isWhatsAppEligibleUnit(row, operationalStatus);
     const operationalReviewValue = operationalStatus
@@ -1017,6 +1053,7 @@ function ReceivableTableRowComponent({
               </div>
             </section>
           </article>
+          {renderRouteRemovalModal()}
         </td>
       </tr>
     );
@@ -1417,38 +1454,7 @@ function ReceivableTableRowComponent({
           </div>,
           document.body
         ) : null}
-        {isRouteRemovalOpen && typeof document !== "undefined" ? createPortal(
-          <div className="modal-overlay ar-route-modal-overlay" onClick={closeRouteRemoval}>
-            <div
-              className="modal ar-route-removal-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby={`route-removal-title-${row.id}`}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="modal-header ar-route-modal-header">
-                <div>
-                  <span className="ar-route-modal-kicker">Confirmar salida</span>
-                  <h2 id={`route-removal-title-${row.id}`}>Sacar {row.unitId} de la ruta</h2>
-                  <p>{row.name}</p>
-                </div>
-                <button type="button" className="modal-close" onClick={closeRouteRemoval} disabled={routeRemovalSaving} aria-label="Cerrar">×</button>
-              </div>
-              <div className="ar-route-removal-copy">
-                <p>La unidad dejará de aparecer en Ruta en calle y volverá a Pendiente en Gestión.</p>
-                <p>Los pagos y el historial se conservarán.</p>
-                {routeRemovalError ? <p className="error-text" role="alert">{routeRemovalError}</p> : null}
-              </div>
-              <div className="ar-route-modal-actions">
-                <button type="button" className="button ghost" onClick={closeRouteRemoval} disabled={routeRemovalSaving}>Cancelar</button>
-                <button type="button" className="button ar-route-removal-confirm" onClick={() => void confirmRouteRemoval()} disabled={routeRemovalSaving}>
-                  {routeRemovalSaving ? "Sacando…" : "Sí, sacar de ruta"}
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body
-        ) : null}
+        {renderRouteRemovalModal()}
       </td>
     </tr>
   );
