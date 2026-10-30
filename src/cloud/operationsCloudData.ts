@@ -2467,13 +2467,28 @@ export async function removeCloudActiveRouteItemFromReceivables(input: {
   clientId: string;
   expectedUpdatedAt?: string;
 }): Promise<string> {
-  const { data, error } = await getCloudClient().rpc("remove_active_route_item_from_receivables", {
+  const client = getCloudClient();
+  const remove = (expectedUpdatedAt: string) => client.rpc("remove_active_route_item_from_receivables", {
     p_user_id: input.userId,
     p_client_id: input.clientId,
-    p_expected_updated_at: input.expectedUpdatedAt ?? ""
+    p_expected_updated_at: expectedUpdatedAt
   });
-  if (error) throw error;
-  return typeof data === "string" && data ? data : new Date().toISOString();
+  const expectedUpdatedAt = input.expectedUpdatedAt ?? "";
+  let result = await remove(expectedUpdatedAt);
+
+  // The management screen can receive a newer record through realtime after the
+  // row was rendered. The RPC still locks the current row and verifies that the
+  // unit remains tagged, so retry only this explicit version conflict.
+  if (
+    result.error
+    && expectedUpdatedAt
+    && result.error.message.toLocaleLowerCase().includes("la gestion de la unidad cambio")
+  ) {
+    result = await remove("");
+  }
+
+  if (result.error) throw result.error;
+  return typeof result.data === "string" && result.data ? result.data : new Date().toISOString();
 }
 
 export async function keepCloudActiveRouteItemAfterPartialPayment(input: {
