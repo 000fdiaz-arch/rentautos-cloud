@@ -105,7 +105,7 @@ export async function loadSellerLeadConsultations(userId: string): Promise<Selle
     .eq("user_id", userId)
     .order("consulted_at", { ascending: false })
     .order("id", { ascending: false })
-    .limit(100);
+    .limit(500);
   if (error) throw error;
   return (data ?? []).map((row) => ({
     id: String(row.id),

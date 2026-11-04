@@ -21,6 +21,11 @@ const records=Array.from({length:55},(_,i)=>record(String(i).padStart(4,"0"),`8-
 const sellerRecords=Array.from({length:25},(_,i)=>({id:`seller-${String(i).padStart(3,"0")}`,user_id:owner,
   status:i===0?"pending_review":"reviewed",cedula:`7-100-${100+i}`,birth_date:"1990-01-01",attachment_name:"seller.png",
   evaluation_id:null,expires_at:timestamp,submitted_at:timestamp,created_at:timestamp,updated_at:timestamp}));
+const consultationRecords=[
+  {id:"attention-1",user_id:owner,cedula:"8-783-2400",seller_name:"Fernando Díaz",consultation_kind:"original",consulted_at:"2026-11-04T18:00:00.000Z"},
+  {id:"attention-2",user_id:owner,cedula:"8-783-2400",seller_name:"MIXSY P.",consultation_kind:"follow_up",consulted_at:"2026-11-04T18:30:00.000Z"},
+  {id:"attention-3",user_id:owner,cedula:"4-833-1524",seller_name:"Carlos Méndez",consultation_kind:"original",consulted_at:"2026-11-03T17:00:00.000Z"}
+];
 let releaseInitial;
 const initialGate=new Promise(resolve=>releaseInitial=resolve);
 let releaseCore;
@@ -99,6 +104,10 @@ try {
       assert.equal(Number(url.searchParams.get("limit")),21);
       return route.fulfill({json:url.searchParams.get("user_id")===`eq.${other}`?[]:sellerRecords.slice(start,start+21)});
     }
+    if(url.pathname.endsWith("/seller_lead_consultations")){
+      assert.equal(Number(url.searchParams.get("limit")),500);
+      return route.fulfill({json:url.searchParams.get("user_id")===`eq.${other}`?[]:consultationRecords});
+    }
     return route.abort();
   });
   await page.goto(base+"/__lead-test");
@@ -106,15 +115,26 @@ try {
   const consult=()=>page.getByRole("button",{name:"Consultar",exact:true});
   await query.waitFor();
   const sellersTab=page.getByRole("tab",{name:"Zona de vendedores",exact:true});
+  const attentionsTab=page.getByRole("tab",{name:"Atenciones registradas",exact:true});
   const recentTab=page.getByRole("tab",{name:"Dictámenes recientes",exact:true});
   assert.equal(await sellersTab.getAttribute("aria-selected"),"true");
   assert.equal(await page.getByRole("tabpanel",{name:"Zona de vendedores"}).isVisible(),true);
   assert.equal(await page.locator("#lead-panel-recent").isVisible(),false);
   await sellersTab.press("ArrowRight");
+  assert.equal(await attentionsTab.getAttribute("aria-selected"),"true");
+  assert.equal(await attentionsTab.evaluate(element=>document.activeElement===element),true);
+  await page.getByLabel("Nombre del vendedor",{exact:true}).fill("mixsy");
+  assert.equal(await page.locator(".lead-consultation-history__list article").count(),1);
+  assert.match(await page.locator(".lead-consultation-history__list article").innerText(),/MIXSY P\./);
+  await page.getByRole("combobox",{name:/Tipo de atención/}).selectOption("original");
+  assert.equal(await page.locator(".lead-consultation-history__list article").count(),0);
+  await page.getByRole("button",{name:"Limpiar filtros",exact:true}).click();
+  assert.equal(await page.locator(".lead-consultation-history__list article").count(),3);
+  await attentionsTab.press("ArrowRight");
   assert.equal(await recentTab.getAttribute("aria-selected"),"true");
   assert.equal(await recentTab.evaluate(element=>document.activeElement===element),true);
   assert.equal(await page.locator("#lead-panel-sellers").isVisible(),false);
-  check("seller and recent tabs show one list at a time and support keyboard navigation");
+  check("seller, attention and recent tabs stay separate; attention filters and keyboard navigation work");
   assert.equal(await query.isEnabled(),true);
   assert.equal(await consult().isEnabled(),true);
   assert.equal(await page.getByText("Aun no hay dictamenes guardados.").count(),0);

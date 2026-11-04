@@ -59,6 +59,27 @@ type Props = {
   ownerUserId?: string;
 };
 
+const leadListTabs = [
+  { id: "sellers", label: "Zona de vendedores" },
+  { id: "attentions", label: "Atenciones registradas" },
+  { id: "recent", label: "Dictámenes recientes" }
+] as const;
+
+type LeadListTab = typeof leadListTabs[number]["id"];
+
+function leadSearchKey(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es");
+}
+
+function leadLocalDateKey(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 type LeadFlowMode = "idle" | "creating" | "viewing" | "editing";
 
 type DocumentScanState = {
@@ -198,7 +219,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   const [form, setForm] = useState<LeadForm>(initialForm);
   const [queryCedula, setQueryCedula] = useState("");
   const [flowMode, setFlowMode] = useState<LeadFlowMode>("idle");
-  const [activeListTab, setActiveListTab] = useState<"sellers" | "recent">("sellers");
+  const [activeListTab, setActiveListTab] = useState<LeadListTab>("sellers");
   const [includeDetails, setIncludeDetails] = useState(false);
   const [saving, setSaving] = useState(false);
   const [consulting, setConsulting] = useState(false);
@@ -215,6 +236,10 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   const [errors, setErrors] = useState<string[]>([]);
   const [sellerRequests, setSellerRequests] = useState<SellerLeadRequest[]>([]);
   const [sellerConsultations, setSellerConsultations] = useState<SellerLeadConsultation[]>([]);
+  const [consultationCedulaFilter, setConsultationCedulaFilter] = useState("");
+  const [consultationSellerFilter, setConsultationSellerFilter] = useState("");
+  const [consultationKindFilter, setConsultationKindFilter] = useState<"all" | SellerLeadConsultation["kind"]>("all");
+  const [consultationDateFilter, setConsultationDateFilter] = useState("");
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState("");
   const [requestsHasMore, setRequestsHasMore] = useState(false);
@@ -236,6 +261,20 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     if (!focusedCedula) return evaluations;
     return evaluations.filter((evaluation) => sellerCedulaKey(evaluation.cedula) === sellerCedulaKey(focusedCedula));
   }, [evaluations, form.cedula, queryCedula]);
+  const filteredSellerConsultations = useMemo(() => {
+    const cedulaFilter = sellerCedulaKey(consultationCedulaFilter);
+    const sellerFilter = leadSearchKey(consultationSellerFilter.trim());
+    return sellerConsultations.filter((consultation) => {
+      if (cedulaFilter && !sellerCedulaKey(consultation.cedula).includes(cedulaFilter)) return false;
+      if (sellerFilter && !leadSearchKey(consultation.sellerName).includes(sellerFilter)) return false;
+      if (consultationKindFilter !== "all" && consultation.kind !== consultationKindFilter) return false;
+      if (consultationDateFilter && leadLocalDateKey(consultation.consultedAt) !== consultationDateFilter) return false;
+      return true;
+    });
+  }, [consultationCedulaFilter, consultationDateFilter, consultationKindFilter, consultationSellerFilter, sellerConsultations]);
+  const hasConsultationFilters = Boolean(
+    consultationCedulaFilter || consultationSellerFilter || consultationKindFilter !== "all" || consultationDateFilter
+  );
 
   async function refreshSellerRequests(append = false): Promise<void> {
     if (!ownerUserId) return;
@@ -1112,10 +1151,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       )}
 
       <div className="lead-content-tabs" role="tablist" aria-label="Secciones de Leads">
-        {([
-          { id: "sellers", label: "Zona de vendedores" },
-          { id: "recent", label: "Dictámenes recientes" }
-        ] as const).map((tab, index) => (
+        {leadListTabs.map((tab, index) => (
           <button
             key={tab.id}
             type="button"
@@ -1128,8 +1164,14 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
             onKeyDown={(event) => {
               if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
               event.preventDefault();
-              const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? 1 : 1 - index;
-              const nextTab = nextIndex === 0 ? "sellers" : "recent";
+              const nextIndex = event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? leadListTabs.length - 1
+                  : event.key === "ArrowRight"
+                    ? (index + 1) % leadListTabs.length
+                    : (index - 1 + leadListTabs.length) % leadListTabs.length;
+              const nextTab = leadListTabs[nextIndex].id;
               setActiveListTab(nextTab);
               document.getElementById(`lead-tab-${nextTab}`)?.focus();
             }}
@@ -1155,30 +1197,6 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
         {publicPortalUrl && <label className="seller-shared-link">Enlace para todos los vendedores<input readOnly value={publicPortalUrl} onFocus={(event) => event.target.select()} /></label>}
         {requestsLoading && <p className="hint">Cargando solicitudes...</p>}
         {requestsError && <p role="alert" className="error-banner">{requestsError}</p>}
-        {sellerConsultations.length > 0 && (
-          <section className="lead-consultation-history">
-            <div>
-              <h3>Atenciones registradas</h3>
-              <p className="hint">La primera consulta conserva al responsable original; las siguientes quedan como seguimientos.</p>
-            </div>
-            <div className="lead-consultation-history__list">
-              {sellerConsultations.map((consultation) => (
-                <article key={consultation.id}>
-                  <div>
-                    <strong>{consultation.cedula}</strong>
-                    <span>{consultation.sellerName}</span>
-                  </div>
-                  <div>
-                    <span className={`lead-consultation-kind lead-consultation-kind--${consultation.kind}`}>
-                      {consultation.kind === "original" ? "Responsable original" : "Seguimiento"}
-                    </span>
-                    <small>{formatDateTime(consultation.consultedAt)}</small>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-        )}
         <div className="lead-request-list">
           {sellerRequests.length === 0 && !requestsLoading && !requestsError && <p className="hint">Aun no hay solicitudes enviadas a vendedores.</p>}
           {sellerRequests.map((request) => (
@@ -1196,6 +1214,66 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
           ))}
         </div>
         {requestsHasMore && <button type="button" className="button ghost small" disabled={requestsLoading} onClick={() => void refreshSellerRequests(true)}>Ver más solicitudes</button>}
+      </section>
+
+      <section className="panel lead-consultation-history" role="tabpanel" id="lead-panel-attentions" aria-labelledby="lead-tab-attentions" hidden={activeListTab !== "attentions"}>
+        <div className="panel-head">
+          <div>
+            <h2>Atenciones registradas</h2>
+            <p className="hint">Localiza cada consulta por cédula, vendedor, tipo de atención o fecha.</p>
+          </div>
+          <button type="button" className="button ghost small" onClick={() => void refreshSellerRequests()} disabled={!ownerUserId || requestsLoading}>Actualizar</button>
+        </div>
+        <div className="lead-consultation-filters" aria-label="Filtros de atenciones">
+          <label>Cédula
+            <input value={consultationCedulaFilter} inputMode="numeric" onChange={(event) => setConsultationCedulaFilter(event.target.value)} placeholder="Ej. 8-783-2400" />
+          </label>
+          <label>Nombre del vendedor
+            <input value={consultationSellerFilter} onChange={(event) => setConsultationSellerFilter(event.target.value)} placeholder="Buscar vendedor" />
+          </label>
+          <label>Tipo de atención
+            <select value={consultationKindFilter} onChange={(event) => setConsultationKindFilter(event.target.value as "all" | SellerLeadConsultation["kind"])}>
+              <option value="all">Todas</option>
+              <option value="original">Responsable original</option>
+              <option value="follow_up">Seguimiento</option>
+            </select>
+          </label>
+          <label>Fecha
+            <input type="date" value={consultationDateFilter} onChange={(event) => setConsultationDateFilter(event.target.value)} />
+          </label>
+        </div>
+        <div className="lead-consultation-summary">
+          <span>{hasConsultationFilters ? `${filteredSellerConsultations.length} de ${sellerConsultations.length} atenciones` : `${sellerConsultations.length} atenciones`}</span>
+          {hasConsultationFilters && (
+            <button type="button" className="button ghost small" onClick={() => {
+              setConsultationCedulaFilter("");
+              setConsultationSellerFilter("");
+              setConsultationKindFilter("all");
+              setConsultationDateFilter("");
+            }}>Limpiar filtros</button>
+          )}
+        </div>
+        {requestsLoading && <p className="hint">Cargando atenciones...</p>}
+        {requestsError && <p role="alert" className="error-banner">{requestsError}</p>}
+        {!requestsLoading && !requestsError && filteredSellerConsultations.length === 0 && (
+          <p className="lead-consultation-empty">{sellerConsultations.length === 0 ? "Aún no hay atenciones registradas." : "No encontramos atenciones con estos filtros."}</p>
+        )}
+        <div className="lead-consultation-history__list">
+          {filteredSellerConsultations.map((consultation) => (
+            <article key={consultation.id}>
+              <div>
+                <strong>{consultation.cedula}</strong>
+                <span>{consultation.sellerName}</span>
+              </div>
+              <div>
+                <span className={`lead-consultation-kind lead-consultation-kind--${consultation.kind}`}>
+                  {consultation.kind === "original" ? "Responsable original" : "Seguimiento"}
+                </span>
+                <small>{formatDateTime(consultation.consultedAt)}</small>
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="panel" role="tabpanel" id="lead-panel-recent" aria-labelledby="lead-tab-recent" hidden={activeListTab !== "recent"}>
