@@ -158,6 +158,10 @@ en el servidor (consulta pública, envío y enlaces privados anteriores).
 La interfaz rechaza letras, espacios y caracteres especiales, incluso al pegar.
 No se transforman los identificadores históricos almacenados.
 
+Aplicar la migración 120 para solicitar el nombre del vendedor antes de consultar.
+La primera consulta conserva al responsable original y cada repetición se registra
+como seguimiento en **Leads → Zona de vendedores → Atenciones registradas**.
+
 La consulta por cédula reconoce el número con o sin guiones. Si hay una revisión
 pendiente tiene prioridad sobre un dictamen anterior. Si no hay registro se habilita
 el formulario; el registro se crea solamente al enviarlo. Las correcciones reutilizan
@@ -176,6 +180,7 @@ Pruebas locales (sin acceder a producción):
 ```powershell
 npm install --prefix .tmp/lead-portal-tests --no-package-lock --no-save @electric-sql/pglite@0.5.8
 node tests/shared-seller-lead-db-test.mjs
+node tests/seller-consultation-attribution-db-test.mjs
 node tests/shared-seller-lead-ui-test.mjs
 node tests/lead-document-zoom-ui-test.mjs
 npm run build

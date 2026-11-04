@@ -56,6 +56,7 @@ Para instalaciones existentes que ya ejecutaron las migraciones de cuentas por c
 - `supabase/116-payment-deletion-fast-paths.sql` (evita reconstrucciones de historial y retencion cuando la factura eliminada no puede afectar esos caches)
 - `supabase/117-client-portal.sql` (habilita acceso por cedula y PIN, sesiones privadas, multiples unidades y comprobantes de pago del portal del cliente)
 - `supabase/119-active-route-delta-availability.sql` (evita asignar carros a cuentas Delta inactivas y reasigna sus rutas pendientes al desactivarlas)
+- `supabase/120-seller-consultation-attribution.sql` (identifica al vendedor, conserva al responsable original y registra los seguimientos de cada cedula consultada)
 
 Despues de aplicar la 117, despliega la funcion que atiende el portal sin exponer la
 clave de servicio en el navegador:

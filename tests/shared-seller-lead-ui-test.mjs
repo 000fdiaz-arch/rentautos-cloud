@@ -31,6 +31,7 @@ try {
   let slow = false;
   let sent = 0;
   let portalAvailable = true;
+  let alreadyConsulted = false;
   await page.route("**/*", async route => {
     const request = route.request();
     if (request.url().startsWith(base)) return route.continue();
@@ -53,13 +54,18 @@ try {
       if (rateLimit) return route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ message: "PORTAL_RATE_LIMIT" }) });
       if (slow) await new Promise(resolve => setTimeout(resolve, 250));
       if (name === "get_seller_lead_request") return route.fulfill({ json: {status:"reviewed",decision:"aplica",extraDeposit:0} });
-      assert.equal(name, "lookup_seller_lead");
-      return route.fulfill({ json: status === "reviewed" ? {status,decision,extraDeposit:decision === "aplica_con_abono" ? 150 : 0} : {status} });
+      assert.equal(name, "lookup_seller_lead_attributed");
+      assert.equal(request.postDataJSON().p_seller_name, "Vendedor de Prueba");
+      return route.fulfill({ json: status === "reviewed"
+        ? {status,decision,extraDeposit:decision === "aplica_con_abono" ? 150 : 0,alreadyConsulted,consultationCount:alreadyConsulted ? 2 : 1}
+        : {status,alreadyConsulted,consultationCount:alreadyConsulted ? 2 : 1} });
     }
     if (request.url().startsWith("https://cdn.jsdelivr.net/")) return route.continue();
     return route.abort();
   });
   await page.goto(base + "/consulta-vendedores/" + portal, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.getByLabel("Nombre del vendedor").fill("Vendedor de Prueba");
+  await page.getByRole("button", {name:"Iniciar consultas",exact:true}).click();
   await page.getByRole("button", {name:"Consultar",exact:true}).waitFor();
   const cedula = page.getByLabel("Cédula de la persona");
   const consult = page.getByRole("button", {name:"Consultar",exact:true});
@@ -81,6 +87,13 @@ try {
   await consult.click();
   await page.getByText("¡Listo! Puedes avanzar con el proceso de esta persona.", {exact:true}).waitFor();
   check("anonymous route and gentle positive message");
+
+  alreadyConsulted = true;
+  await consult.click();
+  await page.getByText(/Esta persona ya fue consultada/).waitFor();
+  assert.doesNotMatch(await page.locator(".seller-lead-consultation-notice").innerText(), /Vendedor de Prueba/);
+  alreadyConsulted = false;
+  check("repeat consultation is logged without exposing another seller name");
 
   decision = "aplica_con_abono";
   await consult.click();

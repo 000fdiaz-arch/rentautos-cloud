@@ -16,12 +16,14 @@ const testBypassAuth = import.meta.env.VITE_RENTAUTOS_TEST_BYPASS_AUTH === "1";
 export default function App() {
   const sellerPortalMatch = window.location.pathname.match(/^\/consulta-vendedor\/([0-9a-f-]{36})\/?$/i);
   const sharedPortalMatch = window.location.pathname.match(/^\/consulta-vendedores\/([0-9a-f-]{36})\/?$/i);
+  const sellerConsultationLocalDemo = import.meta.env.DEV && /^\/consulta-vendedores\/demo-local\/?$/i.test(window.location.pathname);
   const clientPortalMatch = window.location.pathname.match(/^\/portal-cliente\/?$/i);
   const publicCatalogMatch = window.location.pathname.match(/^\/catalogo\/([0-9a-f-]{36})\/?$/i);
   const catalogWorkflowDemo = import.meta.env.DEV && /^\/demo\/catalogo-autos\/?$/i.test(window.location.pathname);
 
   if (sellerPortalMatch) return <SellerLeadPortalPage token={sellerPortalMatch[1]} />;
   if (sharedPortalMatch) return <SellerLeadPortalPage portalId={sharedPortalMatch[1]} />;
+  if (sellerConsultationLocalDemo) return <SellerLeadPortalPage portalId="demo-local" />;
   if (clientPortalMatch) return <ClientPortalPage />;
   if (publicCatalogMatch) return <PublicFleetCatalogPage ownerUserId={publicCatalogMatch[1]} />;
   if (catalogWorkflowDemo) return <CatalogWorkflowDemoPage />;

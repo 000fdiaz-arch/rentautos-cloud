@@ -1,4 +1,4 @@
-import type { PublicSellerLeadRequest, SellerLeadRequest, SellerLeadRequestStatus } from "../types";
+import type { PublicSellerLeadRequest, SellerLeadConsultation, SellerLeadRequest, SellerLeadRequestStatus } from "../types";
 import { createEphemeralSupabaseClient } from "../lib/supabase";
 import { getCloudClient } from "./cloudClient";
 import { createLeadDocumentViewUrl, isLeadDocumentDataUrl, uploadLeadDocumentDataUrl } from "./leadDocumentStorage";
@@ -96,6 +96,25 @@ export async function loadSellerLeadRequests(userId: string, offset = 0): Promis
   }
   if (response.error) throw response.error;
   return ((response.data ?? []) as unknown as SellerLeadRequestRow[]).map(fromRow);
+}
+
+export async function loadSellerLeadConsultations(userId: string): Promise<SellerLeadConsultation[]> {
+  const { data, error } = await getCloudClient()
+    .from("seller_lead_consultations")
+    .select("id,user_id,cedula,seller_name,consultation_kind,consulted_at")
+    .eq("user_id", userId)
+    .order("consulted_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    id: String(row.id),
+    userId: String(row.user_id),
+    cedula: String(row.cedula),
+    sellerName: String(row.seller_name),
+    kind: row.consultation_kind === "original" ? "original" : "follow_up",
+    consultedAt: String(row.consulted_at)
+  }));
 }
 
 export async function loadSellerLeadRequest(userId: string, id: string): Promise<SellerLeadRequest> {
@@ -217,7 +236,9 @@ function normalizePublicPayload(value: unknown): PublicSellerLeadRequest {
     expiresAt: typeof raw.expiresAt === "string" ? raw.expiresAt : "",
     decision,
     extraDeposit: typeof raw.extraDeposit === "number" ? raw.extraDeposit : undefined,
-    reviewedAt: typeof raw.reviewedAt === "string" ? raw.reviewedAt : undefined
+    reviewedAt: typeof raw.reviewedAt === "string" ? raw.reviewedAt : undefined,
+    alreadyConsulted: raw.alreadyConsulted === true,
+    consultationCount: typeof raw.consultationCount === "number" ? raw.consultationCount : undefined
   };
 }
 
@@ -243,10 +264,14 @@ function publicPortalError(error: { message?: string }): Error {
   return new Error("No se pudo completar la operación. Revisa tu conexión e intenta nuevamente.");
 }
 
-export async function lookupPublicSellerLead(portalId: string, cedula: string): Promise<PublicSellerLeadRequest> {
+export async function lookupPublicSellerLead(portalId: string, cedula: string, sellerName: string): Promise<PublicSellerLeadRequest> {
   const client = createEphemeralSupabaseClient();
   if (!client) throw new Error("El servicio de consulta no está configurado.");
-  const { data, error } = await client.rpc("lookup_seller_lead", { p_portal_id: portalId, p_cedula: cedula });
+  const { data, error } = await client.rpc("lookup_seller_lead_attributed", {
+    p_portal_id: portalId,
+    p_cedula: cedula,
+    p_seller_name: sellerName
+  });
   if (error) throw publicPortalError(error);
   return normalizePublicPayload(data);
 }

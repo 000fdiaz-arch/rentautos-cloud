@@ -4,11 +4,14 @@ import { isSellerLeadPortalAvailable, loadPublicSellerLeadRequest, lookupPublicS
 import type { PublicSellerLeadRequest } from "../types";
 import { SELLER_PENDING_MESSAGE, sellerDecisionMessage, validSellerBirthDate, validSellerCedula, validSellerCedulaInput } from "../sellerLeadPortalRules";
 import { prepareSellerLeadDocument } from "../sellerLeadDocument";
+import { clearSellerConsultationDemoEvents, loadSellerConsultationDemoEvents, recordSellerConsultationDemo, type SellerConsultationDemoEvent } from "../sellerConsultationLocalDemo";
 
 type Props = { token?: string; portalId?: string };
 type PortalAvailability = "checking" | "available" | "unavailable" | "error";
 
 export default function SellerLeadPortalPage({ token, portalId }: Props) {
+  const localSellerDemo = import.meta.env.DEV && portalId === "demo-local";
+  const sharedSellerPortal = Boolean(portalId);
   const [request, setRequest] = useState<PublicSellerLeadRequest | null>(null);
   const [cedula, setCedula] = useState("");
   const [birthDate, setBirthDate] = useState("");
@@ -23,7 +26,11 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
   const [requiresIdentityConfirmation, setRequiresIdentityConfirmation] = useState(false);
   const [confirmedIdentityKey, setConfirmedIdentityKey] = useState("");
   const [error, setError] = useState("");
-  const [portalAvailability, setPortalAvailability] = useState<PortalAvailability>(portalId ? "checking" : "available");
+  const [portalAvailability, setPortalAvailability] = useState<PortalAvailability>(portalId && !localSellerDemo ? "checking" : "available");
+  const [sellerNameInput, setSellerNameInput] = useState("");
+  const [sellerName, setSellerName] = useState("");
+  const [consultationNotice, setConsultationNotice] = useState("");
+  const [demoHistory, setDemoHistory] = useState<SellerConsultationDemoEvent[]>([]);
   const operation = useRef(0);
   const fileOperation = useRef(0);
 
@@ -44,6 +51,15 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
 
   useEffect(() => {
     if (!portalId) return;
+    const sessionKey = `rentautos:seller-consultation-session:${portalId}`;
+    const savedSeller = sessionStorage.getItem(sessionKey) ?? "";
+    setSellerName(savedSeller);
+    setSellerNameInput(savedSeller);
+    if (localSellerDemo) {
+      setPortalAvailability("available");
+      setDemoHistory(loadSellerConsultationDemoEvents());
+      return;
+    }
     let cancelled = false;
     setPortalAvailability("checking");
     setError("");
@@ -56,7 +72,7 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
       }
     });
     return () => { cancelled = true; };
-  }, [portalId]);
+  }, [localSellerDemo, portalId]);
 
   function changeCedula(value: string): void {
     if (!validSellerCedulaInput(value)) {
@@ -79,7 +95,28 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
     setOcrProgress(0);
     setRequiresIdentityConfirmation(false);
     setConfirmedIdentityKey("");
+    setConsultationNotice("");
     setError("");
+  }
+
+  function beginSellerSession(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    const normalized = sellerNameInput.trim().replace(/\s+/g, " ");
+    if (normalized.length < 3) {
+      setError("Escribe el nombre del vendedor para continuar.");
+      return;
+    }
+    if (portalId) sessionStorage.setItem(`rentautos:seller-consultation-session:${portalId}`, normalized);
+    setSellerName(normalized);
+    setSellerNameInput(normalized);
+    setError("");
+  }
+
+  function changeSeller(): void {
+    if (portalId) sessionStorage.removeItem(`rentautos:seller-consultation-session:${portalId}`);
+    changeCedula("");
+    setSellerName("");
+    setSellerNameInput("");
   }
 
   async function consult(event?: FormEvent): Promise<void> {
@@ -94,8 +131,28 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
     setError("");
     setRequest(null);
     try {
-      const next = await lookupPublicSellerLead(portalId, cedula.trim());
-      if (current === operation.current) setRequest(next);
+      if (localSellerDemo) {
+        const recorded = recordSellerConsultationDemo(cedula, sellerName);
+        setDemoHistory(loadSellerConsultationDemoEvents());
+        setConsultationNotice(recorded.consultationCount > 1
+          ? "Esta persona ya fue consultada. Registramos el seguimiento sin cambiar al vendedor original."
+          : "");
+        const next: PublicSellerLeadRequest = {
+          status: recorded.consultationCount > 1 ? "pending_review" : "not_found",
+          cedula: cedula.trim().toUpperCase(),
+          birthDate: "",
+          expiresAt: ""
+        };
+        if (current === operation.current) setRequest(next);
+        return;
+      }
+      const next = await lookupPublicSellerLead(portalId, cedula.trim(), sellerName);
+      if (current === operation.current) {
+        setConsultationNotice(next.alreadyConsulted
+          ? "Esta persona ya fue consultada. Registramos el seguimiento sin cambiar al vendedor original."
+          : "");
+        setRequest(next);
+      }
     } catch (cause) {
       if (current === operation.current) setError(cause instanceof Error ? cause.message : "No se pudo consultar. Intenta nuevamente.");
     } finally {
@@ -170,7 +227,9 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
     setError("");
     const input = { cedula: cedula.trim().toUpperCase(), birthDate, attachmentName, attachmentDataUrl };
     try {
-      if (portalId) {
+      if (localSellerDemo) {
+        setRequest({ status: "pending_review", cedula: input.cedula, birthDate: input.birthDate, attachmentName: input.attachmentName, expiresAt: "" });
+      } else if (portalId) {
         setRequest(await submitSharedSellerLead(portalId, input));
       } else if (token) {
         await submitPublicSellerLeadRequest(token, input);
@@ -210,9 +269,27 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
   return (
     <main className="seller-lead-page">
       <section className="seller-lead-card">
-        <div className="seller-lead-brand">RENTAUTOS</div>
-        <h1>Consulta de personas</h1>
-        {portalId && portalAvailability === "available" && !editable && (
+        {!sharedSellerPortal && <div className="seller-lead-brand">RENTAUTOS</div>}
+        {!sharedSellerPortal && <h1>Consulta de personas</h1>}
+        {sharedSellerPortal && portalAvailability === "available" && sellerName && (
+          <div className="seller-lead-operator">
+            <span>Atendiendo como <strong>{sellerName}</strong></span>
+            <button type="button" className="button ghost small" onClick={changeSeller}>Cambiar vendedor</button>
+          </div>
+        )}
+        {sharedSellerPortal && portalAvailability === "available" && !sellerName && (
+          <form className="seller-lead-search seller-lead-identification" onSubmit={beginSellerSession}>
+            <span className="seller-lead-identification__step">Identificación del vendedor</span>
+            <h2>¿Quién está atendiendo?</h2>
+            <p>Ingresa tu nombre antes de comenzar. Las consultas realizadas desde esta pestaña quedarán registradas como atenciones tuyas.</p>
+            <label className="seller-lead-identification__label">
+              <span>Nombre del vendedor <small>Obligatorio</small></span>
+              <input autoComplete="name" maxLength={80} value={sellerNameInput} onChange={(event) => setSellerNameInput(event.target.value)} placeholder="Escribe aquí tu nombre de vendedor" autoFocus />
+            </label>
+            <button type="submit" className="button primary seller-lead-submit">Iniciar consultas</button>
+          </form>
+        )}
+        {portalId && portalAvailability === "available" && !editable && Boolean(sellerName) && (
           <form className="seller-lead-search" onSubmit={(event) => void consult(event)}>
             <p>Vendedor: escribe la cédula o sube una foto de la licencia. La app leerá los datos antes de consultar.</p>
             <label>Cédula de la persona
@@ -243,6 +320,7 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
           {loading && !portalId && <p className="hint">Cargando solicitud...</p>}
           {portalAvailability === "checking" && <p className="hint">Validando enlace...</p>}
           {error && <p role="alert" className="error-banner">{error}</p>}
+          {consultationNotice && <p className="seller-lead-consultation-notice">{consultationNotice}</p>}
         </div>
         {portalId && portalAvailability === "unavailable" && (
           <div className="seller-lead-state"><strong>Este enlace no está disponible</strong><p>Solicita a Rentautos un enlace actualizado para continuar.</p></div>
@@ -276,7 +354,7 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
                 <button type="button" className="button primary" disabled={locked || identityConfirmed} onClick={() => void confirmIdentity()}>{identityConfirmed ? "Confirmado" : "Confirmar datos"}</button>
               </div>
             )}
-            {portalId && <button type="button" className="button ghost seller-lead-submit" disabled={locked} onClick={() => changeCedula(cedula)}>Consultar otra persona</button>}
+            {portalId && <button type="button" className="button ghost seller-lead-submit" disabled={locked} onClick={() => changeCedula(localSellerDemo ? "" : cedula)}>Consultar otra persona</button>}
             <button type="submit" className="button primary seller-lead-submit" disabled={locked || !identityConfirmed}>
               {readingFile ? "Leyendo documento..." : saving ? "Enviando..." : "Enviar a verificación"}
             </button>
@@ -285,6 +363,7 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
         {!loading && request?.status === "pending_review" && (
           <div role="status" className="seller-lead-state seller-lead-state--pending">
             <strong>En revisión</strong><p>{SELLER_PENDING_MESSAGE}</p>
+            {localSellerDemo && <button type="button" className="button ghost seller-lead-submit" onClick={() => changeCedula("")}>Consultar otra persona</button>}
           </div>
         )}
         {!loading && request?.status === "reviewed" && request.decision && (
@@ -295,7 +374,26 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
             )}
           </div>
         )}
-        {portalId && <p className="hint seller-lead-privacy">Consulta pública sin iniciar sesión. Solo se muestra el estado del proceso y, cuando corresponde, el abono adicional.</p>}
+        {localSellerDemo && (
+          <section className="seller-lead-demo-history">
+            <div className="seller-lead-demo-history__header">
+              <div><strong>Historial de prueba</strong><span>Esto simula lo que verá administración.</span></div>
+              <button type="button" className="button ghost small" onClick={() => { clearSellerConsultationDemoEvents(); setDemoHistory([]); setConsultationNotice(""); }}>Reiniciar</button>
+            </div>
+            {demoHistory.length === 0 ? <p className="hint">Aún no hay consultas en este navegador.</p> : (
+              <div className="seller-lead-demo-history__list">
+                {[...demoHistory].reverse().map((event) => (
+                  <div key={event.id}>
+                    <strong>{event.cedula}</strong>
+                    <span>{event.sellerName} · {event.kind === "original" ? "Responsable original" : "Seguimiento"}</span>
+                    <small>{new Date(event.consultedAt).toLocaleString("es-PA", { dateStyle: "short", timeStyle: "short" })}</small>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+        {portalId && !localSellerDemo && <p className="hint seller-lead-privacy">Consulta pública sin iniciar sesión. Solo se muestra el estado del proceso y, cuando corresponde, el abono adicional.</p>}
       </section>
     </main>
   );

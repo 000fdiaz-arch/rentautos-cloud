@@ -171,6 +171,17 @@ export type PublicSellerLeadRequest = {
   decision?: LeadDecision;
   extraDeposit?: number;
   reviewedAt?: string;
+  alreadyConsulted?: boolean;
+  consultationCount?: number;
+};
+
+export type SellerLeadConsultation = {
+  id: string;
+  userId: string;
+  cedula: string;
+  sellerName: string;
+  kind: "original" | "follow_up";
+  consultedAt: string;
 };
 
 export type LeadEvaluation = {

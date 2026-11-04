@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import {
   getSellerLeadPortalId,
+  loadSellerLeadConsultations,
   loadSellerLeadRequests,
   loadSellerLeadRequest,
   correctSellerLeadRequest,
   markSellerLeadRequestIncomplete,
   markSellerLeadRequestReviewed
 } from "../cloudData";
-import type { LeadDecision, LeadEvaluation, SellerLeadRequest, SellerLeadRequestStatus } from "../types";
+import type { LeadDecision, LeadEvaluation, SellerLeadConsultation, SellerLeadRequest, SellerLeadRequestStatus } from "../types";
 import { sellerCedulaKey, validSellerCedula, validSellerCedulaInput, validSellerBirthDate } from "../sellerLeadPortalRules";
 import { calculateLeadAgeExtraDeposit } from "../leadAgeRules";
 import LeadDocumentPreview from "../components/LeadDocumentPreview";
@@ -213,6 +214,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   const [message, setMessage] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
   const [sellerRequests, setSellerRequests] = useState<SellerLeadRequest[]>([]);
+  const [sellerConsultations, setSellerConsultations] = useState<SellerLeadConsultation[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState("");
   const [requestsHasMore, setRequestsHasMore] = useState(false);
@@ -241,8 +243,12 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     setRequestsLoading(true);
     setRequestsError("");
     try {
-      const rows = await loadSellerLeadRequests(ownerUserId, append ? sellerRequests.length : 0);
+      const [rows, consultations] = await Promise.all([
+        loadSellerLeadRequests(ownerUserId, append ? sellerRequests.length : 0),
+        loadSellerLeadConsultations(ownerUserId)
+      ]);
       if (version !== sellerVersion.current) return;
+      setSellerConsultations(consultations);
       setRequestsHasMore(rows.length > 20);
       setSellerRequests(current => append
         ? [...new Map([...current, ...rows.slice(0, 20)].map(row => [row.id, row])).values()]
@@ -256,6 +262,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
 
   useEffect(() => {
     setSellerRequests([]);
+    setSellerConsultations([]);
     setRequestsHasMore(false);
     handleNewEvaluation();
     void refreshSellerRequests();
@@ -1148,6 +1155,30 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
         {publicPortalUrl && <label className="seller-shared-link">Enlace para todos los vendedores<input readOnly value={publicPortalUrl} onFocus={(event) => event.target.select()} /></label>}
         {requestsLoading && <p className="hint">Cargando solicitudes...</p>}
         {requestsError && <p role="alert" className="error-banner">{requestsError}</p>}
+        {sellerConsultations.length > 0 && (
+          <section className="lead-consultation-history">
+            <div>
+              <h3>Atenciones registradas</h3>
+              <p className="hint">La primera consulta conserva al responsable original; las siguientes quedan como seguimientos.</p>
+            </div>
+            <div className="lead-consultation-history__list">
+              {sellerConsultations.map((consultation) => (
+                <article key={consultation.id}>
+                  <div>
+                    <strong>{consultation.cedula}</strong>
+                    <span>{consultation.sellerName}</span>
+                  </div>
+                  <div>
+                    <span className={`lead-consultation-kind lead-consultation-kind--${consultation.kind}`}>
+                      {consultation.kind === "original" ? "Responsable original" : "Seguimiento"}
+                    </span>
+                    <small>{formatDateTime(consultation.consultedAt)}</small>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
         <div className="lead-request-list">
           {sellerRequests.length === 0 && !requestsLoading && !requestsError && <p className="hint">Aun no hay solicitudes enviadas a vendedores.</p>}
           {sellerRequests.map((request) => (
