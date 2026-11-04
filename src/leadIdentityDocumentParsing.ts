@@ -57,9 +57,17 @@ function cedulaFromText(text: string): string {
 function fullNameFromText(text: string): string {
   const lines = text.split("\n").map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
   const labelIndex = lines.findIndex((line) => /\bNAME\b|\bNOMB[A-Z]{1,4}\b/.test(line));
-  if (labelIndex < 0) return "";
+  const titleIndex = lines.findIndex((line) => /[LV]ICEN[A-Z]{1,4}\s+DE\s+CONDUCIR|DRIVER'?S?\s+LICEN[CS]E/.test(line));
+  const nationalityIndex = lines.findIndex((line, index) => (
+    index > Math.max(-1, titleIndex) &&
+    (/^PANAM(?:A|ENA)$/.test(line) || /NACI[A-Z]{3,}DAD|NATIONALITY/.test(line))
+  ));
+  const startIndex = labelIndex >= 0 ? labelIndex + 1 : titleIndex >= 0 ? titleIndex + 1 : -1;
+  if (startIndex < 0) return "";
+
+  const stopIndex = nationalityIndex > startIndex ? nationalityIndex : startIndex + 7;
   const nameLines: string[] = [];
-  for (const line of lines.slice(labelIndex + 1, labelIndex + 7)) {
+  for (const line of lines.slice(startIndex, Math.min(stopIndex, startIndex + 7))) {
     if (/NACI[A-Z]{3,}DAD|NATIONALITY|FECHA\s+DE\s+NACIMIENTO|DATE\s+OF\s+BIRTH|SANGRE|BLOOD/.test(line)) break;
     if (/^(?:NAME|NOMBRE|NOMBAE)$/.test(line)) continue;
     const cleaned = line
@@ -67,6 +75,7 @@ function fullNameFromText(text: string): string {
       .replace(/\s+/g, " ")
       .replace(/^[ '-]+|[ '-]+$/g, "")
       .trim();
+    if (/\b(?:AUTORIDAD|TRANSPORTE|TERRESTRE|REPUBLICA|PANAMA|LICENCIA|CONDUCIR|DRIVER|EXPEDICION|EXPIRACION|ISSUE|EXPIRES|TIPO|CLASS)\b/.test(cleaned)) continue;
     if (cleaned.length >= 3 && cleaned.length <= 50) nameLines.push(cleaned);
     if (nameLines.length === 3) break;
   }

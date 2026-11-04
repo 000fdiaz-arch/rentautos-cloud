@@ -42,4 +42,30 @@ assert.deepEqual(extractLeadIdentityDocumentData(`
   1985
 `, today), { cedula: "8-783-2400", birthDate: "1985-02-23", fullName: "LINDA SUSSIBEL MARTINEZ ARIAS DE SANTOS" });
 
+assert.deepEqual(extractLeadIdentityDocumentData(`
+  AUTORIDAD DEL TRANSITO
+  Y TRANSPORTE TERRESTRE
+  8-841-1104 LICENCIA DE CONDUCIR
+  ANAMARIS MICHELLE
+  MARSHALL
+  BROWN
+  PANAMENA
+  09/12/2023
+  14/12/1989
+  09/12/2027
+`, today), { cedula: "8-841-1104", birthDate: "1989-12-14", fullName: "ANAMARIS MICHELLE MARSHALL BROWN" });
+
+assert.deepEqual(extractLeadIdentityDocumentData(`
+  AUTORIDAD DEL TRANS
+  Y TRANSPORTE TERRESTRE
+  NZ, 1104 VICENCIA DE CONDUCIR
+  ANAMARIS MICHELLE
+  MARSHALL
+  BROWN
+  PANAMENA
+  09/12/2023
+  14/12/1989
+  09/12/2027
+`, today), { cedula: "", birthDate: "1989-12-14", fullName: "ANAMARIS MICHELLE MARSHALL BROWN" });
+
 console.log("OK lectura de cédula y fecha desde documentos de identidad");

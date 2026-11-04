@@ -68,7 +68,21 @@ async function prepareImage(dataUrl: string): Promise<string> {
   return prepared;
 }
 
-async function cropIdentityNumberRegion(dataUrl: string): Promise<string> {
+type IdentityNumberRegion = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+const identityNumberRegions: IdentityNumberRegion[] = [
+  // Licencia actual: la cédula aparece debajo del encabezado, hacia el centro-izquierda.
+  { x: 0.18, y: 0.18, width: 0.42, height: 0.25 },
+  // Licencia antigua: la cédula está más cerca del borde izquierdo y un poco más abajo.
+  { x: 0.05, y: 0.28, width: 0.4, height: 0.24 }
+];
+
+async function cropIdentityNumberRegion(dataUrl: string, region: IdentityNumberRegion): Promise<string> {
   const image = new Image();
   image.decoding = "async";
   await new Promise<void>((resolve, reject) => {
@@ -76,10 +90,10 @@ async function cropIdentityNumberRegion(dataUrl: string): Promise<string> {
     image.onerror = () => reject(new Error("No se pudo preparar la zona de la cédula."));
     image.src = dataUrl;
   });
-  const sourceX = Math.round(image.naturalWidth * 0.18);
-  const sourceY = Math.round(image.naturalHeight * 0.18);
-  const sourceWidth = Math.round(image.naturalWidth * 0.42);
-  const sourceHeight = Math.round(image.naturalHeight * 0.25);
+  const sourceX = Math.round(image.naturalWidth * region.x);
+  const sourceY = Math.round(image.naturalHeight * region.y);
+  const sourceWidth = Math.round(image.naturalWidth * region.width);
+  const sourceHeight = Math.round(image.naturalHeight * region.height);
   const canvas = document.createElement("canvas");
   canvas.width = 1600;
   canvas.height = Math.round(canvas.width * sourceHeight / sourceWidth);
@@ -139,6 +153,11 @@ function hasIdentityLabels(value: string): boolean {
   return /LICEN(?:CIA|SE)|DRIVER|FECHA\s+DE\s+NACIMIENTO|DATE\s+OF\s+BIRTH|NACIONALIDAD|NATIONALITY/.test(text);
 }
 
+function usesLegacyLicenseLayout(value: string): boolean {
+  const text = normalizedReadText(value);
+  return /AUTORIDAD|TRANSPORTE\s+TERRESTRE/.test(text) && !/\bNAME\b|\bNOMB[A-Z]{1,4}\b/.test(text);
+}
+
 function identityReadScore(data: LeadIdentityDocumentData, text: string): number {
   let score = 0;
   if (data.cedula) score += 12;
@@ -186,8 +205,14 @@ export async function analyzeLeadIdentityDocument(
       preserve_interword_spaces: "1",
       tessedit_char_whitelist: ""
     });
-    const orientations = await rotatedImageVariants(prepared.imageDataUrl);
+    const preparedOrientations = await rotatedImageVariants(prepared.imageDataUrl);
+    // En fotos pequeñas, ampliar puede ayudar a los números pero también deformar letras finas.
+    // Conservamos una lectura del archivo original para rescatar nombres del formato antiguo.
+    const orientations = isPdf
+      ? preparedOrientations
+      : [...preparedOrientations, { degrees: 0, dataUrl: source.dataUrl }];
     let bestRead: { imageDataUrl: string; fullText: string; data: LeadIdentityDocumentData; score: number; focused: boolean } | null = null;
+    let bestFullName = embedded.fullName;
 
     async function readFocusedCedula(read: NonNullable<typeof bestRead>, progress: number): Promise<void> {
       if (read.focused || read.data.cedula) return;
@@ -196,15 +221,25 @@ export async function analyzeLeadIdentityDocument(
       recognitionSpan = 0.04;
       progressMessage = "Confirmando el número de cédula";
       onProgress?.({ progress, message: progressMessage });
-      const identityNumberRegion = await cropIdentityNumberRegion(read.imageDataUrl);
       await worker.setParameters({
         tessedit_pageseg_mode: tesseract.PSM.SPARSE_TEXT,
         preserve_interword_spaces: "1",
         tessedit_char_whitelist: "0123456789-"
       });
-      const focusedRecognition = await worker.recognize(identityNumberRegion);
-      read.data.cedula = completeCedulaFromFocusedRead(read.fullText, focusedRecognition.data.text);
-      read.score = identityReadScore(read.data, `${read.fullText}\n${focusedRecognition.data.text}`);
+      const focusedTexts: string[] = [];
+      const regions = usesLegacyLicenseLayout(read.fullText)
+        ? identityNumberRegions
+        : identityNumberRegions.slice(0, 1);
+      for (const region of regions) {
+        const identityNumberRegion = await cropIdentityNumberRegion(read.imageDataUrl, region);
+        const focusedRecognition = await worker.recognize(identityNumberRegion);
+        focusedTexts.push(focusedRecognition.data.text);
+        read.data.cedula = completeCedulaFromFocusedRead(read.fullText, focusedRecognition.data.text);
+        if (read.data.cedula) break;
+      }
+      const focusedText = focusedTexts.join("\n");
+      if (!read.data.cedula) read.data.cedula = completeCedulaFromFocusedRead(read.fullText, focusedText);
+      read.score = identityReadScore(read.data, `${read.fullText}\n${focusedText}`);
       await worker.setParameters({
         tessedit_pageseg_mode: tesseract.PSM.SPARSE_TEXT,
         preserve_interword_spaces: "1",
@@ -228,6 +263,7 @@ export async function analyzeLeadIdentityDocument(
         focused: false
       };
       read.score = identityReadScore(read.data, fullText);
+      if (!bestFullName && read.data.fullName) bestFullName = read.data.fullName;
 
       if (!read.data.cedula && read.data.birthDate && hasIdentityLabels(fullText)) {
         await readFocusedCedula(read, orientationProgress + 0.16);
@@ -240,6 +276,7 @@ export async function analyzeLeadIdentityDocument(
     }
 
     if (bestRead && !bestRead.data.cedula) await readFocusedCedula(bestRead, 0.92);
+    if (bestRead && !bestRead.data.fullName && bestFullName) bestRead.data.fullName = bestFullName;
     onProgress?.({ progress: 1, message: "Lectura completada" });
     return bestRead?.data ?? embedded;
   } finally {
