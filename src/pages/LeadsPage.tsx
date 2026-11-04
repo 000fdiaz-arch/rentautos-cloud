@@ -222,7 +222,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   const verdictRef = useRef<HTMLDivElement | null>(null);
   const quickDocumentInputRef = useRef<HTMLInputElement | null>(null);
   const verdict = useMemo(() => buildVerdict(form), [form]);
-  const currentIdentityKey = `${normalizeCedula(form.cedula)}|${form.birthDate}|${normalizeFullName(form.fullName)}`;
+  const currentIdentityKey = `${normalizeCedula(form.cedula)}|${form.birthDate}`;
   const identityConfirmed = !requiresIdentityConfirmation || confirmedIdentityKey === currentIdentityKey;
   const normalizedQuery = normalizeCedula(queryCedula || form.cedula);
   const matchingEvaluation = useMemo(
@@ -419,13 +419,13 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       };
       const cedula = validSellerCedula(detected.cedula) ? normalizeCedula(detected.cedula) : "";
       setQueryCedula("");
-      setForm({ ...initialForm, ...attachment, cedula, birthDate: detected.birthDate, fullName: detected.fullName });
+      setForm({ ...initialForm, ...attachment, cedula, birthDate: detected.birthDate });
       setFlowMode("creating");
       setDocumentScan({
         status: "warning",
         progress: 1,
-        message: cedula && detected.birthDate && detected.fullName
-          ? "Lectura terminada. Confirma visualmente el nombre, la cédula y la fecha antes de consultar."
+        message: cedula && detected.birthDate
+          ? "Lectura terminada. Confirma visualmente la cédula y la fecha antes de consultar."
           : detected.birthDate
             ? "Detectamos parte de la información. Completa los datos faltantes y confírmalos."
             : "No pudimos leer todos los datos. Complétalos y confírmalos manualmente."
@@ -468,10 +468,9 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     setForm((current) => ({
       ...current,
       cedula: current.cedula || detected.cedula,
-      birthDate: current.birthDate || detected.birthDate,
-      fullName: current.fullName || detected.fullName
+      birthDate: current.birthDate || detected.birthDate
     }));
-    const detectedFields = [detected.cedula, detected.birthDate, detected.fullName].filter(Boolean).length;
+    const detectedFields = [detected.cedula, detected.birthDate].filter(Boolean).length;
     if (detectedFields > 0) {
       setRequiresIdentityConfirmation(true);
       setConfirmedIdentityKey("");
@@ -480,7 +479,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       status: detectedFields > 0 ? "complete" : "warning",
       progress: 1,
       message: detectedFields > 0
-        ? `${detectedFields === 3 ? "Nombre, cédula y fecha detectados" : `${detectedFields} datos detectados`}. Verifica la información antes de guardar.`
+        ? `${detectedFields === 2 ? "Cédula y fecha detectadas" : "Detectamos un dato"}. Verifica la información antes de guardar.`
         : "Documento adjuntado, pero no pudimos leer los datos. Verifícalos manualmente."
     });
     } catch {
@@ -499,8 +498,6 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     const confirmationErrors: string[] = [];
     if (!validSellerCedula(cedula)) confirmationErrors.push("Corrige la cédula antes de confirmarla.");
     if (!validSellerBirthDate(form.birthDate)) confirmationErrors.push("Corrige la fecha de nacimiento antes de confirmarla.");
-    const fullName = normalizeFullName(form.fullName);
-    if (fullName.split(" ").filter(Boolean).length < 2) confirmationErrors.push("Completa el nombre de la persona antes de confirmar.");
     if (confirmationErrors.length > 0) {
       setErrors(confirmationErrors);
       return;
@@ -513,7 +510,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
         ? await onEvaluationFind(cedula)
         : evaluations.find((evaluation) => sellerCedulaKey(evaluation.cedula) === sellerCedulaKey(cedula));
       if (version !== requestVersion.current) return;
-      setConfirmedIdentityKey(`${cedula}|${form.birthDate}|${fullName}`);
+      setConfirmedIdentityKey(`${cedula}|${form.birthDate}`);
       setQueryCedula(cedula);
       if (match) {
         setRequiresIdentityConfirmation(false);
@@ -521,7 +518,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
         openEvaluation(match);
         return;
       }
-      setForm((current) => ({ ...current, cedula, fullName }));
+      setForm((current) => ({ ...current, cedula }));
       setDocumentScan({ status: "complete", progress: 1, message: "Datos confirmados. La cédula no tiene un Lead anterior." });
       setMessage("Lead nuevo listo para completar la revisión.");
     } catch {
@@ -732,8 +729,8 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
 
   async function saveEvaluation(targetForm: LeadForm, targetVerdict: LeadVerdict, successMessage?: string): Promise<void> {
     if (readOnly || saving || documentLoading || sellerEditSnapshot) return;
-    if (requiresIdentityConfirmation && confirmedIdentityKey !== `${normalizeCedula(targetForm.cedula)}|${targetForm.birthDate}|${normalizeFullName(targetForm.fullName)}`) {
-      setErrors(["Confirma que el nombre, la cédula y la fecha coinciden con el documento antes de guardar."]);
+    if (requiresIdentityConfirmation && confirmedIdentityKey !== `${normalizeCedula(targetForm.cedula)}|${targetForm.birthDate}`) {
+      setErrors(["Confirma que la cédula y la fecha coinciden con el documento antes de guardar."]);
       return;
     }
     if (targetVerdict.age === null) return;
@@ -811,7 +808,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     if (!identityConfirmed) {
-      setErrors(["Confirma que el nombre, la cédula y la fecha coinciden con el documento antes de guardar."]);
+      setErrors(["Confirma que la cédula y la fecha coinciden con el documento antes de guardar."]);
       return;
     }
     const nextErrors = validate();
@@ -933,10 +930,6 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
 
           <div className="form-grid lead-form-grid">
             <label>
-              Nombre completo
-              <input value={form.fullName} maxLength={120} autoComplete="name" onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} disabled={(Boolean(activeSellerRequest) && !sellerEditSnapshot) || readOnly || saving || consulting} />
-            </label>
-            <label>
               Cedula
               <input value={form.cedula} inputMode="tel" pattern={"[0-9\\-]*"} maxLength={32} title="Solo números y guiones (-)" onChange={(event) => { if (validSellerCedulaInput(event.target.value)) setForm((current) => ({ ...current, cedula: event.target.value })); }} disabled={(Boolean(activeSellerRequest) && !sellerEditSnapshot) || readOnly || saving || consulting} />
             </label>
@@ -983,7 +976,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
             <div className={`lead-identity-review ${identityConfirmed ? "is-confirmed" : ""}`}>
               <div>
                 <strong>{identityConfirmed ? "Datos confirmados" : "Revisión obligatoria"}</strong>
-                <span>Compara el nombre, la cédula y la fecha con la foto. El OCR puede confundir letras o números parecidos.</span>
+                <span>Compara la cédula y la fecha con la foto. El OCR puede confundir números parecidos.</span>
               </div>
               <button type="button" className="button primary" disabled={identityConfirmed || consulting || documentLoading || saving} onClick={() => void handleConfirmScannedIdentity()}>
                 {identityConfirmed ? "Confirmado" : consulting ? "Consultando..." : "Confirmar datos y consultar"}

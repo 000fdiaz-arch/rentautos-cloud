@@ -40,7 +40,7 @@ try {
       assert.equal(input.mode, "shared");
       assert.equal(input.portalId, portal);
       assert.equal(input.cedula, "8-888-888");
-      assert.equal(input.fullName, "PERSONA DE PRUEBA");
+      assert.equal(input.fullName, undefined);
       assert.equal(input.birthDate, "1990-01-01");
       assert.equal(input.attachmentName, "camera-large.jpg");
       assert.match(input.attachmentDataUrl, /^data:image\/jpeg;base64,/);
@@ -64,6 +64,7 @@ try {
   const cedula = page.getByLabel("Cédula de la persona");
   const consult = page.getByRole("button", {name:"Consultar",exact:true});
   assert.equal(await page.getByText("Iniciar sesion").count(), 0);
+  assert.equal(await page.getByLabel("Nombre completo").count(), 0);
   await cedula.fill("PE-1234");
   assert.equal(await cedula.inputValue(), "");
   await cedula.fill("8-888-888");
@@ -133,7 +134,6 @@ try {
   await page.getByText("La foto fue convertida y optimizada para poder enviarla.", {exact:true}).waitFor();
   await page.getByText("Documento: camera-large.jpg", {exact:true}).waitFor();
   await page.getByText(/Lectura parcial|No se pudieron detectar todos los datos/).waitFor();
-  await page.getByLabel("Nombre completo").fill("Persona de prueba");
   await page.getByRole("button", {name:"Confirmar datos",exact:true}).click();
   await page.getByRole("button", {name:"Enviar a verificación",exact:true}).click();
   await page.getByText(/La información de esta persona está en revisión/).waitFor();

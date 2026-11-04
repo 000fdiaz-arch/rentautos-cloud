@@ -252,7 +252,7 @@ export async function lookupPublicSellerLead(portalId: string, cedula: string): 
 }
 
 export async function submitSharedSellerLead(portalId: string, input: {
-  cedula: string; fullName: string; birthDate: string; attachmentName: string; attachmentDataUrl: string;
+  cedula: string; fullName?: string; birthDate: string; attachmentName: string; attachmentDataUrl: string;
 }): Promise<PublicSellerLeadRequest> {
   const client = createEphemeralSupabaseClient();
   if (!client) throw new Error("El servicio de consulta no está configurado.");
@@ -273,7 +273,7 @@ export async function loadPublicSellerLeadRequest(token: string): Promise<Public
 
 export async function submitPublicSellerLeadRequest(token: string, input: {
   cedula: string;
-  fullName: string;
+  fullName?: string;
   birthDate: string;
   attachmentName: string;
   attachmentDataUrl: string;

@@ -11,7 +11,6 @@ type PortalAvailability = "checking" | "available" | "unavailable" | "error";
 export default function SellerLeadPortalPage({ token, portalId }: Props) {
   const [request, setRequest] = useState<PublicSellerLeadRequest | null>(null);
   const [cedula, setCedula] = useState("");
-  const [fullName, setFullName] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [attachmentName, setAttachmentName] = useState("");
   const [attachmentDataUrl, setAttachmentDataUrl] = useState("");
@@ -35,7 +34,6 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
       if (cancelled) return;
       setRequest(next);
       setCedula(next.cedula);
-      setFullName(next.fullName ?? "");
       setBirthDate(next.birthDate);
       setAttachmentName(next.attachmentName ?? "");
     }).catch(() => {
@@ -73,7 +71,6 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
     setLoading(false);
     setReadingFile(false);
     setRequest(null);
-    setFullName("");
     setBirthDate("");
     setAttachmentName("");
     setAttachmentDataUrl("");
@@ -136,12 +133,13 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
       });
       if (current !== fileOperation.current) return;
       if (detected.cedula) setCedula(detected.cedula);
-      if (detected.fullName) setFullName(detected.fullName);
       if (detected.birthDate) setBirthDate(detected.birthDate);
       setOcrProgress(1);
-      setOcrMessage(detected.cedula && detected.fullName && detected.birthDate
-        ? "Nombre, cédula y fecha detectados. Confírmalos con la licencia."
-        : "Lectura parcial. Completa los datos faltantes y confírmalos con la licencia.");
+      setOcrMessage(detected.cedula && detected.birthDate
+        ? "Cédula y fecha detectadas. Confírmalas con el documento."
+        : detected.birthDate
+          ? "Fecha detectada. Completa la cédula y confirma ambos datos."
+          : "Lectura parcial. Completa los datos faltantes y confírmalos con el documento.");
       setError("");
     } catch (cause) {
       if (current === fileOperation.current && documentPrepared) {
@@ -158,20 +156,19 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (saving || readingFile) return;
-    const normalizedName = fullName.trim().replace(/\s+/g, " ").toUpperCase();
-    const identityKey = `${cedula.trim().toUpperCase()}|${birthDate}|${normalizedName}`;
+    const identityKey = `${cedula.trim().toUpperCase()}|${birthDate}`;
     if (requiresIdentityConfirmation && confirmedIdentityKey !== identityKey) {
-      setError("Confirma que el nombre, la cédula y la fecha coinciden con la licencia.");
+      setError("Confirma que la cédula y la fecha coinciden con el documento.");
       return;
     }
-    if (!validSellerCedula(cedula) || normalizedName.split(" ").filter(Boolean).length < 2 || !validSellerBirthDate(birthDate)
+    if (!validSellerCedula(cedula) || !validSellerBirthDate(birthDate)
       || !attachmentName || (!attachmentDataUrl && (portalId || !request?.attachmentName))) {
-      setError("Completa el nombre, la cédula, una fecha de nacimiento válida y el documento de la persona.");
+      setError("Completa la cédula, una fecha de nacimiento válida y el documento de la persona.");
       return;
     }
     setSaving(true);
     setError("");
-    const input = { cedula: cedula.trim().toUpperCase(), fullName: normalizedName, birthDate, attachmentName, attachmentDataUrl };
+    const input = { cedula: cedula.trim().toUpperCase(), birthDate, attachmentName, attachmentDataUrl };
     try {
       if (portalId) {
         setRequest(await submitSharedSellerLead(portalId, input));
@@ -179,7 +176,6 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
         await submitPublicSellerLeadRequest(token, input);
         setRequest(await loadPublicSellerLeadRequest(token));
       }
-      setFullName("");
       setBirthDate("");
       setAttachmentName("");
       setAttachmentDataUrl("");
@@ -197,18 +193,16 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
 
   const editable = request && ["not_found", "waiting_information", "incomplete"].includes(request.status);
   const locked = saving || readingFile;
-  const currentIdentityKey = `${cedula.trim().toUpperCase()}|${birthDate}|${fullName.trim().replace(/\s+/g, " ").toUpperCase()}`;
+  const currentIdentityKey = `${cedula.trim().toUpperCase()}|${birthDate}`;
   const identityConfirmed = !requiresIdentityConfirmation || currentIdentityKey === confirmedIdentityKey;
 
   async function confirmIdentity(): Promise<void> {
-    const normalizedName = fullName.trim().replace(/\s+/g, " ").toUpperCase();
-    if (!validSellerCedula(cedula) || !validSellerBirthDate(birthDate) || normalizedName.split(" ").filter(Boolean).length < 2) {
-      setError("Revisa y completa el nombre, la cédula y la fecha antes de confirmar.");
+    if (!validSellerCedula(cedula) || !validSellerBirthDate(birthDate)) {
+      setError("Revisa y completa la cédula y la fecha antes de confirmar.");
       return;
     }
     setCedula(cedula.trim().toUpperCase());
-    setFullName(normalizedName);
-    setConfirmedIdentityKey(`${cedula.trim().toUpperCase()}|${birthDate}|${normalizedName}`);
+    setConfirmedIdentityKey(`${cedula.trim().toUpperCase()}|${birthDate}`);
     setError("");
     if (portalId && !editable) await consult();
   }
@@ -230,12 +224,11 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
             </label>
             {attachmentName && (
               <div className="seller-lead-search-identity">
-                <label>Nombre completo<input value={fullName} maxLength={120} autoComplete="name" onChange={(event) => setFullName(event.target.value)} disabled={locked || loading} /></label>
                 <label>Fecha de nacimiento<input type="date" min="1900-01-01" max={new Date().toISOString().slice(0, 10)} value={birthDate} onChange={(event) => setBirthDate(event.target.value)} disabled={locked || loading} /></label>
                 {ocrMessage && <div className="seller-lead-ocr-status" role="status"><span>{ocrMessage}</span>{readingFile && <progress max="1" value={ocrProgress} />}</div>}
                 {requiresIdentityConfirmation && (
                   <div className={`lead-identity-review ${identityConfirmed ? "is-confirmed" : ""}`}>
-                    <div><strong>{identityConfirmed ? "Datos confirmados" : "Revisión obligatoria"}</strong><span>Compara el nombre, la cédula y la fecha con la licencia.</span></div>
+                    <div><strong>{identityConfirmed ? "Datos confirmados" : "Revisión obligatoria"}</strong><span>Compara la cédula y la fecha con el documento.</span></div>
                     <button type="button" className="button primary" disabled={locked || loading || identityConfirmed} onClick={() => void confirmIdentity()}>{identityConfirmed ? "Confirmado" : "Confirmar y consultar"}</button>
                   </div>
                 )}
@@ -269,7 +262,6 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
               <label className="seller-lead-file">Foto de cédula o licencia
                 <input type="file" accept="image/*,application/pdf,.heic,.heif" aria-describedby="seller-lead-file-help" onChange={(event) => void handleFile(event)} disabled={locked} />
               </label>
-              <label>Nombre completo<input value={fullName} maxLength={120} autoComplete="name" onChange={(event) => setFullName(event.target.value)} disabled={locked} /></label>
               <label>Cédula de la persona<input value={cedula} inputMode="tel" pattern={"[0-9\\-]*"} title="Solo números y guiones (-)" maxLength={32} onChange={(event) => { if (validSellerCedulaInput(event.target.value)) { setCedula(event.target.value); setError(""); } }} disabled={locked} /></label>
               <label>Fecha de nacimiento<input required type="date" min="1900-01-01" max={new Date().toISOString().slice(0, 10)}
                 value={birthDate} onChange={(event) => setBirthDate(event.target.value)} disabled={locked} /></label>
@@ -280,7 +272,7 @@ export default function SellerLeadPortalPage({ token, portalId }: Props) {
             {ocrMessage && <div className="seller-lead-ocr-status" role="status"><span>{ocrMessage}</span>{readingFile && <progress max="1" value={ocrProgress} />}</div>}
             {requiresIdentityConfirmation && (
               <div className={`lead-identity-review ${identityConfirmed ? "is-confirmed" : ""}`}>
-                <div><strong>{identityConfirmed ? "Datos confirmados" : "Revisión obligatoria"}</strong><span>Compara el nombre, la cédula y la fecha con la licencia.</span></div>
+                <div><strong>{identityConfirmed ? "Datos confirmados" : "Revisión obligatoria"}</strong><span>Compara la cédula y la fecha con el documento.</span></div>
                 <button type="button" className="button primary" disabled={locked || identityConfirmed} onClick={() => void confirmIdentity()}>{identityConfirmed ? "Confirmado" : "Confirmar datos"}</button>
               </div>
             )}

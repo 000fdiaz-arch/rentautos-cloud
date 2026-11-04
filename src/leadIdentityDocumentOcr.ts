@@ -162,7 +162,6 @@ function identityReadScore(data: LeadIdentityDocumentData, text: string): number
   let score = 0;
   if (data.cedula) score += 12;
   if (data.birthDate) score += 10;
-  if (data.fullName) score += 8;
   if (data.cedula && data.birthDate) score += 6;
   if (hasIdentityLabels(text)) score += 6;
   const normalized = normalizedReadText(text);
@@ -181,7 +180,7 @@ export async function analyzeLeadIdentityDocument(
     ? await renderFirstPdfPage(source.dataUrl)
     : { imageDataUrl: await prepareImage(source.dataUrl), embeddedText: "" };
   const embedded = extractLeadIdentityDocumentData(prepared.embeddedText);
-  if (embedded.cedula && embedded.birthDate && embedded.fullName) {
+  if (embedded.cedula && embedded.birthDate) {
     onProgress?.({ progress: 1, message: "Datos detectados" });
     return embedded;
   }
@@ -205,14 +204,8 @@ export async function analyzeLeadIdentityDocument(
       preserve_interword_spaces: "1",
       tessedit_char_whitelist: ""
     });
-    const preparedOrientations = await rotatedImageVariants(prepared.imageDataUrl);
-    // En fotos pequeñas, ampliar puede ayudar a los números pero también deformar letras finas.
-    // Conservamos una lectura del archivo original para rescatar nombres del formato antiguo.
-    const orientations = isPdf
-      ? preparedOrientations
-      : [...preparedOrientations, { degrees: 0, dataUrl: source.dataUrl }];
+    const orientations = await rotatedImageVariants(prepared.imageDataUrl);
     let bestRead: { imageDataUrl: string; fullText: string; data: LeadIdentityDocumentData; score: number; focused: boolean } | null = null;
-    let bestFullName = embedded.fullName;
 
     async function readFocusedCedula(read: NonNullable<typeof bestRead>, progress: number): Promise<void> {
       if (read.focused || read.data.cedula) return;
@@ -263,20 +256,18 @@ export async function analyzeLeadIdentityDocument(
         focused: false
       };
       read.score = identityReadScore(read.data, fullText);
-      if (!bestFullName && read.data.fullName) bestFullName = read.data.fullName;
 
       if (!read.data.cedula && read.data.birthDate && hasIdentityLabels(fullText)) {
         await readFocusedCedula(read, orientationProgress + 0.16);
       }
       if (!bestRead || read.score > bestRead.score) bestRead = read;
-      if (read.data.cedula && read.data.birthDate && read.data.fullName && hasIdentityLabels(fullText)) {
+      if (read.data.cedula && read.data.birthDate && hasIdentityLabels(fullText)) {
         bestRead = read;
         break;
       }
     }
 
     if (bestRead && !bestRead.data.cedula) await readFocusedCedula(bestRead, 0.92);
-    if (bestRead && !bestRead.data.fullName && bestFullName) bestRead.data.fullName = bestFullName;
     onProgress?.({ progress: 1, message: "Lectura completada" });
     return bestRead?.data ?? embedded;
   } finally {
