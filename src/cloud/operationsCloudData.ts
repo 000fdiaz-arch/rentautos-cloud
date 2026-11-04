@@ -1444,6 +1444,7 @@ export async function loadCloudLeadEvaluations(userId: string): Promise<LeadEval
 type LeadEvaluationSummaryRow = {
   id?: unknown;
   cedula?: unknown;
+  fullName?: unknown;
   birthDate?: unknown;
   age?: unknown;
   attachmentName?: unknown;
@@ -1491,6 +1492,7 @@ export function normalizeLeadEvaluationSummary(row: LeadEvaluationSummaryRow): L
   return {
     id,
     cedula: stringValue(row.cedula),
+    fullName: stringValue(row.fullName) || undefined,
     birthDate: stringValue(row.birthDate),
     age: numberValue(row.age),
     attachmentName: stringValue(row.attachmentName) || undefined,

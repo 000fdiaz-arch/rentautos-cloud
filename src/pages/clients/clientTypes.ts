@@ -36,7 +36,7 @@ export type PlanFilterKey = "ALL" | BillingFrequency;
 
 export type WeeklyChargeDayFilterKey = "ALL" | WeeklyChargeDay;
 
-export type EditClientTab = "identidad" | "plan" | "cargos" | "estado";
+export type EditClientTab = "identidad" | "plan" | "cargos" | "estado" | "portal";
 
 export type ClientsViewTab = "current" | "legacy";
 

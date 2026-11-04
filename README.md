@@ -114,6 +114,36 @@ Ejecutar en SQL Editor (orden recomendado):
 28. `supabase/64-provisional-rental-payment-balance.sql`
 29. `supabase/66-shared-seller-lead-portal.sql`
 30. `supabase/67-seller-cedula-digits-only.sql`
+31. `supabase/117-client-portal.sql`
+
+### Portal del cliente
+
+El portal integrado vive en `/portal-cliente`. El cliente entra con la cedula que
+figura en **Clientes** y un PIN de seis digitos. Un usuario con permiso de
+edicion puede crear, cambiar o desactivar ese PIN desde **Clientes → Editar → Portal**.
+Si la misma cedula tiene varias unidades, comparte un solo PIN: el cliente puede cambiar
+de unidad dentro del portal y cada comprobante queda
+vinculado a la unidad seleccionada.
+
+Para habilitarlo en Supabase, aplica `supabase/117-client-portal.sql` una sola vez y
+despliega la funcion:
+
+```bash
+supabase functions deploy client-portal
+```
+
+Los comprobantes PDF, PNG, JPEG o WebP (hasta 4 MB) se guardan en un bucket privado y
+aparecen en **Pagos → Pagos notificados** con acceso temporal al archivo. Cuando el
+aviso se consume al registrar el pago, el portal lo muestra como confirmado.
+
+Prueba local de la migracion y el flujo principal:
+
+```powershell
+node tests/client-portal-db-test.mjs
+npm run dev:portal-cliente
+```
+
+Luego abre `http://127.0.0.1:4180/portal-cliente`.
 
 ### Consulta pública de vendedores
 
@@ -167,6 +197,7 @@ Despues:
 ## Scripts principales
 
 - `npm run dev`: servidor local Vite.
+- `npm run dev:portal-cliente`: servidor local de la app integrada en el puerto 4180.
 - `npm run build`: validacion TypeScript + build.
 - `npm run preview`: servir build local.
 - `npm run test:validation`: E2E Playwright de validacion principal.

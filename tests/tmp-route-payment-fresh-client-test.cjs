@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, "..");
 const shell = fs.readFileSync(path.join(root, "src", "AppShell.tsx"), "utf8");
 const route = fs.readFileSync(path.join(root, "src", "pages", "RouteSearchPage.tsx"), "utf8");
 const cloud = fs.readFileSync(path.join(root, "src", "cloud", "clientCloudData.ts"), "utf8");
+const retentionPolicy = fs.readFileSync(path.join(root, "supabase", "118-route-other-charges-retention-read.sql"), "utf8");
 const routeRegistration = shell.slice(
   shell.indexOf("async function registerRoutePayment"),
   shell.indexOf("async function confirmRouteBankPayment")
@@ -21,6 +22,9 @@ assert(routeRegistration.includes('input.method === "cash"'), "Solo el efectivo 
 assert(routeRegistration.includes("loadCloudOtherChargesRetention(cloudDataUserId).then((settings) => settings ?? {})"), "El cobro en ruta debe consultar la retencion vigente en nube antes de calcular.");
 assert(routeRegistration.includes("clients: paymentClients"), "La transacción debe calcularse con el cliente actualizado.");
 assert(routeRegistration.includes("retentionByClient: routeRetentionByClient"), "La transacción de ruta debe usar la retencion fresca y no la configuracion vieja de la sesion.");
+assert(retentionPolicy.includes("for select"), "Ruta solo debe recibir permiso de lectura sobre la retencion.");
+assert(retentionPolicy.includes("can_view_owner_screen(user_id, 'route_search')"), "Un operador solo Ruta debe poder consultar la retencion del propietario.");
+assert(!retentionPolicy.includes("for update"), "La correccion no debe permitir que Ruta modifique la retencion.");
 assert(route.includes('buildCloudErrorMessage("No se pudo registrar el pago."'), "El formulario debe mostrar el motivo real devuelto por Supabase.");
 
 console.log("OK cobro en ruta: cliente y retencion frescos se consultan en paralelo.");

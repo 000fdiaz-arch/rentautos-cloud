@@ -12829,6 +12829,91 @@ button.ar-route-publish-copy.is-active {
   align-items: end;
 }
 
+.lead-document-intake {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
+  padding: 13px 14px;
+  border: 1px dashed #94a3b8;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.lead-document-intake > div {
+  display: grid;
+  gap: 3px;
+}
+
+.lead-document-intake span {
+  color: var(--color-text-muted);
+  font-size: .86rem;
+}
+
+.lead-document-intake-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.lead-document-scan {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #99f6e4;
+  border-radius: 8px;
+  background: #f0fdfa;
+  color: #115e59;
+  font-size: .88rem;
+  font-weight: 650;
+}
+
+.lead-document-scan--warning {
+  border-color: #fcd34d;
+  background: #fffbeb;
+  color: #854d0e;
+}
+
+.lead-document-scan progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--color-primary);
+}
+
+.lead-identity-review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 10px;
+  padding: 13px 14px;
+  border: 2px solid #f59e0b;
+  border-radius: 10px;
+  background: #fff7ed;
+  color: #7c2d12;
+}
+
+.lead-identity-review > div {
+  display: grid;
+  gap: 3px;
+}
+
+.lead-identity-review span {
+  font-size: .85rem;
+}
+
+.lead-identity-review.is-confirmed {
+  border-color: #34d399;
+  background: #ecfdf5;
+  color: #065f46;
+}
+
 .lead-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
@@ -13165,6 +13250,25 @@ button.ar-route-publish-copy.is-active {
   grid-column: 1 / -1;
 }
 
+.seller-lead-ocr-status {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 11px 12px;
+  border: 1px solid #99f6e4;
+  border-radius: 9px;
+  background: #f0fdfa;
+  color: #115e59;
+  font-size: .88rem;
+  font-weight: 650;
+}
+
+.seller-lead-ocr-status progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--color-primary);
+}
+
 .seller-lead-submit {
   width: 100%;
   margin-top: 12px;
@@ -13227,6 +13331,12 @@ button.ar-route-publish-copy.is-active {
   margin: 18px 0;
 }
 
+.seller-lead-search-identity {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
 .seller-lead-privacy {
   margin-top: 22px;
   padding-top: 14px;
@@ -13258,6 +13368,16 @@ button.ar-route-publish-copy.is-active {
   }
 
   .lead-request-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lead-document-intake {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lead-identity-review {
     align-items: stretch;
     flex-direction: column;
   }
@@ -21996,6 +22116,82 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 
   .insurance-bank-payment-details {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+.client-portal-access-panel {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid #dbe5f5;
+  border-radius: 16px;
+  background: #f8faff;
+}
+
+.client-portal-access-head,
+.client-portal-link-row,
+.client-portal-pin-row,
+.client-portal-pin-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.client-portal-access-head { justify-content: space-between; }
+.client-portal-access-head h3 { margin: 0 0 4px; }
+.client-portal-access-head p { margin: 0; }
+.client-portal-link-row input { flex: 1; min-width: 0; }
+.client-portal-pin-row { align-items: end; flex-wrap: wrap; }
+.client-portal-pin-row label { min-width: 180px; }
+.client-portal-pin-result {
+  flex-wrap: wrap;
+  padding: 13px 15px;
+  border: 1px solid #bfe4d5;
+  border-radius: 13px;
+  background: #effaf6;
+}
+.client-portal-pin-result span { color: #536477; font-size: 12px; }
+.client-portal-pin-result strong { color: #0d6f50; font-size: 22px; letter-spacing: .12em; }
+
+@media (max-width: 680px) {
+  .client-portal-access-head,
+  .client-portal-link-row { align-items: stretch; flex-direction: column; }
+  .client-portal-access-head .badge-sim { align-self: flex-start; }
+  .client-portal-pin-row { display: grid; }
+  .client-portal-pin-row label { min-width: 0; }
+}
+
+.cp-unit-switch {
+  margin-left: auto;
+  display: grid;
+  gap: 4px;
+  color: #6d7891;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+}
+
+.cp-unit-switch select {
+  min-width: 150px;
+  height: 42px;
+  padding: 0 35px 0 12px;
+  border: 1px solid #e4e9f2;
+  border-radius: 13px;
+  color: #14203b;
+  background: #fff;
+  font-weight: 750;
+  outline: none;
+}
+
+.cp-unit-switch select:focus {
+  border-color: #205de8;
+  box-shadow: 0 0 0 3px #205de814;
+}
+
+@media (max-width: 800px) {
+  .cp-unit-switch select {
+    min-width: 112px;
+    max-width: 145px;
+    height: 38px;
   }
 }
 /* Catalogo visual de autos */

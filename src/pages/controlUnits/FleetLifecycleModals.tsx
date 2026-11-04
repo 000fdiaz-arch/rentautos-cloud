@@ -9,7 +9,7 @@ function ImpactSummary({ impact }: { impact: FleetLifecycleImpact | null }) {
         <span>Clientes o alquileres: <b>{impact.activeClients}</b></span>
         <span>Rutas activas: <b>{impact.activeRoutes}</b></span>
         <span>Promesas pendientes: <b>{impact.pendingPromises}</b></span>
-        <span>Reclamos abiertos: <b>{impact.openInsuranceClaims}</b></span>
+        <span>Reclamos sin finalizar: <b>{impact.openInsuranceClaims}</b> (no impiden la baja)</span>
         <span>Colisiones abiertas: <b>{impact.openCollisionCases}</b></span>
       </div>
     </div>
@@ -113,7 +113,7 @@ export function RetireFleetUnitModal({
   onConfirm: () => void;
 }) {
   const blockers = impact
-    ? impact.activeClients + impact.activeRoutes + impact.pendingPromises + impact.openInsuranceClaims + impact.openCollisionCases
+    ? impact.activeClients + impact.activeRoutes + impact.pendingPromises + impact.openCollisionCases
     : 1;
   return (
     <div className="modal-overlay">

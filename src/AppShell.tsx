@@ -71,6 +71,7 @@ import { routeFilterForOperatorEmail } from "./routeOperatorScope";
 import { buildManualPaymentTransaction } from "./pages/payments/manualPaymentWorkflow";
 import { getPendingCashChangeError } from "./cashTeamRules";
 import { loadNotifiedPayments, saveNotifiedPayments } from "./pages/payments/paymentStorage";
+import { cacheLocalClientPortalCloudData, isLocalClientPortalMode } from "./cloud/localClientPortal";
 import "./styles.css";
 
 const ClientsPage = lazy(() => import("./pages/ClientsPage"));
@@ -322,6 +323,16 @@ export default function AppShell({
     setFullPaymentHistoryLoaded,
     onSettingsReload: reloadSettingsFromLocalCache
   });
+
+  useEffect(() => {
+    if (!isLocalClientPortalMode() || clients.length === 0) return;
+    const timeoutId = window.setTimeout(() => {
+      void cacheLocalClientPortalCloudData(clients, payments).catch((error) => {
+        console.warn("No se pudo actualizar la copia local del portal de clientes.", error);
+      });
+    }, 250);
+    return () => window.clearTimeout(timeoutId);
+  }, [clients, payments]);
 
   const {
     backupSupported,

@@ -91,12 +91,18 @@ export function parseNotifiedPayments(value: unknown): NotifiedPayment[] {
         ...item,
         paymentMethod: item.paymentMethod === "bank" ? "bank" : undefined,
         collectionTeam: item.collectionTeam === "PTY" || item.collectionTeam === "WC" ? item.collectionTeam : undefined,
-        source: item.source === "route" ? "route" : undefined,
+        source: item.source === "route" || item.source === "route-review" || item.source === "client-portal" ? item.source : undefined,
+        portalPaymentChannel: item.portalPaymentChannel === "ach_xpress" || item.portalPaymentChannel === "regular_transfer"
+          ? item.portalPaymentChannel
+          : undefined,
         routeReportId: typeof item.routeReportId === "string" && item.routeReportId ? item.routeReportId : undefined,
         routePaymentMethod: item.routePaymentMethod === "cash" || item.routePaymentMethod === "bank" || item.routePaymentMethod === "mixed"
           ? item.routePaymentMethod
           : undefined,
-        routeAssignment: typeof item.routeAssignment === "string" && item.routeAssignment.trim() ? item.routeAssignment.trim() : undefined
+        routeAssignment: typeof item.routeAssignment === "string" && item.routeAssignment.trim() ? item.routeAssignment.trim() : undefined,
+        clientPaymentNoticeId: typeof item.clientPaymentNoticeId === "string" && item.clientPaymentNoticeId ? item.clientPaymentNoticeId : undefined,
+        evidencePath: typeof item.evidencePath === "string" && item.evidencePath ? item.evidencePath : undefined,
+        evidenceName: typeof item.evidenceName === "string" && item.evidenceName ? item.evidenceName : undefined
       }));
 }
 

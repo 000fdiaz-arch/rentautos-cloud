@@ -495,6 +495,7 @@ function normalizeLeadEvaluation(item: unknown): LeadEvaluation | null {
   return {
     id,
     cedula,
+    fullName: typeof raw.fullName === "string" && raw.fullName.trim() ? raw.fullName.trim() : undefined,
     birthDate,
     age,
     attachmentName: typeof raw.attachmentName === "string" && raw.attachmentName.trim() ? raw.attachmentName.trim() : undefined,

@@ -143,6 +143,7 @@ export type SellerLeadRequest = {
   token: string;
   status: SellerLeadRequestStatus;
   cedula: string;
+  fullName?: string;
   birthDate: string;
   attachmentName?: string;
   attachmentDataUrl?: string;
@@ -162,6 +163,7 @@ export type SellerLeadRequest = {
 export type PublicSellerLeadRequest = {
   status: SellerLeadRequestStatus | "expired" | "not_found";
   cedula: string;
+  fullName?: string;
   birthDate: string;
   attachmentName?: string;
   correctionNote?: string;
@@ -174,6 +176,7 @@ export type PublicSellerLeadRequest = {
 export type LeadEvaluation = {
   id: string;
   cedula: string;
+  fullName?: string;
   birthDate: string;
   age: number;
   attachmentName?: string;

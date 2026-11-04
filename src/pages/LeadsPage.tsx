@@ -16,6 +16,7 @@ import LeadPdfPreview from "../components/LeadPdfPreview";
 
 type LeadForm = {
   cedula: string;
+  fullName: string;
   birthDate: string;
   attachmentName: string;
   attachmentDataUrl: string;
@@ -59,8 +60,17 @@ type Props = {
 
 type LeadFlowMode = "idle" | "creating" | "viewing" | "editing";
 
+type DocumentScanState = {
+  status: "idle" | "reading" | "complete" | "warning";
+  progress: number;
+  message: string;
+};
+
+const idleDocumentScan: DocumentScanState = { status: "idle", progress: 0, message: "" };
+
 const initialForm: LeadForm = {
   cedula: "",
+  fullName: "",
   birthDate: "",
   attachmentName: "",
   attachmentDataUrl: "",
@@ -92,6 +102,10 @@ const requestStatusLabel: Record<SellerLeadRequestStatus, string> = {
 
 function normalizeCedula(value: string): string {
   return value.trim().toUpperCase();
+}
+
+function normalizeFullName(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toUpperCase();
 }
 
 function calculateAge(birthDate: string, today = new Date()): number | null {
@@ -160,6 +174,7 @@ function formatDateTime(value: string): string {
 function buildFormFromEvaluation(evaluation: LeadEvaluation): LeadForm {
   return {
     cedula: evaluation.cedula,
+    fullName: evaluation.fullName ?? "",
     birthDate: evaluation.birthDate,
     attachmentName: evaluation.attachmentName ?? "",
     attachmentDataUrl: evaluation.attachmentDataUrl ?? "",
@@ -187,6 +202,9 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   const [saving, setSaving] = useState(false);
   const [consulting, setConsulting] = useState(false);
   const [documentLoading, setDocumentLoading] = useState(false);
+  const [documentScan, setDocumentScan] = useState<DocumentScanState>(idleDocumentScan);
+  const [requiresIdentityConfirmation, setRequiresIdentityConfirmation] = useState(false);
+  const [confirmedIdentityKey, setConfirmedIdentityKey] = useState("");
   const [openedEvaluationId, setOpenedEvaluationId] = useState<string | null>(null);
   const [editingEvaluation, setEditingEvaluation] = useState<LeadEvaluation | null>(null);
   const [sellerEditSnapshot, setSellerEditSnapshot] = useState<LeadForm | null>(null);
@@ -202,7 +220,10 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
   const [portalError, setPortalError] = useState("");
   const [activeSellerRequest, setActiveSellerRequest] = useState<SellerLeadRequest | null>(null);
   const verdictRef = useRef<HTMLDivElement | null>(null);
+  const quickDocumentInputRef = useRef<HTMLInputElement | null>(null);
   const verdict = useMemo(() => buildVerdict(form), [form]);
+  const currentIdentityKey = `${normalizeCedula(form.cedula)}|${form.birthDate}|${normalizeFullName(form.fullName)}`;
+  const identityConfirmed = !requiresIdentityConfirmation || confirmedIdentityKey === currentIdentityKey;
   const normalizedQuery = normalizeCedula(queryCedula || form.cedula);
   const matchingEvaluation = useMemo(
     () => evaluations.find((evaluation) => sellerCedulaKey(evaluation.cedula) === sellerCedulaKey(normalizedQuery)) ?? null,
@@ -277,9 +298,12 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     setSellerEditSnapshot(null);
     setEditingEvaluation(null);
     setOpenedEvaluationId(null);
+    setRequiresIdentityConfirmation(false);
+    setConfirmedIdentityKey("");
     setForm({
       ...initialForm,
       cedula: full.cedula,
+      fullName: full.fullName ?? "",
       birthDate: full.birthDate,
       attachmentName: full.attachmentName ?? "",
       attachmentDataUrl: full.attachmentDataUrl ?? "",
@@ -349,32 +373,161 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     await saveEvaluation(nextForm, nextVerdict, `Dictamen cerrado automaticamente: ${decisionLabel[nextVerdict.decision]}.`);
   }
 
-  async function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
-    if (readOnly || saving || consulting) return;
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const version = requestVersion.current;
-    setDocumentLoading(true);
-    try {
-    const dataUrl = await new Promise<string>((resolve, reject) => {
+  function readAttachment(file: File): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result ?? ""));
       reader.onerror = () => reject(reader.error ?? new Error("No se pudo leer el adjunto."));
       reader.readAsDataURL(file);
     });
-    if (version === requestVersion.current) setForm((current) => ({
-      ...current,
-      attachmentName: file.name,
-      attachmentDataUrl: dataUrl,
-      attachmentPath: "",
-      attachmentMime: file.type,
-      attachmentSize: file.size,
-      attachmentSha256: ""
-    }));
+  }
+
+  async function readIdentityData(file: File, dataUrl: string): Promise<{ cedula: string; birthDate: string; fullName: string }> {
+    const { analyzeLeadIdentityDocument } = await import("../leadIdentityDocumentOcr");
+    return analyzeLeadIdentityDocument({ dataUrl, mime: file.type, name: file.name }, ({ progress, message }) => {
+      setDocumentScan({ status: "reading", progress, message });
+    });
+  }
+
+  async function handleQuickDocumentChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || readOnly || saving || consulting || documentLoading) return;
+    const version = ++requestVersion.current;
+    setDocumentLoading(true);
+    setDocumentScan({ status: "reading", progress: 0, message: "Preparando el documento" });
+    setErrors([]);
+    setMessage("");
+    setFlowMode("idle");
+    setOpenedEvaluationId(null);
+    setEditingEvaluation(null);
+    setSellerEditSnapshot(null);
+    setActiveSellerRequest(null);
+    setRequiresIdentityConfirmation(true);
+    setConfirmedIdentityKey("");
+    try {
+      const dataUrl = await readAttachment(file);
+      const detected = await readIdentityData(file, dataUrl);
+      if (version !== requestVersion.current) return;
+      const attachment = {
+        attachmentName: file.name,
+        attachmentDataUrl: dataUrl,
+        attachmentPath: "",
+        attachmentMime: file.type,
+        attachmentSize: file.size,
+        attachmentSha256: ""
+      };
+      const cedula = validSellerCedula(detected.cedula) ? normalizeCedula(detected.cedula) : "";
+      setQueryCedula("");
+      setForm({ ...initialForm, ...attachment, cedula, birthDate: detected.birthDate, fullName: detected.fullName });
+      setFlowMode("creating");
+      setDocumentScan({
+        status: "warning",
+        progress: 1,
+        message: cedula && detected.birthDate && detected.fullName
+          ? "Lectura terminada. Confirma visualmente el nombre, la cédula y la fecha antes de consultar."
+          : detected.birthDate
+            ? "Detectamos parte de la información. Completa los datos faltantes y confírmalos."
+            : "No pudimos leer todos los datos. Complétalos y confírmalos manualmente."
+      });
+      setMessage("");
     } catch {
-      if (version === requestVersion.current) setErrors(["No se pudo leer el documento. Intenta adjuntarlo nuevamente."]);
+      if (version !== requestVersion.current) return;
+      setDocumentScan({ status: "warning", progress: 1, message: "No se pudo leer el documento. Intenta otra foto o continúa manualmente." });
+      setErrors(["No se pudo leer el documento. Intenta con una foto más clara o un PDF válido."]);
     } finally {
       if (version === requestVersion.current) setDocumentLoading(false);
+    }
+  }
+
+  async function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    if (readOnly || saving || consulting) return;
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const version = requestVersion.current;
+    const shouldAnalyze = !form.cedula || !form.birthDate;
+    setDocumentLoading(true);
+    setDocumentScan(shouldAnalyze
+      ? { status: "reading", progress: 0, message: "Preparando el documento" }
+      : { status: "complete", progress: 1, message: "Documento adjuntado. Verifica los datos antes de guardar." });
+    try {
+    const dataUrl = await readAttachment(file);
+    if (version !== requestVersion.current) return;
+    setForm((current) => ({
+        ...current,
+        attachmentName: file.name,
+        attachmentDataUrl: dataUrl,
+        attachmentPath: "",
+        attachmentMime: file.type,
+        attachmentSize: file.size,
+        attachmentSha256: ""
+      }));
+    if (!shouldAnalyze) return;
+    const detected = await readIdentityData(file, dataUrl);
+    if (version !== requestVersion.current) return;
+    setForm((current) => ({
+      ...current,
+      cedula: current.cedula || detected.cedula,
+      birthDate: current.birthDate || detected.birthDate,
+      fullName: current.fullName || detected.fullName
+    }));
+    const detectedFields = [detected.cedula, detected.birthDate, detected.fullName].filter(Boolean).length;
+    if (detectedFields > 0) {
+      setRequiresIdentityConfirmation(true);
+      setConfirmedIdentityKey("");
+    }
+    setDocumentScan({
+      status: detectedFields > 0 ? "complete" : "warning",
+      progress: 1,
+      message: detectedFields > 0
+        ? `${detectedFields === 3 ? "Nombre, cédula y fecha detectados" : `${detectedFields} datos detectados`}. Verifica la información antes de guardar.`
+        : "Documento adjuntado, pero no pudimos leer los datos. Verifícalos manualmente."
+    });
+    } catch {
+      if (version === requestVersion.current) {
+        setDocumentScan({ status: "warning", progress: 1, message: "Documento adjuntado sin lectura automática. Verifica los datos manualmente." });
+        setErrors(["El documento quedó adjunto, pero no se pudo leer automáticamente. Verifica cédula y fecha."]);
+      }
+    } finally {
+      if (version === requestVersion.current) setDocumentLoading(false);
+    }
+  }
+
+  async function handleConfirmScannedIdentity(): Promise<void> {
+    if (!requiresIdentityConfirmation || consulting || documentLoading || saving) return;
+    const cedula = normalizeCedula(form.cedula);
+    const confirmationErrors: string[] = [];
+    if (!validSellerCedula(cedula)) confirmationErrors.push("Corrige la cédula antes de confirmarla.");
+    if (!validSellerBirthDate(form.birthDate)) confirmationErrors.push("Corrige la fecha de nacimiento antes de confirmarla.");
+    const fullName = normalizeFullName(form.fullName);
+    if (fullName.split(" ").filter(Boolean).length < 2) confirmationErrors.push("Completa el nombre de la persona antes de confirmar.");
+    if (confirmationErrors.length > 0) {
+      setErrors(confirmationErrors);
+      return;
+    }
+    const version = requestVersion.current;
+    setConsulting(true);
+    setErrors([]);
+    try {
+      const match = onEvaluationFind
+        ? await onEvaluationFind(cedula)
+        : evaluations.find((evaluation) => sellerCedulaKey(evaluation.cedula) === sellerCedulaKey(cedula));
+      if (version !== requestVersion.current) return;
+      setConfirmedIdentityKey(`${cedula}|${form.birthDate}|${fullName}`);
+      setQueryCedula(cedula);
+      if (match) {
+        setRequiresIdentityConfirmation(false);
+        setDocumentScan({ status: "complete", progress: 1, message: "Datos confirmados. Abrimos el dictamen existente." });
+        openEvaluation(match);
+        return;
+      }
+      setForm((current) => ({ ...current, cedula, fullName }));
+      setDocumentScan({ status: "complete", progress: 1, message: "Datos confirmados. La cédula no tiene un Lead anterior." });
+      setMessage("Lead nuevo listo para completar la revisión.");
+    } catch {
+      if (version === requestVersion.current) setErrors(["No se pudo consultar la cédula confirmada. Intenta nuevamente."]);
+    } finally {
+      if (version === requestVersion.current) setConsulting(false);
     }
   }
 
@@ -389,6 +542,8 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     setQueryCedula(evaluation.cedula);
     setFlowMode("viewing");
     setActiveSellerRequest(null);
+    setRequiresIdentityConfirmation(false);
+    setConfirmedIdentityKey("");
     setMessage("Esta registrado. Se cargo el dictamen anterior.");
     setErrors([]);
   }
@@ -405,6 +560,8 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       setEditingEvaluation(full);
       setSellerEditSnapshot(null);
       setActiveSellerRequest(null);
+      setRequiresIdentityConfirmation(false);
+      setConfirmedIdentityKey("");
       setOpenedEvaluationId(full.id);
       setForm(buildFormFromEvaluation(full));
       setQueryCedula(full.cedula);
@@ -431,7 +588,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
         if (existing) { setErrors(["Esa cédula ya tiene un dictamen. Abre ese Lead para corregirlo."]); return; }
       }
       const corrected = await correctSellerLeadRequest(ownerUserId, activeSellerRequest, {
-        cedula, birthDate: form.birthDate, attachmentName: form.attachmentName, attachmentDataUrl: form.attachmentDataUrl,
+        cedula, fullName: normalizeFullName(form.fullName), birthDate: form.birthDate, attachmentName: form.attachmentName, attachmentDataUrl: form.attachmentDataUrl,
         attachmentPath: form.attachmentPath || undefined, attachmentMime: form.attachmentMime || undefined,
         attachmentSize: form.attachmentSize, attachmentSha256: form.attachmentSha256 || undefined
       });
@@ -507,6 +664,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
 
   function buildDictamenText(targetForm: LeadForm, targetVerdict: LeadVerdict, withDetails = false): string {
     const lines = [
+      ...(targetForm.fullName ? [`Nombre: ${normalizeFullName(targetForm.fullName)}`] : []),
       `Cedula: ${normalizeCedula(targetForm.cedula)}`,
       `Resultado: ${decisionLabel[targetVerdict.decision]}`
     ];
@@ -574,6 +732,10 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
 
   async function saveEvaluation(targetForm: LeadForm, targetVerdict: LeadVerdict, successMessage?: string): Promise<void> {
     if (readOnly || saving || documentLoading || sellerEditSnapshot) return;
+    if (requiresIdentityConfirmation && confirmedIdentityKey !== `${normalizeCedula(targetForm.cedula)}|${targetForm.birthDate}|${normalizeFullName(targetForm.fullName)}`) {
+      setErrors(["Confirma que el nombre, la cédula y la fecha coinciden con el documento antes de guardar."]);
+      return;
+    }
     if (targetVerdict.age === null) return;
     setSaving(true);
     let evaluationSaved = false;
@@ -590,6 +752,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     const nextEvaluation: LeadEvaluation = {
       id: previous?.id ?? crypto.randomUUID(),
       cedula: normalizedCedula,
+      fullName: normalizeFullName(targetForm.fullName) || undefined,
       birthDate: targetForm.birthDate,
       age: targetVerdict.age,
       attachmentName: targetForm.attachmentName || undefined,
@@ -624,7 +787,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
       if (editingEvaluation) setEditingEvaluation(nextEvaluation);
       if (activeSellerRequest || (editingEvaluation && nextEvaluation.sellerRequestId)) {
         await markSellerLeadRequestReviewed(activeSellerRequest?.id ?? nextEvaluation.sellerRequestId!, nextEvaluation.id, {
-          cedula: nextEvaluation.cedula, birthDate: nextEvaluation.birthDate,
+          cedula: nextEvaluation.cedula, fullName: nextEvaluation.fullName, birthDate: nextEvaluation.birthDate,
           attachmentName: targetForm.attachmentName, attachmentDataUrl: targetForm.attachmentDataUrl,
           attachmentPath: targetForm.attachmentPath || undefined, attachmentMime: targetForm.attachmentMime || undefined,
           attachmentSize: targetForm.attachmentSize, attachmentSha256: targetForm.attachmentSha256 || undefined
@@ -647,6 +810,10 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
 
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
+    if (!identityConfirmed) {
+      setErrors(["Confirma que el nombre, la cédula y la fecha coinciden con el documento antes de guardar."]);
+      return;
+    }
     const nextErrors = validate();
     setErrors(nextErrors);
     if (nextErrors.length > 0) return;
@@ -666,6 +833,9 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
     setIncludeDetails(false);
     setMessage("");
     setErrors([]);
+    setDocumentScan(idleDocumentScan);
+    setRequiresIdentityConfirmation(false);
+    setConfirmedIdentityKey("");
     setActiveSellerRequest(null);
   }
 
@@ -712,7 +882,25 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
             {consulting ? "Consultando..." : "Consultar"}
           </button>
         </div>
-        {matchingEvaluation && (
+        {!readOnly && (
+          <div className="lead-document-intake">
+            <div>
+              <strong>Más rápido: lee la cédula o licencia</strong>
+              <span>La app completa la cédula y la fecha de nacimiento, y busca si el lead ya existe.</span>
+            </div>
+            <button type="button" className="button ghost" onClick={() => quickDocumentInputRef.current?.click()} disabled={saving || consulting || documentLoading}>
+              {documentLoading && documentScan.status === "reading" ? "Leyendo..." : "Subir documento"}
+            </button>
+            <input ref={quickDocumentInputRef} className="lead-document-intake-input" type="file" accept="image/*,application/pdf,.pdf" onChange={(event) => void handleQuickDocumentChange(event)} />
+          </div>
+        )}
+        {documentScan.status !== "idle" && flowMode !== "creating" && flowMode !== "editing" && (
+          <div className={`lead-document-scan lead-document-scan--${documentScan.status}`} role="status">
+            <span>{documentScan.message}</span>
+            {documentScan.status === "reading" && <progress max="1" value={documentScan.progress} />}
+          </div>
+        )}
+        {identityConfirmed && matchingEvaluation && (
           <p className="hint">
             Ultimo dictamen guardado: <strong>{decisionLabel[matchingEvaluation.decision]}</strong> - {formatDateTime(matchingEvaluation.updatedAt)}
           </p>
@@ -745,6 +933,10 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
 
           <div className="form-grid lead-form-grid">
             <label>
+              Nombre completo
+              <input value={form.fullName} maxLength={120} autoComplete="name" onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} disabled={(Boolean(activeSellerRequest) && !sellerEditSnapshot) || readOnly || saving || consulting} />
+            </label>
+            <label>
               Cedula
               <input value={form.cedula} inputMode="tel" pattern={"[0-9\\-]*"} maxLength={32} title="Solo números y guiones (-)" onChange={(event) => { if (validSellerCedulaInput(event.target.value)) setForm((current) => ({ ...current, cedula: event.target.value })); }} disabled={(Boolean(activeSellerRequest) && !sellerEditSnapshot) || readOnly || saving || consulting} />
             </label>
@@ -754,7 +946,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
             </label>
             <label>
               Foto de cedula o licencia
-              <input type="file" accept="image/*,.pdf" onChange={(event) => void handleAttachmentChange(event)} disabled={(Boolean(activeSellerRequest) && !sellerEditSnapshot) || readOnly || saving || consulting} />
+              <input type="file" accept="image/*,.pdf" onChange={(event) => void handleAttachmentChange(event)} disabled={(Boolean(activeSellerRequest) && !sellerEditSnapshot) || readOnly || saving || consulting || documentLoading} />
             </label>
             <label>
               Reportes de colision/choque
@@ -781,6 +973,23 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
           </div>
 
           {form.attachmentName && <p className="hint">Adjunto: {form.attachmentName}</p>}
+          {documentScan.status !== "idle" && (
+            <div className={`lead-document-scan lead-document-scan--${documentScan.status}`} role="status">
+              <span>{documentScan.message}</span>
+              {documentScan.status === "reading" && <progress max="1" value={documentScan.progress} />}
+            </div>
+          )}
+          {requiresIdentityConfirmation && (
+            <div className={`lead-identity-review ${identityConfirmed ? "is-confirmed" : ""}`}>
+              <div>
+                <strong>{identityConfirmed ? "Datos confirmados" : "Revisión obligatoria"}</strong>
+                <span>Compara el nombre, la cédula y la fecha con la foto. El OCR puede confundir letras o números parecidos.</span>
+              </div>
+              <button type="button" className="button primary" disabled={identityConfirmed || consulting || documentLoading || saving} onClick={() => void handleConfirmScannedIdentity()}>
+                {identityConfirmed ? "Confirmado" : consulting ? "Consultando..." : "Confirmar datos y consultar"}
+              </button>
+            </div>
+          )}
 
           <div className="lead-report-grid">
             <label className="lead-check lead-check--clean">
@@ -818,7 +1027,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
 
           <div className="modal-actions">
             {sellerEditSnapshot ? <button type="button" className="button primary" disabled={readOnly || saving || consulting || documentLoading} onClick={() => void handleSaveSellerCorrection()}>{saving ? "Guardando..." : "Guardar cambios"}</button> :
-              <button type="submit" className="button primary" disabled={readOnly || saving || consulting || documentLoading}>
+              <button type="submit" className="button primary" disabled={readOnly || saving || consulting || documentLoading || !identityConfirmed}>
                 {saving ? "Guardando..." : editingEvaluation ? "Guardar cambios" : activeSellerRequest ? "Guardar y publicar dictamen" : "Procesar y guardar dictamen"}
               </button>}
             {(editingEvaluation || sellerEditSnapshot) && <button type="button" className="button ghost" disabled={saving || consulting} onClick={() => {
@@ -859,6 +1068,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
           <div className="lead-dictamen-section">
             <h3>Requisitos</h3>
             <ul>
+              {form.fullName && <li>Nombre: {normalizeFullName(form.fullName)}</li>}
               <li>Edad: {verdict.age === null ? "Pendiente" : verdict.age <= 27 ? "Aplica con abono según escala" : "Sin abono adicional por edad"}</li>
               <li>Licencia: debe validar en la entrega del documento</li>
               <li>Record policivo: debe validar en la revision</li>
@@ -950,7 +1160,8 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
           {sellerRequests.map((request) => (
             <article className="lead-request-item" key={request.id}>
               <div>
-                <strong>{request.cedula || "Vendedor pendiente de completar"}</strong>
+                <strong>{request.fullName || request.cedula || "Vendedor pendiente de completar"}</strong>
+                {request.fullName && request.cedula && <span>{request.cedula}</span>}
                 <span>{requestStatusLabel[request.status]} · {formatDateTime(request.updatedAt)}</span>
               </div>
               <div className="lead-row-actions">
@@ -972,6 +1183,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
           <table className="lead-table">
             <thead>
               <tr>
+                <th>Nombre</th>
                 <th>Cedula</th>
                 <th>Edad</th>
                 <th>Resultado</th>
@@ -983,11 +1195,12 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
             <tbody>
               {displayedEvaluations.length === 0 && (
                 <tr>
-                  <td colSpan={6}>{loading ? "Cargando dictámenes recientes..." : cloudError ? "No se pudo cargar la lista de dictámenes." : normalizedQuery ? "Sin dictámenes en esta lista para la cédula. Pulsa Consultar para buscar en todo el historial." : "Aun no hay dictamenes guardados."}</td>
+                  <td colSpan={7}>{loading ? "Cargando dictámenes recientes..." : cloudError ? "No se pudo cargar la lista de dictámenes." : normalizedQuery ? "Sin dictámenes en esta lista para la cédula. Pulsa Consultar para buscar en todo el historial." : "Aun no hay dictamenes guardados."}</td>
                 </tr>
               )}
               {displayedEvaluations.map((evaluation) => (
                 <tr key={evaluation.id}>
+                  <td>{evaluation.fullName || "-"}</td>
                   <td>{evaluation.cedula}</td>
                   <td>{evaluation.age}</td>
                   <td><span className={`lead-decision-pill lead-decision-pill--${evaluation.decision}`}>{decisionLabel[evaluation.decision]}</span></td>

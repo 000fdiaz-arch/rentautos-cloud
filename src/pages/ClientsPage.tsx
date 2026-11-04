@@ -890,6 +890,7 @@ export default function ClientsPage({ clients, payments = [], bankRules = [], on
     <div className="clients-luxury-page">
       <EditClientDialog
         editingClientId={editingClientId}
+        dataOwnerUserId={dataOwnerUserId}
         existingAdvanceBalance={editingClientId === null
           ? 0
           : clients.find((client) => client.id === editingClientId)?.advanceBalance ?? 0}

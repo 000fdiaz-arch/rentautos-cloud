@@ -7,6 +7,7 @@ create table if not exists public.seller_lead_requests (
   status text not null default 'waiting_information'
     check (status in ('waiting_information', 'pending_review', 'incomplete', 'reviewed')),
   cedula text,
+  full_name text check (full_name is null or length(full_name) between 3 and 120),
   birth_date date,
   attachment_name text,
   attachment_data_url text,
@@ -60,6 +61,7 @@ begin
   return jsonb_strip_nulls(jsonb_build_object(
     'status', public_status,
     'cedula', coalesce(target.cedula, ''),
+    'fullName', target.full_name,
     'birthDate', coalesce(target.birth_date::text, ''),
     'attachmentName', target.attachment_name,
     'correctionNote', case when target.status = 'incomplete' then target.correction_note else null end,

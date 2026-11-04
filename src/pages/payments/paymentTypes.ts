@@ -1,4 +1,5 @@
 import type { Client, CollectionDelta, CollectionTeam, OtherCharge, OtherChargesRetentionEvent, PaymentMethod } from "../../types";
+import type { PortalPaymentChannel } from "../../receiptAmountDetection";
 
 export type PaymentForm = {
   clientId: string;
@@ -18,11 +19,15 @@ export type NotifiedPayment = {
   createdAt: string;
   paymentMethod?: "bank";
   collectionTeam?: CollectionTeam;
-  source?: "route" | "route-review";
+  source?: "route" | "route-review" | "client-portal";
+  portalPaymentChannel?: PortalPaymentChannel;
   routeReportId?: string;
   routePaymentMethod?: "cash" | "bank" | "mixed";
   routeAssignment?: string;
   routeBankConfirmedAt?: string;
+  clientPaymentNoticeId?: string;
+  evidencePath?: string;
+  evidenceName?: string;
 };
 
 export type NotifiedPaymentForm = {

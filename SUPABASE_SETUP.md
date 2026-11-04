@@ -54,7 +54,19 @@ Para instalaciones existentes que ya ejecutaron las migraciones de cuentas por c
 - `supabase/111-route-bank-savings-settlement.sql` (concilia confirmaciones visuales descontando los centavos de ahorro)
 - `supabase/115-atomic-payment-deletion.sql` (elimina facturas y revierte el saldo del cliente una sola vez, incluso ante doble clic o reintentos)
 - `supabase/116-payment-deletion-fast-paths.sql` (evita reconstrucciones de historial y retencion cuando la factura eliminada no puede afectar esos caches)
+- `supabase/117-client-portal.sql` (habilita acceso por cedula y PIN, sesiones privadas, multiples unidades y comprobantes de pago del portal del cliente)
 - `supabase/119-active-route-delta-availability.sql` (evita asignar carros a cuentas Delta inactivas y reasigna sus rutas pendientes al desactivarlas)
+
+Despues de aplicar la 117, despliega la funcion que atiende el portal sin exponer la
+clave de servicio en el navegador:
+
+```bash
+supabase functions deploy client-portal
+```
+
+El acceso se configura por cliente desde **Clientes → Editar → Portal** y la URL para
+el cliente es `/portal-cliente`. Los registros que comparten la misma cedula usan un
+solo PIN y el portal separa saldos, pagos y comprobantes por unidad.
 
 En Vercel, produccion debe usar `VITE_PERSISTENCE_MODE=SUPABASE_ONLY`. `LOCAL_ONLY` queda limitado a desarrollo, salvo que se habilite deliberadamente `VITE_ALLOW_PRODUCTION_LOCAL_ONLY=1`.
 5. Crea una cuenta desde la pantalla de registro de la app.

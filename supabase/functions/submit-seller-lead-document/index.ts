@@ -48,9 +48,11 @@ Deno.serve(async request => {
     const mode = payload?.mode;
     if (mode !== "shared" && mode !== "token") throw new Error("Solicitud no válida");
     const cedula = typeof payload.cedula === "string" ? payload.cedula : "";
+    const fullName = typeof payload.fullName === "string" ? payload.fullName.trim().replace(/\s+/g, " ").toUpperCase().slice(0, 120) : "";
     const birthDate = typeof payload.birthDate === "string" ? payload.birthDate : "";
     const attachmentName = typeof payload.attachmentName === "string" ? payload.attachmentName.slice(0, 240) : "";
     const document = parseDocument(payload.attachmentDataUrl);
+    if (fullName.split(" ").filter(Boolean).length < 2) throw new Error("Nombre completo no válido");
     const sha256 = document ? await hashDocument(document.bytes) : null;
 
     const prepareName = mode === "shared" ? "prepare_shared_seller_lead_upload" : "prepare_token_seller_lead_upload";
@@ -83,6 +85,12 @@ Deno.serve(async request => {
           p_attachment_path: path, p_mime: document?.mime ?? null, p_size: document?.bytes.length ?? null, p_sha256: sha256 };
     const { data: result, error: finalizeError } = await client.rpc(finalizeName, finalizeArgs);
     if (finalizeError) throw finalizeError;
+    const nameUpdate = mode === "shared"
+      ? client.from("seller_lead_requests").update({ full_name: fullName })
+          .eq("user_id", preparation.ownerId).eq("cedula", cedula.trim().toUpperCase()).eq("status", "pending_review")
+      : client.from("seller_lead_requests").update({ full_name: fullName }).eq("token", payload.token).eq("status", "pending_review");
+    const { error: nameError } = await nameUpdate;
+    if (nameError) throw nameError;
     return json(mode === "shared" ? result : { ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "No se pudo procesar el documento";

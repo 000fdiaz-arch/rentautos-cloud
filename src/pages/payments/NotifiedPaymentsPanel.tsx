@@ -1,5 +1,6 @@
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import { useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { formatCurrency } from "../../format";
+import { createClientPaymentEvidenceViewUrl } from "../../cloud/clientPortalCloudData";
 import type { Client } from "../../types";
 import type {
   NotifiedPayment,
@@ -63,6 +64,23 @@ export default function NotifiedPaymentsPanel({
   handleStartEditNotified,
   handleDeleteNotifiedPayment
 }: Props) {
+  const [openingEvidenceId, setOpeningEvidenceId] = useState<string | null>(null);
+  const [evidenceError, setEvidenceError] = useState("");
+
+  async function openEvidence(row: NotifiedPayment): Promise<void> {
+    if (!row.evidencePath || openingEvidenceId) return;
+    setOpeningEvidenceId(row.id);
+    setEvidenceError("");
+    try {
+      const url = await createClientPaymentEvidenceViewUrl(row.evidencePath);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (cause) {
+      setEvidenceError(cause instanceof Error ? cause.message : "No se pudo abrir el comprobante.");
+    } finally {
+      setOpeningEvidenceId(null);
+    }
+  }
+
   const linkedReportIds = new Set(notifiedRowsFiltered.map((row) => row.routeReportId).filter(Boolean));
   const visibleRouteRows = routeReviewRows.filter((row) => {
     if (row.routeReportId && linkedReportIds.has(row.routeReportId)) return false;
@@ -141,6 +159,7 @@ export default function NotifiedPaymentsPanel({
               <ul className="error-list">{notifiedErrors.map((e) => <li key={e}>{e}</li>)}</ul>
             )}
             {routeReviewError ? <p className="error-list">{routeReviewError}</p> : null}
+            {evidenceError ? <p className="error-list">{evidenceError}</p> : null}
 
             <div style={{ marginTop: 14 }}>
               <button type="button" className="button primary" disabled={notifiedSavingId === "new"} onClick={handleAddNotifiedPayment}>
@@ -196,6 +215,10 @@ export default function NotifiedPaymentsPanel({
                       const client = clients.find((c) => c.id === row.clientId);
                       const isEditing = editingNotifiedId === row.id;
                       const isRouteReview = Boolean(row.routeReportId);
+                      const isClientPortal = row.source === "client-portal";
+                      const portalMethodLabel = row.portalPaymentChannel === "ach_xpress"
+                        ? "ACH Xpress"
+                        : row.portalPaymentChannel === "regular_transfer" ? "Transferencia regular" : "Método por revisar";
                       const isRouteBankConfirmed = Boolean(row.routeBankConfirmedAt);
                       const routeMethodLabel = row.routePaymentMethod === "cash"
                         ? "Efectivo"
@@ -237,9 +260,14 @@ export default function NotifiedPaymentsPanel({
                             )}
                           </td>
                           <td>{new Date(row.createdAt).toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })}</td>
-                          <td>{isRouteBankConfirmed ? "Confirmado en banco" : isRouteReview ? `Pago notificado · ${routeMethodLabel}` : row.paymentMethod === "bank" ? "Por confirmar banca" : "Notificado"}</td>
+                          <td>{isRouteBankConfirmed ? "Confirmado en banco" : isClientPortal ? `Portal · ${portalMethodLabel}` : isRouteReview ? `Pago notificado · ${routeMethodLabel}` : row.paymentMethod === "bank" ? "Por confirmar banca" : "Notificado"}</td>
                           <td>{row.routeAssignment || row.collectionTeam || "—"}</td>
                           <td className="actions-cell">
+                            {row.evidencePath && (
+                              <button type="button" className="button ghost small" disabled={openingEvidenceId === row.id} onClick={() => void openEvidence(row)}>
+                                {openingEvidenceId === row.id ? "Abriendo…" : "Ver comprobante"}
+                              </button>
+                            )}
                             {isEditing ? (
                               <>
                                 <button
@@ -257,7 +285,7 @@ export default function NotifiedPaymentsPanel({
                                   Cancelar
                                 </button>
                               </>
-                            ) : !isRouteReview ? (
+                            ) : !isRouteReview && !isClientPortal ? (
                               <button
                                 type="button"
                                 className="button ghost small"

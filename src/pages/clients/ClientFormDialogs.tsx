@@ -8,6 +8,7 @@ import {
 } from "./clientRules";
 import { FirstChargeDatePicker } from "./FirstChargeDatePicker";
 import type { ClientForm, EditClientTab } from "./clientTypes";
+import { ClientPortalAccessPanel } from "./ClientPortalAccessPanel";
 
 type SharedProps = {
   form: ClientForm;
@@ -23,6 +24,7 @@ type SharedProps = {
 
 type EditProps = SharedProps & {
   editingClientId: string | null;
+  dataOwnerUserId?: string | null;
   existingAdvanceBalance: number;
   contractTermsChanged: boolean;
   issuanceNeedsReview: boolean;
@@ -59,6 +61,7 @@ function updateSchedule(
 
 export function EditClientDialog({
   editingClientId,
+  dataOwnerUserId,
   existingAdvanceBalance,
   contractTermsChanged,
   issuanceNeedsReview,
@@ -134,6 +137,7 @@ export function EditClientDialog({
                     <button type="button" className={`button ghost small ${editClientTab === "plan" ? "cash-tab-active" : ""}`} onClick={() => setEditClientTab("plan")}>Plan y Cobranza</button>
                     <button type="button" className={`button ghost small ${editClientTab === "cargos" ? "cash-tab-active" : ""}`} onClick={() => setEditClientTab("cargos")}>Otros cargos</button>
                     <button type="button" className={`button ghost small ${editClientTab === "estado" ? "cash-tab-active" : ""}`} onClick={() => setEditClientTab("estado")}>Estado</button>
+                    <button type="button" className={`button ghost small ${editClientTab === "portal" ? "cash-tab-active" : ""}`} onClick={() => setEditClientTab("portal")}>Portal</button>
                   </div>
                   <form className="form-grid edit-client-form-grid" onSubmit={handleSubmitClient}>
                     {editClientTab === "identidad" && (
@@ -252,6 +256,14 @@ export function EditClientDialog({
                         <h3>Estado operativo</h3>
                         <p className="hint">El estado se edita desde la tabla principal en la columna Cobranza.</p>
                       </div>
+                    )}
+                    {editClientTab === "portal" && (
+                      <ClientPortalAccessPanel
+                        ownerUserId={dataOwnerUserId}
+                        clientId={editingClientId}
+                        cedula={form.cedula}
+                        unitId={form.unitId}
+                      />
                     )}
                     <div className="modal-actions edit-client-footer">
                       <button type="submit" className={`button primary ${installmentLiveError ? "button-disabled" : ""}`} disabled={installmentLiveError !== null}>

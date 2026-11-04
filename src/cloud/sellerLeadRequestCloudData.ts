@@ -9,6 +9,7 @@ type SellerLeadRequestRow = {
   token: string;
   status: SellerLeadRequestStatus;
   cedula: string | null;
+  full_name?: string | null;
   birth_date: string | null;
   attachment_name: string | null;
   attachment_data_url: string | null;
@@ -32,6 +33,7 @@ function fromRow(row: SellerLeadRequestRow): SellerLeadRequest {
     token: row.token,
     status: row.status,
     cedula: row.cedula ?? "",
+    fullName: row.full_name ?? undefined,
     birthDate: row.birth_date ?? "",
     attachmentName: row.attachment_name ?? undefined,
     attachmentDataUrl: row.attachment_data_url ?? undefined,
@@ -49,7 +51,12 @@ function fromRow(row: SellerLeadRequestRow): SellerLeadRequest {
   };
 }
 
-const requestColumns = "id,user_id,token,status,cedula,birth_date,attachment_name,attachment_data_url,attachment_path,attachment_mime,attachment_size,attachment_sha256,correction_note,evaluation_id,expires_at,submitted_at,reviewed_at,created_at,updated_at";
+const requestColumns = "id,user_id,token,status,cedula,full_name,birth_date,attachment_name,attachment_data_url,attachment_path,attachment_mime,attachment_size,attachment_sha256,correction_note,evaluation_id,expires_at,submitted_at,reviewed_at,created_at,updated_at";
+const legacyRequestColumns = requestColumns.split(",").filter(column => column !== "full_name").join(",");
+
+function isMissingFullNameColumn(error: { code?: string; message?: string } | null): boolean {
+  return error?.code === "42703" || Boolean(error?.message?.includes("full_name"));
+}
 
 async function withDocumentViewUrl(request: SellerLeadRequest): Promise<SellerLeadRequest> {
   if (!request.attachmentPath) return request;
@@ -74,22 +81,32 @@ export async function countPendingSellerLeadReviews(userId: string): Promise<num
 
 export async function loadSellerLeadRequests(userId: string, offset = 0): Promise<SellerLeadRequest[]> {
   const client = getCloudClient();
-  const { data, error } = await client
+  const summaryColumns = requestColumns.split(",").filter(column => column !== "attachment_data_url" && column !== "token").join(",");
+  const legacySummaryColumns = legacyRequestColumns.split(",").filter(column => column !== "attachment_data_url" && column !== "token").join(",");
+  let response = await client
     .from("seller_lead_requests")
-    .select(requestColumns.split(",").filter(column => column !== "attachment_data_url" && column !== "token").join(","))
+    .select(summaryColumns)
     .eq("user_id", userId)
     .order("updated_at", { ascending: false })
     .order("id", { ascending: false })
     .range(offset, offset + 20);
-  if (error) throw error;
-  return ((data ?? []) as unknown as SellerLeadRequestRow[]).map(fromRow);
+  if (isMissingFullNameColumn(response.error)) {
+    response = await client.from("seller_lead_requests").select(legacySummaryColumns)
+      .eq("user_id", userId).order("updated_at", { ascending: false }).order("id", { ascending: false }).range(offset, offset + 20);
+  }
+  if (response.error) throw response.error;
+  return ((response.data ?? []) as unknown as SellerLeadRequestRow[]).map(fromRow);
 }
 
 export async function loadSellerLeadRequest(userId: string, id: string): Promise<SellerLeadRequest> {
-  const { data, error } = await getCloudClient().from("seller_lead_requests")
+  const client = getCloudClient();
+  let response = await client.from("seller_lead_requests")
     .select(requestColumns).eq("user_id", userId).eq("id", id).single();
-  if (error) throw error;
-  return withDocumentViewUrl(fromRow(data as SellerLeadRequestRow));
+  if (isMissingFullNameColumn(response.error)) {
+    response = await client.from("seller_lead_requests").select(legacyRequestColumns).eq("user_id", userId).eq("id", id).single();
+  }
+  if (response.error) throw response.error;
+  return withDocumentViewUrl(fromRow(response.data as SellerLeadRequestRow));
 }
 
 export async function createSellerLeadRequest(userId: string): Promise<SellerLeadRequest> {
@@ -97,10 +114,10 @@ export async function createSellerLeadRequest(userId: string): Promise<SellerLea
   const { data, error } = await client
     .from("seller_lead_requests")
     .insert({ user_id: userId })
-    .select(requestColumns)
+    .select(legacyRequestColumns)
     .single();
   if (error) throw error;
-  return fromRow(data as SellerLeadRequestRow);
+  return fromRow(data as unknown as SellerLeadRequestRow);
 }
 
 export async function markSellerLeadRequestIncomplete(requestId: string, correctionNote: string): Promise<void> {
@@ -115,6 +132,7 @@ export async function markSellerLeadRequestIncomplete(requestId: string, correct
 
 type SellerLeadInformation = {
   cedula: string;
+  fullName?: string;
   birthDate: string;
   attachmentName: string;
   attachmentDataUrl: string;
@@ -132,38 +150,50 @@ export async function correctSellerLeadRequest(userId: string, request: SellerLe
   const attachmentMime = uploaded?.attachmentMime ?? input.attachmentMime ?? request.attachmentMime;
   const attachmentSize = uploaded?.attachmentSize ?? input.attachmentSize ?? request.attachmentSize;
   const attachmentSha256 = uploaded?.attachmentSha256 ?? input.attachmentSha256 ?? request.attachmentSha256;
-  const { data, error } = await getCloudClient().from("seller_lead_requests")
-    .update({ cedula: input.cedula, birth_date: input.birthDate, attachment_name: input.attachmentName,
+  const client = getCloudClient();
+  const update = { cedula: input.cedula, full_name: input.fullName || null, birth_date: input.birthDate, attachment_name: input.attachmentName,
       attachment_data_url: attachmentPath ? null : input.attachmentDataUrl,
       attachment_path: attachmentPath ?? null, attachment_mime: attachmentMime ?? null,
       attachment_size: attachmentSize ?? null, attachment_sha256: attachmentSha256 ?? null,
       attachment_migrated_at: attachmentPath ? new Date().toISOString() : null,
-      updated_at: new Date().toISOString() })
+      updated_at: new Date().toISOString() };
+  let response = await client.from("seller_lead_requests").update(update)
     .eq("user_id", userId).eq("id", request.id).eq("status", "pending_review").eq("updated_at", request.updatedAt)
     .select(requestColumns).single();
-  if (error) throw error;
+  if (isMissingFullNameColumn(response.error)) {
+    const { full_name: _ignored, ...legacyUpdate } = update;
+    response = await client.from("seller_lead_requests").update(legacyUpdate)
+      .eq("user_id", userId).eq("id", request.id).eq("status", "pending_review").eq("updated_at", request.updatedAt)
+      .select(legacyRequestColumns).single();
+  }
+  if (response.error) throw response.error;
   window.dispatchEvent(new Event(SELLER_LEAD_REQUESTS_CHANGED_EVENT));
-  return withDocumentViewUrl(fromRow(data as SellerLeadRequestRow));
+  return withDocumentViewUrl(fromRow(response.data as SellerLeadRequestRow));
 }
 
 export async function markSellerLeadRequestReviewed(requestId: string, evaluationId: string, information?: SellerLeadInformation): Promise<void> {
   const client = getCloudClient();
   const now = new Date().toISOString();
-  const { error } = await client
+  const update = { status: "reviewed", evaluation_id: evaluationId, correction_note: null, reviewed_at: now, updated_at: now,
+    ...(information ? { cedula: information.cedula, full_name: information.fullName || null, birth_date: information.birthDate,
+      attachment_name: information.attachmentName,
+      ...(information.attachmentPath ? {
+        attachment_data_url: null,
+        attachment_path: information.attachmentPath,
+        attachment_mime: information.attachmentMime ?? null,
+        attachment_size: information.attachmentSize ?? null,
+        attachment_sha256: information.attachmentSha256 ?? null,
+        attachment_migrated_at: now
+      } : { attachment_data_url: information.attachmentDataUrl }) } : {}) };
+  let response = await client
     .from("seller_lead_requests")
-    .update({ status: "reviewed", evaluation_id: evaluationId, correction_note: null, reviewed_at: now, updated_at: now,
-      ...(information ? { cedula: information.cedula, birth_date: information.birthDate,
-        attachment_name: information.attachmentName,
-        ...(information.attachmentPath ? {
-          attachment_data_url: null,
-          attachment_path: information.attachmentPath,
-          attachment_mime: information.attachmentMime ?? null,
-          attachment_size: information.attachmentSize ?? null,
-          attachment_sha256: information.attachmentSha256 ?? null,
-          attachment_migrated_at: now
-        } : { attachment_data_url: information.attachmentDataUrl }) } : {}) })
+    .update(update)
     .eq("id", requestId).select("id").single();
-  if (error) throw error;
+  if (isMissingFullNameColumn(response.error)) {
+    const { full_name: _ignored, ...legacyUpdate } = update as typeof update & { full_name?: string | null };
+    response = await client.from("seller_lead_requests").update(legacyUpdate).eq("id", requestId).select("id").single();
+  }
+  if (response.error) throw response.error;
   window.dispatchEvent(new Event(SELLER_LEAD_REQUESTS_CHANGED_EVENT));
 }
 
@@ -180,6 +210,7 @@ function normalizePublicPayload(value: unknown): PublicSellerLeadRequest {
   return {
     status,
     cedula: typeof raw.cedula === "string" ? raw.cedula : "",
+    fullName: typeof raw.fullName === "string" ? raw.fullName : undefined,
     birthDate: typeof raw.birthDate === "string" ? raw.birthDate : "",
     attachmentName: typeof raw.attachmentName === "string" ? raw.attachmentName : undefined,
     correctionNote: typeof raw.correctionNote === "string" ? raw.correctionNote : undefined,
@@ -221,7 +252,7 @@ export async function lookupPublicSellerLead(portalId: string, cedula: string): 
 }
 
 export async function submitSharedSellerLead(portalId: string, input: {
-  cedula: string; birthDate: string; attachmentName: string; attachmentDataUrl: string;
+  cedula: string; fullName: string; birthDate: string; attachmentName: string; attachmentDataUrl: string;
 }): Promise<PublicSellerLeadRequest> {
   const client = createEphemeralSupabaseClient();
   if (!client) throw new Error("El servicio de consulta no está configurado.");
@@ -242,6 +273,7 @@ export async function loadPublicSellerLeadRequest(token: string): Promise<Public
 
 export async function submitPublicSellerLeadRequest(token: string, input: {
   cedula: string;
+  fullName: string;
   birthDate: string;
   attachmentName: string;
   attachmentDataUrl: string;
