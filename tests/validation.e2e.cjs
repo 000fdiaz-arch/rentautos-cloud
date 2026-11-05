@@ -147,10 +147,11 @@ async function run() {
     await registerPanel.locator("input.payment-input--amount").first().fill(paymentAmount);
     await expectTextOnPage(page, "Vista previa del pago");
     await registerPanel.getByRole("button", { name: "Confirmar pago y generar recibo" }).click();
-    await registerPanel.getByText("Pago guardado correctamente.").waitFor({ state: "visible", timeout: 15000 });
-    await registerPanel.getByRole("button", { name: "Ver comprobante" }).waitFor({ state: "visible" });
-    assert.equal(await page.getByRole("tabpanel", { name: "Historial pagos" }).isVisible(), false,
-      "Registrar un pago no debe abrir ni recargar el historial automaticamente.");
+    await page.getByRole("tabpanel", { name: "Historial pagos" }).waitFor({ state: "visible", timeout: 15000 });
+    assert.equal(await registerPanel.isVisible(), false,
+      "Registrar un pago debe abrir el historial automaticamente.");
+    assert.equal(await page.getByText("Pago guardado correctamente.").count(), 0,
+      "Registrar un pago no debe mostrar una tarjeta intermedia.");
     assert.equal(await page.getByRole("button", { name: /Registrar otro pago/i }).count(), 0, "El pago individual no debe abrir el formato anterior del recibo.");
   });
   await shot(page, "04-payment-registered");

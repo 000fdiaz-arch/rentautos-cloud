@@ -63,32 +63,22 @@ const METHODS = [
     await registerPanel.locator("input.payment-input--amount").fill("20");
     await registerPanel.getByRole("button", { name: "Confirmar pago y generar recibo" }).click();
 
-    await registerPanel.getByText("Pago guardado correctamente.").waitFor();
-    await registerPanel.getByText(`${client.unitId} - ${client.name}`, { exact: false }).waitFor();
-    assert.equal(await page.getByRole("tabpanel", { name: "Historial pagos" }).isVisible(), false,
-      `${method} no debe abrir el historial automaticamente.`);
+    const historyPanel = page.getByRole("tabpanel", { name: "Historial pagos" });
+    await historyPanel.waitFor({ state: "visible" });
+    await historyPanel.getByText(client.name, { exact: true }).waitFor();
+    assert.equal(await registerPanel.isVisible(), false,
+      `${method} debe salir de Registrar pago despues de guardar.`);
+    assert.equal(await page.getByText("Pago guardado correctamente.").count(), 0,
+      "No debe mostrarse la tarjeta intermedia del pago registrado.");
 
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("cobrapp.module2.payments.v1") || "[]"));
     assert.equal(saved.length, 1, `${method} debe guardar exactamente un pago.`);
     assert.ok(saved[0].receiptNumber, `${method} debe conservar su recibo.`);
 
-    await registerPanel.getByRole("button", { name: "Ver comprobante" }).click();
-    const receiptModal = page.locator(".payment-receipt-modal");
-    await receiptModal.waitFor();
-    await receiptModal.getByRole("button", { name: "Cerrar vista previa" }).click();
-    await receiptModal.waitFor({ state: "hidden" });
-    assert.equal(await page.getByRole("tabpanel", { name: "Historial pagos" }).isVisible(), false,
-      "Ver el comprobante reciente tampoco debe abrir el historial.");
-
-    if (index === METHODS.length - 1) {
-      await registerPanel.getByRole("button", { name: "Ir al historial" }).click();
-      await page.getByRole("tabpanel", { name: "Historial pagos" }).waitFor({ state: "visible" });
-    }
-
     await context.close();
   }
 
-  console.log("OK registro manual: cinco metodos guardan y muestran recibo sin abrir historial; historial carga solo al pedirlo.");
+  console.log("OK registro manual: cinco metodos guardan y abren el historial directamente, sin tarjeta intermedia.");
   await browser.close();
 })().catch((error) => {
   console.error(error);
