@@ -4,7 +4,7 @@ import RouteCollectionCard, { type RouteWorkflowView } from "./RouteCollectionCa
 import RouteManagedList from "./RouteManagedList";
 import RouteTeamSummary from "./RouteTeamSummary";
 import { PaymentPreviewDialog } from "./payments/PaymentDialogs";
-import { applyRouteReportDelta, changeRouteAssignment, cancelRoutePaymentReport, hideRouteManagedReport, loadRoutePaymentReport, loadRoutePaymentReportForItem, loadRoutePaymentReports, loadRoutePaymentReportsPage, loadRouteReportReceipts, reportRoutePayment, routeReportDeltaFromPayload, setRouteCustody, setRouteInactiveStatus, type RouteBankConfirmationResult, type RouteManagementOutcome, type RoutePaymentReport, type RouteReportDelta } from "../cloud/routeReportCloudData";
+import { applyRouteReportDelta, changeRouteAssignment, cancelRoutePaymentReport, hideRouteManagedReport, loadRoutePaymentReport, loadRoutePaymentReportForItem, loadRoutePaymentReports, loadRoutePaymentReportsPage, loadRouteReportReceipts, reportRoutePayment, routeReportDeltaFromPayload, setRouteCustody, setRouteInactiveStatus, setRouteReportManagementOutcome, type RouteBankConfirmationResult, type RouteManagementOutcome, type RoutePaymentReport, type RouteReportDelta } from "../cloud/routeReportCloudData";
 import {
   ALL_ACTIVE_ROUTE_FILTER,
   EMPTY_ACTIVE_ROUTE_FILTER,
@@ -251,6 +251,7 @@ export default function RouteSearchPage({
   const [managedDeleteTarget, setManagedDeleteTarget] = useState<RouteManagedAction | null>(null);
   const [managedDeletingId, setManagedDeletingId] = useState<string | null>(null);
   const [managedDeleteError, setManagedDeleteError] = useState("");
+  const [managedOutcomeSavingId, setManagedOutcomeSavingId] = useState<string | null>(null);
 
   async function reloadReports(): Promise<void> {
     const loadId = ++reportLoadIdRef.current;
@@ -419,6 +420,27 @@ export default function RouteSearchPage({
       setManagedDeleteError(buildCloudErrorMessage("No se pudo eliminar el registro de Gestionados hoy.", cause, { includeRawFallback: true }));
     } finally {
       setManagedDeletingId(null);
+    }
+  }
+
+  async function changeManagedOutcome(action: RouteManagedAction): Promise<void> {
+    const report = action.report;
+    if (!canConfirmCaptures || !report || managedOutcomeSavingId) return;
+    const managementOutcome: RouteManagementOutcome = action.kind === "remote" ? "collected" : "remote";
+    setManagedOutcomeSavingId(action.id);
+    setReportsError("");
+    try {
+      await setRouteReportManagementOutcome(report.id, managementOutcome);
+      setReports((current) => current.map((currentReport) => currentReport.id === report.id
+        ? { ...currentReport, management_outcome: managementOutcome }
+        : currentReport));
+      setRouteActionMessage(managementOutcome === "remote"
+        ? `${action.unitId} fue marcado como Gestión remota.`
+        : `${action.unitId} fue marcado como Cobrado.`);
+    } catch (cause) {
+      setReportsError(buildCloudErrorMessage("No se pudo cambiar el resultado de la gestión.", cause, { includeRawFallback: true }));
+    } finally {
+      setManagedOutcomeSavingId(null);
     }
   }
 
@@ -1670,7 +1692,9 @@ export default function RouteSearchPage({
       {workflowView === "managed" ? (
         visibleManagedActions.length === 0
           ? <div className="route-search-empty">No hay carros gestionados hoy con estos filtros.</div>
-          : <RouteManagedList actions={visibleManagedActions} deletingId={managedDeletingId} onRequestDelete={canConfirmCaptures ? (action) => { setManagedDeleteTarget(action); setManagedDeleteError(""); } : undefined} />
+          : <RouteManagedList actions={visibleManagedActions} deletingId={managedDeletingId} outcomeSavingId={managedOutcomeSavingId}
+              onChangeOutcome={canConfirmCaptures ? (action) => void changeManagedOutcome(action) : undefined}
+              onRequestDelete={canConfirmCaptures ? (action) => { setManagedDeleteTarget(action); setManagedDeleteError(""); } : undefined} />
       ) : loading && visibleItems.length === 0 ? (
         <div className="route-search-empty">Cargando ruta...</div>
       ) : visibleItems.length === 0 ? (

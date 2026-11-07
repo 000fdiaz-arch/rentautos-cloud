@@ -233,6 +233,17 @@ export async function hideRouteManagedReport(reportId: string): Promise<void> {
   if (error) throw error;
 }
 
+export async function setRouteReportManagementOutcome(
+  reportId: string,
+  managementOutcome: RouteManagementOutcome
+): Promise<void> {
+  const { error } = await getCloudClient().rpc("set_route_report_management_outcome", {
+    p_report_id: reportId,
+    p_management_outcome: managementOutcome
+  });
+  if (error) throw error;
+}
+
 export async function confirmRouteBankReport(reportId: string): Promise<RouteBankConfirmationResult> {
   const { data, error } = await getCloudClient().rpc("confirm_route_bank_report", { p_report_id: reportId });
   if (error) throw error;

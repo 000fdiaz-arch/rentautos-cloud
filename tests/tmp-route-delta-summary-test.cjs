@@ -12,6 +12,7 @@ const tracking = read("src/routeDeltaTracking.ts");
 const styles = read("src/styles.css");
 const managedDeleteMigration = read("supabase/migrations/20261107000200_route_managed_report_admin_only.sql");
 const managementOutcomeMigration = read("supabase/migrations/20261107000300_route_management_outcome.sql");
+const managementOutcomeEditMigration = read("supabase/migrations/20261107000500_route_management_outcome_admin_edit.sql");
 
 for (const delta of ["delta1", "delta2", "delta3"]) {
   assert.ok(tracking.includes(`key: "${delta}"`), `Falta ${delta} en el resumen.`);
@@ -46,6 +47,11 @@ assert.doesNotMatch(tracking, /report\.bank_amount > 0[\s\S]*\? "remote"/, "Una 
 assert.match(page, /Resultado de la gestión[\s\S]*Cobrado[\s\S]*Gestión remota/, "El formulario debe separar el resultado de la gestión del medio de pago.");
 assert.match(managementOutcomeMigration, /management_outcome[\s\S]*'collected'[\s\S]*'remote'/, "El resultado explícito debe persistirse en la base de datos.");
 assert.match(managementOutcomeMigration, /snapshot->>'unitId'[\s\S]*'D10'/, "La corrección actual debe dejar D10 como gestión remota.");
+assert.match(managed, /Marcar gestión remota/, "Administración debe poder corregir un gestionado como Gestión remota.");
+assert.match(managed, /Marcar como cobrado/, "La corrección de Gestión remota debe ser reversible.");
+assert.match(page, /onChangeOutcome=\{canConfirmCaptures \?/, "Los usuarios Delta no deben recibir la acción para editar el resultado.");
+assert.match(managementOutcomeEditMigration, /public\.is_admin\(\)/, "El servidor debe restringir la edición del resultado a Administración.");
+assert.match(managementOutcomeEditMigration, /can_edit_owner_screen\(v_report\.user_id, 'route_search'\)/, "Administración también debe conservar permiso de edición sobre Ruta.");
 assert.match(tracking, /const byCar = new Map<string, RouteManagedAction>/, "El resumen debe consolidar los movimientos por carro.");
 assert.match(tracking, /current\.cashAmount \+= action\.cashAmount/, "Los abonos sucesivos del carro deben acumularse sin duplicarlo.");
 assert.match(summary, /Carros únicos gestionados hoy por Delta/, "El resumen debe aclarar que cuenta carros únicos.");

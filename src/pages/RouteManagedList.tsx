@@ -5,6 +5,8 @@ import { formatRouteDateTime } from "../routeTimeUrgency";
 type Props = {
   actions: RouteManagedAction[];
   deletingId?: string | null;
+  outcomeSavingId?: string | null;
+  onChangeOutcome?: (action: RouteManagedAction) => void;
   onRequestDelete?: (action: RouteManagedAction) => void;
 };
 
@@ -14,7 +16,7 @@ function actionLabel(action: RouteManagedAction): string {
   return "Cobrado";
 }
 
-export default function RouteManagedList({ actions, deletingId = null, onRequestDelete }: Props) {
+export default function RouteManagedList({ actions, deletingId = null, outcomeSavingId = null, onChangeOutcome, onRequestDelete }: Props) {
   return <div className="route-managed-list" aria-label="Carros gestionados hoy">
     {actions.map((action) => <article className={`route-managed-row route-managed-row--${action.kind}`} key={action.id}>
       <div className="route-managed-identity">
@@ -38,6 +40,9 @@ export default function RouteManagedList({ actions, deletingId = null, onRequest
           <summary>Ver registro</summary>
           <span>Gestionado por {routeDeltaLabel(action.delta)} · {formatRouteDateTime(action.occurredAt)}{action.actionCount > 1 ? ` · ${action.actionCount} movimientos consolidados` : ""}</span>
         </details>
+        {action.report && onChangeOutcome ? <button type="button" className="button ghost small" disabled={outcomeSavingId === action.id || deletingId === action.id} onClick={() => onChangeOutcome(action)}>
+          {outcomeSavingId === action.id ? "Guardando..." : action.kind === "remote" ? "Marcar como cobrado" : "Marcar gestión remota"}
+        </button> : null}
         {action.report && onRequestDelete ? <button type="button" className="button danger small" disabled={deletingId === action.id} onClick={() => onRequestDelete(action)}>
           {deletingId === action.id ? "Quitando..." : "Eliminar registro"}
         </button> : null}

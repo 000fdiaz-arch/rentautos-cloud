@@ -7,7 +7,7 @@ const owner='11111111-1111-4111-8111-111111111111';
 const seeker='22222222-2222-4222-8222-222222222222';
 const item={clientId:'c1',unitId:'RA-042',clientName:'Carlos',routeAssignment:'PTY',assignedDelta:'delta1',zone:'Centro',releaseAmount:60,pendingAmount:120,overdueBalance:120,rentAmount:30,daysLate:4,publishedAt:'2026-09-04T12:00:00Z',routeStartedAt:'2026-09-04T12:00:00Z'};
 const receipt={id:'receipt-55',receiptNumber:'REC-CASH-55',clientId:'c1',clientName:'Carlos',clientUnit:'RA-042',dateApplied:'2026-09-05',paymentMethod:'Efectivo',collectionTeam:'WC',amountReceived:55,appliedToRent:55,centavosAhorro:0,installmentsDeducted:1,balanceBefore:120,balanceAfter:65,savingsBefore:0,savingsAfter:0,installmentsPaidAfter:1,installmentsRemainingAfter:2,rentAmount:30,frequency:'daily',createdAt:'2026-09-05T12:00:00Z'};
-  let reports=[],captureEvents=[],routeRuns=[],fail=false,writes=[],routeChanges=[],inactiveChanges=[],cashRegistrations=[],bankConfirmations=[],custody=false,custodyWrites=[],removeWrites=[];
+  let reports=[],captureEvents=[],routeRuns=[],fail=false,writes=[],routeChanges=[],inactiveChanges=[],cashRegistrations=[],bankConfirmations=[],managementOutcomeWrites=[],custody=false,custodyWrites=[],removeWrites=[];
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4197','--strictPort'],{windowsHide:true,stdio:'pipe',env:{...process.env,VITE_SUPABASE_URL:'https://route-tests.invalid',VITE_SUPABASE_ANON_KEY:'synthetic-test-key'}});
 let browser;
 try {
@@ -96,7 +96,14 @@ try {
       if(fail)return route.fulfill({status:400,json:{message:'La unidad cambió. Actualiza la ruta.'}});
       reports=[...reports,{id:'r'+(writes.length),user_id:owner,client_id:'c1',published_at:item.publishedAt,snapshot:item,amount:input.p_cash_amount+input.p_bank_amount,
         method:input.p_cash_amount>0&&input.p_bank_amount>0?'mixed':input.p_cash_amount>0?'cash':'bank',cash_amount:input.p_cash_amount,bank_amount:input.p_bank_amount,confirmed_cash_amount:0,confirmed_bank_amount:0,
-        status:'review',reported_by:seeker,reporter_name:'Ana',reported_at:new Date().toISOString(),confirmed_at:null}];
+        management_outcome:input.p_management_outcome,status:'review',reported_by:seeker,reporter_name:'Ana',reported_at:new Date().toISOString(),confirmed_at:null}];
+      return route.fulfill({status:204});
+    }
+    if(url.pathname.endsWith('/rpc/set_route_report_management_outcome')){
+      const input=req.postDataJSON();managementOutcomeWrites.push(input);
+      const report=reports.find(candidate=>candidate.id===input.p_report_id);
+      if(!report)return route.fulfill({status:404,json:{message:'Reporte no encontrado'}});
+      report.management_outcome=input.p_management_outcome;
       return route.fulfill({status:204});
     }
     if(url.pathname.endsWith('/rpc/cancel_route_payment_report')){reports=[];return route.fulfill({status:204});}
@@ -390,6 +397,17 @@ try {
   await page.getByText('RA-042: pago en efectivo registrado correctamente · Equipo PTY.',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Cerrar vista previa',exact:true}).count(),0);
   assert.equal(await page.getByRole('button',{name:'Ver recibo',exact:true}).count(),0);
+  await page.getByRole('button',{name:'Gestionados hoy (1)',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'Marcar gestión remota',exact:true}).count(),0);
+  await page.goto(base+'/__route-test?admin');
+  await page.getByRole('button',{name:'Gestionados hoy (1)',exact:true}).click();
+  await page.getByRole('button',{name:'Marcar gestión remota',exact:true}).click();
+  await page.getByText('RA-042 fue marcado como Gestión remota.',{exact:true}).waitFor();
+  await page.getByLabel('Carros gestionados hoy').getByText('Gestión remota',{exact:true}).waitFor();
+  assert.equal(managementOutcomeWrites.at(-1).p_management_outcome,'remote');
+  await page.getByRole('button',{name:'Marcar como cobrado',exact:true}).click();
+  await page.getByText('RA-042 fue marcado como Cobrado.',{exact:true}).waitFor();
+  assert.equal(managementOutcomeWrites.at(-1).p_management_outcome,'collected');
   // Delta 2 uses WC for the same immediate-cash flow.
   reports=[];item.routeAssignment='WC';item.assignedDelta='delta2';
   const registrationsBeforeDelta2=cashRegistrations.length;
