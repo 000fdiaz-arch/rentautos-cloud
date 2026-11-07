@@ -4,7 +4,7 @@ import type { RoutePaymentReport } from "./cloud/routeReportCloudData";
 import type { ActiveRouteItem } from "./cloudData";
 
 export type RouteDeltaKey = "delta1" | "delta2" | "delta3";
-export type RouteManagedActionKind = "paid" | "custody" | "absent";
+export type RouteManagedActionKind = "paid" | "remote" | "custody";
 
 export const ROUTE_DELTAS = [
   { key: "delta1", email: "delta1@auth.rentautos.local", label: "Delta 1", route: "PTY" },
@@ -82,6 +82,7 @@ export function buildRouteManagedActions(input: IdentitySource & { items: Active
   const actions: RouteManagedAction[] = [];
 
   input.reports.forEach((report) => {
+    if (report.managed_hidden_at) return;
     if (!happenedOnBusinessDate(report.reported_at, input.businessDateKey)) return;
     const delta = routeDeltaForActor(report.reported_by, report.reporter_name, identities);
     if (!delta) return;
@@ -92,7 +93,10 @@ export function buildRouteManagedActions(input: IdentitySource & { items: Active
       clientName: report.snapshot.clientName,
       routeAssignment: report.snapshot.routeAssignment ?? ROUTE_DELTAS.find((row) => row.key === delta)?.route ?? "",
       delta,
-      kind: "paid",
+      kind: report.management_outcome === "remote"
+        || (report.management_outcome === undefined && report.snapshot.unitId.trim().toUpperCase() === "D10")
+        ? "remote"
+        : "paid",
       occurredAt: report.reported_at,
       cashAmount: report.cash_amount,
       bankAmount: report.bank_amount,
@@ -118,26 +122,6 @@ export function buildRouteManagedActions(input: IdentitySource & { items: Active
       bankAmount: 0,
       actionCount: 1,
       capture
-    });
-  });
-
-  input.items.forEach((item) => {
-    if (!happenedOnBusinessDate(item.routeInactiveAt, input.businessDateKey)) return;
-    const delta = routeDeltaForActor(item.routeInactiveBy, undefined, identities);
-    if (!delta || !item.routeInactiveAt) return;
-    actions.push({
-      id: `absent:${item.clientId}:${item.routeInactiveAt}`,
-      clientId: item.clientId,
-      unitId: item.unitId,
-      clientName: item.clientName,
-      routeAssignment: item.routeAssignment ?? ROUTE_DELTAS.find((row) => row.key === delta)?.route ?? "",
-      delta,
-      kind: "absent",
-      occurredAt: item.routeInactiveAt,
-      cashAmount: 0,
-      bankAmount: 0,
-      actionCount: 1,
-      item
     });
   });
 

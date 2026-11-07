@@ -2,6 +2,37 @@ import { dedupeLoad, getCloudClient, PAGE_SIZE } from "./cloudClient";
 import type { ActiveRouteItem } from "./operationsCloudData";
 import type { Payment } from "../types";
 
+export type RouteManagementOutcome = "collected" | "remote";
+
+const LOCAL_MANAGEMENT_OUTCOMES_KEY = "cobrapp.route.management-outcomes.v1";
+
+function localManagementOutcomeKey(ownerId: string, clientId: string, publishedAt: string): string {
+  return `${ownerId}:${clientId}:${publishedAt}`;
+}
+
+function readLocalManagementOutcome(ownerId: string, clientId: string, publishedAt: string): RouteManagementOutcome | undefined {
+  if (!import.meta.env.DEV || typeof window === "undefined") return undefined;
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(LOCAL_MANAGEMENT_OUTCOMES_KEY) ?? "{}") as Record<string, unknown>;
+    const outcome = stored[localManagementOutcomeKey(ownerId, clientId, publishedAt)];
+    return outcome === "remote" || outcome === "collected" ? outcome : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function saveLocalManagementOutcome(ownerId: string, clientId: string, publishedAt: string, outcome: RouteManagementOutcome): void {
+  if (!import.meta.env.DEV || typeof window === "undefined") return;
+  let stored: Record<string, unknown> = {};
+  try {
+    stored = JSON.parse(window.localStorage.getItem(LOCAL_MANAGEMENT_OUTCOMES_KEY) ?? "{}") as Record<string, unknown>;
+  } catch {
+    stored = {};
+  }
+  stored[localManagementOutcomeKey(ownerId, clientId, publishedAt)] = outcome;
+  window.localStorage.setItem(LOCAL_MANAGEMENT_OUTCOMES_KEY, JSON.stringify(stored));
+}
+
 export type RoutePaymentReport = {
   id: string;
   user_id: string;
@@ -12,6 +43,7 @@ export type RoutePaymentReport = {
   method: "cash" | "bank" | "mixed";
   cash_amount: number;
   bank_amount: number;
+  management_outcome?: RouteManagementOutcome;
   confirmed_cash_amount: number;
   confirmed_bank_amount: number;
   confirmed_bank_received_amount: number;
@@ -26,14 +58,22 @@ export type RoutePaymentReport = {
   reported_at: string;
   confirmed_payment_id: string | null;
   confirmed_at: string | null;
+  managed_hidden_at: string | null;
+  managed_hidden_by: string | null;
 };
 
 function normalizeRoutePaymentReport(row: Record<string, unknown>): RoutePaymentReport {
+  const localOutcome = readLocalManagementOutcome(
+    typeof row.user_id === "string" ? row.user_id : "",
+    typeof row.client_id === "string" ? row.client_id : "",
+    typeof row.published_at === "string" ? row.published_at : ""
+  );
   return {
     ...row,
     amount: Number(row.amount),
     cash_amount: Number(row.cash_amount ?? (row.method === "cash" ? row.amount : 0)),
     bank_amount: Number(row.bank_amount ?? (row.method === "bank" ? row.amount : 0)),
+    management_outcome: localOutcome ?? (row.management_outcome === "remote" ? "remote" : row.management_outcome === "collected" ? "collected" : undefined),
     confirmed_cash_amount: Number(row.confirmed_cash_amount ?? 0),
     confirmed_bank_amount: Number(row.confirmed_bank_amount ?? 0),
     confirmed_bank_received_amount: Number(row.confirmed_bank_received_amount ?? 0),
@@ -41,7 +81,9 @@ function normalizeRoutePaymentReport(row: Record<string, unknown>): RoutePayment
     bank_confirmed_visually_at: typeof row.bank_confirmed_visually_at === "string" ? row.bank_confirmed_visually_at : null,
     bank_confirmed_visually_by: typeof row.bank_confirmed_visually_by === "string" ? row.bank_confirmed_visually_by : null,
     bank_settled_payment_id: typeof row.bank_settled_payment_id === "string" ? row.bank_settled_payment_id : null,
-    bank_settled_at: typeof row.bank_settled_at === "string" ? row.bank_settled_at : null
+    bank_settled_at: typeof row.bank_settled_at === "string" ? row.bank_settled_at : null,
+    managed_hidden_at: typeof row.managed_hidden_at === "string" ? row.managed_hidden_at : null,
+    managed_hidden_by: typeof row.managed_hidden_by === "string" ? row.managed_hidden_by : null
   } as RoutePaymentReport;
 }
 
@@ -155,16 +197,39 @@ export async function loadNextPendingCashRouteReport(ownerId: string, excludedId
   return data ? normalizeRoutePaymentReport(data) : null;
 }
 
-export async function reportRoutePayment(ownerId: string, item: ActiveRouteItem, cashAmount: number, bankAmount: number): Promise<void> {
-  const { error } = await getCloudClient().rpc("report_route_payment_split", {
+export async function reportRoutePayment(
+  ownerId: string,
+  item: ActiveRouteItem,
+  cashAmount: number,
+  bankAmount: number,
+  managementOutcome: RouteManagementOutcome
+): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("report_route_payment_split", {
+    p_user_id: ownerId, p_client_id: item.clientId, p_published_at: item.publishedAt,
+    p_cash_amount: cashAmount, p_bank_amount: bankAmount, p_management_outcome: managementOutcome
+  });
+  if (!error) return;
+
+  const missingOverload = import.meta.env.DEV
+    && (error.code === "PGRST202" || /report_route_payment_split/i.test(error.message ?? "") && /schema cache|function/i.test(error.message ?? ""));
+  if (!missingOverload) throw error;
+
+  const legacy = await client.rpc("report_route_payment_split", {
     p_user_id: ownerId, p_client_id: item.clientId, p_published_at: item.publishedAt,
     p_cash_amount: cashAmount, p_bank_amount: bankAmount
   });
-  if (error) throw error;
+  if (legacy.error) throw legacy.error;
+  saveLocalManagementOutcome(ownerId, item.clientId, item.publishedAt, managementOutcome);
 }
 
 export async function cancelRoutePaymentReport(reportId: string): Promise<void> {
   const { error } = await getCloudClient().rpc("cancel_route_payment_report", { p_report_id: reportId });
+  if (error) throw error;
+}
+
+export async function hideRouteManagedReport(reportId: string): Promise<void> {
+  const { error } = await getCloudClient().rpc("hide_route_managed_report", { p_report_id: reportId });
   if (error) throw error;
 }
 

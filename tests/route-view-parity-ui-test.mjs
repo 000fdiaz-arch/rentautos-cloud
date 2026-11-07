@@ -4,7 +4,8 @@ import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
 const base='http://127.0.0.1:4203',pub='2026-09-05T12:00:00Z';
 const amounts={A10:40,B79:68,C10:90,D92:204,T18:55};
-const active=Object.entries(amounts).map(([unit,amount])=>({client_id:unit,in_custody:unit==='T18',custody_since:pub,data:{clientId:unit,unitId:unit,clientName:unit+' Cliente',releaseAmount:amount,routeAssignment:unit==='A10'?'CL':unit==='C10'?'ROBADO':'PTY',zone:unit==='A10'?'Norte':undefined,publishedAt:pub,routeStartedAt:pub,overdueBalance:200,daysLate:2,rentAmount:34,partialDecisionRentAmount:unit==='A10'?32:undefined}}));
+const assignments={A10:'delta1',B79:'delta1',C10:'delta3',D92:'delta3',T18:'delta1'};
+const active=Object.entries(amounts).map(([unit,amount])=>({client_id:unit,in_custody:unit==='T18',custody_since:pub,data:{clientId:unit,unitId:unit,clientName:unit+' Cliente',releaseAmount:amount,routeAssignment:unit==='A10'?'CL':unit==='C10'?'ROBADO':'PTY',assignedDelta:assignments[unit],zone:unit==='A10'?'Norte':undefined,publishedAt:pub,routeStartedAt:pub,overdueBalance:200,daysLate:2,rentAmount:34,partialDecisionRentAmount:unit==='A10'?32:undefined}}));
 const reports=['A10','B79','C10','D92'].map(unit=>{const confirmed=['A10','B79'].includes(unit),bankReport=unit==='A10'||!confirmed,delta=['A10','B79'].includes(unit)?'delta1':'delta3';return {id:unit,client_id:unit,published_at:pub,snapshot:active.find(x=>x.client_id===unit).data,status:confirmed?'confirmed':'review',method:bankReport?'bank':'cash',amount:amounts[unit],cash_amount:bankReport?0:amounts[unit],confirmed_cash_amount:confirmed&&!bankReport?amounts[unit]:0,bank_amount:bankReport?amounts[unit]:0,confirmed_bank_amount:confirmed&&bankReport?amounts[unit]:0,confirmed_bank_received_amount:bankReport?amounts[unit]+0.1:0,confirmed_bank_savings_amount:bankReport?0.1:0,reported_by:delta+'-id',reporter_name:delta+'@auth.rentautos.local',reported_at:new Date().toISOString(),confirmed_at:confirmed?new Date().toISOString():null};});
 reports.push({...reports[1],id:'historical',client_id:'OLD',snapshot:{...reports[1].snapshot,clientId:'OLD',unitId:'OLD'},reported_at:'2020-01-01T12:00:00Z',confirmed_at:'2020-01-01T12:00:00Z'});
 reports.push({...reports[1],id:'B79-followup',amount:12,cash_amount:12,confirmed_cash_amount:12,reported_at:new Date(Date.now()+1000).toISOString(),confirmed_at:new Date(Date.now()+1000).toISOString()});
@@ -31,7 +32,7 @@ try{
     await panel.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
     await panel.getByText('$8.00',{exact:true}).waitFor();
     const routeSummary=panel.getByRole('region',{name:'Resumen del equipo'});
-    assert.match(await routeSummary.innerText(),/Recibidas[\s\S]*Cobrado[\s\S]*Custodia[\s\S]*Ausente[\s\S]*Delta 1/i);
+    assert.match(await routeSummary.innerText(),/Recibidas[\s\S]*Cobrado[\s\S]*Gestión remota[\s\S]*Custodia[\s\S]*Delta 1/i);
     if(!mode){
       const delta1=routeSummary.getByRole('button',{name:/Delta 1/});
       await delta1.click();
@@ -101,23 +102,23 @@ try{
   assert.deepEqual(snapshots[0],snapshots[1]);
   assert.match(snapshots[0].views['Trabajo (1)'][0],/A10/);
   assert.ok(snapshots[0].views['Pagos por revisar (2)'].some(text=>text.includes('D92')));
-  for(const [operator,expectedRoute] of [['delta1','PTY'],['delta2','WC'],['delta3','PTY']]){
+  const operatorExpectations={delta1:{routes:['CL','PTY'],managed:2},delta2:{routes:[],managed:0},delta3:{routes:['PTY','ROBADO'],managed:2}};
+  for(const [operator,expectation] of Object.entries(operatorExpectations)){
     await page.goto(`${base}/test?operator=${operator}`);
     const scopedPanel=page.locator('.route-search-page');
-    await scopedPanel.locator('.route-collection-filters > summary').click();
-    const routeFilters=scopedPanel.getByLabel('Filtrar por ruta');
-    await routeFilters.getByRole('button',{name:expectedRoute,exact:true}).waitFor();
-    assert.equal(await routeFilters.getByRole('button',{name:'Todas',exact:true}).count(),1);
+    await scopedPanel.getByText(`Vista: ${operator.replace('delta','Delta ')}`,{exact:true}).waitFor();
+    const routeTotals=scopedPanel.getByRole('region',{name:'Carros por ruta'});
+    const totalRoutes=(await routeTotals.locator('button strong').allInnerTexts()).map(label=>label.replace(/^Ruta\s+/i,''));
+    assert.ok(totalRoutes.every(route=>expectation.routes.includes(route)),`${operator} mostró contadores de rutas no asignadas: ${totalRoutes.join(', ')}`);
+    assert.equal(await scopedPanel.getByRole('region',{name:'Resumen del equipo'}).count(),0,`${operator} no debe ver el resumen del equipo.`);
+    assert.equal(await scopedPanel.getByLabel('Filtrar por Delta asignado').count(),0);
+    await scopedPanel.getByRole('button',{name:`Gestionados hoy (${expectation.managed})`,exact:true}).waitFor();
     const workflowButtons=scopedPanel.locator('.route-search-workflow-tabs button');
     for(let index=0;index<await workflowButtons.count();index++){
       await workflowButtons.nth(index).click();
       const visibleRoutes=await scopedPanel.locator('.route-collection-route').evaluateAll(elements=>elements.map(element=>element instanceof HTMLSelectElement?element.value:element.textContent?.trim()));
-      assert.ok(visibleRoutes.every(route=>route===expectedRoute),`${operator} mostró una ruta distinta de ${expectedRoute}: ${visibleRoutes.join(', ')}`);
+      assert.ok(visibleRoutes.every(route=>expectation.routes.includes(route)),`${operator} mostró una ruta sin carros asignados a su Delta: ${visibleRoutes.join(', ')}`);
     }
-    await routeFilters.getByRole('button',{name:'Todas',exact:true}).click();
-    await scopedPanel.getByRole('button',{name:/^Trabajo \(/}).click();
-    const allRoutes=await scopedPanel.locator('.route-collection-route').evaluateAll(elements=>elements.map(element=>element instanceof HTMLSelectElement?element.value:element.textContent?.trim()));
-    assert.ok(allRoutes.some(route=>route!==expectedRoute),`${operator} no pudo quitar el filtro inicial ${expectedRoute}.`);
   }
   await page.goto(base+'/test?accounts&editor');
   await page.getByRole('tab',{name:'Ruta en calle',exact:true}).click();

@@ -472,7 +472,7 @@ export default function PaymentsPage({
     if (!dataOwnerUserId) return null;
     const item = await loadCloudActiveRouteItem(dataOwnerUserId, clientId);
     if (!item || item.removedAt) return null;
-    await reportRoutePayment(dataOwnerUserId, item, 0, amount);
+    await reportRoutePayment(dataOwnerUserId, item, 0, amount, "collected");
     const report = await loadRoutePaymentReportForItem(dataOwnerUserId, item.clientId, item.publishedAt);
     if (!report || report.status !== "review") throw new Error("El pago se notificó, pero no se pudo vincular con Ruta en calle.");
     upsertRouteReviewReport(report);

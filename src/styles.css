@@ -18905,6 +18905,22 @@ button.ar-route-publish-copy.is-active {
   line-height: 1.15;
 }
 
+.route-search-scope-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  border: 1px solid #93c5fd;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  padding: 5px 9px;
+  font-size: .76rem;
+}
+
+.route-search-scope-badge strong { font-weight: 900; }
+.route-search-scope-badge span { color: #475569; }
+
 .route-search-header p,
 .route-search-refresh {
   margin: 4px 0 0;
@@ -20343,7 +20359,7 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   background: var(--color-surface);
 }
 .route-managed-row--custody { border-left-color: #7c3aed; }
-.route-managed-row--absent { border-left-color: #dc2626; }
+.route-managed-row--remote { border-left-color: #2563eb; }
 .route-managed-identity { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
 .route-managed-identity strong { font-size: 1.15rem; }
 .route-managed-identity span { overflow: hidden; color: var(--color-text-muted); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -20351,7 +20367,7 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 .route-managed-tags > span, .route-managed-status { padding: 5px 8px; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-text-muted); font-size: .7rem; white-space: nowrap; }
 .route-managed-status--paid { border-color: #99f6e4; background: #e7f8f5; color: #0f766e; }
 .route-managed-status--custody { border-color: #ddd6fe; background: #f5f3ff; color: #6d28d9; }
-.route-managed-status--absent { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
+.route-managed-status--remote { border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }
 .route-managed-payment { display: grid; grid-template-columns: repeat(2, minmax(100px, 1fr)); gap: 8px; }
 .route-managed-payment > span { display: grid; gap: 3px; padding: 9px 10px; border-radius: 8px; background: #f1f5f9; }
 .route-managed-payment small { color: var(--color-text-muted); font-size: .63rem; font-weight: 800; text-transform: uppercase; }
@@ -20360,6 +20376,7 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 .route-managed-details { color: var(--color-text-muted); font-size: .75rem; text-align: right; }
 .route-managed-details summary { cursor: pointer; white-space: nowrap; }
 .route-managed-details span { display: block; max-width: 230px; margin-top: 8px; }
+.route-managed-actions { display: grid; justify-items: end; gap: 8px; }
 .route-search-page--compact .route-collection-card { min-width: 0; padding: 20px; border: 1px solid var(--color-border); border-top: 3px solid #0f766e; border-radius: 14px; box-shadow: 0 3px 12px #0f172a08; }
 .route-search-page--compact .route-collection-card--attention { border-top-color: #d97706; }
 .route-search-page--compact .route-collection-card--confirmed { border-top-color: #16a34a; }
@@ -20547,6 +20564,7 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   .route-managed-payment { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .route-managed-details { text-align: left; }
   .route-managed-details span { max-width: none; }
+  .route-managed-actions { justify-items: stretch; }
   .route-search-page--compact .route-collection-card--workflow-list {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:

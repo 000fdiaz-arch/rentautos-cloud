@@ -10,11 +10,13 @@ const card = read("src/pages/RouteCollectionCard.tsx");
 const managed = read("src/pages/RouteManagedList.tsx");
 const tracking = read("src/routeDeltaTracking.ts");
 const styles = read("src/styles.css");
+const managedDeleteMigration = read("supabase/migrations/20261107000200_route_managed_report_admin_only.sql");
+const managementOutcomeMigration = read("supabase/migrations/20261107000300_route_management_outcome.sql");
 
 for (const delta of ["delta1", "delta2", "delta3"]) {
   assert.ok(tracking.includes(`key: "${delta}"`), `Falta ${delta} en el resumen.`);
 }
-for (const column of ["Recibidas", "Cobrado", "Custodia", "Ausente"]) {
+for (const column of ["Recibidas", "Cobrado", "Gestión remota", "Custodia"]) {
   assert.ok(summary.includes(`>${column}<`), `Falta la columna ${column}.`);
 }
 assert.doesNotMatch(summary, /Confirmación|Confirmados/, "El nuevo resumen no debe incluir confirmación.");
@@ -30,13 +32,20 @@ assert.match(page, /Todos \(\{managedActions\.length\}\)/, "Gestionado hoy debe 
 assert.match(page, /\["delta1", "delta2", "delta3"\][\s\S]*managedActions\.filter/, "Gestionado hoy debe filtrar y contar cada Delta por separado.");
 assert.match(page, /function clearManagedDeltaFilter[\s\S]*setRouteFilter\(ALL_ACTIVE_ROUTE_FILTER\)/, "Ver todos debe limpiar también el filtro de ruta.");
 assert.match(page, /RouteManagedList actions=\{visibleManagedActions\}/, "La vista gestionada debe usar el formato listado.");
+assert.match(page, /onRequestDelete=\{canConfirmCaptures \?/, "Solo Administración debe recibir la acción para eliminar gestionados.");
+assert.match(managedDeleteMigration, /public\.is_admin\(\)/, "El servidor debe restringir la eliminación de gestionados a Administración.");
 assert.match(card, /Declarar carro en custodia/, "La acción debe usar el texto aprobado.");
 assert.match(card, /view === "work"[\s\S]*Declarar carro en custodia/, "Custodia solo debe declararse desde Trabajo, nunca desde Pagos por revisar.");
 assert.match(page, /'custody', 'En custodia'/, "La pestaña debe llamarse En custodia.");
 assert.doesNotMatch(page, /route-time-alert-summary/, "El panel de próxima atención y urgente debe eliminarse.");
 assert.match(tracking, /report\.reported_by/, "Los cobros deben atribuirse al usuario que los reportó.");
 assert.match(tracking, /capture\.reported_by/, "La custodia debe atribuirse al usuario que la declaró.");
-assert.match(tracking, /item\.routeInactiveBy/, "Las ausencias deben atribuirse al usuario que las marcó.");
+assert.doesNotMatch(tracking, /kind: "absent"/, "Las ausencias no deben contabilizarse como una gestión hecha.");
+assert.match(tracking, /report\.management_outcome === "remote"/, "Gestión remota debe depender de una selección explícita, no del medio de pago.");
+assert.doesNotMatch(tracking, /report\.bank_amount > 0[\s\S]*\? "remote"/, "Una transferencia no debe convertirse automáticamente en gestión remota.");
+assert.match(page, /Resultado de la gestión[\s\S]*Cobrado[\s\S]*Gestión remota/, "El formulario debe separar el resultado de la gestión del medio de pago.");
+assert.match(managementOutcomeMigration, /management_outcome[\s\S]*'collected'[\s\S]*'remote'/, "El resultado explícito debe persistirse en la base de datos.");
+assert.match(managementOutcomeMigration, /snapshot->>'unitId'[\s\S]*'D10'/, "La corrección actual debe dejar D10 como gestión remota.");
 assert.match(tracking, /const byCar = new Map<string, RouteManagedAction>/, "El resumen debe consolidar los movimientos por carro.");
 assert.match(tracking, /current\.cashAmount \+= action\.cashAmount/, "Los abonos sucesivos del carro deben acumularse sin duplicarlo.");
 assert.match(summary, /Carros únicos gestionados hoy por Delta/, "El resumen debe aclarar que cuenta carros únicos.");
