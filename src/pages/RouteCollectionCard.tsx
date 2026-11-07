@@ -62,7 +62,7 @@ type Props = {
   onComment: (value: string) => void;
   onSaveComment: () => void;
   onRoute: (route: string) => void;
-  onAssignedDelta: (delta: "delta1" | "delta3") => void;
+  onAssignedDelta: (delta: "delta1" | "delta2" | "delta3") => void;
   onCreateRoute: () => void;
   onInactive: () => void;
 };
@@ -198,14 +198,15 @@ export default function RouteCollectionCard(props: Props) {
       {view === "work" ? <p className="route-collection-instruction">{fieldManagementLabel(item.managementType)}</p> : null}
       </>}
     </div>
-    {view === "work" && (item.routeAssignment ?? "").trim().toUpperCase() === "PTY" ? (
+    {view === "work" ? (
       props.canEditAssignedDelta ? <label className="route-collection-field route-collection-delta">
         Responsable de búsqueda
         <select aria-label={`Buscador asignado a ${item.unitId}`} value={item.assignedDelta ?? ""}
           disabled={props.changingAssignedDelta || saving}
-          onChange={event => props.onAssignedDelta(event.target.value as "delta1" | "delta3")}>
+          onChange={event => props.onAssignedDelta(event.target.value as "delta1" | "delta2" | "delta3")}>
           {!item.assignedDelta ? <option value="">Sin asignar</option> : null}
           <option value="delta1">Delta 1</option>
+          <option value="delta2" disabled={delta1OnlyClient}>Delta 2{delta1OnlyClient ? " · No permitido" : ""}</option>
           <option value="delta3" disabled={delta1OnlyClient}>Delta 3{delta1OnlyClient ? " · No permitido" : ""}</option>
         </select>
         {delta1OnlyClient ? <small>Este cliente debe permanecer con Delta 1.</small> : null}

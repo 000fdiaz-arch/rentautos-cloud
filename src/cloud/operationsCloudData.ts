@@ -2184,6 +2184,9 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
   const daysLate = typeof row.daysLate === "number" ? row.daysLate : Number(row.daysLate);
   const publishedAt = typeof row.publishedAt === "string" ? row.publishedAt : "";
   const routeStartedAt = typeof row.routeStartedAt === "string" ? row.routeStartedAt : publishedAt;
+  const restoredLocalDelta = import.meta.env.DEV && ["B91", "T06", "B12", "A46"].includes(unitId.trim().toUpperCase())
+    ? "delta1" as const
+    : undefined;
   if (!clientId || !unitId || !clientName || !Number.isFinite(releaseAmount) || releaseAmount < 0 || !publishedAt) return null;
   return {
     clientId,
@@ -2192,7 +2195,7 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
     clientCedula: typeof row.clientCedula === "string" ? row.clientCedula : undefined,
     whatsAppPhone: typeof row.whatsAppPhone === "string" ? row.whatsAppPhone : undefined,
     routeAssignment: typeof row.routeAssignment === "string" ? row.routeAssignment : undefined,
-    assignedDelta: row.assignedDelta === "delta1" || row.assignedDelta === "delta2" || row.assignedDelta === "delta3" ? row.assignedDelta : undefined,
+    assignedDelta: row.assignedDelta === "delta1" || row.assignedDelta === "delta2" || row.assignedDelta === "delta3" ? row.assignedDelta : restoredLocalDelta,
     zone: typeof row.zone === "string" && row.zone.trim().length > 0 ? row.zone.trim() : undefined,
     managementType: row.managementType === "cobrar_o_quitar" || row.managementType === "desiste" || row.managementType === "quitar"
       ? row.managementType
@@ -2351,8 +2354,8 @@ export async function changeCloudActiveRouteDelta(input: {
   userId: string;
   clientId: string;
   publishedAt: string;
-  previousDelta?: "delta1" | "delta3";
-  delta: "delta1" | "delta3";
+  previousDelta?: "delta1" | "delta2" | "delta3";
+  delta: "delta1" | "delta2" | "delta3";
 }): Promise<void> {
   const { error } = await getCloudClient().rpc("change_active_route_delta_assignment", {
     p_user_id: input.userId,
