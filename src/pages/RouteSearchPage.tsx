@@ -34,7 +34,6 @@ import { supabase } from "../lib/supabase";
 import { buildRouteReviewIndex, getActiveRouteReviewItems, getRouteWorkItems, isPendingCashRouteReport, routeRentAmountForDay } from "../routeReviewRules";
 import { compareRouteWorkItemsByUrgency } from "../routeTimeUrgency";
 import { buildRouteDeltaIdentityMap, buildRouteManagedActions, routeDeltaForActor, routeDeltaFromName, routeDeltaLabel, ROUTE_DELTAS, type RouteDeltaIdentityMap, type RouteDeltaKey, type RouteManagedAction } from "../routeDeltaTracking";
-import { isDelta1OnlyRouteClient } from "../routeDeltaAssignmentRules";
 import type { Client, CollectionDelta, CollectionTeam, Payment } from "../types";
 import { loadNotifiedPayments, parseNotifiedPayments } from "./payments/paymentStorage";
 import type { NotifiedPayment } from "./payments/paymentTypes";
@@ -510,10 +509,6 @@ export default function RouteSearchPage({
   }
   async function changeAssignedDelta(item: ActiveRouteItem, delta: AssignedDelta): Promise<void> {
     if (!canEditAssignedDelta || !dataOwnerUserId || changingAssignedDelta || item.assignedDelta === delta) return;
-    if (delta !== "delta1" && isDelta1OnlyRouteClient(item.clientName)) {
-      setAssignedDeltaError(`${item.clientName} debe permanecer asignado a Delta 1.`);
-      return;
-    }
     setChangingAssignedDelta(item.clientId);
     setAssignedDeltaError("");
     setRouteActionMessage("");
@@ -1604,7 +1599,7 @@ export default function RouteSearchPage({
               </button>
             ))}
             <button type="button" className="route-search-organize-inline" disabled={!canEditAssignedDelta}
-              title={!canEditAssignedDelta ? "Los buscadores no pueden cambiar al responsable de búsqueda." : "Cambiar carros PTY entre Delta 1 y Delta 3"}
+              title={!canEditAssignedDelta ? "Los buscadores no pueden cambiar al responsable de búsqueda." : "Cambiar el Delta responsable de cada carro"}
               onClick={() => setAssignmentManagerOpen(true)}>
               {!canEditAssignedDelta ? "Editar · Solo Administración" : "Editar asignación"}
             </button>
@@ -1752,7 +1747,7 @@ export default function RouteSearchPage({
           <div className="modal route-assignment-manager" role="dialog" aria-modal="true" aria-labelledby="route-assignment-manager-title">
             <div className="modal-header">
               <div>
-                <h2 id="route-assignment-manager-title">Organizar carros PTY</h2>
+                <h2 id="route-assignment-manager-title">Organizar carros por Delta</h2>
                 <p>Cambia el responsable de búsqueda. Los buscadores no pueden editar esta lista.</p>
               </div>
               <button type="button" className="button ghost small" onClick={() => setAssignmentManagerOpen(false)}>Cerrar</button>
@@ -1770,8 +1765,8 @@ export default function RouteSearchPage({
                   onChange={event => void changeAssignedDelta(item, event.target.value as AssignedDelta)}>
                   {!item.assignedDelta ? <option value="">Sin asignar</option> : null}
                   <option value="delta1">Delta 1</option>
-                  <option value="delta2" disabled={isDelta1OnlyRouteClient(item.clientName)}>Delta 2{isDelta1OnlyRouteClient(item.clientName) ? " · No permitido" : ""}</option>
-                  <option value="delta3" disabled={isDelta1OnlyRouteClient(item.clientName)}>Delta 3{isDelta1OnlyRouteClient(item.clientName) ? " · No permitido" : ""}</option>
+                  <option value="delta2">Delta 2</option>
+                  <option value="delta3">Delta 3</option>
                 </select>
               </label>)}
             </div>

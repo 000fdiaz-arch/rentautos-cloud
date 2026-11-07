@@ -4,7 +4,6 @@ import type { RoutePaymentReport } from "../cloud/routeReportCloudData";
 import type { RouteCaptureEvent } from "../cloud/routeCaptureCloudData";
 import { formatCurrency } from "../format";
 import { isPendingCashRouteReport } from "../routeReviewRules";
-import { isDelta1OnlyRouteClient } from "../routeDeltaAssignmentRules";
 import { effectiveRouteUrgency, formatRouteDateTime, routeUrgencyLabel, routeVisualRedIntensity } from "../routeTimeUrgency";
 import { fieldManagementLabel } from "./receivables/receivablesTypes";
 import "./routeTimeUrgency.css";
@@ -98,7 +97,6 @@ function routeElapsedSince(value: string, now: number): string {
 export default function RouteCollectionCard(props: Props) {
   const zoneListId = useId();
   const { item, view, paidRent, balance, canReport, canEdit, canRemove, saving } = props;
-  const delta1OnlyClient = isDelta1OnlyRouteClient(item.clientName);
   const report = item.report;
   const remaining = Math.max(0, item.releaseAmount - paidRent);
   const partial = paidRent > 0 && remaining > 0;
@@ -206,10 +204,9 @@ export default function RouteCollectionCard(props: Props) {
           onChange={event => props.onAssignedDelta(event.target.value as "delta1" | "delta2" | "delta3")}>
           {!item.assignedDelta ? <option value="">Sin asignar</option> : null}
           <option value="delta1">Delta 1</option>
-          <option value="delta2" disabled={delta1OnlyClient}>Delta 2{delta1OnlyClient ? " · No permitido" : ""}</option>
-          <option value="delta3" disabled={delta1OnlyClient}>Delta 3{delta1OnlyClient ? " · No permitido" : ""}</option>
+          <option value="delta2">Delta 2</option>
+          <option value="delta3">Delta 3</option>
         </select>
-        {delta1OnlyClient ? <small>Este cliente debe permanecer con Delta 1.</small> : null}
       </label> : <p className="route-collection-delta-badge">
         <small>Responsable de búsqueda</small>
         <strong>{item.assignedDelta === "delta1" ? "Delta 1" : item.assignedDelta === "delta2" ? "Delta 2" : item.assignedDelta === "delta3" ? "Delta 3" : "Sin asignar"}</strong>

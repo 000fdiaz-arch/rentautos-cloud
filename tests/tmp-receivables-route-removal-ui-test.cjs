@@ -22,7 +22,7 @@ assert.match(
 );
 assert.match(page, /removeCloudActiveRouteItemFromReceivables/, "Cuentas por cobrar debe usar la salida atómica.");
 assert.match(cloud, /remove_active_route_item_from_receivables/, "La salida debe pasar por la RPC protegida.");
-assert.match(card, /delta1OnlyClient[\s\S]*Delta 3[\s\S]*No permitido/, "La tarjeta de Ruta debe bloquear Delta 3 para clientes protegidos.");
-assert.match(route, /delta === "delta3" && isDelta1OnlyRouteClient/, "La pantalla debe rechazar también el cambio programático a Delta 3.");
+assert.doesNotMatch(card, /No permitido|delta1OnlyClient/, "Administración debe poder mover cualquier carro entre Delta 1, 2 y 3.");
+assert.doesNotMatch(route, /isDelta1OnlyRouteClient/, "La pantalla no debe conservar excepciones fijas en Delta 1.");
 
-console.log("OK UI: salida confirmada en Gestión y restricción visible de Delta 3.");
+console.log("OK UI: salida confirmada en Gestión y reasignación administrativa sin clientes bloqueados.");
