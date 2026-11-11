@@ -332,7 +332,12 @@ export default function RouteSearchPage({
     setReportError("");
     let savedReport: RoutePaymentReport | null = null;
     try {
-      await reportRoutePayment(dataOwnerUserId, reportTarget, cashAmount, bankAmount, reportManagementOutcome);
+      const latestRouteItem = await loadCloudActiveRouteItem(dataOwnerUserId, reportTarget.clientId);
+      setItems((current) => applyActiveRouteDelta(current, { clientId: reportTarget.clientId, item: latestRouteItem }));
+      if (!latestRouteItem || latestRouteItem.removedAt || latestRouteItem.publishedAt !== reportTarget.publishedAt) {
+        throw new Error(`${reportTarget.unitId} ya no está activa en Ruta en calle. La lista fue actualizada.`);
+      }
+      await reportRoutePayment(dataOwnerUserId, latestRouteItem, cashAmount, bankAmount, reportManagementOutcome);
       setRouteActionMessage(`${reportTarget.unitId} pasó a Pago notificado.`);
       try {
         const latestReport = await loadRoutePaymentReportForItem(dataOwnerUserId, reportTarget.clientId, reportTarget.publishedAt);
@@ -454,6 +459,11 @@ export default function RouteSearchPage({
       if (!latest || latest.status !== "review" || pendingBankAmount <= 0) {
         throw new Error("Este pago bancario ya fue confirmado o cambió. Actualiza la ruta.");
       }
+      const latestRouteItem = await loadCloudActiveRouteItem(dataOwnerUserId, latest.client_id);
+      setItems((current) => applyActiveRouteDelta(current, { clientId: latest.client_id, item: latestRouteItem }));
+      if (!latestRouteItem || latestRouteItem.removedAt || latestRouteItem.publishedAt !== latest.published_at) {
+        throw new Error(`${latest.snapshot.unitId} ya no está activa en Ruta en calle. La lista fue actualizada.`);
+      }
       const result = await onConfirmBankPayment({ reportId: latest.id });
       const refreshed = await loadRoutePaymentReport(dataOwnerUserId, latest.id);
       setReports((current) => applyRouteReportDelta(current, { id: latest.id, report: refreshed }));
@@ -465,6 +475,7 @@ export default function RouteSearchPage({
     } catch (cause) {
       console.error("No se pudo confirmar el pago bancario de Ruta.", cause);
       setReportsError(buildCloudErrorMessage("No se pudo confirmar el pago en banco.", cause, { includeRawFallback: true }));
+      void refreshItem(report.client_id).catch((refreshError) => console.warn("No se pudo actualizar la unidad después de rechazar la confirmación bancaria.", refreshError));
     } finally {
       setBankConfirmationSavingId(null);
     }
@@ -731,7 +742,6 @@ export default function RouteSearchPage({
   useEffect(() => {
     if (!dataOwnerUserId || !supabase) return;
     const client = supabase;
-    let subscribed = false;
     const channel = client
       .channel(`route-search-${dataOwnerUserId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "route_payment_reports", filter: `user_id=eq.${dataOwnerUserId}` }, (payload) => {
@@ -763,16 +773,32 @@ export default function RouteSearchPage({
       })
       .subscribe((status) => {
         if (status !== "SUBSCRIBED") return;
-        if (subscribed) {
-          void reload();
-          void reloadReports();
-          void reloadBankNotices();
-          void reloadCaptures();
-        }
-        subscribed = true;
+        // Reload on the first subscription too. Otherwise an update committed
+        // between the initial query and the realtime handshake can be missed.
+        void reload();
+        void reloadReports();
+        void reloadBankNotices();
+        void reloadCaptures();
       });
     return () => {
       void client.removeChannel(channel);
+    };
+  }, [dataOwnerUserId]);
+
+  useEffect(() => {
+    if (!dataOwnerUserId) return;
+    const refreshVisibleRoute = () => {
+      void reload();
+      void reloadReports();
+    };
+    const refreshVisibleRouteWhenShown = () => {
+      if (document.visibilityState === "visible") refreshVisibleRoute();
+    };
+    window.addEventListener("focus", refreshVisibleRoute);
+    document.addEventListener("visibilitychange", refreshVisibleRouteWhenShown);
+    return () => {
+      window.removeEventListener("focus", refreshVisibleRoute);
+      document.removeEventListener("visibilitychange", refreshVisibleRouteWhenShown);
     };
   }, [dataOwnerUserId]);
 
@@ -1720,7 +1746,7 @@ export default function RouteSearchPage({
               routeOptions={routeAssignmentOptions}
               inactiveSaving={Boolean(inactiveSavingByClient[item.clientId])} elapsedNow={elapsedNow}
               canReturnReport={Boolean(item.report?.status === "review" && canConfirmBankPayment)}
-              canConfirmBank={Boolean(item.report?.status === "review" && item.report.bank_amount > item.report.confirmed_bank_amount && canConfirmBankPayment && onConfirmBankPayment)}
+              canConfirmBank={Boolean(activeRoute && !activeRoute.removedAt && item.report?.status === "review" && item.report.bank_amount > item.report.confirmed_bank_amount && canConfirmBankPayment && onConfirmBankPayment)}
               bankConfirmationSaving={bankConfirmationSavingId === item.report?.id}
               bankNotices={!item.report ? bankNoticesByClient.get(item.clientId) ?? [] : []}
               onReport={() => { setReportTarget(item); setReportAmount(""); setReportMethod(""); setReportCashAmount(""); setReportBankAmount(""); setReportManagementOutcome("collected"); setReportCashTeam(scopedCollectionTeam || asCollectionTeam(item.routeAssignment)); setReportError(""); }}

@@ -203,6 +203,19 @@ try {
   assert.equal(await page.getByRole('button',{name:'Ver recibo',exact:true}).count(),0);
   reports=[];delete item.partialDecisionRentAmount;
   delete item.removedAt;delete item.removedReason;
+  // Una tarjeta desactualizada no debe intentar confirmar una unidad que ya salió de Ruta.
+  reports=[{id:'stale-bank-review',user_id:owner,client_id:'c1',published_at:item.publishedAt,snapshot:{...item},amount:20,method:'bank',cash_amount:0,bank_amount:20,confirmed_cash_amount:0,confirmed_bank_amount:0,status:'review',reported_by:seeker,reporter_name:'Ana',reported_at:new Date().toISOString(),confirmed_at:null}];
+  await page.goto(base+'/__route-test?admin&editor');
+  await page.getByRole('button',{name:'Pagos por revisar (1)',exact:true}).click();
+  const staleConfirmButton=page.getByRole('button',{name:'Confirmado en banco',exact:true});
+  await staleConfirmButton.waitFor();
+  const confirmationsBeforeStaleClick=bankConfirmations.length;
+  item.removedAt=new Date().toISOString();item.removedReason='manual_management';
+  await staleConfirmButton.click();
+  await page.getByRole('alert').filter({hasText:'ya no está activa en Ruta en calle'}).waitFor();
+  assert.equal(bankConfirmations.length,confirmationsBeforeStaleClick);
+  assert.equal(await page.getByRole('button',{name:'Confirmado en banco',exact:true}).count(),0);
+  reports=[];delete item.removedAt;delete item.removedReason;
   await page.goto(base+'/__route-test');
   await page.setViewportSize({width:390,height:844});
   await page.getByRole('button',{name:'Notificar pago',exact:true}).click();
