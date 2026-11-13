@@ -100,6 +100,12 @@ function isAssignedDelta(value: RouteDeltaKey | null): value is AssignedDelta {
   return value === "delta1" || value === "delta2" || value === "delta3";
 }
 
+function assignedDeltaAfterRouteChange(item: ActiveRouteItem, route: string): AssignedDelta | undefined {
+  if (route === "WC") return "delta2";
+  if (route === "PTY") return "delta1";
+  return item.assignedDelta;
+}
+
 function matchesAssignedDelta(item: ActiveRouteItem, delta: AssignedDelta | null): boolean {
   if (!delta) return true;
   return item.assignedDelta === delta;
@@ -501,13 +507,14 @@ export default function RouteSearchPage({
     setRouteActionMessage("");
     try {
       await changeRouteAssignment(dataOwnerUserId, item, route);
+      const assignedDelta = assignedDeltaAfterRouteChange(item, route);
       setItems(current => current.map(row => row.clientId === item.clientId && row.publishedAt === item.publishedAt
         ? {
             ...row,
             routeAssignment: route,
-            assignedDelta: row.assignedDelta ?? (route === "WC" ? "delta2" : undefined)
+            assignedDelta
           } : row));
-      setRouteUndo(isUndo ? null : { item: { ...item, routeAssignment: route, assignedDelta: item.assignedDelta ?? (route === "WC" ? "delta2" : undefined) }, previous, current: route });
+      setRouteUndo(isUndo ? null : { item: { ...item, routeAssignment: route, assignedDelta }, previous, current: route });
       setRouteActionMessage(isUndo ? `${item.unitId} volvió a ${route}.` : `${item.unitId} cambió a ${route}.`);
       return true;
     } catch (cause) {
