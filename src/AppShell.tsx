@@ -417,7 +417,7 @@ export default function AppShell({
       try {
         const [items, reviewReports] = await Promise.all([
           loadCloudActiveRouteItems(cloudDataUserId),
-          loadRoutePaymentReports(cloudDataUserId, { reviewRelevantOnly: true })
+          loadRoutePaymentReports(cloudDataUserId, { reviewOnly: true })
         ]);
         if (!cancelled) { setRouteManagementItems(items); setRouteReviewReports(reviewReports); }
       } catch (error) {
