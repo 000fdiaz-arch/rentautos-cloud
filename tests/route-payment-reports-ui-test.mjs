@@ -337,6 +337,10 @@ try {
   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
   assert.equal(await page.getByLabel('Zona de RA-042').isVisible(),true);
   assert.equal(await page.locator('.route-collection-details input, .route-collection-details select, .route-collection-details button').count(),0);
+  assert.equal(await page.getByRole('button',{name:'Notificar pago',exact:true}).count(),1);
+  assert.equal(await page.getByRole('button',{name:'Declarar carro en custodia',exact:true}).count(),0);
+  await page.goto(base+'/__route-test?editor');
+  await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
   await page.getByRole('button',{name:'Declarar carro en custodia',exact:true}).click();
   await modal.getByRole('button',{name:'Cancelar',exact:true}).click();assert.equal(custodyWrites.length,0);
   await page.getByRole('button',{name:'Declarar carro en custodia',exact:true}).click();
@@ -345,7 +349,7 @@ try {
   await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
   await page.getByRole('button',{name:'En custodia (1)',exact:true}).click();
   await page.getByRole('button',{name:'Sacar de custodia',exact:true}).waitFor();
-  assert.equal(await page.getByRole('button',{name:'Sacar de ruta',exact:true}).count(),0);
+  assert.equal(await page.getByRole('button',{name:'Sacar de ruta',exact:true}).count(),1);
   assert.equal(await page.getByRole('button',{name:'Notificar pago',exact:true}).count(),0);
   await page.reload();await page.getByRole('button',{name:'Trabajo (0)',exact:true}).waitFor();
   await page.getByRole('button',{name:'En custodia (1)',exact:true}).click();
