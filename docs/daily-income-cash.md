@@ -4,7 +4,7 @@ La vista de ingresos abre siempre en Efectivo, incluso al regresar desde otra se
 
 La pantalla de efectivo muestra dos resúmenes y listas: Falta entregar y Ya entregado. Cada recibo aparece una sola vez, con su monto, fechas y botón Registrar entrega o Cambiar fecha de entrega. Los pendientes de hoy y de días anteriores están juntos. Solo se muestran búsqueda y equipo como filtros. Los detalles por equipo y las opciones secundarias de cada recibo se despliegan cuando se necesitan. Las fechas muestran el nombre del mes para evitar confundir día y mes.
 
-La vista Efectivo reúne entregas, pendientes y equipos PTY/WC. El total pendiente incluye los recibos sin equipo. Las entregas individuales y por equipo abren una ventana para elegir su fecha. En un recibo entregado, Cambiar fecha de entrega permite corregirla con un motivo obligatorio. No admite fechas inexistentes, futuras ni anteriores al cobro.
+La vista Efectivo reúne entregas, pendientes y equipos PTY/WC. El total pendiente incluye los recibos sin equipo. Las entregas individuales y por equipo abren una ventana para elegir su fecha. En un recibo entregado, Cambiar fecha de entrega permite corregirla con un motivo obligatorio. No admite fechas inexistentes ni futuras; sí permite una fecha anterior al cobro cuando se necesita corregir el día real de entrega.
 
 La fecha original del cobro y los importes permanecen intactos. La fecha de entrega determina en qué día se cuenta el efectivo en este informe. Cada corrección registra actor, instante, motivo y fechas anterior/nueva en incomeEdits. El almacenamiento conserva estos campos y collectionTeam al recargar. Se usa la persistencia existente de pagos; no requiere SQL adicional. Este cambio no recalcula cierres de caja ya guardados.
 

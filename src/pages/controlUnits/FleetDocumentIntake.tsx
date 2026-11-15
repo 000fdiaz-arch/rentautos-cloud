@@ -154,7 +154,7 @@ export function FleetDocumentIntake({ error, saving, vehicleFields, onDetectedDa
         <span className="fleet-doc-unified-upload-icon" aria-hidden="true">↑</span>
         <span>
           <strong>Sube los documentos del vehículo</strong>
-          <small>PDF o fotografía · Registro Único, Revisado, Seguro y Panapass</small>
+          <small>Opcional · PDF o fotografía · Registro Único, Revisado, Seguro y Panapass</small>
         </span>
         <span className="button primary fleet-doc-demo-upload-button">Elegir documentos</span>
         <input
@@ -240,7 +240,7 @@ export function FleetDocumentIntake({ error, saving, vehicleFields, onDetectedDa
 
       <div className="modal-actions fleet-doc-demo-actions fleet-doc-unified-actions">
         <button type="button" className="button ghost" onClick={onCancel}>Cancelar</button>
-        <button type="button" className="button primary" disabled={saving || isAnalyzing || completedCount === 0} onClick={onSave}>
+        <button type="button" className="button primary" disabled={saving || isAnalyzing} onClick={onSave}>
           {saving ? "Guardando..." : isAnalyzing ? "Leyendo documentos..." : "Guardar auto"}
         </button>
       </div>

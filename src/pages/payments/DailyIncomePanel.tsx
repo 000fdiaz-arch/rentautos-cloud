@@ -521,7 +521,7 @@ export default function DailyIncomePanel({
       setDeliveryError("La lista de recibos cambió. Cierra esta ventana y vuelve a seleccionar la entrega.");
       return;
     }
-    const error = validateCashDeliveryDate(deliveryPayments, deliveryDate, getBusinessDateKey());
+    const error = validateCashDeliveryDate(deliveryDate, getBusinessDateKey());
     if (error) { setDeliveryError(error); return; }
     if (isDeliveryCorrection && !deliveryReason.trim()) {
       setDeliveryError("Indica el motivo de la corrección de fecha.");
@@ -966,7 +966,7 @@ export default function DailyIncomePanel({
             <p>{deliveryPayments.length} recibo(s) · {formatCurrency(deliveryPayments.reduce((sum, payment) => sum + payment.amountReceived, 0))}</p>
             <p className="hint">Elige el día en que recibiste este dinero. Aparecerá como entregado en ese día.</p>
             <ul className="income-edit-audit">{deliveryPayments.map(payment => <li key={payment.id}>{payment.receiptNumber} · {payment.clientUnit} · Cobro: {getIncomeDate(payment)}{isMoneyDelivered(payment) ? ` · Entrega actual: ${getDailyIncomeReportDate(payment)}` : " · Pendiente"}</li>)}</ul>
-            <label>Fecha de entrega<input autoFocus type="date" required disabled={isDeliverySaving} min={deliveryPayments.map(getIncomeDate).sort().slice(-1)[0]} max={getBusinessDateKey()} value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} /></label>
+            <label>Fecha de entrega<input autoFocus type="date" required disabled={isDeliverySaving} max={getBusinessDateKey()} value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} /></label>
             <label>{isDeliveryCorrection ? "Motivo de la corrección" : "Observación (opcional)"}<input required={isDeliveryCorrection} disabled={isDeliverySaving} value={deliveryReason} onChange={event => setDeliveryReason(event.target.value)} /></label>
             {deliveryError && <p role="alert" className="hint error-text">{deliveryError}</p>}
             <div className="modal-actions"><button type="button" className="button ghost" disabled={isDeliverySaving} onClick={() => setDeliveryIds([])}>Cancelar</button><button type="submit" className="button primary" disabled={isDeliverySaving}>{isDeliverySaving ? "Guardando…" : "Guardar entrega"}</button></div>
