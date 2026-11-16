@@ -14,6 +14,7 @@ import {
   getDailyIncomeStatus,
   getDailyIncomeReportDate,
   getDailyIncomeDestination,
+  getCashDeliveryMaxDate,
   getIncomeDate,
   isMoneyDelivered,
   validateCashDeliveryDate,
@@ -964,9 +965,9 @@ export default function DailyIncomePanel({
           <div className="modal-header"><h2 id="cash-delivery-title">{isDeliveryCorrection ? "Cambiar fecha de entrega" : "Registrar entrega de efectivo"}</h2><button type="button" className="modal-close" aria-label="Cerrar entrega" disabled={isDeliverySaving} onClick={() => setDeliveryIds([])}>×</button></div>
           <form className="modal-body income-edit-form" onSubmit={event => { event.preventDefault(); void saveDelivery(); }}>
             <p>{deliveryPayments.length} recibo(s) · {formatCurrency(deliveryPayments.reduce((sum, payment) => sum + payment.amountReceived, 0))}</p>
-            <p className="hint">Elige el día en que recibiste este dinero. Aparecerá como entregado en ese día.</p>
+            <p className="hint">Elige el día de entrega del dinero, hasta mañana. Aparecerá como entregado en ese día.</p>
             <ul className="income-edit-audit">{deliveryPayments.map(payment => <li key={payment.id}>{payment.receiptNumber} · {payment.clientUnit} · Cobro: {getIncomeDate(payment)}{isMoneyDelivered(payment) ? ` · Entrega actual: ${getDailyIncomeReportDate(payment)}` : " · Pendiente"}</li>)}</ul>
-            <label>Fecha de entrega<input autoFocus type="date" required disabled={isDeliverySaving} max={getBusinessDateKey()} value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} /></label>
+            <label>Fecha de entrega<input autoFocus type="date" required disabled={isDeliverySaving} max={getCashDeliveryMaxDate(getBusinessDateKey())} value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} /></label>
             <label>{isDeliveryCorrection ? "Motivo de la corrección" : "Observación (opcional)"}<input required={isDeliveryCorrection} disabled={isDeliverySaving} value={deliveryReason} onChange={event => setDeliveryReason(event.target.value)} /></label>
             {deliveryError && <p role="alert" className="hint error-text">{deliveryError}</p>}
             <div className="modal-actions"><button type="button" className="button ghost" disabled={isDeliverySaving} onClick={() => setDeliveryIds([])}>Cancelar</button><button type="submit" className="button primary" disabled={isDeliverySaving}>{isDeliverySaving ? "Guardando…" : "Guardar entrega"}</button></div>

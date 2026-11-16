@@ -40,12 +40,19 @@ export function isMoneyDelivered(payment: Payment): boolean {
   return payment.moneyDelivered !== false;
 }
 
+export function getCashDeliveryMaxDate(today: string): string {
+  const date = new Date(`${today}T12:00:00Z`);
+  if (!Number.isFinite(date.getTime())) return today;
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
 export function validateCashDeliveryDate(date: string, today: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T12:00:00Z`)) ||
     new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date) {
     return "Selecciona una fecha de entrega válida.";
   }
-  if (date > today) return "La entrega no puede registrarse en una fecha futura.";
+  if (date > getCashDeliveryMaxDate(today)) return "La entrega solo puede registrarse hasta mañana.";
   return null;
 }
 

@@ -220,15 +220,21 @@ try {
   assert.equal(afterBatch.find(row => row.id === "BANK").amountReceived, 100);
   check("entrega de equipo cambia solo sus recibos, con fecha seleccionada");
   await page.evaluate(async () => {
-    const { validateCashDeliveryDate } = await import("/src/pages/payments/dailyIncomeRules.ts");
-    for (const value of ["", "2026-02-30", "2026-09-03"]) {
+    const { getCashDeliveryMaxDate, validateCashDeliveryDate } = await import("/src/pages/payments/dailyIncomeRules.ts");
+    for (const value of ["", "2026-02-30", "2026-09-04"]) {
       if (!validateCashDeliveryDate(value, "2026-09-02")) throw new Error("Fecha inválida aceptada: " + value);
+    }
+    if (validateCashDeliveryDate("2026-09-03", "2026-09-02")) {
+      throw new Error("Se rechazó la entrega de mañana");
     }
     if (validateCashDeliveryDate("2026-08-28", "2026-09-02")) {
       throw new Error("Se rechazó una fecha de entrega anterior al cobro");
     }
+    if (getCashDeliveryMaxDate("2026-12-31") !== "2027-01-01") {
+      throw new Error("El máximo de mañana no cruza correctamente el cambio de año");
+    }
   });
-  check("rechaza fechas inválidas o futuras y permite entregas anteriores al cobro");
+  check("permite entregar mañana, rechaza fechas posteriores y admite días anteriores al cobro");
   await date().fill("2026-09-02");
   await page.getByRole("searchbox").first().fill("CASH-TODAY");
   await page.getByRole("article", { name: "Recibo CASH-TODAY", exact: true }).getByRole("button", { name: "Registrar entrega", exact: true }).click();
