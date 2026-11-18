@@ -166,7 +166,7 @@ function buildVerdict(form: LeadForm): LeadVerdict {
   if (blockers.length === 0 && age !== null && ageExtraDeposit > 0) {
     const amount = ageExtraDeposit;
     extraDeposit += amount;
-    extraDepositReasons.push(`Edad ${age}: +$${amount} según la escala de edad hasta los 27 años`);
+    extraDepositReasons.push(`Edad ${age}: +$${amount} por estar debajo de 27 años`);
   }
   if (blockers.length === 0 && collisionReports === 1) {
     extraDeposit += 100;
@@ -1108,7 +1108,7 @@ export default function LeadsPage({ evaluations, onEvaluationsChange, onEvaluati
             <h3>Requisitos</h3>
             <ul>
               {form.fullName && <li>Nombre: {normalizeFullName(form.fullName)}</li>}
-              <li>Edad: {verdict.age === null ? "Pendiente" : verdict.age <= 27 ? "Aplica con abono según escala" : "Sin abono adicional por edad"}</li>
+              <li>Edad: {verdict.age === null ? "Pendiente" : verdict.age < 27 ? "Aplica con abono según escala" : "Sin abono adicional por edad"}</li>
               <li>Licencia: debe validar en la entrega del documento</li>
               <li>Record policivo: debe validar en la revision</li>
               <li>Historial de transito: debe validar en la revision</li>
