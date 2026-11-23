@@ -134,6 +134,8 @@
 .route-search-page--organized .route-collection-zone-inline:focus { outline: 2px solid #0f766e; outline-offset: 2px; border-color: #0f766e; background: #fff; }
 .route-search-page--organized .route-collection-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 16px; }
 .route-search-page--organized .route-collection-actions:empty { display: none; }
+.route-search-page--organized .route-collection-panapass-logo { display: block; width: 72px; height: 24px; margin-top: 6px; border-radius: 4px; object-fit: cover; object-position: center; }
+.route-search-page--organized .route-collection-panapass-toggle { color: #244496; border-color: #c7d2ef; background: #f5f7ff; }
 .route-search-page--organized .route-collection-actions > .button { flex: 1 1 120px; min-height: 38px; font-size: .76rem; box-shadow: none; }
 .route-search-page--organized .route-collection-actions > .route-collection-custody-button { display: grid; gap: 4px; flex-basis: 100%; min-height: 56px; padding: 11px 12px; border: 1px solid #bfdbfe; border-radius: 8px; background: #eff6ff; color: #1e40af; text-align: center; white-space: normal; }
 .route-search-page--organized .route-collection-custody-button > strong { font-size: .82rem; }

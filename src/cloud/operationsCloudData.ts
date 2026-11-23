@@ -2141,6 +2141,9 @@ export type ControlUnitUpsertInput = {
 };
 
 export type ActiveRouteItem = {
+  panapassRoute?: boolean;
+  panapassUpdatedAt?: string;
+  panapassUpdatedBy?: string;
   clientId: string;
   unitId: string;
   clientName: string;
@@ -2192,6 +2195,9 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
     clientId,
     unitId,
     clientName,
+    panapassRoute: row.panapassRoute === true,
+    panapassUpdatedAt: typeof row.panapassUpdatedAt === "string" ? row.panapassUpdatedAt : undefined,
+    panapassUpdatedBy: typeof row.panapassUpdatedBy === "string" ? row.panapassUpdatedBy : undefined,
     clientCedula: typeof row.clientCedula === "string" ? row.clientCedula : undefined,
     whatsAppPhone: typeof row.whatsAppPhone === "string" ? row.whatsAppPhone : undefined,
     routeAssignment: typeof row.routeAssignment === "string" ? row.routeAssignment : undefined,

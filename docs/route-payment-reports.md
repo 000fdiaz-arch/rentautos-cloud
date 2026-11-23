@@ -9,6 +9,13 @@
 - El recorrido se inicia con la primera captación y se reutiliza aunque las unidades asignadas estén en varias rutas. Cada captación conserva su propia ruta.
 - Aplicar únicamente 20261123000300_route_delta_custody_declaration.sql. Pruebas: route-delta-custody-db-test.mjs y route-delta-custody-ui-test.mjs, con datos sintéticos.
 
+## Motivo Panapass
+
+- Admin marca la tarjeta con Más acciones → Marcar deuda de Panapass (dos clics). El mismo menú permite Quitar marca Panapass.
+- El logo suministrado aparece pequeño solo en tarjetas marcadas, también para los Deltas y la vista previa. No se infiere de multas o saldos.
+- La marca se guarda por publicación de ruta con autor y fecha. No modifica cobros, montos, acción solicitada ni Delta asignado.
+- Aplicar 20261123000400_route_panapass_reason.sql. Pruebas: route-panapass-db-test.mjs y route-panapass-ui-test.mjs.
+
 ## Administración y filtros
 
 - Vista se cambia con Admin, Delta 1, Delta 2 o Delta 3. La vista previa es de lectura y conserva el alcance de cada Delta al filtrar por ruta.

@@ -3,7 +3,7 @@ import "./routeSearchLayout.css";
 import RoutePendingCashPanel from "./RoutePendingCashPanel";
 import RoutePaymentDeclarationDialog, { ROUTE_PAYMENT_DECLARATIONS, type RouteDeclarationMethod, type RoutePaymentInput, type RoutePaymentResult } from "./OutsideRouteCashDialog";
 import RoutePaymentDeclarationActions from "./RoutePaymentDeclarationActions";
-import { updateRouteManagementType } from "../cloud/routeAdminCloudData";
+import { setRoutePanapassReason, updateRouteManagementType } from "../cloud/routeAdminCloudData";
 import RouteCollectionCard, { type RouteWorkflowView } from "./RouteCollectionCard";
 import RouteManagedList from "./RouteManagedList";
 import RouteManagedCompactList from "./RouteManagedCompactList";
@@ -263,6 +263,8 @@ export default function RouteSearchPage({
   const [reportsError, setReportsError] = useState("");
   const [managementTypeSavingId, setManagementTypeSavingId] = useState<string | null>(null);
   const managementTypeLock = useRef(false);
+  const [panapassSavingId, setPanapassSavingId] = useState<string | null>(null);
+  const panapassLock = useRef(false);
   const [reportsReady, setReportsReady] = useState(false);
   const [reportsHaveMore, setReportsHaveMore] = useState(false);
   const [reportsLoadingMore, setReportsLoadingMore] = useState(false);
@@ -336,6 +338,19 @@ export default function RouteSearchPage({
     } catch (cause) {
       setError(buildCloudErrorMessage("No se pudo cambiar la acción solicitada.", cause, { includeRawFallback: true }));
     } finally { managementTypeLock.current = false; setManagementTypeSavingId(null); }
+  }
+
+  async function togglePanapass(item: ActiveRouteItem): Promise<void> {
+    if (!isAdmin || readOnly || !dataOwnerUserId || panapassLock.current) return;
+    panapassLock.current = true; setPanapassSavingId(item.clientId); setError(""); setRouteActionMessage("");
+    const panapass = item.panapassRoute !== true;
+    try {
+      await setRoutePanapassReason({ ownerId: dataOwnerUserId, clientId: item.clientId, publishedAt: item.publishedAt,
+        previous: item.panapassRoute === true, panapass, version: "legacy" });
+      setItems(current => current.map(row => row.clientId === item.clientId && row.publishedAt === item.publishedAt ? { ...row, panapassRoute: panapass } : row));
+      setRouteActionMessage(item.unitId + (panapass ? ": marcada por deuda de Panapass." : ": marca Panapass retirada."));
+    } catch (cause) { setError(buildCloudErrorMessage("No se pudo actualizar la marca Panapass.", cause, { includeRawFallback: true })); }
+    finally { panapassLock.current = false; setPanapassSavingId(null); }
   }
 
   function changeDeltaView(value: string): void {
@@ -1686,6 +1701,8 @@ export default function RouteSearchPage({
               showAssignedDelta={!isDeltaScopeLocked}
               highlightComments={isDeltaScopeLocked}
               canEditManagementType={isAdmin && !readOnly && Boolean(dataOwnerUserId && activeRoute && !activeRoute.removedAt) && !item.report}
+              canEditPanapass={isAdmin && !readOnly && Boolean(dataOwnerUserId && activeRoute && !activeRoute.removedAt)}
+              panapassSaving={panapassSavingId !== null} onPanapass={() => void togglePanapass(item)}
               managementTypeSaving={managementTypeSavingId !== null} onManagementType={type => void changeManagementType(item, type)}
               dataOwnerUserId={dataOwnerUserId} managementVersion="legacy"
               capture={captureByRouteItem.get(`${item.clientId}\u0000${item.publishedAt}`)}

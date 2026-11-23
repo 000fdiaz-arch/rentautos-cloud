@@ -47,6 +47,9 @@ type Props = {
   showAssignedDelta?: boolean;
   highlightComments?: boolean;
   canEditManagementType?: boolean;
+  canEditPanapass?: boolean;
+  panapassSaving?: boolean;
+  onPanapass?: () => void;
   managementTypeSaving?: boolean;
   onManagementType?: (type: FieldManagementType) => void;
   routeOptions: string[];
@@ -147,6 +150,8 @@ export default function RouteCollectionCard(props: Props) {
     <div className="route-collection-identity">
       <div>
         <h2>{item.unitId} <span>· {item.clientName.trim().split(/\s+/)[0]}</span></h2>
+        {item.panapassRoute ? <img className="route-collection-panapass-logo" src="/images/panapass.png" width="72" height="24"
+          alt="En ruta por deuda de Panapass" title="En ruta por deuda de Panapass" /> : null}
         {view !== "work" ? <span className="route-collection-route-time" title={`Desde ${formatRouteDateTime(item.publishedAt)}`} aria-label={`Tiempo en ruta de ${item.unitId}: ${routeElapsedSince(item.publishedAt, props.elapsedNow)}`}>⏱ En ruta · {routeElapsedSince(item.publishedAt, props.elapsedNow)}</span> : null}
       </div>
       {canReport && !report ? (
@@ -252,7 +257,11 @@ export default function RouteCollectionCard(props: Props) {
       {view === "work" && props.canDeclareCustody && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button route-collection-custody-button" disabled={saving} onClick={props.onCustody}>
         <strong>Declarar en custodia</strong><span>Solo si el auto fue despojado del conductor</span>
       </button> : null}
-      {view === "work" && props.hasActiveRoute && canRemove && !report ? <details className="route-collection-more-actions"><summary>Más acciones</summary><div>
+      {view === "work" && props.hasActiveRoute && ((canRemove && !report) || props.canEditPanapass) ? <details className="route-collection-more-actions"><summary>Más acciones</summary><div>
+      {props.canEditPanapass ? <button type="button" className="button ghost route-collection-panapass-toggle" disabled={saving || props.panapassSaving}
+        aria-pressed={item.panapassRoute === true} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); props.onPanapass?.(); }}>
+        {props.panapassSaving ? "Guardando…" : item.panapassRoute ? "Quitar marca Panapass" : "Marcar deuda de Panapass"}
+      </button> : null}
       {canRemove && props.hasActiveRoute && !report ? <button type="button" className="button ghost route-collection-remove" disabled={saving} onClick={props.onRemove}>Sacar de ruta</button> : null}
       </div></details> : null}
 

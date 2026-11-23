@@ -23,6 +23,8 @@ const routeRows = clients.filter(row => ["active", "peer"].includes(row.id)).map
     zone: "Centro", managementType: "cobrar_o_quitar", comment: row.id === "active" ? "Llamar antes de llegar" : undefined,
     assignedDelta: row.id === "peer" ? "delta3" : "delta1", releaseAmount: 60, publishedAt: now,
     routeStartedAt: now, rentAmount: 30, overdueBalance: 120, daysLate: 4 } }));
+const panapassMarks = JSON.parse(sessionStorage.getItem("panapass-demo:" + version) ?? "{}") as Record<string, boolean>;
+for (const row of routeRows) (row.data as any).panapassRoute = panapassMarks[row.client_id] === true;
 if (params.has("zones")) {
   for (const [id, unit, route, zone] of [["zoneextra","A11","WC"," centro "], ["zoneother","A12","PTY","Chorrillo"], ["zoneempty","A13","PTY",undefined]]) {
     clients.push({ ...clients[0], id: id!, unitId: unit!, name: "Cliente " + unit });
@@ -37,6 +39,7 @@ const declarationReports: any[] = [];
 (window as any).__declarationReports = declarationReports;
 (window as any).__declarationRequests = [];
 (window as any).__managementEdits = [];
+(window as any).__panapassEdits = [];
 const custodyCaptures: any[] = [];
 (window as any).__custodyRequests = [];
 // This fixture is a local preview: every external request is handled here.
@@ -53,6 +56,18 @@ window.fetch = async (input, init) => {
   const request = input instanceof Request ? input : new Request(new URL(String(input), location.href), init);
   const url = new URL(request.url);
   if (url.origin === location.origin) return nativeFetch(input, init);
+  if (url.pathname.endsWith("set_route_panapass_reason")) {
+    const body = JSON.parse(await request.text());
+    const row = routeRows.find(row => row.client_id === body.p_client_id);
+    if ((window as any).__failPanapass || params.has("operator") || !row || row.data.publishedAt !== body.p_published_at
+      || (row.data as any).removedAt || Boolean((row.data as any).panapassRoute) !== body.p_previous)
+      return new Response(JSON.stringify({ message: "La marca Panapass cambió en otro dispositivo. Actualiza antes de editar." }), { status: 400, headers: { "content-type": "application/json" } });
+    (row.data as any).panapassRoute = body.p_panapass;
+    panapassMarks[body.p_client_id] = body.p_panapass;
+    sessionStorage.setItem("panapass-demo:" + version, JSON.stringify(panapassMarks));
+    (window as any).__panapassEdits.push(body);
+    return new Response("null", { headers: { "content-type": "application/json" } });
+  }
   if (url.pathname.endsWith("set_active_route_custody")) {
     const body = JSON.parse(await request.text());
     (window as any).__custodyRequests.push(body);
