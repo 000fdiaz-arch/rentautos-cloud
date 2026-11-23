@@ -146,6 +146,7 @@
 .route-search-page--organized .route-custody-modal > p { margin: 0; font-size: .9rem; line-height: 1.5; }
 .route-search-page--organized .route-custody-modal > .modal-actions { flex-wrap: wrap; padding-top: 6px; }
 .route-search-page--organized .route-custody-modal .modal-actions > button { min-height: 44px; }
+.route-search-page--organized .route-custody-modal > .route-custody-preview-notice { padding: 10px 12px; border: 1px solid #fde68a; border-radius: 8px; background: #fffbeb; color: #854d0e; font-size: .82rem; }
 .route-search-page--organized .route-collection-more-actions { flex: 0 0 auto; }
 .route-search-page--organized .route-collection-more-actions > summary { padding: 11px 9px; border: 1px solid #e0e7ec; border-radius: 7px; color: #64748b; cursor: pointer; list-style: none; font-size: .73rem; }
 .route-search-page--organized .route-collection-more-actions[open] { flex-basis: 100%; }

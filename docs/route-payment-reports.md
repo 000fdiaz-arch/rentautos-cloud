@@ -3,6 +3,7 @@
 ## Declaración de custodia por Delta
 
 - El botón visible de cada tarjeta dice **Declarar en custodia**, con la indicación **Solo si el auto fue despojado del conductor**.
+- La vista previa desde Admin muestra el botón y la confirmación, con aviso y guardado deshabilitado. La declaración real se realiza desde la cuenta del Delta.
 - El Delta confirma la unidad antes de guardar. Pasa de Trabajo a Gestionados hoy como En custodia, pendiente de revisión administrativa, con atribución al usuario autenticado.
 - La RPC valida la asignación actual del Delta, la publicación y el estado esperado. El Delta no puede sacar el auto de custodia ni declarar autos de otro Delta.
 - El recorrido se inicia con la primera captación y se reutiliza aunque las unidades asignadas estén en varias rutas. Cada captación conserva su propia ruta.

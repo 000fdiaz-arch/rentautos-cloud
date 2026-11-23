@@ -1690,7 +1690,7 @@ export default function RouteSearchPage({
               dataOwnerUserId={dataOwnerUserId} managementVersion="legacy"
               capture={captureByRouteItem.get(`${item.clientId}\u0000${item.publishedAt}`)}
               managementFields={activeRoute && !activeRoute.removedAt && cardView !== "review" && cardView !== "confirmed" ? renderManagementFields?.(activeRoute) : undefined}
-              paidRent={paidRent} balance={currentBalance(item)} travelFundBalance={travelFundBalanceByClient.get(item.clientId) ?? 0} canReport={canReportPayment} canDeclareCustody={canDeclareCustody} canEdit={!readOnly}
+              paidRent={paidRent} balance={currentBalance(item)} travelFundBalance={travelFundBalanceByClient.get(item.clientId) ?? 0} canReport={canReportPayment} canDeclareCustody={canDeclareCustody || (isAdmin && isDeltaPreview)} canEdit={!readOnly}
               canEditAmount={canEditRouteAmount && Boolean(activeRoute && !activeRoute.removedAt)} amountSaving={amountEditSaving && amountEditTarget?.item.clientId === item.clientId}
               canRemove={canRemoveFromRoute} canRegister={!readOnly && Boolean(onRegisterPayment) && (!item.report || (isPendingCashRouteReport(item.report) && !registeredReportIds.includes(item.report.id)))}
               hasPendingReport={reports.some(report => report.status === "review" && report.client_id === item.clientId && report.published_at === item.publishedAt)}
@@ -1872,13 +1872,14 @@ export default function RouteSearchPage({
       {custodyTarget ? <div className="modal-overlay route-search-payment-overlay"><div className="modal route-search-payment-modal route-custody-modal" role="dialog" aria-modal="true" aria-labelledby="route-custody-title">
         <h2 id="route-custody-title">{custodyTarget.inCustody ? "Sacar de custodia" : "Declarar en custodia"}</h2>
         <p>{custodyTarget.unitId} · {custodyTarget.clientName}</p>
+        {isDeltaPreview ? <p className="route-custody-preview-notice" role="status">Vista previa: para guardar esta declaración, inicia sesión con la cuenta del Delta.</p> : null}
         {custodyTarget.inCustody ? <p>La unidad volverá a Trabajo si tiene cobros pendientes y no tiene un pago notificado.</p> : <>
           <p><strong>Confirma solo si el auto fue despojado del conductor y está bajo custodia.</strong></p>
           <p>Saldrá de Trabajo y aparecerá en Gestionados hoy como «En custodia». Administración recibirá tu declaración para revisarla.</p>
           <p>Esta acción no registra ningún pago.</p>
         </>}
         {custodyError ? <p className="error-text" role="alert">{custodyError}</p> : null}
-        <div className="modal-actions"><button type="button" className="button ghost" disabled={custodySaving} onClick={() => setCustodyTarget(null)}>Cancelar</button><button type="button" className="button primary" disabled={custodySaving} onClick={() => void changeCustody()}>{custodySaving ? "Guardando…" : custodyTarget.inCustody ? "Confirmar salida" : "Sí, declarar en custodia"}</button></div>
+        <div className="modal-actions"><button type="button" className="button ghost" disabled={custodySaving} onClick={() => setCustodyTarget(null)}>Cancelar</button><button type="button" className="button primary" disabled={custodySaving || isDeltaPreview} onClick={() => void changeCustody()}>{custodySaving ? "Guardando…" : custodyTarget.inCustody ? "Confirmar salida" : "Sí, declarar en custodia"}</button></div>
       </div></div> : null}
       {reportTarget && canDeclarePayment ? (
         <div className="modal-overlay route-search-payment-overlay">

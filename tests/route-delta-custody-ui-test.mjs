@@ -49,11 +49,18 @@ try {
   await dialog.getByRole('button',{name:'Sí, declarar en custodia',exact:true}).click();
   await dialog.getByRole('alert').waitFor();
   assert.equal(await page.evaluate(()=>Boolean(window.__outsideRouteRows.find(r=>r.client_id==='active').in_custody)),false);
-  for(const params of ['?operator=delta1&readonly','?delta=delta1']) {
-   await page.goto(fixture+params+mode);
-   await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
-   assert.equal(await page.getByRole('button',{name:/Declarar en custodia Solo/}).count(),0,'Preview and disabled accounts cannot declare');
-  }
+  await page.goto(fixture+'?operator=delta1&readonly'+mode);
+  await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:/Declarar en custodia Solo/}).count(),0,'Disabled accounts cannot declare');
+  await page.goto(fixture+'?delta=delta1'+mode);
+  await page.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
+  await page.getByRole('button',{name:/Declarar en custodia Solo/}).click();
+  const preview=page.getByRole('dialog',{name:'Declarar en custodia',exact:true});
+  await preview.getByText('Vista previa: para guardar esta declaración, inicia sesión con la cuenta del Delta.',{exact:true}).waitFor();
+  assert.equal(await preview.getByRole('button',{name:'Sí, declarar en custodia',exact:true}).isDisabled(),true);
+  await preview.getByRole('button',{name:'Sí, declarar en custodia',exact:true}).evaluate(button=>button.click());
+  assert.equal(await page.evaluate(()=>window.__custodyRequests.length),0,'Admin preview shows the Delta flow without writing or attributing a declaration to Admin');
+  await preview.getByRole('button',{name:'Cancelar',exact:true}).click();
  }
  assert.deepEqual(errors,[]);
  console.log('Delta custody UI: visible button, phone/tablet/laptop, clear confirmation, cancel/retry, no duplicate or payment, managed result and reassignment protection OK');
