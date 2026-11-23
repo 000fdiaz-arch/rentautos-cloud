@@ -2,6 +2,7 @@ import { getBusinessDateKey } from "./billing";
 import type { RouteCaptureEvent, RouteRun } from "./cloud/routeCaptureCloudData";
 import type { RoutePaymentReport } from "./cloud/routeReportCloudData";
 import type { ActiveRouteItem } from "./cloudData";
+import type { Payment } from "./types";
 
 export type RouteDeltaKey = "delta1" | "delta2" | "delta3";
 export type RouteManagedActionKind = "paid" | "remote" | "custody";
@@ -24,6 +25,8 @@ export type RouteManagedAction = {
   cashAmount: number;
   bankAmount: number;
   actionCount: number;
+  outsideRoute?: boolean;
+  payment?: Payment;
   report?: RoutePaymentReport;
   capture?: RouteCaptureEvent;
   item?: ActiveRouteItem;
@@ -77,7 +80,7 @@ function happenedOnBusinessDate(value: string | undefined, businessDateKey: stri
   return !Number.isNaN(date.getTime()) && getBusinessDateKey(date) === businessDateKey;
 }
 
-export function buildRouteManagedActions(input: IdentitySource & { items: ActiveRouteItem[]; businessDateKey: string }): RouteManagedAction[] {
+export function buildRouteManagedActions(input: IdentitySource & { items: ActiveRouteItem[]; businessDateKey: string; payments?: Payment[]; managementVersion?: "legacy" | "v2" }): RouteManagedAction[] {
   const identities = buildRouteDeltaIdentityMap(input);
   const actions: RouteManagedAction[] = [];
 
@@ -125,10 +128,28 @@ export function buildRouteManagedActions(input: IdentitySource & { items: Active
     });
   });
 
+  (input.payments ?? []).forEach((payment) => {
+    const collection = payment.outsideRouteCollection;
+    if (payment.source !== "route" || !collection || collection.version !== (input.managementVersion ?? "legacy")
+      || payment.paymentMethod !== "Efectivo" || payment.routeReportId || payment.cxcV2RouteReportId
+      || !happenedOnBusinessDate(collection.collectedAt, input.businessDateKey)
+      || !ROUTE_DELTAS.some(row => row.key === collection.delta)) return;
+    actions.push({
+      id: `outside:${payment.id}`, clientId: payment.clientId, unitId: payment.clientUnit,
+      clientName: payment.clientName, routeAssignment: collection.team, delta: collection.delta,
+      kind: "paid", occurredAt: collection.collectedAt, cashAmount: payment.amountReceived,
+      bankAmount: 0, actionCount: 1, outsideRoute: true, payment
+    });
+  });
+
   const sorted = actions.sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || left.id.localeCompare(right.id));
   const byCar = new Map<string, RouteManagedAction>();
   sorted.forEach((action) => {
-    const key = `${action.clientId}\u0000${action.unitId}`;
+    // Keep each team's outside-route work attributable, even if another team
+    // visits the same car later or the car is subsequently added to a route.
+    const key = action.outsideRoute
+      ? `outside\u0000${action.delta}\u0000${action.clientId}\u0000${action.unitId}`
+      : `${action.clientId}\u0000${action.unitId}`;
     const current = byCar.get(key);
     if (!current) {
       byCar.set(key, { ...action });

@@ -1,0 +1,50 @@
+.route-managed-compact { min-width: 0; }
+.route-managed-compact-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 16px; }
+.route-managed-compact-total, .route-managed-compact-totals > div { display: grid; gap: 4px; }
+.route-managed-compact-total > span, .route-managed-compact-totals span { color: var(--color-text-muted); font-size: .74rem; }
+.route-managed-compact-total > strong { color: var(--color-text); font-size: 1.65rem; font-weight: 700; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.route-managed-compact-totals { display: flex; flex-wrap: wrap; gap: 24px; }
+.route-managed-compact-totals strong { color: var(--color-text); font-size: .95rem; font-variant-numeric: tabular-nums; }
+.route-managed-result-filters { display: flex; flex-wrap: wrap; gap: 7px; }
+.route-managed-result-filters .button { min-height: 38px; padding: 8px 12px; font-size: .76rem; box-shadow: none; }
+.route-managed-result-filters .button span { font-variant-numeric: tabular-nums; }
+.route-managed-method-section { display: grid; gap: 7px; margin-top: 12px; }
+.route-managed-method-section > span { color: var(--color-text-muted); font-size: .72rem; }
+.route-managed-method-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.route-managed-method-filters .button { min-height: 36px; padding: 7px 11px; font-size: .73rem; box-shadow: none; }
+.route-managed-method-filters .button span { font-variant-numeric: tabular-nums; }
+.route-managed-compact-count { margin: 12px 0 9px; color: var(--color-text-muted); font-size: .7rem; }
+.route-managed-compact-rows { padding: 0 16px; border: 1px solid var(--color-border); border-radius: 11px; background: var(--color-surface); }
+.route-managed-compact-row { min-width: 0; padding: 15px 0; }
+.route-managed-compact-row + .route-managed-compact-row { border-top: 1px solid var(--color-border); }
+.route-managed-compact-row-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.route-managed-compact-identity { display: grid; min-width: 0; gap: 3px; }
+.route-managed-compact-identity > strong { color: var(--color-text); font-size: 1rem; }
+.route-managed-compact-identity > span { color: var(--color-text-muted); font-size: .75rem; overflow-wrap: anywhere; }
+.route-managed-compact-outcome { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.route-managed-compact-outcome > strong { color: var(--color-text); font-size: 1.05rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.route-managed-compact-status { padding: 4px 7px; border-radius: 5px; font-size: .67rem; font-weight: 600; white-space: nowrap; }
+.route-managed-compact-status--paid { color: #0f766e; background: #edf8f5; }
+.route-managed-compact-status--remote { color: #275d90; background: #edf4fd; }
+.route-managed-compact-status--custody { color: #6d4a9f; background: #f5f0fc; }
+.route-managed-compact-row-bottom { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; margin-top: 9px; color: var(--color-text-muted); font-size: .71rem; }
+.route-managed-compact-record { min-width: 0; text-align: right; }
+.route-managed-compact-record > summary { padding: 0; color: var(--color-text-muted); font-size: .71rem; cursor: pointer; }
+.route-managed-compact-record[open] { flex-basis: 100%; text-align: left; }
+.route-managed-compact-record[open] > summary { width: fit-content; }
+.route-managed-compact-record-body { display: grid; gap: 7px; padding: 11px 12px; margin-top: 8px; border-radius: 7px; background: #f6f9fa; }
+.route-managed-compact-record-body p { margin: 0; color: var(--color-text-muted); font-size: .73rem; overflow-wrap: anywhere; }
+.route-managed-compact-record-body > .button { width: fit-content; min-height: 36px; }
+@media (max-width: 520px) {
+  .route-managed-compact-summary { gap: 12px; }
+  .route-managed-compact-totals { gap: 15px; }
+  .route-managed-result-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .route-managed-result-filters .button { width: 100%; min-height: 42px; padding: 8px; }
+  .route-managed-method-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .route-managed-method-filters .button { width: 100%; min-height: 40px; padding: 7px; }
+  .route-managed-compact-rows { padding: 0 13px; }
+  .route-managed-compact-row-head { gap: 8px; }
+  .route-managed-compact-outcome { max-width: 58%; gap: 6px; }
+  .route-managed-compact-outcome > strong { font-size: 1rem; }
+  .route-managed-compact-total > strong { font-size: 1.5rem; }
+}

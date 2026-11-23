@@ -1,4 +1,5 @@
-import { useId } from "react";
+import { useId, useState } from "react";
+import RouteVehicleDetails from "./RouteVehicleDetails";
 import type { ActiveRouteItem } from "../cloudData";
 import type { RoutePaymentReport } from "../cloud/routeReportCloudData";
 import type { RouteCaptureEvent } from "../cloud/routeCaptureCloudData";
@@ -13,6 +14,8 @@ export type RouteCardView = Exclude<RouteWorkflowView, "managed"> | "partial";
 export type RouteCardItem = ActiveRouteItem & { report?: RoutePaymentReport };
 
 type Props = {
+  dataOwnerUserId?: string | null;
+  managementVersion?: "legacy" | "v2";
   managementFields?: React.ReactNode;
   item: RouteCardItem;
   capture?: RouteCaptureEvent;
@@ -41,6 +44,8 @@ type Props = {
   changingRoute: boolean;
   changingAssignedDelta: boolean;
   canEditAssignedDelta: boolean;
+  showAssignedDelta?: boolean;
+  highlightComments?: boolean;
   routeOptions: string[];
   inactiveSaving: boolean;
   elapsedNow: number;
@@ -48,7 +53,6 @@ type Props = {
   canConfirmBank: boolean;
   bankConfirmationSaving: boolean;
   bankNotices: Array<{ id: string; amount: number; collectionTeam?: string }>;
-  onReport: () => void;
   onEditAmount: () => void;
   onRegister: () => void;
   onReceipt: () => void;
@@ -97,7 +101,12 @@ function routeElapsedSince(value: string, now: number): string {
 
 export default function RouteCollectionCard(props: Props) {
   const zoneListId = useId();
-  const { item, view, paidRent, balance, canReport, canEdit, canRemove, saving } = props;
+  const routePickerId = useId();
+  const [routePickerOpen, setRoutePickerOpen] = useState(false);
+  const [routeQuery, setRouteQuery] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const { item, view, paidRent, canReport, canEdit, canRemove, saving } = props;
+  const savedCommentClassName = `route-collection-saved-comment${props.highlightComments ? " route-collection-saved-comment--highlight" : ""}`;
   const report = item.report;
   const remaining = Math.max(0, item.releaseAmount - paidRent);
   const partial = paidRent > 0 && remaining > 0;
@@ -134,24 +143,25 @@ export default function RouteCollectionCard(props: Props) {
     <div className="route-collection-identity">
       <div>
         <h2>{item.unitId} <span>· {item.clientName.trim().split(/\s+/)[0]}</span></h2>
-        {view === "work" ? <div className="route-collection-route-time route-collection-route-time--progressive" aria-label={`${urgencyLabel || "En tiempo"}. ${routeElapsedSince(item.publishedAt, props.elapsedNow)} en ruta desde ${formatRouteDateTime(item.publishedAt)}`}>
-          <span><small>Tiempo en ruta</small><strong>{routeElapsedSince(item.publishedAt, props.elapsedNow)}</strong></span>
-          <em>{urgencyLabel || "En tiempo"}</em>
-          <small>Desde {formatRouteDateTime(item.publishedAt)}</small>
-        </div> : <span className="route-collection-route-time" title={`Desde ${formatRouteDateTime(item.publishedAt)}`} aria-label={`Tiempo en ruta de ${item.unitId}: ${routeElapsedSince(item.publishedAt, props.elapsedNow)}`}>⏱ En ruta · {routeElapsedSince(item.publishedAt, props.elapsedNow)}</span>}
+        {view !== "work" ? <span className="route-collection-route-time" title={`Desde ${formatRouteDateTime(item.publishedAt)}`} aria-label={`Tiempo en ruta de ${item.unitId}: ${routeElapsedSince(item.publishedAt, props.elapsedNow)}`}>⏱ En ruta · {routeElapsedSince(item.publishedAt, props.elapsedNow)}</span> : null}
       </div>
       {canReport && !report ? (
-        <select className="route-collection-route route-collection-route-picker" aria-label={`Ruta de ${item.unitId}`} value={(item.routeAssignment ?? "").trim().toUpperCase()} disabled={props.changingRoute || saving} onChange={event => {
-          if (event.target.value === "__create_route__") {
-            props.onCreateRoute();
-            return;
-          }
-          props.onRoute(event.target.value);
-        }}>
-          {!item.routeAssignment ? <option value="">Sin ruta</option> : null}
-          {props.routeOptions.map((route) => <option key={route} value={route}>{route}</option>)}
-          <option value="__create_route__">+ Nueva ruta</option>
-        </select>
+        <div className="route-collection-route-control" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setRoutePickerOpen(false); }}>
+        <button type="button" className="button ghost small route-collection-change-route" aria-label={`Cambiar ruta de ${item.unitId}`} aria-expanded={routePickerOpen} aria-controls={routePickerId}
+          title={`Ruta actual: ${item.routeAssignment || "Sin ruta"}`} disabled={props.changingRoute || saving} onClick={() => { setRoutePickerOpen(open => !open); setRouteQuery(""); }}>Cambiar ruta</button>
+        {routePickerOpen ? <div id={routePickerId} className="route-collection-route-options" onKeyDown={event => { if (event.key === "Escape") setRoutePickerOpen(false); }}>
+        <div className="route-collection-route-options-heading"><span>Actual: <strong>{item.routeAssignment || "Sin ruta"}</strong></span>
+          <button type="button" aria-label="Cerrar selector de ruta" onClick={() => setRoutePickerOpen(false)}>×</button></div>
+        <input autoFocus aria-label={`Buscar ruta para ${item.unitId}`} placeholder="Buscar ruta…" value={routeQuery} onChange={event => setRouteQuery(event.target.value)} />
+        <div className="route-collection-route-options-list" role="group" aria-label={`Rutas disponibles para ${item.unitId}`}>
+          {props.routeOptions.filter(route => route !== (item.routeAssignment ?? "").trim().toUpperCase()
+            && route.toLocaleLowerCase("es").includes(routeQuery.trim().toLocaleLowerCase("es"))).map(route =>
+            <button key={route} type="button" disabled={props.changingRoute || saving} onClick={() => { setRoutePickerOpen(false); props.onRoute(route); }}>{route}</button>)}
+        </div>
+        {routeQuery.trim() && !props.routeOptions.some(route => route !== (item.routeAssignment ?? "").trim().toUpperCase()
+          && route.toLocaleLowerCase("es").includes(routeQuery.trim().toLocaleLowerCase("es"))) ? <p>No hay rutas con ese nombre.</p> : null}
+        <button type="button" className="route-collection-create-route" onClick={() => { setRoutePickerOpen(false); props.onCreateRoute(); }}>+ Nueva ruta</button>
+        </div> : null}</div>
       ) : <span className="route-collection-route">{item.routeAssignment || "Sin ruta"}</span>}
     </div>
     {view === "work" && props.travelFundBalance > 0 ? (
@@ -161,7 +171,9 @@ export default function RouteCollectionCard(props: Props) {
         <strong>{formatCurrency(props.travelFundBalance)}</strong>
       </div>
     ) : null}
+    {view !== "work" ? <>
       <label className="route-collection-field">Zona<input aria-label={`Zona de ${item.unitId}`} list={zoneListId} value={props.zone} maxLength={40} placeholder="Sin zona" disabled={Boolean(report) || props.zoneSaving} onChange={event => props.onZone(event.target.value)} onBlur={props.onSaveZone} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></label>
+    </> : null}
       <datalist id={zoneListId}>{props.zoneOptions.map(zone => <option key={zone} value={zone} />)}</datalist>
     {view === "work" && item.routeInactiveAt ? <div className="route-collection-inactive" aria-label={`Estado inactivo de ${item.unitId}`}>
       <strong>Inactivo · no está encendido</strong>
@@ -184,7 +196,10 @@ export default function RouteCollectionCard(props: Props) {
       </div> : null}
       {report.method === "mixed" ? <p className="route-collection-context"><span>Efectivo: {formatCurrency(report.cash_amount)} · {report.confirmed_cash_amount >= report.cash_amount ? "Confirmado" : "Pendiente"}</span><br /><span>Banca: {formatCurrency(report.bank_amount)} · {report.confirmed_bank_amount >= report.bank_amount ? "Confirmado" : "Pendiente"}</span></p> : null}
     </> : <>
-      <span className="route-collection-tag">{view === "partial" ? "Decisión pendiente" : partial && acknowledged ? "Debe pagar más" : "Por cobrar"}</span>
+      <span className={`route-collection-tag${view === "work" ? ` route-collection-action route-collection-action--${item.managementType ?? "solo_cobrar"}` : ""}`}
+        aria-label={view === "work" ? `Acción solicitada: ${fieldManagementLabel(item.managementType)}` : undefined}>
+        {view === "work" ? fieldManagementLabel(item.managementType) : view === "partial" ? "Decisión pendiente" : partial && acknowledged ? "Debe pagar más" : fieldManagementLabel(item.managementType)}
+      </span>
       <div className="route-collection-amount-row">
         <p className="route-collection-amount">{view === "partial" ? `Pagó ${formatCurrency(paidRent)}` : item.releaseAmount > 0 ? formatCurrency(remaining) : "Monto pendiente"}</p>
         {view === "work" && props.canEditAmount && !report ? (
@@ -193,11 +208,44 @@ export default function RouteCollectionCard(props: Props) {
           </button>
         ) : null}
       </div>
-      <p className="route-collection-context">{view === "partial" ? `Faltan ${formatCurrency(remaining)} para liberar` : "Pendiente para liberar"}</p>
-      {view === "work" ? <p className="route-collection-instruction">{fieldManagementLabel(item.managementType)}</p> : null}
+      <p className="route-collection-context">{view === "partial" ? `Faltan ${formatCurrency(remaining)} para liberar` : partial && acknowledged ? "Pendiente para liberar · Debe pagar más" : view === "work" ? "Para liberar" : "Pendiente para liberar"}</p>
       </>}
     </div>
-    {view === "work" ? (
+
+    {view !== "work" ? <>
+      {canEdit && !report ? <label className="route-collection-field route-collection-comment">Comentario<input aria-label={`Comentario de ${item.unitId}`} value={props.comment} maxLength={25} placeholder="Agregar comentario…" disabled={props.commentSaving} onChange={event => props.onComment(event.target.value)} onBlur={props.onSaveComment} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></label> : item.comment ? <p className={savedCommentClassName}><small>Comentario</small>{item.comment}</p> : null}
+    </> : item.comment ? <p className={savedCommentClassName}>{props.highlightComments ? <small>Comentario</small> : null}{item.comment}</p> : null}
+    {props.managementFields ? listLayout ? <div className="route-collection-management">{props.managementFields}</div> : props.managementFields : null}
+    {view === "work" ? <div className="route-collection-meta">
+      <label className="route-collection-zone-field"><span>Zona</span>
+      <input className="route-collection-zone-inline" aria-label={`Zona de ${item.unitId}`} title="Editar zona" list={zoneListId}
+        value={props.zone} maxLength={40} placeholder="Sin zona" disabled={Boolean(report) || props.zoneSaving}
+        style={{ width: `${Math.max(14, Math.min((props.zone || "Sin zona").length + 6, 32))}ch` }}
+        onChange={event => props.onZone(event.target.value)} onBlur={props.onSaveZone}
+        onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></label>
+      {props.showAssignedDelta !== false ? <span>{item.assignedDelta === "delta1" ? "Delta 1" : item.assignedDelta === "delta2" ? "Delta 2" : item.assignedDelta === "delta3" ? "Delta 3" : "Sin asignar"}</span> : null}
+    </div> : null}
+    {view === "work" ? <div className="route-collection-route-time route-collection-route-time--progressive" title={`Desde ${formatRouteDateTime(item.publishedAt)}`}
+      aria-label={`${urgencyLabel || "En tiempo"}. ${routeElapsedSince(item.publishedAt, props.elapsedNow)} en ruta desde ${formatRouteDateTime(item.publishedAt)}`}>
+      <span className="route-collection-time-duration"><small>Tiempo en ruta</small><strong>{routeElapsedSince(item.publishedAt, props.elapsedNow)}</strong></span>
+      <em>{urgencyLabel || "En tiempo"}</em>
+    </div> : null}
+    <div className="route-collection-actions">
+      {view === "confirmed" && report && props.hasReceipt ? <button type="button" className="button primary" disabled={props.receiptLoading} onClick={props.onReceipt}>{props.receiptLoading ? "Abriendo…" : "Ver recibo"}</button> : null}
+      {view === "partial" && canRemove && !acknowledged ? <button type="button" className="button primary" disabled={saving} onClick={props.onKeep}>Debe pagar más</button> : null}
+      {view === "review" && report && props.canConfirmBank ? <button type="button" className="button primary" disabled={saving || props.bankConfirmationSaving} onClick={props.onConfirmBank}>{props.bankConfirmationSaving ? "Confirmando…" : "Confirmado en banco"}</button> : null}
+      {view === "work" && props.hasActiveRoute && ((props.canDeclareCustody && !item.inCustody) || (canRemove && !report)) ? <details className="route-collection-more-actions"><summary>Más acciones</summary><div>
+      {view === "work" && props.canDeclareCustody && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button ghost" disabled={saving} onClick={props.onCustody}>Declarar carro en custodia</button> : null}
+      {canRemove && props.hasActiveRoute && !report ? <button type="button" className="button ghost route-collection-remove" disabled={saving} onClick={props.onRemove}>Sacar de ruta</button> : null}
+      </div></details> : null}
+
+      {view === "custody" && canReport ? <button type="button" className="button primary" disabled={saving} onClick={props.onCustody}>Sacar de custodia</button> : null}
+
+        {props.canReturnReport ? <button type="button" className="button ghost" disabled={saving} onClick={props.onReturnReport}>No confirmado</button> : null}
+      {view !== "work" && canRemove && props.hasActiveRoute && (!report || view === "partial") ? <button type="button" className="button ghost route-collection-remove" disabled={saving} onClick={props.onRemove}>Sacar de ruta</button> : null}
+    </div>
+    {view === "work" && (props.showAssignedDelta !== false || (canEdit && !report)) ? <details className="route-collection-edit"><summary>{props.showAssignedDelta !== false ? "Asignación y comentario" : "Comentario"}</summary><div className="route-collection-edit-fields">
+    {props.showAssignedDelta !== false ? (
       props.canEditAssignedDelta ? <label className="route-collection-field route-collection-delta">
         Responsable de búsqueda
         <select aria-label={`Buscador asignado a ${item.unitId}`} value={item.assignedDelta ?? ""}
@@ -213,22 +261,12 @@ export default function RouteCollectionCard(props: Props) {
         <strong>{item.assignedDelta === "delta1" ? "Delta 1" : item.assignedDelta === "delta2" ? "Delta 2" : item.assignedDelta === "delta3" ? "Delta 3" : "Sin asignar"}</strong>
       </p>
     ) : null}
-      {canEdit && !report ? <label className="route-collection-field route-collection-comment">Comentario<input aria-label={`Comentario de ${item.unitId}`} value={props.comment} maxLength={25} placeholder="Agregar comentario…" disabled={props.commentSaving} onChange={event => props.onComment(event.target.value)} onBlur={props.onSaveComment} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></label> : item.comment ? <p className="route-collection-saved-comment"><small>Comentario</small>{item.comment}</p> : null}
-    {props.managementFields ? listLayout ? <div className="route-collection-management">{props.managementFields}</div> : props.managementFields : null}
-    <div className="route-collection-actions">
-      {view === "confirmed" && report && props.hasReceipt ? <button type="button" className="button primary" disabled={props.receiptLoading} onClick={props.onReceipt}>{props.receiptLoading ? "Abriendo…" : "Ver recibo"}</button> : null}
-      {view === "partial" && canRemove && !acknowledged ? <button type="button" className="button primary" disabled={saving} onClick={props.onKeep}>Debe pagar más</button> : null}
-      {view === "review" && report && props.canConfirmBank ? <button type="button" className="button primary" disabled={saving || props.bankConfirmationSaving} onClick={props.onConfirmBank}>{props.bankConfirmationSaving ? "Confirmando…" : "Confirmado en banco"}</button> : null}
-      {view === "work" && canReport && !props.hasPendingReport ? <button type="button" className="button primary" disabled={props.reportDisabled || saving} onClick={props.onReport}>Notificar pago</button> : null}
-      {view === "work" && canReport && !report ? <button type="button" className={`button ${item.routeInactiveAt ? "route-collection-inactive-action" : "ghost"}`} disabled={props.inactiveSaving || saving} onClick={props.onInactive}>{props.inactiveSaving ? "Guardando…" : item.routeInactiveAt ? "Marcar como disponible" : "Marcar Inactivo"}</button> : null}
-      {view === "custody" && canReport ? <button type="button" className="button primary" disabled={saving} onClick={props.onCustody}>Sacar de custodia</button> : null}
-      {view === "work" && props.canDeclareCustody && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button ghost" disabled={saving} onClick={props.onCustody}>Declarar carro en custodia</button> : null}
-        {props.canReturnReport ? <button type="button" className="button ghost" disabled={saving} onClick={props.onReturnReport}>No confirmado</button> : null}
-      {canRemove && props.hasActiveRoute && (!report || view === "partial") ? <button type="button" className="button ghost route-collection-remove" disabled={saving} onClick={props.onRemove}>Sacar de ruta</button> : null}
-    </div>
-    <details className="route-collection-details">
-      <summary>Ver detalles</summary>
-      <dl><dt>Cliente</dt><dd>{item.clientName}</dd><dt>Mínimo para liberar</dt><dd>{formatCurrency(item.releaseAmount)}</dd><dt>Saldo vencido</dt><dd>{formatCurrency(balance)}</dd><dt>Atraso</dt><dd>{item.daysLate} días</dd><dt>En ruta</dt><dd>{formatRouteDateTime(item.publishedAt)}</dd></dl>
+      {canEdit && !report ? <label className="route-collection-field route-collection-comment">Comentario<input aria-label={`Comentario de ${item.unitId}`} value={props.comment} maxLength={25} placeholder="Agregar comentario…" disabled={props.commentSaving} onChange={event => props.onComment(event.target.value)} onBlur={props.onSaveComment} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></label> : item.comment ? <p className={savedCommentClassName}><small>Comentario</small>{item.comment}</p> : null}
+    </div></details> : null}
+    <details className="route-collection-details" onToggle={event => setDetailsOpen(event.currentTarget.open)}>
+      <summary>Datos del auto</summary>
+      {detailsOpen && props.dataOwnerUserId ? <RouteVehicleDetails key={`${props.dataOwnerUserId}:${item.clientId}:${item.publishedAt}:${props.managementVersion ?? "legacy"}`}
+        ownerId={props.dataOwnerUserId} clientId={item.clientId} publishedAt={item.publishedAt} version={props.managementVersion ?? "legacy"} /> : null}
       {partial ? <p className="route-collection-context">Pago parcial: {formatCurrency(paidRent)} · Faltan {formatCurrency(remaining)}{acknowledged ? <><br />Decisión: Debe pagar más</> : null}</p> : null}
       {props.bankNotices.map(notice => <p className="route-collection-context" key={notice.id}>Por confirmar banca: {formatCurrency(notice.amount)}{notice.collectionTeam ? ` · Equipo ${notice.collectionTeam}` : ""}</p>)}
       {report ? <div className={`route-search-report-status ${report.status === "confirmed" ? "route-search-report-status--confirmed" : ""}`}>

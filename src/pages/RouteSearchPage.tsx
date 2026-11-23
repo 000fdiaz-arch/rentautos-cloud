@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import "./routeSearchLayout.css";
 import RoutePendingCashPanel from "./RoutePendingCashPanel";
+import RoutePaymentDeclarationDialog, { ROUTE_PAYMENT_DECLARATIONS, type RouteDeclarationMethod, type RoutePaymentInput, type RoutePaymentResult } from "./OutsideRouteCashDialog";
+import RoutePaymentDeclarationActions from "./RoutePaymentDeclarationActions";
 import RouteCollectionCard, { type RouteWorkflowView } from "./RouteCollectionCard";
 import RouteManagedList from "./RouteManagedList";
+import RouteManagedCompactList from "./RouteManagedCompactList";
 import RouteTeamSummary from "./RouteTeamSummary";
+import { ROUTE_SHARING_ENABLED } from "../routeFeatures";
 import { PaymentPreviewDialog } from "./payments/PaymentDialogs";
 import { applyRouteReportDelta, changeRouteAssignment, cancelRoutePaymentReport, hideRouteManagedReport, loadRoutePaymentReport, loadRoutePaymentReportForItem, loadRoutePaymentReports, loadRoutePaymentReportsPage, loadRouteReportReceipts, reportRoutePayment, routeReportDeltaFromPayload, setRouteCustody, setRouteInactiveStatus, setRouteReportManagementOutcome, type RouteBankConfirmationResult, type RouteManagementOutcome, type RoutePaymentReport, type RouteReportDelta } from "../cloud/routeReportCloudData";
 import {
@@ -56,15 +61,7 @@ export type RouteSearchPageProps = {
   payments: Payment[];
   readOnly?: boolean;
   canRemoveFromRoute?: boolean;
-  onRegisterPayment?: (input: {
-    clientId: string;
-    amount: number;
-    method: "cash" | "bank";
-    team: CollectionTeam;
-    delta?: CollectionDelta;
-    reportId?: string;
-    fundsReceivedDate?: string;
-  }) => Promise<{ kind: "cash" | "bank"; receiptNumber?: string; payment?: Payment }>;
+  onRegisterPayment?: (input: RoutePaymentInput) => Promise<RoutePaymentResult>;
   onConfirmBankPayment?: (input: {
     reportId: string;
   }) => Promise<RouteBankConfirmationResult>;
@@ -189,13 +186,13 @@ export default function RouteSearchPage({
   currentUserEmail,
   initialRouteFilter,
   canReportPayment = false,
-  canConfirmBankPayment = false,
-  canConfirmCaptures = false,
+  canConfirmBankPayment: permittedBankConfirmation = false,
+  canConfirmCaptures: permittedCaptureConfirmation = false,
   dataOwnerUserId,
   clients,
   payments,
-  readOnly = true,
-  canRemoveFromRoute = false,
+  readOnly: requestedReadOnly = true,
+  canRemoveFromRoute: permittedRouteRemoval = false,
   onRegisterPayment,
   onConfirmBankPayment
 }: RouteSearchPageProps) {
@@ -206,6 +203,11 @@ export default function RouteSearchPage({
   const signedInAssignedDelta = isAssignedDelta(signedInDelta) ? signedInDelta : null;
   const requestedDelta = routeDeltaFromName(new URLSearchParams(window.location.search).get("delta") ?? undefined);
   const requestedAssignedDelta = !signedInAssignedDelta && isAssignedDelta(requestedDelta) ? requestedDelta : null;
+  const isDeltaPreview = requestedAssignedDelta !== null;
+  const readOnly = requestedReadOnly || isDeltaPreview;
+  const canRemoveFromRoute = permittedRouteRemoval && !isDeltaPreview;
+  const canConfirmBankPayment = permittedBankConfirmation && !isDeltaPreview;
+  const canConfirmCaptures = permittedCaptureConfirmation && !isDeltaPreview;
   const canEditAssignedDelta = !readOnly && signedInDelta === null;
   const canEditRouteAmount = !readOnly && signedInDelta === null;
   const [businessDateKey, setBusinessDateKey] = useState(() => getBusinessDateKey());
@@ -230,6 +232,7 @@ export default function RouteSearchPage({
   const reportLoadingRef = useRef(false);
   const reportHistoryOffsetRef = useRef(0);
   const pendingReportDeltasRef = useRef<RouteReportDelta[]>([]);
+  const [declarationMethod, setDeclarationMethod] = useState<RouteDeclarationMethod | null>(null);
   const [workflowView, setWorkflowView] = useState<RouteWorkflowView>("work");
   const [custodyTarget, setCustodyTarget] = useState<ActiveRouteItem | null>(null);
   const [custodySaving, setCustodySaving] = useState(false);
@@ -245,9 +248,9 @@ export default function RouteSearchPage({
   const [reportMethod, setReportMethod] = useState<"" | "cash" | "bank" | "mixed">("");
   const [reportCashAmount, setReportCashAmount] = useState("");
   const [reportBankAmount, setReportBankAmount] = useState("");
-  const [reportManagementOutcome, setReportManagementOutcome] = useState<RouteManagementOutcome>("collected");
   const [reportCashTeam, setReportCashTeam] = useState<CollectionTeam | "">("");
   const [reportSaving, setReportSaving] = useState(false);
+  const reportSubmitLock = useRef(false);
   const [reportError, setReportError] = useState("");
   const [reportsError, setReportsError] = useState("");
   const [reportsReady, setReportsReady] = useState(false);
@@ -317,7 +320,7 @@ export default function RouteSearchPage({
     const cashAmount = reportMethod === "mixed" ? Number(reportCashAmount) : reportMethod === "cash" ? Number(reportAmount) : 0;
     const bankAmount = reportMethod === "mixed" ? Number(reportBankAmount) : reportMethod === "bank" ? Number(reportAmount) : 0;
     const amount = cashAmount + bankAmount;
-    if (!canReportPayment || !dataOwnerUserId || !reportTarget || reportSaving || !reportMethod) return;
+    if (!canReportPayment || !dataOwnerUserId || !reportTarget || reportSaving || reportSubmitLock.current || !reportMethod) return;
     if (![cashAmount, bankAmount].every((part) => Number.isFinite(part) && part >= 0 && Math.abs(part * 100 - Math.round(part * 100)) < 0.00001)
       || amount <= 0 || amount > 9999999999.99 || (reportMethod === "mixed" && (cashAmount <= 0 || bankAmount <= 0))) {
       setReportError("Indica un monto mayor a cero, con hasta dos decimales.");
@@ -334,6 +337,7 @@ export default function RouteSearchPage({
       setReportError("No se pudo identificar qué Delta recibió el efectivo. Actualiza la ruta e intenta nuevamente.");
       return;
     }
+    reportSubmitLock.current = true;
     setReportSaving(true);
     setReportError("");
     let savedReport: RoutePaymentReport | null = null;
@@ -343,7 +347,10 @@ export default function RouteSearchPage({
       if (!latestRouteItem || latestRouteItem.removedAt || latestRouteItem.publishedAt !== reportTarget.publishedAt) {
         throw new Error(`${reportTarget.unitId} ya no está activa en Ruta en calle. La lista fue actualizada.`);
       }
-      await reportRoutePayment(dataOwnerUserId, latestRouteItem, cashAmount, bankAmount, reportManagementOutcome);
+      if (lockedScopeDelta && latestRouteItem.assignedDelta !== lockedScopeDelta) {
+        throw new Error("La unidad cambió de Delta. Actualiza la ruta antes de declarar el pago.");
+      }
+      await reportRoutePayment(dataOwnerUserId, latestRouteItem, cashAmount, bankAmount, "collected");
       setRouteActionMessage(`${reportTarget.unitId} pasó a Pago notificado.`);
       try {
         const latestReport = await loadRoutePaymentReportForItem(dataOwnerUserId, reportTarget.clientId, reportTarget.publishedAt);
@@ -398,7 +405,7 @@ export default function RouteSearchPage({
       } else {
         setReportError(buildCloudErrorMessage("No se pudo notificar el pago.", cause, { includeRawFallback: true }));
       }
-    } finally { setReportSaving(false); }
+    } finally { reportSubmitLock.current = false; setReportSaving(false); }
   }
 
   async function returnReport(report: RoutePaymentReport): Promise<void> {
@@ -599,6 +606,9 @@ export default function RouteSearchPage({
   const lockedScopeDelta = signedInAssignedDelta ?? requestedAssignedDelta;
   const isDeltaScopeLocked = lockedScopeDelta !== null;
   const activeScopeDelta = lockedScopeDelta ?? assignedDeltaFilter;
+  useEffect(() => {
+    if (isDeltaScopeLocked && (workflowView === "review" || workflowView === "custody")) setWorkflowView("managed");
+  }, [isDeltaScopeLocked, workflowView]);
   const scopedCollectionTeam = activeScopeDelta ? collectionTeamForDelta(activeScopeDelta) : asCollectionTeam(initialRouteFilter);
   const [assignmentManagerOpen, setAssignmentManagerOpen] = useState(false);
   const [zoneFilter, setZoneFilter] = useState(ALL_ACTIVE_ZONE_FILTER);
@@ -862,10 +872,12 @@ export default function RouteSearchPage({
     captures: captureEvents,
     runs: routeRuns,
     items,
+    payments,
+    managementVersion: "legacy",
     businessDateKey,
     currentUserId,
     currentUserEmail
-  }), [businessDateKey, captureEvents, currentUserEmail, currentUserId, items, reports, routeRuns]);
+  }), [businessDateKey, captureEvents, currentUserEmail, currentUserId, items, payments, reports, routeRuns]);
   const scopedManagedActions = useMemo(() => activeScopeDelta
     ? managedActions.filter((action) => action.delta === activeScopeDelta)
     : managedActions, [activeScopeDelta, managedActions]);
@@ -905,7 +917,7 @@ export default function RouteSearchPage({
   }, [assignedDeltaFilter, captureByRouteItem, custodyItems, deltaFilter, deltaIdentityMap, paymentReviewItems, scopedManagedActions, signedInAssignedDelta, workItems]);
 
   function openWorkflow(view: RouteWorkflowView): void {
-    setWorkflowView(view); setConfirmedPeriod("today"); setCompletedCash(null); setRouteActionMessage(""); setRouteUndo(null);
+    setWorkflowView(isDeltaScopeLocked && (view === "review" || view === "custody") ? "managed" : view); setConfirmedPeriod("today"); setCompletedCash(null); setRouteActionMessage(""); setRouteUndo(null);
   }
 
   function toggleDeltaFilter(delta: RouteDeltaKey): void {
@@ -922,13 +934,6 @@ export default function RouteSearchPage({
     if (isDeltaScopeLocked) return;
     setDeltaFilter(null);
     setRouteFilter(ALL_ACTIVE_ROUTE_FILTER);
-    setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
-    setZoneFilterLabel("");
-  }
-
-  function toggleRouteFilter(route: string): void {
-    setRouteFilter((current) => current === route ? ALL_ACTIVE_ROUTE_FILTER : route);
-    setDeltaFilter(null);
     setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
     setZoneFilterLabel("");
   }
@@ -1014,29 +1019,29 @@ export default function RouteSearchPage({
   }, [activeItems]);
 
   const selectedRouteItems = useMemo(() => (
-    routeFilter === ALL_ACTIVE_ROUTE_FILTER
-      ? []
-      : activeItems.filter((item) => activeRouteFilterValue(item.routeAssignment) === routeFilter)
-  ), [activeItems, routeFilter]);
+    activeItems.filter(item => matchesAssignedDelta(item, assignedDeltaFilter)
+      && (routeFilter === ALL_ACTIVE_ROUTE_FILTER || activeRouteFilterValue(item.routeAssignment) === routeFilter))
+  ), [activeItems, assignedDeltaFilter, routeFilter]);
 
   const zoneFilterOptions = useMemo(() => {
-    if (routeFilter === ALL_ACTIVE_ROUTE_FILTER) return [];
-    let options = zoneOptionsByRoute.get(routeFilter) ?? [];
-    options = options.some((option) => option.value === EMPTY_ACTIVE_ZONE_FILTER)
-      ? options
-      : [{ value: EMPTY_ACTIVE_ZONE_FILTER, label: "Sin zona", count: 0 }, ...options];
+    const zones = new Map<string, ZoneOption>();
+    selectedRouteItems.forEach(item => {
+      const value = activeZoneFilterValue(item.zone);
+      const current = zones.get(value);
+      zones.set(value, { value, label: value === EMPTY_ACTIVE_ZONE_FILTER ? "Sin zona" : current?.label ?? normalizeZoneName(item.zone),
+        count: (current?.count ?? 0) + 1 });
+    });
+    let options = [...zones.values()].sort((a, b) => {
+      if (isDeltaScopeLocked) return b.count - a.count || a.label.localeCompare(b.label, "es", { numeric: true, sensitivity: "base" });
+      if (a.value === EMPTY_ACTIVE_ZONE_FILTER) return 1;
+      if (b.value === EMPTY_ACTIVE_ZONE_FILTER) return -1;
+      return a.label.localeCompare(b.label, "es", { numeric: true, sensitivity: "base" });
+    });
     if (zoneFilter !== ALL_ACTIVE_ZONE_FILTER && !options.some((option) => option.value === zoneFilter)) {
       options = [...options, { value: zoneFilter, label: zoneFilterLabel || zoneFilter, count: 0 }];
     }
     return options;
-  }, [routeFilter, zoneFilter, zoneFilterLabel, zoneOptionsByRoute]);
-
-  useEffect(() => {
-    if (routeFilter === ALL_ACTIVE_ROUTE_FILTER) {
-      setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
-      setZoneFilterLabel("");
-    }
-  }, [routeFilter]);
+  }, [isDeltaScopeLocked, selectedRouteItems, zoneFilter, zoneFilterLabel]);
 
   const visibleItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -1073,27 +1078,10 @@ export default function RouteSearchPage({
       .filter((action) => {
         if (!normalizedQuery) return true;
         const actionLabel = action.kind === "paid" ? "cobrado" : action.kind === "remote" ? "gestión remota" : "custodia";
-        return [action.unitId, action.clientName, action.routeAssignment, routeDeltaLabel(action.delta), actionLabel]
+        return [action.unitId, action.clientName, action.routeAssignment, routeDeltaLabel(action.delta), actionLabel, action.outsideRoute ? "fuera de ruta" : "en ruta"]
           .some((value) => value.toLowerCase().includes(normalizedQuery));
       });
   }, [deltaFilter, query, routeFilter, scopedManagedActions]);
-
-  const routeTotals = useMemo(() => {
-    const managed = deltaFilter ? scopedManagedActions.filter((action) => action.delta === deltaFilter) : scopedManagedActions;
-    const source = workflowView === "managed" ? managed : activeItems;
-    const standardRoutes = isDeltaScopeLocked
-      ? []
-      : Array.from(new Set(ROUTE_DELTAS.map((delta) => delta.route)));
-    const standardRouteSet = new Set<string>(standardRoutes);
-    const additionalRoutes = Array.from(new Set(source
-      .map((item) => activeRouteFilterValue(item.routeAssignment))
-      .filter((route) => route !== EMPTY_ACTIVE_ROUTE_FILTER && !standardRouteSet.has(route))))
-      .sort(compareActiveRouteFilterValues);
-    return [...standardRoutes, ...additionalRoutes].map((route) => ({
-      route,
-      count: source.filter((item) => activeRouteFilterValue(item.routeAssignment) === route).length
-    }));
-  }, [activeItems, deltaFilter, isDeltaScopeLocked, scopedManagedActions, workflowView]);
 
   const selectedZoneLabel = useMemo(() => {
     if (zoneFilter === ALL_ACTIVE_ZONE_FILTER) return "";
@@ -1261,7 +1249,7 @@ export default function RouteSearchPage({
       const removedAt = new Date().toISOString();
       setItems((current) => current.map((item) => (
         item.clientId === removeTarget.clientId
-          ? { ...item, inCustody: false, custodySince: undefined, removedAt, removedReason: "route_editor_removed" }
+          ? { ...item, inCustody: false, custodySince: undefined, removedAt, removedBy: currentUserId, removedReason: "route_editor_removed" }
           : item
       )));
       setRouteActionMessage(`${removeTarget.unitId} fue retirada de Ruta en calle.`);
@@ -1454,7 +1442,7 @@ export default function RouteSearchPage({
   }
 
   async function shareRouteImage(): Promise<void> {
-    if (visibleRouteGroups.length === 0 || sharing) return;
+    if (!ROUTE_SHARING_ENABLED || visibleRouteGroups.length === 0 || sharing) return;
     setSharing(true);
     setShareMessage("");
     try {
@@ -1526,45 +1514,43 @@ export default function RouteSearchPage({
     }
   }
 
+  const activeFilterCount = Number(routeFilter !== ALL_ACTIVE_ROUTE_FILTER) + Number(zoneFilter !== ALL_ACTIVE_ZONE_FILTER)
+    + Number(!isDeltaScopeLocked && Boolean(assignedDeltaFilter || deltaFilter));
+
   return (
-    <section className="route-search-page route-search-page--compact">
+    <section className="route-search-page route-search-page--compact route-search-page--organized">
       <header className="route-search-header">
-        <div>
+        <div className="route-search-heading">
           <h1>Cobro en Ruta</h1>
           {activeScopeDelta ? <div className="route-search-scope-badge" role="status">
-            <strong>{signedInAssignedDelta ? "Vista" : "Vista filtrada"}: {routeDeltaLabel(activeScopeDelta)}</strong>
-            <span>Solo carros asignados · Todas sus rutas</span>
+            <strong>{signedInAssignedDelta ? "Vista" : "Vista previa"}: {routeDeltaLabel(activeScopeDelta)}</strong>
+            <span>Solo carros asignados · Todas sus rutas{isDeltaPreview ? " · Sesión de Administración" : ""}</span>
           </div> : null}
           <p>{workflowView === "managed" ? visibleManagedActions.length : visibleItems.length} unidades · {workflowView === "work" ? "Trabajo" : workflowView === "review" ? "Pagos por revisar" : workflowView === "custody" ? "En custodia" : workflowView === "managed" ? "Gestionados hoy" : "Cobro en ruta"}{deltaFilter ? ` · ${routeDeltaLabel(deltaFilter)}` : ""}{publishedAt ? ` | Publicada ${publishedAt}` : ""}</p>
+          <div className="route-search-cash-actions">
+          <RoutePendingCashPanel prominent payments={payments} dateKey={businessDateKey} loading={paymentsLoading} team={scopedCollectionTeam || undefined} delta={activeScopeDelta || undefined} />
+          {canReportPayment ? <RoutePaymentDeclarationActions disabled={paymentsLoading || loading || !reportsReady || !dataOwnerUserId}
+            onSelect={setDeclarationMethod} /> : null}
+          </div>
         </div>
         <div className="route-search-header-actions">
-          {workflowView === "work" ? <button
+          {ROUTE_SHARING_ENABLED && workflowView === "work" ? <button
             type="button"
-            className="button primary small route-search-share-button"
+            className="button ghost small route-search-share-button"
+            aria-label={sharing ? "Creando fotos..." : "Compartir por ruta"}
             onClick={() => void shareRouteImage()}
             disabled={loading || sharing || visibleItems.length === 0}
           >
-            {sharing ? "Creando fotos..." : "Compartir por ruta"}
+            <span className="route-share-label">{sharing ? "Creando fotos..." : "Compartir por ruta"}</span><span className="route-share-short" aria-hidden="true">{sharing ? "Creando..." : "Compartir"}</span>
           </button> : null}
-          <button type="button" className="button ghost small" onClick={() => { void reload(); void reloadReports(); void reloadBankNotices(); }} disabled={loading || sharing}>
-            {loading ? "Actualizando..." : "Actualizar"}
+          <button type="button" className="button ghost small route-refresh-button" aria-label={loading ? "Actualizando..." : "Actualizar"} title="Actualizar" onClick={() => { void reload(); void reloadReports(); void reloadBankNotices(); }} disabled={loading || sharing}>
+            <span className="route-refresh-label">{loading ? "Actualizando..." : "Actualizar"}</span><span className="route-refresh-icon" aria-hidden="true">↻</span>
           </button>
         </div>
       </header>
 
-      <section className="route-search-route-totals" aria-label="Carros por ruta">
-        {routeTotals.map((total) => <button type="button" key={total.route} className={routeFilter === total.route ? "is-active" : ""}
-          aria-pressed={routeFilter === total.route} onClick={() => toggleRouteFilter(total.route)}>
-          <span><strong>Ruta {total.route}</strong><small>{workflowView === "managed" ? "Gestionados hoy" : "Carros en esta vista"}</small></span>
-          <b>{total.count}</b>
-        </button>)}
-      </section>
-
-      {!isDeltaScopeLocked && (workflowView === "work" || workflowView === "managed") ? <RouteTeamSummary actions={scopedManagedActions} activeDelta={deltaFilter}
-        activeRoute={routeFilter === ALL_ACTIVE_ROUTE_FILTER ? "" : routeFilter} onDeltaChange={toggleDeltaFilter} /> : null}
-      <details className="route-collection-cash-summary"><summary>Efectivo pendiente de entrega</summary><RoutePendingCashPanel payments={payments} dateKey={businessDateKey} loading={paymentsLoading} team={scopedCollectionTeam || undefined} delta={activeScopeDelta || undefined} /></details>
-      <div className="route-search-workflow-tabs" aria-label="Estado de las unidades">
-        {([['work', 'Trabajo', workflowCounts.work], ['review', 'Pagos por revisar', workflowCounts.review], ['custody', 'En custodia', workflowCounts.custody], ['managed', 'Gestionados hoy', workflowCounts.managed]] as const).map(([view, label, count]) => (
+      <div className={`route-search-workflow-tabs${isDeltaScopeLocked ? " route-search-workflow-tabs--delta" : ""}`} aria-label="Estado de las unidades">
+        {([['work', 'Trabajo', workflowCounts.work], ['review', 'Pagos por revisar', workflowCounts.review], ['custody', 'En custodia', workflowCounts.custody], ['managed', 'Gestionados hoy', workflowCounts.managed]] as const).filter(([view]) => !isDeltaScopeLocked || view === 'work' || view === 'managed').map(([view, label, count]) => (
           <button type="button" key={view} className={`button ${workflowView === view ? 'primary' : 'ghost'} route-search-workflow-tab route-search-workflow-tab--${view}${count > 0 ? ' route-search-workflow-tab--has-items' : ''}`} aria-pressed={workflowView === view}
             onClick={() => openWorkflow(view)}>
             {label} ({count})
@@ -1579,6 +1565,7 @@ export default function RouteSearchPage({
       {reportsError ? <p className="error-text" role="alert">{reportsError}</p> : null}
       {captureError ? <p className="error-text" role="alert">{captureError}</p> : null}
 
+      <div className="route-collection-toolbar">
       <label className="route-search-box">
         <span>Buscar</span>
         <input
@@ -1588,24 +1575,7 @@ export default function RouteSearchPage({
           autoComplete="off"
         />
       </label>
-
-      {completedCash ? <div className="route-collection-success" role="status">
-        <div><strong>Pago gestionado · {completedCash.unit}</strong><p>{formatCurrency(completedCash.amount)} · Recibo generado. Puede confirmarle el pago al cliente.</p></div>
-      </div> : null}
-      {receiptError ? <p className="error-text" role="alert">{receiptError}</p> : null}
-      {lastRefreshAt ? <p className="route-search-refresh">Ultima actualizacion: {lastRefreshAt}</p> : null}
-      {error ? <p className="error-text">{error}</p> : null}
-      {changeRouteError ? <p className="error-text" role="alert">{changeRouteError}</p> : null}
-      {assignedDeltaError ? <p className="error-text" role="alert">{assignedDeltaError}</p> : null}
-      {inactiveError ? <p className="error-text" role="alert">{inactiveError}</p> : null}
-      {zoneError ? <p className="error-text" role="alert">{zoneError}</p> : null}
-      {commentError ? <p className="error-text" role="alert">{commentError}</p> : null}
-      {shareMessage ? <p className="route-search-share-message" role="status">{shareMessage}</p> : null}
-      {paymentMessage ? <p className="route-search-payment-message" role="status">{paymentMessage}</p> : null}
-      {routeActionMessage ? <div className="route-search-action-message" role="status">
-        <span>{routeActionMessage}</span>
-        {routeUndo && routeActionMessage === `${routeUndo.item.unitId} cambió a ${routeUndo.current}.` ? <button type="button" className="button ghost small" disabled={changingRoute !== null} onClick={() => void undoRouteChange()}>{changingRoute ? "Deshaciendo…" : "Deshacer"}</button> : null}
-      </div> : null}
+      <details className="route-collection-filters"><summary>Filtros{activeFilterCount > 0 ? <b>{activeFilterCount}</b> : null}</summary>
       {workflowView === "managed" && !isDeltaScopeLocked ? (
         <div className="route-search-delta-toolbar route-search-managed-delta-toolbar">
           <span className="route-search-filter-label">Filtrar gestionados por Delta</span>
@@ -1640,7 +1610,6 @@ export default function RouteSearchPage({
         </div>
       ) : null}
 
-      <details className="route-collection-filters"><summary>Filtrar por ruta y zona{routeFilter !== ALL_ACTIVE_ROUTE_FILTER ? ' · ' + activeRouteFilterLabel(routeFilter) : ''}{zoneFilterLabel ? ' · ' + zoneFilterLabel : ''}</summary>
       <div className="route-search-filter-line">
       {routeFilterOptions.length > 0 ? (
         <div className="route-search-filter-block">
@@ -1665,6 +1634,7 @@ export default function RouteSearchPage({
                 key={option}
                 type="button"
                 className={routeFilter === option ? "is-active" : ""}
+                aria-label={activeRouteFilterLabel(option)}
                 aria-pressed={routeFilter === option}
                 onClick={() => {
                   setRouteFilter(option);
@@ -1674,53 +1644,68 @@ export default function RouteSearchPage({
                   setZoneFilterLabel("");
                 }}
               >
-                {activeRouteFilterLabel(option)}
+                {activeRouteFilterLabel(option)} <small aria-hidden="true">{(workflowView === "managed" ? scopedManagedActions : activeItems).filter(item => activeRouteFilterValue(item.routeAssignment) === option).length}</small>
               </button>
             ))}
           </div>
         </div>
       ) : null}
 
-      {routeFilter !== ALL_ACTIVE_ROUTE_FILTER && workflowView !== "managed" ? (
-        <div className="route-search-filter-block route-search-zone-filter-block">
-          <span className="route-search-filter-label">Zona</span>
-          <div className="route-search-filters route-search-zone-filters" aria-label="Filtrar por zona">
-            <button
-              type="button"
-              className={zoneFilter === ALL_ACTIVE_ZONE_FILTER ? "is-active" : ""}
-              aria-pressed={zoneFilter === ALL_ACTIVE_ZONE_FILTER}
-              onClick={() => {
-                setZoneFilter(ALL_ACTIVE_ZONE_FILTER);
-                setZoneFilterLabel("");
-              }}
-            >
-              Todas ({selectedRouteItems.length})
-            </button>
-            {zoneFilterOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={zoneFilter === option.value ? "is-active" : ""}
-                aria-pressed={zoneFilter === option.value}
-                onClick={() => {
-                  setZoneFilter(option.value);
-                  setZoneFilterLabel(option.label);
-                }}
-              >
-                {option.label} ({option.count})
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
 
       </div>
 
       </details>
+        {activeFilterCount > 0 ? <button type="button" className="button ghost small route-clear-filters" onClick={() => {
+          setRouteFilter(ALL_ACTIVE_ROUTE_FILTER); setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel("");
+          setAssignedDeltaFilter(lockedScopeDelta); setDeltaFilter(null);
+        }}>Limpiar filtros</button> : null}
+      </div>
+      {workflowView !== "managed" && (selectedRouteItems.length > 0 || zoneFilter !== ALL_ACTIVE_ZONE_FILTER) ? <div className="route-search-zone-tabs">
+        <span>Zonas</span>
+        <div className="route-search-filters route-search-zone-filters" role="group" aria-label="Filtrar por zona">
+          <button type="button" className={zoneFilter === ALL_ACTIVE_ZONE_FILTER ? "is-active" : ""} aria-pressed={zoneFilter === ALL_ACTIVE_ZONE_FILTER}
+            onClick={() => { setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel(""); }}>Todas ({selectedRouteItems.length})</button>
+          {zoneFilterOptions.map(option => <button key={option.value} type="button" className={zoneFilter === option.value ? "is-active" : ""} aria-pressed={zoneFilter === option.value}
+            onClick={() => { setZoneFilter(option.value); setZoneFilterLabel(option.label); }}>{option.label} ({option.count})</button>)}
+        </div>
+      </div> : null}
+      {!isDeltaScopeLocked && (workflowView === "work" || workflowView === "managed") ? <div className="route-collection-overview">
+        <details className="route-team-overview"><summary><span>Resumen del equipo</span><small>{scopedManagedActions.length} gestiones hoy</small></summary>
+          <RouteTeamSummary dataOwnerUserId={dataOwnerUserId} actions={scopedManagedActions} activeDelta={deltaFilter}
+            activeRoute={routeFilter === ALL_ACTIVE_ROUTE_FILTER ? "" : routeFilter} onDeltaChange={toggleDeltaFilter} />
+        </details>
+      </div> : null}
+
+      {completedCash ? <div className="route-collection-success" role="status">
+        <div><strong>Pago gestionado · {completedCash.unit}</strong><p>{formatCurrency(completedCash.amount)} · Recibo generado. Puede confirmarle el pago al cliente.</p></div>
+      </div> : null}
+      {receiptError ? <p className="error-text" role="alert">{receiptError}</p> : null}
+      {error ? <p className="error-text">{error}</p> : null}
+      {changeRouteError ? <p className="error-text" role="alert">{changeRouteError}</p> : null}
+      {assignedDeltaError ? <p className="error-text" role="alert">{assignedDeltaError}</p> : null}
+      {inactiveError ? <p className="error-text" role="alert">{inactiveError}</p> : null}
+      {zoneError ? <p className="error-text" role="alert">{zoneError}</p> : null}
+      {commentError ? <p className="error-text" role="alert">{commentError}</p> : null}
+      {shareMessage ? <p className="route-search-share-message" role="status">{shareMessage}</p> : null}
+      {paymentMessage ? <p className="route-search-payment-message" role="status">{paymentMessage}</p> : null}
+      {routeActionMessage ? <div className="route-search-action-message" role="status">
+        <span>{routeActionMessage}</span>
+        {routeUndo && routeActionMessage === `${routeUndo.item.unitId} cambió a ${routeUndo.current}.` ? <button type="button" className="button ghost small" disabled={changingRoute !== null} onClick={() => void undoRouteChange()}>{changingRoute ? "Deshaciendo…" : "Deshacer"}</button> : null}
+      </div> : null}
+
+      <div className="route-collection-list-heading"><div>
+        <h2>{workflowView === "work" ? "Unidades por trabajar" : workflowView === "review" ? "Pagos por revisar" : workflowView === "custody" ? "Vehículos en custodia" : workflowView === "managed" ? "Gestiones de hoy" : "Pagos confirmados"}</h2>
+        <span>{workflowView === "managed" ? visibleManagedActions.length : visibleItems.length} unidades</span>
+      </div>{lastRefreshAt ? <small>Actualizado {lastRefreshAt}</small> : null}</div>
       {workflowView === "managed" ? (
-        visibleManagedActions.length === 0
+        isDeltaScopeLocked ? <RouteManagedCompactList actions={visibleManagedActions} receiptLoadingId={receiptLoading}
+          onReceipt={(action) => {
+            if (action.payment) setReceiptPreview(action.payment);
+            else if (action.report) void openReportReceipt(action.report);
+          }} /> : visibleManagedActions.length === 0
           ? <div className="route-search-empty">No hay carros gestionados hoy con estos filtros.</div>
           : <RouteManagedList actions={visibleManagedActions} deletingId={managedDeletingId} outcomeSavingId={managedOutcomeSavingId}
+              onReceipt={setReceiptPreview}
               onChangeOutcome={canConfirmCaptures ? (action) => void changeManagedOutcome(action) : undefined}
               onRequestDelete={canConfirmCaptures ? (action) => { setManagedDeleteTarget(action); setManagedDeleteError(""); } : undefined} />
       ) : loading && visibleItems.length === 0 ? (
@@ -1734,6 +1719,9 @@ export default function RouteSearchPage({
             const paidRent = routeRentAmountForDay(payments, item, businessDateKey, routeReviewIndex);
             const cardView = workflowView === "review" && item.reviewKind === "partial" ? "partial" : workflowView;
             return <RouteCollectionCard key={workflowView + '-' + (item.reviewKind ?? 'standard') + '-' + (item.report?.id ?? item.clientId)} item={item} view={cardView}
+              showAssignedDelta={!isDeltaScopeLocked}
+              highlightComments={isDeltaScopeLocked}
+              dataOwnerUserId={dataOwnerUserId} managementVersion="legacy"
               capture={captureByRouteItem.get(`${item.clientId}\u0000${item.publishedAt}`)}
               managementFields={activeRoute && !activeRoute.removedAt && cardView !== "review" && cardView !== "confirmed" ? renderManagementFields?.(activeRoute) : undefined}
               paidRent={paidRent} balance={currentBalance(item)} travelFundBalance={travelFundBalanceByClient.get(item.clientId) ?? 0} canReport={canReportPayment} canDeclareCustody={canRemoveFromRoute} canEdit={!readOnly}
@@ -1756,7 +1744,6 @@ export default function RouteSearchPage({
               canConfirmBank={Boolean(activeRoute && !activeRoute.removedAt && item.report?.status === "review" && item.report.bank_amount > item.report.confirmed_bank_amount && canConfirmBankPayment && onConfirmBankPayment)}
               bankConfirmationSaving={bankConfirmationSavingId === item.report?.id}
               bankNotices={!item.report ? bankNoticesByClient.get(item.clientId) ?? [] : []}
-              onReport={() => { setReportTarget(item); setReportAmount(""); setReportMethod(""); setReportCashAmount(""); setReportBankAmount(""); setReportManagementOutcome("collected"); setReportCashTeam(scopedCollectionTeam || asCollectionTeam(item.routeAssignment)); setReportError(""); }}
               onEditAmount={() => openAmountEditor(item, paidRent)}
               onRegister={() => openPaymentDialog(item, item.report)}
               onReceipt={() => { if (item.report) void openReportReceipt(item.report); }}
@@ -1774,6 +1761,38 @@ export default function RouteSearchPage({
           })}
         </div>
       )}
+
+      {declarationMethod && canReportPayment ? <RoutePaymentDeclarationDialog clients={clients} delta={lockedScopeDelta} method={declarationMethod}
+        routeClientIds={new Set(items.filter(item => !item.removedAt && (!lockedScopeDelta || item.assignedDelta === lockedScopeDelta)).map(item => item.clientId))}
+        checkRoute={async (clientId) => {
+          if (!dataOwnerUserId) throw new Error("No hay datos asignados para comprobar la ruta.");
+          return loadCloudActiveRouteItem(dataOwnerUserId, clientId);
+        }}
+        onExistingRoute={async (item) => {
+          if (lockedScopeDelta && item.assignedDelta !== lockedScopeDelta) {
+            throw new Error(item.unitId + " ya está en ruta con otro Delta. Solicita el cobro a su responsable o a Administración.");
+          }
+          const latestReport = dataOwnerUserId ? await loadRoutePaymentReportForItem(dataOwnerUserId, item.clientId, item.publishedAt) : null;
+          setItems(current => applyActiveRouteDelta(current, { clientId: item.clientId, item }));
+          if (latestReport) setReports(current => applyRouteReportDelta(current, { id: latestReport.id, report: latestReport }));
+          const currentReports = latestReport ? applyRouteReportDelta(reports, { id: latestReport.id, report: latestReport }) : reports;
+          const canContinueWork = getRouteWorkItems([item], payments, businessDateKey, currentReports).length > 0;
+          if (item.inCustody) throw new Error(item.unitId + " está en custodia. Revisa su estado antes de declarar un pago.");
+          if (latestReport?.status === "review") throw new Error(item.unitId + " ya tiene un pago pendiente de revisión.");
+          if (!canContinueWork) throw new Error(item.unitId + " no tiene una gestión de cobro pendiente en Trabajo.");
+          setReportTarget(item); setReportMethod(declarationMethod); setReportAmount(""); setReportCashAmount(""); setReportBankAmount("");
+          setReportCashTeam(item.assignedDelta ? collectionTeamForDelta(item.assignedDelta) : asCollectionTeam(item.routeAssignment));
+          setReportError("");
+        }}
+        onRegister={onRegisterPayment}
+        onSuccess={(client, result) => {
+          openWorkflow("managed");
+          setRouteFilter(ALL_ACTIVE_ROUTE_FILTER); setZoneFilter(ALL_ACTIVE_ZONE_FILTER); setZoneFilterLabel("");
+          setAssignedDeltaFilter(signedInAssignedDelta); setDeltaFilter(null); setQuery("");
+          setPaymentMessage(client.unitId + ": cobro fuera de ruta registrado · Recibo " + result.receiptNumber + " · Efectivo pendiente de entrega.");
+          if (result.payment) setReceiptPreview(result.payment);
+        }}
+        onClose={() => setDeclarationMethod(null)} /> : null}
 
       {assignmentManagerOpen && canEditAssignedDelta ? (
         <div className="modal-overlay route-search-payment-overlay">
@@ -1894,27 +1913,21 @@ export default function RouteSearchPage({
       {reportTarget ? (
         <div className="modal-overlay route-search-payment-overlay">
           <form className="modal route-search-payment-modal" role="dialog" aria-modal="true" aria-labelledby="route-report-title" onSubmit={(event) => void submitReport(event)}>
-            <div className="modal-header"><div><h2 id="route-report-title">Notificar pago</h2><p>{reportTarget.unitId} · {reportTarget.clientName}</p></div></div>
+            <div className="modal-header"><div><h2 id="route-report-title">{reportMethod ? ROUTE_PAYMENT_DECLARATIONS[reportMethod].title : "Declarar pago"}{reportMethod === "mixed" ? " (Efectivo+transferencia)" : null}</h2><p>{reportTarget.unitId} · {reportTarget.clientName}</p>
+              <p><strong className="outside-route-cash-only-label">SOLO UNIDADES EN RUTA</strong></p></div></div>
             <div className="route-search-payment-form">
-              <label><span>Cómo pagó</span><select value={reportMethod} onChange={(event) => setReportMethod(event.target.value as "" | "cash" | "bank" | "mixed")} required autoFocus disabled={reportSaving}>
-                <option value="">Seleccionar</option><option value="cash">Efectivo</option><option value="bank">Banca</option><option value="mixed">Mixto (efectivo + banca)</option>
-              </select></label>
-              <label><span>Resultado de la gestión</span><select value={reportManagementOutcome} onChange={(event) => setReportManagementOutcome(event.target.value as RouteManagementOutcome)} required disabled={reportSaving}>
-                <option value="collected">Cobrado</option><option value="remote">Gestión remota</option>
-              </select></label>
-              <p className="hint">El resultado es independiente del medio de pago. Usa Gestión remota solo cuando el Delta coordinó el pago sin ir a cobrarlo directamente.</p>
               {reportMethod === "mixed" ? <>
                 <label><span>Cuánto en efectivo ($)</span><input type="number" min="0.01" max="9999999999.99" step="0.01" inputMode="decimal" value={reportCashAmount} onChange={(event) => setReportCashAmount(event.target.value)} required disabled={reportSaving} /></label>
-                <label><span>Cuánto por banca ($)</span><input type="number" min="0.01" max="9999999999.99" step="0.01" inputMode="decimal" value={reportBankAmount} onChange={(event) => setReportBankAmount(event.target.value)} required disabled={reportSaving} /></label>
+                <label><span>Cuánto por transferencia ($)</span><input type="number" min="0.01" max="9999999999.99" step="0.01" inputMode="decimal" value={reportBankAmount} onChange={(event) => setReportBankAmount(event.target.value)} required disabled={reportSaving} /></label>
                 <strong aria-live="polite">Total reportado: {formatCurrency((Number(reportCashAmount) || 0) + (Number(reportBankAmount) || 0))}</strong>
               </> : <label><span>Cuánto pagó ($)</span><input type="number" min="0.01" max="9999999999.99" step="0.01" inputMode="decimal" value={reportAmount} onChange={(event) => setReportAmount(event.target.value)} required disabled={reportSaving} /></label>}
-              {reportMethod === "cash" || reportMethod === "mixed" ? <label><span>Equipo que recibió el efectivo</span><select value={reportCashTeam} onChange={(event) => setReportCashTeam(event.target.value as CollectionTeam | "")} required disabled={reportSaving || Boolean(scopedCollectionTeam)}>
+              {!isDeltaScopeLocked && (reportMethod === "cash" || reportMethod === "mixed") ? <label><span>Equipo que recibió el efectivo</span><select value={reportCashTeam} onChange={(event) => setReportCashTeam(event.target.value as CollectionTeam | "")} required disabled={reportSaving}>
                 <option value="">Seleccionar</option><option value="PTY">PTY</option><option value="WC">WC</option>
               </select></label> : null}
-              <p className="hint">{reportMethod === "cash" || reportMethod === "mixed" ? "El efectivo generará su recibo de inmediato. La parte bancaria quedará notificada hasta su confirmación." : "Se moverá a Pago notificado. El saldo cambia cuando se aplique el pago."}</p>
+              <p className="hint">{reportMethod === "cash" ? "El efectivo generará su recibo y quedará pendiente de entrega." : reportMethod === "mixed" ? "El efectivo generará su recibo y quedará pendiente de entrega. La transferencia quedará pendiente de confirmación." : "La transferencia quedará pendiente de confirmación. El saldo cambiará cuando se aplique el pago."}</p>
               {reportError ? <p className="error-text" role="alert">{reportError}</p> : null}
             </div>
-            <div className="modal-actions"><button type="button" className="button ghost" disabled={reportSaving} onClick={() => setReportTarget(null)}>Cancelar</button><button type="submit" className="button primary" disabled={reportSaving}>{reportSaving ? "Enviando..." : "Notificar pago"}</button></div>
+            <div className="modal-actions"><button type="button" className="button ghost" disabled={reportSaving} onClick={() => setReportTarget(null)}>Cancelar</button><button type="submit" className="button primary" disabled={reportSaving}>{reportSaving ? "Guardando..." : "Confirmar declaración"}</button></div>
           </form>
         </div>
       ) : null}
@@ -1991,7 +2004,7 @@ export default function RouteSearchPage({
       ) : null}
 
       <div className="route-share-stage" aria-hidden="true">
-        {visibleRouteGroups.map((group) => (
+        {ROUTE_SHARING_ENABLED && visibleRouteGroups.map((group) => (
           <div
             className="route-share-sheet"
             key={group.routeValue}

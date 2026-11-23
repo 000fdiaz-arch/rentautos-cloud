@@ -1,0 +1,180 @@
+.route-search-page.route-search-page--organized { max-width: 1240px; padding-bottom: 20px; }
+.route-search-page--organized .route-search-header { align-items: center; gap: 16px; margin-bottom: 20px; }
+.route-search-page--organized .route-search-header h1 { font-size: 1.45rem; letter-spacing: -.035em; }
+.route-search-page--organized .route-search-header p { margin-top: 5px; font-size: .76rem; }
+.route-search-page--organized .route-search-heading { flex: 1; min-width: 0; }
+.route-search-page--organized .route-search-cash-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 165px)); align-items: start; gap: 10px; width: min(100%, 690px); margin-top: 12px; }
+.route-search-page--organized .route-search-cash-actions:not(:has(> .route-payment-declaration-button)) { grid-template-columns: minmax(0, 165px); width: min(100%, 165px); }
+.route-search-page--organized .route-search-cash-actions > .route-pending-cash-disclosure { grid-row: 1; grid-column: 1; width: 100%; margin: 0; min-width: 0; }
+.route-search-page--organized .route-search-cash-actions > .route-pending-cash-disclosure[open] { grid-column: 1 / -1; }
+.route-search-page--organized .route-search-cash-actions > .route-pending-cash-disclosure > summary { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; height: 68px; align-content: center; }
+.route-search-page--organized .route-search-cash-actions > .route-pending-cash-disclosure[open] > summary { width: calc((100% - 30px) / 4); }
+.route-search-page--organized .route-search-cash-actions:not(:has(> .route-payment-declaration-button)) > .route-pending-cash-disclosure[open] > summary { width: 100%; }
+.route-search-page--organized .route-payment-declaration-button { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px; grid-row: 1; align-self: start; box-sizing: border-box; width: 100%; min-width: 0; height: 68px; margin: 0; padding: 7px; font-size: .74rem; white-space: normal; box-shadow: none; border: 1px solid; }
+.route-search-page--organized .route-payment-declaration-button--cash { grid-column: 2; background: #0f766e; color: #fff; border-color: #0f766e; }
+.route-search-page--organized .route-payment-declaration-button--bank { grid-column: 3; background: #eff6ff; color: #1e40af; border-color: #93c5fd; }
+.route-search-page--organized .route-payment-declaration-button--mixed { grid-column: 4; background: #f5f3ff; color: #6d28d9; border-color: #c4b5fd; gap: 3px; padding: 5px 3px; line-height: 1.15; }
+.route-search-page--organized .route-declaration-method-note { display: block; margin-top: 2px; font-size: .6rem; font-weight: 500; line-height: 1.1; }
+.route-search-page--organized .route-declaration-badge, .outside-route-cash-only-label { display: inline-block; padding: 3px 6px; border-radius: 4px; background: #fff1bf; color: #713f12; font-size: .62rem; font-weight: 800; letter-spacing: .015em; }
+.route-search-page--organized .route-search-header:has(.route-pending-cash-disclosure[open]) { align-items: flex-start; }
+.route-search-page--organized .route-pending-cash-disclosure { width: fit-content; max-width: 100%; margin-top: 12px; }
+.route-search-page--organized .route-pending-cash-disclosure > summary { width: fit-content; min-width: 132px; padding: 8px 13px; border: 1px solid #b7ddd4; border-left: 4px solid var(--color-primary); border-radius: 8px; background: #e8f6f1; color: var(--color-primary); font-size: 1.45rem; font-weight: 750; letter-spacing: -.035em; font-variant-numeric: tabular-nums; cursor: pointer; list-style: none; }
+.route-search-page--organized .route-pending-cash-disclosure > summary::-webkit-details-marker { display: none; }
+.route-search-page--organized .route-pending-cash-disclosure > summary { display: grid; gap: 3px; }
+.route-search-page--organized .route-pending-cash-label { font-size: .72rem; font-weight: 600; letter-spacing: 0; }
+.route-search-page--organized .route-pending-cash-disclosure > summary > strong { font-size: inherit; font-weight: inherit; }
+.route-search-page--organized .route-pending-cash-disclosure > summary:hover { background: #daf0e9; }
+.route-search-page--organized .route-pending-cash-disclosure > summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
+.route-search-page--organized .route-pending-cash-disclosure[open] { width: 100%; }
+.route-search-page--organized .route-pending-cash-disclosure > .route-pending-cash { max-width: 340px; padding: 0 14px; margin: 9px 0 0; border: 1px solid var(--color-border); border-radius: 9px; background: var(--color-surface); }
+.route-search-page--organized .route-pending-cash-disclosure .route-pending-cash-receipts { max-height: 280px; overflow-y: auto; scrollbar-gutter: stable; }
+.route-search-page--organized .route-pending-cash-receipts { list-style: none; padding: 0; margin: 0; }
+.route-search-page--organized .route-pending-cash-receipts > li { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: center; gap: 10px; padding: 9px 0; overflow-wrap: anywhere; }
+.route-search-page--organized .route-pending-cash-receipts > li + li { border-top: 1px solid var(--color-border); }
+.route-search-page--organized .route-pending-cash-unit { justify-self: start; min-width: 44px; padding: 5px 2px; border-radius: 5px; background: #edf5f3; color: #0f766e; text-align: center; font-size: .75rem; }
+.route-search-page--organized .route-pending-cash-amount { color: #0f172a; font-size: .85rem; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.route-search-page--organized .route-search-header-actions { gap: 7px; }
+.route-search-page--organized .route-search-header-actions .button { box-shadow: none; min-height: 38px; font-size: .75rem; }
+.route-search-page--organized .route-share-short, .route-search-page--organized .route-refresh-icon { display: none; }
+.route-search-page--organized .route-search-workflow-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin: 0 0 16px; padding: 5px; border: 1px solid #dfe7eb; border-radius: 12px; background: #e9eff2; }
+.route-search-page--organized .route-search-workflow-tabs--delta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.route-search-page.route-search-page--organized .route-search-workflow-tabs .route-search-workflow-tab { min-height: 43px; padding: 10px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #526176; font-size: .8rem; font-weight: 600; box-shadow: none; }
+.route-search-page.route-search-page--organized .route-search-workflow-tabs .route-search-workflow-tab[aria-pressed="true"] { background: #fff; border-color: #d6e5e1; color: #0b7066; box-shadow: 0 1px 4px #0f172a0b; }
+.route-search-page.route-search-page--organized .route-search-workflow-tabs .route-search-workflow-tab:hover { background: #f8fafc; }
+.route-search-page--organized .route-collection-toolbar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+.route-search-page--organized .route-search-zone-tabs { min-width: 0; margin: 0 0 16px; }
+.route-search-page--organized .route-search-zone-tabs > span { display: block; margin-bottom: 7px; color: #475569; font-size: .78rem; font-weight: 650; }
+.route-search-page--organized .route-search-zone-tabs > .route-search-zone-filters { display: flex; flex-wrap: nowrap; gap: 7px; max-width: 100%; overflow-x: auto; padding: 2px 2px 7px; overscroll-behavior-inline: contain; scrollbar-width: thin; }
+.route-search-page--organized .route-search-zone-tabs button { flex: 0 0 auto; min-height: 36px; border: 1px solid #d9e3e7; background: #fff; color: #475569; white-space: nowrap; }
+.route-search-page--organized .route-search-zone-tabs button[aria-pressed="true"] { border-color: #0f766e; background: #0f766e; color: #fff; }
+.route-search-page--organized .route-search-box { flex: 1 1 260px; margin: 0; }
+.route-search-page--organized .route-search-box > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.route-search-page--organized .route-search-box input { min-height: 43px; padding: 11px 14px; border: 1px solid #dce4e9; border-radius: 9px; background: #fff; font-size: .83rem; }
+.route-search-page--organized .route-collection-filters { flex: 0 0 auto; min-width: 125px; margin: 0; padding: 0; border: 1px solid #dce4e9; border-radius: 9px; background: #fff; }
+.route-search-page--organized .route-collection-filters > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; color: #334155; font-size: .8rem; font-weight: 600; cursor: pointer; list-style: none; }
+.route-search-page--organized .route-collection-filters > summary::-webkit-details-marker { display: none; }
+.route-search-page--organized .route-collection-filters > summary::after { content: "+"; color: #64748b; font-size: 1rem; line-height: 1; }
+.route-search-page--organized .route-collection-filters[open] > summary::after { content: "−"; }
+.route-search-page--organized .route-collection-filters > summary b { padding: 1px 6px; border-radius: 20px; background: #e3f4ef; color: #0f766e; font-size: .7rem; }
+.route-search-page--organized .route-collection-filters[open] { flex: 1 0 100%; }
+.route-search-page--organized .route-collection-filters[open] > summary { border-bottom: 1px solid #edf1f4; }
+.route-search-page--organized .route-collection-filters .route-search-delta-toolbar { margin: 0; padding: 14px 16px 0; }
+.route-search-page--organized .route-collection-filters .route-search-filter-line { padding: 14px 16px; margin: 0; gap: 14px; }
+.route-search-page--organized .route-search-filter-label { color: #778497; font-size: .65rem; letter-spacing: .06em; }
+.route-search-page--organized .route-search-filters button { min-height: 34px; padding: 7px 12px; border-radius: 7px; box-shadow: none; font-size: .76rem; }
+.route-search-page--organized .route-search-filters button > small { padding: 1px 5px; border-radius: 4px; background: #edf2f4; color: #718096; font-size: .65rem; }
+.route-search-page--organized .route-clear-filters { min-height: 43px; }
+.route-search-page--organized .route-collection-overview { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.route-search-page--organized .route-collection-overview > details { flex: 1 1 250px; margin: 0; padding: 0; border: 1px solid #e0e7ec; border-radius: 9px; background: #fff; }
+.route-search-page--organized .route-collection-overview > details > summary { display: flex; align-items: center; gap: 12px; padding: 11px 13px; color: #536175; font-size: .76rem; cursor: pointer; list-style: none; }
+.route-search-page--organized .route-collection-overview > details > summary::-webkit-details-marker { display: none; }
+.route-search-page--organized .route-collection-overview > details > summary::after { content: "⌄"; margin-left: auto; font-size: .9rem; }
+.route-search-page--organized .route-collection-overview > details[open] { flex-basis: 100%; }
+.route-search-page--organized .route-collection-overview summary small { padding: 2px 7px; background: #f0f5f4; border-radius: 20px; color: #0f766e; font-size: .66rem; white-space: nowrap; }
+.route-search-page--organized .route-collection-overview .route-team-summary { margin: 0; border: 0; border-top: 1px solid #e2e8f0; border-radius: 0 0 9px 9px; }
+.route-search-page--organized .route-collection-overview .route-pending-cash { margin: 0; padding: 4px 14px 12px; }
+.route-search-page--organized .route-collection-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0 12px; }
+.route-search-page--organized .route-collection-list-heading > div { display: flex; align-items: center; gap: 9px; }
+.route-search-page--organized .route-collection-list-heading h2 { margin: 0; color: #334155; font-size: .9rem; font-weight: 650; letter-spacing: -.015em; }
+.route-search-page--organized .route-collection-list-heading span { color: #8490a0; font-size: .72rem; }
+.route-search-page--organized .route-collection-list-heading > small { color: #8490a0; font-size: .68rem; }
+.route-search-page--organized .route-search-list { gap: 14px; }
+.route-search-page.route-search-page--organized .route-collection-card { padding: 17px; border-radius: 12px; box-shadow: none; }
+.route-search-page.route-search-page--organized .route-collection-card--time-progress { border: 1px solid #e0e5eb; border-top: 3px solid var(--route-time-accent); background: #fff; box-shadow: none; }
+.route-search-page--organized .route-collection-identity { gap: 10px; margin-bottom: 14px; }
+.route-search-page--organized .route-collection-identity > div { min-width: 0; flex: 1; }
+.route-search-page--organized .route-collection-identity h2 { font-size: 1.13rem; }
+.route-search-page--organized .route-collection-identity > .route-collection-route-control { position: relative; flex: 0 0 auto; }
+.route-search-page--organized .route-collection-change-route { min-height: 34px; padding: 7px 9px; color: #0f766e; font-size: .72rem; white-space: nowrap; box-shadow: none; }
+.route-search-page--organized .route-collection-route-options { position: absolute; top: calc(100% + 6px); right: 0; z-index: 6; display: grid; gap: 7px; width: 200px; max-width: calc(100vw - 70px); padding: 10px; border: 1px solid #cbd5e1; border-radius: 9px; background: #fff; box-shadow: 0 6px 20px #0f172a20; }
+.route-search-page--organized .route-collection-route-options-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #64748b; font-size: .75rem; }
+.route-search-page--organized .route-collection-route-options-heading > button { min-height: 26px; padding: 2px 7px; border: 0; background: transparent; color: #64748b; box-shadow: none; font-size: 1.1rem; }
+.route-search-page--organized .route-collection-route-options > input { width: 100%; min-width: 0; min-height: 36px; padding: 7px 9px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: .78rem; }
+.route-search-page--organized .route-collection-route-options-list { display: grid; gap: 2px; max-height: 150px; overflow-y: auto; scrollbar-width: thin; }
+.route-search-page--organized .route-collection-route-options-list > button { min-height: 34px; padding: 7px 9px; border: 0; border-radius: 5px; background: transparent; color: #334155; text-align: left; font-size: .78rem; box-shadow: none; }
+.route-search-page--organized .route-collection-route-options-list > button:hover, .route-search-page--organized .route-collection-route-options-list > button:focus-visible { background: #e8f6f1; color: #0f766e; }
+.route-search-page--organized .route-collection-route-options > .route-collection-create-route { min-height: 32px; padding: 7px 9px; border: 0; border-top: 1px solid #e2e8f0; border-radius: 0; background: transparent; color: #0f766e; text-align: left; font-size: .75rem; box-shadow: none; }
+.route-search-page--organized .route-collection-route-options > p { margin: 0; color: #64748b; font-size: .75rem; }
+.route-search-page--organized .route-collection-route-time--progressive { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; width: 100%; box-sizing: border-box; gap: 8px 12px; margin: 14px 0 0; padding: 11px 12px; border: 1px solid #f0d9df; border-radius: 8px; background: var(--route-time-surface); color: #7f3540; }
+.route-search-page--organized .route-collection-route-time--progressive > .route-collection-time-duration { display: grid; gap: 4px; }
+.route-search-page--organized .route-collection-route-time--progressive span small { font-size: .69rem; font-weight: 500; letter-spacing: 0; text-transform: none; line-height: 1.2; }
+.route-search-page--organized .route-collection-route-time--progressive span strong { font-size: 1.05rem; font-weight: 750; line-height: 1.2; white-space: nowrap; }
+.route-search-page--organized .route-collection-route-time--progressive em { padding: 5px 8px; border: 1px solid #dfb4c0; border-radius: 6px; background: #fff8fa; font-size: .71rem; font-weight: 700; }
+.route-search-page--organized .route-collection-amount { font-size: 1.8rem; letter-spacing: -.045em; }
+.route-search-page--organized .route-collection-summary { margin: 0; }
+.route-search-page--organized .route-collection-card--time-progress > .route-collection-summary { display: block; }
+.route-search-page--organized .route-collection-summary > .route-collection-tag { margin: 0 0 7px; }
+.route-search-page--organized .route-collection-action { border: 1px solid; }
+.route-search-page--organized .route-collection-action--solo_cobrar { color: #0f766e; background: #ccfbf1; border-color: #5eead4; }
+.route-search-page--organized .route-collection-action--cobrar_o_quitar { color: #9a3412; background: #fed7aa; border-color: #fb923c; }
+.route-search-page--organized .route-collection-action--desiste { color: #6b21a8; background: #e9d5ff; border-color: #c084fc; }
+.route-search-page--organized .route-collection-action--quitar { color: #b91c1c; background: #fecaca; border-color: #f87171; }
+.route-search-page--organized .route-collection-summary .route-collection-amount-row { margin: 0; }
+.route-search-page--organized .route-collection-summary .route-collection-amount { margin: 0; line-height: 1.15; }
+.route-search-page--organized .route-collection-summary > .route-collection-context { margin: 5px 0 0; font-size: .72rem; }
+.route-search-page--organized .route-collection-instruction { margin: 8px 0 0; color: #536175; font-size: .75rem; }
+.route-search-page--organized .route-collection-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 0; }
+.route-search-page--organized .route-collection-zone-field { display: grid; gap: 5px; min-width: 0; max-width: 100%; margin: 0; }
+.route-search-page--organized .route-collection-zone-field > span { color: #64748b; font-size: .69rem; font-weight: 600; }
+.route-search-page--organized .route-collection-meta > span { padding: 4px 7px; border: 1px solid #e5ebef; border-radius: 5px; background: #f8fafb; color: #657386; font-size: .7rem; }
+.route-search-page--organized .route-collection-zone-inline { min-width: 0; max-width: 100%; min-height: 28px; padding: 4px 7px; border: 1px solid #dce5e9; border-radius: 5px; background: #f8fafb; color: #536175; font: inherit; font-size: .7rem; cursor: text; }
+.route-search-page--organized .route-collection-zone-inline:hover { border-color: #94bcb4; background: #fff; }
+.route-search-page--organized .route-collection-zone-inline:focus { outline: 2px solid #0f766e; outline-offset: 2px; border-color: #0f766e; background: #fff; }
+.route-search-page--organized .route-collection-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 16px; }
+.route-search-page--organized .route-collection-actions:empty { display: none; }
+.route-search-page--organized .route-collection-actions > .button { flex: 1 1 120px; min-height: 38px; font-size: .76rem; box-shadow: none; }
+.route-search-page--organized .route-collection-more-actions { flex: 0 0 auto; }
+.route-search-page--organized .route-collection-more-actions > summary { padding: 11px 9px; border: 1px solid #e0e7ec; border-radius: 7px; color: #64748b; cursor: pointer; list-style: none; font-size: .73rem; }
+.route-search-page--organized .route-collection-more-actions[open] { flex-basis: 100%; }
+.route-search-page--organized .route-collection-more-actions > div { display: grid; gap: 7px; padding-top: 8px; }
+.route-search-page--organized .route-collection-edit { margin-top: 12px; padding-top: 10px; border-top: 1px solid #eef1f4; }
+.route-search-page--organized .route-collection-edit > summary { color: #64748b; font-size: .73rem; cursor: pointer; }
+.route-search-page--organized .route-collection-edit-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px 0 3px; }
+.route-search-page--organized .route-collection-edit-fields .route-collection-comment { grid-column: 1 / -1; }
+.route-search-page--organized .route-collection-edit-fields label { min-width: 0; margin: 0; }
+.route-search-page--organized .route-collection-details { margin-top: 10px; padding-top: 10px; }
+.route-search-page--organized .route-collection-saved-comment { margin: 10px 0 0; padding: 7px 9px; background: #f8fafb; border-radius: 6px; font-size: .73rem; }
+.route-search-page--organized .route-collection-saved-comment--highlight { padding: 10px 12px; border: 1px solid #f5d477; border-left: 4px solid #d99b16; background: #fff4cc; color: #713f12; font-size: .82rem; font-weight: 600; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.route-search-page--organized .route-collection-saved-comment--highlight > small { color: #92400e; font-size: .63rem; }
+.route-search-page--organized .route-vehicle-details { margin-top: 12px; padding: 11px; border: 1px solid #dce5e9; border-radius: 8px; background: #f8fafb; color: #334155; }
+.route-search-page--organized .route-vehicle-details-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; margin: 0; }
+.route-search-page--organized .route-vehicle-details-fields > div { display: grid; gap: 3px; min-width: 0; }
+.route-search-page--organized .route-vehicle-details-fields > div:last-child { grid-column: 1 / -1; }
+.route-search-page--organized .route-vehicle-details-fields dt { color: #64748b; font-size: .7rem; }
+.route-search-page--organized .route-vehicle-details-fields dd { margin: 0; color: #0f172a; font-size: .82rem; font-weight: 600; text-align: left; overflow-wrap: anywhere; }
+.route-search-page--organized .route-vehicle-details p { margin: 5px 0; font-size: .76rem; }
+@media (max-width: 640px) {
+  .route-search-page--organized .route-search-cash-actions { position: relative; grid-template-columns: repeat(2, minmax(0, 165px)); width: min(100%, 340px); }
+  .route-search-page--organized .route-search-cash-actions > .route-pending-cash-disclosure[open] > summary { width: calc((100% - 10px) / 2); }
+  .route-search-page--organized .route-search-cash-actions:has(> .route-payment-declaration-button) > .route-pending-cash-disclosure > .route-pending-cash { margin-top: 87px; }
+  .route-search-page--organized .route-payment-declaration-button--bank { grid-row: 2; grid-column: 1; }
+  .route-search-page--organized .route-payment-declaration-button--mixed { grid-row: 2; grid-column: 2; }
+  .route-search-page--organized .route-search-cash-actions:has(> .route-pending-cash-disclosure[open]) > .route-payment-declaration-button--bank,
+  .route-search-page--organized .route-search-cash-actions:has(> .route-pending-cash-disclosure[open]) > .route-payment-declaration-button--mixed { position: absolute; top: 78px; grid-row: auto; grid-column: auto; width: calc((100% - 10px) / 2); }
+  .route-search-page--organized .route-search-cash-actions:has(> .route-pending-cash-disclosure[open]) > .route-payment-declaration-button--bank { left: 0; }
+  .route-search-page--organized .route-search-cash-actions:has(> .route-pending-cash-disclosure[open]) > .route-payment-declaration-button--mixed { right: 0; }
+  .route-search-page--organized .route-search-header { align-items: flex-start; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+  .route-search-page--organized .route-search-header { position: relative; }
+  .route-search-page--organized .route-search-heading { width: 100%; }
+  .route-search-page--organized .route-search-heading > h1 { padding-right: 44px; }
+  .route-search-page--organized .route-search-header-actions:not(:has(.route-search-share-button)) { position: absolute; top: 0; right: 0; width: auto; }
+  .route-search-page--organized .route-search-header-actions { display: grid; grid-template-columns: minmax(0, 1fr) 38px; width: 100%; gap: 6px; }
+  .route-search-page--organized .route-search-header-actions > .button { min-width: 0; padding: 8px 7px; }
+  .route-search-page--organized .route-search-header-actions:has(.route-outside-cash-button):has(.route-search-share-button) { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) 38px; }
+  .route-search-page--organized .route-search-header-actions:not(:has(.route-outside-cash-button)):not(:has(.route-search-share-button)) { grid-template-columns: 38px; justify-content: end; }
+  .route-search-page--organized .route-share-label, .route-search-page--organized .route-refresh-label { display: none; }
+  .route-search-page--organized .route-share-short, .route-search-page--organized .route-refresh-icon { display: inline; }
+  .route-search-page--organized .route-refresh-icon { font-size: 1.2rem; line-height: 1; }
+  .route-search-page--organized .route-search-workflow-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; margin-bottom: 12px; }
+  .route-search-page.route-search-page--organized .route-search-workflow-tabs .route-search-workflow-tab { min-height: 39px; font-size: .73rem; }
+  .route-search-page--organized .route-search-box { flex-basis: 190px; }
+  .route-search-page--organized .route-collection-filters { min-width: 94px; }
+  .route-search-page--organized .route-collection-overview { gap: 7px; margin-bottom: 16px; }
+  .route-search-page--organized .route-collection-overview > details { flex-basis: calc(50% - 4px); min-width: 0; }
+  .route-search-page--organized .route-collection-overview > details > summary { min-height: 50px; gap: 5px; padding: 9px 10px; font-size: .7rem; }
+  .route-search-page--organized .route-team-overview > summary small { display: none; }
+  .route-search-page--organized .route-collection-list-heading { align-items: flex-start; }
+  .route-search-page--organized .route-collection-list-heading > div { flex-wrap: wrap; gap: 4px 8px; }
+  .route-search-page--organized .route-collection-list-heading > small { max-width: 120px; text-align: right; }
+  .route-search-page--organized .route-search-list { grid-template-columns: minmax(0, 1fr); }
+}

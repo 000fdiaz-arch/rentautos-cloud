@@ -1,5 +1,17 @@
 # Reportes de pagos en Ruta en calle
 
+## Declaraciones y vista de los Deltas
+
+- Arriba se declara efectivo, transferencia o pago mixto. Transferencias y mixtos se limitan a unidades en ruta y se vuelven a validar antes de guardar.
+- El efectivo fuera de ruta utiliza el pago y recibo habituales y conserva Delta, equipo, autor y fecha en `outsideRouteCollection`. No publica la unidad en ruta.
+- El efectivo genera recibo y queda pendiente de entrega; la transferencia espera confirmación. Los mixtos conservan ambas partes.
+- Los Deltas ven Trabajo y Gestionados hoy. La lista compacta filtra resultados y métodos; un pago con ambos métodos aparece en ambos filtros sin duplicar el total.
+- Las zonas están visibles, con conteos por asignación y orden de mayor a menor para los Deltas. La tarjeta destaca acción, monto, comentarios, zona y tiempo.
+- Datos del auto consulta placa, color y marca/modelo al abrir el bloque. Aplicar `supabase/migrations/20261123000100_route_vehicle_details.sql`: lectura de tres campos por unidad, dueño, publicación y Delta, sin acceso general a Autos.
+- Compartir por ruta y el botón Marcar inactivo quedan ocultos. El resumen del equipo excluye cuentas Delta desactivadas.
+
+Pruebas: `tests/route-payment-declarations-ui-test.mjs`, `tests/outside-route-cash-ui-test.mjs`, `tests/route-vehicle-zones-ui-test.mjs`, `tests/route-vehicle-details-db-test.mjs`. Los fixtures usan datos sintéticos y bloquean solicitudes externas.
+
 ## Instalación
 
 Aplicar en orden `supabase/migrations/20260904000100_route_payment_reports.sql` y `supabase/migrations/20260904000200_route_mixed_payment_reports.sql` al proyecto Supabase antes de publicar el frontend. Los archivos `supabase/69-route-payment-reports.sql` y `supabase/70-route-mixed-payment-reports.sql` contienen el mismo SQL para instalaciones manuales por SQL Editor. Si ya se aplicó la primera, aplicar únicamente la segunda. Requiere las tablas y permisos actuales de Ruta en calle y Pagos. Las migraciones no modifican saldos ni pagos existentes.

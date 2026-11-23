@@ -361,7 +361,16 @@ export type PaymentIncomeEdit = {
 export type Payment = {
   id: string;
   source?: "route";
+  outsideRouteCollection?: {
+    version: "legacy" | "v2";
+    delta: CollectionDelta;
+    team: CollectionTeam;
+    collectedBy: string;
+    collectedAt: string;
+  };
   routeReportId?: string;
+  /** Receipt belonging to the isolated route collection, when present. */
+  cxcV2RouteReportId?: string;
   bankConfirmation?: {
     routeReportId: string;
     confirmedAt: string;

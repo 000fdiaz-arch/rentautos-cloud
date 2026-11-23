@@ -359,6 +359,17 @@ function normalizePaymentIncomeEdits(value: unknown): PaymentIncomeEdit[] | unde
   return edits.length > 0 ? edits : undefined;
 }
 
+function normalizeOutsideRouteCollection(value: unknown): Payment["outsideRouteCollection"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const row = value as Record<string, unknown>;
+  if ((row.version !== "legacy" && row.version !== "v2")
+    || (row.delta !== "delta1" && row.delta !== "delta2" && row.delta !== "delta3")
+    || row.team !== (row.delta === "delta2" ? "WC" : "PTY")
+    || typeof row.collectedBy !== "string" || !row.collectedBy.trim()
+    || typeof row.collectedAt !== "string" || !Number.isFinite(Date.parse(row.collectedAt))) return undefined;
+  return { version: row.version, delta: row.delta, team: row.team as "WC" | "PTY", collectedBy: row.collectedBy, collectedAt: row.collectedAt };
+}
+
 function normalizePayment(item: unknown): Payment | null {
   if (!item || typeof item !== "object") return null;
   const raw = item as Record<string, unknown>;
@@ -423,6 +434,10 @@ function normalizePayment(item: unknown): Payment | null {
 
   return {
     id: raw.id,
+    source: raw.source === "route" ? "route" : undefined,
+    routeReportId: typeof raw.routeReportId === "string" ? raw.routeReportId : undefined,
+    cxcV2RouteReportId: typeof raw.cxcV2RouteReportId === "string" ? raw.cxcV2RouteReportId : undefined,
+    outsideRouteCollection: normalizeOutsideRouteCollection(raw.outsideRouteCollection),
     createdBy:
       typeof raw.createdBy === "string" && raw.createdBy.trim()
         ? raw.createdBy.trim()

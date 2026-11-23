@@ -31,6 +31,7 @@ import {
   loadCloudOtherChargesRetention,
   loadCloudPayments,
   loadCloudActiveRouteItems,
+  loadCloudActiveRouteItem,
   loadCollisionCases,
   loadControlUnits,
   loadInsuranceClaims,
@@ -69,7 +70,9 @@ import { confirmRouteBankReport, loadRoutePaymentReports, type RouteBankConfirma
 import { stableEqual } from "./stableSerialize";
 import { routeFilterForOperatorEmail } from "./routeOperatorScope";
 import { buildManualPaymentTransaction } from "./pages/payments/manualPaymentWorkflow";
-import { getPendingCashChangeError } from "./cashTeamRules";
+import { getPendingCashChangeError, collectionTeamForDelta } from "./cashTeamRules";
+import { routeDeltaFromName } from "./routeDeltaTracking";
+import type { RoutePaymentInput } from "./pages/OutsideRouteCashDialog";
 import { loadNotifiedPayments, saveNotifiedPayments } from "./pages/payments/paymentStorage";
 import { cacheLocalClientPortalCloudData, isLocalClientPortalMode } from "./cloud/localClientPortal";
 import "./styles.css";
@@ -672,17 +675,24 @@ export default function AppShell({
     return true;
   }
 
-  async function registerRoutePayment(input: {
-    clientId: string;
-    amount: number;
-    method: "cash" | "bank";
-    team: CollectionTeam;
-    delta?: CollectionDelta;
-    reportId?: string;
-    fundsReceivedDate?: string;
-  }): Promise<{ kind: "cash" | "bank"; receiptNumber?: string; payment?: Payment }> {
+  async function registerRoutePayment(input: RoutePaymentInput): Promise<{ kind: "cash" | "bank"; receiptNumber?: string; payment?: Payment }> {
     if (!canReportRoutePayments) {
       throw new Error("No tienes permiso para registrar pagos desde Ruta en calle.");
+    }
+    if (!Number.isFinite(input.amount) || input.amount <= 0 || input.amount > 9999999999.99
+      || Math.abs(input.amount * 100 - Math.round(input.amount * 100)) >= 0.00001) {
+      throw new Error("Indica un monto mayor a cero, con hasta dos decimales.");
+    }
+    if (input.outsideRoute) {
+      const actorDelta = routeDeltaFromName(userEmail);
+      if (input.method !== "cash" || input.reportId || !input.delta
+        || (actorDelta && actorDelta !== input.delta) || collectionTeamForDelta(input.delta) !== input.team) {
+        throw new Error("Comprueba el Delta y el equipo que recibió el efectivo.");
+      }
+      if (cloudDataUserId) {
+        const active = await loadCloudActiveRouteItem(cloudDataUserId, input.clientId);
+        if (active && !active.removedAt) throw new Error("La unidad ya está en ruta. Abre su tarjeta para registrar el cobro.");
+      }
     }
     if (!otherChargesRetentionCheckpointsReady) {
       throw new Error(otherChargesRetentionCheckpointsError || "Espera mientras se comprueba el ultimo descuento de Otros cargos.");
@@ -697,6 +707,9 @@ export default function AppShell({
         ])
       : [localClient, otherChargesRetentionByClient];
     if (!client) throw new Error("No se encontro el cliente de esta ruta.");
+    if (input.outsideRoute && (client.status !== "activo" || client.archivedAt)) {
+      throw new Error("El cliente ya no está activo. Actualiza antes de cobrar.");
+    }
     const paymentClients = localClient
       ? clients.map((candidate) => candidate.id === client.id ? client : candidate)
       : [...clients, client];
@@ -754,7 +767,11 @@ export default function AppShell({
     if (input.reportId) transaction.payment.routeReportId = input.reportId;
     if (input.fundsReceivedDate) transaction.payment.fundsReceivedDate = input.fundsReceivedDate;
     transaction.payment.source = "route";
-    transaction.payment.incomeComment = `Cobro en Ruta · Equipo ${input.team}`;
+    if (input.outsideRoute) {
+      transaction.payment.outsideRouteCollection = { version: "legacy", delta: input.delta,
+        team: input.team, collectedBy: userId || userEmail || "Usuario", collectedAt: transaction.payment.createdAt };
+    }
+    transaction.payment.incomeComment = `${input.outsideRoute ? "Cobro fuera de ruta" : "Cobro en Ruta"} · Equipo ${input.team}`;
     const saved = await persistClientsAndPayments(transaction.updatedClients, [...payments, transaction.payment], "route");
     if (!saved) throw new Error("No se pudo guardar el pago.");
     const savedReceiptNumber = transaction.payment.receiptNumber.trim();

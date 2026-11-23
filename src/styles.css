@@ -24482,3 +24482,16 @@ button.route-team-summary-row:hover { background: #f8fafc; }
     margin-top: 20px;
   }
 }
+
+.outside-route-cash-modal { width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow-y: auto; }
+.outside-route-cash-body { display: grid; gap: 16px; padding: 20px; }
+.outside-route-cash-body label { display: grid; gap: 7px; font-weight: 600; }
+.outside-route-cash-body input, .outside-route-cash-body select { width: 100%; min-width: 0; }
+.outside-route-client-results { display: grid; gap: 8px; max-height: 310px; overflow-y: auto; }
+.outside-route-client-results > button { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 5px 10px; text-align: left; padding: 12px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface, #fff); color: var(--color-text); cursor: pointer; }
+.outside-route-client-results > button:hover { border-color: #0f766e; background: #f0fdfa; }
+.outside-route-client-results > button small { grid-column: 2; color: var(--color-text-muted); }
+.outside-route-selected { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 14px; background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 10px; }
+.outside-route-selected > div { display: grid; gap: 5px; }
+.outside-route-selected span { font-size: .85rem; color: var(--color-text-muted); }
+.route-team-cash-breakdown { grid-column: 1 / -1; text-align: left; color: var(--color-text-muted); font-size: .75rem; line-height: 1.5; }
