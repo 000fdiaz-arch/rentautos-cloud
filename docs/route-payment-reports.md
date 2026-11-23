@@ -1,5 +1,13 @@
 # Reportes de pagos en Ruta en calle
 
+## Administración y filtros
+
+- Vista se cambia con Admin, Delta 1, Delta 2 o Delta 3. La vista previa es de lectura y conserva el alcance de cada Delta al filtrar por ruta.
+- Ruta utiliza un selector junto al buscador. Las zonas permanecen visibles.
+- Admin puede cambiar la acción solicitada desde la etiqueta de la tarjeta; se comprueba publicación y acción anterior y se guarda auditoría.
+- Las declaraciones de dinero son exclusivas de buscadores. Admin conserva revisión y conciliación. Aplicar `20261123000200_route_admin_actions_and_declarations.sql`.
+- Validación de roles y concurrencia: `tests/route-admin-actions-db-test.mjs`; vistas y tamaños de 360 a 1366 px: `tests/route-admin-controls-ui-test.mjs`.
+
 ## Declaraciones y vista de los Deltas
 
 - Arriba se declara efectivo, transferencia o pago mixto. Transferencias y mixtos se limitan a unidades en ruta y se vuelven a validar antes de guardar.

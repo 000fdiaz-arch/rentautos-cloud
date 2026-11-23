@@ -164,6 +164,10 @@ export function canReportRoutePayment(role: AppRole, permissions: AppPermissions
   return canViewScreen(permissions, "route_search") && (role === "buscador" || canEditScreen(permissions, "route_search"));
 }
 
+export function canDeclareRoutePayment(role: AppRole, permissions: AppPermissions): boolean {
+  return role === "buscador" && canViewScreen(permissions, "route_search");
+}
+
 export function canWriteOperationalData(role: AppRole, permissions = getRoleScreenPermissions(role)): boolean {
   return hasPermission(role, "operational.write") && (
     canEditScreen(permissions, "clients") ||

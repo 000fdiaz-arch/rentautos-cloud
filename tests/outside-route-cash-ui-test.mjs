@@ -17,12 +17,12 @@ try {
     await dialog.getByRole('button', { name: new RegExp(unit) }).click();
   }
   for (const mode of ['']) {
-    await page.goto(fixture + mode);
+    await page.goto(fixture + '?operator=delta1' + mode);
     await page.evaluate(() => sessionStorage.clear());
     await page.reload();
-    await page.getByRole('button', { name: 'Trabajo (2)', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Trabajo (1)', exact: true }).waitFor();
     await open('X01');
-    await dialog.getByLabel('Delta que recibió el efectivo').selectOption('delta2');
+    assert.equal(await dialog.getByLabel('Delta que recibió el efectivo').count(), 0);
     await dialog.getByLabel('Efectivo recibido ($)').fill('40');
     await page.evaluate(() => { window.__failOutside = true; });
     await dialog.getByRole('button', { name: 'Confirmar y generar recibo' }).click();
@@ -33,24 +33,27 @@ try {
     await dialog.evaluate(form => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
     await page.getByRole('button', { name: 'Cerrar vista previa' }).click();
     assert.equal(await page.evaluate(() => window.__outsideCalls), 1);
-    assert.deepEqual(await page.evaluate(() => window.__outsideInput), { clientId: 'outside', amount: 40, method: 'cash', team: 'WC', delta: 'delta2', outsideRoute: true });
+    assert.deepEqual(await page.evaluate(() => window.__outsideInput), { clientId: 'outside', amount: 40, method: 'cash', team: 'PTY', delta: 'delta1', outsideRoute: true });
     await page.getByRole('button', { name: 'Gestionados hoy (1)', exact: true }).waitFor();
-    const row = page.locator('.route-managed-row');
-    assert.match(await row.innerText(), /X01[\s\S]*Fuera de ruta[\s\S]*Delta 2[\s\S]*\$40\.00/);
+    const row = page.locator('.route-managed-compact-row');
+    assert.match(await row.innerText(), /X01/);
+    assert.match(await row.innerText(), /Fuera de ruta/);
+    assert.match(await row.innerText(), /\$40\.00/);
+    await row.locator('summary').click();
     await page.getByRole('button', { name: 'Ver recibo', exact: true }).click();
     await page.getByRole('button', { name: 'Cerrar vista previa' }).click();
-    await page.locator('.route-collection-cash-summary > summary').click();
+    await page.locator('.route-pending-cash-disclosure > summary').click();
     await page.getByRole('region', { name: 'Efectivo pendiente de entrega', exact: true }).getByRole('listitem').filter({ hasText: 'X01' }).waitFor();
     await page.reload();
     await page.getByRole('button', { name: 'Gestionados hoy (1)', exact: true }).click();
-    assert.match(await page.locator('.route-managed-row').innerText(), /Fuera de ruta/);
-    await page.getByRole('button', { name: 'Trabajo (2)', exact: true }).click();
+    assert.match(await page.locator('.route-managed-compact-row').innerText(), /Fuera de ruta/);
+    await page.getByRole('button', { name: 'Trabajo (1)', exact: true }).click();
     await open('A10');
     await dialog.getByLabel('Cuánto pagó ($)').waitFor();
     await dialog.getByRole('button', { name: 'Cancelar', exact: true }).click();
     // A unit published after selection must open its route instead of charging outside.
     await open('X02');
-    await dialog.getByLabel('Delta que recibió el efectivo').selectOption('delta1');
+
     await dialog.getByLabel('Efectivo recibido ($)').fill('10');
     await page.evaluate(() => {
       window.__outsideRouteRows.push({ client_id: 'outside2', data: { ...window.__outsideRouteRows[0].data, clientId: 'outside2', unitId: 'X02', clientName: 'María Castillo' } });

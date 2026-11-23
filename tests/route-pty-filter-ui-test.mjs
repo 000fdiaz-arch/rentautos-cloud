@@ -76,11 +76,10 @@ try {
   assert.equal(await page.getByText("Vista: Delta 1", { exact: true }).count(), 1, "Delta 1 debe quedar identificado claramente.");
   assert.equal(await page.locator(".route-search-workflow-tabs > button").count(), 2);
   assert.equal(await page.getByRole("button", { name: /^Pagos por revisar|^En custodia/ }).count(), 0, "Los Deltas solo ven Trabajo y Gestionados hoy.");
-  await page.locator(".route-collection-filters > summary").click();
   const routeTotals = page.getByLabel("Filtrar por ruta", { exact: true });
-  assert.equal(await routeTotals.getByRole("button", { name: "PTY", exact: true }).count(), 1);
-  assert.equal(await routeTotals.getByRole("button", { name: "WC", exact: true }).count(), 0, "Delta 1 no debe ver el resumen de WC.");
-  assert.equal(await routeTotals.getByRole("button", { name: "CHORRERA", exact: true }).count(), 1, "Delta 1 debe ver cualquier ruta que tenga carros asignados a su Delta.");
+  assert.equal(await routeTotals.getByRole("option", { name: "PTY (1)", exact: true }).count(), 1);
+  assert.equal(await routeTotals.getByRole("option", { name: "WC (1)", exact: true }).count(), 0, "Delta 1 no debe ver el resumen de WC.");
+  assert.equal(await routeTotals.getByRole("option", { name: "CHORRERA (1)", exact: true }).count(), 1, "Delta 1 debe ver cualquier ruta que tenga carros asignados a su Delta.");
   assert.equal(await page.getByRole("region", { name: "Resumen del equipo" }).count(), 0, "Los Deltas no deben ver el resumen del equipo.");
   assert.equal(await page.getByText("PTY-01", { exact: false }).count() > 0, true);
   assert.equal(await page.getByText("CUSTOM-01", { exact: false }).count() > 0, true, "Un carro de otra ruta asignado a Delta 1 debe aparecer.");
@@ -88,7 +87,7 @@ try {
 
   assert.equal(await page.getByLabel("Filtrar por Delta asignado").count(), 0, "Una sesión Delta no debe poder saltar a otro Delta.");
   assert.equal(await page.getByLabel("Filtrar por ruta").count(), 1, "El Delta puede organizar sus propios carros por ruta.");
-  await routeTotals.getByRole("button", { name: "PTY", exact: true }).click();
+  await routeTotals.selectOption("PTY");
   assert.equal(await page.getByRole("button", { name: /^Todas \(/ }).count(), 1, "El filtro de zona debe seguir disponible.");
 
   await page.goto(`${base}/__route-pty-filter-test?delta2`);
@@ -96,10 +95,9 @@ try {
   assert.equal(await page.getByText("Vista: Delta 2", { exact: true }).count(), 1, "Delta 2 debe quedar identificado claramente.");
   assert.equal(await page.getByText("WC-01", { exact: false }).count() > 0, true, "Delta 2 debe ver su carro WC.");
   assert.equal(await page.getByText("PTY-01", { exact: false }).count(), 0, "Delta 2 no debe ver carros PTY.");
-  await page.locator(".route-collection-filters > summary").click();
   const delta2Totals = page.getByLabel("Filtrar por ruta", { exact: true });
-  assert.equal(await delta2Totals.getByRole("button", { name: "WC", exact: true }).count(), 1);
-  assert.equal(await delta2Totals.getByRole("button", { name: "PTY", exact: true }).count(), 0);
+  assert.equal(await delta2Totals.getByRole("option", { name: "WC (1)", exact: true }).count(), 1);
+  assert.equal(await delta2Totals.getByRole("option", { name: "PTY (1)", exact: true }).count(), 0);
   assert.equal(await page.getByRole("region", { name: "Resumen del equipo" }).count(), 0, "Delta 2 tampoco debe ver el resumen del equipo.");
   const cashDisclosure = page.locator(".route-pending-cash-disclosure > summary");
   assert.equal(await cashDisclosure.locator("strong").innerText(), "$45.25", "El efectivo del Delta aparece como monto destacado.");
@@ -112,9 +110,8 @@ try {
 
   await page.goto(`${base}/__route-pty-filter-test?admin`);
   await page.getByRole("button", { name: "Trabajo (3)", exact: true }).waitFor();
-  assert.equal(await page.getByLabel("Filtrar por Delta asignado").count(), 1, "Administración debe conservar el filtro por Delta.");
+  assert.equal(await page.getByRole("group", { name: "Ver vista de Delta" }).count(), 1, "Administración debe conservar el filtro por Delta.");
   assert.equal(await page.locator(".route-search-workflow-tabs > button").count(), 4, "Administración conserva las cuatro pestañas.");
-  await page.locator(".route-collection-filters > summary").click();
   assert.equal(await page.getByLabel("Filtrar por ruta").count(), 1, "Administración debe conservar la vista de todas las rutas.");
 
   await page.goto(`${base}/__route-pty-filter-test?admin&delta=delta2`);

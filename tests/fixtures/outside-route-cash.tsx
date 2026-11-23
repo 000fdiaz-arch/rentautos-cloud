@@ -20,7 +20,7 @@ const clients = [
   createdAt: "2026-11-01T12:00:00Z" } as Client));
 const routeRows = clients.filter(row => ["active", "peer"].includes(row.id)).map(row => ({ client_id: row.id,
   data: { clientId: row.id, unitId: row.unitId, clientName: row.name, routeAssignment: "PTY",
-    zone: "Centro", comment: row.id === "active" ? "Llamar antes de llegar" : undefined,
+    zone: "Centro", managementType: "cobrar_o_quitar", comment: row.id === "active" ? "Llamar antes de llegar" : undefined,
     assignedDelta: row.id === "peer" ? "delta3" : "delta1", releaseAmount: 60, publishedAt: now,
     routeStartedAt: now, rentAmount: 30, overdueBalance: 120, daysLate: 4 } }));
 if (params.has("zones")) {
@@ -36,6 +36,7 @@ if (params.has("zones")) {
 const declarationReports: any[] = [];
 (window as any).__declarationReports = declarationReports;
 (window as any).__declarationRequests = [];
+(window as any).__managementEdits = [];
 // This fixture is a local preview: every external request is handled here.
 // It never reads or writes the configured Supabase project's data.
 const nativeFetch = window.fetch.bind(window);
@@ -50,6 +51,15 @@ window.fetch = async (input, init) => {
   const request = input instanceof Request ? input : new Request(new URL(String(input), location.href), init);
   const url = new URL(request.url);
   if (url.origin === location.origin) return nativeFetch(input, init);
+  if (url.pathname.endsWith("update_route_management_type")) {
+    const body = JSON.parse(await request.text());
+    const row = routeRows.find(row => row.client_id === body.p_client_id);
+    if ((window as any).__failManagement || params.has("operator") || !row || row.data.publishedAt !== body.p_published_at || row.data.managementType !== body.p_previous_type)
+      return new Response(JSON.stringify({ message: "La acción cambió en otro dispositivo. Actualiza antes de editar." }), { status: 400, headers: { "content-type": "application/json" } });
+    row.data.managementType = body.p_management_type;
+    (window as any).__managementEdits.push(body);
+    return new Response("null", { headers: { "content-type": "application/json" } });
+  }
   if (url.pathname.endsWith("read_route_vehicle_details")) {
     const body = JSON.parse(await request.text());
     (window as any).__vehicleRequests.push(body);
@@ -129,6 +139,7 @@ function Demo() {
     <p style={{ padding: 12, background: "#fffbeb", borderRadius: 8 }}><strong>Vista local · Datos de ejemplo.</strong> Prueba X01 o X02 para cobrar fuera de ruta. A10 ya está en ruta.</p>
     <Page clients={demoClients} payments={payments} dataOwnerUserId="11111111-1111-4111-8111-111111111111"
       currentUserEmail={operator ? operator + "@auth.rentautos.local" : undefined} currentUserId={operator ?? "admin-local"}
+      isAdmin={!operator} canDeclarePayment={Boolean(operator) && !params.has("readonly")}
       readOnly={Boolean(operator)} canReportPayment={!params.has("readonly")} canRemoveFromRoute={!operator}
       onRegisterPayment={register} />
   </main>;

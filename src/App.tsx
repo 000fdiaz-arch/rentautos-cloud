@@ -1,5 +1,5 @@
 import AppShell from "./AppShell";
-import { canReportRoutePayment, getRoleScreenPermissions } from "./auth/permissions";
+import { canDeclareRoutePayment, canReportRoutePayment, getRoleScreenPermissions } from "./auth/permissions";
 import { useAuthProfile } from "./auth/useAuthProfile";
 import AuthPanel from "./components/AuthPanel";
 import ForcePasswordChangePanel from "./components/ForcePasswordChangePanel";
@@ -117,6 +117,7 @@ function AuthenticatedApp() {
       userId={authProfile.userId}
       isAdmin={authProfile.role === "admin"}
       canReportRoutePayments={canReportRoutePayment(authProfile.role, authProfile.permissions)}
+      canDeclareRoutePayments={canDeclareRoutePayment(authProfile.role, authProfile.permissions)}
       userEmail={authProfile.userEmail}
       dataOwnerUserId={authProfile.dataOwnerUserId}
       effectiveOwnerUserId={authProfile.effectiveOwnerUserId}

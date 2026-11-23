@@ -48,6 +48,14 @@
 .route-search-page--organized .route-search-zone-tabs button { flex: 0 0 auto; min-height: 36px; border: 1px solid #d9e3e7; background: #fff; color: #475569; white-space: nowrap; }
 .route-search-page--organized .route-search-zone-tabs button[aria-pressed="true"] { border-color: #0f766e; background: #0f766e; color: #fff; }
 .route-search-page--organized .route-search-box { flex: 1 1 260px; margin: 0; }
+.route-search-page--organized .route-admin-view-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
+.route-search-page--organized .route-admin-view-tabs > span { margin-right: 4px; color: #64748b; font-size: .74rem; }
+.route-search-page--organized .route-admin-view-tabs > button { min-height: 36px; padding: 7px 12px; border: 1px solid #dce4e9; border-radius: 7px; background: #fff; color: #475569; font-size: .76rem; font-weight: 600; box-shadow: none; }
+.route-search-page--organized .route-admin-view-tabs > button[aria-pressed="true"] { border-color: #91c6ba; background: #e8f5f1; color: #0f766e; }
+.route-search-page--organized .route-toolbar-route { flex: 0 1 180px; min-width: 135px; max-width: 100%; margin: 0; }
+.route-search-page--organized .route-toolbar-route > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.route-search-page--organized .route-search-route-filter { width: 100%; min-width: 0; min-height: 43px; padding: 10px 11px; border: 1px solid #dce4e9; border-radius: 8px; background: #fff; color: #334155; font-size: .8rem; }
+.route-search-page--organized .route-search-manage-assignment { min-height: 43px; margin: 0; box-shadow: none; font-size: .76rem; }
 .route-search-page--organized .route-search-box > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .route-search-page--organized .route-search-box input { min-height: 43px; padding: 11px 14px; border: 1px solid #dce4e9; border-radius: 9px; background: #fff; font-size: .83rem; }
 .route-search-page--organized .route-collection-filters { flex: 0 0 auto; min-width: 125px; margin: 0; padding: 0; border: 1px solid #dce4e9; border-radius: 9px; background: #fff; }
@@ -105,6 +113,10 @@
 .route-search-page--organized .route-collection-card--time-progress > .route-collection-summary { display: block; }
 .route-search-page--organized .route-collection-summary > .route-collection-tag { margin: 0 0 7px; }
 .route-search-page--organized .route-collection-action { border: 1px solid; }
+.route-search-page--organized .route-collection-management-control { position: relative; width: fit-content; margin-bottom: 7px; }
+.route-search-page--organized .route-collection-management-control > button { margin: 0; cursor: pointer; box-shadow: none; }
+.route-search-page--organized .route-collection-management-options { position: absolute; top: calc(100% + 5px); left: 0; z-index: 7; display: grid; gap: 5px; min-width: 170px; padding: 8px; border: 1px solid #dce4e9; border-radius: 9px; background: #fff; box-shadow: 0 6px 20px #0f172a20; }
+.route-search-page--organized .route-collection-management-options > button { min-height: 35px; padding: 7px 10px; border-radius: 6px; font-size: .76rem; font-weight: 600; text-align: left; box-shadow: none; }
 .route-search-page--organized .route-collection-action--solo_cobrar { color: #0f766e; background: #ccfbf1; border-color: #5eead4; }
 .route-search-page--organized .route-collection-action--cobrar_o_quitar { color: #9a3412; background: #fed7aa; border-color: #fb923c; }
 .route-search-page--organized .route-collection-action--desiste { color: #6b21a8; background: #e9d5ff; border-color: #c084fc; }
@@ -144,6 +156,9 @@
 .route-search-page--organized .route-vehicle-details-fields dd { margin: 0; color: #0f172a; font-size: .82rem; font-weight: 600; text-align: left; overflow-wrap: anywhere; }
 .route-search-page--organized .route-vehicle-details p { margin: 5px 0; font-size: .76rem; }
 @media (max-width: 640px) {
+  .route-search-page--organized .route-admin-view-tabs > span { flex-basis: 100%; }
+  .route-search-page--organized .route-admin-view-tabs > button { padding-inline: 10px; }
+  .route-search-page--organized .route-toolbar-route { flex: 1 1 150px; }
   .route-search-page--organized .route-search-cash-actions { position: relative; grid-template-columns: repeat(2, minmax(0, 165px)); width: min(100%, 340px); }
   .route-search-page--organized .route-search-cash-actions > .route-pending-cash-disclosure[open] > summary { width: calc((100% - 10px) / 2); }
   .route-search-page--organized .route-search-cash-actions:has(> .route-payment-declaration-button) > .route-pending-cash-disclosure > .route-pending-cash { margin-top: 87px; }
@@ -167,7 +182,7 @@
   .route-search-page--organized .route-refresh-icon { font-size: 1.2rem; line-height: 1; }
   .route-search-page--organized .route-search-workflow-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; margin-bottom: 12px; }
   .route-search-page.route-search-page--organized .route-search-workflow-tabs .route-search-workflow-tab { min-height: 39px; font-size: .73rem; }
-  .route-search-page--organized .route-search-box { flex-basis: 190px; }
+  .route-search-page--organized .route-search-box { flex-basis: 100%; }
   .route-search-page--organized .route-collection-filters { min-width: 94px; }
   .route-search-page--organized .route-collection-overview { gap: 7px; margin-bottom: 16px; }
   .route-search-page--organized .route-collection-overview > details { flex-basis: calc(50% - 4px); min-width: 0; }

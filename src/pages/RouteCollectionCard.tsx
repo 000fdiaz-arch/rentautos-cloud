@@ -6,7 +6,7 @@ import type { RouteCaptureEvent } from "../cloud/routeCaptureCloudData";
 import { formatCurrency } from "../format";
 import { isPendingCashRouteReport } from "../routeReviewRules";
 import { effectiveRouteUrgency, formatRouteDateTime, routeUrgencyLabel, routeVisualRedIntensity } from "../routeTimeUrgency";
-import { fieldManagementLabel } from "./receivables/receivablesTypes";
+import { FIELD_MANAGEMENT_LABEL, fieldManagementLabel, type FieldManagementType } from "./receivables/receivablesTypes";
 import "./routeTimeUrgency.css";
 
 export type RouteWorkflowView = "work" | "review" | "confirmed" | "custody" | "managed";
@@ -46,6 +46,9 @@ type Props = {
   canEditAssignedDelta: boolean;
   showAssignedDelta?: boolean;
   highlightComments?: boolean;
+  canEditManagementType?: boolean;
+  managementTypeSaving?: boolean;
+  onManagementType?: (type: FieldManagementType) => void;
   routeOptions: string[];
   inactiveSaving: boolean;
   elapsedNow: number;
@@ -104,6 +107,7 @@ export default function RouteCollectionCard(props: Props) {
   const routePickerId = useId();
   const [routePickerOpen, setRoutePickerOpen] = useState(false);
   const [routeQuery, setRouteQuery] = useState("");
+  const [managementPickerOpen, setManagementPickerOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const { item, view, paidRent, canReport, canEdit, canRemove, saving } = props;
   const savedCommentClassName = `route-collection-saved-comment${props.highlightComments ? " route-collection-saved-comment--highlight" : ""}`;
@@ -196,10 +200,21 @@ export default function RouteCollectionCard(props: Props) {
       </div> : null}
       {report.method === "mixed" ? <p className="route-collection-context"><span>Efectivo: {formatCurrency(report.cash_amount)} · {report.confirmed_cash_amount >= report.cash_amount ? "Confirmado" : "Pendiente"}</span><br /><span>Banca: {formatCurrency(report.bank_amount)} · {report.confirmed_bank_amount >= report.bank_amount ? "Confirmado" : "Pendiente"}</span></p> : null}
     </> : <>
-      <span className={`route-collection-tag${view === "work" ? ` route-collection-action route-collection-action--${item.managementType ?? "solo_cobrar"}` : ""}`}
+      {view === "work" && props.canEditManagementType && props.onManagementType ? <div className="route-collection-management-control"
+        onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setManagementPickerOpen(false); }}>
+        <button type="button" className={`route-collection-tag route-collection-action route-collection-action--${item.managementType ?? "solo_cobrar"}`}
+          aria-label={`Cambiar acción de ${item.unitId}`} aria-expanded={managementPickerOpen} disabled={props.managementTypeSaving || saving}
+          onClick={() => setManagementPickerOpen(open => !open)}>{props.managementTypeSaving ? "Guardando…" : fieldManagementLabel(item.managementType)} <span aria-hidden="true">⌄</span></button>
+        {managementPickerOpen ? <div className="route-collection-management-options" role="group" aria-label={`Acción solicitada para ${item.unitId}`}>
+          {(Object.keys(FIELD_MANAGEMENT_LABEL) as FieldManagementType[]).map(type => <button key={type} type="button"
+            className={`route-collection-action route-collection-action--${type}`} aria-pressed={(item.managementType ?? "solo_cobrar") === type}
+            disabled={props.managementTypeSaving || (item.managementType ?? "solo_cobrar") === type}
+            onClick={() => { setManagementPickerOpen(false); props.onManagementType?.(type); }}>{FIELD_MANAGEMENT_LABEL[type]}</button>)}
+        </div> : null}
+      </div> : <span className={`route-collection-tag${view === "work" ? ` route-collection-action route-collection-action--${item.managementType ?? "solo_cobrar"}` : ""}`}
         aria-label={view === "work" ? `Acción solicitada: ${fieldManagementLabel(item.managementType)}` : undefined}>
         {view === "work" ? fieldManagementLabel(item.managementType) : view === "partial" ? "Decisión pendiente" : partial && acknowledged ? "Debe pagar más" : fieldManagementLabel(item.managementType)}
-      </span>
+      </span>}
       <div className="route-collection-amount-row">
         <p className="route-collection-amount">{view === "partial" ? `Pagó ${formatCurrency(paidRent)}` : item.releaseAmount > 0 ? formatCurrency(remaining) : "Monto pendiente"}</p>
         {view === "work" && props.canEditAmount && !report ? (

@@ -135,6 +135,7 @@ type AppShellProps = {
   userId?: string;
   isAdmin?: boolean;
   canReportRoutePayments?: boolean;
+  canDeclareRoutePayments?: boolean;
   userEmail?: string;
   dataOwnerUserId?: string | null;
   effectiveOwnerUserId?: string;
@@ -171,6 +172,7 @@ export default function AppShell({
   userId,
   isAdmin = false,
   canReportRoutePayments = false,
+  canDeclareRoutePayments = false,
   userEmail,
   dataOwnerUserId,
   effectiveOwnerUserId,
@@ -684,6 +686,7 @@ export default function AppShell({
       throw new Error("Indica un monto mayor a cero, con hasta dos decimales.");
     }
     if (input.outsideRoute) {
+      if (!canDeclareRoutePayments) throw new Error("Las declaraciones de dinero son exclusivas de los buscadores.");
       const actorDelta = routeDeltaFromName(userEmail);
       if (input.method !== "cash" || input.reportId || !input.delta
         || (actorDelta && actorDelta !== input.delta) || collectionTeamForDelta(input.delta) !== input.team) {
@@ -1196,7 +1199,7 @@ export default function AppShell({
             isPaymentHistoryLoaded={fullPaymentHistoryLoaded}
             onRefreshPayments={refreshPaymentsFromSource}
             streetManagementData={parseLocalJson("cobrapp.module3.street_management.v1", {}) as Record<string, unknown>}
-            routePermissions={{ paymentsLoading: !cloudReady, currentUserId: userId, currentUserEmail: userEmail, canReportPayment: canReportRoutePayments,
+            routePermissions={{ isAdmin, canDeclarePayment: canDeclareRoutePayments, paymentsLoading: !cloudReady, currentUserId: userId, currentUserEmail: userEmail, canReportPayment: canReportRoutePayments,
               canConfirmBankPayment: isAdmin && canEditPayments && canReportRoutePayments, onConfirmBankPayment: confirmRouteBankPayment,
               canConfirmCaptures: isAdmin && canEditRouteSearch,
               initialRouteFilter: operatorRouteFilter,
@@ -1210,6 +1213,8 @@ export default function AppShell({
         )}
         {page === "route_search" && canViewRouteSearch && (
           <RouteSearchPage
+            isAdmin={isAdmin}
+            canDeclarePayment={canDeclareRoutePayments}
             paymentsLoading={!cloudReady}
             currentUserId={userId}
             currentUserEmail={userEmail}

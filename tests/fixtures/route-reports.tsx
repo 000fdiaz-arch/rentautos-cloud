@@ -33,6 +33,8 @@ function Harness() {
     : routeParams.has("delta2") ? "delta2@auth.rentautos.local" : "delta1@auth.rentautos.local"}
   initialRouteFilter={autoCash ? (routeParams.has("delta2") ? "WC" : "PTY") : undefined}
   canReportPayment={canReportRoutePayment(role, getRoleScreenPermissions(role))}
+  isAdmin={isAdmin}
+  canDeclarePayment={!isAdmin && role === "buscador"}
   canConfirmBankPayment={isAdmin}
   canConfirmCaptures={isAdmin}
   canRemoveFromRoute={new URLSearchParams(location.search).has("editor")}
