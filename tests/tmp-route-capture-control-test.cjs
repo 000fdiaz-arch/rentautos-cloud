@@ -29,7 +29,7 @@ assert.match(migration, /route_assignment/,
   "La captación debe conservar una copia de la ruta reportada.");
 assert.match(page, /canConfirmCaptures/,
   "Ruta en calle debe distinguir quién puede confirmar captaciones.");
-assert.match(page, /Declarar carro en custodia/,
+assert.match(page, /Declarar en custodia/,
   "La acción de custodia debe presentarse con el texto aprobado.");
 assert.match(summary, /Delta 1[\s\S]*Delta 2[\s\S]*Delta 3/,
   "El resumen debe separar los tres Delta.");

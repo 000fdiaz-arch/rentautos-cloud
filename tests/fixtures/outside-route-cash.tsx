@@ -37,6 +37,8 @@ const declarationReports: any[] = [];
 (window as any).__declarationReports = declarationReports;
 (window as any).__declarationRequests = [];
 (window as any).__managementEdits = [];
+const custodyCaptures: any[] = [];
+(window as any).__custodyRequests = [];
 // This fixture is a local preview: every external request is handled here.
 // It never reads or writes the configured Supabase project's data.
 const nativeFetch = window.fetch.bind(window);
@@ -51,6 +53,23 @@ window.fetch = async (input, init) => {
   const request = input instanceof Request ? input : new Request(new URL(String(input), location.href), init);
   const url = new URL(request.url);
   if (url.origin === location.origin) return nativeFetch(input, init);
+  if (url.pathname.endsWith("set_active_route_custody")) {
+    const body = JSON.parse(await request.text());
+    (window as any).__custodyRequests.push(body);
+    await new Promise(resolve => setTimeout(resolve, 150));
+    const row = routeRows.find(row => row.client_id === body.p_client_id);
+    const operator = params.get("operator");
+    if ((window as any).__failCustody || !row || row.data.publishedAt !== body.p_published_at
+      || (row.data as any).removedAt || Boolean((row as any).in_custody) !== body.p_expected_in_custody
+      || (operator && row.data.assignedDelta !== operator))
+      return new Response(JSON.stringify({ message: "La unidad cambió o no pertenece a tu Delta. Actualiza la ruta." }), { status: 400, headers: { "content-type": "application/json" } });
+    (row as any).in_custody = body.p_in_custody;
+    custodyCaptures.push({ id: "custody-" + custodyCaptures.length, user_id: body.p_user_id, client_id: body.p_client_id,
+      unit_id: row.data.unitId, client_name: row.data.clientName, published_at: body.p_published_at,
+      route_assignment: row.data.routeAssignment, reported_by: operator ?? "admin-local",
+      reporter_name: (operator ?? "admin") + "@auth.rentautos.local", reported_at: new Date().toISOString(), status: "pending" });
+    return new Response("null", { headers: { "content-type": "application/json" } });
+  }
   if (url.pathname.endsWith("update_route_management_type")) {
     const body = JSON.parse(await request.text());
     const row = routeRows.find(row => row.client_id === body.p_client_id);
@@ -99,6 +118,7 @@ window.fetch = async (input, init) => {
       const value = url.searchParams.get(field); return !value?.startsWith("eq.") || String(row[field]) === value.slice(3);
     }));
   }
+  if (url.pathname.endsWith("route_capture_events")) rows = custodyCaptures;
   return new Response(JSON.stringify(rows), { headers: { "content-type": "application/json" } });
 };
 const { default: RoutePage } = await import("../../src/pages/RouteSearchPage");

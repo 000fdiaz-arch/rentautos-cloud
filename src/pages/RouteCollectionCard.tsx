@@ -249,8 +249,10 @@ export default function RouteCollectionCard(props: Props) {
       {view === "confirmed" && report && props.hasReceipt ? <button type="button" className="button primary" disabled={props.receiptLoading} onClick={props.onReceipt}>{props.receiptLoading ? "Abriendo…" : "Ver recibo"}</button> : null}
       {view === "partial" && canRemove && !acknowledged ? <button type="button" className="button primary" disabled={saving} onClick={props.onKeep}>Debe pagar más</button> : null}
       {view === "review" && report && props.canConfirmBank ? <button type="button" className="button primary" disabled={saving || props.bankConfirmationSaving} onClick={props.onConfirmBank}>{props.bankConfirmationSaving ? "Confirmando…" : "Confirmado en banco"}</button> : null}
-      {view === "work" && props.hasActiveRoute && ((props.canDeclareCustody && !item.inCustody) || (canRemove && !report)) ? <details className="route-collection-more-actions"><summary>Más acciones</summary><div>
-      {view === "work" && props.canDeclareCustody && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button ghost" disabled={saving} onClick={props.onCustody}>Declarar carro en custodia</button> : null}
+      {view === "work" && props.canDeclareCustody && props.hasActiveRoute && !item.inCustody ? <button type="button" className="button route-collection-custody-button" disabled={saving} onClick={props.onCustody}>
+        <strong>Declarar en custodia</strong><span>Solo si el auto fue despojado del conductor</span>
+      </button> : null}
+      {view === "work" && props.hasActiveRoute && canRemove && !report ? <details className="route-collection-more-actions"><summary>Más acciones</summary><div>
       {canRemove && props.hasActiveRoute && !report ? <button type="button" className="button ghost route-collection-remove" disabled={saving} onClick={props.onRemove}>Sacar de ruta</button> : null}
       </div></details> : null}
 

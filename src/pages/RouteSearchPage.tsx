@@ -212,6 +212,7 @@ export default function RouteSearchPage({
   const canDeclarePayment = permittedDeclaration && !isDeltaPreview;
   const readOnly = requestedReadOnly || isDeltaPreview;
   const canRemoveFromRoute = permittedRouteRemoval && !isDeltaPreview;
+  const canDeclareCustody = !isDeltaPreview && canReportPayment && (signedInAssignedDelta !== null || !readOnly);
   const canConfirmBankPayment = permittedBankConfirmation && !isDeltaPreview;
   const canConfirmCaptures = permittedCaptureConfirmation && !isDeltaPreview;
   const canEditAssignedDelta = !readOnly && signedInDelta === null;
@@ -242,6 +243,7 @@ export default function RouteSearchPage({
   const [workflowView, setWorkflowView] = useState<RouteWorkflowView>("work");
   const [custodyTarget, setCustodyTarget] = useState<ActiveRouteItem | null>(null);
   const [custodySaving, setCustodySaving] = useState(false);
+  const custodySubmitLock = useRef(false);
   const [custodyError, setCustodyError] = useState("");
   const [receiptPreview, setReceiptPreview] = useState<Payment | null>(null);
   const [receiptOptions, setReceiptOptions] = useState<Payment[]>([]);
@@ -1396,19 +1398,20 @@ export default function RouteSearchPage({
   }
 
   async function changeCustody(): Promise<void> {
-    if (!custodyTarget || !dataOwnerUserId || !canReportPayment || custodySaving) return;
-    setCustodySaving(true); setCustodyError("");
+    if (!custodyTarget || !dataOwnerUserId || isDeltaPreview || custodySaving || custodySubmitLock.current
+      || (custodyTarget.inCustody ? !canRemoveFromRoute : !canDeclareCustody)) return;
+    custodySubmitLock.current = true; setCustodySaving(true); setCustodyError("");
     try {
       await setRouteCustody(dataOwnerUserId, custodyTarget, !custodyTarget.inCustody);
       setRouteActionMessage(custodyTarget.inCustody ? `${custodyTarget.unitId} salió de custodia. Aparecerá en Trabajo si tiene cobros pendientes y no tiene un pago notificado.` : `${custodyTarget.unitId}: carro declarado en custodia.`);
       const clientId = custodyTarget.clientId;
       const inCustody = !custodyTarget.inCustody;
-      setItems((current) => current.map((item) => item.clientId === clientId ? { ...item, inCustody } : item));
+      setItems((current) => current.map((item) => item.clientId === clientId && item.publishedAt === custodyTarget.publishedAt ? { ...item, inCustody } : item));
       void refreshItem(clientId).catch((refreshError) => console.warn("La custodia cambió, pero no se pudo actualizar la unidad.", refreshError));
       void reloadCaptures();
       setCustodyTarget(null);
     } catch (cause) { setCustodyError(buildCloudErrorMessage("No se pudo cambiar la custodia.", cause, { includeRawFallback: true })); }
-    finally { setCustodySaving(false); }
+    finally { custodySubmitLock.current = false; setCustodySaving(false); }
   }
 
   async function confirmCapture(event: RouteCaptureEvent): Promise<void> {
@@ -1687,7 +1690,7 @@ export default function RouteSearchPage({
               dataOwnerUserId={dataOwnerUserId} managementVersion="legacy"
               capture={captureByRouteItem.get(`${item.clientId}\u0000${item.publishedAt}`)}
               managementFields={activeRoute && !activeRoute.removedAt && cardView !== "review" && cardView !== "confirmed" ? renderManagementFields?.(activeRoute) : undefined}
-              paidRent={paidRent} balance={currentBalance(item)} travelFundBalance={travelFundBalanceByClient.get(item.clientId) ?? 0} canReport={canReportPayment} canDeclareCustody={canRemoveFromRoute} canEdit={!readOnly}
+              paidRent={paidRent} balance={currentBalance(item)} travelFundBalance={travelFundBalanceByClient.get(item.clientId) ?? 0} canReport={canReportPayment} canDeclareCustody={canDeclareCustody} canEdit={!readOnly}
               canEditAmount={canEditRouteAmount && Boolean(activeRoute && !activeRoute.removedAt)} amountSaving={amountEditSaving && amountEditTarget?.item.clientId === item.clientId}
               canRemove={canRemoveFromRoute} canRegister={!readOnly && Boolean(onRegisterPayment) && (!item.report || (isPendingCashRouteReport(item.report) && !registeredReportIds.includes(item.report.id)))}
               hasPendingReport={reports.some(report => report.status === "review" && report.client_id === item.clientId && report.published_at === item.publishedAt)}
@@ -1866,12 +1869,16 @@ export default function RouteSearchPage({
         {receiptOptions.map(payment => <button className="button ghost" type="button" key={payment.id} onClick={() => { setReceiptOptions([]); setReceiptPreview(payment); }}>{payment.receiptNumber}</button>)}
         <button type="button" className="button ghost" onClick={() => setReceiptOptions([])}>Cerrar</button>
       </div></div> : null}
-      {custodyTarget ? <div className="modal-overlay route-search-payment-overlay"><div className="modal route-search-payment-modal" role="dialog" aria-modal="true" aria-labelledby="route-custody-title">
-        <h2 id="route-custody-title">{custodyTarget.inCustody ? "Sacar de custodia" : "Declarar carro en custodia"}</h2>
+      {custodyTarget ? <div className="modal-overlay route-search-payment-overlay"><div className="modal route-search-payment-modal route-custody-modal" role="dialog" aria-modal="true" aria-labelledby="route-custody-title">
+        <h2 id="route-custody-title">{custodyTarget.inCustody ? "Sacar de custodia" : "Declarar en custodia"}</h2>
         <p>{custodyTarget.unitId} · {custodyTarget.clientName}</p>
-        <p>{custodyTarget.inCustody ? "La unidad volverá a Trabajo si tiene cobros pendientes y no tiene un pago notificado." : "La unidad saldrá de Trabajo, quedará en custodia y la declaración será atribuida a tu usuario."} Se conservan los pagos y el historial. Los saldos y los cobros automáticos siguen igual.</p>
+        {custodyTarget.inCustody ? <p>La unidad volverá a Trabajo si tiene cobros pendientes y no tiene un pago notificado.</p> : <>
+          <p><strong>Confirma solo si el auto fue despojado del conductor y está bajo custodia.</strong></p>
+          <p>Saldrá de Trabajo y aparecerá en Gestionados hoy como «En custodia». Administración recibirá tu declaración para revisarla.</p>
+          <p>Esta acción no registra ningún pago.</p>
+        </>}
         {custodyError ? <p className="error-text" role="alert">{custodyError}</p> : null}
-        <div className="modal-actions"><button type="button" className="button ghost" disabled={custodySaving} onClick={() => setCustodyTarget(null)}>Cancelar</button><button type="button" className="button primary" disabled={custodySaving} onClick={() => void changeCustody()}>{custodySaving ? "Guardando…" : "Confirmar"}</button></div>
+        <div className="modal-actions"><button type="button" className="button ghost" disabled={custodySaving} onClick={() => setCustodyTarget(null)}>Cancelar</button><button type="button" className="button primary" disabled={custodySaving} onClick={() => void changeCustody()}>{custodySaving ? "Guardando…" : custodyTarget.inCustody ? "Confirmar salida" : "Sí, declarar en custodia"}</button></div>
       </div></div> : null}
       {reportTarget && canDeclarePayment ? (
         <div className="modal-overlay route-search-payment-overlay">

@@ -1,5 +1,13 @@
 # Reportes de pagos en Ruta en calle
 
+## Declaración de custodia por Delta
+
+- El botón visible de cada tarjeta dice **Declarar en custodia**, con la indicación **Solo si el auto fue despojado del conductor**.
+- El Delta confirma la unidad antes de guardar. Pasa de Trabajo a Gestionados hoy como En custodia, pendiente de revisión administrativa, con atribución al usuario autenticado.
+- La RPC valida la asignación actual del Delta, la publicación y el estado esperado. El Delta no puede sacar el auto de custodia ni declarar autos de otro Delta.
+- El recorrido se inicia con la primera captación y se reutiliza aunque las unidades asignadas estén en varias rutas. Cada captación conserva su propia ruta.
+- Aplicar únicamente 20261123000300_route_delta_custody_declaration.sql. Pruebas: route-delta-custody-db-test.mjs y route-delta-custody-ui-test.mjs, con datos sintéticos.
+
 ## Administración y filtros
 
 - Vista se cambia con Admin, Delta 1, Delta 2 o Delta 3. La vista previa es de lectura y conserva el alcance de cada Delta al filtrar por ruta.
