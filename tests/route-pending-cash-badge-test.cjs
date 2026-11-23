@@ -39,6 +39,18 @@ assert.deepEqual(getRouteMenuAlertCounts([{...item,inCustody:true}],[],day,[]),{
 assert.deepEqual(getRouteMenuAlertCounts([{...item,inCustody:true}],[],day,[cash]),{review:1,custody:1,total:2},'Custody and payment review are separate menu alerts');
 assert.deepEqual(getRouteMenuAlertCounts([],[],day,[{...cash,status:'confirmed'}]),{review:0,custody:0,total:0},'Confirmed payments must not appear in the navigation badge');
 
+const virtualBank = {...cash,status:'confirmed',cash_amount:0,bank_amount:67,confirmed_bank_amount:67,
+  bank_confirmed_visually_at:'2026-09-05T17:00:00Z',bank_settled_payment_id:null};
+const previouslyPartial = {...item,releaseAmount:75};
+const partialReceipt = [{clientId:'c1',dateApplied:day,appliedToRent:68}];
+assert.deepEqual(getRouteMenuAlertCounts([previouslyPartial],partialReceipt,day,[]),{review:1,custody:0,total:1});
+assert.deepEqual(getRouteMenuAlertCounts([previouslyPartial],partialReceipt,day,[virtualBank]),{review:0,custody:0,total:0},
+  'A confirmed bank transfer must clear the same partial-payment alert in both the navigation and the route screen');
+assert.deepEqual(getRouteMenuAlertCounts([previouslyPartial],partialReceipt,day,[{...virtualBank,bank_settled_payment_id:'receipt'}]),{review:1,custody:0,total:1},
+  'A settled transfer is counted through its receipt rather than counted twice');
+assert.deepEqual(getRouteMenuAlertCounts([previouslyPartial],partialReceipt,day,[{...virtualBank,bank_confirmed_visually_at:'2026-09-04T17:00:00Z'}]),{review:1,custody:0,total:1},
+  'A transfer from another business day must not hide a current partial decision');
+
 const {getRouteWorkItems,getActiveRouteReviewItems}=rulesModule.exports;
 const paid=[{clientId:'b79',dateApplied:day,appliedToRent:34,amountReceived:34.79},{clientId:'b79',dateApplied:day,appliedToRent:34,amountReceived:34.79}];
 assert.equal(getRouteWorkItems([{clientId:'b79',publishedAt:'p',releaseAmount:68}],paid,day,[]).length,0);

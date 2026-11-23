@@ -9,6 +9,7 @@ const routePage = fs.readFileSync(path.join(root, "src/pages/RouteSearchPage.tsx
 const styles = fs.readFileSync(path.join(root, "src/styles.css"), "utf8");
 
 assert(shell.includes("getRouteMenuAlertCounts"), "AppShell debe calcular pagos y custodias aunque Ruta en calle no este abierta.");
+assert(shell.includes('loadRoutePaymentReports(cloudDataUserId, { reviewRelevantOnly: true })'), "El menú necesita también transferencias confirmadas visualmente para coincidir con la revisión de Ruta.");
 assert(shell.includes('table: "active_route_items_cloud"'), "La notificacion debe actualizarse con cambios de la ruta.");
 assert(shell.includes("routeAlertCount={routeMenuAlertCount}"), "AppShell debe entregar el contador de alertas al menu.");
 assert(navigation.includes('badge: routeAlertCount'), "Ruta en calle debe mostrar una insignia de alertas en el menu.");
