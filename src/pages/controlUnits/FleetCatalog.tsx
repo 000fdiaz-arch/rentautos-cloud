@@ -1,12 +1,14 @@
 import { memo, useState } from "react";
 import type { ControlUnitRow } from "../../cloudData";
-import { normalizeText, optionalString } from "./controlUnitsRules";
+import { effectiveStatus, normalizeText, optionalString, statusBadgeClass, statusLabel } from "./controlUnitsRules";
 
 type Props = {
   rows: ControlUnitRow[];
   readOnly: boolean;
   onEdit: (row: ControlUnitRow) => void;
   onHistory?: (row: ControlUnitRow) => void;
+  showInternalDetails?: boolean;
+  showFullFleet?: boolean;
 };
 
 function money(value: unknown): string {
@@ -76,13 +78,13 @@ function ContractDuration({ row }: { row: ControlUnitRow }) {
   );
 }
 
-export const FleetCatalog = memo(function FleetCatalog({ rows, readOnly, onEdit, onHistory }: Props) {
+export const FleetCatalog = memo(function FleetCatalog({ rows, readOnly, onEdit, onHistory, showInternalDetails = false, showFullFleet = false }: Props) {
   const [detail, setDetail] = useState<ControlUnitRow | null>(null);
   if (rows.length === 0) {
     return (
       <div className="fleet-catalog-empty">
-        <strong>No hay autos disponibles en el catálogo.</strong>
-        <p>Los autos libres aparecen aquí automáticamente. Los que estén en custodia se publican al cumplir 24 horas.</p>
+        <strong>{showFullFleet ? "No hay autos para mostrar." : "No hay autos disponibles en el catálogo."}</strong>
+        <p>{showFullFleet ? "Si estás buscando, prueba con otra nomenclatura o modelo." : "Los autos libres aparecen aquí automáticamente. Los que estén en custodia se publican al cumplir 24 horas."}</p>
       </div>
     );
   }
@@ -94,6 +96,12 @@ export const FleetCatalog = memo(function FleetCatalog({ rows, readOnly, onEdit,
           <article className="fleet-catalog-card" key={row.fleet_id || row.unit_id}>
             <CatalogPhoto row={row} />
             <div className="fleet-catalog-card-body">
+              {showInternalDetails && (
+                <p className="fleet-catalog-meta">
+                  <strong>{row.unit_id}</strong>
+                  <span className={statusBadgeClass(effectiveStatus(row))}>{statusLabel(effectiveStatus(row))}</span>
+                </p>
+              )}
               <h3>{normalizeText(row.brand_model) || "Auto sin modelo"}</h3>
               <p className="fleet-catalog-meta">
                 <span>{optionalString(row, ["year", "model_year"]) || "Año por definir"}</span>
@@ -124,6 +132,15 @@ export const FleetCatalog = memo(function FleetCatalog({ rows, readOnly, onEdit,
             <div className="modal-body fleet-catalog-detail-body">
               <CatalogPhoto row={detail} large />
               <div className="fleet-catalog-detail-info">
+                {showInternalDetails && (
+                  <>
+                    <p className="fleet-catalog-meta">
+                      <strong>{detail.unit_id}</strong>
+                      <span className={statusBadgeClass(effectiveStatus(detail))}>{statusLabel(effectiveStatus(detail))}</span>
+                    </p>
+                    <p className="hint">Placa: {normalizeText(detail.plate) || "Por definir"} · Empresa: {normalizeText(detail.company) || "Por definir"}</p>
+                  </>
+                )}
                 <p className="fleet-catalog-meta fleet-catalog-meta--large">
                   <span>{optionalString(detail, ["year", "model_year"]) || "Año por definir"}</span>
                   <span aria-hidden="true">·</span>

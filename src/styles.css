@@ -23362,6 +23362,7 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 
 .fleet-catalog-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: end;
   justify-content: space-between;
   gap: 20px;
@@ -23410,9 +23411,11 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 .fleet-catalog-photo {
   display: block;
   width: 100%;
-  height: 210px;
-  object-fit: cover;
-  background-color: #e9efec;
+  height: auto;
+  aspect-ratio: 16 / 10;
+  object-fit: contain;
+  object-position: center;
+  background-color: #f1f5f3;
 }
 
 .fleet-catalog-photo--empty {
@@ -23436,7 +23439,7 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 }
 
 .fleet-catalog-photo--large {
-  height: 390px;
+  aspect-ratio: 4 / 3;
   border-radius: 14px;
 }
 
@@ -24346,11 +24349,6 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 
   .fleet-catalog-grid {
     grid-template-columns: 1fr;
-  }
-
-  .fleet-catalog-photo,
-  .fleet-catalog-photo--large {
-    height: 230px;
   }
 
   .fleet-catalog-detail-info {

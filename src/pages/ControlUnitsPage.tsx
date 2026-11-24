@@ -97,6 +97,7 @@ export default function ControlUnitsPage({
   const [form, setForm] = useState<UnitFormState>({ ...DEFAULT_FORM });
   const [fleetView, setFleetView] = useState<"catalog" | "table" | "incomplete" | "retired">("catalog");
   const [catalogSearch, setCatalogSearch] = useState<string>("");
+  const [showFullFleet, setShowFullFleet] = useState(false);
   const [incompleteSearch, setIncompleteSearch] = useState<string>("");
   const [catalogPhotoFile, setCatalogPhotoFile] = useState<File | null>(null);
   const [activeRouteItems, setActiveRouteItems] = useState<ActiveRouteItem[]>([]);
@@ -147,12 +148,12 @@ export default function ControlUnitsPage({
     .map((item) => [normalizeText(item.unitId).toUpperCase(), item.custodySince as string])), [activeRouteItems]);
   const catalogRows = useMemo(() => {
     const query = catalogSearch.trim().toLocaleLowerCase("es");
-    return displayRows.filter((row) => isCatalogEligible(row, custodySinceByUnit, catalogClock)).filter((row) => {
+    return displayRows.filter((row) => showFullFleet || isCatalogEligible(row, custodySinceByUnit, catalogClock)).filter((row) => {
       if (!query) return true;
       return [row.unit_id, row.brand_model, row.model_year, row.year, row.transmission_type, row.transmission]
         .some((value) => String(value ?? "").toLocaleLowerCase("es").includes(query));
     });
-  }, [catalogClock, catalogSearch, custodySinceByUnit, displayRows]);
+  }, [catalogClock, catalogSearch, custodySinceByUnit, displayRows, showFullFleet]);
   const pieData = useMemo(() => buildFleetPieData(displayRows), [displayRows]);
   const incompleteRows = useMemo(() => {
     const query = incompleteSearch.trim().toLocaleLowerCase("es");
@@ -678,15 +679,21 @@ export default function ControlUnitsPage({
       {fleetView === "catalog" && (
         <div className="fleet-catalog-toolbar">
           <div>
-            <strong>Autos disponibles</strong>
-            <p className="hint">Solo se muestran autos libres. Los autos en custodia entran al catálogo después de 24 horas.</p>
+            <strong>{showFullFleet ? "Flota completa" : "Autos disponibles"}</strong>
+            <p className="hint">{showFullFleet
+              ? `Todos los autos de la flota, sin importar su estado. Mostrando ${catalogRows.length} de ${displayRows.length}.`
+              : "Solo se muestran autos libres. Los autos en custodia entran al catálogo después de 24 horas."}</p>
           </div>
+          <button type="button" className="button ghost small" aria-pressed={showFullFleet} onClick={() => setShowFullFleet((value) => !value)}>
+            {showFullFleet ? "Ver solo disponibles" : "Ver flota completa"}
+          </button>
           <label className="fleet-catalog-search">
+            Buscar por nomenclatura, modelo, año o transmisión
             <input
               aria-label="Buscar en el catálogo"
               value={catalogSearch}
               onChange={(event) => setCatalogSearch(event.target.value)}
-              placeholder="Buscar por marca, modelo, año o transmisión…"
+              placeholder="Ejemplo: A01 o Kia Picanto"
             />
           </label>
         </div>
@@ -754,7 +761,7 @@ export default function ControlUnitsPage({
       {loading ? (
         <p className="hint">Cargando flota...</p>
       ) : fleetView === "catalog" ? (
-        <FleetCatalog rows={catalogRows} readOnly={readOnly} onEdit={openCatalogEditDialog} onHistory={openHistoryDialog} />
+        <FleetCatalog rows={catalogRows} readOnly={readOnly} showInternalDetails showFullFleet={showFullFleet} onEdit={openCatalogEditDialog} onHistory={openHistoryDialog} />
       ) : fleetView === "table" ? (
         <>
           <FleetTable
