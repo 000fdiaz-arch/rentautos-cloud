@@ -1,7 +1,7 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { formatCurrency, formatDate } from "../../format";
 import { collectionTeamForDelta, hasCollectionDelta } from "../../cashTeamRules";
-import type { Client, CollectionDelta, LateFeeSettings, OtherChargesRetentionCycle, PaymentMethod } from "../../types";
+import type { Client, CollectionDelta, LateFeeSettings, OtherChargesRetentionConfig, PaymentMethod } from "../../types";
 import {
   getOtherChargeKey,
   isLateFeeListClient,
@@ -55,10 +55,7 @@ type Props = {
   isZeroBalance: boolean;
   isForcedOtherChargesRuleClient: boolean;
   isForcedOtherChargesRuleActive: boolean;
-  selectedClientRetentionConfig: {
-    amount: number;
-    cycle: OtherChargesRetentionCycle;
-  };
+  selectedClientRetentionConfig: OtherChargesRetentionConfig;
   lateFeeSettings: LateFeeSettings;
   setManualOverrideForcedOtherCharges: Dispatch<SetStateAction<boolean>>;
   manualOtherChargesInput: Record<string, string>;
@@ -409,7 +406,7 @@ export default function RegisterPaymentPanel({
                   <>
                     <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
                       {isForcedOtherChargesRuleActive
-                        ? `Regla automatica activa (${getRetentionCycleLabel(selectedClientRetentionConfig.cycle)}): monto base ${formatCurrency(selectedClientRetentionConfig.amount)}.`
+                        ? `Regla automatica activa (${getRetentionCycleLabel(selectedClientRetentionConfig.cycle, selectedClientRetentionConfig.weeklyChargeDay)}): monto base ${formatCurrency(selectedClientRetentionConfig.amount)}.`
                         : "Edicion manual activa para este pago: puedes definir otros cargos manualmente."}
                     </p>
                     <button

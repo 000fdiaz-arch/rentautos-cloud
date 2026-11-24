@@ -14,6 +14,7 @@ import type {
   PendingCardItem
 } from "../types";
 import { readIndexedDb, writeIndexedDb } from "./indexedDbStorage";
+import { normalizeOtherChargesWeeklyDay } from "../otherChargesRetention";
 
 function parseFiniteNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -375,9 +376,11 @@ export function loadOtherChargesRetentionByClient(): OtherChargesRetentionByClie
       }
       if (!value || typeof value !== "object" || Array.isArray(value)) continue;
       const rec = value as Record<string, unknown>;
+      const weeklyChargeDay = normalizeOtherChargesWeeklyDay(rec.weeklyChargeDay);
       normalized[clientId] = {
         amount: parseNonNegativeNumber(rec.amount),
-        cycle: rec.cycle === "when_payment" ? "when_payment" : normalizeBillingFrequency(rec.cycle)
+        cycle: rec.cycle === "when_payment" ? "when_payment" : normalizeBillingFrequency(rec.cycle),
+        ...(weeklyChargeDay ? { weeklyChargeDay } : {})
       };
     }
     return normalized;
@@ -392,7 +395,8 @@ export function saveOtherChargesRetentionByClient(settings: OtherChargesRetentio
     if (!clientId || !clientId.trim()) continue;
     const amount = parseNonNegativeNumber(config?.amount);
     const cycle = config?.cycle === "when_payment" ? "when_payment" : normalizeBillingFrequency(config?.cycle);
-    normalized[clientId] = { amount, cycle };
+    const weeklyChargeDay = normalizeOtherChargesWeeklyDay(config?.weeklyChargeDay);
+    normalized[clientId] = { amount, cycle, ...(weeklyChargeDay ? { weeklyChargeDay } : {}) };
   }
   localStorage.setItem(OTHER_CHARGES_RETENTION_KEY, JSON.stringify(normalized));
 }

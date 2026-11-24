@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { formatCurrency, formatFileDate } from "../../format";
-import type { Client, OtherChargesRetentionByClient, OtherChargesRetentionCycle } from "../../types";
+import type { Client, OtherChargesRetentionByClient, OtherChargesRetentionCycle, OtherChargesRetentionWeeklyDay } from "../../types";
+import { normalizeOtherChargesWeeklyDay, OTHER_CHARGES_WEEKDAYS, OTHER_CHARGES_WEEKDAY_LABEL } from "../../otherChargesRetention";
 
 const DEFAULT_RETENTION = 5;
 const CYCLES: OtherChargesRetentionCycle[] = ["daily", "weekly", "biweekly", "monthly", "when_payment"];
@@ -26,7 +27,8 @@ export default function OtherChargesSettingsPanel({ clients, settings, onChange 
     const configured = settings[client.id];
     const amount = Number.isFinite(configured?.amount) ? Math.max(0, configured.amount) : DEFAULT_RETENTION;
     const cycle = configured?.cycle && CYCLES.includes(configured.cycle) ? configured.cycle : client.frequency;
-    return { amount, cycle };
+    const weeklyChargeDay = normalizeOtherChargesWeeklyDay(configured?.weeklyChargeDay) ?? client.weeklyChargeDay ?? "monday";
+    return { amount, cycle, weeklyChargeDay };
   }
 
   const rows = useMemo(() => {
@@ -76,13 +78,13 @@ export default function OtherChargesSettingsPanel({ clients, settings, onChange 
   function exportRows(): (string | number)[][] {
     return rows.map(({ client, pending }) => {
       const config = configFor(client);
-      return [client.unitId, client.name, pending, config.amount, CYCLE_LABEL[config.cycle], config.amount > 0 ? "Activa" : "Desactivada"];
+      return [client.unitId, client.name, pending, config.amount, CYCLE_LABEL[config.cycle], config.cycle === "weekly" ? OTHER_CHARGES_WEEKDAY_LABEL[config.weeklyChargeDay] : "", config.amount > 0 ? "Activa" : "Desactivada"];
     });
   }
 
   async function exportExcel(): Promise<void> {
     try {
-      const headers = ["Unidad", "Cliente", "Total otros cargos", "Retencion automatica", "Ciclo de cobro", "Estado"];
+      const headers = ["Unidad", "Cliente", "Total otros cargos", "Retencion automatica", "Ciclo de cobro", "Dia de cobro", "Estado"];
       const xlsx = await import("xlsx");
       const worksheet = xlsx.utils.aoa_to_sheet([headers, ...exportRows()]);
       const workbook = xlsx.utils.book_new();
@@ -97,7 +99,7 @@ export default function OtherChargesSettingsPanel({ clients, settings, onChange 
       const [{ default: JsPDF }, { default: autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
       const document = new JsPDF({ orientation: "landscape" });
       document.text("Rentautos - Otros Cargos", 14, 16);
-      autoTable(document, { head: [["Unidad", "Cliente", "Total otros cargos", "Retencion automatica", "Ciclo de cobro", "Estado"]], body: exportRows().map((row) => row.map(String)), startY: 24 });
+      autoTable(document, { head: [["Unidad", "Cliente", "Total otros cargos", "Retencion automatica", "Ciclo de cobro", "Dia de cobro", "Estado"]], body: exportRows().map((row) => row.map(String)), startY: 24 });
       document.save(`rentautos-otros-cargos-${formatFileDate(new Date())}.pdf`);
       setErrors([]);
     } catch { setErrors(["No se pudo exportar la lista de otros cargos a PDF."]); }
@@ -108,6 +110,7 @@ export default function OtherChargesSettingsPanel({ clients, settings, onChange 
     <section className="panel">
       <div className="panel-head"><h2>Otros cargos</h2></div>
       <p className="hint" style={{ marginTop: 0 }}>Aqui defines cuanto se retiene automaticamente por unidad al registrar pagos con otros cargos pendientes. Si no existe configuracion previa, se usa {formatCurrency(DEFAULT_RETENTION)} por defecto.</p>
+      <p className="hint">Para el ciclo semanal puedes elegir de lunes a domingo. El importe se aplica al registrar un pago desde ese dia; las semanas pendientes se acumulan.</p>
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, gap: 8, flexWrap: "wrap" }}>
         <button type="button" className="button ghost" onClick={() => setFilters(EMPTY_FILTERS)} disabled={!Object.values(filters).some((value) => value.trim())}>Limpiar filtros</button>
         <button type="button" className="button ghost" onClick={() => void exportExcel()} disabled={rows.length === 0}>Exportar Excel</button>
@@ -115,11 +118,13 @@ export default function OtherChargesSettingsPanel({ clients, settings, onChange 
       </div>
       {errors.length > 0 && <ul className="error-list">{errors.map((error) => <li key={error}>{error}</li>)}</ul>}
       <div className="table-scroll" style={{ marginTop: 12 }}><table><thead>
-        <tr>{(["unit", "client", "pending", "retention", "cycle", "status"] as SortField[]).map((field, index) => <th key={field}><button type="button" className="sort-button" onClick={() => sort(field)}>{["Unidad", "Cliente", "Total otros cargos", "Retencion automatica (USD)", "Ciclo de cobro", "Estado"][index]} <span className={`sort-icon ${sortField === field ? "active" : ""}`}>{sortIcon(field)}</span></button></th>)}</tr>
-        <tr>{(["unit", "client", "pending", "retention", "cycle", "status"] as SortField[]).map((field) => <th key={field}><input type="text" className="payment-input" placeholder="Filtrar" value={filters[field]} onChange={(event) => setFilters((current) => ({ ...current, [field]: event.target.value }))} /></th>)}</tr>
-      </thead><tbody>{rows.length === 0 ? <tr><td colSpan={6} className="empty" style={{ textAlign: "center" }}>No hay resultados con los filtros actuales.</td></tr> : rows.map(({ client, pending }) => {
+        <tr>{(["unit", "client", "pending", "retention", "cycle", "day", "status"] as const).map((field, index) => <th key={field}>{field === "day" ? "Dia de cobro" : <button type="button" className="sort-button" onClick={() => sort(field)}>{["Unidad", "Cliente", "Total otros cargos", "Retencion automatica (USD)", "Ciclo de cobro", "Dia de cobro", "Estado"][index]} <span className={`sort-icon ${sortField === field ? "active" : ""}`}>{sortIcon(field)}</span></button>}</th>)}</tr>
+        <tr>{(["unit", "client", "pending", "retention", "cycle", "day", "status"] as const).map((field) => <th key={field}>{field !== "day" && <input type="text" className="payment-input" placeholder="Filtrar" value={filters[field]} onChange={(event) => setFilters((current) => ({ ...current, [field]: event.target.value }))} />}</th>)}</tr>
+      </thead><tbody>{rows.length === 0 ? <tr><td colSpan={7} className="empty" style={{ textAlign: "center" }}>No hay resultados con los filtros actuales.</td></tr> : rows.map(({ client, pending }) => {
         const config = configFor(client);
-        return <tr key={client.id}><td><strong>{client.unitId}</strong></td><td>{client.name}</td><td><span className="amount-warning">{formatCurrency(pending)}</span></td><td><input type="number" className="payment-input" min="0" step="0.01" value={drafts[client.id] ?? String(config.amount)} onChange={(event) => setDrafts((current) => ({ ...current, [client.id]: event.target.value }))} onBlur={() => commit(client.id)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commit(client.id); } }} /></td><td><select className="payment-input" value={config.cycle} onChange={(event) => onChange({ ...settings, [client.id]: { ...config, cycle: event.target.value as OtherChargesRetentionCycle } })}>{CYCLES.map((cycle) => <option key={cycle} value={cycle}>{CYCLE_LABEL[cycle]}</option>)}</select></td><td>{config.amount > 0 ? <span className="badge-sim">Activa</span> : <span className="amount-muted">Desactivada (0)</span>}</td></tr>;
+        return <tr key={client.id}><td><strong>{client.unitId}</strong></td><td>{client.name}</td><td><span className="amount-warning">{formatCurrency(pending)}</span></td><td><input type="number" className="payment-input" min="0" step="0.01" value={drafts[client.id] ?? String(config.amount)} onChange={(event) => setDrafts((current) => ({ ...current, [client.id]: event.target.value }))} onBlur={() => commit(client.id)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commit(client.id); } }} /></td><td><select className="payment-input" value={config.cycle} onChange={(event) => onChange({ ...settings, [client.id]: { ...config, cycle: event.target.value as OtherChargesRetentionCycle } })}>{CYCLES.map((cycle) => <option key={cycle} value={cycle}>{CYCLE_LABEL[cycle]}</option>)}</select></td>
+          <td>{config.cycle === "weekly" ? <select className="payment-input" aria-label={`Dia de cobro de otros cargos de ${client.unitId}`} value={config.weeklyChargeDay} onChange={(event) => onChange({ ...settings, [client.id]: { ...config, weeklyChargeDay: event.target.value as OtherChargesRetentionWeeklyDay } })}>{OTHER_CHARGES_WEEKDAYS.map((day) => <option key={day} value={day}>{OTHER_CHARGES_WEEKDAY_LABEL[day]}</option>)}</select> : <span className="amount-muted">No aplica</span>}</td>
+          <td>{config.amount > 0 ? <span className="badge-sim">Activa</span> : <span className="amount-muted">Desactivada (0)</span>}</td></tr>;
       })}</tbody></table></div>
     </section>
   );

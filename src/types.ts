@@ -234,10 +234,12 @@ export type LateFeeSettings = {
 };
 
 export type OtherChargesRetentionCycle = BillingFrequency | "when_payment";
+export type OtherChargesRetentionWeeklyDay = WeeklyChargeDay | "sunday";
 
 export type OtherChargesRetentionConfig = {
   amount: number;
   cycle: OtherChargesRetentionCycle;
+  weeklyChargeDay?: OtherChargesRetentionWeeklyDay;
 };
 
 export type OtherChargesRetentionByClient = Record<string, OtherChargesRetentionConfig>;

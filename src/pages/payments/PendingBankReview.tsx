@@ -138,7 +138,7 @@ export default function PendingBankReview({
             <div className="pending-inline-review__rule">
               <p className="hint">
                 {forcedRuleActive
-                  ? `Aplicación automática (${getRetentionCycleLabel(retentionConfig.cycle)}): ${formatCurrency(retentionConfig.amount)}.`
+                  ? `Aplicación automática (${getRetentionCycleLabel(retentionConfig.cycle, retentionConfig.weeklyChargeDay)}): ${formatCurrency(retentionConfig.amount)}.`
                   : "Edición manual activa para este pago."}
               </p>
               <button type="button" className="button ghost small" onClick={onToggleManualOverride}>

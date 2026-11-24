@@ -1,5 +1,6 @@
 import { findNextChargeDay, isChargeDay, parseDateKey, startOfDay, toDateKey } from "../../billing";
 import { sortOtherChargesOldestFirst } from "../../otherCharges";
+import { normalizeOtherChargesWeeklyDay, OTHER_CHARGES_WEEKDAYS, OTHER_CHARGES_WEEKDAY_LABEL } from "../../otherChargesRetention";
 import type {
   BillingFrequency,
   Client,
@@ -9,7 +10,9 @@ import type {
   OtherCharge,
   OtherChargesRetentionCheckpoint,
   OtherChargesRetentionByClient,
+  OtherChargesRetentionConfig,
   OtherChargesRetentionCycle,
+  OtherChargesRetentionWeeklyDay,
   OtherChargesRetentionEvent,
   Payment
 } from "../../types";
@@ -162,16 +165,18 @@ export const DEFAULT_OTHER_CHARGES_RETENTION = 5;
 export function getConfiguredOtherChargesRetentionConfig(
   client: Client,
   retentionByClient: OtherChargesRetentionByClient
-): { amount: number; cycle: OtherChargesRetentionCycle } {
+): OtherChargesRetentionConfig {
   const configured = retentionByClient[client.id];
   const amount = Number.isFinite(configured?.amount) ? roundMoney(Math.max(0, configured.amount)) : DEFAULT_OTHER_CHARGES_RETENTION;
   const cycle = configured?.cycle ?? client.frequency;
-  return { amount, cycle };
+  const weeklyChargeDay = normalizeOtherChargesWeeklyDay(configured?.weeklyChargeDay)
+    ?? client.weeklyChargeDay ?? "monday";
+  return { amount, cycle, weeklyChargeDay };
 }
 
-export function getRetentionCycleLabel(cycle: OtherChargesRetentionCycle): string {
+export function getRetentionCycleLabel(cycle: OtherChargesRetentionCycle, weeklyChargeDay?: OtherChargesRetentionWeeklyDay): string {
   if (cycle === "daily") return "Diario";
-  if (cycle === "weekly") return "Semanal";
+  if (cycle === "weekly") return weeklyChargeDay ? `Semanal (${OTHER_CHARGES_WEEKDAY_LABEL[weeklyChargeDay]})` : "Semanal";
   if (cycle === "biweekly") return "Quincenal";
   if (cycle === "monthly") return "Mensual";
   return "Cuando paga";
@@ -269,7 +274,8 @@ export function countRetentionEventsInRange(
   client: Client,
   cycle: OtherChargesRetentionCycle,
   fromExclusive: Date,
-  toInclusive: Date
+  toInclusive: Date,
+  weeklyChargeDay?: OtherChargesRetentionWeeklyDay
 ): number {
   if (cycle === "when_payment") return 1;
   const normalizedFrom = startOfDay(fromExclusive);
@@ -279,9 +285,13 @@ export function countRetentionEventsInRange(
   cursor.setDate(cursor.getDate() + 1);
   let events = 0;
   const cycleClient = getRetentionCycleClient(client, cycle);
+  const day = normalizeOtherChargesWeeklyDay(weeklyChargeDay) ?? client.weeklyChargeDay ?? "monday";
+  const weeklyDayNumber = (OTHER_CHARGES_WEEKDAYS.indexOf(day) + 1) % 7;
   for (let i = 0; i < 4000 && cursor <= normalizedTo; i += 1) {
     if (cycle === "daily") {
       if (cursor.getDay() !== 0) events += 1;
+    } else if (cycle === "weekly") {
+      if (cursor.getDay() === weeklyDayNumber) events += 1;
     } else if (isChargeDay(cycleClient, cursor)) {
       events += 1;
     }
@@ -326,8 +336,15 @@ export function computeConfiguredRetentionCalculation(
   if (!anchorDateKey) return { amount: config.amount, cyclesElapsed: 1, checkpointDateKey: null };
   const anchorDate = parseDateKey(anchorDateKey);
   if (!anchorDate) return { amount: config.amount, cyclesElapsed: 1, checkpointDateKey };
-  const countedEvents = countRetentionEventsInRange(client, config.cycle, anchorDate, paymentDate);
-  const cyclesElapsed = checkpointDateKey ? countedEvents : Math.max(1, countedEvents);
+  const hasConfiguredWeeklyDay = config.cycle === "weekly"
+    && !!normalizeOtherChargesWeeklyDay(retentionByClient[client.id]?.weeklyChargeDay);
+  // A new charge starts on its first selected weekday, including its creation day.
+  if (hasConfiguredWeeklyDay && firstChargeDateKey === anchorDateKey
+    && (!checkpointDateKey || checkpointDateKey < firstChargeDateKey)) {
+    anchorDate.setDate(anchorDate.getDate() - 1);
+  }
+  const countedEvents = countRetentionEventsInRange(client, config.cycle, anchorDate, paymentDate, config.weeklyChargeDay);
+  const cyclesElapsed = checkpointDateKey || hasConfiguredWeeklyDay ? countedEvents : Math.max(1, countedEvents);
   const previousUnpaidRetention = checkpointPayment?.retentionEvent?.mode === "automatic"
     ? roundMoney(Math.max(0,
       checkpointPayment.retentionEvent.calculatedAmount - checkpointPayment.retentionEvent.appliedAmount
