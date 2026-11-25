@@ -9,7 +9,7 @@ try {
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',r=>new URL(r.request().url()).origin===base?r.continue():r.abort());
  const fixture=base+'/tests/fixtures/outside-route-cash.html';
- for(const mode of ['']) {
+ for(const mode of ['', '&legacy', '&version=v2']) {
   for(const viewport of [{width:360,height:800},{width:768,height:1024},{width:1366,height:768}]) {
    await page.setViewportSize(viewport);
    await page.goto(fixture+'?operator=delta1'+mode);

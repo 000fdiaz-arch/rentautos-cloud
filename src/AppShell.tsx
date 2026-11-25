@@ -1,3 +1,5 @@
+import { registerCloudRouteBankNotice as registerV2RouteBankNotice, loadCloudActiveRouteItem as loadV2ActiveRouteItem } from "./cloud/operationsCloudDataV2";
+
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import {
   loadClients,
@@ -22,12 +24,11 @@ import {
 } from "./storage";
 import {
   deleteCloudPaymentsAtomic,
-  loadCloudBankRules,
   loadCloudChargeRunsWithDetails,
   loadCloudClient,
   loadCloudClients,
   loadCloudLeadEvaluations,
-  loadCloudLateFeeSettings,
+  loadCloudManualAssignmentAudit,
   loadCloudOtherChargesRetention,
   loadCloudPayments,
   loadCloudActiveRouteItems,
@@ -55,11 +56,14 @@ import { analyzeBackupFileContent, type BackupImportReport } from "./backupImpor
 import type { BackupExtraData } from "./autobackup";
 import { canEditScreen, canViewScreen, type AppPermissions } from "./auth/permissions";
 import type { BankRule, Client, CollectionDelta, CollectionTeam, LateFeeSettings, LeadEvaluation, OtherChargesRetentionByClient, Payment } from "./types";
-import { parseLocalJson } from "./app/appShellRules";
+import { buildCloudErrorMessage, parseLocalJson } from "./app/appShellRules";
 import AppNavigation, { type AppPage } from "./app/AppNavigation";
 import { appPageFromPathname, appPagePath, isCanonicalAppPagePath } from "./app/appRoutes";
+import { appPageLoaders } from "./app/pageLoaders";
 import { useBackupManager } from "./app/useBackupManager";
 import { useCoreCloudSync } from "./app/useCoreCloudSync";
+import { usePaymentAuditHydration } from "./app/usePaymentAuditHydration";
+import { useControlUnitsRows } from "./pages/controlUnits/useControlUnitsRows";
 import { useLeadCloudData } from "./app/useLeadCloudData";
 import { usePendingLeadReviewCount } from "./app/usePendingLeadReviewCount";
 import { useOtherChargesRetentionCheckpoints } from "./app/useOtherChargesRetentionCheckpoints";
@@ -70,21 +74,24 @@ import { confirmRouteBankReport, loadRoutePaymentReports, type RouteBankConfirma
 import { stableEqual } from "./stableSerialize";
 import { routeFilterForOperatorEmail } from "./routeOperatorScope";
 import { buildManualPaymentTransaction } from "./pages/payments/manualPaymentWorkflow";
-import { getPendingCashChangeError, collectionTeamForDelta } from "./cashTeamRules";
+import { getPendingCashChangeError } from "./cashTeamRules";
+import { collectionTeamForDelta } from "./cashTeamRules";
 import { routeDeltaFromName } from "./routeDeltaTracking";
 import type { RoutePaymentInput } from "./pages/OutsideRouteCashDialog";
 import { loadNotifiedPayments, saveNotifiedPayments } from "./pages/payments/paymentStorage";
 import { cacheLocalClientPortalCloudData, isLocalClientPortalMode } from "./cloud/localClientPortal";
 import "./styles.css";
 
-const ClientsPage = lazy(() => import("./pages/ClientsPage"));
-const LeadsPage = lazy(() => import("./pages/LeadsPage"));
-const PaymentsPage = lazy(() => import("./pages/PaymentsPage"));
-const ReceivablesPage = lazy(() => import("./pages/ReceivablesPage"));
-const RouteSearchPage = lazy(() => import("./pages/RouteSearchPage"));
-const IncidentsControlPage = lazy(() => import("./pages/IncidentsControlPage"));
-const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const ControlUnitsPage = lazy(() => import("./pages/ControlUnitsPage"));
+const ClientsPage = lazy(appPageLoaders.clients);
+const LeadsPage = lazy(appPageLoaders.leads);
+const PaymentsPage = lazy(appPageLoaders.payments);
+const ReceivablesV2Page = lazy(appPageLoaders.receivables_v2);
+const ReceivablesPage = lazy(appPageLoaders.receivables);
+const RouteSearchPage = lazy(appPageLoaders.route_search);
+const IncidentsControlPage = lazy(appPageLoaders.incidents);
+const SettingsPage = lazy(appPageLoaders.settings);
+const loadControlUnitsPage = appPageLoaders.control_units;
+const ControlUnitsPage = lazy(loadControlUnitsPage);
 
 const FLEET_UNIT_RESTORE_FIELDS = [
   "company",
@@ -136,6 +143,7 @@ type AppShellProps = {
   isAdmin?: boolean;
   canReportRoutePayments?: boolean;
   canDeclareRoutePayments?: boolean;
+  canRemoveRouteItems?: boolean;
   userEmail?: string;
   dataOwnerUserId?: string | null;
   effectiveOwnerUserId?: string;
@@ -173,6 +181,7 @@ export default function AppShell({
   isAdmin = false,
   canReportRoutePayments = false,
   canDeclareRoutePayments = false,
+  canRemoveRouteItems = false,
   userEmail,
   dataOwnerUserId,
   effectiveOwnerUserId,
@@ -202,17 +211,32 @@ export default function AppShell({
   const canViewSettingsPage = canViewSettings || canManageUsers;
   const isReadOnlyReceivables = isReadOnlyExperience || !canEditReceivables;
   const shouldSyncCoreData = canViewClients || canViewPayments || canViewReceivables || canViewRouteSearch || canViewIncidents || canViewSettingsPage;
-  const shouldLoadCloudSettings = canViewPayments || canViewSettingsPage;
   const pageVisibility = {
     leads: canViewLeads,
     clients: canViewClients,
     payments: canViewPayments,
     receivables: canViewReceivables,
+    receivables_v2: canViewReceivables,
     route_search: canViewRouteSearch,
     incidents: canViewIncidents,
     control_units: canViewControlUnits,
     settings: canViewSettingsPage
   } satisfies Record<AppPage, boolean>;
+  const receivablesModalClosePage: AppPage = canViewClients
+    ? "clients"
+    : canViewPayments
+      ? "payments"
+      : canViewRouteSearch
+        ? "route_search"
+        : canViewLeads
+          ? "leads"
+          : canViewControlUnits
+            ? "control_units"
+            : canViewIncidents
+              ? "incidents"
+              : canViewSettingsPage
+                ? "settings"
+                : "receivables";
   const cloudMirrorHydrationKeys = useMemo(() => {
     const keys = new Set<string>();
     if (canViewPayments) {
@@ -242,7 +266,21 @@ export default function AppShell({
       canViewSettingsPage
     });
   });
+  // Load the visible fleet alongside core hydration. The hook owns its realtime
+  // subscription immediately; rendering still waits for the core data gate.
+  const fleetData = useControlUnitsRows(cloudDataUserId, canViewControlUnits && page === "control_units");
+  useEffect(() => {
+    if (canViewControlUnits && page === "control_units") void loadControlUnitsPage().catch(() => {});
+  }, [canViewControlUnits, page]);
   const [clients, setClients] = useState<Client[]>(() => (isSupabaseOnlyMode ? [] : loadClients()));
+  const applyVerifiedReceivableClient = useCallback((fresh: Client) => {
+    setClients(current => {
+      const existing = current.find(client => client.id === fresh.id);
+      if (existing && JSON.stringify(existing) === JSON.stringify(fresh)) return current;
+      return existing ? current.map(client => client.id === fresh.id ? fresh : client) : current;
+    });
+  }, []);
+
   const [payments, setPayments] = useState<Payment[]>(() => (isSupabaseOnlyMode ? [] : loadPayments()));
   const [bankRules, setBankRules] = useState<BankRule[]>(() => loadBankRules());
   const [lateFeeSettings, setLateFeeSettings] = useState<LateFeeSettings>(() => loadLateFeeSettings());
@@ -253,7 +291,6 @@ export default function AppShell({
     error: otherChargesRetentionCheckpointsError
   } = useOtherChargesRetentionCheckpoints(cloudDataUserId);
   const leads = useLeadCloudData(cloudDataUserId, canViewLeads, page === "leads");
-  const pendingLeadReviewCount = usePendingLeadReviewCount(cloudDataUserId, canViewLeads);
   const leadEvaluations = leads.evaluations;
   const [fullPaymentHistoryLoaded, setFullPaymentHistoryLoaded] = useState<boolean>(false);
   const [cashPaymentPrefill, setCashPaymentPrefill] = useState<{
@@ -271,36 +308,6 @@ export default function AppShell({
     () => getRouteMenuAlertCounts(routeManagementItems, payments, getBusinessDateKey(), routeReviewReports).total,
     [payments, routeManagementItems, routeReviewReports]
   );
-
-  useEffect(() => {
-    if (!cloudDataUserId || !canViewIncidents) {
-      setIncidentAlertCount(0);
-      return;
-    }
-    let cancelled = false;
-    const refreshIncidentAlerts = () => {
-      Promise.all([
-        loadCollisionCases(cloudDataUserId),
-        loadInsuranceClaims(cloudDataUserId),
-        loadPendingIncidents(cloudDataUserId),
-        loadInsuranceBankPayments(cloudDataUserId),
-        import("./pages/UnifiedIncidentsFollowUp")
-      ]).then(([collisions, claims, pendingDestinations, insurancePayments, incidentRules]) => {
-        if (!cancelled) {
-          const pendingInsurancePayments = insurancePayments.filter((payment) => payment.status === "pending").length;
-          setIncidentAlertCount(incidentRules.countIncidentAlerts(collisions, claims, true, pendingDestinations) + pendingInsurancePayments);
-        }
-      }).catch((error) => {
-        console.error("No se pudo cargar el contador de alertas de siniestros.", error);
-      });
-    };
-    refreshIncidentAlerts();
-    window.addEventListener("cobrapp:insurance-bank-updated", refreshIncidentAlerts);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("cobrapp:insurance-bank-updated", refreshIncidentAlerts);
-    };
-  }, [canViewIncidents, cloudDataUserId]);
 
   const {
     cloudReady,
@@ -328,6 +335,40 @@ export default function AppShell({
     setFullPaymentHistoryLoaded,
     onSettingsReload: reloadSettingsFromLocalCache
   });
+  const paymentAudit = usePaymentAuditHydration(cloudDataUserId, canViewPayments && cloudReady);
+  const pendingLeadReviewCount = usePendingLeadReviewCount(cloudDataUserId, canViewLeads && cloudReady);
+
+
+  useEffect(() => {
+    if (!cloudReady || !cloudDataUserId || !canViewIncidents) {
+      setIncidentAlertCount(0);
+      return;
+    }
+    let cancelled = false;
+    const refreshIncidentAlerts = () => {
+      if (cancelled) return;
+      Promise.all([
+        loadCollisionCases(cloudDataUserId),
+        loadInsuranceClaims(cloudDataUserId),
+        loadPendingIncidents(cloudDataUserId),
+        loadInsuranceBankPayments(cloudDataUserId),
+        import("./pages/UnifiedIncidentsFollowUp")
+      ]).then(([collisions, claims, pendingDestinations, insurancePayments, incidentRules]) => {
+        if (!cancelled) {
+          const pendingInsurancePayments = insurancePayments.filter((payment) => payment.status === "pending").length;
+          setIncidentAlertCount(incidentRules.countIncidentAlerts(collisions, claims, true, pendingDestinations) + pendingInsurancePayments);
+        }
+      }).catch((error) => {
+        console.error("No se pudo cargar el contador de alertas de siniestros.", error);
+      });
+    };
+    refreshIncidentAlerts();
+    window.addEventListener("cobrapp:insurance-bank-updated", refreshIncidentAlerts);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("cobrapp:insurance-bank-updated", refreshIncidentAlerts);
+    };
+  }, [canViewIncidents, cloudDataUserId, cloudReady]);
 
   useEffect(() => {
     if (!isLocalClientPortalMode() || clients.length === 0) return;
@@ -410,7 +451,7 @@ export default function AppShell({
 
   useEffect(() => {
     let cancelled = false;
-    if (!canViewRouteSearch || !cloudDataUserId) {
+    if (!cloudReady || !canViewRouteSearch || !cloudDataUserId) {
       setRouteManagementItems([]);
       setRouteReviewReports([]);
       return () => {
@@ -450,26 +491,11 @@ export default function AppShell({
       cancelled = true;
       void client.removeChannel(channel);
     };
-  }, [canViewRouteSearch, cloudDataUserId]);
+  }, [canViewRouteSearch, cloudDataUserId, cloudReady]);
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!cloudDataUserId || !cloudReady || !shouldLoadCloudSettings) return () => {
-      cancelled = true;
-    };
-
-    void reloadSettingsFromCloud(cloudDataUserId).catch((error) => {
-      console.error("No se pudieron cargar settings explicitos desde Supabase.", error);
-      if (!cancelled) {
-        setSyncStatus("error");
-        setSyncErrorMessage(`No se pudieron cargar configuraciones cloud. ${describeCloudError(error)}`);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cloudDataUserId, cloudReady, shouldLoadCloudSettings]);
+  // Core bootstrap already hydrates the complete settings snapshot and calls
+  // reloadSettingsFromLocalCache before cloudReady. Reading/saving it again here
+  // would duplicate requests and echo server values back through the mirror.
 
   function handleStartCashClientPayment(payload: {
     dateApplied: string;
@@ -485,7 +511,9 @@ export default function AppShell({
     let fleetUnits: unknown[] = [];
     let cloudChargeRuns: unknown[] | null = null;
     const indexedPendingBankItems = await loadPendingBankItemsFromIndexedDb();
-    const indexedManualAssignmentAudit = await loadManualBankAssignmentAuditFromIndexedDb();
+    const indexedManualAssignmentAudit = cloudDataUserId && isSupabaseOnlyMode
+      ? await loadCloudManualAssignmentAudit(cloudDataUserId)
+      : await loadManualBankAssignmentAuditFromIndexedDb();
     if (cloudDataUserId) {
       try {
         fleetUnits = await loadControlUnits(cloudDataUserId);
@@ -505,7 +533,9 @@ export default function AppShell({
       pendingBankItems: indexedPendingBankItems.length > 0 ? indexedPendingBankItems : loadPendingBankItems(),
       pendingCardItems: parseLocalJson("cobrapp.module2.pending_card.v1", []) as unknown[],
       bankRules: parseLocalJson("cobrapp.settings.bank_rules.v1", []) as unknown[],
-      manualAssignmentAudit: indexedManualAssignmentAudit.length > 0 ? indexedManualAssignmentAudit : loadManualBankAssignmentAudit(),
+      manualAssignmentAudit: cloudDataUserId && isSupabaseOnlyMode
+        ? indexedManualAssignmentAudit
+        : indexedManualAssignmentAudit.length > 0 ? indexedManualAssignmentAudit : loadManualBankAssignmentAudit(),
       lateFeeSettings: parseLocalJson("cobrapp.settings.late_fee_settings.v1", {}) as Record<string, unknown>,
       lateFeeLedger: parseLocalJson("cobrapp.module2.late_fee_ledger.v1", []) as unknown[],
       otherChargesRetentionByClient: parseLocalJson("cobrapp.settings.other_charges_retention.v1", {}) as Record<string, unknown>,
@@ -677,7 +707,7 @@ export default function AppShell({
     return true;
   }
 
-  async function registerRoutePayment(input: RoutePaymentInput): Promise<{ kind: "cash" | "bank"; receiptNumber?: string; payment?: Payment }> {
+  async function registerRoutePayment(input: RoutePaymentInput, managementVersion: "legacy" | "v2" = "legacy"): Promise<{ kind: "cash" | "bank"; receiptNumber?: string; payment?: Payment }> {
     if (!canReportRoutePayments) {
       throw new Error("No tienes permiso para registrar pagos desde Ruta en calle.");
     }
@@ -693,7 +723,7 @@ export default function AppShell({
         throw new Error("Comprueba el Delta y el equipo que recibió el efectivo.");
       }
       if (cloudDataUserId) {
-        const active = await loadCloudActiveRouteItem(cloudDataUserId, input.clientId);
+        const active = await (managementVersion === "v2" ? loadV2ActiveRouteItem : loadCloudActiveRouteItem)(cloudDataUserId, input.clientId);
         if (active && !active.removedAt) throw new Error("La unidad ya está en ruta. Abre su tarjeta para registrar el cobro.");
       }
     }
@@ -729,8 +759,9 @@ export default function AppShell({
         source: "route"
       } as const;
       if (cloudDataUserId) {
-        await registerCloudRouteBankNotice(cloudDataUserId, notice);
+        await (managementVersion === "v2" ? registerV2RouteBankNotice : registerCloudRouteBankNotice)(cloudDataUserId, notice);
       } else {
+        if (managementVersion === "v2") throw new Error("Conecta la cuenta para registrar pagos de Cuentas por cobrar 2.0.");
         saveNotifiedPayments([...currentNotices, notice]);
       }
       setHasPendingChanges(true);
@@ -767,11 +798,14 @@ export default function AppShell({
       currentActor: userEmail || userId || "Usuario"
     });
     transaction.payment.collectionTeam = input.team;
-    if (input.reportId) transaction.payment.routeReportId = input.reportId;
+    if (input.reportId) {
+      if (managementVersion === "v2") transaction.payment.cxcV2RouteReportId = input.reportId;
+      else transaction.payment.routeReportId = input.reportId;
+    }
     if (input.fundsReceivedDate) transaction.payment.fundsReceivedDate = input.fundsReceivedDate;
     transaction.payment.source = "route";
     if (input.outsideRoute) {
-      transaction.payment.outsideRouteCollection = { version: "legacy", delta: input.delta,
+      transaction.payment.outsideRouteCollection = { version: managementVersion, delta: input.delta,
         team: input.team, collectedBy: userId || userEmail || "Usuario", collectedAt: transaction.payment.createdAt };
     }
     transaction.payment.incomeComment = `${input.outsideRoute ? "Cobro fuera de ruta" : "Cobro en Ruta"} · Equipo ${input.team}`;
@@ -817,7 +851,7 @@ export default function AppShell({
       } catch (error) {
         console.error("No se pudo eliminar el pago en Supabase.", error);
         setSyncStatus("error");
-        setSyncErrorMessage("No se pudo eliminar el pago en nube. Actualiza el historial y vuelve a intentar.");
+        setSyncErrorMessage(buildCloudErrorMessage("No se pudo eliminar el pago en nube.", error, { includeRawFallback: true }));
         return false;
       }
     }
@@ -845,27 +879,6 @@ export default function AppShell({
     setBankRules(loadBankRules());
     setLateFeeSettings(loadLateFeeSettings());
     setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
-  }
-
-  async function reloadSettingsFromCloud(ownerUserId: string): Promise<void> {
-    const [cloudBankRules, cloudLateFeeSettings, cloudOtherChargesRetention] = await Promise.all([
-      loadCloudBankRules(ownerUserId),
-      loadCloudLateFeeSettings(ownerUserId),
-      loadCloudOtherChargesRetention(ownerUserId)
-    ]);
-
-    setBankRules(cloudBankRules);
-    saveBankRules(cloudBankRules);
-
-    if (cloudLateFeeSettings) {
-      saveLateFeeSettings(cloudLateFeeSettings);
-      setLateFeeSettings(loadLateFeeSettings());
-    }
-
-    if (cloudOtherChargesRetention) {
-      saveOtherChargesRetentionByClient(cloudOtherChargesRetention);
-      setOtherChargesRetentionByClient(loadOtherChargesRetentionByClient());
-    }
   }
 
   function handleSettingsCloudError(error: unknown): void {
@@ -1158,12 +1171,18 @@ export default function AppShell({
             ownerUserId={cloudDataUserId}
           />
         )}
-        {page === "payments" && canViewPayments && !otherChargesRetentionCheckpointsReady && (
+        {page === "payments" && canViewPayments && !paymentAudit.ready && (
+          <section className="panel" role={paymentAudit.error ? "alert" : "status"}>
+            <p className="hint">{paymentAudit.error || "Cargando auditoria de pagos..."}</p>
+            {paymentAudit.error && <button type="button" className="button ghost" onClick={paymentAudit.retry}>Volver a intentar</button>}
+          </section>
+        )}
+        {page === "payments" && canViewPayments && paymentAudit.ready && !otherChargesRetentionCheckpointsReady && (
           <section className="panel">
             <p className="hint">{otherChargesRetentionCheckpointsError || "Comprobando el ultimo descuento de Otros cargos..."}</p>
           </section>
         )}
-        {page === "payments" && canViewPayments && otherChargesRetentionCheckpointsReady && (
+        {page === "payments" && canViewPayments && paymentAudit.ready && otherChargesRetentionCheckpointsReady && (
           <PaymentsPage
             clients={clients}
             bankRules={bankRules}
@@ -1189,7 +1208,7 @@ export default function AppShell({
           />
         )}
         {page === "receivables" && canViewReceivables && (
-          <ReceivablesPage
+          <div className="cxc-production"><ReceivablesPage
             clients={clients}
             payments={payments}
             lateFeeSettings={lateFeeSettings}
@@ -1209,7 +1228,60 @@ export default function AppShell({
               setHasPendingChanges(true);
               return true;
             }}
-          />
+          /></div>
+        )}
+        {page === "receivables_v2" && canViewReceivables && (
+          <div className="modal-overlay ar-receivables-module-overlay">
+            <section
+              className="modal ar-receivables-module-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="ar-receivables-module-title"
+            >
+              <div className="modal-header ar-receivables-module-header">
+                <div>
+                  <span className="ar-receivables-module-kicker">Gestión individual</span>
+                  <h2 id="ar-receivables-module-title">Cuentas por cobrar 2.0</h2>
+                </div>
+                {receivablesModalClosePage !== "receivables" ? (
+                  <button
+                    type="button"
+                    className="modal-close"
+                    onClick={() => navigateToPage(receivablesModalClosePage)}
+                    aria-label="Cerrar cuentas por cobrar"
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </div>
+              <div className="ar-receivables-module-body">
+                <ReceivablesV2Page
+                  onClientSnapshot={applyVerifiedReceivableClient}
+                  otherChargesRetentionByClient={otherChargesRetentionByClient}
+                  otherChargesRetentionCheckpointsByClient={otherChargesRetentionCheckpointsByClient}
+                  onFleetClientStatusSync={handleFleetClientStatusSync}
+                  clients={clients}
+                  payments={payments}
+                  lateFeeSettings={lateFeeSettings}
+                  onClientsChange={persistClients}
+                  dataOwnerUserId={cloudDataUserId}
+                  readOnly={isReadOnlyReceivables}
+                  isPaymentHistoryLoaded={fullPaymentHistoryLoaded}
+                  onRefreshPayments={refreshPaymentsFromSource}
+                  streetManagementData={parseLocalJson("cobrapp.cxc-v2.street_management.v1", {}) as Record<string, unknown>}
+                  routePermissions={{ isAdmin, canDeclarePayment: canDeclareRoutePayments, paymentsLoading: !cloudReady, currentUserId: userId, currentUserEmail: userEmail, canReportPayment: canReportRoutePayments,
+                    canConfirmBankPayment: isAdmin && canEditPayments && canReportRoutePayments, onConfirmBankPayment: confirmRouteBankPayment,
+                    canConfirmCaptures: isAdmin && canEditRouteSearch,
+                    initialRouteFilter: operatorRouteFilter,
+                    readOnly: !canEditRouteSearch, canRemoveFromRoute: canRemoveRouteItems, onRegisterPayment: (input) => registerRoutePayment(input) }}
+                  onStreetManagementPersist={async (value) => {
+                    localStorage.setItem("cobrapp.cxc-v2.street_management.v1", JSON.stringify(value));
+                    return true;
+                  }}
+                />
+              </div>
+            </section>
+          </div>
         )}
         {page === "route_search" && canViewRouteSearch && (
           <RouteSearchPage
@@ -1226,7 +1298,7 @@ export default function AppShell({
             clients={clients}
             payments={payments}
             readOnly={!canEditRouteSearch}
-            canRemoveFromRoute={canEditRouteSearch}
+            canRemoveFromRoute={canRemoveRouteItems}
             onRegisterPayment={registerRoutePayment}
             onConfirmBankPayment={confirmRouteBankPayment}
           />
@@ -1244,6 +1316,7 @@ export default function AppShell({
         )}
         {page === "control_units" && canViewControlUnits && (
           <ControlUnitsPage
+            fleetData={fleetData}
             dataOwnerUserId={cloudDataUserId}
             readOnly={!canEditControlUnits}
             clients={clients}
@@ -1254,6 +1327,7 @@ export default function AppShell({
         {page === "settings" && canViewSettingsPage && (
           <SettingsPage
             currentUserId={userId}
+            dataOwnerUserId={cloudDataUserId}
             canViewSettings={canViewSettings}
             canEditSettings={canEditSettings}
             canManageUsers={canManageUsers}

@@ -1,0 +1,70 @@
+{
+  "functions": [
+    {
+      "name": "can_access_owner_data",
+      "definition": "CREATE OR REPLACE FUNCTION public.can_access_owner_data(target_user_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select exists (\n    select 1\n    from public.user_profiles current_profile\n    where current_profile.id = (select auth.uid())\n      and current_profile.is_active\n      and (\n        target_user_id = (select auth.uid())\n        or (select public.has_role('admin'))\n        or target_user_id = (select public.current_data_owner_user_id())\n      )\n  );\n$function$\n"
+    },
+    {
+      "name": "can_view_owner_screen",
+      "definition": "CREATE OR REPLACE FUNCTION public.can_view_owner_screen(target_user_id uuid, p_screen text)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\n  select public.can_access_owner_data(target_user_id)\r\n    and public.current_user_can_view_screen(p_screen);\r\n$function$\n"
+    },
+    {
+      "name": "current_data_owner_user_id",
+      "definition": "CREATE OR REPLACE FUNCTION public.current_data_owner_user_id()\n RETURNS uuid\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select coalesce(up.data_owner_user_id, up.id)\n  from public.user_profiles up\n  where up.id = (select auth.uid())\n    and up.is_active\n  limit 1;\n$function$\n"
+    },
+    {
+      "name": "current_user_can_view_screen",
+      "definition": "CREATE OR REPLACE FUNCTION public.current_user_can_view_screen(p_screen text)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\n  select coalesce((\r\n    public.current_user_screen_permissions()\r\n      -> case when p_screen in ('collisions', 'insurance_workflow') then 'incidents' else p_screen end\r\n      ->> 'view'\r\n  )::boolean, false);\r\n$function$\n"
+    },
+    {
+      "name": "current_user_screen_permissions",
+      "definition": "CREATE OR REPLACE FUNCTION public.current_user_screen_permissions()\n RETURNS jsonb\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select case\n    when up.role = 'admin'::public.app_role then public.default_screen_permissions(up.role)\n    else public.default_screen_permissions(up.role) || coalesce(up.permissions, '{}'::jsonb)\n  end\n  from public.user_profiles up\n  where up.id = (select auth.uid())\n    and up.is_active;\n$function$\n"
+    },
+    {
+      "name": "default_screen_permissions",
+      "definition": "CREATE OR REPLACE FUNCTION public.default_screen_permissions(p_role app_role)\n RETURNS jsonb\n LANGUAGE sql\n STABLE\nAS $function$\r\n  select case p_role::text\r\n    when 'admin' then\r\n      '{\r\n        \"leads\": {\"view\": true, \"edit\": true},\r\n        \"clients\": {\"view\": true, \"edit\": true},\r\n        \"payments\": {\"view\": true, \"edit\": true},\r\n        \"receivables\": {\"view\": true, \"edit\": true},\r\n        \"route_search\": {\"view\": true, \"edit\": true},\r\n        \"incidents\": {\"view\": true, \"edit\": true},\r\n        \"control_units\": {\"view\": true, \"edit\": true},\r\n        \"settings\": {\"view\": true, \"edit\": true},\r\n        \"users\": {\"view\": true, \"edit\": true}\r\n      }'::jsonb\r\n    when 'operador' then\r\n      '{\r\n        \"leads\": {\"view\": true, \"edit\": true},\r\n        \"clients\": {\"view\": true, \"edit\": true},\r\n        \"payments\": {\"view\": true, \"edit\": true},\r\n        \"receivables\": {\"view\": true, \"edit\": true},\r\n        \"route_search\": {\"view\": true, \"edit\": true},\r\n        \"incidents\": {\"view\": true, \"edit\": true},\r\n        \"control_units\": {\"view\": true, \"edit\": true},\r\n        \"settings\": {\"view\": false, \"edit\": false},\r\n        \"users\": {\"view\": false, \"edit\": false}\r\n      }'::jsonb\r\n    when 'buscador' then\r\n      '{\r\n        \"leads\": {\"view\": false, \"edit\": false},\r\n        \"clients\": {\"view\": false, \"edit\": false},\r\n        \"payments\": {\"view\": false, \"edit\": false},\r\n        \"receivables\": {\"view\": false, \"edit\": false},\r\n        \"route_search\": {\"view\": true, \"edit\": false},\r\n        \"incidents\": {\"view\": false, \"edit\": false},\r\n        \"control_units\": {\"view\": false, \"edit\": false},\r\n        \"settings\": {\"view\": false, \"edit\": false},\r\n        \"users\": {\"view\": false, \"edit\": false}\r\n      }'::jsonb\r\n    else\r\n      '{\r\n        \"leads\": {\"view\": false, \"edit\": false},\r\n        \"clients\": {\"view\": false, \"edit\": false},\r\n        \"payments\": {\"view\": false, \"edit\": false},\r\n        \"receivables\": {\"view\": false, \"edit\": false},\r\n        \"route_search\": {\"view\": false, \"edit\": false},\r\n        \"incidents\": {\"view\": false, \"edit\": false},\r\n        \"control_units\": {\"view\": true, \"edit\": false},\r\n        \"settings\": {\"view\": false, \"edit\": false},\r\n        \"users\": {\"view\": false, \"edit\": false}\r\n      }'::jsonb\r\n  end;\r\n$function$\n"
+    },
+    {
+      "name": "has_role",
+      "definition": "CREATE OR REPLACE FUNCTION public.has_role(required_role app_role)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select exists (\n    select 1\n    from public.user_profiles\n    where id = (select auth.uid())\n      and is_active\n      and role = required_role\n  );\n$function$\n"
+    }
+  ],
+  "policies": [
+    {
+      "tablename": "clients_cloud",
+      "policyname": "clients_cloud_operational_read",
+      "roles": "{authenticated}",
+      "qual": "(( SELECT can_view_owner_screen(clients_cloud.user_id, 'clients'::text) AS can_view_owner_screen) OR ( SELECT can_view_owner_screen(clients_cloud.user_id, 'payments'::text) AS can_view_owner_screen) OR ( SELECT can_view_owner_screen(clients_cloud.user_id, 'receivables'::text) AS can_view_owner_screen) OR ( SELECT can_view_owner_screen(clients_cloud.user_id, 'route_search'::text) AS can_view_owner_screen) OR ( SELECT can_view_owner_screen(clients_cloud.user_id, 'insurance_workflow'::text) AS can_view_owner_screen) OR ( SELECT can_view_owner_screen(clients_cloud.user_id, 'collisions'::text) AS can_view_owner_screen))",
+      "permissive": "PERMISSIVE",
+      "cmd": "SELECT",
+      "with_check": null
+    },
+    {
+      "tablename": "fleet_units_cloud",
+      "policyname": "fleet_units_cloud_screen_read",
+      "roles": "{authenticated}",
+      "qual": "can_view_owner_screen(user_id, 'control_units'::text)",
+      "permissive": "PERMISSIVE",
+      "cmd": "SELECT",
+      "with_check": null
+    },
+    {
+      "tablename": "fleet_units_cloud",
+      "policyname": "fleet_units_operational_read",
+      "roles": "{authenticated}",
+      "qual": "(( SELECT can_view_owner_screen(fleet_units_cloud.user_id, 'control_units'::text) AS can_view_owner_screen) OR ( SELECT can_view_owner_screen(fleet_units_cloud.user_id, 'receivables'::text) AS can_view_owner_screen) OR ( SELECT can_view_owner_screen(fleet_units_cloud.user_id, 'insurance_workflow'::text) AS can_view_owner_screen) OR ( SELECT can_view_owner_screen(fleet_units_cloud.user_id, 'collisions'::text) AS can_view_owner_screen))",
+      "permissive": "PERMISSIVE",
+      "cmd": "SELECT",
+      "with_check": null
+    },
+    {
+      "tablename": "late_fee_ledger_cloud",
+      "policyname": "late_fee_ledger_cloud_screen_read",
+      "roles": "{authenticated}",
+      "qual": "can_view_owner_screen(user_id, 'payments'::text)",
+      "permissive": "PERMISSIVE",
+      "cmd": "SELECT",
+      "with_check": null
+    }
+  ]
+}

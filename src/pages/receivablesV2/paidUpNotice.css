@@ -1,0 +1,63 @@
+.cxc-paid-up {
+  grid-area: action;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 28px 24px;
+  box-sizing: border-box;
+  border-left: 1px solid #dbe4ec;
+  background: #f0fdf4;
+}
+.cxc-paid-up-content { width: 100%; min-width: 0; max-width: 100%; white-space: normal; }
+.cxc-paid-up-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #166534;
+  font-size: 18px;
+  line-height: 1.4;
+}
+.cxc-paid-up-title > span {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #dcfce7;
+  flex-shrink: 0;
+}
+.cxc-paid-up .cxc-paid-up-content > p {
+  margin: 12px 0 24px;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.6;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.cxc-paid-up button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 16px;
+  border: 1px solid #15803d;
+  border-radius: 10px;
+  background: #15803d;
+  color: white;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: normal;
+  text-align: left;
+}
+.cxc-paid-up button:hover { background: #166534; }
+.cxc-paid-up button:focus-visible { outline: 3px solid #86efac; outline-offset: 3px; }
+@media (max-width: 700px) {
+  .cxc-paid-up { padding: 22px 18px; border-left: 0; border-top: 1px solid #dbe4ec; }
+}

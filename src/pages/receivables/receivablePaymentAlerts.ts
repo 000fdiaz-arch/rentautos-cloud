@@ -1,5 +1,5 @@
 import { formatCurrency } from "../../format";
-import { PLAN_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivables";
+import { PLAN_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivablesLegacy";
 
 export type ExpectedPaymentAlertKind = "missing" | "partial";
 

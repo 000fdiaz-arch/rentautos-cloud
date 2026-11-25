@@ -24,7 +24,7 @@ try {
     await dialog.getByRole('button', { name: new RegExp(unit) }).click();
     await dialog.getByRole('button', { name: 'Confirmar declaración', exact: true }).waitFor();
   }
-  for (const version of ['']) {
+  for (const version of ['', '&legacy', '&version=v2']) {
     for (const method of ['bank', 'mixed', 'cash']) {
       const dialog = await start(version, method);
       if (method !== 'cash') {
@@ -98,5 +98,5 @@ try {
     }
   }
   assert.deepEqual(errors, []);
-  console.log('Payment declarations: published route page, fixed methods, route-only search, scope, stale route checks, validation, retry, duplicate protection, mixed split, cash receipts and mobile layout OK');
+  console.log('Payment declarations: all three route pages, fixed methods, route-only search, scope, stale route checks, validation, retry, duplicate protection, mixed split, cash receipts and mobile layout OK');
 } finally { await browser.close(); }

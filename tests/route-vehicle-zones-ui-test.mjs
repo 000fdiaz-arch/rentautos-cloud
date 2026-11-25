@@ -8,7 +8,7 @@ try {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort());
-  for (const mode of ['']) {
+  for (const mode of ['', '&legacy', '&version=v2']) {
     await page.goto(`${base}/tests/fixtures/outside-route-cash.html?operator=delta1&zones${mode}`);
     await page.getByRole('button', { name: 'Trabajo (4)', exact: true }).waitFor();
     const zones = page.getByRole('group', { name: 'Filtrar por zona', exact: true });

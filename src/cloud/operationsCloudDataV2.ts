@@ -1,0 +1,2844 @@
+import type { BankRule, Client, LateFeeSettings, LeadEvaluation, OtherChargesRetentionByClient, PaymentPromise } from "../types";
+import { dedupeLoad, getCloudClient, PAGE_SIZE, withCloudRetry, type DataRow, type SingletonDataRow } from "./cloudClient";
+import type {
+  CashClosing,
+  CashClosingAuditEvent,
+  CashCloseClientSnapshot,
+  ChargeRun,
+  NotifiedPayment
+} from "../pages/payments/paymentTypes";
+import { stableEqual } from "../stableSerialize";
+import { normalizeCourtName } from "../courtNames";
+import { getMissingCollisionDocumentation } from "../collisionDocumentation";
+import { createLeadDocumentViewUrl, isLeadDocumentDataUrl, uploadLeadDocumentDataUrl } from "./leadDocumentStorage";
+import type {
+  ReceivablesCollectorPinHashes
+} from "../receivablesV2CollectorAccess";
+
+export async function registerCloudRouteBankNotice(
+  userId: string,
+  notice: {
+    id: string;
+    clientId: string;
+    amount: number;
+    createdAt: string;
+    paymentMethod: "bank";
+    collectionTeam: "PTY" | "WC";
+    source: "route";
+  }
+): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("cxc_v2_notified_payments_cloud")
+    .insert({ user_id: userId, id: notice.id, data: notice });
+  if (error) throw error;
+}
+
+export async function deleteCloudNotifiedPayment(userId: string, noticeId: string): Promise<void> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("cxc_v2_notified_payments_cloud")
+    .delete()
+    .eq("user_id", userId)
+    .eq("id", noticeId)
+    .select("id");
+  if (error) throw error;
+  if (!data?.some((row) => row.id === noticeId)) {
+    throw new Error("No se pudo eliminar el pago notificado de la nube. Actualiza la lista e intenta nuevamente.");
+  }
+}
+
+export async function loadCloudNotifiedPayments(userId: string): Promise<NotifiedPayment[]> {
+  const client = getCloudClient();
+  const rows: DataRow<NotifiedPayment>[] = [];
+  let lastId = "";
+  while (true) {
+    let query = client
+      .from("cxc_v2_notified_payments_cloud")
+      .select("id,data")
+      .eq("user_id", userId)
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (lastId) query = query.gt("id", lastId);
+    const { data, error } = await query;
+    if (error) throw error;
+    const batch = (data ?? []) as DataRow<NotifiedPayment>[];
+    rows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    lastId = batch[batch.length - 1]?.id ?? lastId;
+    if (!lastId) break;
+  }
+  return rows.map((row) => row.data);
+}
+
+export type ControlUnitRow = {
+  fleet_id: string;
+  user_id: string;
+  unit_id: string;
+  company: string | null;
+  brand_model: string | null;
+  engine_serial: string | null;
+  chassis_serial: string | null;
+  plate: string | null;
+  panapass_number?: string | null;
+  cupo: string | null;
+  observation: string | null;
+  is_exception: boolean | null;
+  exception_note: string | null;
+  client_id: string | null;
+  client_name: string | null;
+  client_cedula: string | null;
+  operational_status: string | null;
+  financial_balance: number | string | null;
+  financial_status: "moroso" | "al_dia" | "sin_cliente" | string;
+  last_payment_date: string | null;
+  year?: number | string | null;
+  model_year?: number | string | null;
+  color?: string | null;
+  transmission?: string | null;
+  transmission_type?: string | null;
+  key_coded?: boolean | null;
+  mileage?: number | string | null;
+  catalog_contract_months?: number | string | null;
+  catalog_daily_rate?: number | string | null;
+  catalog_weekly_rate?: number | string | null;
+  catalog_biweekly_rate?: number | string | null;
+  catalog_daily_management_fee?: number | string | null;
+  catalog_weekly_management_fee?: number | string | null;
+  catalog_biweekly_management_fee?: number | string | null;
+  catalog_photo_path?: string | null;
+  catalog_photo_url?: string | null;
+  kilometrage?: number | string | null;
+  kilometraje?: number | string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  retired_at?: string | null;
+  retired_reason?: string | null;
+  retired_note?: string | null;
+  retired_by?: string | null;
+  retired_by_email?: string | null;
+  retired_client_id?: string | null;
+  retired_client_name?: string | null;
+  [key: string]: unknown;
+};
+
+export type InsuranceClaimStatus = "Inactivo" | "Activo" | "Finalizado";
+export type InsuranceClaimClosureOutcome = "Pagado" | "Declinado";
+
+export class DuplicateInsuranceClaimNumberError extends Error {
+  readonly code = "DUPLICATE_INSURANCE_CLAIM_NUMBER";
+
+  constructor(claimNumber: string) {
+    super(`El número de reclamo ${claimNumber} ya está registrado. Utiliza un número diferente.`);
+    this.name = "DuplicateInsuranceClaimNumberError";
+  }
+}
+
+export class DuplicateCollisionTicketStubError extends Error {
+  readonly code = "DUPLICATE_COLLISION_TICKET_STUB";
+
+  constructor(ticketStub: string) {
+    super(`El número de colilla ${ticketStub.trim()} ya está registrado en otro expediente judicial.`);
+    this.name = "DuplicateCollisionTicketStubError";
+  }
+}
+
+export class JudicialOutcomeRequiredForClaimError extends Error {
+  readonly code = "JUDICIAL_OUTCOME_REQUIRED_FOR_CLAIM";
+
+  constructor() {
+    super("Este siniestro tiene un juicio asociado. El reclamo al seguro solo puede iniciarse después de registrar la absolución y adjuntar la resolución judicial.");
+    this.name = "JudicialOutcomeRequiredForClaimError";
+  }
+}
+
+export type InsuranceClaimEditEvent = {
+  editedAt: string;
+  justification: string;
+};
+
+export type InsuranceClaimFollowUp = {
+  id: string;
+  comment: string;
+  nextStep: string;
+  nextActionDate: string;
+  createdAt: string;
+  completedAt?: string | null;
+  completionComment?: string;
+};
+
+export type InsuranceSettlementAttachment = {
+  name: string;
+  path: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+};
+
+export type InsuranceDamagePhotoAttachment = {
+  name: string;
+  path: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+  storageBucket?: "insurance-settlements" | "collision-photos";
+};
+
+export type InsuranceClaimRecord = {
+  id: string;
+  incidentDate: string;
+  unit: string;
+  driver: string;
+  plate: string;
+  insurer: string;
+  hasClaimNumber: boolean;
+  claimNumber: string;
+  amount: string;
+  vehicleDamage: string;
+  status: InsuranceClaimStatus;
+  damagePhotoNames: string[];
+  damagePhotos: InsuranceDamagePhotoAttachment[];
+  documentationBasis?: "FUD" | "JUDICIAL_RESOLUTION";
+  judicialCaseId?: string | null;
+  judicialResolutionAttachment?: InsuranceSettlementAttachment | null;
+  fudAttachment?: InsuranceSettlementAttachment | null;
+  fudPhysicalDeliveryConfirmed?: boolean;
+  fudPhysicalDeliveryDate?: string | null;
+  fudPhysicalDeliveryConfirmedAt?: string | null;
+  documentationPending?: boolean;
+  documentationPendingSince?: string | null;
+  documentationReceivedAt?: string | null;
+  settlementDelivered: boolean;
+  settlementDeliveredDate: string;
+  settlementMarkedAt: string | null;
+  settlementAttachment: InsuranceSettlementAttachment | null;
+  followUpComment: string;
+  followUpCommentUpdatedAt: string | null;
+  followUps: InsuranceClaimFollowUp[];
+  closureOutcome: InsuranceClaimClosureOutcome | null;
+  closureJustification: string;
+  finalizedAt: string | null;
+  editHistory: InsuranceClaimEditEvent[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function insuranceClaimUsesJudicialResolution(
+  claim: Pick<InsuranceClaimRecord, "id" | "documentationBasis" | "judicialCaseId">
+): boolean {
+  return claim.documentationBasis === "JUDICIAL_RESOLUTION"
+    || Boolean(claim.judicialCaseId)
+    || claim.id.startsWith("collision-insurance-collision-trial-");
+}
+
+export type CollisionTrialStatus = "PENDIENTE" | "NUEVA FECHA" | "ABSUELTO" | "CULPABLE" | "CIERRE ADMINISTRATIVO";
+export type CollisionPhotoAttachment = {
+  name: string;
+  path: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+  storageBucket?: "insurance-settlements" | "collision-photos";
+};
+
+export type CollisionTrialDateEvent = {
+  previousDate: string;
+  newDate: string;
+  previousTime?: string;
+  newTime?: string;
+  reason: string;
+  changedAt: string;
+  evidence?: CollisionPhotoAttachment | null;
+};
+
+export type CollisionInsuranceClaim = {
+  insuranceClaimId?: string;
+  insurer: string;
+  claimNumber: string;
+  amount: string;
+  photos: CollisionPhotoAttachment[];
+  updatedAt: string;
+};
+
+export type CollisionExpenseInvoice = {
+  chargeId: string;
+  label: string;
+  description?: string;
+  amount: number;
+  attachment?: CollisionPhotoAttachment | null;
+  evaluatedAt?: string;
+  creditedToRentAmount?: number;
+  creditedToRentAt?: string | null;
+  editHistory?: CollisionExpenseInvoiceEditEvent[];
+  createdAt: string;
+};
+
+export type CollisionExpenseInvoiceEditEvent = {
+  editedAt: string;
+  justification: string;
+  changedFields: string[];
+  previousAmount: number;
+  newAmount: number;
+};
+
+export type CollisionJudicialFollowUp = {
+  id: string;
+  comment: string;
+  nextStep: string;
+  nextActionDate: string;
+  createdAt: string;
+  completedAt?: string | null;
+  completionComment?: string;
+};
+
+export type CollisionTicketStubEvent = {
+  previousValue: string;
+  newValue: string;
+  changedAt: string;
+};
+
+export type CollisionCaseEditEvent = {
+  editedAt: string;
+  justification: string;
+  changedFields: string[];
+};
+
+export type CollisionAdministrativeClosureEvent = {
+  action: "CERRADO" | "REABIERTO";
+  reason: string;
+  occurredAt: string;
+};
+
+export type CollisionCaseRecord = {
+  id: string;
+  incidentDate: string;
+  incidentLocation?: string;
+  unit: string;
+  driver: string;
+  clientId?: string;
+  clientName?: string;
+  plate: string;
+  trialDate: string;
+  vehicleDamage: string;
+  ticketStub: string;
+  ticketStubHistory?: CollisionTicketStubEvent[];
+  editHistory?: CollisionCaseEditEvent[];
+  ticketStubPhoto?: CollisionPhotoAttachment | null;
+  documentationPending?: boolean;
+  documentationPendingSince?: string | null;
+  documentationReceivedAt?: string | null;
+  placeTime: string;
+  court: string;
+  collisionAndRun: boolean;
+  status: CollisionTrialStatus;
+  vehicleInspectionDate?: string | null;
+  vehicleInspectedAt?: string | null;
+  trialDateHistory: CollisionTrialDateEvent[];
+  judicialFollowUps: CollisionJudicialFollowUp[];
+  clientWillAttend?: boolean | null;
+  legalAssistanceRequested?: boolean | null;
+  attendanceConfirmedAt?: string | null;
+  incidentPhotos?: CollisionPhotoAttachment[];
+  judicialOutcomeEvidence: CollisionPhotoAttachment | null;
+  judicialResolutionEvidence?: CollisionPhotoAttachment | null;
+  judicialResolutionSearchDate?: string | null;
+  insuranceClaim: CollisionInsuranceClaim | null;
+  expenseInvoice: CollisionExpenseInvoice | null;
+  clientReturnedBeforeClosure?: boolean;
+  clientReturnedBeforeClosureAt?: string | null;
+  administrativeClosureReason?: string;
+  administrativelyClosedAt?: string | null;
+  administrativeClosureHistory?: CollisionAdministrativeClosureEvent[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PendingIncidentContactAttempt = {
+  id: string;
+  occurredAt: string;
+  channel: "Llamada" | "WhatsApp" | "SMS" | "Correo" | "Otro";
+  outcome: "No responde" | "Contactado, pendiente de confirmar" | "Número inválido" | "Otro";
+  comment: string;
+  nextContactDate: string;
+};
+
+export type PendingIncidentRecord = {
+  id: string;
+  incidentDate: string;
+  incidentLocation?: string;
+  unit: string;
+  driver: string;
+  plate: string;
+  vehicleDamage: string;
+  reason: string;
+  contactAttempts: PendingIncidentContactAttempt[];
+  nextContactDate: string;
+  incidentPhotos: CollisionPhotoAttachment[];
+  status: "PENDING_DESTINATION" | "ROUTED";
+  resolvedDestination?: "judicial" | "insurance" | null;
+  resolvedTargetId?: string | null;
+  resolvedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const INSURANCE_SETTLEMENTS_BUCKET = "insurance-settlements";
+const INSURANCE_DAMAGE_PHOTOS_BUCKET = INSURANCE_SETTLEMENTS_BUCKET;
+const COLLISION_PHOTOS_BUCKET = "collision-photos";
+
+function normalizeInsuranceClaim(claim: InsuranceClaimRecord): InsuranceClaimRecord {
+  const claimNumber = typeof claim.claimNumber === "string" ? claim.claimNumber : "";
+  const rawHasClaimNumber = (claim as InsuranceClaimRecord & { hasClaimNumber?: unknown }).hasClaimNumber;
+  const hasClaimNumber = typeof rawHasClaimNumber === "boolean"
+    ? rawHasClaimNumber
+    : Boolean(claimNumber.trim());
+  const rawStatus = (claim as unknown as { status?: string }).status;
+  const inferredJudicialCaseId = claim.id.startsWith("collision-insurance-collision-trial-")
+    ? claim.id.slice("collision-insurance-".length)
+    : null;
+  const judicialCaseId = typeof claim.judicialCaseId === "string" && claim.judicialCaseId.trim()
+    ? claim.judicialCaseId
+    : inferredJudicialCaseId;
+  const documentationBasis = claim.documentationBasis === "JUDICIAL_RESOLUTION" || judicialCaseId
+    ? "JUDICIAL_RESOLUTION"
+    : "FUD";
+  const usesJudicialResolution = documentationBasis === "JUDICIAL_RESOLUTION";
+  const fudPhysicalDeliveryConfirmed = !usesJudicialResolution && claim.fudPhysicalDeliveryConfirmed === true;
+  const documentationPending = !usesJudicialResolution && (claim.documentationPending === true || !fudPhysicalDeliveryConfirmed);
+  const status: InsuranceClaimStatus = rawStatus === "Finalizado" || rawStatus === "Pagado"
+    ? "Finalizado"
+    : !claimNumber.trim() || documentationPending
+      ? "Inactivo"
+      : "Activo";
+  const rawClosureOutcome = (claim as InsuranceClaimRecord & { closureOutcome?: unknown }).closureOutcome;
+  const legacyFollowUpComment = typeof claim.followUpComment === "string" ? claim.followUpComment : "";
+  const legacyFollowUpUpdatedAt = typeof claim.followUpCommentUpdatedAt === "string" ? claim.followUpCommentUpdatedAt : null;
+  const normalizedFollowUps = Array.isArray(claim.followUps)
+    ? claim.followUps.filter((entry): entry is InsuranceClaimFollowUp => Boolean(
+        entry && typeof entry === "object"
+        && typeof entry.id === "string"
+        && typeof entry.comment === "string"
+        && typeof entry.nextStep === "string"
+        && typeof entry.nextActionDate === "string"
+        && typeof entry.createdAt === "string"
+      ))
+    : [];
+  const followUps = normalizedFollowUps.length > 0 || !legacyFollowUpComment.trim()
+    ? normalizedFollowUps
+    : [{
+        id: `legacy-insurance-follow-up-${claim.id}`,
+        comment: legacyFollowUpComment,
+        nextStep: "",
+        nextActionDate: "",
+        createdAt: legacyFollowUpUpdatedAt || claim.updatedAt || claim.createdAt
+      }];
+  const closureOutcome: InsuranceClaimClosureOutcome | null = status !== "Finalizado"
+    ? null
+    : rawStatus === "Pagado"
+      ? "Pagado"
+      : rawClosureOutcome === "Pagado" || rawClosureOutcome === "Declinado"
+        ? rawClosureOutcome
+        : null;
+  return {
+    ...claim,
+    hasClaimNumber,
+    claimNumber,
+    status,
+    damagePhotoNames: Array.isArray(claim.damagePhotoNames) ? claim.damagePhotoNames : [],
+    damagePhotos: Array.isArray(claim.damagePhotos)
+      ? claim.damagePhotos.filter((photo) => photo && typeof photo.path === "string")
+      : [],
+    documentationBasis,
+    judicialCaseId,
+    judicialResolutionAttachment: claim.judicialResolutionAttachment && typeof claim.judicialResolutionAttachment.path === "string"
+      ? claim.judicialResolutionAttachment
+      : null,
+    fudAttachment: claim.fudAttachment && typeof claim.fudAttachment.path === "string"
+      ? claim.fudAttachment
+      : null,
+    fudPhysicalDeliveryConfirmed,
+    fudPhysicalDeliveryDate: fudPhysicalDeliveryConfirmed && typeof claim.fudPhysicalDeliveryDate === "string" ? claim.fudPhysicalDeliveryDate : null,
+    fudPhysicalDeliveryConfirmedAt: fudPhysicalDeliveryConfirmed && typeof claim.fudPhysicalDeliveryConfirmedAt === "string" ? claim.fudPhysicalDeliveryConfirmedAt : null,
+    documentationPending,
+    documentationPendingSince: documentationPending
+      ? typeof claim.documentationPendingSince === "string" ? claim.documentationPendingSince : claim.updatedAt || claim.createdAt || null
+      : null,
+    documentationReceivedAt: documentationPending ? null : typeof claim.documentationReceivedAt === "string" ? claim.documentationReceivedAt : null,
+    settlementDelivered: claim.settlementDelivered === true,
+    settlementDeliveredDate: typeof claim.settlementDeliveredDate === "string" ? claim.settlementDeliveredDate : "",
+    settlementMarkedAt: typeof claim.settlementMarkedAt === "string" ? claim.settlementMarkedAt : null,
+    settlementAttachment: claim.settlementAttachment && typeof claim.settlementAttachment.path === "string"
+      ? claim.settlementAttachment
+      : null,
+    followUpComment: legacyFollowUpComment,
+    followUpCommentUpdatedAt: legacyFollowUpUpdatedAt,
+    followUps,
+    closureOutcome,
+    closureJustification: typeof claim.closureJustification === "string" ? claim.closureJustification : "",
+    finalizedAt: status === "Finalizado" && typeof claim.finalizedAt === "string" ? claim.finalizedAt : null,
+    editHistory: Array.isArray(claim.editHistory) ? claim.editHistory : []
+  };
+}
+
+export async function loadCloudPaymentPromises(userId: string): Promise<PaymentPromise[]> {
+  const client = getCloudClient();
+  const allRows: DataRow<PaymentPromise>[] = [];
+  let lastId = "";
+  while (true) {
+    let query = client
+      .from("payment_promises_cloud")
+      .select("id,data")
+      .eq("user_id", userId)
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (lastId) query = query.gt("id", lastId);
+    const { data, error } = await query;
+    if (error) throw error;
+    const batch = (data ?? []) as DataRow<PaymentPromise>[];
+    allRows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    lastId = batch[batch.length - 1]?.id ?? lastId;
+    if (!lastId) break;
+  }
+  return allRows.map((row) => row.data);
+}
+
+export async function saveCloudPaymentPromises(userId: string, promises: PaymentPromise[]): Promise<void> {
+  const client = getCloudClient();
+  const rows = promises.map((item) => ({
+    user_id: userId,
+    id: item.id,
+    data: item
+  }));
+
+  if (rows.length > 0) {
+    const { error } = await client
+      .from("payment_promises_cloud")
+      .upsert(rows, { onConflict: "user_id,id" });
+
+    if (error) throw error;
+  }
+}
+
+export async function loadInsuranceInsurers(userId: string): Promise<string[]> {
+  const rows = await loadCloudArrayRows<{ name?: unknown }>(userId, "insurance_insurers_cloud");
+  return rows
+    .map((row) => typeof row.name === "string" ? row.name.trim() : "")
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
+}
+
+export async function saveInsuranceInsurer(userId: string, name: string): Promise<void> {
+  const normalized = name.trim().toUpperCase();
+  if (!normalized) return;
+  const client = getCloudClient();
+  const now = new Date().toISOString();
+  const { error } = await client
+    .from("insurance_insurers_cloud")
+    .upsert({
+      user_id: userId,
+      id: normalized,
+      data: { name: normalized },
+      updated_at: now
+    }, { onConflict: "user_id,id" });
+  if (error) throw error;
+}
+
+export async function loadInsuranceClaims(userId: string): Promise<InsuranceClaimRecord[]> {
+  const rows = await loadCloudArrayRows<InsuranceClaimRecord>(userId, "insurance_claims_cloud");
+  return rows
+    .map(normalizeInsuranceClaim)
+    .sort((left, right) => (right.createdAt || "").localeCompare(left.createdAt || ""));
+}
+
+function normalizeInsuranceClaimNumber(value: string): string {
+  return value.trim().toLocaleUpperCase("es").replace(/[\s-]+/g, "");
+}
+
+function normalizeCollisionTicketStub(value: string): string {
+  return value.trim().toLocaleUpperCase("es").replace(/[\s-]+/g, "");
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
+}
+
+export async function saveInsuranceClaim(userId: string, claim: InsuranceClaimRecord): Promise<void> {
+  const client = getCloudClient();
+  const { data: existingClaim, error: existingClaimError } = await client
+    .from("insurance_claims_cloud")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("id", claim.id)
+    .maybeSingle();
+  if (existingClaimError) throw existingClaimError;
+  if (!existingClaim) {
+    const normalizeIncidentIdentity = (value: string): string => value.trim().toLocaleUpperCase("es").replace(/[\s-]+/g, "");
+    const relatedJudicialCase = (await loadCollisionCases(userId)).find((item) => (
+      item.incidentDate === claim.incidentDate
+      && normalizeIncidentIdentity(item.unit) === normalizeIncidentIdentity(claim.unit)
+      && normalizeIncidentIdentity(item.plate) === normalizeIncidentIdentity(claim.plate)
+    ));
+    if (relatedJudicialCase && (relatedJudicialCase.status !== "ABSUELTO" || !relatedJudicialCase.judicialResolutionEvidence)) throw new JudicialOutcomeRequiredForClaimError();
+  }
+  const normalizedClaimNumber = normalizeInsuranceClaimNumber(claim.claimNumber);
+  if (normalizedClaimNumber) {
+    const { data: existingRows, error: duplicateCheckError } = await client
+      .from("insurance_claims_cloud")
+      .select("id,data")
+      .eq("user_id", userId);
+    if (duplicateCheckError) throw duplicateCheckError;
+    const duplicate = (existingRows ?? []).find((row) => {
+      if (row.id === claim.id || typeof row.data !== "object" || row.data === null) return false;
+      const existingNumber = (row.data as { claimNumber?: unknown }).claimNumber;
+      return typeof existingNumber === "string" && normalizeInsuranceClaimNumber(existingNumber) === normalizedClaimNumber;
+    });
+    if (duplicate) throw new DuplicateInsuranceClaimNumberError(claim.claimNumber.trim());
+  }
+  const { error } = await client
+    .from("insurance_claims_cloud")
+    .upsert({
+      user_id: userId,
+      id: claim.id,
+      data: claim,
+      updated_at: claim.updatedAt
+    }, { onConflict: "user_id,id" });
+  if (error) {
+    if (isUniqueViolation(error)) throw new DuplicateInsuranceClaimNumberError(claim.claimNumber.trim());
+    throw error;
+  }
+}
+
+function safeStorageFileName(fileName: string): string {
+  const extension = fileName.includes(".") ? `.${fileName.split(".").pop()?.toLowerCase() ?? ""}` : "";
+  const baseName = fileName.slice(0, extension ? -extension.length : undefined)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "finiquito";
+  return `${baseName}${extension.replace(/[^a-z0-9.]/g, "")}`;
+}
+
+export async function uploadInsuranceSettlement(
+  userId: string,
+  claimId: string,
+  file: File
+): Promise<InsuranceSettlementAttachment> {
+  const client = getCloudClient();
+  const uploadedAt = new Date().toISOString();
+  const path = `${userId}/${claimId}/${Date.now()}-${safeStorageFileName(file.name)}`;
+  const { error } = await client.storage
+    .from(INSURANCE_SETTLEMENTS_BUCKET)
+    .upload(path, file, { contentType: file.type || undefined, upsert: false });
+  if (error) throw error;
+  return { name: file.name, path, mimeType: file.type, size: file.size, uploadedAt };
+}
+
+export async function removeInsuranceSettlement(path: string): Promise<void> {
+  if (!path) return;
+  const client = getCloudClient();
+  const { error } = await client.storage.from(INSURANCE_SETTLEMENTS_BUCKET).remove([path]);
+  if (error) throw error;
+}
+
+export async function createInsuranceSettlementViewUrl(path: string): Promise<string> {
+  const client = getCloudClient();
+  const { data, error } = await client.storage
+    .from(INSURANCE_SETTLEMENTS_BUCKET)
+    .createSignedUrl(path, 60 * 10);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+export async function uploadInsuranceDamagePhoto(
+  userId: string,
+  claimId: string,
+  file: File
+): Promise<InsuranceDamagePhotoAttachment> {
+  const client = getCloudClient();
+  const uploadedAt = new Date().toISOString();
+  const path = `${userId}/damage-photos/${claimId}/${Date.now()}-${crypto.randomUUID()}-${safeStorageFileName(file.name)}`;
+  const { error } = await client.storage
+    .from(INSURANCE_DAMAGE_PHOTOS_BUCKET)
+    .upload(path, file, { contentType: file.type || undefined, upsert: false });
+  if (error) throw error;
+  return { name: file.name, path, mimeType: file.type, size: file.size, uploadedAt, storageBucket: INSURANCE_DAMAGE_PHOTOS_BUCKET };
+}
+
+export async function removeInsuranceDamagePhotos(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  const client = getCloudClient();
+  const { error } = await client.storage.from(INSURANCE_DAMAGE_PHOTOS_BUCKET).remove(paths);
+  if (error) throw error;
+}
+
+export async function createInsuranceDamagePhotoViewUrl(
+  path: string,
+  storageBucket: "insurance-settlements" | "collision-photos" = INSURANCE_DAMAGE_PHOTOS_BUCKET
+): Promise<string> {
+  const client = getCloudClient();
+  const { data, error } = await client.storage
+    .from(storageBucket)
+    .createSignedUrl(path, 60 * 10);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+function normalizeCollisionCase(item: CollisionCaseRecord): CollisionCaseRecord {
+  const legacy = item as CollisionCaseRecord & {
+    status?: unknown;
+    insurer?: unknown;
+    claimNumber?: unknown;
+    amount?: unknown;
+    photos?: unknown;
+    nextFollowUpDate?: unknown;
+  };
+  const rawStatus = typeof legacy.status === "string" ? legacy.status.trim().toLocaleUpperCase("es") : "";
+  const status: CollisionTrialStatus = rawStatus === "GANÓ" || rawStatus === "ABSUELTO"
+    ? "ABSUELTO"
+    : rawStatus === "PERDIÓ" || rawStatus === "CULPABLE"
+      ? "CULPABLE"
+      : rawStatus === "NUEVA FECHA"
+        ? "NUEVA FECHA"
+        : rawStatus === "CIERRE ADMINISTRATIVO" || rawStatus === "CERRADO ADMINISTRATIVAMENTE"
+          ? "CIERRE ADMINISTRATIVO"
+          : "PENDIENTE";
+  const legacyPhotos = Array.isArray(legacy.photos)
+    ? legacy.photos.filter((photo): photo is CollisionPhotoAttachment => Boolean(photo && typeof photo === "object" && "path" in photo))
+    : [];
+  const existingClaim = item.insuranceClaim && typeof item.insuranceClaim === "object" ? item.insuranceClaim : null;
+  const legacyClaim = typeof legacy.insurer === "string" || typeof legacy.claimNumber === "string" || typeof legacy.amount === "string" || legacyPhotos.length > 0
+    ? {
+        insurer: typeof legacy.insurer === "string" ? legacy.insurer : "",
+        claimNumber: typeof legacy.claimNumber === "string" ? legacy.claimNumber : "",
+        amount: typeof legacy.amount === "string" ? legacy.amount : "",
+        photos: legacyPhotos,
+        updatedAt: item.updatedAt || item.createdAt || new Date().toISOString()
+      }
+    : null;
+  const legacyResolutionBase = item.updatedAt || item.createdAt;
+  const legacyResolutionDate = /^\d{4}-\d{2}-\d{2}/.test(legacyResolutionBase)
+    ? (() => {
+        const date = new Date(`${legacyResolutionBase.slice(0, 10)}T12:00:00`);
+        date.setDate(date.getDate() + 30);
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      })()
+    : null;
+  const trialDate = typeof item.trialDate === "string"
+    ? item.trialDate
+    : typeof legacy.nextFollowUpDate === "string" ? legacy.nextFollowUpDate : "";
+  const ticketStub = typeof item.ticketStub === "string" ? item.ticketStub : "";
+  const incidentLocation = typeof item.incidentLocation === "string" ? item.incidentLocation : "";
+  const placeTime = typeof item.placeTime === "string" ? item.placeTime : "";
+  const court = typeof item.court === "string" ? normalizeCourtName(item.court) : "";
+  const finalStatus = status === "ABSUELTO" || status === "CULPABLE" || status === "CIERRE ADMINISTRATIVO";
+  const missingDocumentation = getMissingCollisionDocumentation({
+    ...item,
+    incidentLocation,
+    trialDate,
+    ticketStub,
+    placeTime,
+    court
+  });
+  const documentationPending = !finalStatus && missingDocumentation.length > 0;
+  return {
+    ...item,
+    status,
+    incidentLocation,
+    trialDate,
+    ticketStub,
+    ticketStubHistory: Array.isArray(item.ticketStubHistory)
+      ? item.ticketStubHistory.filter((entry): entry is CollisionTicketStubEvent => Boolean(
+          entry && typeof entry === "object"
+          && typeof entry.previousValue === "string"
+          && typeof entry.newValue === "string"
+          && typeof entry.changedAt === "string"
+        ))
+      : [],
+    editHistory: Array.isArray(item.editHistory)
+      ? item.editHistory.filter((entry): entry is CollisionCaseEditEvent => Boolean(
+          entry && typeof entry === "object"
+          && typeof entry.editedAt === "string"
+          && typeof entry.justification === "string"
+          && Array.isArray(entry.changedFields)
+        ))
+      : [],
+    ticketStubPhoto: item.ticketStubPhoto && typeof item.ticketStubPhoto === "object" && typeof item.ticketStubPhoto.path === "string"
+      ? item.ticketStubPhoto
+      : null,
+    documentationPending,
+    documentationPendingSince: documentationPending
+      ? typeof item.documentationPendingSince === "string" ? item.documentationPendingSince : item.updatedAt || item.createdAt || null
+      : null,
+    documentationReceivedAt: documentationPending
+      ? null
+      : typeof item.documentationReceivedAt === "string" ? item.documentationReceivedAt : null,
+    placeTime,
+    court,
+    collisionAndRun: item.collisionAndRun === true,
+    vehicleInspectionDate: typeof item.vehicleInspectionDate === "string" ? item.vehicleInspectionDate : null,
+    vehicleInspectedAt: typeof item.vehicleInspectedAt === "string" ? item.vehicleInspectedAt : null,
+    clientId: typeof item.clientId === "string" ? item.clientId : "",
+    clientName: typeof item.clientName === "string" ? item.clientName : "",
+    trialDateHistory: Array.isArray(item.trialDateHistory) ? item.trialDateHistory : [],
+    judicialFollowUps: Array.isArray(item.judicialFollowUps)
+      ? item.judicialFollowUps.filter((entry): entry is CollisionJudicialFollowUp => Boolean(
+          entry && typeof entry === "object"
+          && typeof entry.id === "string"
+          && typeof entry.comment === "string"
+          && typeof entry.nextStep === "string"
+          && typeof entry.nextActionDate === "string"
+          && typeof entry.createdAt === "string"
+        ))
+      : [],
+    clientWillAttend: typeof item.clientWillAttend === "boolean" ? item.clientWillAttend : null,
+    legalAssistanceRequested: typeof item.legalAssistanceRequested === "boolean" ? item.legalAssistanceRequested : null,
+    attendanceConfirmedAt: typeof item.attendanceConfirmedAt === "string" ? item.attendanceConfirmedAt : null,
+    incidentPhotos: Array.isArray(item.incidentPhotos)
+      ? item.incidentPhotos.filter((photo): photo is CollisionPhotoAttachment => Boolean(photo && typeof photo === "object" && typeof photo.path === "string"))
+      : [],
+    judicialOutcomeEvidence: item.judicialOutcomeEvidence && typeof item.judicialOutcomeEvidence === "object" && typeof item.judicialOutcomeEvidence.path === "string"
+      ? item.judicialOutcomeEvidence
+      : null,
+    judicialResolutionEvidence: item.judicialResolutionEvidence && typeof item.judicialResolutionEvidence === "object" && typeof item.judicialResolutionEvidence.path === "string"
+      ? item.judicialResolutionEvidence
+      : null,
+    judicialResolutionSearchDate: typeof item.judicialResolutionSearchDate === "string"
+      ? item.judicialResolutionSearchDate
+      : status === "ABSUELTO" && !item.judicialResolutionEvidence ? legacyResolutionDate : null,
+    insuranceClaim: existingClaim ?? legacyClaim,
+    expenseInvoice: item.expenseInvoice && typeof item.expenseInvoice === "object"
+      ? {
+          ...item.expenseInvoice,
+          description: typeof item.expenseInvoice.description === "string" ? item.expenseInvoice.description : item.expenseInvoice.label,
+          attachment: item.expenseInvoice.attachment && typeof item.expenseInvoice.attachment.path === "string"
+            ? item.expenseInvoice.attachment
+            : null,
+          evaluatedAt: typeof item.expenseInvoice.evaluatedAt === "string" ? item.expenseInvoice.evaluatedAt : item.expenseInvoice.createdAt?.slice(0, 10) ?? "",
+          creditedToRentAmount: typeof item.expenseInvoice.creditedToRentAmount === "number" ? item.expenseInvoice.creditedToRentAmount : 0,
+          creditedToRentAt: typeof item.expenseInvoice.creditedToRentAt === "string" ? item.expenseInvoice.creditedToRentAt : null,
+          editHistory: Array.isArray(item.expenseInvoice.editHistory)
+            ? item.expenseInvoice.editHistory.filter((entry): entry is CollisionExpenseInvoiceEditEvent => Boolean(
+                entry && typeof entry === "object"
+                && typeof entry.editedAt === "string"
+                && typeof entry.justification === "string"
+                && Array.isArray(entry.changedFields)
+                && typeof entry.previousAmount === "number"
+                && typeof entry.newAmount === "number"
+              ))
+            : []
+        }
+      : null,
+    clientReturnedBeforeClosure: item.clientReturnedBeforeClosure === true,
+    clientReturnedBeforeClosureAt: typeof item.clientReturnedBeforeClosureAt === "string" ? item.clientReturnedBeforeClosureAt : null,
+    administrativeClosureReason: typeof item.administrativeClosureReason === "string" ? item.administrativeClosureReason : "",
+    administrativelyClosedAt: typeof item.administrativelyClosedAt === "string" ? item.administrativelyClosedAt : null,
+    administrativeClosureHistory: Array.isArray(item.administrativeClosureHistory)
+      ? item.administrativeClosureHistory.filter((entry): entry is CollisionAdministrativeClosureEvent => Boolean(
+          entry && typeof entry === "object"
+          && (entry.action === "CERRADO" || entry.action === "REABIERTO")
+          && typeof entry.reason === "string"
+          && typeof entry.occurredAt === "string"
+        ))
+      : []
+  };
+}
+
+export async function loadCollisionCases(userId: string): Promise<CollisionCaseRecord[]> {
+  const rows = await loadCloudArrayRows<CollisionCaseRecord>(userId, "collision_cases_cloud");
+  return rows
+    .map(normalizeCollisionCase)
+    .sort((left, right) => (right.createdAt || "").localeCompare(left.createdAt || ""));
+}
+
+export async function saveCollisionCase(userId: string, item: CollisionCaseRecord): Promise<void> {
+  const client = getCloudClient();
+  const normalizedItem = { ...item, court: normalizeCourtName(item.court) };
+  const normalizedTicketStub = normalizeCollisionTicketStub(normalizedItem.ticketStub);
+  if (normalizedTicketStub) {
+    const { data: existingRows, error: duplicateCheckError } = await client
+      .from("collision_cases_cloud")
+      .select("id,data")
+      .eq("user_id", userId);
+    if (duplicateCheckError) throw duplicateCheckError;
+    const currentRow = (existingRows ?? []).find((row) => row.id === item.id);
+    const currentTicketStub = currentRow && typeof currentRow.data === "object" && currentRow.data !== null
+      ? (currentRow.data as { ticketStub?: unknown }).ticketStub
+      : "";
+    const keepsExistingTicketStub = typeof currentTicketStub === "string"
+      && normalizeCollisionTicketStub(currentTicketStub) === normalizedTicketStub;
+    const duplicate = (existingRows ?? []).find((row) => {
+      if (row.id === item.id || typeof row.data !== "object" || row.data === null) return false;
+      const existingTicketStub = (row.data as { ticketStub?: unknown }).ticketStub;
+      return typeof existingTicketStub === "string" && normalizeCollisionTicketStub(existingTicketStub) === normalizedTicketStub;
+    });
+    if (duplicate && !keepsExistingTicketStub) throw new DuplicateCollisionTicketStubError(normalizedItem.ticketStub);
+  }
+  const { error } = await client
+    .from("collision_cases_cloud")
+    .upsert({ user_id: userId, id: item.id, data: normalizedItem, updated_at: item.updatedAt }, { onConflict: "user_id,id" });
+  if (error) {
+    if (isUniqueViolation(error)) throw new DuplicateCollisionTicketStubError(normalizedItem.ticketStub);
+    throw error;
+  }
+}
+
+function normalizePendingIncident(item: PendingIncidentRecord): PendingIncidentRecord {
+  const contactAttempts = Array.isArray(item.contactAttempts)
+    ? item.contactAttempts.filter((entry): entry is PendingIncidentContactAttempt => Boolean(
+        entry && typeof entry === "object" && typeof entry.id === "string"
+        && typeof entry.occurredAt === "string" && typeof entry.channel === "string"
+        && typeof entry.outcome === "string" && typeof entry.comment === "string"
+        && typeof entry.nextContactDate === "string"
+      ))
+    : [];
+  return {
+    ...item,
+    incidentLocation: typeof item.incidentLocation === "string" ? item.incidentLocation : "",
+    reason: typeof item.reason === "string" && item.reason.trim() ? item.reason : "Cliente no ha confirmado si procede por juicio o seguro.",
+    contactAttempts,
+    nextContactDate: typeof item.nextContactDate === "string" ? item.nextContactDate : contactAttempts[contactAttempts.length - 1]?.nextContactDate ?? "",
+    incidentPhotos: Array.isArray(item.incidentPhotos) ? item.incidentPhotos : [],
+    status: item.status === "ROUTED" ? "ROUTED" : "PENDING_DESTINATION",
+    resolvedDestination: item.resolvedDestination === "judicial" || item.resolvedDestination === "insurance" ? item.resolvedDestination : null,
+    resolvedTargetId: typeof item.resolvedTargetId === "string" ? item.resolvedTargetId : null,
+    resolvedAt: typeof item.resolvedAt === "string" ? item.resolvedAt : null
+  };
+}
+
+export async function loadPendingIncidents(userId: string, includeRouted = false): Promise<PendingIncidentRecord[]> {
+  const rows = await loadCloudArrayRows<PendingIncidentRecord>(userId, "pending_incidents_cloud");
+  return rows
+    .map(normalizePendingIncident)
+    .filter((item) => includeRouted || item.status === "PENDING_DESTINATION")
+    .sort((left, right) => (right.createdAt || "").localeCompare(left.createdAt || ""));
+}
+
+export async function savePendingIncident(userId: string, item: PendingIncidentRecord): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("pending_incidents_cloud")
+    .upsert({ user_id: userId, id: item.id, data: item, updated_at: item.updatedAt }, { onConflict: "user_id,id" });
+  if (error) throw error;
+}
+
+export async function uploadCollisionPhoto(
+  userId: string,
+  caseId: string,
+  file: File
+): Promise<CollisionPhotoAttachment> {
+  const client = getCloudClient();
+  const uploadedAt = new Date().toISOString();
+  const path = `${userId}/${caseId}/${Date.now()}-${crypto.randomUUID()}-${safeStorageFileName(file.name)}`;
+  const { error } = await client.storage
+    .from(COLLISION_PHOTOS_BUCKET)
+    .upload(path, file, { contentType: file.type || undefined, upsert: false });
+  if (error) throw error;
+  return { name: file.name, path, mimeType: file.type, size: file.size, uploadedAt, storageBucket: COLLISION_PHOTOS_BUCKET };
+}
+
+export async function removeCollisionPhotos(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  const client = getCloudClient();
+  const { error } = await client.storage.from(COLLISION_PHOTOS_BUCKET).remove(paths);
+  if (error) throw error;
+}
+
+export async function createCollisionPhotoViewUrl(path: string): Promise<string> {
+  const client = getCloudClient();
+  const { data, error } = await client.storage.from(COLLISION_PHOTOS_BUCKET).createSignedUrl(path, 60 * 10);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+export async function loadCloudBankRules(userId: string): Promise<BankRule[]> {
+  return loadCloudArrayRows<BankRule>(userId, "bank_rules_cloud");
+}
+
+export async function saveCloudBankRules(userId: string, rows: BankRule[]): Promise<void> {
+  await replaceCloudArrayRows(userId, "bank_rules_cloud", rows, (row, index) => row.id || `row-${index + 1}`);
+}
+
+export async function loadCloudLateFeeSettings(userId: string): Promise<LateFeeSettings | null> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("late_fee_settings_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  const payload = (data as SingletonDataRow | null)?.data;
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as LateFeeSettings
+    : null;
+}
+
+export async function saveCloudLateFeeSettings(userId: string, settings: LateFeeSettings): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("late_fee_settings_cloud")
+    .upsert({ user_id: userId, data: settings }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export async function loadCloudReceivablesCollectorPinHashes(userId: string): Promise<ReceivablesCollectorPinHashes | null> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("receivables_collector_pins_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  const payload = (data as SingletonDataRow | null)?.data as Partial<ReceivablesCollectorPinHashes> | undefined;
+  const first = payload?.["collector-1"];
+  const second = payload?.["collector-2"];
+  if (!first?.salt || !first.hash || !first.length || !second?.salt || !second.hash || !second.length) return null;
+  return payload as ReceivablesCollectorPinHashes;
+}
+
+export async function saveCloudReceivablesCollectorPinHashes(userId: string, hashes: ReceivablesCollectorPinHashes): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("receivables_collector_pins_cloud")
+    .upsert({ user_id: userId, data: hashes, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export async function loadCloudOtherChargesRetention(userId: string): Promise<OtherChargesRetentionByClient | null> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("other_charges_retention_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  const payload = (data as SingletonDataRow | null)?.data;
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as OtherChargesRetentionByClient
+    : null;
+}
+
+export async function saveCloudOtherChargesRetention(
+  userId: string,
+  settings: OtherChargesRetentionByClient
+): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("other_charges_retention_cloud")
+    .upsert({ user_id: userId, data: settings }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+async function loadCloudArrayRows<T>(userId: string, table: string): Promise<T[]> {
+  return dedupeLoad(`cxc-v2:array-rows:${table}:${userId}`, () => loadCloudArrayRowsUncached<T>(userId, table));
+}
+
+async function loadCloudArrayRowsUncached<T>(userId: string, table: string): Promise<T[]> {
+  const client = getCloudClient();
+  const rows: T[] = [];
+  let lastId = "";
+  while (true) {
+    let query = client
+      .from(table)
+      .select("id,data")
+      .eq("user_id", userId)
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (lastId) query = query.gt("id", lastId);
+    const { data, error } = await query;
+    if (error) throw error;
+    const batch = (data ?? []) as DataRow<T>[];
+    rows.push(...batch.map((row) => row.data));
+    if (batch.length < PAGE_SIZE) break;
+    lastId = batch[batch.length - 1]?.id ?? lastId;
+    if (!lastId) break;
+  }
+  return rows;
+}
+
+async function replaceCloudArrayRows<T>(
+  userId: string,
+  table: string,
+  rows: T[],
+  getId: (row: T, index: number) => string
+): Promise<void> {
+  const client = getCloudClient();
+  const payload = rows.map((row, index) => ({
+    user_id: userId,
+    id: getId(row, index),
+    data: row,
+    updated_at: new Date().toISOString()
+  }));
+
+  if (payload.length > 0) {
+    const { error } = await client.from(table).upsert(payload, { onConflict: "user_id,id" });
+    if (error) throw error;
+  }
+
+  const { data: existingRows, error: selectError } = await client
+    .from(table)
+    .select("id")
+    .eq("user_id", userId);
+  if (selectError) throw selectError;
+
+  const keepIds = new Set(payload.map((row) => row.id));
+  const staleIds = ((existingRows ?? []) as Array<{ id?: string }>)
+    .map((row) => row.id)
+    .filter((id): id is string => typeof id === "string" && !keepIds.has(id));
+  if (staleIds.length > 0) {
+    const { error: deleteError } = await client
+      .from(table)
+      .delete()
+      .eq("user_id", userId)
+      .in("id", staleIds);
+    if (deleteError) throw deleteError;
+  }
+}
+
+export async function loadCloudCashClosings(userId: string): Promise<CashClosing[]> {
+  return loadCloudArrayRows<CashClosing>(userId, "cash_closings_cloud");
+}
+
+export async function isCloudCashClosingDateClosed(userId: string, date: string): Promise<boolean> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("cash_closings_cloud")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("id", date)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data !== null;
+}
+
+export async function saveCloudCashClosings(userId: string, rows: CashClosing[]): Promise<void> {
+  await replaceCloudArrayRows(userId, "cash_closings_cloud", rows, (row, index) => row.date || `row-${index + 1}`);
+}
+
+export async function loadCloudCashClosingAudit(userId: string): Promise<CashClosingAuditEvent[]> {
+  return loadCloudArrayRows<CashClosingAuditEvent>(userId, "cash_closing_audit_cloud");
+}
+
+export async function saveCloudCashClosingAudit(userId: string, rows: CashClosingAuditEvent[]): Promise<void> {
+  await replaceCloudArrayRows(userId, "cash_closing_audit_cloud", rows, (row, index) => row.id || `row-${index + 1}`);
+}
+
+type ModularChargeRunHeaderRow = {
+  id: string;
+  closing_date: string;
+  target_date: string;
+  expected_clients: number | string | null;
+  charged_clients: number | string | null;
+  anomaly_clients: number | string | null;
+  charged_total: number | string | null;
+  status?: "pending" | "completed" | "reverted" | string | null;
+  created_at_text: string;
+  reverted_at?: string | null;
+  reverted_reason?: string | null;
+  reverted_by?: string | null;
+};
+
+function isMissingModularChargeRunsSchema(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: unknown; message?: unknown };
+  const code = typeof record.code === "string" ? record.code : "";
+  const message = typeof record.message === "string" ? record.message : "";
+  return code === "42P01" || code === "PGRST205" || message.includes("charge_run_headers_cloud");
+}
+
+function numberFromCloud(value: unknown): number {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function chargeRunFromHeader(row: ModularChargeRunHeaderRow): ChargeRun {
+  return {
+    id: row.id,
+    closingDate: row.closing_date,
+    targetDate: row.target_date,
+    expectedClients: numberFromCloud(row.expected_clients),
+    chargedClients: numberFromCloud(row.charged_clients),
+    anomalyClients: numberFromCloud(row.anomaly_clients),
+    chargedTotal: numberFromCloud(row.charged_total),
+    createdAt: row.created_at_text,
+    status: row.status === "pending" || row.status === "completed" || row.status === "reverted" ? row.status : undefined,
+    revertedAt: typeof row.reverted_at === "string" ? row.reverted_at : undefined,
+    revertedReason: typeof row.reverted_reason === "string" ? row.reverted_reason : undefined,
+    revertedBy: typeof row.reverted_by === "string" ? row.reverted_by : undefined
+  };
+}
+
+function toChargeRunHeaderPayload(userId: string, run: ChargeRun): Record<string, unknown> {
+  return {
+    user_id: userId,
+    id: run.id,
+    closing_date: run.closingDate,
+    target_date: run.targetDate,
+    expected_clients: run.expectedClients,
+    charged_clients: run.chargedClients,
+    anomaly_clients: run.anomalyClients,
+    charged_total: run.chargedTotal,
+    status: run.status ?? null,
+    created_at_text: run.createdAt,
+    reverted_at: run.revertedAt ?? null,
+    reverted_reason: run.revertedReason ?? null,
+    reverted_by: run.revertedBy ?? null,
+    updated_at: new Date().toISOString()
+  };
+}
+
+async function loadLegacyCloudChargeRun(userId: string, runId: string): Promise<ChargeRun | null> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("charge_runs_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .eq("id", runId)
+    .maybeSingle();
+  if (error) return null;
+  const payload = (data as { data?: unknown } | null)?.data;
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as ChargeRun
+    : null;
+}
+
+export async function loadCloudChargeRuns(userId: string): Promise<ChargeRun[]> {
+  const client = getCloudClient();
+  try {
+    const rows: ChargeRun[] = [];
+    let lastId = "";
+    while (true) {
+      let query = client
+        .from("charge_run_headers_cloud")
+        .select("id,closing_date,target_date,expected_clients,charged_clients,anomaly_clients,charged_total,status,created_at_text,reverted_at,reverted_reason,reverted_by")
+        .eq("user_id", userId)
+        .order("id", { ascending: true })
+        .limit(PAGE_SIZE);
+      if (lastId) query = query.gt("id", lastId);
+      const { data, error } = await query;
+      if (error) throw error;
+      const batch = (data ?? []) as ModularChargeRunHeaderRow[];
+      rows.push(...batch.map(chargeRunFromHeader));
+      if (batch.length < PAGE_SIZE) break;
+      lastId = batch[batch.length - 1]?.id ?? lastId;
+      if (!lastId) break;
+    }
+    // Migration 26 copies every legacy run into the modular tables. Once a
+    // modular header exists, avoid downloading the legacy JSON payloads: they
+    // contain per-client snapshots and grow quickly with every daily close.
+    if (rows.length > 0) return rows;
+    return loadCloudArrayRows<ChargeRun>(userId, "charge_runs_cloud").catch(() => []);
+  } catch (error) {
+    if (isMissingModularChargeRunsSchema(error)) {
+      return loadCloudArrayRows<ChargeRun>(userId, "charge_runs_cloud");
+    }
+    throw error;
+  }
+}
+
+export async function loadCloudChargeRunSnapshots(userId: string, runId: string): Promise<CashCloseClientSnapshot[]> {
+  const client = getCloudClient();
+  try {
+    const snapshots: CashCloseClientSnapshot[] = [];
+    let lastClientId = "";
+    while (true) {
+      let query = client
+        .from("charge_run_snapshots_cloud")
+        .select("client_id,data")
+        .eq("user_id", userId)
+        .eq("run_id", runId)
+        .order("client_id", { ascending: true })
+        .limit(PAGE_SIZE);
+      if (lastClientId) query = query.gt("client_id", lastClientId);
+      const { data, error } = await query;
+      if (error) throw error;
+      const batch = (data ?? []) as Array<{ client_id?: string; data?: unknown }>;
+      snapshots.push(...batch
+        .map((row) => row.data)
+        .filter((item): item is CashCloseClientSnapshot => Boolean(item) && typeof item === "object" && !Array.isArray(item)));
+      if (batch.length < PAGE_SIZE) break;
+      lastClientId = batch[batch.length - 1]?.client_id ?? lastClientId;
+      if (!lastClientId) break;
+    }
+    if (snapshots.length > 0) return snapshots;
+    return (await loadLegacyCloudChargeRun(userId, runId))?.clientSnapshots ?? [];
+  } catch (error) {
+    if (!isMissingModularChargeRunsSchema(error)) throw error;
+    return (await loadLegacyCloudChargeRun(userId, runId))?.clientSnapshots ?? [];
+  }
+}
+
+export async function loadCloudChargeRunLateFeeEntryIds(userId: string, runId: string): Promise<string[]> {
+  const client = getCloudClient();
+  try {
+    const entryIds: string[] = [];
+    let lastEntryId = "";
+    while (true) {
+      let query = client
+        .from("charge_run_late_fee_entries_cloud")
+        .select("entry_id")
+        .eq("user_id", userId)
+        .eq("run_id", runId)
+        .order("entry_id", { ascending: true })
+        .limit(PAGE_SIZE);
+      if (lastEntryId) query = query.gt("entry_id", lastEntryId);
+      const { data, error } = await query;
+      if (error) throw error;
+      const batch = (data ?? []) as Array<{ entry_id?: string }>;
+      entryIds.push(...batch.map((row) => row.entry_id).filter((id): id is string => typeof id === "string"));
+      if (batch.length < PAGE_SIZE) break;
+      lastEntryId = batch[batch.length - 1]?.entry_id ?? lastEntryId;
+      if (!lastEntryId) break;
+    }
+    if (entryIds.length > 0) return entryIds;
+    return (await loadLegacyCloudChargeRun(userId, runId))?.lateFeeEntryIds ?? [];
+  } catch (error) {
+    if (!isMissingModularChargeRunsSchema(error)) throw error;
+    return (await loadLegacyCloudChargeRun(userId, runId))?.lateFeeEntryIds ?? [];
+  }
+}
+
+export async function loadCloudChargeRunsWithDetails(userId: string): Promise<ChargeRun[]> {
+  const runs = await loadCloudChargeRuns(userId);
+  return Promise.all(runs.map(async (run) => {
+    const [clientSnapshots, lateFeeEntryIds] = await Promise.all([
+      loadCloudChargeRunSnapshots(userId, run.id).catch(() => run.clientSnapshots ?? []),
+      loadCloudChargeRunLateFeeEntryIds(userId, run.id).catch(() => run.lateFeeEntryIds ?? [])
+    ]);
+    return {
+      ...run,
+      clientSnapshots: clientSnapshots.length > 0 ? clientSnapshots : run.clientSnapshots,
+      lateFeeEntryIds: lateFeeEntryIds.length > 0 ? lateFeeEntryIds : run.lateFeeEntryIds
+    };
+  }));
+}
+
+export async function saveCloudChargeRuns(userId: string, rows: ChargeRun[]): Promise<void> {
+  const client = getCloudClient();
+  try {
+    const headerRows = rows.map((row) => toChargeRunHeaderPayload(userId, row));
+
+    if (headerRows.length > 0) {
+      const { error } = await client
+        .from("charge_run_headers_cloud")
+        .upsert(headerRows, { onConflict: "user_id,id" });
+      if (error) throw error;
+    }
+
+    const { data: existingRows, error: selectError } = await client
+      .from("charge_run_headers_cloud")
+      .select("id")
+      .eq("user_id", userId);
+    if (selectError) throw selectError;
+
+    const keepIds = new Set(rows.map((row) => row.id));
+    const staleIds = ((existingRows ?? []) as Array<{ id?: string }>)
+      .map((row) => row.id)
+      .filter((id): id is string => typeof id === "string" && !keepIds.has(id));
+    if (staleIds.length > 0) {
+      const { error: deleteError } = await client
+        .from("charge_run_headers_cloud")
+        .delete()
+        .eq("user_id", userId)
+        .in("id", staleIds);
+      if (deleteError) throw deleteError;
+    }
+
+    for (const run of rows) {
+      if (Array.isArray(run.clientSnapshots)) {
+        const snapshotRows = run.clientSnapshots.map((snapshot, index) => ({
+          user_id: userId,
+          run_id: run.id,
+          client_id: snapshot.clientId || `row-${index + 1}`,
+          data: snapshot,
+          updated_at: new Date().toISOString()
+        }));
+        if (snapshotRows.length > 0) {
+          const { error } = await client
+            .from("charge_run_snapshots_cloud")
+            .upsert(snapshotRows, { onConflict: "user_id,run_id,client_id" });
+          if (error) throw error;
+        }
+        const keepClientIds = new Set(snapshotRows.map((row) => row.client_id));
+        const { data: existingSnapshots, error: existingSnapshotsError } = await client
+          .from("charge_run_snapshots_cloud")
+          .select("client_id")
+          .eq("user_id", userId)
+          .eq("run_id", run.id);
+        if (existingSnapshotsError) throw existingSnapshotsError;
+        const staleClientIds = ((existingSnapshots ?? []) as Array<{ client_id?: string }>)
+          .map((row) => row.client_id)
+          .filter((id): id is string => typeof id === "string" && !keepClientIds.has(id));
+        if (staleClientIds.length > 0) {
+          const { error } = await client
+            .from("charge_run_snapshots_cloud")
+            .delete()
+            .eq("user_id", userId)
+            .eq("run_id", run.id)
+            .in("client_id", staleClientIds);
+          if (error) throw error;
+        }
+      }
+
+      if (Array.isArray(run.lateFeeEntryIds)) {
+        const entryRows = run.lateFeeEntryIds.map((entryId) => ({
+          user_id: userId,
+          run_id: run.id,
+          entry_id: entryId,
+          updated_at: new Date().toISOString()
+        }));
+        if (entryRows.length > 0) {
+          const { error } = await client
+            .from("charge_run_late_fee_entries_cloud")
+            .upsert(entryRows, { onConflict: "user_id,run_id,entry_id" });
+          if (error) throw error;
+        }
+        const keepEntryIds = new Set(entryRows.map((row) => row.entry_id));
+        const { data: existingEntries, error: existingEntriesError } = await client
+          .from("charge_run_late_fee_entries_cloud")
+          .select("entry_id")
+          .eq("user_id", userId)
+          .eq("run_id", run.id);
+        if (existingEntriesError) throw existingEntriesError;
+        const staleEntryIds = ((existingEntries ?? []) as Array<{ entry_id?: string }>)
+          .map((row) => row.entry_id)
+          .filter((id): id is string => typeof id === "string" && !keepEntryIds.has(id));
+        if (staleEntryIds.length > 0) {
+          const { error } = await client
+            .from("charge_run_late_fee_entries_cloud")
+            .delete()
+            .eq("user_id", userId)
+            .eq("run_id", run.id)
+            .in("entry_id", staleEntryIds);
+          if (error) throw error;
+        }
+      }
+    }
+  } catch (error) {
+    if (isMissingModularChargeRunsSchema(error)) {
+      await replaceCloudArrayRows(userId, "charge_runs_cloud", rows, (row, index) => row.id || `row-${index + 1}`);
+      return;
+    }
+    throw error;
+  }
+}
+
+type LeadEvaluationDocumentRow = DataRow<LeadEvaluation> & {
+  attachment_path?: string | null;
+  attachment_mime?: string | null;
+  attachment_size?: number | null;
+  attachment_sha256?: string | null;
+};
+
+function leadEvaluationFromDocumentRow(row: LeadEvaluationDocumentRow): LeadEvaluation {
+  return {
+    ...row.data,
+    attachmentPath: row.attachment_path ?? undefined,
+    attachmentMime: row.attachment_mime ?? undefined,
+    attachmentSize: row.attachment_size ?? undefined,
+    attachmentSha256: row.attachment_sha256 ?? undefined
+  };
+}
+
+export async function loadCloudLeadEvaluations(userId: string): Promise<LeadEvaluation[]> {
+  const client = getCloudClient();
+  const allRows: LeadEvaluationDocumentRow[] = [];
+  let lastId = "";
+  while (true) {
+    let query = client
+      .from("lead_evaluations_cloud")
+      .select("id,data,attachment_path,attachment_mime,attachment_size,attachment_sha256")
+      .eq("user_id", userId)
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (lastId) query = query.gt("id", lastId);
+    const { data, error } = await query;
+    if (error) throw error;
+    const batch = (data ?? []) as LeadEvaluationDocumentRow[];
+    allRows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    lastId = batch[batch.length - 1]?.id ?? lastId;
+    if (!lastId) break;
+  }
+  return allRows
+    .map(leadEvaluationFromDocumentRow)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+type LeadEvaluationSummaryRow = {
+  id?: unknown;
+  cedula?: unknown;
+  fullName?: unknown;
+  birthDate?: unknown;
+  age?: unknown;
+  attachmentName?: unknown;
+  noCases?: unknown;
+  hasGpsTamperingReport?: unknown;
+  hasLegalCases?: unknown;
+  hasViolenceReports?: unknown;
+  hasDuiReports?: unknown;
+  hasPiracyReports?: unknown;
+  collisionReports?: unknown;
+  pendingDailyReports?: unknown;
+  decision?: unknown;
+  extraDeposit?: unknown;
+  blockers?: unknown;
+  extraDepositReasons?: unknown;
+  sellerRequestId?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+};
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function numberValue(value: unknown): number {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function booleanValue(value: unknown): boolean {
+  return value === true || value === "true";
+}
+
+function stringArrayValue(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item ?? "")).filter((item) => item.length > 0) : [];
+}
+
+function leadDecisionValue(value: unknown): LeadEvaluation["decision"] {
+  return value === "aplica_con_abono" || value === "no_aplica" ? value : "aplica";
+}
+
+export function normalizeLeadEvaluationSummary(row: LeadEvaluationSummaryRow): LeadEvaluation {
+  const id = stringValue(row.id);
+  const now = new Date().toISOString();
+  return {
+    id,
+    cedula: stringValue(row.cedula),
+    fullName: stringValue(row.fullName) || undefined,
+    birthDate: stringValue(row.birthDate),
+    age: numberValue(row.age),
+    attachmentName: stringValue(row.attachmentName) || undefined,
+    noCases: booleanValue(row.noCases),
+    hasGpsTamperingReport: booleanValue(row.hasGpsTamperingReport),
+    hasLegalCases: booleanValue(row.hasLegalCases),
+    hasViolenceReports: booleanValue(row.hasViolenceReports),
+    hasDuiReports: booleanValue(row.hasDuiReports),
+    hasPiracyReports: booleanValue(row.hasPiracyReports),
+    collisionReports: numberValue(row.collisionReports),
+    pendingDailyReports: numberValue(row.pendingDailyReports),
+    decision: leadDecisionValue(row.decision),
+    extraDeposit: numberValue(row.extraDeposit),
+    blockers: stringArrayValue(row.blockers),
+    extraDepositReasons: stringArrayValue(row.extraDepositReasons),
+    sellerRequestId: stringValue(row.sellerRequestId) || undefined,
+    createdAt: stringValue(row.createdAt) || now,
+    updatedAt: stringValue(row.updatedAt) || now
+  };
+}
+
+export async function loadCloudLeadEvaluation(userId: string, evaluationId: string): Promise<LeadEvaluation | null> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("lead_evaluations_cloud")
+    .select("id,data,attachment_path,attachment_mime,attachment_size,attachment_sha256")
+    .eq("user_id", userId)
+    .eq("id", evaluationId)
+    .maybeSingle();
+  if (error) throw error;
+  const row = data as LeadEvaluationDocumentRow | null;
+  if (!row?.data || typeof row.data !== "object" || Array.isArray(row.data)) return null;
+  const evaluation = leadEvaluationFromDocumentRow(row);
+  if (!evaluation.attachmentPath) return evaluation;
+  try {
+    return { ...evaluation, attachmentDataUrl: await createLeadDocumentViewUrl(evaluation.attachmentPath) };
+  } catch {
+    return evaluation;
+  }
+}
+
+export async function saveCloudLeadEvaluations(userId: string, evaluations: LeadEvaluation[]): Promise<void> {
+  for (const evaluation of evaluations) await saveCloudLeadEvaluation(userId, evaluation);
+}
+
+export async function saveCloudLeadEvaluation(userId: string, evaluation: LeadEvaluation): Promise<void> {
+  const client = getCloudClient();
+  const uploaded = isLeadDocumentDataUrl(evaluation.attachmentDataUrl)
+    ? await uploadLeadDocumentDataUrl(userId, evaluation.attachmentDataUrl)
+    : null;
+  const attachmentPath = uploaded?.attachmentPath ?? evaluation.attachmentPath;
+  const attachmentMime = uploaded?.attachmentMime ?? evaluation.attachmentMime;
+  const attachmentSize = uploaded?.attachmentSize ?? evaluation.attachmentSize;
+  const attachmentSha256 = uploaded?.attachmentSha256 ?? evaluation.attachmentSha256;
+  const {
+    attachmentDataUrl: _attachmentDataUrl,
+    attachmentPath: _attachmentPath,
+    attachmentMime: _attachmentMime,
+    attachmentSize: _attachmentSize,
+    attachmentSha256: _attachmentSha256,
+    ...payload
+  } = evaluation;
+  const { error } = await client
+    .from("lead_evaluations_cloud")
+    .upsert({
+      user_id: userId,
+      id: evaluation.id,
+      data: payload,
+      attachment_path: attachmentPath ?? null,
+      attachment_mime: attachmentMime ?? null,
+      attachment_size: attachmentSize ?? null,
+      attachment_sha256: attachmentSha256 ?? null,
+      attachment_migrated_at: attachmentPath ? new Date().toISOString() : null,
+      updated_at: evaluation.updatedAt
+    }, { onConflict: "user_id,id" });
+  if (error) throw error;
+}
+
+export async function deleteCloudLeadEvaluation(userId: string, evaluationId: string): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("lead_evaluations_cloud")
+    .delete()
+    .eq("user_id", userId)
+    .eq("id", evaluationId);
+  if (error) throw error;
+}
+
+function normalizeRecord(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return {};
+  return payload as Record<string, unknown>;
+}
+
+function normalizeCloudValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => normalizeCloudValue(item));
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  const next: Record<string, unknown> = {};
+  for (const key of Object.keys(record).sort((a, b) => a.localeCompare(b))) {
+    next[key] = normalizeCloudValue(record[key]);
+  }
+  return next;
+}
+
+export type CloudDailyContactAttemptResult = "contacted" | "pending";
+
+export type CloudDailyContactAttempt = {
+  userId: string;
+  clientId: string;
+  contactDate: string;
+  shift: "morning" | "afternoon" | "night";
+  result: CloudDailyContactAttemptResult;
+  updatedAt: string;
+};
+
+type CloudDailyContactAttemptRow = {
+  user_id?: unknown;
+  client_id?: unknown;
+  contact_date?: unknown;
+  shift?: unknown;
+  result?: unknown;
+  updated_at?: unknown;
+};
+
+export function cloudDailyContactAttemptFromRow(value: unknown): CloudDailyContactAttempt | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as CloudDailyContactAttemptRow;
+  const userId = typeof row.user_id === "string" ? row.user_id : "";
+  const clientId = typeof row.client_id === "string" ? row.client_id : "";
+  const contactDate = typeof row.contact_date === "string" ? row.contact_date : "";
+  const shift = row.shift === "morning" || row.shift === "afternoon" || row.shift === "night"
+    ? row.shift
+    : null;
+  const result = row.result === "contacted" || row.result === "pending" ? row.result : null;
+  const updatedAt = typeof row.updated_at === "string" ? row.updated_at : "";
+  if (!userId || !clientId || !/^\d{4}-\d{2}-\d{2}$/.test(contactDate) || !shift || !result || !updatedAt) return null;
+  return { userId, clientId, contactDate, shift, result, updatedAt };
+}
+
+export async function loadCloudDailyContactAttempts(
+  userId: string,
+  contactDate: string
+): Promise<CloudDailyContactAttempt[]> {
+  return dedupeLoad(`cxc-v2:daily-contact-attempts:${userId}:${contactDate}`, async () => {
+    const client = getCloudClient();
+    const attempts: CloudDailyContactAttempt[] = [];
+    for (let offset = 0; ; offset += PAGE_SIZE) {
+      const { data, error } = await client
+        .from("cxc_v2_daily_contact_attempts_cloud")
+        .select("user_id,client_id,contact_date,shift,result,updated_at")
+        .eq("user_id", userId)
+        .eq("contact_date", contactDate)
+        .order("client_id", { ascending: true })
+        .order("shift", { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (error) throw error;
+      const rows = data ?? [];
+      for (const row of rows) {
+        const attempt = cloudDailyContactAttemptFromRow(row);
+        if (attempt) attempts.push(attempt);
+      }
+      if (rows.length < PAGE_SIZE) break;
+    }
+    return attempts;
+  });
+}
+
+export async function saveCloudDailyContactAttempt(
+  userId: string,
+  clientId: string,
+  contactDate: string,
+  shift: CloudDailyContactAttempt["shift"],
+  result: CloudDailyContactAttemptResult
+): Promise<CloudDailyContactAttempt> {
+  return withCloudRetry(async () => {
+    const client = getCloudClient();
+    const { data, error } = await client
+      .from("cxc_v2_daily_contact_attempts_cloud")
+      .upsert({
+        user_id: userId,
+        client_id: clientId,
+        contact_date: contactDate,
+        shift,
+        result
+      }, { onConflict: "user_id,client_id,contact_date,shift" })
+      .select("user_id,client_id,contact_date,shift,result,updated_at")
+      .single();
+    if (error) throw error;
+    const saved = cloudDailyContactAttemptFromRow(data);
+    if (!saved) throw new Error("Supabase no devolvió la confirmación del contacto guardado.");
+    return saved;
+  });
+}
+
+export async function clearCloudDailyContactAttempts(
+  userId: string,
+  contactDate: string
+): Promise<void> {
+  await withCloudRetry(async () => {
+    const client = getCloudClient();
+    const { error } = await client
+      .from("cxc_v2_daily_contact_attempts_cloud")
+      .delete()
+      .eq("user_id", userId)
+      .eq("contact_date", contactDate);
+    if (error) throw error;
+  });
+}
+
+export async function loadCloudStreetManagement(userId: string): Promise<Record<string, unknown>> {
+  return dedupeLoad(`cxc-v2:street-management:${userId}`, () => loadCloudStreetManagementUncached(userId));
+}
+
+async function loadCloudStreetManagementUncached(userId: string): Promise<Record<string, unknown>> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("cxc_v2_street_management_items_cloud")
+    .select("client_id,data")
+    .eq("user_id", userId);
+  if (error) throw error;
+  const rows = (data ?? []) as Array<{ client_id?: unknown; data?: unknown }>;
+  const byClient: Record<string, unknown> = {};
+  for (const row of rows) {
+    const clientId = typeof row.client_id === "string" ? row.client_id : "";
+    if (!clientId) continue;
+    byClient[clientId] = normalizeCloudValue(row.data);
+  }
+  return byClient;
+}
+
+export async function saveCloudStreetManagement(userId: string, value: Record<string, unknown>): Promise<void> {
+  await replaceCloudStreetManagementItems(userId, value);
+}
+
+async function replaceCloudStreetManagementItems(userId: string, value: Record<string, unknown>): Promise<void> {
+  const client = getCloudClient();
+  const normalized = normalizeCloudValue(value) as Record<string, unknown>;
+  const isClearOperation = Object.keys(normalized).length === 1 && Object.prototype.hasOwnProperty.call(normalized, "__clearedAt");
+  const rows = Object.entries(normalized).map(([clientId, data]) => ({
+    user_id: userId,
+    client_id: clientId,
+    data,
+    updated_at: new Date().toISOString()
+  }));
+  const { error: deleteError } = await client
+    .from("cxc_v2_street_management_items_cloud")
+    .delete()
+    .eq("user_id", userId);
+  if (deleteError) throw deleteError;
+  if (rows.length === 0) return;
+  const { error } = await client
+    .from("cxc_v2_street_management_items_cloud")
+    .upsert(rows, { onConflict: "user_id,client_id" });
+  if (error) throw error;
+  if (isClearOperation) {
+    const { count, error: countError } = await client
+      .from("cxc_v2_street_management_items_cloud")
+      .select("client_id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .neq("client_id", "__clearedAt");
+    if (countError) throw countError;
+    if ((count ?? 0) > 0) throw new Error(`La gestion quedo parcialmente limpia (${count} registro(s)).`);
+  }
+}
+
+function toIsoTimestamp(value: unknown): number {
+  if (typeof value !== "string") return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function rowTimestamp(value: unknown): number {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
+  const row = value as Record<string, unknown>;
+  return Math.max(
+    toIsoTimestamp(row.updatedAt),
+    toIsoTimestamp(row.managementUpdatedAt),
+    toIsoTimestamp(row.routeReleaseUpdatedAt),
+    toIsoTimestamp(row.supportNoteUpdatedAt),
+    toIsoTimestamp(row.contactTimeUpdatedAt),
+    toIsoTimestamp(row.routeUrgencyUpdatedAt),
+    toIsoTimestamp(row.whatsAppMessageCopiedAt),
+    toIsoTimestamp(row.whatsAppMessageSentAt),
+    toIsoTimestamp(row.paymentPromiseUpdatedAt),
+    toIsoTimestamp(row.gpsLocationReviewedAt)
+  );
+}
+
+function recordOrNull(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function mergeStreetManagementRow(currentValue: unknown, patchValue: unknown): unknown {
+  const current = recordOrNull(currentValue);
+  const patch = recordOrNull(patchValue);
+  if (!current || !patch) return patchValue;
+
+  const merged: Record<string, unknown> = { ...current, ...patch };
+  const currentWhatsAppTs = Math.max(
+    toIsoTimestamp(current.whatsAppMessageCopiedAt),
+    toIsoTimestamp(current.whatsAppMessageSentAt)
+  );
+  const patchWhatsAppTs = Math.max(
+    toIsoTimestamp(patch.whatsAppMessageCopiedAt),
+    toIsoTimestamp(patch.whatsAppMessageSentAt)
+  );
+
+  if (currentWhatsAppTs > patchWhatsAppTs) {
+    merged.whatsAppMessageCopiedAt = current.whatsAppMessageCopiedAt;
+    merged.whatsAppMessageSentAt = current.whatsAppMessageSentAt;
+    merged.whatsAppMessageText = current.whatsAppMessageText;
+  }
+
+  if (toIsoTimestamp(current.supportNoteUpdatedAt) > toIsoTimestamp(patch.supportNoteUpdatedAt)) {
+    merged.supportNote = current.supportNote;
+    merged.supportNoteUpdatedAt = current.supportNoteUpdatedAt;
+  }
+
+  if (toIsoTimestamp(current.contactTimeUpdatedAt) > toIsoTimestamp(patch.contactTimeUpdatedAt)) {
+    merged.contactTime = current.contactTime;
+    merged.contactTimeUpdatedAt = current.contactTimeUpdatedAt;
+  }
+
+  if (toIsoTimestamp(current.paymentPromiseUpdatedAt) > toIsoTimestamp(patch.paymentPromiseUpdatedAt)) {
+    merged.paymentPromiseDate = current.paymentPromiseDate;
+    merged.paymentPromiseTime = current.paymentPromiseTime;
+    merged.paymentPromiseAmount = current.paymentPromiseAmount;
+    merged.paymentPromiseUpdatedAt = current.paymentPromiseUpdatedAt;
+  }
+
+  if (toIsoTimestamp(current.gpsLocationReviewedAt) > toIsoTimestamp(patch.gpsLocationReviewedAt)) {
+    merged.gpsLocationNote = current.gpsLocationNote;
+    merged.gpsLocationReviewedAt = current.gpsLocationReviewedAt;
+  }
+
+  // Preserve attempts from both devices and unrelated management updates.
+  const attempts = [...(Array.isArray(current.contactOutcomes) ? current.contactOutcomes : []),
+    ...(Array.isArray(patch.contactOutcomes) ? patch.contactOutcomes : [])];
+  const mergedAttempts = [...new Map(attempts.filter((item) => item && typeof item.at === "string")
+    .map((item) => [item.at + "|" + item.collector + "|" + item.result, item])).values()]
+    .sort((a, b) => a.at.localeCompare(b.at));
+
+  // Cancellation survives a stale tab sending the same historical attempt again.
+  const cancelled = new Map(attempts.filter(item => item?.promiseCancelledAt)
+    .map(item => [item.at + "|" + item.collector + "|" + item.result, item.promiseCancelledAt]));
+  merged.contactOutcomes = mergedAttempts.map(item => {
+    const at = cancelled.get(item.at + "|" + item.collector + "|" + item.result);
+    return at ? {...item, promiseCancelledAt: at} : item;
+  });
+  return merged;
+}
+
+export async function syncCloudStreetManagementDelta(
+  userId: string,
+  previousValue: Record<string, unknown>,
+  nextValue: Record<string, unknown>
+): Promise<void> {
+  await syncCloudStreetManagementItemsDelta(userId, previousValue, nextValue);
+}
+
+async function syncCloudStreetManagementItemsDelta(
+  userId: string,
+  previousValue: Record<string, unknown>,
+  nextValue: Record<string, unknown>
+): Promise<void> {
+  const client = getCloudClient();
+  const prev = normalizeRecord(previousValue);
+  const next = normalizeRecord(nextValue);
+  const changedPatch: Record<string, unknown | null> = {};
+
+  for (const [clientId, nextRow] of Object.entries(next)) {
+    const prevRow = prev[clientId];
+    const nextTs = rowTimestamp(nextRow);
+    const prevTs = rowTimestamp(prevRow);
+    if ((!prevRow || nextTs >= prevTs) && !stableEqual(prevRow, nextRow)) {
+      changedPatch[clientId] = nextRow;
+    }
+  }
+
+  for (const clientId of Object.keys(prev)) {
+    if (!(clientId in next)) changedPatch[clientId] = null;
+  }
+
+  const changedClientIds = Object.keys(changedPatch);
+  if (changedClientIds.length === 0) return;
+
+  if (changedPatch.__clearedAt) {
+    const { error: deleteError } = await client
+      .from("cxc_v2_street_management_items_cloud")
+      .delete()
+      .eq("user_id", userId)
+      .neq("client_id", "__clearedAt");
+    if (deleteError) throw deleteError;
+  }
+
+  const currentRows = new Map<string, unknown>();
+  for (let index = 0; index < changedClientIds.length; index += PAGE_SIZE) {
+    const batch = changedClientIds.slice(index, index + PAGE_SIZE);
+    const { data, error } = await client
+      .from("cxc_v2_street_management_items_cloud")
+      .select("client_id,data")
+      .eq("user_id", userId)
+      .in("client_id", batch);
+    if (error) throw error;
+    for (const row of (data ?? []) as Array<{ client_id?: unknown; data?: unknown }>) {
+      if (typeof row.client_id === "string") currentRows.set(row.client_id, row.data);
+    }
+  }
+
+  const upserts: Array<{ user_id: string; client_id: string; data: unknown; updated_at: string }> = [];
+  const deletes: string[] = [];
+  const clearedAt = rowTimestamp(changedPatch.__clearedAt ?? currentRows.get("__clearedAt"));
+
+  for (const [clientId, patchValue] of Object.entries(changedPatch)) {
+    if (patchValue === null) {
+      const currentRow = currentRows.get(clientId);
+      const prevRow = prev[clientId];
+      if (!currentRow || rowTimestamp(currentRow) <= rowTimestamp(prevRow)) deletes.push(clientId);
+      continue;
+    }
+    const currentRow = currentRows.get(clientId);
+    const patchTs = rowTimestamp(patchValue);
+    const currentTs = rowTimestamp(currentRow);
+    if (clientId !== "__clearedAt" && clearedAt > 0 && patchTs <= clearedAt) continue;
+    if (!currentRow || patchTs >= currentTs) {
+      upserts.push({
+        user_id: userId,
+        client_id: clientId,
+        data: normalizeCloudValue(mergeStreetManagementRow(currentRow, patchValue)),
+        updated_at: new Date().toISOString()
+      });
+    }
+  }
+
+  for (let index = 0; index < deletes.length; index += PAGE_SIZE) {
+    const batch = deletes.slice(index, index + PAGE_SIZE);
+    const { error } = await client
+      .from("cxc_v2_street_management_items_cloud")
+      .delete()
+      .eq("user_id", userId)
+      .in("client_id", batch);
+    if (error) throw error;
+  }
+
+  for (let index = 0; index < upserts.length; index += PAGE_SIZE) {
+    const batch = upserts.slice(index, index + PAGE_SIZE);
+    const { error } = await client
+      .from("cxc_v2_street_management_items_cloud")
+      .upsert(batch, { onConflict: "user_id,client_id" });
+    if (error) throw error;
+  }
+}
+
+export async function loadCloudCollectionClosures(userId: string): Promise<Record<string, unknown>> {
+  return dedupeLoad(`cxc-v2:collection-closures:${userId}`, () => loadCloudCollectionClosuresUncached(userId));
+}
+
+async function loadCloudCollectionClosuresUncached(userId: string): Promise<Record<string, unknown>> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("cxc_v2_collection_closures_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return normalizeRecord((data as SingletonDataRow | null)?.data);
+}
+
+export async function saveCloudCollectionClosures(userId: string, value: Record<string, unknown>): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("cxc_v2_collection_closures_cloud")
+    .upsert({ user_id: userId, data: value }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export async function loadControlUnits(userId: string): Promise<ControlUnitRow[]> {
+  return dedupeLoad(`cxc-v2:control-units:${userId}`, () => loadControlUnitsUncached(userId));
+}
+
+async function loadControlUnitsUncached(userId: string): Promise<ControlUnitRow[]> {
+  const client = getCloudClient();
+  const allRows: ControlUnitRow[] = [];
+  let from = 0;
+  let useFleetTableFallback = false;
+
+  while (true) {
+    const to = from + PAGE_SIZE - 1;
+    const result = await withCloudRetry(() => client
+      .from(useFleetTableFallback ? "fleet_units_cloud" : "vw_control_unidades")
+      .select("*")
+      .eq("user_id", userId)
+      .order("unit_id", { ascending: true })
+      .range(from, to));
+    let data = result.data as ControlUnitRow[] | null;
+    let error = result.error;
+
+    if (error) {
+      const record = error as { code?: unknown; message?: unknown };
+      const code = typeof record.code === "string" ? record.code : "";
+      const message = typeof record.message === "string" ? record.message : "";
+      if (!useFleetTableFallback && (code === "42P01" || code === "PGRST205" || message.includes("vw_control_unidades"))) {
+        useFleetTableFallback = true;
+        from = 0;
+        allRows.length = 0;
+        continue;
+      }
+      throw error;
+    }
+
+    const batch = ((data ?? []) as ControlUnitRow[]).map((row) => ({
+      ...row,
+      year: row.model_year ?? row.year,
+      transmission: row.transmission_type ?? row.transmission,
+      kilometrage: row.mileage,
+      kilometraje: row.mileage,
+      client_id: useFleetTableFallback ? null : row.client_id,
+      client_name: useFleetTableFallback ? null : row.client_name,
+      client_cedula: useFleetTableFallback ? null : row.client_cedula,
+      financial_balance: useFleetTableFallback ? null : row.financial_balance,
+      financial_status: useFleetTableFallback ? "sin_cliente" : row.financial_status,
+      last_payment_date: useFleetTableFallback ? null : row.last_payment_date
+    }));
+    allRows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  const catalogDetails = await loadFleetCatalogDetails(userId).catch((error) => {
+    if (!isMissingFleetCatalogSchema(error)) {
+      console.warn("No se pudieron cargar los datos del catalogo de autos.", error);
+    }
+    return new Map<string, Partial<ControlUnitRow>>();
+  });
+  const keyDetails = await loadFleetKeyDetails(userId).catch((error) => {
+    const record = error as { code?: unknown };
+    if (record?.code !== "42703" && record?.code !== "PGRST204") {
+      console.warn("No se pudo cargar el tipo de llave de los autos.", error);
+    }
+    return new Map<string, boolean | null>();
+  });
+
+  return allRows.map((row) => ({
+    ...row,
+    ...(catalogDetails.get(row.fleet_id) ?? {}),
+    key_coded: keyDetails.get(row.fleet_id) ?? row.key_coded ?? null
+  }));
+}
+
+const FLEET_CATALOG_BUCKET = "fleet-catalog-photos";
+
+async function loadFleetKeyDetails(userId: string): Promise<Map<string, boolean | null>> {
+  const { data, error } = await getCloudClient()
+    .from("fleet_units_cloud")
+    .select("fleet_id,key_coded")
+    .eq("user_id", userId)
+    .is("retired_at", null);
+  if (error) throw error;
+  return new Map(((data ?? []) as Array<{ fleet_id: string; key_coded: boolean | null }>)
+    .map((row) => [row.fleet_id, row.key_coded]));
+}
+
+function isMissingFleetCatalogSchema(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: unknown; message?: unknown };
+  const code = typeof record.code === "string" ? record.code : "";
+  const message = typeof record.message === "string" ? record.message.toLowerCase() : "";
+  return code === "42703" || code === "PGRST202" || code === "PGRST204" ||
+    message.includes("catalog_daily_rate") || message.includes("catalog_contract_months") ||
+    message.includes("catalog_daily_management_fee") || message.includes("save_fleet_catalog_settings");
+}
+
+async function loadFleetCatalogDetails(userId: string): Promise<Map<string, Partial<ControlUnitRow>>> {
+  const client = getCloudClient();
+  type CatalogDetailsRow = {
+    fleet_id: string;
+    catalog_contract_months?: number | string | null;
+    catalog_daily_rate: number | string | null;
+    catalog_weekly_rate: number | string | null;
+    catalog_biweekly_rate: number | string | null;
+    catalog_daily_management_fee?: number | string | null;
+    catalog_weekly_management_fee?: number | string | null;
+    catalog_biweekly_management_fee?: number | string | null;
+    catalog_photo_path: string | null;
+  };
+  const detailedResult = await client
+    .from("fleet_units_cloud")
+    .select("fleet_id,catalog_contract_months,catalog_daily_rate,catalog_weekly_rate,catalog_biweekly_rate,catalog_daily_management_fee,catalog_weekly_management_fee,catalog_biweekly_management_fee,catalog_photo_path")
+    .eq("user_id", userId)
+    .is("retired_at", null);
+  let rows: CatalogDetailsRow[];
+  if (detailedResult.error) {
+    if (!isMissingFleetCatalogSchema(detailedResult.error)) throw detailedResult.error;
+    const legacyResult = await client
+      .from("fleet_units_cloud")
+      .select("fleet_id,catalog_daily_rate,catalog_weekly_rate,catalog_biweekly_rate,catalog_photo_path")
+      .eq("user_id", userId)
+      .is("retired_at", null);
+    if (legacyResult.error) throw legacyResult.error;
+    rows = (legacyResult.data ?? []) as CatalogDetailsRow[];
+  } else {
+    rows = (detailedResult.data ?? []) as CatalogDetailsRow[];
+  }
+  const paths = rows.map((row) => row.catalog_photo_path).filter((path): path is string => Boolean(path));
+  const signedByPath = new Map<string, string>();
+  if (paths.length > 0) {
+    const { data: signedRows, error: signedError } = await client.storage
+      .from(FLEET_CATALOG_BUCKET)
+      .createSignedUrls(paths, 60 * 60);
+    if (!signedError) {
+      for (const item of signedRows ?? []) {
+        if (item.path && item.signedUrl) signedByPath.set(item.path, item.signedUrl);
+      }
+    }
+  }
+
+  return new Map(rows.map((row) => [row.fleet_id, {
+    catalog_contract_months: row.catalog_contract_months,
+    catalog_daily_rate: row.catalog_daily_rate,
+    catalog_weekly_rate: row.catalog_weekly_rate,
+    catalog_biweekly_rate: row.catalog_biweekly_rate,
+    catalog_daily_management_fee: row.catalog_daily_management_fee,
+    catalog_weekly_management_fee: row.catalog_weekly_management_fee,
+    catalog_biweekly_management_fee: row.catalog_biweekly_management_fee,
+    catalog_photo_path: row.catalog_photo_path,
+    catalog_photo_url: row.catalog_photo_path ? signedByPath.get(row.catalog_photo_path) ?? null : null
+  }]));
+}
+
+export async function loadPublicFleetCatalog(ownerUserId: string): Promise<ControlUnitRow[]> {
+  const client = getCloudClient();
+  const { data, error } = await client.rpc("get_public_fleet_catalog", {
+    p_owner_user_id: ownerUserId
+  });
+  if (error) throw error;
+  return ((data ?? []) as ControlUnitRow[]).map((row) => {
+    const photoPath = typeof row.catalog_photo_path === "string" ? row.catalog_photo_path : "";
+    const photoUrl = photoPath
+      ? client.storage.from(FLEET_CATALOG_BUCKET).getPublicUrl(photoPath).data.publicUrl
+      : null;
+    return {
+      ...row,
+      year: row.model_year ?? row.year,
+      transmission: row.transmission_type ?? row.transmission,
+      catalog_photo_url: photoUrl
+    };
+  });
+}
+
+export type ControlUnitUpsertInput = {
+  user_id: string;
+  unit_id: string;
+  company?: string | null;
+  brand_model?: string | null;
+  engine_serial?: string | null;
+  chassis_serial?: string | null;
+  plate?: string | null;
+  panapass_number?: string | null;
+  cupo?: string | null;
+  observation?: string | null;
+  operational_status?: string | null;
+  year?: number | string | null;
+  model_year?: number | string | null;
+  color?: string | null;
+  transmission?: string | null;
+  transmission_type?: string | null;
+  key_coded?: boolean | null;
+  mileage?: number | string | null;
+  kilometrage?: number | string | null;
+  kilometraje?: number | string | null;
+  [key: string]: unknown;
+};
+
+export type ActiveRouteItem = {
+  panapassRoute?: boolean;
+  panapassUpdatedAt?: string;
+  panapassUpdatedBy?: string;
+  clientId: string;
+  unitId: string;
+  clientName: string;
+  clientCedula?: string;
+  whatsAppPhone?: string;
+  routeAssignment?: string;
+  assignedDelta?: "delta1" | "delta2" | "delta3";
+  zone?: string;
+  managementType?: "solo_cobrar" | "cobrar_o_quitar" | "desiste" | "quitar";
+  urgency?: "normal" | "urgent" | "very_urgent";
+  releaseAmount: number;
+  pendingAmount: number;
+  overdueBalance: number;
+  rentAmount: number;
+  daysLate: number;
+  lastPaymentDate: string | null;
+  comment?: string;
+  partialDecisionRentAmount?: number;
+  partialDecisionAt?: string;
+  inCustody?: boolean;
+  custodySince?: string;
+  custodyChangedAt?: string;
+  routeInactiveAt?: string;
+  routeInactiveBy?: string;
+  publishedAt: string;
+  routeStartedAt: string;
+  removedAt?: string;
+  removedBy?: string;
+  removedReason?: "paid" | "removed" | "inactive" | "manual_management" | "manual_published" | "operator_removed" | "route_editor_removed";
+};
+
+function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const clientId = typeof row.clientId === "string" ? row.clientId : "";
+  const unitId = typeof row.unitId === "string" ? row.unitId : "";
+  const clientName = typeof row.clientName === "string" ? row.clientName : "";
+  const releaseAmount = typeof row.releaseAmount === "number" ? row.releaseAmount : Number(row.releaseAmount);
+  const pendingAmount = typeof row.pendingAmount === "number" ? row.pendingAmount : Number(row.pendingAmount);
+  const overdueBalance = typeof row.overdueBalance === "number" ? row.overdueBalance : Number(row.overdueBalance);
+  const rentAmount = typeof row.rentAmount === "number" ? row.rentAmount : Number(row.rentAmount);
+  const daysLate = typeof row.daysLate === "number" ? row.daysLate : Number(row.daysLate);
+  const publishedAt = typeof row.publishedAt === "string" ? row.publishedAt : "";
+  const routeStartedAt = typeof row.routeStartedAt === "string" ? row.routeStartedAt : publishedAt;
+  const restoredLocalDelta = import.meta.env.DEV && ["B91", "T06", "B12", "A46"].includes(unitId.trim().toUpperCase())
+    ? "delta1" as const
+    : undefined;
+  if (!clientId || !unitId || !clientName || !Number.isFinite(releaseAmount) || releaseAmount < 0 || !publishedAt) return null;
+  return {
+    clientId,
+    unitId,
+    clientName,
+    panapassRoute: row.panapassRoute === true,
+    panapassUpdatedAt: typeof row.panapassUpdatedAt === "string" ? row.panapassUpdatedAt : undefined,
+    panapassUpdatedBy: typeof row.panapassUpdatedBy === "string" ? row.panapassUpdatedBy : undefined,
+    clientCedula: typeof row.clientCedula === "string" ? row.clientCedula : undefined,
+    whatsAppPhone: typeof row.whatsAppPhone === "string" ? row.whatsAppPhone : undefined,
+    routeAssignment: typeof row.routeAssignment === "string" ? row.routeAssignment : undefined,
+    assignedDelta: row.assignedDelta === "delta1" || row.assignedDelta === "delta2" || row.assignedDelta === "delta3" ? row.assignedDelta : restoredLocalDelta,
+    zone: typeof row.zone === "string" && row.zone.trim().length > 0 ? row.zone.trim() : undefined,
+    managementType: row.managementType === "cobrar_o_quitar" || row.managementType === "desiste" || row.managementType === "quitar"
+      ? row.managementType
+      : "solo_cobrar",
+    urgency: row.urgency === "urgent" || row.urgency === "very_urgent" ? row.urgency : "normal",
+    releaseAmount,
+    pendingAmount: Number.isFinite(pendingAmount) ? pendingAmount : 0,
+    overdueBalance: Number.isFinite(overdueBalance) ? overdueBalance : 0,
+    rentAmount: Number.isFinite(rentAmount) ? rentAmount : 0,
+    daysLate: Number.isFinite(daysLate) ? daysLate : 0,
+    lastPaymentDate: typeof row.lastPaymentDate === "string" ? row.lastPaymentDate : null,
+    comment: typeof row.comment === "string" ? row.comment : undefined,
+    partialDecisionRentAmount: typeof row.partialDecisionRentAmount === "number" && Number.isFinite(row.partialDecisionRentAmount)
+      ? row.partialDecisionRentAmount
+      : undefined,
+    partialDecisionAt: typeof row.partialDecisionAt === "string" ? row.partialDecisionAt : undefined,
+    inCustody: row.inCustody === true,
+    custodySince: typeof row.custodySince === "string" ? row.custodySince : undefined,
+    custodyChangedAt: typeof row.custodyChangedAt === "string" ? row.custodyChangedAt : undefined,
+    routeInactiveAt: typeof row.routeInactiveAt === "string" ? row.routeInactiveAt : undefined,
+    routeInactiveBy: typeof row.routeInactiveBy === "string" ? row.routeInactiveBy : undefined,
+    publishedAt,
+    routeStartedAt,
+    removedAt: typeof row.removedAt === "string" ? row.removedAt : undefined,
+    removedBy: typeof row.removedBy === "string" ? row.removedBy : undefined,
+    removedReason: row.removedReason === "paid" || row.removedReason === "removed" || row.removedReason === "inactive" || row.removedReason === "manual_management" || row.removedReason === "manual_published" || row.removedReason === "operator_removed" || row.removedReason === "route_editor_removed" ? row.removedReason : undefined
+  };
+}
+
+type ActiveRouteCloudRow = {
+  client_id?: unknown;
+  data?: unknown;
+  in_custody?: unknown;
+  custody_since?: unknown;
+  custody_changed_at?: unknown;
+};
+
+function activeRouteItemFromCloudRow(row: ActiveRouteCloudRow): ActiveRouteItem | null {
+  const data = row.data && typeof row.data === "object" && !Array.isArray(row.data) ? row.data : {};
+  return normalizeActiveRouteItem({
+    ...data,
+    clientId: typeof row.client_id === "string" ? row.client_id : undefined,
+    inCustody: row.in_custody === true,
+    custodySince: row.custody_since,
+    custodyChangedAt: row.custody_changed_at
+  });
+}
+
+export type ActiveRouteDelta = { clientId: string; item: ActiveRouteItem | null };
+
+export function activeRouteDeltaFromPayload(payload: unknown): ActiveRouteDelta | null {
+  if (!payload || typeof payload !== "object") return null;
+  const event = payload as { eventType?: unknown; new?: unknown; old?: unknown };
+  const row = (event.eventType === "DELETE" ? event.old : event.new) as ActiveRouteCloudRow | null;
+  const clientId = typeof row?.client_id === "string" ? row.client_id : "";
+  if (!clientId) return null;
+  if (event.eventType === "DELETE") return { clientId, item: null };
+  if (event.eventType !== "INSERT" && event.eventType !== "UPDATE") return null;
+  const item = activeRouteItemFromCloudRow(row ?? {});
+  return item ? { clientId, item } : null;
+}
+
+export function applyActiveRouteDelta(items: ActiveRouteItem[], delta: ActiveRouteDelta): ActiveRouteItem[] {
+  const index = items.findIndex((item) => item.clientId === delta.clientId);
+  if (!delta.item) return index < 0 ? items : items.filter((item) => item.clientId !== delta.clientId);
+  if (index < 0) return [...items, delta.item];
+  return items.map((item, itemIndex) => itemIndex === index ? delta.item! : item);
+}
+
+export async function loadCloudActiveRouteItems(userId: string): Promise<ActiveRouteItem[]> {
+  return dedupeLoad(`cxc-v2:active-route-items:${userId}`, () => loadCloudActiveRouteItemsUncached(userId));
+}
+
+async function loadCloudActiveRouteItemsUncached(userId: string): Promise<ActiveRouteItem[]> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("active_route_items_cloud")
+    .select("client_id,data,in_custody,custody_since,custody_changed_at")
+    .eq("user_id", userId);
+  if (error) throw error;
+  return ((data ?? []) as ActiveRouteCloudRow[])
+    .map(activeRouteItemFromCloudRow)
+    .filter((item): item is ActiveRouteItem => item !== null);
+}
+
+export async function loadCloudActiveRouteItem(userId: string, clientId: string): Promise<ActiveRouteItem | null> {
+  const { data, error } = await getCloudClient()
+    .from("active_route_items_cloud")
+    .select("client_id,data,in_custody,custody_since,custody_changed_at")
+    .eq("user_id", userId)
+    .eq("client_id", clientId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? activeRouteItemFromCloudRow(data) : null;
+}
+
+export async function publishCloudActiveRouteItems(userId: string, items: ActiveRouteItem[]): Promise<void> {
+  const client = getCloudClient();
+  const rows = items.map((item) => ({
+    user_id: userId,
+    client_id: item.clientId,
+    data: item,
+    updated_at: new Date().toISOString()
+  }));
+  if (rows.length === 0) return;
+  const { error } = await client
+    .from("active_route_items_cloud")
+    .upsert(rows, { onConflict: "user_id,client_id" });
+  if (error) throw error;
+}
+
+export async function removeCloudActiveRouteItem(
+  userId: string,
+  clientId: string,
+  reason: "paid" | "removed" | "inactive" | "manual_management" | "manual_published"
+): Promise<void> {
+  const client = getCloudClient();
+  const { data, error: loadError } = await client
+    .from("active_route_items_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .eq("client_id", clientId)
+    .maybeSingle<{ data?: unknown }>();
+  if (loadError) throw loadError;
+  const current = normalizeActiveRouteItem(data?.data);
+  if (!current) return;
+  const updated: ActiveRouteItem = {
+    ...current,
+    removedAt: new Date().toISOString(),
+    removedReason: reason
+  };
+  const { error } = await client
+    .from("active_route_items_cloud")
+    .upsert({
+      user_id: userId,
+      client_id: clientId,
+      data: updated,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "user_id,client_id" });
+  if (error) throw error;
+}
+
+export async function saveCloudActiveRouteItem(userId: string, item: ActiveRouteItem): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("active_route_items_cloud")
+    .upsert({
+      user_id: userId,
+      client_id: item.clientId,
+      data: item,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "user_id,client_id" });
+  if (error) throw error;
+}
+
+export async function changeCloudActiveRouteDelta(input: {
+  userId: string;
+  clientId: string;
+  publishedAt: string;
+  previousDelta?: "delta1" | "delta2" | "delta3";
+  delta: "delta1" | "delta2" | "delta3";
+}): Promise<void> {
+  const { error } = await getCloudClient().rpc("change_active_route_delta_assignment", {
+    p_user_id: input.userId,
+    p_client_id: input.clientId,
+    p_published_at: input.publishedAt,
+    p_previous_delta: input.previousDelta ?? "",
+    p_delta: input.delta
+  });
+  if (error) throw error;
+}
+
+export async function loadRetiredControlUnits(userId: string): Promise<ControlUnitRow[]> {
+  const client = getCloudClient();
+  const allRows: ControlUnitRow[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await client
+      .from("fleet_units_cloud")
+      .select("*")
+      .eq("user_id", userId)
+      .not("retired_at", "is", null)
+      .order("retired_at", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const batch = (data ?? []) as ControlUnitRow[];
+    allRows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
+  return allRows;
+}
+
+export type FleetUnitEvent = {
+  id: string;
+  user_id: string;
+  fleet_id: string;
+  event_type: "renamed" | "retired" | "restored";
+  previous_unit_id: string | null;
+  next_unit_id: string | null;
+  reason: string;
+  note: string | null;
+  performed_by: string | null;
+  performed_by_email: string | null;
+  occurred_at: string;
+};
+
+export async function loadFleetUnitEvents(userId: string, fleetId: string): Promise<FleetUnitEvent[]> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("fleet_unit_events_cloud")
+    .select("id,user_id,fleet_id,event_type,previous_unit_id,next_unit_id,reason,note,performed_by,performed_by_email,occurred_at")
+    .eq("user_id", userId)
+    .eq("fleet_id", fleetId)
+    .order("occurred_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as FleetUnitEvent[];
+}
+
+export async function saveCloudActiveRouteZone(input: {
+  userId: string;
+  clientId: string;
+  routeAssignment?: string;
+  zone?: string;
+}): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("update_active_route_zone", {
+    p_user_id: input.userId,
+    p_client_id: input.clientId,
+    p_route_assignment: input.routeAssignment ?? "",
+    p_zone: input.zone ?? ""
+  });
+  if (error) throw error;
+}
+
+export async function saveCloudActiveRouteComment(input: {
+  userId: string;
+  clientId: string;
+  comment?: string;
+}): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("update_active_route_comment", {
+    p_user_id: input.userId,
+    p_client_id: input.clientId,
+    p_comment: input.comment ?? ""
+  });
+  if (error) throw error;
+}
+
+export async function saveCloudActiveRouteReleaseAmount(input: {
+  userId: string;
+  clientId: string;
+  publishedAt: string;
+  releaseAmount: number;
+}): Promise<void> {
+  const { error } = await getCloudClient().rpc("update_active_route_release_amount", {
+    p_user_id: input.userId,
+    p_client_id: input.clientId,
+    p_published_at: input.publishedAt,
+    p_release_amount: input.releaseAmount
+  });
+  if (error) throw error;
+}
+
+export async function removeCloudActiveRouteItemFromSearch(input: {
+  userId: string;
+  clientId: string;
+}): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("remove_active_route_item_from_search", {
+    p_user_id: input.userId,
+    p_client_id: input.clientId
+  });
+  if (error) throw error;
+}
+
+export async function removeCloudActiveRouteItemFromReceivables(input: {
+  userId: string;
+  clientId: string;
+  expectedUpdatedAt?: string;
+}): Promise<string> {
+  const client = getCloudClient();
+  const remove = (expectedUpdatedAt: string) => client.rpc("cxc_v2_remove_active_route_item_from_receivables", {
+    p_user_id: input.userId,
+    p_client_id: input.clientId,
+    p_expected_updated_at: expectedUpdatedAt
+  });
+  const expectedUpdatedAt = input.expectedUpdatedAt ?? "";
+  let result = await remove(expectedUpdatedAt);
+
+  // The management screen can receive a newer record through realtime after the
+  // row was rendered. The RPC still locks the current row and verifies that the
+  // unit remains tagged, so retry only this explicit version conflict.
+  if (
+    result.error
+    && expectedUpdatedAt
+    && result.error.message.toLocaleLowerCase().includes("la gestion de la unidad cambio")
+  ) {
+    result = await remove("");
+  }
+
+  if (result.error) throw result.error;
+  return typeof result.data === "string" && result.data ? result.data : new Date().toISOString();
+}
+
+export async function keepCloudActiveRouteItemAfterPartialPayment(input: {
+  userId: string;
+  clientId: string;
+  confirmedRentAmount: number;
+}): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("keep_active_route_item_after_partial_payment", {
+    p_user_id: input.userId,
+    p_client_id: input.clientId,
+    p_confirmed_rent_amount: input.confirmedRentAmount
+  });
+  if (error) throw error;
+}
+
+function toControlUnitCloudPayload(input: ControlUnitUpsertInput): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    user_id: input.user_id,
+    unit_id: input.unit_id,
+    company: input.company ?? null,
+    brand_model: input.brand_model ?? null,
+    engine_serial: input.engine_serial ?? null,
+    chassis_serial: input.chassis_serial ?? null,
+    plate: input.plate ?? null,
+    panapass_number: input.panapass_number ?? null,
+    cupo: input.cupo ?? null,
+    observation: input.observation ?? null,
+    operational_status: input.operational_status ?? null,
+    model_year: input.model_year ?? input.year ?? null,
+    color: input.color ?? null,
+    transmission_type: input.transmission_type ?? input.transmission ?? null,
+    key_coded: input.key_coded ?? null,
+    mileage: input.mileage ?? input.kilometrage ?? input.kilometraje ?? null
+  };
+  return payload;
+}
+
+export type SaveControlUnitResult = {
+  fleet_id?: string;
+  unit_id?: string;
+  saved?: boolean;
+};
+
+export async function saveControlUnit(input: ControlUnitUpsertInput): Promise<SaveControlUnitResult> {
+  const client = getCloudClient();
+  const { data, error } = await client.rpc("save_fleet_unit", {
+    p_owner_user_id: input.user_id,
+    p_unit: toControlUnitCloudPayload(input)
+  });
+  if (error) throw error;
+  return data && typeof data === "object" ? data as SaveControlUnitResult : {};
+}
+
+export async function saveFleetKeyCoded(input: {
+  userId: string;
+  fleetId: string;
+  keyCoded: boolean | null;
+}): Promise<boolean> {
+  const { error } = await getCloudClient().rpc("save_fleet_key_coded", {
+    p_owner_user_id: input.userId,
+    p_fleet_id: input.fleetId,
+    p_key_coded: input.keyCoded
+  });
+  if (!error) return true;
+  const record = error as { code?: unknown; message?: unknown };
+  const code = typeof record.code === "string" ? record.code : "";
+  const message = typeof record.message === "string" ? record.message.toLowerCase() : "";
+  if (code === "PGRST202" || code === "42883" || message.includes("save_fleet_key_coded")) return false;
+  throw error;
+}
+
+export type FleetCatalogSettingsInput = {
+  userId: string;
+  fleetId: string;
+  contractMonths: number | null;
+  dailyRate: number | null;
+  weeklyRate: number | null;
+  biweeklyRate: number | null;
+  dailyManagementFee: number | null;
+  weeklyManagementFee: number | null;
+  biweeklyManagementFee: number | null;
+  photoPath: string | null;
+};
+
+export async function saveFleetCatalogSettings(input: FleetCatalogSettingsInput): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("save_fleet_catalog_settings", {
+    p_owner_user_id: input.userId,
+    p_fleet_id: input.fleetId,
+    p_contract_months: input.contractMonths,
+    p_daily_rate: input.dailyRate,
+    p_weekly_rate: input.weeklyRate,
+    p_biweekly_rate: input.biweeklyRate,
+    p_daily_management_fee: input.dailyManagementFee,
+    p_weekly_management_fee: input.weeklyManagementFee,
+    p_biweekly_management_fee: input.biweeklyManagementFee,
+    p_photo_path: input.photoPath
+  });
+  if (error) {
+    if (isMissingFleetCatalogSchema(error)) {
+      const hasNewCatalogValues = input.contractMonths !== null ||
+        input.dailyManagementFee !== null || input.weeklyManagementFee !== null || input.biweeklyManagementFee !== null;
+      if (hasNewCatalogValues) {
+        throw new Error("Falta aplicar la migracion de duración y gestión del catálogo de autos en Supabase.");
+      }
+      const { error: legacyError } = await client.rpc("save_fleet_catalog_settings", {
+        p_owner_user_id: input.userId,
+        p_fleet_id: input.fleetId,
+        p_daily_rate: input.dailyRate,
+        p_weekly_rate: input.weeklyRate,
+        p_biweekly_rate: input.biweeklyRate,
+        p_photo_path: input.photoPath
+      });
+      if (!legacyError) return;
+      throw new Error("Falta aplicar la migracion del catalogo de autos en Supabase.");
+    }
+    throw error;
+  }
+}
+
+export async function uploadFleetCatalogPhoto(userId: string, fleetId: string, file: File): Promise<string> {
+  const client = getCloudClient();
+  const path = `${userId}/${fleetId}/${Date.now()}-${crypto.randomUUID()}-${safeStorageFileName(file.name)}`;
+  const { error } = await client.storage
+    .from(FLEET_CATALOG_BUCKET)
+    .upload(path, file, { contentType: file.type || undefined, upsert: false });
+  if (error) throw error;
+  return path;
+}
+
+export async function removeFleetCatalogPhoto(path: string): Promise<void> {
+  if (!path) return;
+  const { error } = await getCloudClient().storage.from(FLEET_CATALOG_BUCKET).remove([path]);
+  if (error) throw error;
+}
+
+export type ControlUnitStatusResult = {
+  unit_id?: string;
+  status?: string;
+  archived_client_ids?: string[];
+  updated_client_ids?: string[];
+};
+
+function isMissingFleetStatusRpc(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: unknown; message?: unknown };
+  const message = typeof record.message === "string" ? record.message : "";
+  return record.code === "PGRST202" || message.includes("set_fleet_unit_status");
+}
+
+export async function setControlUnitStatus(
+  userId: string,
+  unitId: string,
+  status: string
+): Promise<ControlUnitStatusResult> {
+  const client = getCloudClient();
+  return withCloudRetry(async () => {
+    const { data, error } = await client.rpc("set_fleet_unit_status", {
+      p_owner_user_id: userId,
+      p_unit_id: unitId,
+      p_status: status
+    });
+    if (error) {
+      if (isMissingFleetStatusRpc(error)) {
+        throw new Error("La funcion segura set_fleet_unit_status no esta disponible en Supabase. Ejecuta la migracion de flota y recarga el schema cache antes de cambiar estados.");
+      }
+      throw error;
+    }
+    return (data && typeof data === "object" && !Array.isArray(data))
+      ? data as ControlUnitStatusResult
+      : {};
+  });
+}
+
+export type FleetLifecycleImpact = {
+  fleetId: string;
+  unitId: string;
+  retired: boolean;
+  activeClients: number;
+  activeRoutes: number;
+  pendingPromises: number;
+  openInsuranceClaims: number;
+  openCollisionCases: number;
+  destinationOccupied: boolean;
+  destinationCompany: string | null;
+  destinationHasBankRule: boolean;
+};
+
+export type FleetRenameResult = {
+  fleetId: string;
+  previousUnitId: string;
+  nextUnitId: string;
+  company: string | null;
+  clientsUpdated: number;
+  routesUpdated: number;
+  promisesUpdated: number;
+  insuranceUpdated: number;
+  collisionsUpdated: number;
+};
+
+export async function previewFleetUnitLifecycle(input: {
+  userId: string;
+  fleetId: string;
+  nextUnitId?: string;
+}): Promise<FleetLifecycleImpact> {
+  const client = getCloudClient();
+  const { data, error } = await client.rpc("preview_fleet_unit_lifecycle", {
+    p_owner_user_id: input.userId,
+    p_fleet_id: input.fleetId,
+    p_next_unit_id: input.nextUnitId ?? null
+  });
+  if (error) throw error;
+  return data as FleetLifecycleImpact;
+}
+
+export async function renameControlUnit(input: {
+  userId: string;
+  fleetId: string;
+  nextUnitId: string;
+  reason: string;
+  note?: string;
+}): Promise<FleetRenameResult> {
+  const client = getCloudClient();
+  const { data, error } = await client.rpc("rename_fleet_unit", {
+    p_owner_user_id: input.userId,
+    p_fleet_id: input.fleetId,
+    p_next_unit_id: input.nextUnitId,
+    p_reason: input.reason,
+    p_note: input.note ?? null
+  });
+  if (error) throw error;
+  return data as FleetRenameResult;
+}
+
+export async function retireControlUnit(input: {
+  userId: string;
+  fleetId: string;
+  reason: string;
+  note?: string;
+}): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("retire_fleet_unit", {
+    p_owner_user_id: input.userId,
+    p_fleet_id: input.fleetId,
+    p_reason: input.reason,
+    p_note: input.note ?? null
+  });
+  if (error) throw error;
+}
+
+export async function restoreControlUnit(input: {
+  userId: string;
+  fleetId: string;
+  unitId: string;
+  reason: string;
+}): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client.rpc("restore_fleet_unit", {
+    p_owner_user_id: input.userId,
+    p_fleet_id: input.fleetId,
+    p_unit_id: input.unitId,
+    p_reason: input.reason
+  });
+  if (error) throw error;
+}
+
+export async function saveProvisionalRentalState(input: {
+  userId: string;
+  clientId: string;
+  clientData: Client;
+  unitId: string;
+  fleetStatus: "provisional_rental" | "libre";
+}): Promise<Client> {
+  const client = getCloudClient();
+  const { data, error } = await client.rpc("save_provisional_rental_state", {
+    p_owner_user_id: input.userId,
+    p_client_id: input.clientId,
+    p_client_data: input.clientData,
+    p_unit_id: input.unitId,
+    p_fleet_status: input.fleetStatus
+  });
+  if (error) throw error;
+  return (data && typeof data === "object" && !Array.isArray(data)) ? data as Client : input.clientData;
+}

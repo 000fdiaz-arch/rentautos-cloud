@@ -1,0 +1,9 @@
+{
+  "tablename": "payments_cloud",
+  "policyname": "payments_cloud_operational_read",
+  "roles": "{authenticated}",
+  "qual": "(( SELECT can_view_owner_screen(payments_cloud.user_id, 'payments'::text) AS can_view_owner_screen) OR ( SELECT can_view_owner_screen(payments_cloud.user_id, 'receivables'::text) AS can_view_owner_screen) OR ( SELECT can_view_owner_screen(payments_cloud.user_id, 'route_search'::text) AS can_view_owner_screen))",
+  "permissive": "PERMISSIVE",
+  "cmd": "SELECT",
+  "with_check": null
+}

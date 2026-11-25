@@ -14,6 +14,7 @@ import { getBusinessDateKey } from "../billing";
 import { disableCloudMirror, initializeCloudMirror } from "../cloudMirror";
 import { supabase } from "../lib/supabase";
 import { isSupabaseOnlyMode } from "../persistenceMode";
+import { loadValidatedInitialPayments } from "../cloud/validatedPaymentsSnapshot";
 import {
   loadClients,
   loadClientsFromIndexedDb,
@@ -43,6 +44,8 @@ const PERF_LOGS_ENABLED = import.meta.env.VITE_PERF_LOGS === "1";
 const CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS = [
   "cobrapp.module1.clients.v1",
   "cobrapp.module2.payments.v1",
+  // Loaded separately after startup; Payments waits for the complete audit.
+  "cobrapp.module2.manual_assignment_audit.v1",
   "cobrapp.module2.charge_runs.v1",
   "cobrapp.module3.collection_closures.v1",
   "cobrapp.clients.daily_collection.v1",
@@ -81,9 +84,12 @@ async function measureAsync<T>(label: string, task: () => Promise<T>): Promise<T
 }
 
 async function loadRecentAndPendingCloudPayments(ownerUserId: string): Promise<Payment[]> {
+  const throughDate = getBusinessDateKey();
+  const snapshot = await loadValidatedInitialPayments(ownerUserId, throughDate, INITIAL_PAYMENTS_LIMIT);
+  if (snapshot) return mergeById(snapshot.recent, snapshot.pending);
   const [recentPayments, pendingCashPayments] = await Promise.all([
     loadCloudPaymentsRecent(ownerUserId, INITIAL_PAYMENTS_LIMIT),
-    loadCloudPendingCashPayments(ownerUserId, getBusinessDateKey())
+    loadCloudPendingCashPayments(ownerUserId, throughDate)
   ]);
   return mergeById(recentPayments, pendingCashPayments);
 }
@@ -318,17 +324,29 @@ export function useCoreCloudSync({
     if (!ownerUserId) return;
     let cancelled = false;
     void (async () => {
+      // StrictMode replays effects before this microtask. Start only the live
+      // bootstrap, then overlap independent core and settings reads.
+      await Promise.resolve();
+      if (cancelled) return;
       try {
         const localClients = isSupabaseOnlyMode ? [] : loadClients();
         const localPayments = isSupabaseOnlyMode ? [] : loadPayments();
         setCloudReady(false);
         setSyncErrorMessage("");
         setSyncStatus("syncing");
-        const [cloudClients, cloudPayments] = await measureAsync("initial cloud core load", () => Promise.all([
+        const [clientsResult, paymentsResult, mirrorResult] = await measureAsync("initial cloud core load", () => Promise.allSettled([
           measureAsync("load clients", () => loadCloudClients(ownerUserId)),
-          measureAsync("load recent and pending payments", () => loadRecentAndPendingCloudPayments(ownerUserId))
+          measureAsync("load recent and pending payments", () => loadRecentAndPendingCloudPayments(ownerUserId)),
+          measureAsync("cloud mirror bootstrap", () => initializeCloudMirror(ownerUserId, {
+            skipKeys: CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS,
+            hydrateKeys: cloudMirrorHydrationKeys
+          }))
         ]));
         if (cancelled) return;
+        if (clientsResult.status === "rejected") throw clientsResult.reason;
+        if (paymentsResult.status === "rejected") throw paymentsResult.reason;
+        const cloudClients = clientsResult.value;
+        const cloudPayments = paymentsResult.value;
         const bootstrapClients = isSupabaseOnlyMode
           ? cloudClients
           : cloudClients.length > 0 ? mergeById(clients.length > 0 ? clients : localClients, cloudClients) : clients.length > 0 ? clients : localClients;
@@ -344,17 +362,13 @@ export function useCoreCloudSync({
         setFullPaymentHistoryLoaded(false);
         onSettingsReload();
         saveCoreCache(duplicateRepair.clients, bootstrapPayments);
-        await measureAsync("cloud mirror bootstrap", () => initializeCloudMirror(ownerUserId, {
-          skipKeys: CLOUD_MIRROR_BOOTSTRAP_SKIP_KEYS,
-          hydrateKeys: cloudMirrorHydrationKeys
-        }));
-        if (cancelled) return;
-        onSettingsReload();
+        if (mirrorResult.status === "rejected") throw mirrorResult.reason;
         setSyncStatus("ok");
         setSyncErrorMessage("");
         setLastSyncAt(new Date().toLocaleTimeString());
         setCloudReady(true);
       } catch (error) {
+        if (cancelled) return;
         console.error("No se pudo cargar data cloud.", error);
         setSyncStatus("error");
         setSyncErrorMessage(buildCloudErrorMessage("Fallo la sincronizacion inicial con nube.", error, { includeRawFallback: true }));

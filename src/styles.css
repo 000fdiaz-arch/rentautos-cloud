@@ -636,6 +636,52 @@ select.input-error:focus {
   color: var(--color-debt);
 }
 
+.ar-receivables-module-overlay {
+  z-index: 100;
+  padding: 0;
+  background: #f2f5f8;
+  backdrop-filter: none;
+}
+
+.ar-receivables-module-modal {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.ar-receivables-module-header {
+  flex: 0 0 auto;
+  min-height: 58px;
+  padding: 12px 18px;
+  background: #ffffff;
+}
+
+.ar-receivables-module-kicker {
+  display: block;
+  margin-bottom: 2px;
+  color: #0f766e;
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ar-receivables-module-body {
+  min-height: 0;
+  overflow: auto;
+  background: #f2f5f8;
+}
+
+.ar-receivables-module-body > .panel {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .modal-body {
   padding: 20px 24px 24px;
   overflow-y: auto;
@@ -732,6 +778,713 @@ select.input-error:focus {
   .other-charge-row input[type="date"] {
     grid-column: 1 / -1;
   }
+}
+
+/* CxC: ajuste final de proporciones y formulario de gestión */
+.ar-ledger-panel--essential .ar-ledger-scroll {
+  align-items: center;
+}
+
+.ar-ledger-panel--essential .ar-ledger-pagination,
+.ar-ledger-panel--essential .ar-table--compact {
+  width: 100%;
+  max-width: 1680px;
+}
+
+.ar-ledger-panel--essential .ar-table--compact {
+  flex: 0 0 auto;
+}
+
+.ar-essential-card {
+  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-areas:
+    "identity financial"
+    "identity action";
+  grid-template-rows: auto auto;
+  min-height: 0;
+  max-height: none;
+}
+
+.ar-essential-identity {
+  grid-area: identity;
+  display: flex;
+  flex-direction: column;
+  align-content: initial;
+  gap: 12px;
+  padding: 20px 18px 18px 22px;
+}
+
+.ar-essential-tenure {
+  margin-bottom: 3px;
+}
+
+.ar-essential-statement-button {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 42px;
+  margin-top: auto;
+}
+
+.ar-essential-financial {
+  grid-area: financial;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start;
+  gap: 12px;
+  padding: 18px 20px;
+}
+
+.ar-essential-value {
+  min-height: 70px;
+  padding: 12px 14px;
+}
+
+.ar-gps-review,
+.ar-deposit-promise {
+  grid-area: action;
+  display: grid;
+  grid-template-columns: minmax(280px, 0.72fr) minmax(420px, 1.28fr);
+  grid-template-areas: none;
+  align-items: center;
+  gap: 20px;
+  min-height: 112px;
+  padding: 16px 20px;
+  border-top: 1px solid #dbe4ec;
+  border-left: 0;
+}
+
+.ar-gps-review-copy,
+.ar-deposit-promise-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ar-gps-review-copy > .ar-gps-review-kicker,
+.ar-deposit-promise-copy > .ar-deposit-promise-kicker {
+  grid-area: auto;
+}
+
+.ar-gps-review-copy > strong,
+.ar-deposit-promise-copy > label {
+  grid-area: auto;
+  color: #172136;
+  font-size: 0.96rem;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.ar-gps-review-copy > p {
+  grid-area: auto;
+  max-width: none;
+  margin: 0;
+  color: #475569;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.ar-gps-review-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, auto);
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+
+.ar-deposit-promise-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 340px) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 14px;
+  min-width: 0;
+}
+
+.ar-gps-review-form > input,
+.ar-deposit-promise-form > input {
+  grid-area: auto !important;
+  display: block;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: 46px;
+  min-height: 46px;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+.ar-gps-review-form > button {
+  grid-area: auto !important;
+  width: auto;
+  min-width: 190px;
+  height: 46px;
+  min-height: 46px;
+  margin: 0;
+  padding: 8px 18px;
+}
+
+.ar-gps-review-form > small {
+  grid-area: auto !important;
+  grid-column: 1 / -1;
+}
+
+.ar-gps-review-form > small,
+.ar-deposit-promise-form > small {
+  grid-area: auto !important;
+  color: #1e40af;
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.ar-gps-review-form > small {
+  grid-column: 1 / -1;
+}
+
+.ar-gps-review.is-confirmed .ar-gps-review-form > small,
+.ar-deposit-promise.is-answered .ar-deposit-promise-form > small {
+  color: #166534;
+}
+
+@container receivables-essential (max-width: 1040px) {
+  .ar-essential-card {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "identity"
+      "financial"
+      "action";
+  }
+
+  .ar-essential-identity {
+    display: grid;
+    grid-template-columns: minmax(180px, 0.9fr) minmax(220px, 1.1fr);
+    border-right: 0;
+    border-bottom: 1px solid #dbe4ec;
+  }
+
+  .ar-essential-statement-button {
+    margin-top: 0;
+  }
+
+  .ar-gps-review,
+  .ar-deposit-promise {
+    grid-template-columns: minmax(240px, 0.75fr) minmax(360px, 1.25fr);
+  }
+}
+
+@container receivables-essential (max-width: 720px) {
+  .ar-essential-identity,
+  .ar-essential-financial,
+  .ar-gps-review,
+  .ar-deposit-promise {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-gps-review-form,
+  .ar-deposit-promise-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-gps-review-form > button {
+    width: 100%;
+  }
+
+  .ar-deposit-promise-form > small {
+    grid-column: 1;
+  }
+}
+
+/* CxC: estación de trabajo de pantalla completa */
+.ar-ledger-panel--essential .ar-ledger-pagination,
+.ar-ledger-panel--essential .ar-table--compact {
+  max-width: none;
+}
+
+.ar-essential-card {
+  grid-template-columns: 280px minmax(0, 1fr) minmax(360px, 410px);
+  grid-template-areas: "identity financial action";
+  grid-template-rows: minmax(0, 1fr);
+  height: clamp(500px, calc(100dvh - 285px), 720px);
+  min-height: 500px;
+  max-height: 720px;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.ar-essential-identity {
+  grid-area: identity;
+  padding: 24px 20px 20px 24px;
+  border-right: 1px solid #dbe4ec;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbfa 100%);
+}
+
+.ar-essential-unit-line {
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.ar-essential-unit {
+  font-size: 1.7rem;
+  letter-spacing: -0.03em;
+}
+
+.ar-essential-client-name {
+  padding: 4px 0 8px;
+  color: #10233d;
+  font-size: 1rem;
+}
+
+.ar-essential-last-payment,
+.ar-essential-plan,
+.ar-essential-tenure {
+  gap: 5px;
+  padding: 13px 14px;
+  border: 1px solid #e0e7ee;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.ar-essential-tenure {
+  margin: 0;
+}
+
+.ar-essential-statement-button {
+  min-height: 46px;
+  margin-top: auto;
+  border-radius: 11px;
+  background: #eafaf7;
+}
+
+.ar-essential-financial {
+  grid-area: financial;
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
+  grid-template-rows: auto repeat(3, minmax(0, 1fr));
+  align-content: stretch;
+  gap: 14px;
+  min-height: 0;
+  padding: 22px;
+  background: #f6f8fb;
+}
+
+.ar-risk-signals {
+  align-self: start;
+}
+
+.ar-risk-signal {
+  min-height: 66px;
+  padding: 12px 14px;
+}
+
+.ar-essential-value {
+  display: grid;
+  align-content: center;
+  min-height: 0;
+  padding: 18px;
+  border-color: #dbe4ec;
+  border-radius: 13px;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.035);
+}
+
+.ar-essential-value span {
+  margin-bottom: 10px;
+  font-size: 0.74rem;
+}
+
+.ar-essential-value strong {
+  font-size: clamp(0.94rem, 1.1vw, 1.1rem);
+}
+
+.ar-essential-value--fine strong {
+  color: #b91c1c;
+}
+
+.ar-essential-value--late-fee strong {
+  color: #c2410c;
+}
+
+.ar-essential-value--ticket strong {
+  color: #7c3aed;
+}
+
+.ar-essential-value--other-charge strong {
+  color: #0369a1;
+}
+
+.ar-essential-value--balance:not(.has-balance) strong,
+.ar-essential-value--rent:not(.has-balance) strong,
+.ar-essential-value--total:not(.has-balance) strong,
+.ar-essential-value--fine:not(.has-balance) strong,
+.ar-essential-value--late-fee:not(.has-balance) strong,
+.ar-essential-value--ticket:not(.has-balance) strong,
+.ar-essential-value--other-charge:not(.has-balance) strong {
+  color: #475569;
+}
+
+.ar-essential-value.has-balance {
+  border-width: 2px;
+  box-shadow: 0 5px 14px rgba(15, 23, 42, 0.07);
+}
+
+.ar-essential-value--balance.has-balance {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.ar-essential-value--rent.has-balance,
+.ar-essential-value--fine.has-balance {
+  border-color: #fca5a5;
+  background: #fff1f2;
+}
+
+.ar-essential-value--total.has-balance {
+  border-color: #5eead4;
+  background: #f0fdfa;
+}
+
+.ar-essential-value--late-fee.has-balance {
+  border-color: #fdba74;
+  background: #fff7ed;
+}
+
+.ar-essential-value--ticket.has-balance {
+  border-color: #c4b5fd;
+  background: #f5f3ff;
+}
+
+.ar-essential-value--other-charge.has-balance {
+  border-color: #7dd3fc;
+  background: #f0f9ff;
+}
+
+.ar-gps-review,
+.ar-deposit-promise {
+  grid-area: action;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 18px;
+  min-height: 0;
+  padding: 30px 28px;
+  border-top: 0;
+  border-left: 1px solid #dbe4ec;
+}
+
+.ar-gps-review::before,
+.ar-deposit-promise::before {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 17px;
+  font-size: 0.82rem;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+}
+
+.ar-gps-review::before {
+  content: "GPS";
+  background: #dbeafe;
+  color: #1d4ed8;
+  box-shadow: inset 0 0 0 1px #bfdbfe;
+}
+
+.ar-deposit-promise::before {
+  content: "$";
+  background: #ffedd5;
+  color: #b45309;
+  font-size: 1.35rem;
+  box-shadow: inset 0 0 0 1px #fed7aa;
+}
+
+.ar-gps-review.is-confirmed::before,
+.ar-deposit-promise.is-answered::before {
+  background: #dcfce7;
+  color: #15803d;
+  box-shadow: inset 0 0 0 1px #bbf7d0;
+}
+
+.ar-gps-review-copy,
+.ar-deposit-promise-copy {
+  gap: 8px;
+}
+
+.ar-gps-review-copy > strong,
+.ar-deposit-promise-copy > label {
+  font-size: 1.15rem;
+  line-height: 1.3;
+}
+
+.ar-gps-review-copy > p {
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.ar-gps-review-form,
+.ar-deposit-promise-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.ar-gps-review-form > input,
+.ar-deposit-promise-form > input {
+  width: 100% !important;
+  height: 52px;
+  min-height: 52px;
+  padding-inline: 14px;
+  border-radius: 11px;
+  font-size: 0.9rem;
+}
+
+.ar-gps-review-form > button {
+  width: 100%;
+  min-width: 0;
+  height: 52px;
+  min-height: 52px;
+  border-radius: 11px;
+}
+
+.ar-gps-review-form > small,
+.ar-deposit-promise-form > small {
+  grid-column: 1;
+  line-height: 1.45;
+}
+
+@container receivables-essential (max-width: 1240px) {
+  .ar-essential-card {
+    grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-areas:
+      "identity financial"
+      "identity action";
+    grid-template-rows: auto auto;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .ar-essential-financial {
+    grid-template-rows: auto;
+  }
+
+  .ar-gps-review,
+  .ar-deposit-promise {
+    display: grid;
+    grid-template-columns: minmax(240px, 0.8fr) minmax(320px, 1.2fr);
+    align-items: center;
+    padding: 18px 22px;
+    border-top: 1px solid #dbe4ec;
+    border-left: 0;
+  }
+
+  .ar-gps-review::before,
+  .ar-deposit-promise::before {
+    display: none;
+  }
+}
+
+@container receivables-essential (max-width: 820px) {
+  .ar-essential-card {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "identity"
+      "financial"
+      "action";
+  }
+
+  .ar-essential-identity {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-essential-financial {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ar-gps-review,
+  .ar-deposit-promise {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container receivables-essential (max-width: 500px) {
+  .ar-essential-financial {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* CxC: el tipo de cliente es la clasificación principal */
+.ar-risk-signal--new_client,
+.ar-risk-signal--semi_new_client,
+.ar-risk-signal--established_client {
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  min-height: 112px;
+  padding: 18px 20px;
+  border-width: 2px;
+  border-radius: 15px;
+  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.05);
+}
+
+.ar-risk-signal--new_client .ar-risk-signal-icon,
+.ar-risk-signal--semi_new_client .ar-risk-signal-icon,
+.ar-risk-signal--established_client .ar-risk-signal-icon {
+  width: 48px;
+  height: 48px;
+  font-size: 1rem;
+}
+
+.ar-risk-signal--new_client .ar-risk-signal-copy,
+.ar-risk-signal--semi_new_client .ar-risk-signal-copy,
+.ar-risk-signal--established_client .ar-risk-signal-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.ar-risk-signal--new_client .ar-risk-signal-copy::before,
+.ar-risk-signal--semi_new_client .ar-risk-signal-copy::before,
+.ar-risk-signal--established_client .ar-risk-signal-copy::before {
+  content: "TIPO DE CLIENTE";
+  font-size: 0.64rem;
+  font-weight: 950;
+  letter-spacing: 0.1em;
+  opacity: 0.76;
+}
+
+.ar-risk-signal--new_client .ar-risk-signal-copy strong,
+.ar-risk-signal--semi_new_client .ar-risk-signal-copy strong,
+.ar-risk-signal--established_client .ar-risk-signal-copy strong {
+  font-size: 1.22rem;
+  line-height: 1.15;
+}
+
+.ar-risk-signal--new_client .ar-risk-signal-copy small,
+.ar-risk-signal--semi_new_client .ar-risk-signal-copy small,
+.ar-risk-signal--established_client .ar-risk-signal-copy small {
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.ar-risk-signal--new_client > b,
+.ar-risk-signal--semi_new_client > b,
+.ar-risk-signal--established_client > b {
+  min-width: 86px;
+  padding: 9px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+@container receivables-essential (max-width: 620px) {
+  .ar-risk-signal--new_client,
+  .ar-risk-signal--semi_new_client,
+  .ar-risk-signal--established_client {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .ar-risk-signal--new_client > b,
+  .ar-risk-signal--semi_new_client > b,
+  .ar-risk-signal--established_client > b {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+.ar-deposit-promise-field {
+  display: grid;
+  grid-area: auto !important;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ar-deposit-promise-field > span {
+  color: #7c2d12;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ar-deposit-promise-field > input,
+.ar-deposit-promise-field > select {
+  display: block;
+  grid-area: auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: 48px;
+  min-height: 48px;
+  margin: 0;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #172136;
+  font: inherit;
+  font-weight: 800;
+}
+
+.ar-deposit-promise-form > small {
+  margin-top: 2px;
+}
+
+.ar-deposit-promise-save {
+  width: 100%;
+  min-height: 50px;
+  padding: 10px 18px;
+  border: 1px solid #c2410c;
+  border-radius: 11px;
+  background: #c2410c;
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 950;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.ar-deposit-promise-save:hover:not(:disabled) {
+  border-color: #9a3412;
+  background: #9a3412;
+  transform: translateY(-1px);
+}
+
+.ar-deposit-promise.is-answered .ar-deposit-promise-save {
+  border-color: #15803d;
+  background: #15803d;
+}
+
+.ar-deposit-promise-save:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+@container receivables-essential (min-width: 1241px) {
+  .ar-deposit-promise {
+    justify-content: flex-start;
+  }
+}
+
+.ar-essential-plan {
+  display: grid;
+  gap: 5px;
+  padding: 13px 14px;
+  border: 1px solid #e0e7ee;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.86);
+  color: #6b788b;
+  font-size: 0.74rem;
+}
+
+.ar-essential-plan strong {
+  color: #10233d;
+  font-size: 0.82rem;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.ar-essential-value--delay.has-balance {
+  border-color: #fdba74;
+  background: #fff7ed;
 }
 
 /* -- Export panel -- */
@@ -3447,6 +4200,13 @@ select.control-op-badge {
   gap: 18px;
 }
 
+.app-nav-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .app-nav-brand {
   font-size: 1.15rem;
   font-weight: 800;
@@ -3454,6 +4214,34 @@ select.control-op-badge {
   letter-spacing: -0.02em;
   flex-shrink: 0;
   padding: 0 12px 8px;
+}
+
+.app-nav-brand-compact,
+.nav-tab-icon {
+  display: none;
+}
+
+.app-nav-collapse-button {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #0f766e;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+
+.app-nav-collapse-button:hover {
+  border-color: #5eead4;
+  background: #f0fdfa;
+  transform: scale(1.04);
 }
 
 .app-nav-tabs {
@@ -3591,6 +4379,111 @@ select.control-op-badge {
   margin-right: 0;
 }
 
+@media (min-width: 901px) {
+  .app-nav,
+  .page {
+    transition: width 0.2s ease, margin-left 0.2s ease;
+  }
+
+  .app-nav--collapsed {
+    width: 72px;
+    overflow-x: hidden;
+  }
+
+  .app-nav--collapsed .app-nav-inner {
+    padding: 20px 10px;
+    gap: 14px;
+  }
+
+  .app-nav--collapsed .app-nav-header {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .app-nav--collapsed .app-nav-brand {
+    padding: 0;
+  }
+
+  .app-nav--collapsed .app-nav-brand-full,
+  .app-nav--collapsed .nav-tab-label-full,
+  .app-nav--collapsed .nav-tab-label-mobile,
+  .app-nav--collapsed .backup-nav-zone .hint {
+    display: none;
+  }
+
+  .app-nav--collapsed .app-nav-brand-compact,
+  .app-nav--collapsed .nav-tab-icon {
+    display: inline-grid;
+    place-items: center;
+  }
+
+  .app-nav--collapsed .app-nav-brand-compact {
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
+    background: #ecfdf5;
+    color: #0f766e;
+    font-size: 1.15rem;
+  }
+
+  .app-nav--collapsed .app-nav-collapse-button {
+    width: 36px;
+    height: 30px;
+  }
+
+  .app-nav--collapsed .app-nav-tabs {
+    gap: 7px;
+  }
+
+  .app-nav--collapsed .nav-tab {
+    position: relative;
+    min-height: 44px;
+    justify-content: center;
+    padding: 8px;
+    white-space: nowrap;
+  }
+
+  .app-nav--collapsed .nav-tab-icon {
+    width: 24px;
+    height: 24px;
+    font-size: 1rem;
+    font-weight: 850;
+  }
+
+  .app-nav--collapsed .nav-tab-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 20px;
+    padding: 1px 4px;
+    text-align: center;
+  }
+
+  .app-nav--collapsed .backup-nav-zone {
+    align-items: center;
+    padding: 10px 0;
+  }
+
+  .app-nav--collapsed .auth-nav-zone .nav-backup-btn {
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    overflow: hidden;
+    color: transparent;
+    font-size: 0;
+  }
+
+  .app-nav--collapsed .auth-nav-zone .nav-backup-btn::after {
+    content: "↪";
+    color: #0f766e;
+    font-size: 1rem;
+  }
+
+  .app-nav-collapsed .page {
+    margin-left: 72px;
+  }
+}
+
 @media (max-width: 900px) {
   .app-nav {
     position: fixed;
@@ -3615,6 +4508,11 @@ select.control-op-badge {
   }
 
   .app-nav-brand {
+    display: none;
+  }
+
+  .app-nav-header,
+  .app-nav-collapse-button {
     display: none;
   }
 
@@ -8303,6 +9201,15 @@ button.ar-route-publish-copy.is-active {
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
 }
 
+.ar-ledger-pagination--top {
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
+.ar-ledger-pagination--bottom {
+  margin-bottom: 0;
+}
+
 .ar-ledger-pagination-button {
   min-height: 44px;
 }
@@ -8327,6 +9234,11 @@ button.ar-route-publish-copy.is-active {
   color: #64748b;
   font-size: 0.72rem;
   font-weight: 750;
+}
+
+.ar-ledger-pagination-status .ar-ledger-pagination-required {
+  color: #b4232c;
+  font-weight: 900;
 }
 
 .ar-empty-results {
@@ -20996,7 +21908,7 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 .ar-essential-card {
   position: relative;
   display: grid;
-  grid-template-columns: 260px minmax(420px, 1fr) 480px;
+  grid-template-columns: 260px minmax(0, 1fr) 310px;
   width: 100%;
   overflow: hidden;
   border: 1px solid #dce4eb;
@@ -21071,6 +21983,7 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 }
 
 .ar-essential-last-payment strong,
+.ar-essential-plan strong,
 .ar-essential-tenure strong {
   color: #334155;
   font-size: 0.72rem;
@@ -21138,6 +22051,167 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   padding: 13px 15px;
 }
 
+.ar-deposit-promise {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 18px;
+  border-left: 1px solid #dce4eb;
+  background: #f8fafc;
+}
+
+.ar-deposit-promise.is-required {
+  background: #fff7ed;
+}
+
+.ar-deposit-promise.is-answered {
+  background: #f0fdf4;
+}
+
+.ar-deposit-promise-kicker {
+  color: #b45309;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.ar-deposit-promise.is-answered .ar-deposit-promise-kicker {
+  color: #15803d;
+}
+
+.ar-deposit-promise label {
+  color: #172136;
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.ar-deposit-promise input {
+  width: 100%;
+  min-height: 46px;
+  padding: 9px 11px;
+  border: 1px solid #fdba74;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #172136;
+  font: inherit;
+  font-weight: 800;
+}
+
+.ar-deposit-promise.is-answered input {
+  border-color: #86efac;
+}
+
+.ar-deposit-promise input:focus {
+  border-color: #0f766e;
+  outline: 3px solid rgba(15, 118, 110, 0.14);
+}
+
+.ar-deposit-promise small {
+  color: #7c2d12;
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.ar-deposit-promise.is-answered small {
+  color: #166534;
+}
+
+.ar-gps-review {
+  display: grid;
+  align-content: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 18px;
+  border-left: 1px solid #dce4eb;
+  background: #f8fafc;
+}
+
+.ar-gps-review.is-required {
+  background: #eff6ff;
+}
+
+.ar-gps-review.is-confirmed {
+  background: #f0fdf4;
+}
+
+.ar-gps-review-kicker {
+  color: #1d4ed8;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.ar-gps-review.is-confirmed .ar-gps-review-kicker {
+  color: #15803d;
+}
+
+.ar-gps-review > strong {
+  color: #172136;
+  font-size: 0.96rem;
+  line-height: 1.25;
+}
+
+.ar-gps-review p {
+  margin: 0;
+  color: #475569;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.ar-gps-review input {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 11px;
+  border: 1px solid #93c5fd;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #172136;
+  font: inherit;
+  font-weight: 700;
+}
+
+.ar-gps-review input:focus {
+  border-color: #2563eb;
+  outline: 3px solid rgba(37, 99, 235, 0.14);
+}
+
+.ar-gps-review button {
+  min-height: 42px;
+  border: 1px solid #2563eb;
+  border-radius: 9px;
+  background: #2563eb;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.ar-gps-review.is-confirmed button {
+  border-color: #16a34a;
+  background: #16a34a;
+}
+
+.ar-gps-review button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ar-gps-review small {
+  color: #1e40af;
+  font-size: 0.7rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.ar-gps-review.is-confirmed small {
+  color: #166534;
+}
+
 .ar-payment-alert {
   display: grid;
   grid-column: 1 / -1;
@@ -21169,6 +22243,27 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   background: #f5f3ff;
 }
 
+.ar-risk-signal--new_client,
+.ar-risk-signal--semi_new_client,
+.ar-risk-signal--established_client {
+  grid-column: 1 / -1;
+}
+
+.ar-risk-signal--new_client {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.ar-risk-signal--semi_new_client {
+  border-color: #facc15;
+  background: #fefce8;
+}
+
+.ar-risk-signal--established_client {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
 .ar-risk-signal--repeated_underpayment {
   border-color: #fbbf24;
   background: #fffbeb;
@@ -21191,6 +22286,18 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   font-weight: 900;
 }
 
+.ar-risk-signal--new_client .ar-risk-signal-icon {
+  background: #dc2626;
+}
+
+.ar-risk-signal--semi_new_client .ar-risk-signal-icon {
+  background: #ca8a04;
+}
+
+.ar-risk-signal--established_client .ar-risk-signal-icon {
+  background: #16a34a;
+}
+
 .ar-risk-signal--repeated_underpayment .ar-risk-signal-icon {
   background: #b45309;
 }
@@ -21210,6 +22317,21 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   font-size: 0.71rem;
 }
 
+.ar-risk-signal--new_client .ar-risk-signal-copy strong,
+.ar-risk-signal--new_client > b {
+  color: #991b1b;
+}
+
+.ar-risk-signal--semi_new_client .ar-risk-signal-copy strong,
+.ar-risk-signal--semi_new_client > b {
+  color: #854d0e;
+}
+
+.ar-risk-signal--established_client .ar-risk-signal-copy strong,
+.ar-risk-signal--established_client > b {
+  color: #166534;
+}
+
 .ar-risk-signal--repeated_underpayment .ar-risk-signal-copy strong {
   color: #92400e;
 }
@@ -21222,6 +22344,18 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   color: #65547a;
   font-size: 0.64rem;
   line-height: 1.35;
+}
+
+.ar-risk-signal--new_client .ar-risk-signal-copy small {
+  color: #7f1d1d;
+}
+
+.ar-risk-signal--semi_new_client .ar-risk-signal-copy small {
+  color: #713f12;
+}
+
+.ar-risk-signal--established_client .ar-risk-signal-copy small {
+  color: #14532d;
 }
 
 .ar-risk-signal--repeated_underpayment .ar-risk-signal-copy small {
@@ -21240,6 +22374,18 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   font-size: 0.66rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.ar-risk-signal.ar-risk-signal--new_client > b {
+  color: #991b1b;
+}
+
+.ar-risk-signal.ar-risk-signal--semi_new_client > b {
+  color: #854d0e;
+}
+
+.ar-risk-signal.ar-risk-signal--established_client > b {
+  color: #166534;
 }
 
 .ar-risk-signal--repeated_underpayment > b {
@@ -21851,7 +22997,7 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   }
 
   .ar-essential-card {
-    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(270px, 310px);
   }
 
   .ar-essential-followup {
@@ -21920,9 +23066,18 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   }
 
   .ar-essential-financial,
-  .ar-essential-followup {
+  .ar-essential-followup,
+  .ar-deposit-promise,
+  .ar-gps-review {
     grid-column: 1;
   }
+
+  .ar-deposit-promise,
+  .ar-gps-review {
+    border-top: 1px solid #dce4eb;
+    border-left: 0;
+  }
+
 }
 
 @container receivables-essential (max-width: 720px) {
@@ -22007,6 +23162,11 @@ button.route-team-summary-row:hover { background: #f8fafc; }
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .ar-deposit-promise input,
+  .ar-gps-review input {
+    font-size: 16px;
+  }
+
   .ar-route-publish-cta {
     grid-template-columns: minmax(0, 1fr) 88px;
   }
@@ -22021,6 +23181,430 @@ button.route-team-summary-row:hover { background: #f8fafc; }
 
   .ar-essential-unit {
     font-size: 1.35rem;
+  }
+}
+
+/* Cuentas por cobrar: composición de trabajo amplia y ordenada */
+.ar-receivables-module-header {
+  min-height: 64px;
+  padding: 11px 24px;
+  border-bottom: 1px solid #dbe4ec;
+}
+
+.ar-receivables-module-header h2 {
+  margin: 1px 0 0;
+  color: #10233d;
+  font-size: 1.12rem;
+  letter-spacing: -0.015em;
+}
+
+.ar-receivables-module-body {
+  flex: 1 1 0;
+  overflow: hidden;
+}
+
+.ar-receivables-module-body > .panel,
+.ar-ledger-panel--essential {
+  height: 100%;
+  min-height: 0;
+}
+
+.ar-ledger-panel--essential {
+  display: flex;
+  flex-direction: column;
+}
+
+.ar-receivables-workbar {
+  display: grid;
+  grid-template-columns: minmax(245px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  min-height: 72px;
+  padding: 10px 20px;
+  border-bottom: 1px solid #dbe4ec;
+  background: #ffffff;
+}
+
+.ar-receivables-session {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  justify-content: start;
+  gap: 2px 9px;
+  min-width: 0;
+}
+
+.ar-receivables-session > span {
+  grid-column: 1 / -1;
+  color: #64748b;
+  font-size: 0.66rem;
+  font-weight: 850;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.ar-receivables-session > strong {
+  color: #10233d;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.ar-receivables-session > em {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 0.67rem;
+  font-style: normal;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.ar-receivables-workbar .ar-workflow-tabs {
+  justify-self: start;
+  margin: 0;
+  padding: 3px;
+  border-color: #cbd8e5;
+  border-radius: 12px;
+  background: #f4f7fa;
+}
+
+.ar-receivables-workbar .ar-workflow-tabs button {
+  min-height: 38px;
+  padding: 7px 15px;
+}
+
+.ar-receivables-workbar .ar-collection-cuts-actions {
+  justify-self: end;
+}
+
+.ar-receivables-workbar .ar-collection-cuts-actions .button {
+  min-height: 40px;
+  padding-inline: 14px;
+}
+
+.ar-ledger-panel--essential .ar-ledger-scroll {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  max-height: none;
+  padding: 14px 18px 18px;
+  overflow: auto;
+  background: #edf2f6;
+}
+
+.ar-ledger-pagination {
+  flex: 0 0 auto;
+  grid-template-columns: minmax(122px, auto) minmax(0, 1fr) minmax(122px, auto);
+  min-height: 66px;
+  margin: 0 0 14px;
+  padding: 8px 10px;
+  border-color: #d7e0e8;
+  border-radius: 13px;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.05);
+}
+
+.ar-ledger-pagination-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding-inline: 16px;
+  border-color: #cbd8e5;
+  background: #f7f9fb;
+  color: #1e293b;
+}
+
+.ar-ledger-pagination-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 5px 10px;
+}
+
+.ar-ledger-pagination-status strong {
+  font-size: 1.05rem;
+}
+
+.ar-ledger-pagination-status small {
+  font-size: 0.75rem;
+}
+
+.ar-ledger-pagination-status .ar-ledger-pagination-required {
+  flex-basis: 100%;
+  width: fit-content;
+  color: #9f1239;
+}
+
+.ar-ledger-panel--essential .ar-table--compact {
+  flex: 1 0 auto;
+  border-spacing: 0;
+}
+
+.ar-essential-card {
+  grid-template-columns: minmax(250px, 290px) minmax(0, 1fr);
+  grid-template-areas:
+    "identity financial"
+    "identity action";
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: clamp(430px, calc(100vh - 280px), 640px);
+  border-color: #d7e0e8;
+  border-radius: 14px;
+  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.06);
+}
+
+.ar-essential-identity {
+  grid-area: identity;
+  grid-template-rows: auto auto auto auto minmax(18px, 1fr) auto;
+  gap: 13px;
+  padding: 22px 20px 20px 24px;
+  border-right: 1px solid #dbe4ec;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbfc 100%);
+}
+
+.ar-essential-unit {
+  font-size: 1.55rem;
+}
+
+.ar-essential-client-name {
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.ar-essential-last-payment,
+.ar-essential-tenure {
+  gap: 4px;
+  font-size: 0.74rem;
+}
+
+.ar-essential-last-payment strong,
+.ar-essential-tenure strong {
+  font-size: 0.82rem;
+}
+
+.ar-essential-statement-button {
+  min-height: 42px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+}
+
+.ar-essential-financial {
+  grid-area: financial;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  align-content: start;
+  gap: 14px;
+  padding: 22px 24px;
+}
+
+.ar-risk-signals {
+  gap: 10px;
+}
+
+.ar-risk-signal {
+  min-height: 58px;
+  padding: 11px 13px;
+  border-radius: 11px;
+}
+
+.ar-essential-value {
+  min-height: 72px;
+  padding: 13px 14px;
+  border: 1px solid #e0e7ee;
+  border-radius: 11px;
+  background: #fbfcfd;
+}
+
+.ar-essential-value span {
+  margin-bottom: 7px;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.ar-essential-value strong {
+  font-size: 0.94rem;
+}
+
+.ar-essential-value small {
+  font-size: 0.68rem;
+}
+
+.ar-gps-review,
+.ar-deposit-promise {
+  grid-area: action;
+  display: grid;
+  grid-template-columns: minmax(230px, 0.75fr) minmax(280px, 1fr) minmax(170px, auto);
+  grid-template-areas:
+    "kicker field button"
+    "title field button"
+    "copy status status";
+  align-items: center;
+  align-content: center;
+  gap: 6px 18px;
+  min-width: 0;
+  padding: 18px 24px;
+  border-top: 1px solid #dbe4ec;
+  border-left: 0;
+}
+
+.ar-gps-review-kicker,
+.ar-deposit-promise-kicker {
+  grid-area: kicker;
+}
+
+.ar-gps-review > strong,
+.ar-deposit-promise label {
+  grid-area: title;
+  font-size: 1rem;
+}
+
+.ar-gps-review p {
+  grid-area: copy;
+  max-width: 440px;
+  font-size: 0.75rem;
+}
+
+.ar-gps-review input,
+.ar-deposit-promise input {
+  grid-area: field;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  box-sizing: border-box;
+}
+
+.ar-gps-review button {
+  grid-area: button;
+  min-width: 170px;
+  min-height: 48px;
+  padding: 9px 16px;
+}
+
+.ar-gps-review small,
+.ar-deposit-promise small {
+  grid-area: status;
+  font-size: 0.72rem;
+}
+
+@container receivables-essential (max-width: 1050px) {
+  .ar-essential-card {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "identity"
+      "financial"
+      "action";
+    min-height: 0;
+  }
+
+  .ar-essential-identity {
+    grid-area: identity;
+    grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1.2fr);
+    grid-template-rows: auto;
+    border-right: 0;
+    border-bottom: 1px solid #dbe4ec;
+  }
+
+  .ar-essential-financial {
+    grid-area: financial;
+  }
+
+  .ar-gps-review,
+  .ar-deposit-promise {
+    grid-area: action;
+    grid-template-columns: minmax(210px, 0.75fr) minmax(240px, 1fr) minmax(160px, auto);
+    border-top: 1px solid #dbe4ec;
+  }
+}
+
+@media (max-width: 820px) {
+  .ar-receivables-module-body {
+    overflow: auto;
+  }
+
+  .ar-receivables-workbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .ar-receivables-workbar .ar-workflow-tabs {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+  }
+
+  .ar-receivables-workbar .ar-workflow-tabs button {
+    flex: 1 1 50%;
+    justify-content: center;
+  }
+
+  .ar-ledger-panel--essential .ar-ledger-scroll {
+    overflow: visible;
+    padding: 10px;
+  }
+
+  .ar-ledger-pagination {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .ar-ledger-pagination-button {
+    min-width: 44px;
+    padding-inline: 10px;
+    font-size: 0.76rem;
+  }
+
+  .ar-essential-identity {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-essential-financial {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 16px;
+  }
+
+  .ar-gps-review,
+  .ar-deposit-promise {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "kicker"
+      "title"
+      "copy"
+      "field"
+      "button"
+      "status";
+    padding: 16px;
+  }
+
+  .ar-gps-review button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .ar-receivables-module-header {
+    min-height: 56px;
+    padding: 9px 13px;
+  }
+
+  .ar-receivables-session > em {
+    display: none;
+  }
+
+  .ar-receivables-workbar .ar-collection-cuts-actions .button {
+    padding-inline: 10px;
+    font-size: 0.72rem;
+  }
+
+  .ar-ledger-pagination-status .ar-ledger-pagination-required {
+    display: none;
+  }
+
+  .ar-essential-financial {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -24481,6 +26065,1050 @@ button.route-team-summary-row:hover { background: #f8fafc; }
   }
 }
 
+/* CxC: reglas finales de composición. Mantener al final para evitar colisiones. */
+.ar-essential-card {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-areas:
+    "identity financial"
+    "identity action";
+  grid-template-rows: auto auto;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+.ar-essential-identity {
+  grid-area: identity;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 22px 20px 20px 24px;
+  border-right: 1px solid #dbe4ec;
+  border-bottom: 0;
+}
+
+.ar-essential-plan,
+.ar-essential-last-payment,
+.ar-essential-tenure {
+  display: grid;
+  grid-column: auto;
+  grid-row: auto;
+  gap: 5px;
+  min-height: 0;
+  padding: 12px 14px;
+  border: 1px solid #e0e7ee;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.ar-essential-statement-button {
+  flex: 0 0 auto;
+  margin-top: auto;
+}
+
+.ar-essential-financial {
+  grid-area: financial;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: none;
+  grid-auto-rows: minmax(82px, auto);
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  padding: 18px 20px;
+  overflow: visible;
+  background: #f6f8fb;
+}
+
+.ar-risk-signals {
+  grid-column: 1 / -1;
+}
+
+.ar-risk-signal--new_client,
+.ar-risk-signal--semi_new_client,
+.ar-risk-signal--established_client {
+  min-height: 88px;
+  padding: 14px 16px;
+}
+
+.ar-essential-value {
+  min-height: 82px;
+  height: auto;
+  padding: 14px;
+  overflow: hidden;
+}
+
+.ar-gps-review,
+.ar-deposit-promise {
+  grid-area: action;
+  display: grid;
+  grid-template-columns: minmax(250px, 0.85fr) minmax(360px, 1.15fr);
+  grid-template-areas: none;
+  align-items: center;
+  justify-content: stretch;
+  gap: 20px;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  padding: 18px 20px;
+  border-top: 1px solid #dbe4ec;
+  border-left: 0;
+}
+
+.ar-gps-review::before,
+.ar-deposit-promise::before {
+  display: none;
+}
+
+.ar-gps-review-copy,
+.ar-deposit-promise-copy,
+.ar-gps-review-form,
+.ar-deposit-promise-form {
+  min-width: 0;
+}
+
+@media (min-width: 1400px) {
+  .ar-essential-card {
+    grid-template-columns: 290px minmax(0, 1fr) 390px;
+    grid-template-areas: "identity financial action";
+    grid-template-rows: minmax(0, 1fr);
+    height: clamp(560px, calc(100dvh - 290px), 700px);
+    min-height: 560px;
+    max-height: 700px;
+  }
+
+  .ar-essential-financial {
+    grid-template-rows: auto repeat(3, minmax(82px, 1fr));
+    grid-auto-rows: minmax(82px, 1fr);
+    align-content: stretch;
+    overflow: hidden;
+    padding: 20px;
+  }
+
+  .ar-gps-review,
+  .ar-deposit-promise {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 16px;
+    height: 100%;
+    padding: 24px;
+    border-top: 0;
+    border-left: 1px solid #dbe4ec;
+  }
+
+  .ar-gps-review::before,
+  .ar-deposit-promise::before {
+    display: grid;
+    flex: 0 0 auto;
+  }
+
+  .ar-deposit-promise-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+  }
+}
+
+@media (max-width: 900px) {
+  .ar-essential-card {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "identity"
+      "financial"
+      "action";
+  }
+
+  .ar-essential-identity {
+    border-right: 0;
+    border-bottom: 1px solid #dbe4ec;
+  }
+
+  .ar-essential-financial {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ar-gps-review,
+  .ar-deposit-promise {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .ar-essential-financial {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* CxC: antigüedad única con el semáforo operativo. */
+.ar-client-tenure-banner {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 50px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  min-height: 88px;
+  padding: 14px 16px;
+  border: 2px solid var(--tenure-border, #cbd5e1);
+  border-radius: 15px;
+  background: var(--tenure-background, #f8fafc);
+  box-shadow: 0 5px 16px rgb(15 23 42 / 6%);
+}
+
+.ar-client-tenure-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--tenure-accent, #64748b);
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 950;
+}
+
+.ar-client-tenure-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ar-client-tenure-copy small {
+  color: var(--tenure-accent, #475569);
+  font-size: 0.64rem;
+  font-weight: 950;
+  letter-spacing: 0.1em;
+}
+
+.ar-client-tenure-copy strong {
+  color: var(--tenure-text, #334155);
+  font-size: 1.24rem;
+  line-height: 1.15;
+}
+
+.ar-client-tenure-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ar-client-tenure-more {
+  appearance: none;
+  padding: 3px 9px;
+  border: 1px solid var(--tenure-border, #cbd5e1);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 78%);
+  color: var(--tenure-accent, #475569);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.ar-client-tenure-more:hover,
+.ar-client-tenure-more:focus-visible {
+  background: #fff;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 70%);
+}
+
+.ar-client-tenure-copy > span {
+  color: var(--tenure-detail, #64748b);
+  font-size: 0.76rem;
+}
+
+.ar-client-tenure-banner--new {
+  --tenure-accent: #dc2626;
+  --tenure-border: #fca5a5;
+  --tenure-background: linear-gradient(135deg, #fff1f2, #fff7ed);
+  --tenure-text: #991b1b;
+  --tenure-detail: #9f3131;
+}
+
+.ar-client-tenure-banner--semi-new {
+  --tenure-accent: #d97706;
+  --tenure-border: #fcd34d;
+  --tenure-background: linear-gradient(135deg, #fffbeb, #fefce8);
+  --tenure-text: #92400e;
+  --tenure-detail: #a16207;
+}
+
+.ar-client-tenure-banner--established {
+  --tenure-accent: #16a34a;
+  --tenure-border: #86efac;
+  --tenure-background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+  --tenure-text: #166534;
+  --tenure-detail: #15803d;
+}
+
+/* CxC: captura directa de la hora, siempre en punto. */
+.ar-deposit-hour-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.ar-deposit-hour-number {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: 0;
+  height: 48px;
+  overflow: hidden;
+  border: 1px solid #fdba74;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.ar-deposit-hour-number:focus-within {
+  border-color: #ea580c;
+  box-shadow: 0 0 0 3px rgb(234 88 12 / 14%);
+}
+
+.ar-deposit-hour-number input {
+  width: 100%;
+  min-width: 0;
+  height: 46px;
+  padding: 0 8px 0 13px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #172136;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.ar-deposit-hour-number > span {
+  padding-right: 12px;
+  color: #64748b;
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
+.ar-deposit-period {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(48px, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #fdba74;
+  border-radius: 10px;
+  background: #fff7ed;
+}
+
+.ar-deposit-period button {
+  min-width: 48px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #9a3412;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.ar-deposit-period button.is-active {
+  background: #c2410c;
+  color: #fff;
+  box-shadow: 0 2px 6px rgb(124 45 18 / 20%);
+}
+
+.ar-deposit-period button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (max-width: 520px) {
+  .ar-deposit-hour-control {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ar-deposit-period {
+    min-height: 44px;
+  }
+}
+
+/* CxC: constancia responsable de revisión GPS, sin solicitar ubicación. */
+.ar-gps-review-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 10px;
+}
+
+.ar-gps-responsibility {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #93c5fd;
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.ar-gps-responsibility.is-confirmed {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.ar-gps-responsibility > input {
+  appearance: auto;
+  width: 20px !important;
+  min-width: 20px !important;
+  max-width: 20px !important;
+  height: 20px !important;
+  min-height: 20px !important;
+  margin: 1px 0 0 !important;
+  accent-color: #1d4ed8;
+}
+
+.ar-gps-responsibility.is-confirmed > input {
+  accent-color: #16a34a;
+}
+
+.ar-gps-review-form > button {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+}
+
+.ar-gps-review-form > small {
+  grid-column: auto;
+}
+
+/* CxC: composición final del panel GPS. */
+@media (min-width: 1400px) {
+  .ar-essential-card {
+    grid-template-columns: 290px minmax(0, 1fr) 430px;
+  }
+}
+
+.ar-gps-review {
+  overflow: hidden;
+  justify-content: center !important;
+  gap: 18px !important;
+}
+
+.ar-gps-review::before {
+  display: none !important;
+}
+
+.ar-gps-review-copy {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-areas: none !important;
+  gap: 14px !important;
+  width: 100%;
+  min-width: 0;
+}
+
+.ar-gps-review-heading {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ar-gps-review-badge {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border: 1px solid #93c5fd;
+  border-radius: 14px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.76rem;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+}
+
+.ar-gps-review-heading > span:last-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ar-gps-review-kicker,
+.ar-gps-review-heading strong,
+.ar-gps-review-copy p,
+.ar-gps-review-steps {
+  grid-area: auto !important;
+  min-width: 0;
+  max-width: 100% !important;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ar-gps-review-heading strong {
+  color: #172136;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.ar-gps-review-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 14px 12px 34px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 72%);
+  color: #334155;
+  font-size: 0.73rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.ar-gps-review-steps li::marker {
+  color: #2563eb;
+  font-weight: 950;
+}
+
+.ar-gps-review-form {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-areas: none !important;
+  align-items: stretch !important;
+  gap: 10px !important;
+  width: 100%;
+  min-width: 0;
+}
+
+.ar-gps-responsibility {
+  grid-area: auto !important;
+  grid-template-columns: 22px minmax(0, 1fr) !important;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  text-transform: none !important;
+}
+
+.ar-gps-responsibility > input {
+  grid-area: auto !important;
+  align-self: start;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  outline: 0 !important;
+}
+
+.ar-gps-responsibility > span {
+  grid-area: auto !important;
+  min-width: 0;
+  color: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-transform: none !important;
+}
+
+.ar-gps-review-form > button,
+.ar-gps-review-form > small {
+  grid-area: auto !important;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  white-space: normal;
+}
+
+/* CxC: composición final de la pregunta obligatoria. */
+.ar-deposit-promise {
+  overflow: hidden;
+  justify-content: center !important;
+  gap: 18px !important;
+}
+
+.ar-deposit-promise::before {
+  display: none !important;
+}
+
+.ar-deposit-promise-copy {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-areas: none !important;
+  gap: 8px !important;
+  width: 100%;
+  min-width: 0;
+}
+
+.ar-deposit-promise-heading {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ar-deposit-promise-badge {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border: 1px solid #fdba74;
+  border-radius: 14px;
+  background: #ffedd5;
+  color: #c2410c;
+  font-size: 1.25rem;
+  font-weight: 950;
+}
+
+.ar-deposit-promise-heading > span:last-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ar-deposit-promise-kicker,
+.ar-deposit-promise-heading strong,
+.ar-deposit-promise-copy > p {
+  grid-area: auto !important;
+  min-width: 0;
+  max-width: 100% !important;
+  margin: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ar-deposit-promise-heading strong {
+  color: #172136;
+  font-size: 0.96rem;
+  line-height: 1.3;
+}
+
+.ar-deposit-promise-copy > p {
+  padding-left: 66px;
+  color: #7c2d12;
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.ar-deposit-promise-form {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-areas: none !important;
+  align-items: stretch !important;
+  gap: 10px !important;
+  width: 100%;
+  min-width: 0;
+}
+
+.ar-deposit-promise-field,
+.ar-deposit-promise-form > button,
+.ar-deposit-promise-form > small {
+  grid-area: auto !important;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.ar-deposit-promise-field {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 6px !important;
+  margin: 0;
+}
+
+.ar-deposit-promise-field > span,
+.ar-deposit-promise-field > input,
+.ar-deposit-promise-field > select,
+.ar-deposit-hour-control,
+.ar-deposit-hour-number,
+.ar-deposit-hour-number > input,
+.ar-deposit-period {
+  grid-area: auto !important;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.ar-deposit-promise-form > small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .ar-deposit-promise-copy > p {
+    padding-left: 0;
+  }
+}
+
+.ar-deposit-hour-hint {
+  display: block;
+  margin-top: 1px;
+  color: #9a3412;
+  font-size: 0.66rem;
+  font-weight: 750;
+  line-height: 1.35;
+  text-transform: none;
+}
+
+.ar-deposit-hour-number input::placeholder {
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+/* CxC: dimensiones estables para escribir la hora. */
+.ar-deposit-hour-control {
+  display: flex !important;
+  flex-flow: row nowrap;
+  align-items: stretch;
+  gap: 8px;
+  width: 100% !important;
+  min-width: 0;
+}
+
+.ar-deposit-hour-number {
+  display: flex !important;
+  flex: 1 1 150px;
+  align-items: center;
+  width: auto !important;
+  min-width: 130px !important;
+  max-width: none !important;
+}
+
+.ar-deposit-hour-number > input {
+  display: block !important;
+  flex: 1 1 auto;
+  width: 70px !important;
+  min-width: 60px !important;
+  max-width: none !important;
+  height: 46px !important;
+  padding: 0 8px 0 13px !important;
+  box-sizing: border-box;
+}
+
+.ar-deposit-hour-number > span {
+  display: block;
+  flex: 0 0 auto;
+  min-width: 38px;
+  padding: 0 12px 0 4px;
+  text-align: right;
+}
+
+.ar-deposit-period {
+  display: grid !important;
+  flex: 0 0 150px;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 4px !important;
+  width: 150px !important;
+  min-width: 150px !important;
+  max-width: 150px !important;
+  min-height: 48px;
+  box-sizing: border-box;
+}
+
+.ar-deposit-period > button {
+  grid-area: auto !important;
+  display: block;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  min-height: 38px;
+  padding: 6px !important;
+  box-sizing: border-box;
+}
+
+@media (max-width: 390px) {
+  .ar-deposit-hour-control {
+    flex-wrap: wrap;
+  }
+
+  .ar-deposit-hour-number,
+  .ar-deposit-period {
+    flex: 1 1 100%;
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+.ar-deposit-promise-field > .ar-deposit-hour-label {
+  position: relative;
+  z-index: 2;
+  display: block !important;
+  grid-area: auto !important;
+  width: 100% !important;
+  min-width: 0;
+  margin: 0 0 2px;
+  color: #7c2d12;
+  font-size: 0.7rem;
+  font-weight: 950;
+  line-height: 1.25;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: normal;
+}
+
+/* The nested help text inherited grid-area: status, creating implicit columns. */
+.ar-deposit-promise .ar-deposit-time-field {
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px !important;
+}
+
+.ar-deposit-time-field > .ar-deposit-hour-label,
+.ar-deposit-time-field > .ar-deposit-hour-control,
+.ar-deposit-time-field > .ar-deposit-hour-hint {
+  position: static;
+  grid-area: auto !important;
+  flex: 0 0 auto;
+  width: 100% !important;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  white-space: normal;
+  box-sizing: border-box;
+}
+
+.ar-deposit-time-field .ar-deposit-period {
+  height: 48px;
+}
+
+.ar-deposit-time-field .ar-deposit-hour-hint {
+  font-size: 0.66rem;
+  line-height: 1.4;
+}
+
+/* Unified time entry: number, fixed minutes and period share one surface. */
+.ar-deposit-time-field > .ar-deposit-hour-control {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 4px;
+  height: 48px;
+  padding: 4px 6px;
+  border: 1px solid #fdba74;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.ar-deposit-time-field .ar-deposit-hour-number {
+  flex: 0 0 86px;
+  width: 86px !important;
+  min-width: 86px !important;
+  max-width: 86px !important;
+  height: 38px;
+  border: 0;
+  border-radius: 0;
+}
+
+.ar-deposit-time-field .ar-deposit-hour-number > input {
+  flex: 0 0 42px;
+  width: 42px !important;
+  min-width: 42px !important;
+  height: 38px !important;
+  min-height: 38px;
+  padding: 0 2px 0 6px !important;
+  text-align: right;
+}
+
+.ar-deposit-time-field .ar-deposit-hour-number > span {
+  min-width: 0;
+  padding: 0 6px 0 0;
+  color: #172136;
+  font-size: 1rem;
+}
+
+.ar-deposit-time-field .ar-deposit-period {
+  flex: 0 0 124px;
+  width: 124px !important;
+  min-width: 124px !important;
+  max-width: 124px !important;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.ar-deposit-time-field .ar-deposit-period > button {
+  height: 38px;
+  min-height: 38px;
+}
+
+.ar-deposit-time-field > .ar-deposit-hour-control:focus-within {
+  border-color: #ea580c;
+  box-shadow: 0 0 0 2px rgb(234 88 12 / 14%);
+}
+
+.ar-deposit-promise .ar-no-answer-option {
+  grid-area: auto !important;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #fdba74;
+  border-radius: 10px;
+  background: #fff;
+  color: #7c2d12;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  text-transform: none;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.ar-deposit-promise .ar-no-answer-option > input {
+  grid-area: auto !important;
+  appearance: auto;
+  flex: 0 0 20px;
+  width: 20px !important;
+  min-width: 20px !important;
+  height: 20px !important;
+  min-height: 20px !important;
+  margin: 0;
+  padding: 0;
+  accent-color: #c2410c;
+}
+
+.ar-followup-notices:empty { display: none; }
+.ar-followup-notices, .ar-followup-summary {
+  margin: 12px 0;
+  padding: 16px;
+  border: 1px solid #fdba74;
+  border-radius: 12px;
+  background: #fff7ed;
+  white-space: normal;
+}
+.ar-followup-notices .ar-followup-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+}
+.ar-followup-notices { padding: 10px 16px; }
+.ar-followup-strip-copy { display: flex; flex: 1 1 260px; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; min-width: 0; }
+.ar-followup-strip-copy > strong { color: #9a3412; }
+.ar-followup-strip-copy > span { font-size: 0.85rem; color: #7c2d12; }
+.ar-followup-details { margin-top: 6px; }
+.ar-followup-details > summary { width: fit-content; cursor: pointer; color: #9a3412; font-size: 0.8rem; font-weight: 600; padding: 4px 0; }
+.ar-followup-list { margin-top: 6px; border-top: 1px solid #fed7aa; }
+.ar-followup-item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 0; font-size: 0.85rem; }
+.ar-followup-item > span:first-of-type { flex: 1 1 200px; overflow-wrap: anywhere; }
+.ar-followup-current { color: #9a3412; font-weight: 600; }
+.ar-followup-summary { background: #fff; border-color: #cbd5e1; }
+.ar-followup-summary h3, .ar-followup-summary h4 { margin: 8px 0; }
+.ar-followup-summary p { padding: 10px 0; margin: 0; border-bottom: 1px solid #e2e8f0; }
+
+/* Keep the live view within the modal after the demo wrapper is introduced. */
+.ar-receivables-live-content:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+}
+.ar-receivables-live-content > .ar-receivables-workbar {
+  flex: 0 0 auto;
+}
+.ar-receivables-live-content .ar-ledger-scroll {
+  min-height: 0;
+  overflow: auto;
+}
+.ar-ledger-scroll > .ar-followup-notices {
+  flex: 0 0 auto;
+  align-self: stretch;
+  margin: 0 0 10px;
+}
+@media (min-width: 1400px) {
+  .ar-receivables-live-content .ar-essential-card {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    grid-template-rows: auto;
+  }
+  .ar-receivables-live-content .ar-essential-financial {
+    grid-template-rows: auto;
+    grid-auto-rows: minmax(82px, auto);
+    align-content: start;
+    overflow: visible;
+    padding: 16px;
+  }
+  .ar-receivables-live-content .ar-essential-value {
+    min-height: 82px;
+    padding: 12px;
+  }
+  .ar-receivables-live-content .ar-gps-review,
+  .ar-receivables-live-content .ar-deposit-promise {
+    height: auto;
+    padding: 18px 24px;
+  }
+}
+
+.ar-promise-followup-form { grid-area: action; min-width: 0; padding: 20px; background: #fff7ed; border-left: 1px solid #fed7aa; white-space: normal; }
+.ar-promise-followup-form h3 { margin: 0 0 10px; }
+.ar-promise-followup-form p { font-size: .85rem; margin: 8px 0; }
+.ar-promise-followup-form fieldset { display: grid; gap: 12px; border: 0; padding: 0; min-width: 0; }
+.ar-promise-followup-form label { display: grid; gap: 5px; font-size: .85rem; }
+.ar-promise-followup-form input, .ar-promise-followup-form select, .ar-promise-followup-form textarea { width: 100%; min-width: 0; min-height: 42px; padding: 8px; box-sizing: border-box; }
+.ar-promise-followup-form .ar-followup-route { display: flex; align-items: center; }
+.ar-promise-followup-form .ar-followup-route input { width: 20px; min-height: 20px; }
+.ar-promise-followup-form [role="alert"] { color: #b91c1c; }
+
+/* Follow-up uses the same controls and visual hierarchy as the payment promise. */
+.ar-promise-followup-form { display: flex; flex-direction: column; gap: 10px; padding: 16px; color: #172136; }
+.ar-promise-followup-form .ar-deposit-promise-kicker { color: #9a3412; font-size: .68rem; font-weight: 900; letter-spacing: .04em; }
+.ar-followup-agreement { padding: 12px 14px; border: 1px solid #fed7aa; border-radius: 11px; background: #fff; display: grid; gap: 6px; }
+.ar-followup-agreement > span { color: #7c2d12; font-size: .72rem; }
+.ar-followup-agreement > strong { font-size: 1.15rem; color: #9a3412; }
+.ar-followup-agreement > div { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding-top: 8px; border-top: 1px solid #ffedd5; }
+.ar-followup-agreement > div > span { display: grid; gap: 3px; color: #64748b; font-size: .72rem; }
+.ar-followup-agreement b { color: #172136; font-size: .88rem; }
+.ar-promise-followup-form .ar-deposit-promise-field > input,
+.ar-promise-followup-form .ar-deposit-promise-field > select,
+.ar-promise-followup-form .ar-deposit-promise-field > textarea {
+  grid-area: auto !important; width: 100% !important; min-width: 0 !important; max-width: none !important;
+  padding: 10px 12px; border: 1px solid #fdba74; border-radius: 10px; background: white;
+  color: #172136; font: inherit; font-size: .88rem; font-weight: 750; box-sizing: border-box;
+}
+.ar-promise-followup-form .ar-deposit-promise-field > textarea { min-height: 64px; resize: vertical; }
+.ar-promise-followup-form .ar-deposit-promise-field > :is(input,select,textarea):focus { outline: 2px solid #0d9488; outline-offset: 2px; }
+.ar-promise-followup-form .ar-deposit-promise-save { margin-top: 2px; }
+
+/* Fit the follow-up into the desktop work area without shrinking its text. */
+.ar-promise-followup-form .ar-deposit-promise-heading { grid-template-columns: 42px minmax(0, 1fr); gap: 10px; }
+.ar-promise-followup-form .ar-deposit-promise-badge { width: 42px; height: 42px; border-radius: 11px; }
+.ar-promise-followup-form .ar-followup-agreement { grid-template-columns: minmax(0, 1fr) auto; padding: 10px 12px; gap: 6px 10px; align-items: center; }
+.ar-promise-followup-form .ar-followup-agreement > div { grid-column: 1 / -1; padding-top: 6px; }
+.ar-promise-followup-form .ar-deposit-promise-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; gap: 10px 12px !important; }
+.ar-promise-followup-form .ar-followup-outcome,
+.ar-promise-followup-form .ar-deposit-promise-form > p,
+.ar-promise-followup-form .ar-followup-route,
+.ar-promise-followup-form .ar-deposit-promise-save,
+.ar-promise-followup-form:not([data-outcome="promise"]) .ar-followup-note { grid-column: 1 / -1 !important; }
+.ar-promise-followup-form .ar-deposit-promise-field > input,
+.ar-promise-followup-form .ar-deposit-promise-field > select,
+.ar-promise-followup-form .ar-deposit-promise-field > textarea { height: 44px; min-height: 44px; padding: 8px 10px; }
+.ar-promise-followup-form .ar-deposit-promise-save { min-height: 44px; padding: 9px 12px; }
+.ar-promise-followup-form .ar-deposit-promise-form > p { margin: 0; }
+@media (max-width: 520px) {
+  .ar-promise-followup-form .ar-deposit-promise-form { grid-template-columns: minmax(0, 1fr) !important; }
+}
 .outside-route-cash-modal { width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow-y: auto; }
 .outside-route-cash-body { display: grid; gap: 16px; padding: 20px; }
 .outside-route-cash-body label { display: grid; gap: 7px; font-weight: 600; }

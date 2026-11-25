@@ -1,5 +1,5 @@
 import { formatCurrency } from "../../format";
-import type { ReceivableRow } from "../../receivables";
+import type { ReceivableRow } from "../../receivablesLegacy";
 import type { Client, LateFeeSettings } from "../../types";
 import { isLateFeeOtherCharge } from "../payments/paymentRules";
 

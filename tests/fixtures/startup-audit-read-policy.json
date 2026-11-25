@@ -1,0 +1,9 @@
+{
+  "tablename": "manual_assignment_audit_cloud",
+  "policyname": "manual_assignment_audit_cloud_screen_read",
+  "roles": "{authenticated}",
+  "qual": "can_view_owner_screen(user_id, 'payments'::text)",
+  "permissive": "PERMISSIVE",
+  "cmd": "SELECT",
+  "with_check": null
+}

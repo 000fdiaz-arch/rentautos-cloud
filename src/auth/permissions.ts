@@ -168,6 +168,10 @@ export function canDeclareRoutePayment(role: AppRole, permissions: AppPermission
   return role === "buscador" && canViewScreen(permissions, "route_search");
 }
 
+export function canRemoveActiveRouteItem(role: AppRole, permissions: AppPermissions): boolean {
+  return role !== "buscador" && canEditScreen(permissions, "route_search");
+}
+
 export function canWriteOperationalData(role: AppRole, permissions = getRoleScreenPermissions(role)): boolean {
   return hasPermission(role, "operational.write") && (
     canEditScreen(permissions, "clients") ||

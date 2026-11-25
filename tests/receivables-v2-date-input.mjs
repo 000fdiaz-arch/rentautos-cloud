@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import vm from 'node:vm';
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url);
+const out=await build({stdin:{contents:'export * from "./src/pages/receivablesV2/DayMonthYearInput";',resolveDir:process.cwd()},bundle:true,platform:'node',format:'cjs',external:['react'],write:false,jsx:'automatic'});
+const module={exports:{}};vm.runInNewContext(out.outputFiles[0].text,{module,exports:module.exports,require,Date});
+const {parseDayMonthYear,DayMonthYearInput}=module.exports;
+assert.equal(parseDayMonthYear('19/11/2026'),'2026-11-19');
+assert.equal(parseDayMonthYear('03/04/2026'),'2026-04-03');
+assert.equal(parseDayMonthYear('31/02/2026'),'');
+assert.equal(parseDayMonthYear('29/02/2028'),'2028-02-29');
+assert.equal(parseDayMonthYear('29/02/2026'),'');
+assert.equal(parseDayMonthYear('11/19/2026'),'');
+const React=require('react');const {renderToStaticMarkup}=require('react-dom/server');
+const html=renderToStaticMarkup(React.createElement(DayMonthYearInput,{value:'2026-11-19',onChange(){},required:true}));
+assert.ok(html.includes('value="19/11/2026"'));assert.ok(html.includes('DD/MM/AAAA'));
+console.log('PASS day/month/year display, ISO persistence, invalid dates and leap years.');

@@ -51,7 +51,13 @@ export function parseCollectionStatusesFromStorage(rawValue?: string | null): Re
         whatsAppMessageSentAt: typeof row.whatsAppMessageSentAt === "string" ? row.whatsAppMessageSentAt : undefined,
         whatsAppMessageText: typeof row.whatsAppMessageText === "string" ? row.whatsAppMessageText : undefined,
         paymentPromiseDate: typeof row.paymentPromiseDate === "string" ? row.paymentPromiseDate : undefined,
-        paymentPromiseUpdatedAt: typeof row.paymentPromiseUpdatedAt === "string" ? row.paymentPromiseUpdatedAt : undefined
+        paymentPromiseTime: typeof row.paymentPromiseTime === "string" ? row.paymentPromiseTime : undefined,
+        paymentPromiseAmount: typeof row.paymentPromiseAmount === "number" && Number.isFinite(row.paymentPromiseAmount)
+          ? Math.max(0, row.paymentPromiseAmount)
+          : undefined,
+        paymentPromiseUpdatedAt: typeof row.paymentPromiseUpdatedAt === "string" ? row.paymentPromiseUpdatedAt : undefined,
+        gpsLocationNote: typeof row.gpsLocationNote === "string" ? row.gpsLocationNote.trim().slice(0, 160) : undefined,
+        gpsLocationReviewedAt: typeof row.gpsLocationReviewedAt === "string" ? row.gpsLocationReviewedAt : undefined
       };
     }
     return next;

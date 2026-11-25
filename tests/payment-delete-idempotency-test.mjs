@@ -97,9 +97,12 @@ try {
   const pageSource = readFileSync("src/pages/PaymentsPage.tsx", "utf8");
   const dialogSource = readFileSync("src/pages/payments/PaymentDialogs.tsx", "utf8");
   const shellSource = readFileSync("src/AppShell.tsx", "utf8");
+  const cloudSource = readFileSync("src/cloud/paymentCloudData.ts", "utf8");
   assert.match(pageSource, /if \(readOnly \|\| deleteInFlightRef\.current\) return;/, "El primer clic debe bloquear inmediatamente los siguientes.");
   assert.match(dialogSource, /disabled=\{isClosed \|\| isDeleting\}/, "El boton debe quedar deshabilitado durante la eliminacion.");
   assert.match(shellSource, /deleteCloudPaymentsAtomic\(/, "La app debe usar la operacion atomica.");
+  assert.match(cloudSource, /retryStatementTimeout: false/, "Un timeout de base no debe repetir tres veces la misma eliminacion costosa.");
+  assert.match(shellSource, /buildCloudErrorMessage\("No se pudo eliminar el pago en nube\.", error/, "La interfaz debe explicar la causa real de la eliminacion fallida.");
   const deleteFlow = shellSource.slice(shellSource.indexOf("async function persistDeletedPayments"), shellSource.indexOf("async function persistDeletedPayment("));
   assert.doesNotMatch(deleteFlow, /syncCloudClientsDelta|deleteCloudPayment\(/, "La eliminacion no debe separar el saldo y la factura.");
 

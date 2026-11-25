@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
+import { withCloudRetry } from "../cloud/cloudClient";
+import { markStartupPhase } from "../lib/startupDiagnostics";
 import {
   canManageSettings,
   canManageUsers,
@@ -48,12 +50,15 @@ function getDataOwnerUserId(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
-async function loadProfileRow(userId: string): Promise<AuthProfileRow | null> {
+const AUTH_LOAD_TIMEOUT_MS = 12_000;
+
+async function loadProfileRow(userId: string, signal: AbortSignal): Promise<AuthProfileRow | null> {
   if (!supabase) return null;
   const withPermissions = await supabase
     .from("user_profiles")
     .select("role,is_active,data_owner_user_id,permissions")
     .eq("id", userId)
+    .abortSignal(signal)
     .maybeSingle<AuthProfileRow>();
   if (!withPermissions.error) return withPermissions.data ?? null;
 
@@ -66,6 +71,7 @@ async function loadProfileRow(userId: string): Promise<AuthProfileRow | null> {
     .from("user_profiles")
     .select("role,data_owner_user_id")
     .eq("id", userId)
+    .abortSignal(signal)
     .maybeSingle<AuthProfileRow>();
   if (withoutPermissions.error) throw withoutPermissions.error;
   return withoutPermissions.data ?? null;
@@ -79,10 +85,12 @@ export function useAuthProfile(): AuthProfileState {
   const [dataOwnerUserId, setDataOwnerUserId] = useState<string | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [loadedProfileUserId, setLoadedProfileUserId] = useState<string | null>(null);
   const [authBootError, setAuthBootError] = useState("");
 
   useEffect(() => {
     let mounted = true;
+    let authTimedOut = false;
 
     if (!isSupabaseConfigured || !supabase) {
       setLoadingAuth(false);
@@ -91,31 +99,45 @@ export function useAuthProfile(): AuthProfileState {
       };
     }
 
+    const authTimer = window.setTimeout(() => {
+      if (!mounted) return;
+      authTimedOut = true;
+      setAuthBootError("La validacion de la sesion tardo demasiado. Revisa tu conexion y vuelve a intentar.");
+      setLoadingAuth(false);
+    }, AUTH_LOAD_TIMEOUT_MS);
+
     supabase.auth
       .getSession()
       .then(({ data, error }) => {
-        if (!mounted) return;
+        if (!mounted || authTimedOut) return;
+        window.clearTimeout(authTimer);
         if (error) {
           setAuthBootError("No se pudo validar la sesion. Revisa tu conexion e intenta de nuevo.");
           setLoadingAuth(false);
           return;
         }
         setSession(data.session ?? null);
+        markStartupPhase("session");
+        setAuthBootError("");
         setLoadingAuth(false);
       })
       .catch(() => {
-        if (!mounted) return;
+        if (!mounted || authTimedOut) return;
+        window.clearTimeout(authTimer);
         setAuthBootError("No se pudo validar la sesion. Revisa tu conexion e intenta de nuevo.");
         setLoadingAuth(false);
       });
 
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!mounted || authTimedOut) return;
+      window.clearTimeout(authTimer);
       setSession(nextSession);
       setLoadingAuth(false);
     });
 
     return () => {
       mounted = false;
+      window.clearTimeout(authTimer);
       subscription.subscription.unsubscribe();
     };
   }, []);
@@ -123,6 +145,7 @@ export function useAuthProfile(): AuthProfileState {
   useEffect(() => {
     let cancelled = false;
     let profileLoadingGuardTimer: number | null = null;
+    const controller = new AbortController();
 
     async function loadProfile() {
       if (!session?.user.id || !supabase) {
@@ -130,37 +153,46 @@ export function useAuthProfile(): AuthProfileState {
         setIsActive(true);
         setPermissions(normalizeAppPermissions("lectura", null));
         setDataOwnerUserId(null);
+        setLoadedProfileUserId(null);
         setLoadingProfile(false);
         return;
       }
 
       setLoadingProfile(true);
-      // Evita bloquear la app cuando la consulta de perfil tarda por red/base.
+      setAuthBootError("");
+      // Un perfil pendiente no autoriza abrir el menu con rol/owner provisionales.
       profileLoadingGuardTimer = window.setTimeout(() => {
-        if (!cancelled) setLoadingProfile(false);
-      }, 2500);
+        if (!cancelled) {
+          controller.abort();
+          setAuthBootError("La carga del perfil tardo demasiado. Revisa tu conexion y vuelve a intentar.");
+          setLoadingProfile(false);
+        }
+      }, AUTH_LOAD_TIMEOUT_MS);
 
       try {
-        const data = await loadProfileRow(session.user.id);
-        if (cancelled) return;
+        const data = await withCloudRetry(() => loadProfileRow(session.user.id, controller.signal), 2);
+        if (cancelled || controller.signal.aborted) return;
+        if (!data) throw new Error("No existe un perfil para este usuario.");
         const nextRole = normalizeAppRole(data?.role);
         setIsActive(data?.is_active !== false);
         setDataOwnerUserId(getDataOwnerUserId(data?.data_owner_user_id));
         setRole(nextRole);
         setPermissions(normalizeAppPermissions(nextRole, data?.permissions));
-      } catch {
-        if (!cancelled) {
-          setRole("lectura");
-          setIsActive(true);
-          setPermissions(normalizeAppPermissions("lectura", null));
-          setDataOwnerUserId(null);
+        setLoadedProfileUserId(session.user.id);
+        markStartupPhase("profile");
+      } catch (error) {
+        if (!cancelled && !controller.signal.aborted) {
+          console.error("No se pudo cargar el perfil de acceso.", error);
+          setAuthBootError("No se pudo cargar tu perfil de acceso. Revisa tu conexion y vuelve a intentar.");
         }
       } finally {
         if (profileLoadingGuardTimer !== null) {
           window.clearTimeout(profileLoadingGuardTimer);
           profileLoadingGuardTimer = null;
         }
-        if (!cancelled) setLoadingProfile(false);
+        if (!cancelled) {
+          setLoadingProfile(false);
+        }
       }
     }
 
@@ -168,6 +200,7 @@ export function useAuthProfile(): AuthProfileState {
 
     return () => {
       cancelled = true;
+      controller.abort();
       if (profileLoadingGuardTimer !== null) {
         window.clearTimeout(profileLoadingGuardTimer);
         profileLoadingGuardTimer = null;
@@ -190,7 +223,7 @@ export function useAuthProfile(): AuthProfileState {
     mustChangePassword,
     permissions,
     loadingAuth,
-    loadingProfile,
+    loadingProfile: loadingProfile || Boolean(session?.user.id && loadedProfileUserId !== session.user.id),
     authBootError,
     canWriteOperationalData: canWriteOperationalData(role, permissions),
     canManageSettings: canManageSettings(role, permissions),
@@ -208,6 +241,7 @@ export function useAuthProfile(): AuthProfileState {
     effectiveOwnerUserId,
     loadingAuth,
     loadingProfile,
+    loadedProfileUserId,
     mustChangePassword,
     permissions,
     role,

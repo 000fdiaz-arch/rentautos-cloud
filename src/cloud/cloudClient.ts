@@ -20,14 +20,24 @@ function isTransientCloudError(error: unknown): boolean {
   return normalized.includes("network") || normalized.includes("fetch") || normalized.includes("timeout") || code === "57014" || code.startsWith("08");
 }
 
-export async function withCloudRetry<T>(operation: () => PromiseLike<T>, attempts = 3): Promise<T> {
+export async function withCloudRetry<T>(
+  operation: () => PromiseLike<T>,
+  attempts = 3,
+  options?: { retryStatementTimeout?: boolean }
+): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       return await operation();
     } catch (error) {
       lastError = error;
-      if (attempt >= attempts || !isTransientCloudError(error)) throw error;
+      const record = typeof error === "object" && error !== null ? error as Record<string, unknown> : null;
+      const code = typeof record?.code === "string" ? record.code : "";
+      if (
+        attempt >= attempts ||
+        !isTransientCloudError(error) ||
+        (options?.retryStatementTimeout === false && code === "57014")
+      ) throw error;
       await new Promise<void>((resolve) => window.setTimeout(resolve, 350 * attempt));
     }
   }

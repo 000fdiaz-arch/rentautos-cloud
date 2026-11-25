@@ -31,6 +31,7 @@ try{
     const panel=page.locator('.route-search-page');
     await panel.getByRole('button',{name:'Trabajo (1)',exact:true}).waitFor();
     await panel.getByText('$8.00',{exact:true}).waitFor();
+    await panel.locator('.route-team-overview > summary').click();
     const routeSummary=panel.getByRole('region',{name:'Resumen del equipo'});
     assert.match(await routeSummary.innerText(),/Recibidas[\s\S]*Cobrado[\s\S]*Gestión remota[\s\S]*Custodia[\s\S]*Delta 1/i);
     if(!mode){

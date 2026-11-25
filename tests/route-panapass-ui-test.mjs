@@ -7,7 +7,7 @@ try {
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',r=>new URL(r.request().url()).origin===base?r.continue():r.abort());
  const fixture=base+'/tests/fixtures/outside-route-cash.html';
- for(const mode of ['']) {
+ for(const mode of ['', '&legacy', '&version=v2']) {
   await page.goto(fixture+'?demo'+mode);await page.evaluate(()=>sessionStorage.clear());await page.reload();
   await page.getByRole('button',{name:'Trabajo (2)',exact:true}).waitFor();
   const card=page.getByRole('article',{name:'A10 · Pedro González',exact:true});

@@ -1,19 +1,31 @@
-import AppShell from "./AppShell";
-import { canDeclareRoutePayment, canReportRoutePayment, getRoleScreenPermissions } from "./auth/permissions";
+import { Suspense, lazy, useEffect } from "react";
+import { canDeclareRoutePayment, canRemoveActiveRouteItem, canReportRoutePayment, getRoleScreenPermissions } from "./auth/permissions";
 import { useAuthProfile } from "./auth/useAuthProfile";
 import AuthPanel from "./components/AuthPanel";
-import ForcePasswordChangePanel from "./components/ForcePasswordChangePanel";
 import { isSupabaseConfigured } from "./lib/supabase";
 import { isLocalOnlyMode } from "./persistenceMode";
+import { preloadRequestedAppPage } from "./app/pageLoaders";
 import "./styles.css";
-import SellerLeadPortalPage from "./pages/SellerLeadPortalPage";
-import ClientPortalPage from "./pages/ClientPortalPage";
-import PublicFleetCatalogPage from "./pages/PublicFleetCatalogPage";
-import CatalogWorkflowDemoPage from "./pages/CatalogWorkflowDemoPage";
+
+const loadAppShell = () => import("./AppShell");
+const AppShell = lazy(loadAppShell);
+const ForcePasswordChangePanel = lazy(() => import("./components/ForcePasswordChangePanel"));
+const SellerLeadPortalPage = lazy(() => import("./pages/SellerLeadPortalPage"));
+const ClientPortalPage = lazy(() => import("./pages/ClientPortalPage"));
+const PublicFleetCatalogPage = lazy(() => import("./pages/PublicFleetCatalogPage"));
+const CatalogWorkflowDemoPage = lazy(() => import("./pages/CatalogWorkflowDemoPage"));
 
 const testBypassAuth = import.meta.env.VITE_RENTAUTOS_TEST_BYPASS_AUTH === "1";
 
 export default function App() {
+  return (
+    <Suspense fallback={<main className="auth-page"><section className="auth-card"><h1>Rentautos</h1><p>Cargando aplicacion...</p></section></main>}>
+      <AppRoute />
+    </Suspense>
+  );
+}
+
+function AppRoute() {
   const sellerPortalMatch = window.location.pathname.match(/^\/consulta-vendedor\/([0-9a-f-]{36})\/?$/i);
   const sharedPortalMatch = window.location.pathname.match(/^\/consulta-vendedores\/([0-9a-f-]{36})\/?$/i);
   const sellerConsultationLocalDemo = import.meta.env.DEV && /^\/consulta-vendedores\/demo-local\/?$/i.test(window.location.pathname);
@@ -32,6 +44,16 @@ export default function App() {
 
 function AuthenticatedApp() {
   const authProfile = useAuthProfile();
+  const sessionUserId = authProfile.session?.user.id;
+
+  useEffect(() => {
+    // Download code during profile validation; no operational component mounts
+    // or reads data until the existing access checks succeed.
+    if (sessionUserId) {
+      void loadAppShell().catch(() => {});
+      preloadRequestedAppPage(window.location.pathname);
+    }
+  }, [sessionUserId]);
 
   if (isLocalOnlyMode && (!isSupabaseConfigured || testBypassAuth)) {
     const permissions = getRoleScreenPermissions("admin");
@@ -39,6 +61,7 @@ function AuthenticatedApp() {
       <AppShell
         userEmail={testBypassAuth ? "test-local@rentautos.app" : "local@rentautos.app"}
         isAdmin
+        canRemoveRouteItems={canRemoveActiveRouteItem("admin", permissions)}
         permissions={permissions}
         canWriteOperationalData
         canManageSettings
@@ -76,6 +99,9 @@ function AuthenticatedApp() {
         <section className="auth-card">
           <h1>Rentautos</h1>
           <p>{authProfile.authBootError}</p>
+          <button type="button" className="button primary" onClick={() => window.location.reload()}>
+            Volver a intentar
+          </button>
         </section>
       </main>
     );
@@ -118,6 +144,7 @@ function AuthenticatedApp() {
       isAdmin={authProfile.role === "admin"}
       canReportRoutePayments={canReportRoutePayment(authProfile.role, authProfile.permissions)}
       canDeclareRoutePayments={canDeclareRoutePayment(authProfile.role, authProfile.permissions)}
+      canRemoveRouteItems={canRemoveActiveRouteItem(authProfile.role, authProfile.permissions)}
       userEmail={authProfile.userEmail}
       dataOwnerUserId={authProfile.dataOwnerUserId}
       effectiveOwnerUserId={authProfile.effectiveOwnerUserId}

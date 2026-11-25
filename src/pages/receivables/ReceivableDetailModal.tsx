@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { formatCurrency, formatDate } from "../../format";
-import { PLAN_LABEL, STATE_LABEL, type ReceivableRow } from "../../receivables";
+import { PLAN_LABEL, STATE_LABEL, type ReceivableRow } from "../../receivablesLegacy";
 
 type Props = {
   row: ReceivableRow;

@@ -1,0 +1,1803 @@
+import { PaidUpNotice } from "./PaidUpNotice";
+import { ReminderForm } from "./ReminderForm";
+import { collectionAction } from "./collectionAction";
+import { DayMonthYearInput } from "./DayMonthYearInput";
+import { requiresCollectionPayment } from "./collectionAmountDue";
+import { useWorkdayValue } from "./workdayProgress";
+import { memo, useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { createPortal } from "react-dom";
+import { inlineComputedStylesForCanvas } from "../../canvasExportStyles";
+import { BUSINESS_TIME_ZONE, getBusinessDateKey } from "../../billing";
+import { formatCurrency, formatDate } from "../../format";
+import { PLAN_LABEL, STATE_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivablesV2";
+import type {
+  CollectionStatus,
+  CollectionStatusRecord,
+  DailyContactCloudAttempts,
+  DailyContactResult,
+  DailyContactSaveStates,
+  DailyContactShift,
+  FieldManagementType,
+  RouteUrgency
+} from "./receivablesTypes";
+import {
+  COLLECTION_CUT_OPTIONS,
+  DAILY_CONTACT_SHIFT_OPTIONS,
+  DAILY_COLLECTION_STATUS_OPTIONS,
+  ROUTE_ASSIGNMENT_OPTIONS,
+  ROUTE_COLLECTION_STATUS_OPTIONS,
+  ROUTE_URGENCY_OPTIONS,
+  COLLECTION_STATUS_HELP,
+  CONTACT_TIME_OPTIONS,
+  clientOperationalStatusLabel,
+  clientOperationalStatusTone,
+  currentDailyContactShift,
+  normalizeContactTime,
+  normalizeRouteAssignment,
+  overdueInstallmentsText,
+  shouldDefaultToCovered,
+  stateToneClass,
+  type CollectionClosureItem,
+  type CollectionCutKey,
+  type ReceivablesWorkflowTab
+} from "./receivablesPageRules";
+
+function nextFixedDepositHour(now: Date): string {
+  const hour = new Intl.DateTimeFormat("en-GB", {
+    timeZone: BUSINESS_TIME_ZONE,
+    hour: "2-digit",
+    hourCycle: "h23"
+  }).format(new Date(now.getTime() + 3_600_000));
+  return `${hour}:00`;
+}
+
+function fixedDepositTimeParts(value: string): { hour: number; period: "AM" | "PM" } {
+  const hour24 = Number(value.slice(0, 2));
+  const safeHour = Number.isFinite(hour24) ? Math.min(23, Math.max(0, hour24)) : 0;
+  return {
+    hour: safeHour % 12 || 12,
+    period: safeHour >= 12 ? "PM" : "AM"
+  };
+}
+
+function fixedDepositTimeValue(hour: number, period: "AM" | "PM"): string {
+  const safeHour = Math.min(12, Math.max(1, Math.floor(hour)));
+  const hour24 = safeHour % 12 + (period === "PM" ? 12 : 0);
+  return `${String(hour24).padStart(2, "0")}:00`;
+}
+
+function fixedDepositTimeLabel(value: string): string {
+  const { hour, period } = fixedDepositTimeParts(value);
+  return `${hour}:00 ${period === "AM" ? "a. m." : "p. m."}`;
+}
+
+function clientTenurePresentation(days: number | null): {
+  tone: "new" | "semi-new" | "established" | "unknown";
+  detail: string;
+} {
+  if (days === null) return { tone: "unknown", detail: "Antigüedad no disponible." };
+  if (days < 90) return { tone: "new", detail: "Menos de 90 días como cliente." };
+  if (days <= 180) return { tone: "semi-new", detail: "Entre 90 y 180 días como cliente." };
+  return { tone: "established", detail: "Más de 180 días como cliente." };
+}
+
+function compactClientTenureLabel(days: number | null, fallback: string): string {
+  if (days === null) return fallback;
+  if (days >= 365) {
+    const years = Math.floor(days / 365);
+    return `+ ${years} ${years === 1 ? "año" : "años"}`;
+  }
+  if (days >= 30) {
+    const months = Math.floor(days / 30);
+    return `+ ${months} ${months === 1 ? "mes" : "meses"}`;
+  }
+  return fallback;
+}
+type Props = {
+  isSecondRound?: boolean;
+  draftKey?: string;
+  followupForm?: import("react").ReactNode;
+  row: ReceivableRow;
+  hidden?: boolean;
+  statusRecord?: CollectionStatusRecord;
+  operationalStatus: string;
+  tenureLabel: string;
+  tenureDays: number | null;
+  todayDateKey: string;
+  now: Date;
+  isTodayCollectionClosed: boolean;
+  workflowTab: ReceivablesWorkflowTab;
+  collectionCutItems: Partial<Record<CollectionCutKey, CollectionClosureItem>>;
+  visibleCutKey: CollectionCutKey | "all";
+  whatsAppMessage: string;
+  whatsAppGroupRows?: ReceivableRow[];
+  statementGroupRows?: ReceivableRow[];
+  onSelectDetail: (row: ReceivableRow) => void;
+  onCollectionCutStatusChange: (cutKey: CollectionCutKey, clientId: string, nextStatus: string) => void;
+  onCollectionCutCommentChange: (cutKey: CollectionCutKey, clientId: string, value: string) => void;
+  onRouteTagChange: (clientId: string, tagged: boolean) => boolean | Promise<boolean>;
+  onRouteManagementTypeChange: (clientId: string, value: FieldManagementType) => void;
+  onRouteManagementCommentChange: (clientId: string, value: string) => void;
+  onRouteAssignmentChange: (clientId: string, value: string) => void;
+  onRouteUrgencyChange: (clientId: string, value: RouteUrgency) => void;
+  onRouteReleaseAmountChange: (clientId: string, value: string) => void;
+  onWhatsAppMessageSent: (clientId: string, message: string) => void;
+  onSupportNoteChange: (clientId: string, value: string) => void;
+  onContactTimeChange: (clientId: string, value: string) => void;
+  onPaymentPromiseDateChange: (clientId: string, value: string) => void;
+  onPaymentPromiseTimeChange: (clientId: string, value: string) => void;
+  onPaymentPromiseAmountChange: (clientId: string, value: string) => void;
+  onContinuePaidUp?: () => void | Promise<void>;
+  onGpsLocationReview: (clientId: string, locationNote: string) => Promise<void>;
+  onContactOutcome: (clientId: string, result: "no_answer" | "promise" | "reminder_today" | "reminder_tomorrow", promise?: import("./receivablesTypes").PaymentPromiseDraft) => Promise<void>;
+  collectorKey: string;
+  onPersistPendingChanges: () => void;
+  dailyContactCloudAttempts?: DailyContactCloudAttempts;
+  dailyContactSaveStates?: DailyContactSaveStates;
+  onDailyContactAttemptChange: (clientId: string, shift: DailyContactShift, result: DailyContactResult | "pending") => void;
+  onOperationalReviewChange: (clientId: string, operationalStatus: string, reviewed: boolean) => void;
+  onOpenRoutePreparation: (clientId: string) => void;
+  onOpenRoute: () => void;
+};
+
+type RoutePreparationDraft = {
+  releaseAmount: string;
+  routeAssignment: string;
+  managementType: FieldManagementType;
+  urgency: RouteUrgency;
+  comment: string;
+};
+
+function safeFilenamePart(value: string): string {
+  return value.trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "cliente";
+}
+
+const STATEMENT_SUGGESTION_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function hasTimestampWithinWindow(value: string | undefined, now: Date, windowMs: number): boolean {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return now.getTime() - date.getTime() < windowMs;
+}
+
+function hasLastPaymentOutsideSuggestionWindow(row: ReceivableRow, now: Date): boolean {
+  const rawTimestamp = row.lastPaymentAt ?? (row.lastPaymentDate ? `${row.lastPaymentDate}T12:00:00` : "");
+  if (!rawTimestamp) return true;
+  const lastPaymentDate = new Date(rawTimestamp);
+  if (Number.isNaN(lastPaymentDate.getTime())) return true;
+  return now.getTime() - lastPaymentDate.getTime() >= STATEMENT_SUGGESTION_WINDOW_MS;
+}
+
+function formatElapsedDaysSince(value: string | null | undefined, now: Date): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const elapsedMs = Math.max(0, now.getTime() - date.getTime());
+  const elapsedDays = Math.floor(elapsedMs / STATEMENT_SUGGESTION_WINDOW_MS);
+  if (elapsedDays < 1) return "hace menos de 1 dia";
+  return `hace ${elapsedDays} dia${elapsedDays === 1 ? "" : "s"}`;
+}
+
+function formatStatementTimestamp(value: string | null | undefined, now: Date): string {
+  if (!value) return "Sin pagos registrados";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return formatDate(new Date(`${value.slice(0, 10)}T12:00:00`));
+  const elapsed = formatElapsedDaysSince(value, now);
+  return `${formatDate(date)} ${date.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" })}${elapsed ? ` (${elapsed})` : ""}`;
+}
+
+function roundStatementMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function statementRentSplit(row: ReceivableRow): { overdueRent: number; currentRent: number } {
+  const totalPending = roundStatementMoney(Math.max(0, row.totalPending));
+  if (totalPending <= 0) return { overdueRent: 0, currentRent: 0 };
+  const overdueRent = roundStatementMoney(Math.min(totalPending, Math.max(0, row.overdueBalance)));
+  return {
+    overdueRent,
+    currentRent: roundStatementMoney(Math.max(0, totalPending - overdueRent))
+  };
+}
+
+function statementInstallmentsLabel(amount: number, rentAmount: number): string {
+  if (rentAmount <= 0 || amount <= 0) return "";
+  const installments = amount / rentAmount;
+  const wholeInstallments = Math.floor(installments);
+  const hasPartialInstallment = amount - wholeInstallments * rentAmount > 0.01;
+  if (wholeInstallments <= 0) return hasPartialInstallment ? " (1 cuota parcial)" : "";
+  const wholeLabel = `${wholeInstallments} cuota${wholeInstallments === 1 ? "" : "s"}`;
+  return ` (${wholeLabel}${hasPartialInstallment ? " + parcial" : ""})`;
+}
+
+function statementRoundedInstallmentsLabel(amount: number, rentAmount: number): string {
+  if (rentAmount <= 0 || amount <= 0) return "";
+  const installments = Math.ceil(amount / rentAmount);
+  return ` (${installments} cuota${installments === 1 ? "" : "s"})`;
+}
+
+function statementWholeAndPartialRent(amount: number, rentAmount: number): { wholeRent: number; partialRent: number } {
+  if (rentAmount <= 0 || amount <= 0) return { wholeRent: roundStatementMoney(Math.max(0, amount)), partialRent: 0 };
+  const wholeInstallments = Math.floor(amount / rentAmount);
+  const wholeRent = roundStatementMoney(wholeInstallments * rentAmount);
+  return {
+    wholeRent,
+    partialRent: roundStatementMoney(Math.max(0, amount - wholeRent))
+  };
+}
+
+function StatementBalanceCard({ row, now }: { row: ReceivableRow; now: Date }) {
+  const planLabel = planDetailLabel(row);
+  const { overdueRent, currentRent } = statementRentSplit(row);
+  const { wholeRent: fullOverdueRent, partialRent: overduePartialRent } = statementWholeAndPartialRent(overdueRent, row.rentAmount);
+  const showOverduePartialRent = overduePartialRent > 0;
+  const showOverdueRent = fullOverdueRent > 0;
+  const showCurrentRent = currentRent > 0;
+  const overdueInstallmentsLabel = statementInstallmentsLabel(fullOverdueRent, row.rentAmount);
+  const currentInstallmentsLabel = statementInstallmentsLabel(currentRent, row.rentAmount);
+  const totalInstallmentsLabel = statementRoundedInstallmentsLabel(row.totalPending, row.rentAmount);
+  const lastPaymentValue = row.lastPaymentAt ?? (row.lastPaymentDate ? `${row.lastPaymentDate}T12:00:00` : null);
+  return (
+    <div className="statement-card">
+      <div className="statement-topbar">
+        <div>
+          <div className="statement-title">Estado de cuenta actualizado</div>
+        </div>
+        <div className="statement-date">Al {formatDate(now)}</div>
+      </div>
+
+      <div className="statement-identity">
+        <div className="statement-unit-block">
+          <span>Unidad</span>
+          <strong>{row.unitId}</strong>
+        </div>
+        <div className="statement-client-block">
+          <span>Cliente</span>
+          <strong>{row.name || "Cliente"}</strong>
+          <em>Plan {planLabel.toLowerCase()} / {formatCurrency(row.rentAmount)}</em>
+        </div>
+      </div>
+
+      <div className="statement-total-panel">
+        <span>Pendiente por pagar</span>
+        <strong>{formatCurrency(Math.max(0, row.totalPending))}</strong>
+      </div>
+
+      <div className="statement-detail-panel">
+        <div className="statement-section-title">Resumen para pago</div>
+        {showOverduePartialRent ? (
+          <div className="statement-detail-row">
+            <span>Saldo para bajar una cuota vencida <em>(1 cuota parcial)</em></span>
+            <strong>{formatCurrency(overduePartialRent)}</strong>
+          </div>
+        ) : null}
+        {showOverdueRent ? (
+          <div className="statement-detail-row">
+            <span>Renta vencida{overdueInstallmentsLabel ? <em>{overdueInstallmentsLabel}</em> : null}</span>
+            <strong>{formatCurrency(fullOverdueRent)}</strong>
+          </div>
+        ) : null}
+        {showCurrentRent ? (
+          <div className="statement-detail-row">
+            <span>Saldo corriente{showOverdueRent || showOverduePartialRent ? "" : " (no vencido)"}{currentInstallmentsLabel ? <em>{currentInstallmentsLabel}</em> : null}</span>
+            <strong>{formatCurrency(currentRent)}</strong>
+          </div>
+        ) : null}
+        <div className="statement-detail-row statement-detail-row--total">
+          <span>Total pendiente{totalInstallmentsLabel ? <em>{totalInstallmentsLabel}</em> : null}</span>
+          <strong>{formatCurrency(Math.max(0, row.totalPending))}</strong>
+        </div>
+      </div>
+
+      <div className="statement-last-payment">
+        <span>Ultimo pago recibido</span>
+        <strong>{formatStatementTimestamp(lastPaymentValue, now)}</strong>
+      </div>
+
+      <div className="statement-note">
+        Si ya realizo el pago recientemente, por favor ignore este aviso. Gracias.
+      </div>
+    </div>
+  );
+}
+
+function statementShortDate(value: string | null | undefined): string {
+  if (!value) return "Sin pagos";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Sin pagos";
+  return date.toLocaleDateString("es-PA", { day: "2-digit", month: "2-digit" });
+}
+
+function statementInstallmentsSummary(row: ReceivableRow): string {
+  const totalPending = Math.max(0, row.totalPending);
+  if (totalPending <= 0) return "Al día";
+  if (row.rentAmount <= 0) return "Saldo pendiente";
+  const installments = Math.ceil(totalPending / row.rentAmount);
+  return `${installments} cuota${installments === 1 ? "" : "s"}`;
+}
+
+function ConsolidatedStatementBalanceCard({ rows, now }: { rows: ReceivableRow[]; now: Date }) {
+  const primaryRow = rows[0];
+  const totalPending = roundStatementMoney(rows.reduce((sum, item) => sum + Math.max(0, item.totalPending), 0));
+  return (
+    <div className="statement-card">
+      <div className="statement-topbar">
+        <div className="statement-title">Estado de cuenta</div>
+        <div className="statement-date">Al {formatDate(now)}</div>
+      </div>
+
+      <div className="statement-consolidated-client">
+        <span>Cliente</span>
+        <strong>{primaryRow?.name || "Cliente"}</strong>
+      </div>
+
+      <div className="statement-total-panel">
+        <span>Total pendiente</span>
+        <strong>{formatCurrency(totalPending)}</strong>
+      </div>
+
+      <div className="statement-consolidated-list">
+        {rows.map((item) => {
+          const itemPending = roundStatementMoney(Math.max(0, item.totalPending));
+          const lastPaymentValue = item.lastPaymentAt ?? (item.lastPaymentDate ? `${item.lastPaymentDate}T12:00:00` : null);
+          return (
+            <div className="statement-consolidated-unit" key={item.id}>
+              <div className="statement-consolidated-unit-main">
+                <strong>{item.unitId}</strong>
+                <b className={itemPending > 0 ? "" : "is-paid"}>{itemPending > 0 ? formatCurrency(itemPending) : "AL DÍA"}</b>
+              </div>
+              <div className="statement-consolidated-unit-meta">
+                <span>{statementInstallmentsSummary(item)}</span>
+                <span>Último pago: {statementShortDate(lastPaymentValue)}</span>
+              </div>
+            </div>
+          );
+        })}
+        <div className="statement-consolidated-count">
+          {rows.length} unidad{rows.length === 1 ? "" : "es"}
+        </div>
+      </div>
+
+      <div className="statement-note">
+        Si ya realizo el pago recientemente, por favor ignore este aviso. Gracias.
+      </div>
+    </div>
+  );
+}
+
+async function buildReceivableBalanceCanvas(rows: ReceivableRow[], now: Date): Promise<HTMLCanvasElement> {
+  const host = document.createElement("div");
+  host.style.position = "fixed";
+  host.style.left = "-10000px";
+  host.style.top = "0";
+  host.style.width = "528px";
+  host.style.pointerEvents = "none";
+  host.style.zIndex = "-1";
+  host.setAttribute("aria-hidden", "true");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+
+  try {
+    root.render(
+      <div className="receipt-page">
+        <div className="statement-export-frame">
+          <ConsolidatedStatementBalanceCard rows={rows} now={now} />
+        </div>
+      </div>
+    );
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    if (document.fonts?.ready) await document.fonts.ready;
+    const target = host.querySelector(".statement-export-frame") as HTMLDivElement | null;
+    if (!target) throw new Error("No se pudo renderizar el estado de cuenta.");
+    const html2canvas = (await import("html2canvas")).default;
+    const restoreStyles = inlineComputedStylesForCanvas(target);
+    try {
+      return await html2canvas(target, {
+        scale: 1,
+        backgroundColor: "#ffffff",
+        useCORS: true,
+        width: target.scrollWidth,
+        height: target.scrollHeight
+      });
+    } finally {
+      restoreStyles();
+    }
+  } finally {
+    root.unmount();
+    document.body.removeChild(host);
+  }
+}
+
+function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("No se pudo generar la imagen."));
+    }, "image/png");
+  });
+}
+
+function downloadReceivableBalanceImage(rows: ReceivableRow[], canvas: HTMLCanvasElement): void {
+  const primaryRow = rows[0];
+  const link = document.createElement("a");
+  link.download = `saldo-consolidado-${safeFilenamePart(primaryRow?.name || "cliente")}.png`;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
+async function copyReceivableBalanceImage(rows: ReceivableRow[], now: Date): Promise<"copied" | "downloaded"> {
+  const canvas = await buildReceivableBalanceCanvas(rows, now);
+  const blob = await canvasToPngBlob(canvas);
+  const clipboard = navigator.clipboard as Clipboard & {
+    write?: (items: ClipboardItem[]) => Promise<void>;
+  };
+  if (typeof clipboard.write === "function" && typeof ClipboardItem !== "undefined") {
+    await clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+    return "copied";
+  }
+  downloadReceivableBalanceImage(rows, canvas);
+  return "downloaded";
+}
+
+function BalanceImageIcon() {
+  return (
+    <svg className="ar-phone-edit-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+      <path d="M8 9.4h8" />
+      <path d="M8 13h5" />
+      <path d="M8 16.6h8" />
+    </svg>
+  );
+}
+
+function cutDisplayLabel(cutKey: CollectionCutKey): string {
+  if (cutKey === "night") return "Gestion";
+  return "Gestion";
+}
+
+function getStatusOptionsForCut(_cutKey: CollectionCutKey): Array<{ value: CollectionStatus; label: string; description: string }> {
+  return DAILY_COLLECTION_STATUS_OPTIONS;
+}
+
+function lastPaymentLabel(lastPaymentDate: string | null, now: Date): string {
+  if (!lastPaymentDate) return "Sin pagos";
+  const paymentDate = new Date(`${lastPaymentDate}T12:00:00`);
+  const referenceDate = new Date(now);
+  paymentDate.setHours(0, 0, 0, 0);
+  referenceDate.setHours(0, 0, 0, 0);
+  const days = Math.max(0, Math.round((referenceDate.getTime() - paymentDate.getTime()) / (24 * 60 * 60 * 1000)));
+  if (days === 0) return "PAGO HOY";
+  if (days === 1) return "Ultimo pago hace 1 dia";
+  return `Ultimo pago hace ${days} dias`;
+}
+
+function dateKeyLabel(dateKey: string | null): string {
+  if (!dateKey) return "-";
+  return formatDate(new Date(`${dateKey}T12:00:00`));
+}
+
+function planDetailLabel(row: ReceivableRow): string {
+  if (!row.hasActiveClient) return "Sin plan";
+  if (row.plan === "weekly" && row.weeklyChargeDay) return `${PLAN_LABEL[row.plan]} / ${WEEKDAY_LABEL[row.weeklyChargeDay]}`;
+  return PLAN_LABEL[row.plan];
+}
+
+function isWhatsAppEligibleUnit(row: ReceivableRow, operationalStatus: string): boolean {
+  return row.hasActiveClient && operationalStatus.trim().toLowerCase() === "activo";
+}
+
+function hasPendingRent(row: ReceivableRow, operationalStatus: string): boolean {
+  return isWhatsAppEligibleUnit(row, operationalStatus) && row.totalPending > 0;
+}
+
+function defaultCollectionStatus(row: ReceivableRow, operationalStatus: string, cutKey: CollectionCutKey): CollectionStatus | "" {
+  if (cutKey !== "night") return "";
+  return shouldDefaultToCovered(row, operationalStatus) ? "covered" : "unassigned";
+}
+
+function contactTimeMinutes(value: string | undefined): number | null {
+  const match = value?.match(/^(\d{1,2}):(\d{2})\s(AM|PM)$/);
+  if (!match) return null;
+  const hour12 = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour12) || !Number.isFinite(minute)) return null;
+  const hour24 = (hour12 % 12) + (match[3] === "PM" ? 12 : 0);
+  return hour24 * 60 + minute;
+}
+
+function contactTimeMeta(value: string | undefined, now: Date): { tone: "missing" | "overdue" | "soon" | "scheduled"; label: string } {
+  const minutes = contactTimeMinutes(value);
+  if (minutes === null || !value) return { tone: "missing", label: "Llamada" };
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const diff = minutes - currentMinutes;
+  if (diff < 0) return { tone: "overdue", label: "Vencida" };
+  if (diff <= 60) return { tone: "soon", label: "Próxima" };
+  return { tone: "scheduled", label: "Llamada" };
+}
+
+function pendingRentLettersLabel(amount: number, rentAmount: number): string {
+  const amountCents = Math.max(0, Math.round(amount * 100));
+  const rentCents = Math.round(rentAmount * 100);
+  if (!(amountCents > 0) || !(rentCents > 0)) return "0 letras";
+  const letters = Math.ceil(amountCents / rentCents);
+  return `${letters} ${letters === 1 ? "letra" : "letras"}`;
+}
+
+function ReceivableTableRowComponent({
+  row,
+  hidden,
+  statusRecord,
+  operationalStatus,
+  tenureLabel,
+  tenureDays,
+  todayDateKey,
+  now,
+  isTodayCollectionClosed,
+  workflowTab,
+  collectionCutItems,
+  visibleCutKey,
+  whatsAppMessage,
+  whatsAppGroupRows,
+  statementGroupRows,
+  onSelectDetail,
+  onCollectionCutStatusChange,
+  onCollectionCutCommentChange,
+  onRouteTagChange,
+  onRouteManagementTypeChange,
+  onRouteManagementCommentChange,
+  onRouteAssignmentChange,
+  onRouteUrgencyChange,
+  onRouteReleaseAmountChange,
+  onWhatsAppMessageSent,
+  onSupportNoteChange,
+  onContactTimeChange,
+  onPaymentPromiseDateChange,
+  onPaymentPromiseTimeChange,
+  onPaymentPromiseAmountChange,
+  onContinuePaidUp,
+  onContactOutcome,
+  followupForm,
+  isSecondRound = false,
+  draftKey = "cxc.v2.preview.row",
+  collectorKey,
+  onPersistPendingChanges,
+  dailyContactCloudAttempts,
+  dailyContactSaveStates,
+  onDailyContactAttemptChange,
+  onOperationalReviewChange,
+  onOpenRoutePreparation,
+  onOpenRoute
+}: Props) {
+  const [isCopyingBalanceImage, setIsCopyingBalanceImage] = useState(false);
+  const [tenureExpanded, setTenureExpanded] = useState(false);
+  const statementWasSentRecently = hasTimestampWithinWindow(statusRecord?.whatsAppMessageSentAt, now, STATEMENT_SUGGESTION_WINDOW_MS);
+  const isEligibleForWhatsApp = isWhatsAppEligibleUnit(row, operationalStatus);
+  const canSendToRoute = isWhatsAppEligibleUnit(row, operationalStatus);
+  const requiresWhatsAppManagement = hasPendingRent(row, operationalStatus);
+  const requiresStatementSuggestion = requiresWhatsAppManagement &&
+    hasLastPaymentOutsideSuggestionWindow(row, now) &&
+    !statementWasSentRecently;
+  const showStatementSuggestion = requiresStatementSuggestion || statementWasSentRecently;
+  const whatsAppIsResolved = statementWasSentRecently || !requiresStatementSuggestion;
+  const lastPaymentIsToday = row.lastPaymentDate
+    ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) === formatDate(now)
+    : false;
+  const sentAt = statusRecord?.whatsAppMessageSentAt ? new Date(statusRecord.whatsAppMessageSentAt) : null;
+  const sentTime = sentAt && !Number.isNaN(sentAt.getTime())
+    ? sentAt.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" })
+    : "";
+  const deliveryStatusTitle = whatsAppIsResolved
+    ? sentTime ? `Enviado a las ${sentTime}` : "Marcado como enviado"
+    : "Sugerido: marcar como enviado si lo mandaste manualmente";
+  const consolidatedStatementRows = statementGroupRows?.length ? statementGroupRows : [row];
+  const balanceImageTitle = isCopyingBalanceImage
+    ? "Preparando estado de cuenta..."
+    : consolidatedStatementRows.length > 1
+      ? `Preparar estado consolidado para compartir (${consolidatedStatementRows.length} unidades)`
+      : "Preparar estado de cuenta para compartir";
+  const visibleCutOptions = visibleCutKey === "all"
+    ? COLLECTION_CUT_OPTIONS
+    : COLLECTION_CUT_OPTIONS.filter((option) => option.key === visibleCutKey);
+  const totalDue = row.overdueBalance + row.totalOtherCharges;
+  const isRouteHighlighted = !!statusRecord?.isRouteTagged;
+  const isRouteWorkflow = workflowTab === "route";
+  const groupedWhatsAppRows = whatsAppGroupRows?.filter((item) => item.id !== row.id) ?? [];
+  const groupedWhatsAppUnits = groupedWhatsAppRows.map((item) => item.unitId).filter(Boolean);
+  const currentPromiseRecord = (statusRecord?.paymentPromiseDate?.slice(0, 10) ?? "") >= todayDateKey ? statusRecord : undefined;
+  const [promiseDateDraft, setPromiseDateDraft] = useWorkdayValue(draftKey + ":date", currentPromiseRecord?.paymentPromiseDate?.slice(0, 10) || todayDateKey);
+  const [promiseTimeDraft, setPromiseTimeDraft] = useWorkdayValue(draftKey + ":time", currentPromiseRecord?.paymentPromiseTime || nextFixedDepositHour(now));
+  const [contactTimeDraft, setContactTimeDraft] = useWorkdayValue(draftKey + ":contact", statusRecord?.contactTime ?? "");
+  const [paymentPromiseHourDraft, setPaymentPromiseHourDraft] = useWorkdayValue(draftKey + ":hour", () => String(
+    fixedDepositTimeParts(currentPromiseRecord?.paymentPromiseTime || nextFixedDepositHour(now)).hour
+  ));
+  const [paymentPromiseAmountDraft, setPaymentPromiseAmountDraft] = useWorkdayValue(draftKey + ":amount",
+    currentPromiseRecord?.paymentPromiseAmount ? String(currentPromiseRecord.paymentPromiseAmount) : ""
+  );
+  const [promiseTimeEdited, setPromiseTimeEdited] = useWorkdayValue(draftKey + ":time-edited", () => {
+    // Preserve complete legacy drafts; old automatic hour-only caches are not user choices.
+    try {
+      return localStorage.getItem(draftKey + ":time") !== null
+        && Number(JSON.parse(localStorage.getItem(draftKey + ":amount") ?? '""')) > 0;
+    } catch { return false; }
+  });
+  useEffect(() => {
+    // Older versions copied yesterday's saved agreement into today's local form.
+    // Reset only that expired form; cloud history and valid drafts stay intact.
+    if (promiseDateDraft && promiseDateDraft < todayDateKey) {
+      const next = new Date(now.getTime() + 3_600_000);
+      const nextTime = nextFixedDepositHour(now);
+      setPromiseDateDraft(getBusinessDateKey(next));
+      setPromiseTimeDraft(nextTime);
+      setPaymentPromiseHourDraft(String(fixedDepositTimeParts(nextTime).hour));
+      setPaymentPromiseAmountDraft("");
+      setPromiseTimeEdited(false);
+    }
+  }, [promiseDateDraft, todayDateKey]);
+  const [isPaymentPromiseDraftConfirmed, setIsPaymentPromiseDraftConfirmed] = useState(false);
+  const [outcomeSaving, setOutcomeSaving] = useState(false);
+  const [outcomeError, setOutcomeError] = useState("");
+  const [noAnswerDraft, setNoAnswerMessageLeft] = useWorkdayValue(draftKey + ":no-answer", () =>
+    statusRecord?.contactOutcomes?.filter((item) => item.date === todayDateKey && item.collector === collectorKey).slice(-1)[0]?.result === "no_answer"
+  );
+  const [secondOutcomeDraft, setSecondOutcome] = useWorkdayValue<"" | "promise" | "no_answer">(draftKey + ":second-outcome", "");
+  const roundAttempts = statusRecord?.contactOutcomes?.filter(item => item.date === todayDateKey && item.collector === collectorKey)
+    .sort((a,b) => a.at.localeCompare(b.at)) ?? [];
+  const savedSecondOutcome = roundAttempts.length >= 2 ? roundAttempts[roundAttempts.length - 1].result : "";
+  const secondOutcome = secondOutcomeDraft || (savedSecondOutcome === "promise" || savedSecondOutcome === "no_answer" ? savedSecondOutcome : "");
+  const noAnswerMessageLeft = isSecondRound ? secondOutcome === "no_answer" : noAnswerDraft;
+  const firstAttempt = statusRecord?.contactOutcomes?.find(item => item.date === todayDateKey && item.collector === collectorKey && item.result === "no_answer");
+  const firstAttemptTime = firstAttempt && Number.isFinite(Date.parse(firstAttempt.at))
+    ? new Intl.DateTimeFormat("es-PA", { timeZone: "America/Panama", hour: "numeric", minute: "2-digit" }).format(new Date(firstAttempt.at)) : null;
+  const [customRouteEditorOpen, setCustomRouteEditorOpen] = useState(false);
+  const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
+  const [isRouteRemovalOpen, setIsRouteRemovalOpen] = useState(false);
+  const [routeRemovalSaving, setRouteRemovalSaving] = useState(false);
+  const [routeRemovalError, setRouteRemovalError] = useState("");
+  const [routePreparationDraft, setRoutePreparationDraft] = useState<RoutePreparationDraft | null>(null);
+  const routeReleaseAmount = statusRecord?.routeReleaseAmount ?? statusRecord?.managementAmount;
+  const routeAssignment = statusRecord?.routeAssignment ?? "";
+  const routeUrgency = statusRecord?.routeUrgency ?? "normal";
+  const routeUrgencyLabel = ROUTE_URGENCY_OPTIONS.find((option) => option.value === routeUrgency)?.label ?? "Normal";
+  const isRouteReleaseAmountMissing = typeof routeReleaseAmount !== "number" || routeReleaseAmount <= 0;
+  const isRouteAssignmentMissing = !routeAssignment;
+  const missingRouteRequirements = [
+    isRouteReleaseAmountMissing ? "saldo para liberar" : null,
+    isRouteAssignmentMissing ? "ruta asignada" : null
+  ].filter((item): item is string => !!item);
+  const isRoutePreparationComplete = missingRouteRequirements.length === 0;
+  const modalReleaseAmount = routePreparationDraft?.releaseAmount ?? (routeReleaseAmount ?? "");
+  const modalRouteAssignment = routePreparationDraft?.routeAssignment ?? routeAssignment;
+  const modalManagementType = routePreparationDraft?.managementType ?? statusRecord?.managementType ?? "solo_cobrar";
+  const modalUrgency = routePreparationDraft?.urgency ?? routeUrgency;
+  const modalComment = routePreparationDraft?.comment ?? statusRecord?.managementComment ?? "";
+  const modalMissingRouteRequirements = [
+    !(Number(modalReleaseAmount) > 0) ? "saldo para liberar" : null,
+    !modalRouteAssignment ? "ruta asignada" : null
+  ].filter((item): item is string => !!item);
+  const isModalRoutePreparationComplete = modalMissingRouteRequirements.length === 0;
+
+  function updatePromiseTime(value: string) {
+    setPromiseTimeEdited(true);
+    setPromiseTimeDraft(value);
+  }
+
+  function closeRoutePreparationModal(): void {
+    setIsRouteModalOpen(false);
+    setRoutePreparationDraft(null);
+    setCustomRouteEditorOpen(false);
+  }
+
+  function openExistingRoutePreparation(): void {
+    setRoutePreparationDraft(null);
+    setIsRouteModalOpen(true);
+  }
+
+  function openNewRoutePreparation(): void {
+    setRoutePreparationDraft({
+      releaseAmount: routeReleaseAmount ? String(routeReleaseAmount) : "",
+      routeAssignment,
+      managementType: statusRecord?.managementType ?? "solo_cobrar",
+      urgency: routeUrgency,
+      comment: statusRecord?.managementComment ?? ""
+    });
+    setIsRouteModalOpen(true);
+  }
+
+  function openRouteRemoval(): void {
+    setRouteRemovalError("");
+    setIsRouteRemovalOpen(true);
+  }
+
+  function closeRouteRemoval(): void {
+    if (routeRemovalSaving) return;
+    setRouteRemovalError("");
+    setIsRouteRemovalOpen(false);
+  }
+
+  async function confirmRouteRemoval(): Promise<void> {
+    if (routeRemovalSaving) return;
+    setRouteRemovalSaving(true);
+    setRouteRemovalError("");
+    try {
+      const removed = await onRouteTagChange(row.id, false);
+      if (!removed) {
+        setRouteRemovalError("No se pudo sacar la unidad de la ruta. Actualiza e intenta nuevamente.");
+        return;
+      }
+      setIsRouteRemovalOpen(false);
+    } catch {
+      setRouteRemovalError("No se pudo sacar la unidad de la ruta. Actualiza e intenta nuevamente.");
+    } finally {
+      setRouteRemovalSaving(false);
+    }
+  }
+
+  function finishRoutePreparation(): void {
+    if (!routePreparationDraft) {
+      closeRoutePreparationModal();
+      return;
+    }
+    if (!isModalRoutePreparationComplete) return;
+    onRouteTagChange(row.id, true);
+    onRouteReleaseAmountChange(row.id, routePreparationDraft.releaseAmount);
+    onRouteAssignmentChange(row.id, routePreparationDraft.routeAssignment);
+    onRouteManagementTypeChange(row.id, routePreparationDraft.managementType);
+    onRouteUrgencyChange(row.id, routePreparationDraft.urgency);
+    onRouteManagementCommentChange(row.id, routePreparationDraft.comment);
+    closeRoutePreparationModal();
+  }
+
+  useEffect(() => {
+    if (localStorage.getItem(draftKey + ":contact") === null) setContactTimeDraft(statusRecord?.contactTime ?? "");
+  }, [statusRecord?.contactTime]);
+
+  useEffect(() => {
+    if (currentPromiseRecord?.paymentPromiseAmount !== undefined && localStorage.getItem(draftKey + ":amount") === null) setPaymentPromiseAmountDraft(String(currentPromiseRecord.paymentPromiseAmount));
+  }, [currentPromiseRecord?.paymentPromiseAmount]);
+
+  useEffect(() => {
+    if (currentPromiseRecord?.paymentPromiseDate && localStorage.getItem(draftKey + ":date") === null) setPromiseDateDraft(currentPromiseRecord.paymentPromiseDate.slice(0, 10));
+  }, [currentPromiseRecord?.paymentPromiseDate, currentPromiseRecord?.paymentPromiseTime]);
+
+  useEffect(() => {
+    if (!isRouteModalOpen && !isRouteRemovalOpen) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (isRouteRemovalOpen) closeRouteRemoval();
+      else closeRoutePreparationModal();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isRouteModalOpen, isRouteRemovalOpen, routeRemovalSaving]);
+
+  function handleConfirmWhatsAppSent(): void {
+    onWhatsAppMessageSent(row.id, whatsAppMessage);
+  }
+
+  async function handleCopyBalanceImage(): Promise<void> {
+    if (isCopyingBalanceImage) return;
+    setIsCopyingBalanceImage(true);
+    try {
+      const result = await copyReceivableBalanceImage(consolidatedStatementRows, now);
+      if (result === "downloaded") {
+        window.alert("Tu navegador no permitio copiar la imagen. Se descargo el estado de cuenta como respaldo.");
+      }
+    } catch {
+      window.alert("No se pudo copiar la imagen del estado de cuenta. Intenta nuevamente desde un navegador compatible.");
+    } finally {
+      setIsCopyingBalanceImage(false);
+    }
+  }
+
+  function handleContactTimeDraftChange(value: string): void {
+    const draft = value.toUpperCase().replace(/\s+/g, " ").slice(0, 8);
+    setContactTimeDraft(draft);
+    const normalized = normalizeContactTime(draft);
+    if (normalized || draft === "") onContactTimeChange(row.id, normalized ?? "");
+  }
+
+  function handleContactTimeDraftBlur(): void {
+    const normalized = normalizeContactTime(contactTimeDraft);
+    setContactTimeDraft(normalized ?? statusRecord?.contactTime ?? "");
+    onPersistPendingChanges();
+  }
+
+  function renderRouteRemovalModal() {
+    if (!isRouteRemovalOpen || typeof document === "undefined") return null;
+    return createPortal(
+      <div className="modal-overlay ar-route-modal-overlay" onClick={closeRouteRemoval}>
+        <div
+          className="modal ar-route-removal-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`route-removal-title-${row.id}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="modal-header ar-route-modal-header">
+            <div>
+              <span className="ar-route-modal-kicker">Confirmar salida</span>
+              <h2 id={`route-removal-title-${row.id}`}>Sacar {row.unitId} de la ruta</h2>
+              <p>{row.name}</p>
+            </div>
+            <button type="button" className="modal-close" onClick={closeRouteRemoval} disabled={routeRemovalSaving} aria-label="Cerrar">×</button>
+          </div>
+          <div className="ar-route-removal-copy">
+            <p>La unidad dejará de aparecer en Ruta en calle y volverá a Pendiente en Gestión.</p>
+            <p>Los pagos y el historial se conservarán.</p>
+            {routeRemovalError ? <p className="error-text" role="alert">{routeRemovalError}</p> : null}
+          </div>
+          <div className="ar-route-modal-actions">
+            <button type="button" className="button ghost" onClick={closeRouteRemoval} disabled={routeRemovalSaving}>Cancelar</button>
+            <button type="button" className="button ar-route-removal-confirm" onClick={() => void confirmRouteRemoval()} disabled={routeRemovalSaving}>
+              {routeRemovalSaving ? "Sacando…" : "Sí, sacar de ruta"}
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
+  if ((workflowTab as string) === "management") {
+    const isOperationallyActive = isWhatsAppEligibleUnit(row, operationalStatus);
+    const operationalReviewValue = operationalStatus
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+    const isOperationallyReviewed = statusRecord?.operationalReviewStatus === operationalReviewValue;
+    const managementValue = statusRecord?.status === "contacted" ? "contacted" : "pending";
+    const paymentDate = row.lastPaymentDate ? formatDate(new Date(`${row.lastPaymentDate}T12:00:00`)) : "Sin pagos";
+    const paymentRelative = lastPaymentLabel(row.lastPaymentDate, now)
+      .replace(/^PAGO HOY$/, "Hoy")
+      .replace(/^Ultimo pago /, "");
+    const planLabel = row.hasActiveClient
+      ? `${planDetailLabel(row)}${row.rentAmount > 0 ? ` · ${formatCurrency(row.rentAmount)}` : ""}`
+      : "Sin plan";
+    const currentRentBalance = Math.max(0, row.totalPending - row.overdueBalance);
+    const totalRentBalance = currentRentBalance + row.overdueBalance;
+    const hasOutstandingBalance = requiresCollectionPayment(row);
+    const action = collectionAction(row, todayDateKey, tenureDays);
+    const reminder = action === "reminder_today" || action === "reminder_tomorrow";
+    const savedPromiseTime = currentPromiseRecord?.paymentPromiseDate && (currentPromiseRecord.paymentPromiseAmount ?? 0) > 0
+      ? currentPromiseRecord.paymentPromiseTime : undefined;
+    const paymentPromiseDate = !promiseTimeEdited && !savedPromiseTime && localStorage.getItem(draftKey + ":date") === null
+      ? getBusinessDateKey(new Date(now.getTime() + 3_600_000)) : promiseDateDraft;
+    const paymentPromiseTime = promiseTimeEdited ? promiseTimeDraft : savedPromiseTime || nextFixedDepositHour(now);
+    const paymentPromiseTimeParts = fixedDepositTimeParts(paymentPromiseTime);
+    const displayedPromiseHour = promiseTimeEdited ? paymentPromiseHourDraft : String(paymentPromiseTimeParts.hour);
+    const paymentPromiseAmount = Number(paymentPromiseAmountDraft) || 0;
+    const paymentPromiseIsCurrent = paymentPromiseDate >= todayDateKey
+      && /^\d{2}:\d{2}$/.test(paymentPromiseTime)
+      && paymentPromiseAmount > 0;
+    const overdueRentLetters = pendingRentLettersLabel(row.overdueBalance, row.rentAmount);
+    const totalRentLetters = pendingRentLettersLabel(totalRentBalance, row.rentAmount);
+  const tenure = clientTenurePresentation(tenureDays);
+  const compactTenureLabel = compactClientTenureLabel(tenureDays, tenureLabel);
+  const canExpandTenure = compactTenureLabel !== tenureLabel;
+    const dailyContactAttempts = { ...(statusRecord?.dailyContactAttemptsByDate?.[todayDateKey] ?? {}) };
+    for (const option of DAILY_CONTACT_SHIFT_OPTIONS) {
+      const cloudAttempt = dailyContactCloudAttempts?.[option.key];
+      if (!cloudAttempt) continue;
+      if (cloudAttempt.result === "contacted") {
+        dailyContactAttempts[option.key] = { result: "contacted", updatedAt: cloudAttempt.updatedAt };
+      } else {
+        delete dailyContactAttempts[option.key];
+      }
+    }
+    const currentContactShift = currentDailyContactShift(now);
+    const currentContactShiftIndex = DAILY_CONTACT_SHIFT_OPTIONS.findIndex((option) => option.key === currentContactShift);
+    const completedContactCount = DAILY_CONTACT_SHIFT_OPTIONS.filter((option) => dailyContactAttempts[option.key]?.result === "contacted").length;
+    const dailyContactSaveState = DAILY_CONTACT_SHIFT_OPTIONS.some((option) => dailyContactSaveStates?.[option.key] === "error")
+      ? "error"
+      : DAILY_CONTACT_SHIFT_OPTIONS.some((option) => dailyContactSaveStates?.[option.key] === "saving")
+        ? "saving"
+        : DAILY_CONTACT_SHIFT_OPTIONS.some((option) => dailyContactSaveStates?.[option.key] === "saved")
+          ? "saved"
+          : null;
+
+    return (
+      <tr className="ar-card-row ar-essential-table-row" style={hidden ? { display: "none" } : undefined}>
+        <td colSpan={4} className="ar-card-cell">
+          <article className={`ar-essential-card ${isOperationallyActive ? "is-active" : "is-automatic"}`}>
+            <section className="ar-essential-identity">
+              <div className="ar-essential-unit-line">
+                <button type="button" className="ar-essential-unit" onClick={() => onSelectDetail(row)}>
+                  {row.unitId}
+                </button>
+                <span className={clientOperationalStatusTone(operationalStatus)}>
+                  {clientOperationalStatusLabel(operationalStatus)}
+                </span>
+              </div>
+              <strong className="ar-essential-client-name" title={row.name}>{row.name}</strong>
+              {isOperationallyActive && <button type="button" className="button cxc-send-route" disabled={isTodayCollectionClosed} onClick={()=>onOpenRoutePreparation(row.id)}>Enviar a ruta en calle <span aria-hidden="true">↗</span></button>}
+              <div className="ar-essential-plan">
+                <span>Tipo de plan</span>
+                <strong>{planLabel}</strong>
+              </div>
+              <div className="ar-essential-last-payment">
+                <span>Último pago</span>
+                <strong>{paymentDate}{row.lastPaymentDate ? ` · ${paymentRelative}` : ""}</strong>
+              </div>
+              <button
+                type="button"
+                className={`ar-essential-statement-button ${isCopyingBalanceImage ? "is-copying" : ""}`}
+                onClick={() => void handleCopyBalanceImage()}
+                disabled={isCopyingBalanceImage}
+                title={balanceImageTitle}
+                aria-label={balanceImageTitle}
+              >
+                {isCopyingBalanceImage ? (
+                  <>
+                    <span className="ar-copy-spinner" aria-hidden="true" />
+                    <span>Preparando...</span>
+                  </>
+                ) : (
+                  <>
+                    <BalanceImageIcon />
+                    <span>Estado de cuenta</span>
+                  </>
+                )}
+              </button>
+            </section>
+
+            <section className="ar-essential-financial" aria-label={`Información de cuenta de ${row.unitId}`}>
+              <div className={`ar-client-tenure-banner ar-client-tenure-banner--${tenure.tone}`} aria-label={`Antigüedad de ${row.name}`}>
+                <span className="ar-client-tenure-icon" aria-hidden="true">A</span>
+                <span className="ar-client-tenure-copy">
+                  <small>ANTIGÜEDAD DEL CLIENTE</small>
+                  <span className="ar-client-tenure-summary">
+                    <strong>{tenureExpanded ? tenureLabel : compactTenureLabel}</strong>
+                    {canExpandTenure ? (
+                      <button
+                        type="button"
+                        className="ar-client-tenure-more"
+                        onClick={() => setTenureExpanded((current) => !current)}
+                        aria-expanded={tenureExpanded}
+                      >
+                        {tenureExpanded ? "Ver menos" : "Ver más"}
+                      </button>
+                    ) : null}
+                  </span>
+                  <span>{tenure.detail}</span>
+                </span>
+              </div>
+              {row.daysLate > 0 ? (
+                <div className="ar-essential-value ar-essential-value--delay">
+                  <span>Tiempo de atraso</span>
+                  <strong>{row.daysLate} días</strong>
+                </div>
+              ) : null}
+              <div className={`ar-essential-value ar-essential-value--balance ${currentRentBalance > 0 ? "has-balance" : ""}`}>
+                <span>Renta corriente</span>
+                <strong>{formatCurrency(currentRentBalance)}</strong>
+              </div>
+              <div className={`ar-essential-value ar-essential-value--rent ${row.overdueBalance > 0 ? "has-balance" : ""}`}>
+                <span>Renta vencida</span>
+                <strong>{formatCurrency(row.overdueBalance)}</strong>
+                <small>{overdueRentLetters}</small>
+              </div>
+              <div className={`ar-essential-value ar-essential-value--total ${totalRentBalance > 0 ? "has-balance" : ""}`}>
+                <span>Renta total</span>
+                <strong>{formatCurrency(totalRentBalance)}</strong>
+                <small>{totalRentLetters}</small>
+              </div>
+              <div className={`ar-essential-value ar-essential-value--fine ${(row.outstandingFineAmount ?? 0) > 0 ? "has-balance" : ""}`}>
+                <span>Multas</span>
+                <strong>{formatCurrency(row.outstandingFineAmount ?? 0)}</strong>
+              </div>
+              <div className={`ar-essential-value ar-essential-value--late-fee ${(row.outstandingLateFeeAmount ?? 0) > 0 ? "has-balance" : ""}`}>
+                <span>Recargos</span>
+                <strong>{formatCurrency(row.outstandingLateFeeAmount ?? 0)}</strong>
+              </div>
+              <div className={`ar-essential-value ar-essential-value--ticket ${(row.outstandingTicketAmount ?? 0) > 0 ? "has-balance" : ""}`}>
+                <span>Boletas</span>
+                <strong>{formatCurrency(row.outstandingTicketAmount ?? 0)}</strong>
+              </div>
+              <div className={`ar-essential-value ar-essential-value--other-charge ${(row.outstandingOtherChargeAmount ?? 0) > 0 ? "has-balance" : ""}`}>
+                <span>Otros cargos</span>
+                <strong>{formatCurrency(row.outstandingOtherChargeAmount ?? 0)}</strong>
+                {row.otherChargeAmountDue !== undefined && (row.outstandingOtherChargeAmount ?? 0) > 0 && <small>{row.otherChargeAmountDue > 0 ? `Cuota pendiente a la fecha: ${formatCurrency(row.otherChargeAmountDue)}` : "Cuotas al día"}</small>}
+              </div>
+            </section>
+
+            {followupForm ?? (reminder && !isSecondRound ? <ReminderForm key={row.id + action} tomorrow={action === "reminder_tomorrow"} disabled={isTodayCollectionClosed || outcomeSaving}
+              confirmed={roundAttempts?.slice(-1)[0]?.result === action}
+              onSave={() => onContactOutcome(row.id, action as "reminder_today" | "reminder_tomorrow")} /> : hasOutstandingBalance ? (
+              <section className={`ar-deposit-promise ${paymentPromiseIsCurrent ? "is-answered" : "is-required"}`}>
+                <div className="ar-deposit-promise-copy">
+                  {action === "call" && <strong className="cxc-call-required">Llamar al cliente · Renta vencida</strong>}
+                  {action === "new_client_followup" && <strong className="cxc-promise-form-title">Cliente nuevo · Seguimiento de pago</strong>}
+                  <div className="ar-deposit-promise-heading">
+                    <span className="ar-deposit-promise-badge" aria-hidden="true">$</span>
+                    <span>
+                      <small className="ar-deposit-promise-kicker">
+                        {isSecondRound ? "Segunda vuelta · Segundo intento de contacto" : "Gestión de cobro"}
+                      </small>
+                      <strong>{isSecondRound ? "¿Qué respondió en este segundo intento?" : "¿Cuándo, a qué hora y cuánto va a depositar?"}</strong>
+                    </span>
+                  </div>
+                  <p>{isSecondRound ? `En el primer intento no contestó y se dejó mensaje${firstAttemptTime ? ` a las ${firstAttemptTime}` : ""}.` : "Registra el compromiso de pago indicado por el cliente."}</p>
+                </div>
+                <div className="ar-deposit-promise-form">
+                  {paymentPromiseIsCurrent && !noAnswerMessageLeft && <div className="cxc-promise-highlight">
+                    <span>◷ PROMESA DE PAGO</span>
+                    <strong>{formatCurrency(paymentPromiseAmount)}</strong>
+                    <b>{paymentPromiseDate.split("-").reverse().join("/")} · {fixedDepositTimeLabel(paymentPromiseTime)}</b>
+                  </div>}
+                  {isSecondRound ? <label className="ar-deposit-promise-field">
+                    <span>Resultado del segundo intento</span>
+                    <select value={secondOutcome} disabled={isTodayCollectionClosed || outcomeSaving} onChange={event => {
+                      const result = event.target.value as "" | "promise" | "no_answer";
+                      setSecondOutcome(result);
+                      setNoAnswerMessageLeft(result === "no_answer");
+                      setIsPaymentPromiseDraftConfirmed(false);
+                    }}>
+                      <option value="">Selecciona la respuesta</option>
+                      <option value="promise">Prometió pagar</option>
+                      <option value="no_answer">Sigue sin contestar</option>
+                    </select>
+                  </label> : <label className="ar-no-answer-option">
+                    <input
+                      type="checkbox"
+                      checked={noAnswerMessageLeft}
+                      disabled={isTodayCollectionClosed}
+                      onChange={(event) => {
+                        setNoAnswerMessageLeft(event.target.checked);
+                        setIsPaymentPromiseDraftConfirmed(false);
+                      }}
+                    />
+                    <span>No contestó, se dejó mensaje</span>
+                  </label>}
+                  {(!isSecondRound && !noAnswerMessageLeft) || (isSecondRound && secondOutcome === "promise") ? <>
+                  <label className="ar-deposit-promise-field">
+                    <span>Fecha</span>
+                    <DayMonthYearInput id={`payment-promise-date-${row.id}`}
+                      min={todayDateKey}
+                      value={paymentPromiseDate}
+                      onChange={(event) => {
+                        setIsPaymentPromiseDraftConfirmed(false);
+                        setPromiseDateDraft(event);
+                      }}
+                      disabled={isTodayCollectionClosed}
+                      required
+                      aria-required="true"
+                    />
+                  </label>
+                  <div className="ar-deposit-promise-field ar-deposit-time-field">
+                    <label htmlFor={`deposit-hour-${row.id}`} className="ar-deposit-hour-label">Hora</label>
+                    <div className="ar-deposit-hour-control">
+                      <div className="ar-deposit-hour-number">
+                        <input
+                          type="text"
+                          id={`deposit-hour-${row.id}`}
+                          inputMode="numeric"
+                          autoComplete="off"
+                          maxLength={2}
+                          value={displayedPromiseHour}
+                          placeholder="Ej. 2"
+                          onFocus={(event) => event.currentTarget.select()}
+                          onChange={(event) => {
+                            const value = event.target.value.replace(/\D/g, "").slice(0, 2);
+                            if (!promiseTimeEdited) {
+                              setPromiseTimeDraft(paymentPromiseTime);
+                              setPromiseDateDraft(paymentPromiseDate);
+                            }
+                            setPromiseTimeEdited(true);
+                            setPaymentPromiseHourDraft(value);
+                            setIsPaymentPromiseDraftConfirmed(false);
+                            const hour = Number(value);
+                            if (value && Number.isInteger(hour) && hour >= 1 && hour <= 12) {
+                              updatePromiseTime(fixedDepositTimeValue(hour, paymentPromiseTimeParts.period));
+                            }
+                          }}
+                          onBlur={() => {
+                            const hour = Number(paymentPromiseHourDraft);
+                            if (!paymentPromiseHourDraft || !Number.isInteger(hour) || hour < 1 || hour > 12) {
+                              setPaymentPromiseHourDraft(String(paymentPromiseTimeParts.hour));
+                            }
+                          }}
+                          aria-label="Hora del depósito, del 1 al 12"
+                          disabled={isTodayCollectionClosed}
+                          required
+                          aria-required="true"
+                        />
+                        <span aria-hidden="true">:00</span>
+                      </div>
+                      <div className="ar-deposit-period" role="group" aria-label="Período de la hora">
+                        {(["AM", "PM"] as const).map((period) => (
+                          <button
+                            key={period}
+                            type="button"
+                            className={paymentPromiseTimeParts.period === period ? "is-active" : ""}
+                            onClick={() => {
+                              const draftHour = Number(displayedPromiseHour);
+                              const hour = Number.isInteger(draftHour) && draftHour >= 1 && draftHour <= 12
+                                ? draftHour
+                                : paymentPromiseTimeParts.hour;
+                              setIsPaymentPromiseDraftConfirmed(false);
+                              setPaymentPromiseHourDraft(String(hour));
+                              if (!promiseTimeEdited) setPromiseDateDraft(paymentPromiseDate);
+                              updatePromiseTime(fixedDepositTimeValue(hour, period));
+                            }}
+                            disabled={isTodayCollectionClosed}
+                            aria-pressed={paymentPromiseTimeParts.period === period}
+                          >
+                            {period === "AM" ? "a. m." : "p. m."}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <label className="ar-deposit-promise-field">
+                    <span>Monto</span>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={paymentPromiseAmountDraft}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        if (!/^\d*(?:\.\d{0,2})?$/.test(value)) return;
+                        setIsPaymentPromiseDraftConfirmed(false);
+                        setPaymentPromiseAmountDraft(value);
+                      }}
+                      placeholder="$0.00"
+                      disabled={isTodayCollectionClosed}
+                      required
+                      aria-required="true"
+                    />
+                  </label>
+                  </> : null}
+                  <button
+                    type="button"
+                    className="ar-deposit-promise-save"
+                    onClick={async () => {
+                      setOutcomeSaving(true);
+                      setOutcomeError("");
+                      try {
+                        await onContactOutcome(row.id, noAnswerMessageLeft ? "no_answer" : "promise", noAnswerMessageLeft ? undefined : {
+                          date: paymentPromiseDate, time: paymentPromiseTime, amount: paymentPromiseAmount
+                        });
+                        for (const field of ["amount", "date", "time", "hour", "time-edited", "no-answer", "second-outcome"]) localStorage.removeItem(draftKey + ":" + field);
+                        setIsPaymentPromiseDraftConfirmed(true);
+                      } catch {
+                        setOutcomeError("No se pudo confirmar el guardado en la base de datos. Revisa la conexión y vuelve a guardar.");
+                      } finally {
+                        setOutcomeSaving(false);
+                      }
+                    }}
+                    disabled={isTodayCollectionClosed || outcomeSaving || isPaymentPromiseDraftConfirmed || (isSecondRound && !secondOutcome) || (!noAnswerMessageLeft && !paymentPromiseIsCurrent)}
+                  >
+                    {outcomeSaving ? "Guardando…" : isPaymentPromiseDraftConfirmed ? "Guardado ✓" : isSecondRound ? "Guardar segundo intento y continuar" : "Guardar"}
+                  </button>
+                  <small>
+                    {outcomeError ? outcomeError : isPaymentPromiseDraftConfirmed
+                      ? "Gestión registrada. Puedes continuar con la siguiente unidad."
+                      : isSecondRound && !secondOutcome ? "Selecciona la respuesta para registrar el segundo intento."
+                      : noAnswerMessageLeft
+                        ? "Guarda la gestión para indicar que no contestó y se dejó mensaje."
+                      : paymentPromiseIsCurrent
+                      ? ""
+                      : paymentPromiseDate
+                        ? "Completa una fecha vigente, la hora y un monto mayor que cero."
+                        : "Registra fecha, hora y monto para completar la gestión de esta unidad."}
+                  </small>
+                </div>
+              </section>
+            ) : (
+              <PaidUpNotice onContinue={onContinuePaidUp} />
+            ))}
+
+            {false ? <section className="ar-essential-followup">
+              <div className="ar-essential-management">
+                {isOperationallyActive ? (
+                  <>
+                    <span className="ar-essential-label">Gestión</span>
+                    <select
+                      value={managementValue}
+                      onChange={(event) => onCollectionCutStatusChange("night", row.id, event.target.value)}
+                      disabled={isTodayCollectionClosed || statusRecord?.isRouteTagged}
+                      aria-label={`Gestión de ${row.unitId}`}
+                    >
+                      <option value="pending">Pendiente</option>
+                      <option value="contacted">Contactado</option>
+                    </select>
+                    {managementValue === "pending" ? (
+                      <>
+                        <div className="ar-daily-contact-header">
+                          <span className="ar-essential-label">Checklist de contacto</span>
+                          <strong>{completedContactCount}/3</strong>
+                        </div>
+                        <div className="ar-daily-contact-checklist" role="group" aria-label={`Contactos de hoy para ${row.unitId}`}>
+                          {DAILY_CONTACT_SHIFT_OPTIONS.map((option) => (
+                            <span key={`${option.key}-label`} className="ar-daily-contact-shift-label">{option.label}</span>
+                          ))}
+                          {DAILY_CONTACT_SHIFT_OPTIONS.map((option, index) => {
+                            const attempt = dailyContactAttempts[option.key];
+                            const saveState = dailyContactSaveStates?.[option.key];
+                            const isFutureShift = index > currentContactShiftIndex;
+                            const attemptDate = attempt?.updatedAt ? new Date(attempt.updatedAt) : null;
+                            const attemptTime = attemptDate && !Number.isNaN(attemptDate.getTime())
+                              ? attemptDate.toLocaleTimeString("es-PA", { hour: "numeric", minute: "2-digit" })
+                              : "";
+                            return (
+                              <label
+                                key={option.key}
+                                className={`ar-daily-contact-check ${attempt?.result === "contacted" ? "is-checked" : ""} ${saveState ? `is-${saveState}` : ""}`}
+                                title={saveState === "error"
+                                  ? "No se pudo guardar en la nube. Intenta nuevamente."
+                                  : saveState === "saving"
+                                    ? "Guardando en la nube..."
+                                    : attemptTime
+                                      ? `Contactado a las ${attemptTime}`
+                                      : isFutureShift ? "Aún no corresponde" : "Marcar como contactado"}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={attempt?.result === "contacted"}
+                                  onChange={(event) => onDailyContactAttemptChange(row.id, option.key, event.target.checked ? "contacted" : "pending")}
+                                  disabled={isTodayCollectionClosed || isFutureShift || saveState === "saving"}
+                                  aria-busy={saveState === "saving"}
+                                  aria-label={`${option.label}: contactado con ${row.unitId}`}
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+                        {dailyContactSaveState ? (
+                          <div
+                            className={`ar-daily-contact-save-state is-${dailyContactSaveState}`}
+                            role={dailyContactSaveState === "error" ? "alert" : "status"}
+                            aria-live="polite"
+                          >
+                            {dailyContactSaveState === "saving"
+                              ? "Guardando en la nube..."
+                              : dailyContactSaveState === "saved"
+                                ? "Guardado ✓"
+                                : "Error al guardar. Intenta otra vez."}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <div className="ar-daily-contact-collapsed">Contactado ✓</div>
+                    )}
+                    {statusRecord?.isRouteTagged && isRoutePreparationComplete ? (
+                      <div className="ar-essential-route-actions">
+                        <button
+                          type="button"
+                          className="ar-essential-route-button is-in-route"
+                          onClick={onOpenRoute}
+                          disabled={isTodayCollectionClosed || routeRemovalSaving}
+                        >
+                          Ver en ruta
+                        </button>
+                        <button
+                          type="button"
+                          className="ar-essential-route-remove-button"
+                          onClick={openRouteRemoval}
+                          disabled={isTodayCollectionClosed || routeRemovalSaving}
+                        >
+                          Sacar de ruta
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className={`ar-essential-route-button ${statusRecord?.isRouteTagged ? "is-in-route" : ""}`}
+                        onClick={() => onOpenRoutePreparation(row.id)}
+                        disabled={isTodayCollectionClosed}
+                      >
+                        {statusRecord?.isRouteTagged ? "Completar ruta" : "Enviar a ruta"}
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="ar-essential-label">Gestión</span>
+                    <div className="ar-essential-automatic-management">
+                      <strong className={clientOperationalStatusTone(operationalStatus)}>
+                        {clientOperationalStatusLabel(operationalStatus)}
+                      </strong>
+                      <span>
+                        {isOperationallyReviewed
+                          ? "Revisión confirmada. No aparece entre los pendientes."
+                          : "Requiere revisión para omitirla de los pendientes."}
+                      </span>
+                      <button
+                        type="button"
+                        className={`ar-essential-review-button ${isOperationallyReviewed ? "is-reviewed" : ""}`}
+                        onClick={() => onOperationalReviewChange(row.id, operationalStatus, !isOperationallyReviewed)}
+                        disabled={isTodayCollectionClosed}
+                      >
+                        {isOperationallyReviewed ? "Revisada ✓" : "Marcar revisada"}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="ar-essential-notes">
+                <span className="ar-essential-label">Notas y hora de contacto</span>
+                <input
+                  className="ar-essential-contact-time"
+                  type="text"
+                  list={`contact-time-options-${row.id}`}
+                  value={contactTimeDraft}
+                  onChange={(event) => handleContactTimeDraftChange(event.target.value)}
+                  onBlur={handleContactTimeDraftBlur}
+                  disabled={isTodayCollectionClosed}
+                  placeholder="Ej. 6:30 PM"
+                  maxLength={8}
+                  aria-label={`Hora posible de contacto de ${row.unitId}`}
+                />
+                <datalist id={`contact-time-options-${row.id}`}>
+                  {CONTACT_TIME_OPTIONS.map((time) => (
+                    <option key={time} value={time}>{time}</option>
+                  ))}
+                </datalist>
+                <textarea
+                  value={statusRecord?.supportNote ?? ""}
+                  onChange={(event) => onSupportNoteChange(row.id, event.target.value)}
+                  onBlur={onPersistPendingChanges}
+                  placeholder="Escribe una nota..."
+                  maxLength={300}
+                  rows={3}
+                  disabled={isTodayCollectionClosed}
+                  aria-label={`Notas de ${row.unitId}`}
+                />
+              </div>
+            </section> : null}
+          </article>
+          {renderRouteRemovalModal()}
+        </td>
+      </tr>
+    );
+  }
+
+  function renderCutCell(cutKey: CollectionCutKey) {
+    const item = collectionCutItems[cutKey];
+    const isRouteTagged = !!statusRecord?.isRouteTagged;
+    const rawValue = isRouteTagged
+      ? "pending"
+      : item?.collectionStatus ?? (cutKey === "night" ? statusRecord?.status : undefined) ?? defaultCollectionStatus(row, operationalStatus, cutKey);
+    const baseStatusOptions = workflowTab === "route" ? ROUTE_COLLECTION_STATUS_OPTIONS : getStatusOptionsForCut(cutKey);
+    const statusOptions = baseStatusOptions;
+    const value = statusOptions.some((option) => option.value === rawValue) ? rawValue : "";
+    const selectedStatusHelp = value ? COLLECTION_STATUS_HELP[value as CollectionStatus] : undefined;
+    return (
+      <div className={`ar-cut-stack-row ar-cut-stack-row--${cutKey}`}>
+        <div className="ar-cut-stack-head">
+          <span className="ar-cut-stack-label">{cutDisplayLabel(cutKey)}</span>
+          <span className={clientOperationalStatusTone(operationalStatus)}>
+            {clientOperationalStatusLabel(operationalStatus)}
+          </span>
+          {!row.hasActiveClient ? <span className="ar-mini-badge ar-mini-badge--muted">Sin cliente</span> : null}
+        </div>
+        <div className="ar-cut-cell-content">
+          <select
+            className={`ar-cut-select ar-cut-select--${value || "empty"}`}
+            value={value}
+            title={selectedStatusHelp}
+            aria-label={selectedStatusHelp ? `Gestion: ${selectedStatusHelp}` : "Gestion"}
+            onChange={(event) => onCollectionCutStatusChange(cutKey, row.id, event.target.value)}
+            disabled={isTodayCollectionClosed || isRouteTagged}
+          >
+            {statusOptions.map((option) => (
+              <option key={option.value} value={option.value} title={option.description}>{option.label}</option>
+            ))}
+          </select>
+          {isRouteTagged || canSendToRoute ? <div className={`ar-route-inline-control ${isRouteTagged ? "is-active" : ""}`}>
+            {workflowTab === "management" ? (
+              isRouteTagged ? (
+                <>
+                  <div className="ar-route-primary-actions">
+                    <button
+                      type="button"
+                      className={`button ghost small ar-route-tag-toggle is-active ar-route-tag-toggle--${routeUrgency}`}
+                      onClick={() => onRouteTagChange(row.id, false)}
+                      disabled={isTodayCollectionClosed}
+                      aria-pressed="true"
+                      title="Quitar etiqueta En ruta"
+                    >
+                      En ruta{routeUrgency !== "normal" ? ` · ${routeUrgencyLabel}` : ""} ×
+                    </button>
+                    <button
+                      type="button"
+                      className={`button small ar-route-details-button ${isRoutePreparationComplete ? "is-complete" : "needs-action"}`}
+                      onClick={openExistingRoutePreparation}
+                      disabled={isTodayCollectionClosed}
+                    >
+                      {isRoutePreparationComplete ? "Ver detalles" : "Completar ruta"}
+                    </button>
+                  </div>
+                  <div className="ar-route-compact-summary" aria-label={`Resumen de ruta de ${row.unitId}`}>
+                    <span title="Saldo para liberar"><strong>{routeReleaseAmount ? formatCurrency(routeReleaseAmount) : "Monto pendiente"}</strong></span>
+                    <span title="Ruta asignada"><strong>{routeAssignment || "Ruta pendiente"}</strong></span>
+                  </div>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="button ghost small ar-route-tag-toggle"
+                  onClick={openNewRoutePreparation}
+                  disabled={isTodayCollectionClosed}
+                  aria-pressed="false"
+                >
+                  Enviar a ruta
+                </button>
+              )
+            ) : <span className="ar-route-tab-handoff">Pendiente · En ruta</span>}
+          </div> : null}
+          {item?.comment ? (
+            <span className="hint ar-cut-comment">Comentario: {item.comment}</span>
+          ) : null}
+          <div className="ar-cut-actions">
+            {workflowTab === "route" ? <span>En ruta</span> : null}
+            {item?.managementComment ? <span>{item.managementComment}</span> : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const showContactTimeSupport = workflowTab === "management" && statusRecord?.status === "pending";
+  const contactMeta = contactTimeMeta(statusRecord?.contactTime, now);
+
+  return (
+    <tr className="ar-card-row">
+      <td colSpan={4} className="ar-card-cell">
+        <article className={`ar-receivable-card ${isRouteHighlighted ? "ar-receivable-card--route" : ""}`}>
+          <div className="ar-card-finance">
+            <div className="ar-client-money-main">
+              <div className="ar-client-summary-grid">
+                <div className="ar-card-actions ar-card-actions--compact">
+                  <div className="ar-unit-stack">
+                    <div className="ar-unit-quick-actions">
+                        <button
+                          type="button"
+                          className={`button small ar-whatsapp-phone-edit ar-whatsapp-image-button ${isCopyingBalanceImage ? "ar-whatsapp-image-button--copying" : ""}`}
+                          onClick={() => void handleCopyBalanceImage()}
+                          disabled={isTodayCollectionClosed || isCopyingBalanceImage}
+                          title={balanceImageTitle}
+                          aria-label={balanceImageTitle}
+                        >
+                          {isCopyingBalanceImage ? (
+                            <>
+                              <span className="ar-copy-spinner" aria-hidden="true" />
+                              <span>Copiando...</span>
+                            </>
+                          ) : (
+                            <>
+                              <BalanceImageIcon />
+                              <span>Compartir estado</span>
+                            </>
+                          )}
+                        </button>
+                        {!isRouteWorkflow && showStatementSuggestion ? (
+                          <button
+                            type="button"
+                            className={`history-send-button ${whatsAppIsResolved ? "history-send-button--sent" : "history-send-button--pending"}`}
+                            onClick={handleConfirmWhatsAppSent}
+                            disabled={isTodayCollectionClosed || whatsAppIsResolved}
+                            title={deliveryStatusTitle}
+                            aria-label={deliveryStatusTitle}
+                          >
+                            <span aria-hidden="true">{whatsAppIsResolved ? "OK" : "..."}</span>
+                            {whatsAppIsResolved ? "Enviado" : "Sugerido"}
+                          </button>
+                        ) : null}
+                    </div>
+                    <div className="ar-unit-heading">
+                      <strong className="ar-unit-id">{row.unitId}</strong>
+                      <span className={clientOperationalStatusTone(operationalStatus)}>
+                        {clientOperationalStatusLabel(operationalStatus)}
+                      </span>
+                    </div>
+                    {!isRouteWorkflow && groupedWhatsAppUnits.length > 0 ? (
+                      <span
+                        className="ar-whatsapp-group-badge"
+                        title={`Mensaje conjunto: ${[row.unitId, ...groupedWhatsAppUnits].join(", ")}`}
+                      >
+                        +{groupedWhatsAppUnits.length} unidad{groupedWhatsAppUnits.length === 1 ? "" : "es"}
+                      </span>
+                    ) : null}
+                    <span className="ar-unit-client-name" title={row.name}>{row.name}</span>
+                    <div className="ar-unit-collection-meta">
+                      <span className={`ar-last-payment-date ${lastPaymentIsToday ? "ar-last-payment-date--today" : ""}`}>
+                        {lastPaymentLabel(row.lastPaymentDate, now)}
+                      </span>
+                      <span className={stateToneClass(row.state)}>{STATE_LABEL[row.state]}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="ar-client-summary-main">
+                  {isRouteWorkflow ? (
+                    <span className="debt-meta ar-rent-line amount-debt">
+                      Total a gestionar: {formatCurrency(totalDue)}
+                    </span>
+                  ) : null}
+                  {isRouteWorkflow ? (
+                    <div className="ar-card-key-grid ar-card-key-grid--route">
+                      <span className="ar-metric-chip ar-metric-chip--debt">
+                        <small>Renta vencida</small>
+                        <strong className="ar-overdue-chip-amount">{formatCurrency(row.overdueBalance)}</strong>
+                        {overdueInstallmentsText(row.overdueBalance, row.rentAmount) ? (
+                          <em className="ar-overdue-chip-installments">{overdueInstallmentsText(row.overdueBalance, row.rentAmount)}</em>
+                        ) : null}
+                      </span>
+                      <span className="ar-metric-chip ar-metric-chip--debt"><small>Otros cargos</small>{formatCurrency(row.totalOtherCharges)}</span>
+                      <span className="ar-metric-chip ar-metric-chip--late"><small>Atraso</small>{row.daysLate > 0 ? `${row.daysLate} dias` : "Sin atraso"}</span>
+                    </div>
+                  ) : (
+                    <div className="ar-card-key-grid">
+                      <span className="ar-metric-chip ar-metric-chip--debt">
+                        <small>Renta vencida</small>
+                        <strong className="ar-overdue-chip-amount">{formatCurrency(row.overdueBalance)}</strong>
+                        {overdueInstallmentsText(row.overdueBalance, row.rentAmount) ? (
+                          <em className="ar-overdue-chip-installments">{overdueInstallmentsText(row.overdueBalance, row.rentAmount)}</em>
+                        ) : null}
+                      </span>
+                      <span className="ar-metric-chip ar-metric-chip--date"><small>Proximo</small>{dateKeyLabel(row.nextDueDate)}</span>
+                      <span className="ar-metric-chip ar-metric-chip--late"><small>Atraso</small>{row.daysLate > 0 ? `${row.daysLate} dias` : "Sin atraso"}</span>
+                      <span className="ar-metric-chip ar-metric-chip--debt"><small>Total general</small>{formatCurrency(totalDue)}</span>
+                      <span className={`ar-metric-chip ar-metric-chip--plan ar-metric-chip--plan-${row.hasActiveClient ? row.plan : "none"}`}>
+                        <small>Plan</small>
+                        <strong className="ar-plan-chip-name">{planDetailLabel(row)}</strong>
+                        {row.hasActiveClient && row.rentAmount > 0 ? (
+                          <em className="ar-plan-chip-rent">Letra {formatCurrency(row.rentAmount)}</em>
+                        ) : null}
+                      </span>
+                      <span className="ar-metric-chip ar-metric-chip--debt"><small>Otros cargos</small>{formatCurrency(row.totalOtherCharges)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="ar-card-workflow">
+            <div className="ar-card-management ar-cut-cell ar-cut-cell--stacked">
+              <div className="ar-cut-stack">
+                {visibleCutOptions.map((option) => (
+                  <div key={option.key}>
+                    {renderCutCell(option.key)}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="ar-note-shell ar-support-note-cell">
+              <span className="ar-note-title">Nota</span>
+              {showContactTimeSupport ? (
+                <div className={`ar-contact-time-note ar-contact-time-note--${contactMeta.tone}`}>
+                  <span>{contactMeta.label}</span>
+                  <label title={statusRecord?.contactTime ? `Editar hora ${statusRecord.contactTime}` : "Agregar hora de contacto"}>
+                    <input
+                      className="ar-contact-time-input"
+                      type="text"
+                      list={`contact-time-options-${row.id}`}
+                      value={contactTimeDraft}
+                      onChange={(event) => handleContactTimeDraftChange(event.target.value)}
+                      onBlur={handleContactTimeDraftBlur}
+                      disabled={isTodayCollectionClosed}
+                      placeholder="8:30 AM"
+                      maxLength={8}
+                      aria-label={`Hora de contacto de ${row.unitId}`}
+                    />
+                    <datalist id={`contact-time-options-${row.id}`}>
+                      {CONTACT_TIME_OPTIONS.map((time) => (
+                        <option key={time} value={time}>{time}</option>
+                      ))}
+                    </datalist>
+                  </label>
+                </div>
+              ) : null}
+              <textarea
+                className="ar-support-note-inline"
+                value={statusRecord?.supportNote ?? ""}
+                onChange={(event) => onSupportNoteChange(row.id, event.target.value)}
+                onBlur={onPersistPendingChanges}
+                placeholder="Escribe una nota rapida..."
+                maxLength={300}
+                rows={3}
+                disabled={isTodayCollectionClosed}
+              />
+            </div>
+          </div>
+        </article>
+        {isRouteModalOpen && typeof document !== "undefined" ? createPortal(
+          <div className="modal-overlay ar-route-modal-overlay" onClick={closeRoutePreparationModal}>
+            <div
+              className="modal ar-route-preparation-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={`route-modal-title-${row.id}`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-header ar-route-modal-header">
+                <div>
+                  <span className="ar-route-modal-kicker">Preparación de cobro</span>
+                  <h2 id={`route-modal-title-${row.id}`}>{row.unitId} · {row.name}</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={closeRoutePreparationModal} aria-label="Cerrar">×</button>
+              </div>
+              <div className="ar-route-modal-body">
+                <div className={`ar-route-modal-readiness ${isModalRoutePreparationComplete ? "is-complete" : "needs-action"}`}>
+                  <strong>{isModalRoutePreparationComplete ? "Lista para envío automático" : "Falta completar la ruta"}</strong>
+                  <span>
+                    {isModalRoutePreparationComplete
+                      ? "Se enviará automáticamente a Ruta en calle al guardar."
+                      : `Falta: ${modalMissingRouteRequirements.join(" y ")}.`}
+                  </span>
+                </div>
+                <div className="ar-route-modal-grid">
+                  <label className={!(Number(modalReleaseAmount) > 0) ? "is-required-missing" : undefined}>
+                    <span>Libera con {!(Number(modalReleaseAmount) > 0) ? "· Requerido" : ""}</span>
+                    <input
+                      className="ar-route-release-input"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={modalReleaseAmount}
+                      onChange={(event) => routePreparationDraft
+                        ? setRoutePreparationDraft((current) => current ? { ...current, releaseAmount: event.target.value } : current)
+                        : onRouteReleaseAmountChange(row.id, event.target.value)}
+                      placeholder={row.overdueBalance > 0 ? row.overdueBalance.toFixed(2) : "0.00"}
+                      disabled={isTodayCollectionClosed}
+                      aria-label={`Saldo para liberar de ${row.unitId}`}
+                    />
+                  </label>
+                  <label className={!modalRouteAssignment ? "is-required-missing" : undefined}>
+                    <span>Ruta {!modalRouteAssignment ? "· Requerida" : ""}</span>
+                    {customRouteEditorOpen || (!!modalRouteAssignment && !ROUTE_ASSIGNMENT_OPTIONS.includes(modalRouteAssignment)) ? (
+                      <input
+                        type="text"
+                        value={modalRouteAssignment}
+                        onChange={(event) => routePreparationDraft
+                          ? setRoutePreparationDraft((current) => current ? { ...current, routeAssignment: event.target.value } : current)
+                          : onRouteAssignmentChange(row.id, event.target.value)}
+                        onBlur={(event) => {
+                          const normalized = normalizeRouteAssignment(event.target.value);
+                          if (event.target.value !== (normalized ?? "")) {
+                            if (routePreparationDraft) setRoutePreparationDraft((current) => current ? { ...current, routeAssignment: normalized ?? "" } : current);
+                            else onRouteAssignmentChange(row.id, normalized ?? "");
+                          }
+                          if (!normalized) setCustomRouteEditorOpen(false);
+                        }}
+                        placeholder="Escribe ruta"
+                        maxLength={12}
+                        disabled={isTodayCollectionClosed}
+                      />
+                    ) : (
+                      <select
+                        value={modalRouteAssignment}
+                        onChange={(event) => {
+                          if (event.target.value === "__custom") {
+                            setCustomRouteEditorOpen(true);
+                            if (routePreparationDraft) setRoutePreparationDraft((current) => current ? { ...current, routeAssignment: "" } : current);
+                            else onRouteAssignmentChange(row.id, "");
+                            return;
+                          }
+                          if (routePreparationDraft) setRoutePreparationDraft((current) => current ? { ...current, routeAssignment: event.target.value } : current);
+                          else onRouteAssignmentChange(row.id, event.target.value);
+                        }}
+                        disabled={isTodayCollectionClosed}
+                      >
+                        <option value="">Sin ruta</option>
+                        {ROUTE_ASSIGNMENT_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                        <option value="__custom">Otra</option>
+                      </select>
+                    )}
+                  </label>
+                  <label>
+                    <span>Tipo de gestión</span>
+                    <select
+                      value={modalManagementType}
+                      onChange={(event) => routePreparationDraft
+                        ? setRoutePreparationDraft((current) => current ? { ...current, managementType: event.target.value as FieldManagementType } : current)
+                        : onRouteManagementTypeChange(row.id, event.target.value as FieldManagementType)}
+                      disabled={isTodayCollectionClosed}
+                    >
+                      <option value="solo_cobrar">Solo cobrar</option>
+                      <option value="cobrar_o_quitar">Cobrar o quitar</option>
+                      <option value="desiste">Desiste</option>
+                      <option value="quitar">Quitar</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Urgencia</span>
+                    <select
+                      value={modalUrgency}
+                      onChange={(event) => routePreparationDraft
+                        ? setRoutePreparationDraft((current) => current ? { ...current, urgency: event.target.value as RouteUrgency } : current)
+                        : onRouteUrgencyChange(row.id, event.target.value as RouteUrgency)}
+                      disabled={isTodayCollectionClosed}
+                    >
+                      {ROUTE_URGENCY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                  <label className="ar-route-modal-comment">
+                    <span>Comentario</span>
+                    <textarea
+                      value={modalComment}
+                      onChange={(event) => routePreparationDraft
+                        ? setRoutePreparationDraft((current) => current ? { ...current, comment: event.target.value } : current)
+                        : onRouteManagementCommentChange(row.id, event.target.value)}
+                      placeholder="Comentario para el cobrador..."
+                      maxLength={25}
+                      rows={3}
+                      disabled={isTodayCollectionClosed}
+                    />
+                  </label>
+                </div>
+              </div>
+              <div className="ar-route-modal-actions">
+                <button type="button" className="button ghost" onClick={() => {
+                  if (routePreparationDraft) closeRoutePreparationModal();
+                  else {
+                    closeRoutePreparationModal();
+                    openRouteRemoval();
+                  }
+                }} disabled={isTodayCollectionClosed}>
+                  {routePreparationDraft ? "Cancelar" : "Quitar de ruta"}
+                </button>
+                <button type="button" className="button primary" onClick={finishRoutePreparation} disabled={!isModalRoutePreparationComplete}>
+                  Listo
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        ) : null}
+        {renderRouteRemovalModal()}
+      </td>
+    </tr>
+  );
+}
+
+export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, next) => (
+  previous.row === next.row &&
+  previous.hidden === next.hidden &&
+  previous.followupForm === next.followupForm &&
+  previous.draftKey === next.draftKey &&
+  previous.isSecondRound === next.isSecondRound &&
+  previous.onContactOutcome === next.onContactOutcome &&
+  previous.collectorKey === next.collectorKey &&
+  previous.statusRecord === next.statusRecord &&
+  previous.operationalStatus === next.operationalStatus &&
+  previous.onContinuePaidUp === next.onContinuePaidUp &&
+  previous.tenureLabel === next.tenureLabel &&
+  previous.tenureDays === next.tenureDays &&
+  previous.todayDateKey === next.todayDateKey &&
+  Math.floor(previous.now.getTime() / 3_600_000) === Math.floor(next.now.getTime() / 3_600_000) &&
+  previous.isTodayCollectionClosed === next.isTodayCollectionClosed &&
+  previous.workflowTab === next.workflowTab &&
+  previous.collectionCutItems === next.collectionCutItems &&
+  previous.visibleCutKey === next.visibleCutKey &&
+  previous.whatsAppMessage === next.whatsAppMessage &&
+  previous.whatsAppGroupRows === next.whatsAppGroupRows &&
+  previous.statementGroupRows === next.statementGroupRows &&
+  previous.onCollectionCutStatusChange === next.onCollectionCutStatusChange &&
+  previous.onCollectionCutCommentChange === next.onCollectionCutCommentChange &&
+  previous.onRouteTagChange === next.onRouteTagChange &&
+  previous.onRouteManagementTypeChange === next.onRouteManagementTypeChange &&
+  previous.onRouteManagementCommentChange === next.onRouteManagementCommentChange &&
+  previous.onRouteAssignmentChange === next.onRouteAssignmentChange &&
+  previous.onRouteUrgencyChange === next.onRouteUrgencyChange &&
+  previous.onRouteReleaseAmountChange === next.onRouteReleaseAmountChange &&
+  previous.onWhatsAppMessageSent === next.onWhatsAppMessageSent &&
+  previous.onSupportNoteChange === next.onSupportNoteChange &&
+  previous.onContactTimeChange === next.onContactTimeChange
+  && previous.onPersistPendingChanges === next.onPersistPendingChanges
+  && previous.dailyContactCloudAttempts === next.dailyContactCloudAttempts
+  && previous.dailyContactSaveStates === next.dailyContactSaveStates
+  && previous.onDailyContactAttemptChange === next.onDailyContactAttemptChange
+  && previous.onOperationalReviewChange === next.onOperationalReviewChange
+  && previous.onOpenRoutePreparation === next.onOpenRoutePreparation
+  && previous.onOpenRoute === next.onOpenRoute
+));

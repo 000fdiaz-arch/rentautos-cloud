@@ -1,4 +1,4 @@
-import type { ReceivableFilters, ReceivableState } from "../../receivables";
+import type { ReceivableFilters, ReceivableState } from "../../receivablesLegacy";
 import { STATE_FILTER_OPTIONS } from "./receivablesPageRules";
 
 type Props = {

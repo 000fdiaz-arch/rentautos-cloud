@@ -1,5 +1,8 @@
 import type { ControlUnitRow } from "../../cloudData";
-import type { BankRule, ClientStatus } from "../../types";
+import type { BankRule, Client, ClientStatus } from "../../types";
+
+const fleetSortCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const incompleteFleetCollator = new Intl.Collator("es", { numeric: true });
 
 export type SortField = "unit_id" | "group" | "operational_status" | "brand_model" | "company" | "plate";
 export type SortDirection = "asc" | "desc";
@@ -152,6 +155,36 @@ export function getFleetCompleteness(row: ControlUnitRow): FleetCompleteness {
     missing: missingFields.map((field) => field.label),
     criticalMissing: missingFields.filter((field) => field.critical).map((field) => field.label)
   };
+}
+
+export function applyProvisionalFleetClients(rows: ControlUnitRow[], clients: Client[]): ControlUnitRow[] {
+  const firstClientByUnit = new Map<string, Client>();
+  for (const client of clients) {
+    const unit = client.activeProvisionalRental?.unitId.trim().toUpperCase();
+    if (unit !== undefined && !firstClientByUnit.has(unit)) firstClientByUnit.set(unit, client);
+  }
+  return rows.map(row => {
+    const client = firstClientByUnit.get(normalizeText(row.unit_id).toUpperCase());
+    return client ? {
+      ...row,
+      operational_status: "provisional_rental",
+      client_id: client.id,
+      client_name: client.name,
+      client_cedula: client.cedula ?? null
+    } : row;
+  });
+}
+
+export function getIncompleteFleetRows(rows: ControlUnitRow[], search: string): ControlUnitRow[] {
+  const query = search.trim().toLocaleLowerCase("es");
+  return rows
+    .map(row => ({ row, completeness: getFleetCompleteness(row) }))
+    .filter(({ completeness }) => completeness.missing.length > 0)
+    .filter(({ row }) => !query || [row.unit_id, row.brand_model, row.plate, row.engine_serial, row.chassis_serial]
+      .some(value => String(value ?? "").toLocaleLowerCase("es").includes(query)))
+    .sort((left, right) => left.completeness.completed - right.completeness.completed ||
+      incompleteFleetCollator.compare(String(left.row.unit_id ?? ""), String(right.row.unit_id ?? "")))
+    .map(({ row }) => row);
 }
 
 export function findFleetIdentityDuplicate(
@@ -371,7 +404,7 @@ export function filterAndSortFleetRows(args: {
     .sort((a, b) => {
       const left = sortField === "group" ? toGroup(a.unit_id ?? "") : normalizeText(a[sortField]);
       const right = sortField === "group" ? toGroup(b.unit_id ?? "") : normalizeText(b[sortField]);
-      const result = left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+      const result = fleetSortCollator.compare(left, right);
       return sortDirection === "asc" ? result : -result;
     });
 }

@@ -1,0 +1,107 @@
+[
+  {
+    "key": "cobrapp.module1.clients.v1",
+    "table": "clients_cloud",
+    "array": true
+  },
+  {
+    "key": "cobrapp.module2.pending_bank.v1",
+    "table": "pending_bank_items_cloud",
+    "array": true
+  },
+  {
+    "key": "cobrapp.module2.pending_card.v1",
+    "table": "pending_card_items_cloud",
+    "array": true
+  },
+  {
+    "key": "cobrapp.settings.bank_rules.v1",
+    "table": "bank_rules_cloud",
+    "array": true
+  },
+  {
+    "key": "cobrapp.module2.manual_assignment_audit.v1",
+    "table": "manual_assignment_audit_cloud",
+    "array": true
+  },
+  {
+    "key": "cobrapp.module2.late_fee_ledger.v1",
+    "table": "late_fee_ledger_cloud",
+    "array": true
+  },
+  {
+    "key": "cobrapp.module2.notified.v1",
+    "table": "notified_payments_cloud",
+    "array": true
+  },
+  {
+    "key": "cobrapp.module2.cash_closings.v1",
+    "table": "cash_closings_cloud",
+    "array": true
+  },
+  {
+    "key": "cobrapp.module2.cash_closing_audit.v1",
+    "table": "cash_closing_audit_cloud",
+    "array": true
+  },
+  {
+    "key": "cobrapp.module2.charge_runs.v1",
+    "table": "charge_runs_cloud",
+    "array": true
+  },
+  {
+    "key": "cobrapp.payments.seq.v1",
+    "table": "receipt_sequences_cloud",
+    "array": false
+  },
+  {
+    "key": "cobrapp.settings.late_fee_settings.v1",
+    "table": "late_fee_settings_cloud",
+    "array": false
+  },
+  {
+    "key": "cobrapp.settings.other_charges_retention.v1",
+    "table": "other_charges_retention_cloud",
+    "array": false
+  },
+  {
+    "key": "cobrapp.clients.status_filter.v1",
+    "table": "client_ui_prefs_cloud",
+    "array": false
+  },
+  {
+    "key": "cobrapp.module3.collection_closures.v1",
+    "table": "collection_closures_cloud",
+    "array": false
+  },
+  {
+    "key": "cobrapp.clients.daily_collection.v1",
+    "table": "clients_daily_collection_cloud",
+    "array": false
+  },
+  {
+    "key": "cobrapp.clients.daily_collection_am_seals.v1",
+    "table": "clients_daily_collection_am_seals_cloud",
+    "array": false
+  },
+  {
+    "key": "cobrapp.clients.daily_collection_pm_seals.v1",
+    "table": "clients_daily_collection_pm_seals_cloud",
+    "array": false
+  },
+  {
+    "key": "cobrapp.clients.daily_collection_close_seals.v1",
+    "table": "clients_daily_collection_close_seals_cloud",
+    "array": false
+  },
+  {
+    "key": "cobrapp.clients.daily_collection_promises.v1",
+    "table": "clients_daily_collection_promises_cloud",
+    "array": false
+  },
+  {
+    "key": "cobrapp.clients.daily_collection_street_actions.v1",
+    "table": "clients_daily_collection_street_actions_cloud",
+    "array": false
+  }
+]

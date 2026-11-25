@@ -371,7 +371,7 @@ export type Payment = {
     collectedAt: string;
   };
   routeReportId?: string;
-  /** Receipt belonging to the isolated route collection, when present. */
+  /** Receipt linked to an isolated CxC 2.0 route, never to a legacy report. */
   cxcV2RouteReportId?: string;
   bankConfirmation?: {
     routeReportId: string;

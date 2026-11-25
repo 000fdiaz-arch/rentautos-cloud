@@ -1,0 +1,30 @@
+.ar-operational-review .ar-deposit-promise-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.ar-operational-review .ar-deposit-promise-copy h3,
+.ar-operational-review .ar-deposit-promise-copy p { margin: 0; overflow-wrap: anywhere; }
+.ar-operational-review .ar-deposit-promise-form {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 12px !important;
+  min-width: 0;
+}
+.ar-operational-review .ar-deposit-promise-form > *,
+.ar-operational-review .ar-deposit-promise-field > * {
+  grid-area: auto !important;
+  width: 100% !important;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  white-space: normal;
+}
+.ar-operational-review .ar-deposit-promise-field {
+  display: flex !important;
+  flex-direction: column;
+  gap: 6px;
+}
+.ar-operational-review .ar-deposit-promise-field select { min-height: 44px; padding: 10px; }
+.ar-operational-review [role="alert"] { color: #b91c1c; margin: 0; }

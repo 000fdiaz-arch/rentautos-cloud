@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import vm from 'node:vm';
+const built=await build({stdin:{contents:'export * from "./src/pages/receivablesV2/collectionAmountDue";',resolveDir:process.cwd()},bundle:true,platform:'node',format:'cjs',write:false,define:{'import.meta.env':'{}'}});
+const module={exports:{}};vm.runInNewContext(built.outputFiles[0].text,{module,exports:module.exports,Date,Intl,console});
+const {otherChargeAmountDue,requiresCollectionPayment}=module.exports;
+// Read-only A15 snapshot: rent paid, $491 outstanding, $12 weekly paid Nov 14.
+const client={id:'a15',frequency:'weekly',weeklyChargeDay:'friday',balance:0,rentAmount:204,otherCharges:[{id:'repair',label:'REPARACION',amount:491,createdAt:'2026-10-29'}]};
+const settings={a15:{amount:12,cycle:'weekly'}};
+const checkpoint={clientId:'a15',paymentId:'receipt',dateApplied:'2026-11-14',createdAt:'2026-11-14T15:13:34.322Z',retentionEvent:{mode:'automatic',cycle:'weekly',baseAmount:12,cyclesElapsed:1,calculatedAmount:12,appliedAmount:12}};
+const due=(date,cp=checkpoint,balance=491)=>otherChargeAmountDue(client,balance,settings,[],date,cp);
+assert.equal(due('2026-11-19'),0);
+assert.equal(due('2026-11-20'),12);
+assert.equal(due('2026-11-27'),24);
+assert.equal(due('2026-11-20',checkpoint,5),5);
+assert.equal(due('2026-11-19',{...checkpoint,retentionEvent:{...checkpoint.retentionEvent,appliedAmount:7}}),5);
+const row={totalPending:0,totalOtherCharges:491,outstandingOtherChargeAmount:491,otherChargeAmountDue:due('2026-11-19')};
+assert.equal(requiresCollectionPayment(row),false,'A15 must show GPS while installments and rent are current');
+assert.equal(requiresCollectionPayment({...row,otherChargeAmountDue:12}),true);
+assert.equal(requiresCollectionPayment({...row,totalPending:1}),true);
+assert.equal(requiresCollectionPayment({...row,outstandingFineAmount:1}),true);
+assert.equal(requiresCollectionPayment({...row,outstandingLateFeeAmount:1}),true);
+assert.equal(requiresCollectionPayment({...row,outstandingTicketAmount:1}),true);
+console.log('PASS A15 GPS Nov19, next quota Nov20, accumulated/partial quotas, balance cap, rent and separate charges. No database writes.');

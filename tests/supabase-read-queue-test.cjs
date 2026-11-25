@@ -1,0 +1,36 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),ts=require('typescript'),vm=require('node:vm');
+const exportsForTest={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/supabaseReadQueue.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:exportsForTest,URL,Request,Response,DOMException});
+const settle=()=>new Promise(r=>setImmediate(r));
+(async()=>{
+ const requests=[];let inflight=0,max=0;
+ const transport=(input,init)=>new Promise((resolve,reject)=>{inflight++;max=Math.max(max,inflight);requests.push({input,init,resolve:r=>{inflight--;resolve(r);},reject:e=>{inflight--;reject(e);}});});
+ const queued=exportsForTest.createSupabaseReadQueue(transport,'https://db.test');
+ const args=Array.from({length:10},(_,i)=>[`https://db.test/rest/v1/data?owner=${i}`,{headers:{authorization:'synthetic-only'},signal:new AbortController().signal}]);
+ const results=args.map(([input,init])=>queued(input,init));await settle();assert.equal(requests.length,4);assert.equal(max,4);
+ for(let i=0;i<10;i++){assert.equal(requests[i].input,args[i][0]);assert.equal(requests[i].init,args[i][1]);const response=new Response(`body-${i}`);requests[i].resolve(response);await settle();assert.equal(await results[i],response);assert.equal(await response.text(),`body-${i}`);}
+ assert.equal(max,4);
+ const blocker=Array.from({length:4},()=>queued('https://db.test/rest/v1/data'));await settle();
+ const abort=new AbortController();const cancelled=queued('https://db.test/rest/v1/later',{signal:abort.signal});abort.abort();await assert.rejects(cancelled,e=>e.name==='AbortError');
+ const writes=queued('https://db.test/rest/v1/data',{method:'POST',body:'unchanged'});const auth=queued('https://db.test/auth/v1/token',{method:'POST'});const storage=queued('https://db.test/storage/v1/object/photo');const mutation=queued('https://db.test/rest/v1/rpc/save_data',{method:'POST'});const foreign=queued('https://other.test/rest/v1/data');await settle();
+ assert.equal(requests.length,19,'writes/auth/storage/mutations/other origins bypass pending reads');
+ requests.slice(10,19).forEach(r=>r.resolve(new Response('ok')));await Promise.all([...blocker,writes,auth,storage,mutation,foreign]);await settle();
+ const controller=new AbortController();controller.abort();await assert.rejects(queued(new Request('https://db.test/rest/v1/data',{signal:controller.signal})),e=>e.name==='AbortError');
+ let failed=false;const resilient=exportsForTest.createSupabaseReadQueue(async()=>{if(!failed){failed=true;throw Error('network');}return new Response('restored');},'https://db.test',1);
+ const first=resilient('https://db.test/rest/v1/data'),second=resilient('https://db.test/rest/v1/data');await assert.rejects(first,/network/);assert.equal(await(await second).text(),'restored');
+ const rpcCalls=[];const rpcQueue=exportsForTest.createSupabaseReadQueue((...args)=>new Promise(resolve=>rpcCalls.push({args,resolve})),'https://db.test',1);
+ const rpc=rpcQueue('https://db.test/rest/v1/rpc/read_cloud_mirror_snapshot',{method:'POST',body:'preserved'}),next=rpcQueue('https://db.test/rest/v1/rpc/read_initial_payments_snapshot',{method:'POST'});await settle();assert.equal(rpcCalls.length,1);assert.equal(rpcCalls[0].args[1].body,'preserved');rpcCalls[0].resolve(new Response('{}'));await rpc;await settle();assert.equal(rpcCalls.length,2);rpcCalls[1].resolve(new Response('{}'));await next;
+ const mixedCalls=[];
+ const prioritized=exportsForTest.createSupabaseReadQueue((input,init)=>new Promise(resolve=>mixedCalls.push({input,init,resolve})),'https://db.test');
+ const mixed=[prioritized('https://db.test/rest/v1/rpc/read_control_units_snapshot',{method:'POST'})];
+ for(let i=0;i<3;i++)mixed.push(prioritized(`https://db.test/rest/v1/background-${i}`));
+ await settle();assert.equal(mixedCalls.length,2,'Core work reserves room instead of filling every slot with background reads');
+ for(const name of['read_cloud_mirror_snapshot','read_clients_snapshot_if_changed','read_initial_payments_snapshot'])mixed.push(prioritized(`https://db.test/rest/v1/rpc/${name}`,{method:'POST'}));
+ await settle();assert.equal(mixedCalls.length,4);assert.ok(mixedCalls[2].input.endsWith('/read_cloud_mirror_snapshot'));assert.ok(mixedCalls[3].input.endsWith('/read_clients_snapshot_if_changed'),'Core reads overtake queued background work');
+ mixedCalls[1].resolve(new Response('{}'));await settle();assert.ok(mixedCalls[4].input.endsWith('/read_initial_payments_snapshot'));
+ mixedCalls[0].resolve(new Response('{}'));await settle();assert.ok(mixedCalls[5].input.endsWith('/background-1'),'Background reads still make progress while core work runs');
+ for(const i of[2,3,4,5])mixedCalls[i].resolve(new Response('{}'));await settle();assert.ok(mixedCalls[6].input.endsWith('/background-2'));
+ mixedCalls[6].resolve(new Response('{}'));await Promise.all(mixed);await settle();
+ const allBackground=Array.from({length:4},()=>prioritized('https://db.test/rest/v1/background'));await settle();assert.equal(mixedCalls.length,11,'All four slots return to background work after core completes');
+ mixedCalls.slice(7).forEach(r=>r.resolve(new Response('{}')));await Promise.all(allBackground);
+ console.log('PASS read queue: bounded core priority with reserved slots and background recovery, FIFO per class, exact native responses/options/bodies/signals, cancellation/failure recovery; writes/auth/storage/foreign traffic bypass.');
+})().catch(e=>{console.error(e);process.exitCode=1;});

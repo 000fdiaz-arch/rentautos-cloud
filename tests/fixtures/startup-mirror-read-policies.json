@@ -1,0 +1,38 @@
+[
+  {
+    "tablename": "bank_rules_cloud",
+    "policyname": "bank_rules_cloud_settings_or_payments_read",
+    "roles": "{authenticated}",
+    "qual": "(( SELECT can_view_owner_screen(bank_rules_cloud.user_id, 'settings'::text) AS can_view_owner_screen) OR ( SELECT can_view_owner_screen(bank_rules_cloud.user_id, 'payments'::text) AS can_view_owner_screen))",
+    "permissive": "PERMISSIVE",
+    "cmd": "SELECT",
+    "with_check": null
+  },
+  {
+    "tablename": "cash_closing_audit_cloud",
+    "policyname": "cash_closing_audit_cloud_screen_read",
+    "roles": "{authenticated}",
+    "qual": "can_view_owner_screen(user_id, 'payments'::text)",
+    "permissive": "PERMISSIVE",
+    "cmd": "SELECT",
+    "with_check": null
+  },
+  {
+    "tablename": "cash_closings_cloud",
+    "policyname": "cash_closings_cloud_screen_read",
+    "roles": "{authenticated}",
+    "qual": "can_view_owner_screen(user_id, 'payments'::text)",
+    "permissive": "PERMISSIVE",
+    "cmd": "SELECT",
+    "with_check": null
+  },
+  {
+    "tablename": "pending_card_items_cloud",
+    "policyname": "pending_card_items_cloud_screen_read",
+    "roles": "{authenticated}",
+    "qual": "can_view_owner_screen(user_id, 'payments'::text)",
+    "permissive": "PERMISSIVE",
+    "cmd": "SELECT",
+    "with_check": null
+  }
+]

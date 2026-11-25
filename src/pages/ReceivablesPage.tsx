@@ -1,4 +1,5 @@
-import RouteSearchPage, { type RouteSearchPageProps } from "./RouteSearchPage";
+import "./receivables/productionSnapshot.css";
+import RouteSearchPage, { type RouteSearchPageProps } from "./RouteSearchLegacyPage";
 import "./receivables/receivablesResponsive.css";
 import { getBusinessDateKey } from "../billing";
 import { getRouteWorkItems, routeRentAmountForDay } from "../routeReviewRules";
@@ -52,7 +53,7 @@ import {
   type ReceivableSortField,
   type ReceivableState,
   type SortDirection
-} from "../receivables";
+} from "../receivablesLegacy";
 import type { BillingFrequency, Client, LateFeeSettings, Payment } from "../types";
 import type {
   CollectionStatus,

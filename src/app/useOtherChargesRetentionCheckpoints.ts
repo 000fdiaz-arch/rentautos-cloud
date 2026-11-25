@@ -30,7 +30,9 @@ export function useOtherChargesRetentionCheckpoints(ownerUserId?: string | null)
       }
     };
 
-    void reload();
+    // StrictMode cancels its first effect before this microtask. Keep the live
+    // subscription immediate, but avoid sending a duplicate startup read.
+    void Promise.resolve().then(() => { if (!cancelled) return reload(); });
     const client = supabase;
     if (!client) return () => { cancelled = true; };
     const channel = client

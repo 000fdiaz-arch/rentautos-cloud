@@ -1,40 +1,14 @@
 # Reportes de pagos en Ruta en calle
 
-## Declaración de custodia por Delta
+## Cobro de efectivo fuera de ruta
 
-- El botón visible de cada tarjeta dice **Declarar en custodia**, con la indicación **Solo si el auto fue despojado del conductor**.
-- La vista previa desde Admin muestra el botón y la confirmación, con aviso y guardado deshabilitado. La declaración real se realiza desde la cuenta del Delta.
-- El Delta confirma la unidad antes de guardar. Pasa de Trabajo a Gestionados hoy como En custodia, pendiente de revisión administrativa, con atribución al usuario autenticado.
-- La RPC valida la asignación actual del Delta, la publicación y el estado esperado. El Delta no puede sacar el auto de custodia ni declarar autos de otro Delta.
-- El recorrido se inicia con la primera captación y se reutiliza aunque las unidades asignadas estén en varias rutas. Cada captación conserva su propia ruta.
-- Aplicar únicamente 20261123000300_route_delta_custody_declaration.sql. Pruebas: route-delta-custody-db-test.mjs y route-delta-custody-ui-test.mjs, con datos sintéticos.
+El botón **Cobrar otra unidad** permite buscar un cliente activo y registrar efectivo sin publicarlo en ruta ni modificar su gestión. El Delta de la sesión queda fijo; Administración selecciona quién recibió el efectivo. El equipo PTY/WC se obtiene del Delta.
 
-## Motivo Panapass
+Antes de seleccionar y confirmar se consulta la publicación vigente. Si la unidad ya está en ruta, se abre su tarjeta en Trabajo, revisión o custodia según su estado; una sesión Delta no puede cobrar por esta vía unidades activas de otro Delta. El registro vuelve a comprobar el estado activo del cliente y su ruta, y reutiliza la transacción habitual de pago y recibo, con control de saldo e idempotencia de la RPC.
 
-- Admin marca la tarjeta con Más acciones → Marcar deuda de Panapass (dos clics). El mismo menú permite Quitar marca Panapass.
-- El logo suministrado aparece pequeño solo en tarjetas marcadas, también para los Deltas y la vista previa. No se infiere de multas o saldos.
-- La marca se guarda por publicación de ruta con autor y fecha. No modifica cobros, montos, acción solicitada ni Delta asignado.
-- Aplicar 20261123000400_route_panapass_reason.sql. Pruebas: route-panapass-db-test.mjs y route-panapass-ui-test.mjs.
+El pago conserva `outsideRouteCollection` con versión de cartera, Delta, equipo, autor y fecha. Se muestra como **Fuera de ruta** en Gestionados hoy y se incluye en el efectivo pendiente de entrega. Las acciones fuera de ruta se consolidan por cliente, unidad y Delta; no se suman a las visitas asignadas en Trabajo. El resumen de equipos desglosa el efectivo en ruta y fuera de ruta. Los registros de la cartera original y CxC 2.0 permanecen separados.
 
-## Administración y filtros
-
-- Vista se cambia con Admin, Delta 1, Delta 2 o Delta 3. La vista previa es de lectura y conserva el alcance de cada Delta al filtrar por ruta.
-- Ruta utiliza un selector junto al buscador. Las zonas permanecen visibles.
-- Admin puede cambiar la acción solicitada desde la etiqueta de la tarjeta; se comprueba publicación y acción anterior y se guarda auditoría.
-- Las declaraciones de dinero son exclusivas de buscadores. Admin conserva revisión y conciliación. Aplicar `20261123000200_route_admin_actions_and_declarations.sql`.
-- Validación de roles y concurrencia: `tests/route-admin-actions-db-test.mjs`; vistas y tamaños de 360 a 1366 px: `tests/route-admin-controls-ui-test.mjs`.
-
-## Declaraciones y vista de los Deltas
-
-- Arriba se declara efectivo, transferencia o pago mixto. Transferencias y mixtos se limitan a unidades en ruta y se vuelven a validar antes de guardar.
-- El efectivo fuera de ruta utiliza el pago y recibo habituales y conserva Delta, equipo, autor y fecha en `outsideRouteCollection`. No publica la unidad en ruta.
-- El efectivo genera recibo y queda pendiente de entrega; la transferencia espera confirmación. Los mixtos conservan ambas partes.
-- Los Deltas ven Trabajo y Gestionados hoy. La lista compacta filtra resultados y métodos; un pago con ambos métodos aparece en ambos filtros sin duplicar el total.
-- Las zonas están visibles, con conteos por asignación y orden de mayor a menor para los Deltas. La tarjeta destaca acción, monto, comentarios, zona y tiempo.
-- Datos del auto consulta placa, color y marca/modelo al abrir el bloque. Aplicar `supabase/migrations/20261123000100_route_vehicle_details.sql`: lectura de tres campos por unidad, dueño, publicación y Delta, sin acceso general a Autos.
-- Compartir por ruta y el botón Marcar inactivo quedan ocultos. El resumen del equipo excluye cuentas Delta desactivadas.
-
-Pruebas: `tests/route-payment-declarations-ui-test.mjs`, `tests/outside-route-cash-ui-test.mjs`, `tests/route-vehicle-zones-ui-test.mjs`, `tests/route-vehicle-details-db-test.mjs`. Los fixtures usan datos sintéticos y bloquean solicitudes externas.
+No requiere migración adicional. Pruebas: `node tests/outside-route-cash-test.mjs`, `node tests/outside-route-cash-db-test.mjs` y, con Vite levantado en 5174, `node tests/outside-route-cash-ui-test.mjs`. Vista local con datos ficticios: `/tests/fixtures/outside-route-cash.html`.
 
 ## Instalación
 

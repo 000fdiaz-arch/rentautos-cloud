@@ -1,5 +1,5 @@
 import { formatCurrency } from "../../format";
-import type { ReceivableRow } from "../../receivables";
+import type { ReceivableRow } from "../../receivablesLegacy";
 import { fieldManagementLabel, type CollectionStatusRecord, type RouteExportFormat } from "./receivablesTypes";
 
 type Options = {

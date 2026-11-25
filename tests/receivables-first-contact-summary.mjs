@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';import {build} from 'esbuild';import vm from 'node:vm';import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url),module={exports:{}};
+const out=await build({entryPoints:['src/pages/receivablesV2/FirstContactSummary.tsx'],bundle:true,jsx:'automatic',platform:'node',format:'cjs',write:false,loader:{'.css':'empty'},packages:'external'});
+vm.runInNewContext(out.outputFiles[0].text,{module,exports:module.exports,require,Date,Intl});const {firstContactSummary}=module.exports;
+const at=(result,time,extra={})=>({result,date:'2026-11-24',collector:'collector-1',at:`2026-11-24T${time}:00Z`,...extra});
+const props={rows:['A01','A02','A03','A04'].map(id=>({id,unitId:id,name:id})),today:'2026-11-24',collector:'collector-1',reviews:{},records:{A01:{contactOutcomes:[at('no_answer','14:00')]},A02:{contactOutcomes:[at('promise','14:10',{promiseAmount:20,promiseDate:'2026-11-25',promiseTime:'18:00'})],routeTaggedAt:'2026-11-24T15:00:00Z'},A03:{contactOutcomes:[at('paid_up','14:20')]}}};
+const initial=firstContactSummary(props);assert.deepEqual(Array.from(initial.entries,e=>e.category),['no_answer','promise','paid_up','pending']);assert.equal(initial.route.length,1);
+props.records.A01.contactOutcomes.push(at('promise','16:00',{promiseAmount:40}));props.records.A02.contactOutcomes.push(at('no_answer','16:10'));
+const before=JSON.stringify(props);const after=firstContactSummary(props);assert.equal(JSON.stringify(after),JSON.stringify(initial));assert.equal(JSON.stringify(props),before);
+assert.equal(JSON.stringify(firstContactSummary(JSON.parse(JSON.stringify(props)))),JSON.stringify(initial));
+assert.ok(firstContactSummary({...props,collector:'collector-2'}).entries.every(e=>e.category==='pending'));
+assert.ok(firstContactSummary({...props,today:'2026-11-25'}).entries.every(e=>e.category==='pending'));
+assert.equal(firstContactSummary({...props,today:'2026-11-25'}).route.length,0);
+const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');const html=renderToStaticMarkup(React.createElement(module.exports.FirstContactSummary,props));assert.ok(html.includes('Primer contacto'));assert.ok(html.includes('Sin respuesta'));assert.ok(html.includes('aria-haspopup="dialog"'));
+console.log('PASS immutable first outcome after second contact/reload; collector/day isolation; independent route count; paid-up and pending categories; read-only summary render.');

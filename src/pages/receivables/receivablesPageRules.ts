@@ -1,5 +1,5 @@
 import { formatCurrency } from "../../format";
-import { PLAN_LABEL, type ReceivableRow, type ReceivableState, type SortDirection } from "../../receivables";
+import { PLAN_LABEL, type ReceivableRow, type ReceivableState, type SortDirection } from "../../receivablesLegacy";
 import type { Client } from "../../types";
 import type {
   CollectionStatus,

@@ -1,0 +1,11 @@
+import {build} from 'esbuild';import {createRequire} from 'node:module';import vm from 'node:vm';import assert from 'node:assert/strict';
+const require=createRequire(import.meta.url),module={exports:{}};
+const out=await build({entryPoints:['src/pages/receivablesV2/promiseFollowup.ts'],bundle:true,platform:'node',format:'cjs',write:false});
+vm.runInNewContext(out.outputFiles[0].text,{module,exports:module.exports,require,Date,Intl});
+const promise={collector:'collector-1',result:'promise',at:'2026-11-24T15:00:00Z',date:'2026-11-24',promiseDate:'2026-11-25',promiseTime:'18:00',promiseAmount:20,promiseCancelledAt:'2026-11-25T15:00:00Z'};
+const record={contactOutcomes:[promise]},before=JSON.stringify(record);
+assert.equal(module.exports.promiseFollowup(record,'collector-1',[],new Date('2026-11-26T00:00:00Z')),null);
+assert.equal(JSON.stringify(record),before);
+record.contactOutcomes.push({...promise,promiseCancelledAt:undefined,at:'2026-11-25T16:00:00Z'});
+assert.equal(module.exports.promiseFollowup(record,'collector-1',[],new Date('2026-11-26T00:00:00Z')).remaining,20);
+console.log('PASS cancellation preserves history, suppresses pending promise, allows new promises');

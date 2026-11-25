@@ -30,9 +30,10 @@ import { RetiredFleetList } from "./controlUnits/RetiredFleetList";
 import { FleetStatusModal } from "./controlUnits/FleetStatusModal";
 import { FleetTable } from "./controlUnits/FleetTable";
 import { UnitFormModal } from "./controlUnits/UnitFormModal";
-import { useControlUnitsRows } from "./controlUnits/useControlUnitsRows";
+import { useControlUnitsRows, type ControlUnitsRowsState } from "./controlUnits/useControlUnitsRows";
 import {
   DEFAULT_FORM,
+  applyProvisionalFleetClients,
   UNIT_GROUP_MAX,
   buildFleetPieData,
   describeStatusError,
@@ -44,7 +45,7 @@ import {
   getFleetCompanyForGroup,
   getFleetCompanyOptions,
   getFleetFilterOptions,
-  getFleetCompleteness,
+  getIncompleteFleetRows,
   isCatalogEligible,
   normalizeStatus,
   normalizeText,
@@ -61,8 +62,10 @@ import {
   type UnitFormState
 } from "./controlUnits/controlUnitsRules";
 import { supabase } from "../lib/supabase";
+import { markStartupPhase } from "../lib/startupDiagnostics";
 
 type Props = {
+  fleetData?: ControlUnitsRowsState;
   dataOwnerUserId?: string | null;
   readOnly?: boolean;
   clients?: Client[];
@@ -71,13 +74,18 @@ type Props = {
 };
 
 export default function ControlUnitsPage({
+  fleetData,
   dataOwnerUserId,
   readOnly = false,
   clients = [],
   bankRules = [],
   onFleetClientStatusSync
 }: Props) {
-  const { rows, setRows, retiredRows, loading, loadError, reloadRows, reloadAllRows } = useControlUnitsRows(dataOwnerUserId);
+  const ownFleetData = useControlUnitsRows(dataOwnerUserId, !fleetData);
+  const { rows, setRows, retiredRows, loading, loadError, retiredLoading, retiredLoadError, reloadRows, reloadRetiredRows, reloadAllRows } = fleetData ?? ownFleetData;
+  useEffect(() => {
+    if (!loading && !loadError) markStartupPhase("autos-ready");
+  }, [loading, loadError]);
   const [saving, setSaving] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string>("");
   const [statusSaving, setStatusSaving] = useState<boolean>(false);
@@ -118,17 +126,7 @@ export default function ControlUnitsPage({
   const [historyLoading, setHistoryLoading] = useState<boolean>(false);
   const [historyError, setHistoryError] = useState<string>("");
 
-  const displayRows = useMemo(() => rows.map((row) => {
-    const unitId = normalizeText(row.unit_id).toUpperCase();
-    const rentalClient = clients.find((client) => client.activeProvisionalRental?.unitId.trim().toUpperCase() === unitId);
-    return rentalClient ? {
-      ...row,
-      operational_status: "provisional_rental",
-      client_id: rentalClient.id,
-      client_name: rentalClient.name,
-      client_cedula: rentalClient.cedula ?? null
-    } : row;
-  }), [clients, rows]);
+  const displayRows = useMemo(() => applyProvisionalFleetClients(rows, clients), [clients, rows]);
 
   const { groups, companies, models, statuses } = useMemo(() => getFleetFilterOptions(displayRows), [displayRows]);
   const companyOptions = useMemo(() => getFleetCompanyOptions(displayRows, bankRules), [bankRules, displayRows]);
@@ -155,17 +153,7 @@ export default function ControlUnitsPage({
     });
   }, [catalogClock, catalogSearch, custodySinceByUnit, displayRows, showFullFleet]);
   const pieData = useMemo(() => buildFleetPieData(displayRows), [displayRows]);
-  const incompleteRows = useMemo(() => {
-    const query = incompleteSearch.trim().toLocaleLowerCase("es");
-    return displayRows
-      .filter((row) => getFleetCompleteness(row).missing.length > 0)
-      .filter((row) => !query || [row.unit_id, row.brand_model, row.plate, row.engine_serial, row.chassis_serial]
-        .some((value) => String(value ?? "").toLocaleLowerCase("es").includes(query)))
-      .sort((left, right) => {
-        const difference = getFleetCompleteness(left).completed - getFleetCompleteness(right).completed;
-        return difference || String(left.unit_id ?? "").localeCompare(String(right.unit_id ?? ""), "es", { numeric: true });
-      });
-  }, [displayRows, incompleteSearch]);
+  const incompleteRows = useMemo(() => getIncompleteFleetRows(displayRows, incompleteSearch), [displayRows, incompleteSearch]);
   const kpiTotal = displayRows.length;
   const hasActiveFilters = search.trim().length > 0 ||
     groupFilter !== "all" ||
@@ -754,11 +742,18 @@ export default function ControlUnitsPage({
         </div>
       )}
 
-      {loadError && <p className="hint error-text">{loadError}</p>}
+      {(fleetView === "retired" ? retiredLoadError : loadError) && (
+        <div role="alert">
+          <p className="hint error-text">{fleetView === "retired" ? retiredLoadError : loadError}</p>
+          <button type="button" className="button ghost small" onClick={() => {
+            void (fleetView === "retired" ? reloadRetiredRows() : reloadRows()).catch((error) => console.error("No se pudo recargar autos.", error));
+          }}>Volver a intentar</button>
+        </div>
+      )}
       {saveError && <p className="hint error-text">{saveError}</p>}
       {lifecycleMessage && <p className="hint" role="status">{lifecycleMessage}</p>}
 
-      {loading ? (
+      {(fleetView === "retired" ? retiredLoading : loading) ? (
         <p className="hint">Cargando flota...</p>
       ) : fleetView === "catalog" ? (
         <FleetCatalog rows={catalogRows} readOnly={readOnly} showInternalDetails showFullFleet={showFullFleet} onEdit={openCatalogEditDialog} onHistory={openHistoryDialog} />

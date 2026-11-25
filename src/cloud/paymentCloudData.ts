@@ -418,6 +418,89 @@ export function paymentMatchesTargetIdentity(payment: Payment, target: CloudLate
   return normalizePaymentLookupText(payment.clientName) === normalizePaymentLookupText(target.name);
 }
 
+async function loadCloudPaymentsByIdentityField(
+  userId: string,
+  field: "data->>clientId" | "data->>clientUnit",
+  value: string
+): Promise<Payment[]> {
+  if (!value.trim()) return [];
+  const client = getCloudClient();
+  const rows: DataRow<Payment>[] = [];
+  let offset = 0;
+  while (true) {
+    const query = client
+      .from("payments_cloud")
+      .select("id,data")
+      .eq("user_id", userId)
+      .eq(field, value)
+      // Do not order this database query by id: that makes Postgres walk the
+      // owner's full payment history before filtering the requested client.
+      // The small, targeted result is sorted by payment date in memory below.
+      .range(offset, offset + PAGE_SIZE - 1);
+    const batch = await runCloudPaymentQuery(() => query) as DataRow<Payment>[];
+    rows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    offset += batch.length;
+  }
+  return rows.map((row) => row.data);
+}
+
+export async function loadCloudPaymentHistoryForReceivableTarget(
+  userId: string,
+  target: CloudLatestPaymentTarget
+): Promise<Payment[]> {
+  const normalizedTarget = {
+    ...target,
+    clientId: target.clientId.trim(),
+    unitId: target.unitId.trim(),
+    name: target.name.trim(),
+    cedula: target.cedula?.trim()
+  };
+  if (!normalizedTarget.clientId) return [];
+  const key = [
+    "receivable-payment-history",
+    userId,
+    normalizedTarget.clientId,
+    normalizePaymentLookupUnit(normalizedTarget.unitId),
+    normalizePaymentLookupCedula(normalizedTarget.cedula),
+    normalizePaymentLookupText(normalizedTarget.name)
+  ].join(":");
+  return dedupeLoad(key, async () => {
+    try {
+      const rpcRows = await runCloudPaymentQuery(() => getCloudClient().rpc(
+        "payment_history_for_receivable_target",
+        {
+          p_owner_user_id: userId,
+          p_client_id: normalizedTarget.clientId,
+          p_unit_id: normalizedTarget.unitId || null
+        }
+      )) as DataRow<Payment>[];
+      const byId = new Map<string, Payment>();
+      for (const row of rpcRows) {
+        const payment = row.data;
+        if (payment && paymentMatchesTargetIdentity(payment, normalizedTarget)) byId.set(payment.id, payment);
+      }
+      return [...byId.values()].sort(comparePaymentDateDesc);
+    } catch (error) {
+      if (!isMissingRpcFunctionError(error)) throw error;
+    }
+
+    const directPayments = await loadCloudPaymentsByIdentityField(
+      userId,
+      "data->>clientId",
+      normalizedTarget.clientId
+    );
+    const unitPayments = directPayments.length === 0 && normalizedTarget.unitId
+      ? await loadCloudPaymentsByIdentityField(userId, "data->>clientUnit", normalizedTarget.unitId)
+      : [];
+    const byId = new Map<string, Payment>();
+    for (const payment of [...directPayments, ...unitPayments]) {
+      if (paymentMatchesTargetIdentity(payment, normalizedTarget)) byId.set(payment.id, payment);
+    }
+    return [...byId.values()].sort(comparePaymentDateDesc);
+  });
+}
+
 export async function loadCloudLatestPaymentsForReceivableTargets(userId: string, targets: CloudLatestPaymentTarget[]): Promise<Payment[]> {
   const uniqueTargets = [...new Map(
     targets
@@ -961,7 +1044,7 @@ export async function deleteCloudPaymentsAtomic(
     });
     if (result.error) throw result.error;
     return result;
-  });
+  }, 3, { retryStatementTimeout: false });
   const payload = data as { clients?: unknown; deletedPaymentIds?: unknown; idempotent?: unknown } | null;
   if (!Array.isArray(payload?.clients) || !Array.isArray(payload.deletedPaymentIds)) {
     throw new Error("Supabase no devolvio el resultado completo de la eliminacion de pagos.");

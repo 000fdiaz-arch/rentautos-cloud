@@ -5,6 +5,7 @@ import BankRulesSettingsPanel from "./settings/BankRulesSettingsPanel";
 import FinesSettingsPanel from "./settings/FinesSettingsPanel";
 import LateFeeSettingsPanel from "./settings/LateFeeSettingsPanel";
 import OtherChargesSettingsPanel from "./settings/OtherChargesSettingsPanel";
+import ReceivablesCollectorPinsSettingsPanel from "./settings/ReceivablesCollectorPinsSettingsPanel";
 import TicketsSettingsPanel from "./settings/TicketsSettingsPanel";
 import UserPermissionsSettingsPanel from "./settings/UserPermissionsSettingsPanel";
 import type {
@@ -14,10 +15,11 @@ import type {
   OtherChargesRetentionByClient
 } from "../types";
 
-type SettingsTab = "backup" | "migration" | "late_fees" | "fines" | "tickets" | "other_charges" | "bank_rules" | "users";
+type SettingsTab = "backup" | "migration" | "late_fees" | "fines" | "tickets" | "other_charges" | "bank_rules" | "collector_pins" | "users";
 
 type Props = {
   currentUserId?: string;
+  dataOwnerUserId?: string | null;
   canViewSettings: boolean;
   canEditSettings: boolean;
   canManageUsers: boolean;
@@ -48,6 +50,7 @@ function normalizeUnitId(value: string): string {
 
 export default function SettingsPage({
   currentUserId,
+  dataOwnerUserId,
   canViewSettings,
   canEditSettings,
   canManageUsers,
@@ -79,7 +82,8 @@ export default function SettingsPage({
       { id: "fines" as const, label: "Multas" },
       { id: "tickets" as const, label: "Boletas" },
       { id: "other_charges" as const, label: "Otros cargos" },
-      { id: "bank_rules" as const, label: "Regla bancaria" }
+      { id: "bank_rules" as const, label: "Regla bancaria" },
+      { id: "collector_pins" as const, label: "PIN de cobradores" }
     ] : []),
     ...(canManageUsers ? [{ id: "users" as const, label: "Usuarios" }] : [])
   ];
@@ -133,6 +137,10 @@ export default function SettingsPage({
       {visibleActiveTab === "other_charges" && canViewSettings && <OtherChargesSettingsPanel clients={clients} settings={otherChargesRetentionByClient} onChange={canEditSettings ? onOtherChargesRetentionByClientChange : () => undefined} />}
 
       {visibleActiveTab === "bank_rules" && canViewSettings && <BankRulesSettingsPanel bankRules={bankRules} onChange={canEditSettings ? onBankRulesChange : () => undefined} />}
+
+      {visibleActiveTab === "collector_pins" && canViewSettings && (
+        <ReceivablesCollectorPinsSettingsPanel dataOwnerUserId={dataOwnerUserId} canEdit={canEditSettings} />
+      )}
 
       {visibleActiveTab === "users" && canManageUsers && <UserPermissionsSettingsPanel currentUserId={currentUserId} />}
     </>

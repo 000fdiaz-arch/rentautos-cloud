@@ -10,7 +10,7 @@ function ImpactSummary({ impact }: { impact: FleetLifecycleImpact | null }) {
         <span>Rutas activas: <b>{impact.activeRoutes}</b></span>
         <span>Promesas pendientes: <b>{impact.pendingPromises}</b></span>
         <span>Reclamos sin finalizar: <b>{impact.openInsuranceClaims}</b> (no impiden la baja)</span>
-        <span>Colisiones abiertas: <b>{impact.openCollisionCases}</b></span>
+        <span>Colisiones abiertas: <b>{impact.openCollisionCases}</b> (no impiden la baja)</span>
       </div>
     </div>
   );
@@ -113,7 +113,7 @@ export function RetireFleetUnitModal({
   onConfirm: () => void;
 }) {
   const blockers = impact
-    ? impact.activeClients + impact.activeRoutes + impact.pendingPromises + impact.openCollisionCases
+    ? impact.activeClients + impact.activeRoutes + impact.pendingPromises
     : 1;
   return (
     <div className="modal-overlay">
@@ -124,6 +124,7 @@ export function RetireFleetUnitModal({
         </div>
         <div className="modal-body">
           <p>La unidad saldrá de la flota activa y la nomenclatura <b>{target.unit_id}</b> quedará disponible.</p>
+          <p className="hint">Los reclamos de seguro y expedientes de colisión conservarán sus datos y su estado actual. Podrás seguir gestionándolos desde Control de siniestros después de la baja.</p>
           <div className="form-grid">
             <label>Motivo de baja
               <select value={reason} onChange={(event) => onReasonChange(event.target.value)}>
@@ -139,7 +140,7 @@ export function RetireFleetUnitModal({
             </label>
           </div>
           <ImpactSummary impact={impact} />
-          {impact && blockers > 0 && <p className="error-text">Resuelve primero las relaciones activas indicadas arriba.</p>}
+          {impact && blockers > 0 && <p className="error-text">Resuelve primero los clientes o alquileres activos, las rutas activas y las promesas pendientes indicadas arriba.</p>}
           {error && <p className="error-text" role="alert">{error}</p>}
           <div className="modal-actions">
             <button type="button" className="button ghost" onClick={onCancel} disabled={saving}>Cancelar</button>

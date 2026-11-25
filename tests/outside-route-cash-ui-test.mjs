@@ -16,7 +16,7 @@ try {
     await dialog.getByLabel('Buscar unidad o cliente').fill(unit);
     await dialog.getByRole('button', { name: new RegExp(unit) }).click();
   }
-  for (const mode of ['']) {
+  for (const mode of ['', '&legacy', '&version=v2']) {
     await page.goto(fixture + '?operator=delta1' + mode);
     await page.evaluate(() => sessionStorage.clear());
     await page.reload();
@@ -89,5 +89,5 @@ try {
   await page.getByRole('button', { name: /Trabajo/ }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Declarar efectivo · EN RUTA Y FUERA DE RUTA', exact: true }).count(), 0);
   assert.deepEqual(errors, []);
-  console.log('outside-route-cash UI: published route page, receipt, reload, cash custody, failure, double submit, publication race, Delta permissions and mobile OK');
+  console.log('outside-route-cash UI: all three pages, receipt, reload, cash custody, failure, double submit, publication race, Delta permissions and mobile OK');
 } finally { await browser.close(); }

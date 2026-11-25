@@ -243,6 +243,35 @@ async function saveSingletonKey(userId: string, key: SingletonKey, raw: string |
   if (error) throw error;
 }
 
+async function hydrateMirrorSnapshot(userId: string, keys: string[]): Promise<boolean> {
+  if (!supabase || keys.length === 0) return true;
+  const { data, error } = await supabase.rpc("read_cloud_mirror_snapshot", { p_user_id: userId, p_keys: keys });
+  if (error) {
+    // Older deployments keep the existing fully paginated reads. Authorization
+    // and network failures must surface rather than silently use another path.
+    if (error.code === "PGRST202" || error.code === "42883") return false;
+    throw error;
+  }
+  const snapshot = data as { version?: unknown; values?: unknown } | null;
+  const values = snapshot?.values;
+  if (snapshot?.version !== 1 || !isPlainRecord(values) || Object.keys(values).length !== keys.length) {
+    throw new Error("La respuesta de configuraciones cloud esta incompleta.");
+  }
+  // Validate the complete response before committing any key. An incomplete
+  // snapshot must never look like an authoritative empty collection.
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(values, key) || (asArrayKey(key) ? !Array.isArray(values[key]) : values[key] !== null && !isPlainRecord(values[key]))) {
+      throw new Error("La respuesta de configuraciones cloud esta incompleta.");
+    }
+  }
+  await Promise.all(keys.map(async key => {
+    const arrayKey = asArrayKey(key);
+    if (arrayKey) await storeHydratedArrayKey(arrayKey, values[key] as unknown[]);
+    else storeHydratedSingletonKey(key as SingletonKey, values[key]);
+  }));
+  return true;
+}
+
 async function saveKeyToCloud(key: string, raw: string | null): Promise<void> {
   if (!currentUserId) return;
   const arrayKey = asArrayKey(key);
@@ -341,6 +370,10 @@ async function hydrateArrayKey(userId: string, key: ArrayKey): Promise<void> {
     if (batch.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
   }
+  await storeHydratedArrayKey(key, rows);
+}
+
+async function storeHydratedArrayKey(key: ArrayKey, rows: unknown[]): Promise<void> {
   const indexedDbKey = INDEXED_DB_ARRAY_KEY_MAP[key];
   if (indexedDbKey) {
     await writeIndexedDb(indexedDbKey, rows);
@@ -359,6 +392,10 @@ async function hydrateSingletonKey(userId: string, key: SingletonKey): Promise<v
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw error;
+  storeHydratedSingletonKey(key, data);
+}
+
+function storeHydratedSingletonKey(key: SingletonKey, data: unknown): void {
   if (!data) return;
 
   if (key === "cobrapp.payments.seq.v1") {
@@ -385,6 +422,8 @@ export async function initializeCloudMirror(userId: string, options?: Initialize
   const shouldHydrate = (key: string): boolean => !skipKeys.has(key) && (!hydrateKeys || hydrateKeys.has(key));
   isHydrating = true;
   try {
+    const keys = [...Object.keys(ARRAY_TABLE_MAP), ...Object.keys(SINGLETON_TABLE_MAP)].filter(shouldHydrate);
+    if (await hydrateMirrorSnapshot(userId, keys)) return;
     await Promise.all([
       ...Object.keys(ARRAY_TABLE_MAP)
         .filter(shouldHydrate)

@@ -50,12 +50,17 @@ export default function AppNavigation({
   onSignOut
 }: Props) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [desktopCollapsed, setDesktopCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("rentautos-nav-collapsed") === "true";
+  });
   const tabs: Array<{ page: AppPage; label: string; mobileLabel: string; mobileIcon: string; visible: boolean; badge?: number }> = [
     { page: "leads", label: "Leads", mobileLabel: "Leads", mobileIcon: "◎", visible: canViewLeads, badge: pendingLeadReviewCount },
     { page: "control_units", label: "Autos", mobileLabel: "Autos", mobileIcon: "◆", visible: canViewControlUnits },
     { page: "clients", label: "Clientes", mobileLabel: "Clientes", mobileIcon: "●", visible: canViewClients },
     { page: "payments", label: "Pagos", mobileLabel: "Pagos", mobileIcon: "$", visible: canViewPayments },
     { page: "receivables", label: "Cuentas por cobrar", mobileLabel: "Cuentas", mobileIcon: "≡", visible: canViewReceivables },
+    { page: "receivables_v2", label: "Cuentas por cobrar 2.0", mobileLabel: "Cuentas 2.0", mobileIcon: "≡", visible: canViewReceivables },
     { page: "route_search", label: "Ruta en calle", mobileLabel: "Ruta", mobileIcon: "↗", visible: canViewRouteSearch, badge: routeAlertCount },
     { page: "incidents", label: "Control de siniestros", mobileLabel: "Siniestros", mobileIcon: "!", visible: canViewIncidents, badge: incidentAlertCount },
     { page: "settings", label: "Configuraciones", mobileLabel: "Config.", mobileIcon: "⚙", visible: canViewSettings }
@@ -79,6 +84,12 @@ export default function AppNavigation({
     setMobileMenuOpen(false);
   }, [page]);
 
+  useEffect(() => {
+    document.body.classList.toggle("app-nav-collapsed", desktopCollapsed);
+    window.localStorage.setItem("rentautos-nav-collapsed", String(desktopCollapsed));
+    return () => document.body.classList.remove("app-nav-collapsed");
+  }, [desktopCollapsed]);
+
   function handlePageClick(event: MouseEvent<HTMLAnchorElement>, nextPage: AppPage): void {
     if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -96,9 +107,24 @@ export default function AppNavigation({
         : "Listo";
 
   return (
-    <nav className="app-nav">
+    <nav className={`app-nav ${desktopCollapsed ? "app-nav--collapsed" : ""}`} aria-label="Navegación principal">
       <div className="app-nav-inner">
-        <span className="app-nav-brand">Rentautos</span>
+        <div className="app-nav-header">
+          <span className="app-nav-brand">
+            <span className="app-nav-brand-full">Rentautos</span>
+            <span className="app-nav-brand-compact" aria-hidden="true">R</span>
+          </span>
+          <button
+            type="button"
+            className="app-nav-collapse-button"
+            aria-label={desktopCollapsed ? "Expandir menú" : "Contraer menú"}
+            title={desktopCollapsed ? "Expandir menú" : "Contraer menú"}
+            aria-expanded={!desktopCollapsed}
+            onClick={() => setDesktopCollapsed((current) => !current)}
+          >
+            <span aria-hidden="true">{desktopCollapsed ? "›" : "‹"}</span>
+          </button>
+        </div>
         <div className="app-nav-tabs">
           {visibleTabs.map((tab) => (
             <a
@@ -106,8 +132,11 @@ export default function AppNavigation({
               href={appPagePath(tab.page)}
               className={`nav-tab ${page === tab.page ? "nav-tab--active" : ""}`}
               aria-current={page === tab.page ? "page" : undefined}
+              aria-label={desktopCollapsed ? tab.label : undefined}
+              title={desktopCollapsed ? tab.label : undefined}
               onClick={(event) => handlePageClick(event, tab.page)}
             >
+              <span className="nav-tab-icon" aria-hidden="true">{tab.mobileIcon}</span>
               <span className="nav-tab-label-full">{tab.label}</span>
               <span className="nav-tab-label-mobile">{tab.mobileLabel}</span>
               {Boolean(tab.badge) && (

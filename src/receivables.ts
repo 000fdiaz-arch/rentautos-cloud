@@ -1,6 +1,6 @@
 import { findNextChargeDay, getDebtStartDate, isChargeDay, parseDateKey, startOfDay, toDateKey } from "./billing";
 import type { ControlUnitRow } from "./cloudData";
-import type { BillingFrequency, Client, Payment, WeeklyChargeDay } from "./types";
+import type { BillingFrequency, Client, LateFeeSettings, Payment, WeeklyChargeDay } from "./types";
 import { getCollectibleProvisionalRental, nextProvisionalRentalChargeDate } from "./provisionalRentals";
 
 export type ReceivableState = "alDia" | "proximo" | "venceHoy" | "vencido" | "critico";
@@ -68,6 +68,8 @@ export type ReceivableRow = {
   totalPaid: number;
   state: ReceivableState;
   totalOtherCharges: number;
+  outstandingLateFeeAmount?: number;
+  outstandingOtherChargeAmount?: number;
   outstandingFineAmount?: number;
   outstandingTicketAmount?: number;
   clientCreatedAt?: string;
@@ -133,6 +135,37 @@ function daysBetween(from: Date, to: Date): number {
 
 function sumOtherCharges(client: Client): number {
   return roundMoney((client.otherCharges ?? []).reduce((sum, charge) => sum + Math.max(0, charge.amount), 0));
+}
+
+function normalizedChargeLabel(value: string | undefined): string {
+  return (value ?? "").trim().toUpperCase();
+}
+
+function isLateFeeCharge(label: string, lateFeeSettings?: LateFeeSettings): boolean {
+  const normalizedLabel = normalizedChargeLabel(label);
+  const configuredLabel = normalizedChargeLabel(lateFeeSettings?.chargeLabel);
+  if (configuredLabel && normalizedLabel === configuredLabel) return true;
+  return normalizedLabel.includes("RECARGO")
+    && (normalizedLabel.includes("MORA") || normalizedLabel.includes("TARDANZA"));
+}
+
+function sumOtherChargeBreakdown(client: Client, lateFeeSettings?: LateFeeSettings): {
+  total: number;
+  lateFees: number;
+  other: number;
+} {
+  let lateFees = 0;
+  let other = 0;
+  for (const charge of client.otherCharges ?? []) {
+    const amount = Math.max(0, charge.amount);
+    if (isLateFeeCharge(charge.label, lateFeeSettings)) lateFees += amount;
+    else other += amount;
+  }
+  return {
+    total: roundMoney(lateFees + other),
+    lateFees: roundMoney(lateFees),
+    other: roundMoney(other)
+  };
 }
 
 function sumOutstandingFines(client: Client): number {
@@ -236,7 +269,13 @@ function mergePaymentLists(...lists: Payment[][]): Payment[] {
   return [...byId.values()].sort((a, b) => parsePaymentDate(b.dateApplied) - parsePaymentDate(a.dateApplied));
 }
 
-export function buildReceivableRows(clients: Client[], payments: Payment[], now: Date, fleetUnits: ControlUnitRow[] = []): ReceivableRow[] {
+export function buildReceivableRows(
+  clients: Client[],
+  payments: Payment[],
+  now: Date,
+  fleetUnits: ControlUnitRow[] = [],
+  lateFeeSettings?: LateFeeSettings
+): ReceivableRow[] {
   const referenceDate = startOfDay(now);
   const paymentsByClient = new Map<string, Payment[]>();
   const paymentsByUnit = new Map<string, Payment[]>();
@@ -264,7 +303,7 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
     list.sort((a, b) => parsePaymentDate(b.dateApplied) - parsePaymentDate(a.dateApplied));
   }
 
-  function rowFromClient(client: Client, operationalStatus: string = client.status): ReceivableRow {
+  function rowFromClient(client: Client, operationalStatus: string = client.activeProvisionalRental ? "provisional_rental" : client.status): ReceivableRow {
       const provisionalRental = getCollectibleProvisionalRental(client);
       const effectiveUnitId = client.activeProvisionalRental?.unitId ?? client.unitId;
       const effectiveBalance = provisionalRental?.balance ?? client.balance;
@@ -319,6 +358,9 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
       const percentPaid = provisionalRental
         ? Math.round((totalPaid / contractTotal) * 100)
         : computeInstallmentsPercent(client.installmentsAgreed, client.installmentsPaid);
+      const otherChargeBreakdown = provisionalRental
+        ? { total: 0, lateFees: 0, other: 0 }
+        : sumOtherChargeBreakdown(client, lateFeeSettings);
 
       return {
         id: client.id,
@@ -347,7 +389,9 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
         contractTotal,
         totalPaid,
         state,
-        totalOtherCharges: provisionalRental ? 0 : sumOtherCharges(client),
+        totalOtherCharges: otherChargeBreakdown.total,
+        outstandingLateFeeAmount: otherChargeBreakdown.lateFees,
+        outstandingOtherChargeAmount: otherChargeBreakdown.other,
         outstandingFineAmount: provisionalRental ? 0 : sumOutstandingFines(client),
         outstandingTicketAmount: provisionalRental ? 0 : sumOutstandingTickets(client),
         clientCreatedAt: client.createdAt,
@@ -360,7 +404,7 @@ export function buildReceivableRows(clients: Client[], payments: Payment[], now:
         })),
         hasActiveClient: true,
         operationalStatus: client.activeProvisionalRental
-          ? "provisional_rental"
+          ? operationalStatus
           : client.status !== "activo"
             ? client.status
             : operationalStatus

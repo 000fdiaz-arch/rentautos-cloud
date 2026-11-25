@@ -1,0 +1,19 @@
+.cxc-first-summary { margin:6px 20px; padding:0 14px; background:#fff; border:1px solid #dbe5eb; border-radius:10px; }
+.cxc-first-summary-heading { display:flex; gap:12px; align-items:center; flex-wrap:wrap; min-height:44px; padding:8px 0; box-sizing:border-box; cursor:pointer; list-style:none; font-size:13px; }
+.cxc-first-summary-heading::-webkit-details-marker { display:none; }
+.cxc-first-summary-heading > span { color:#52657b; font-size:12px; }
+.cxc-first-summary-heading .cxc-first-summary-toggle { margin-left:auto; display:flex; align-items:center; gap:6px; color:#0f766e; font-weight:600; }
+.cxc-first-summary-close { display:none; }
+.cxc-first-summary details[open] .cxc-first-summary-open { display:none; }
+.cxc-first-summary details[open] .cxc-first-summary-close { display:inline; }
+.cxc-first-summary details[open] .cxc-first-summary-toggle > [aria-hidden] { transform:rotate(180deg); }
+.cxc-first-summary-counts { display:flex; flex-wrap:wrap; gap:6px; padding:8px 0 12px; border-top:1px solid #edf2f7; }
+.cxc-first-summary-counts button { display:flex; gap:8px; align-items:center; justify-content:space-between; padding:6px 10px; min-height:36px; border:1px solid #dbe5eb; border-radius:7px; color:#153047; background:#f8fafc; cursor:pointer; white-space:normal; font-size:12px; }
+.cxc-first-summary-counts button:hover { background:#e1f5f0; border-color:#0f766e; }
+.cxc-first-summary-counts button:focus-visible, .cxc-first-summary-heading:focus-visible { outline:3px solid #0f766e; outline-offset:2px; }
+.cxc-first-summary-counts strong { color:#0f766e; font-size:14px; }
+.cxc-first-summary-counts .cxc-first-summary-route { border-color:#eaaf87; background:#fff7ed; }
+.cxc-first-summary-units { list-style:none; padding:0; margin:0; }
+.cxc-first-summary-units li { display:flex; flex-direction:column; gap:6px; padding:12px 0; border-bottom:1px solid #e2e8f0; overflow-wrap:anywhere; }
+.cxc-first-summary-units small { color:#64748b; }
+@media(max-width:600px) { .cxc-first-summary { margin:6px 10px; padding:0 10px; } .cxc-first-summary-heading { gap:6px 10px; } }

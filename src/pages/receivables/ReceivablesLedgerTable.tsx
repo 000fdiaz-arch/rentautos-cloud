@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { formatCurrency, formatDate } from "../../format";
-import { STATE_LABEL, type ReceivableRow, type ReceivableState } from "../../receivables";
+import { STATE_LABEL, type ReceivableRow, type ReceivableState } from "../../receivablesLegacy";
 import type { Client } from "../../types";
 import {
   fieldManagementLabel,

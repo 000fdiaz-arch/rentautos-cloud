@@ -1,5 +1,6 @@
-import type { BankRule, Client, LateFeeSettings, LeadEvaluation, OtherChargesRetentionByClient, PaymentPromise } from "../types";
+import type { BankRule, Client, LateFeeSettings, LeadEvaluation, ManualBankAssignmentAudit, OtherChargesRetentionByClient, PaymentPromise } from "../types";
 import { dedupeLoad, getCloudClient, PAGE_SIZE, withCloudRetry, type DataRow, type SingletonDataRow } from "./cloudClient";
+import { loadControlUnitsSnapshot } from "./controlUnitsSnapshot";
 import type {
   CashClosing,
   CashClosingAuditEvent,
@@ -11,6 +12,9 @@ import { stableEqual } from "../stableSerialize";
 import { normalizeCourtName } from "../courtNames";
 import { getMissingCollisionDocumentation } from "../collisionDocumentation";
 import { createLeadDocumentViewUrl, isLeadDocumentDataUrl, uploadLeadDocumentDataUrl } from "./leadDocumentStorage";
+import type {
+  ReceivablesCollectorPinHashes
+} from "../receivablesCollectorAccess";
 
 export async function registerCloudRouteBankNotice(
   userId: string,
@@ -979,6 +983,29 @@ export async function saveCloudLateFeeSettings(userId: string, settings: LateFee
   if (error) throw error;
 }
 
+export async function loadCloudReceivablesCollectorPinHashes(userId: string): Promise<ReceivablesCollectorPinHashes | null> {
+  const client = getCloudClient();
+  const { data, error } = await client
+    .from("receivables_collector_pins_cloud")
+    .select("data")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  const payload = (data as SingletonDataRow | null)?.data as Partial<ReceivablesCollectorPinHashes> | undefined;
+  const first = payload?.["collector-1"];
+  const second = payload?.["collector-2"];
+  if (!first?.salt || !first.hash || !first.length || !second?.salt || !second.hash || !second.length) return null;
+  return payload as ReceivablesCollectorPinHashes;
+}
+
+export async function saveCloudReceivablesCollectorPinHashes(userId: string, hashes: ReceivablesCollectorPinHashes): Promise<void> {
+  const client = getCloudClient();
+  const { error } = await client
+    .from("receivables_collector_pins_cloud")
+    .upsert({ user_id: userId, data: hashes, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
 export async function loadCloudOtherChargesRetention(userId: string): Promise<OtherChargesRetentionByClient | null> {
   const client = getCloudClient();
   const { data, error } = await client
@@ -1074,13 +1101,18 @@ export async function loadCloudCashClosings(userId: string): Promise<CashClosing
   return loadCloudArrayRows<CashClosing>(userId, "cash_closings_cloud");
 }
 
+export async function loadCloudManualAssignmentAudit(userId: string): Promise<ManualBankAssignmentAudit[]> {
+  return loadCloudArrayRows<ManualBankAssignmentAudit>(userId, "manual_assignment_audit_cloud");
+}
+
 export async function isCloudCashClosingDateClosed(userId: string, date: string): Promise<boolean> {
   const client = getCloudClient();
+  // Mirror sync uses date__closedAt IDs; the closing date is the shared key.
   const { data, error } = await client
     .from("cash_closings_cloud")
     .select("id")
     .eq("user_id", userId)
-    .eq("id", date)
+    .eq("data->>date", date)
     .limit(1)
     .maybeSingle();
   if (error) throw error;
@@ -1776,7 +1808,8 @@ function rowTimestamp(value: unknown): number {
     toIsoTimestamp(row.routeUrgencyUpdatedAt),
     toIsoTimestamp(row.whatsAppMessageCopiedAt),
     toIsoTimestamp(row.whatsAppMessageSentAt),
-    toIsoTimestamp(row.paymentPromiseUpdatedAt)
+    toIsoTimestamp(row.paymentPromiseUpdatedAt),
+    toIsoTimestamp(row.gpsLocationReviewedAt)
   );
 }
 
@@ -1815,6 +1848,25 @@ function mergeStreetManagementRow(currentValue: unknown, patchValue: unknown): u
     merged.contactTime = current.contactTime;
     merged.contactTimeUpdatedAt = current.contactTimeUpdatedAt;
   }
+
+  if (toIsoTimestamp(current.paymentPromiseUpdatedAt) > toIsoTimestamp(patch.paymentPromiseUpdatedAt)) {
+    merged.paymentPromiseDate = current.paymentPromiseDate;
+    merged.paymentPromiseTime = current.paymentPromiseTime;
+    merged.paymentPromiseAmount = current.paymentPromiseAmount;
+    merged.paymentPromiseUpdatedAt = current.paymentPromiseUpdatedAt;
+  }
+
+  if (toIsoTimestamp(current.gpsLocationReviewedAt) > toIsoTimestamp(patch.gpsLocationReviewedAt)) {
+    merged.gpsLocationNote = current.gpsLocationNote;
+    merged.gpsLocationReviewedAt = current.gpsLocationReviewedAt;
+  }
+
+  // Preserve attempts from both devices and unrelated management updates.
+  const attempts = [...(Array.isArray(current.contactOutcomes) ? current.contactOutcomes : []),
+    ...(Array.isArray(patch.contactOutcomes) ? patch.contactOutcomes : [])];
+  merged.contactOutcomes = [...new Map(attempts.filter((item) => item && typeof item.at === "string")
+    .map((item) => [item.at + "|" + item.collector + "|" + item.result, item])).values()]
+    .sort((a, b) => a.at.localeCompare(b.at));
 
   return merged;
 }
@@ -1948,6 +2000,41 @@ export async function loadControlUnits(userId: string): Promise<ControlUnitRow[]
 }
 
 async function loadControlUnitsUncached(userId: string): Promise<ControlUnitRow[]> {
+  const snapshot = await loadControlUnitsSnapshot(userId);
+  if (snapshot) {
+    const client = getCloudClient();
+    return normalizeControlUnitRows(snapshot).map(row => ({
+      ...row,
+      catalog_photo_url: row.catalog_photo_path
+        ? client.storage.from(FLEET_CATALOG_BUCKET).getPublicUrl(row.catalog_photo_path).data.publicUrl
+        : null
+    }));
+  }
+  const [allRows, catalogDetails, keyDetails] = await Promise.all([
+    loadControlUnitRows(userId),
+    loadFleetCatalogDetails(userId).catch((error) => {
+      if (!isMissingFleetCatalogSchema(error)) {
+        console.warn("No se pudieron cargar los datos del catalogo de autos.", error);
+      }
+      return new Map<string, Partial<ControlUnitRow>>();
+    }),
+    loadFleetKeyDetails(userId).catch((error) => {
+      const record = error as { code?: unknown };
+      if (record?.code !== "42703" && record?.code !== "PGRST204") {
+        console.warn("No se pudo cargar el tipo de llave de los autos.", error);
+      }
+      return new Map<string, boolean | null>();
+    })
+  ]);
+
+  return allRows.map((row) => ({
+    ...row,
+    ...(catalogDetails.get(row.fleet_id) ?? {}),
+    key_coded: keyDetails.get(row.fleet_id) ?? row.key_coded ?? null
+  }));
+}
+
+async function loadControlUnitRows(userId: string): Promise<ControlUnitRow[]> {
   const client = getCloudClient();
   const allRows: ControlUnitRow[] = [];
   let from = 0;
@@ -1977,7 +2064,17 @@ async function loadControlUnitsUncached(userId: string): Promise<ControlUnitRow[
       throw error;
     }
 
-    const batch = ((data ?? []) as ControlUnitRow[]).map((row) => ({
+    const batch = normalizeControlUnitRows((data ?? []) as ControlUnitRow[], useFleetTableFallback);
+    allRows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return allRows;
+}
+
+function normalizeControlUnitRows(rows: ControlUnitRow[], useFleetTableFallback = false): ControlUnitRow[] {
+  return rows.map((row) => ({
       ...row,
       year: row.model_year ?? row.year,
       transmission: row.transmission_type ?? row.transmission,
@@ -1990,30 +2087,6 @@ async function loadControlUnitsUncached(userId: string): Promise<ControlUnitRow[
       financial_status: useFleetTableFallback ? "sin_cliente" : row.financial_status,
       last_payment_date: useFleetTableFallback ? null : row.last_payment_date
     }));
-    allRows.push(...batch);
-    if (batch.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
-  const catalogDetails = await loadFleetCatalogDetails(userId).catch((error) => {
-    if (!isMissingFleetCatalogSchema(error)) {
-      console.warn("No se pudieron cargar los datos del catalogo de autos.", error);
-    }
-    return new Map<string, Partial<ControlUnitRow>>();
-  });
-  const keyDetails = await loadFleetKeyDetails(userId).catch((error) => {
-    const record = error as { code?: unknown };
-    if (record?.code !== "42703" && record?.code !== "PGRST204") {
-      console.warn("No se pudo cargar el tipo de llave de los autos.", error);
-    }
-    return new Map<string, boolean | null>();
-  });
-
-  return allRows.map((row) => ({
-    ...row,
-    ...(catalogDetails.get(row.fleet_id) ?? {}),
-    key_coded: keyDetails.get(row.fleet_id) ?? row.key_coded ?? null
-  }));
 }
 
 const FLEET_CATALOG_BUCKET = "fleet-catalog-photos";
@@ -2070,19 +2143,8 @@ async function loadFleetCatalogDetails(userId: string): Promise<Map<string, Part
   } else {
     rows = (detailedResult.data ?? []) as CatalogDetailsRow[];
   }
-  const paths = rows.map((row) => row.catalog_photo_path).filter((path): path is string => Boolean(path));
-  const signedByPath = new Map<string, string>();
-  if (paths.length > 0) {
-    const { data: signedRows, error: signedError } = await client.storage
-      .from(FLEET_CATALOG_BUCKET)
-      .createSignedUrls(paths, 60 * 60);
-    if (!signedError) {
-      for (const item of signedRows ?? []) {
-        if (item.path && item.signedUrl) signedByPath.set(item.path, item.signedUrl);
-      }
-    }
-  }
-
+  // The public-catalog migration makes this bucket public. Use the same URL
+  // as loadPublicFleetCatalog instead of blocking fleet reads on a signing RPC.
   return new Map(rows.map((row) => [row.fleet_id, {
     catalog_contract_months: row.catalog_contract_months,
     catalog_daily_rate: row.catalog_daily_rate,
@@ -2092,7 +2154,9 @@ async function loadFleetCatalogDetails(userId: string): Promise<Map<string, Part
     catalog_weekly_management_fee: row.catalog_weekly_management_fee,
     catalog_biweekly_management_fee: row.catalog_biweekly_management_fee,
     catalog_photo_path: row.catalog_photo_path,
-    catalog_photo_url: row.catalog_photo_path ? signedByPath.get(row.catalog_photo_path) ?? null : null
+    catalog_photo_url: row.catalog_photo_path
+      ? client.storage.from(FLEET_CATALOG_BUCKET).getPublicUrl(row.catalog_photo_path).data.publicUrl
+      : null
   }]));
 }
 
@@ -2171,6 +2235,7 @@ export type ActiveRouteItem = {
   publishedAt: string;
   routeStartedAt: string;
   removedAt?: string;
+  removedBy?: string;
   removedReason?: "paid" | "removed" | "inactive" | "manual_management" | "manual_published" | "operator_removed" | "route_editor_removed";
 };
 
@@ -2226,6 +2291,7 @@ function normalizeActiveRouteItem(value: unknown): ActiveRouteItem | null {
     publishedAt,
     routeStartedAt,
     removedAt: typeof row.removedAt === "string" ? row.removedAt : undefined,
+    removedBy: typeof row.removedBy === "string" ? row.removedBy : undefined,
     removedReason: row.removedReason === "paid" || row.removedReason === "removed" || row.removedReason === "inactive" || row.removedReason === "manual_management" || row.removedReason === "manual_published" || row.removedReason === "operator_removed" || row.removedReason === "route_editor_removed" ? row.removedReason : undefined
   };
 }

@@ -1,5 +1,5 @@
 import { parseDateKey, startOfDay } from "../../billing";
-import type { ReceivableRow } from "../../receivables";
+import type { ReceivableRow } from "../../receivablesLegacy";
 import type { Client, Payment } from "../../types";
 import type { CollectionStatusRecord, RouteUrgency } from "./receivablesTypes";
 

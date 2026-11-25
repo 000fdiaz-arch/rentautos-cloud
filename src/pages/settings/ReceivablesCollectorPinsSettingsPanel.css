@@ -1,0 +1,40 @@
+.collector-pin-settings .panel-head p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: .85rem;
+}
+
+.collector-pin-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+}
+
+.collector-pin-settings-grid label {
+  position: relative;
+  padding: 16px;
+  border: 1px solid #dbe4ee;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.collector-pin-settings-grid label > span { color: #0f172a; font-size: .92rem; }
+.collector-pin-settings-grid label > small { color: #64748b; font-size: .72rem; text-transform: none; }
+.collector-pin-settings-grid input { margin-top: 6px; background: #fff; }
+.collector-pin-settings-grid em { color: #0f766e; font-size: .68rem; font-style: normal; font-weight: 850; }
+
+.collector-pin-settings-message {
+  padding: 9px 11px;
+  border-radius: 8px;
+  font-size: .8rem;
+  font-weight: 700;
+}
+
+.collector-pin-settings-message.is-error { background: #fef2f2; color: #b91c1c; }
+.collector-pin-settings-message.is-success { background: #ecfdf5; color: #047857; }
+
+@media (max-width: 640px) {
+  .collector-pin-settings-grid { grid-template-columns: 1fr; }
+  .collector-pin-settings .button { width: 100%; }
+}

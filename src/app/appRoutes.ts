@@ -1,10 +1,11 @@
-export type AppPage = "clients" | "leads" | "payments" | "receivables" | "route_search" | "incidents" | "control_units" | "settings";
+export type AppPage = "clients" | "leads" | "payments" | "receivables" | "receivables_v2" | "route_search" | "incidents" | "control_units" | "settings";
 
 const APP_PAGE_PATHS: Record<AppPage, string> = {
   leads: "/leads",
   clients: "/clientes",
   payments: "/pagos",
   receivables: "/cuentas-por-cobrar",
+  receivables_v2: "/cuentas-por-cobrar-2",
   route_search: "/ruta-en-calle",
   incidents: "/control-de-siniestros",
   control_units: "/autos",

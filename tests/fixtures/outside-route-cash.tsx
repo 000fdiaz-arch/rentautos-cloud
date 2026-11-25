@@ -7,7 +7,7 @@ import { getBusinessDateKey } from "../../src/billing";
 import "../../src/styles.css";
 
 const params = new URLSearchParams(location.search);
-const version: "legacy" | "v2" = "legacy" as "legacy" | "v2";
+const version = params.get("version") === "v2" ? "v2" : "legacy";
 const now = new Date().toISOString();
 const clients = [
   { id: "outside", unitId: "X01", name: "Carlos Mendoza", status: "activo" },
@@ -137,7 +137,9 @@ window.fetch = async (input, init) => {
   return new Response(JSON.stringify(rows), { headers: { "content-type": "application/json" } });
 };
 const { default: RoutePage } = await import("../../src/pages/RouteSearchPage");
-const Page = RoutePage;
+const { default: LegacyPage } = await import("../../src/pages/RouteSearchLegacyPage");
+const { default: V2Page } = await import("../../src/pages/RouteSearchV2Page");
+const Page = version === "v2" ? V2Page : params.has("legacy") ? LegacyPage : RoutePage;
 
 function Demo() {
   const [demoClients, setClients] = useState<Client[]>(() => JSON.parse(sessionStorage.getItem("outside-demo-clients:" + version) ?? "null") ?? clients);

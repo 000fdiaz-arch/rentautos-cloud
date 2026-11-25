@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+import {PGlite} from '../.tmp/lead-portal-tests/node_modules/@electric-sql/pglite/dist/index.js';
+const db=new PGlite(),owner='11111111-1111-4111-8111-111111111111';
+const text=fs.readFileSync('src/pages/ReceivablesV2Page.tsx','utf8');
+const ast=ts.createSourceFile('page.tsx',text,99,true),functions={};
+function visit(n){if(ts.isFunctionDeclaration(n)&&n.name)functions[n.name.text]=n.getText(ast);ts.forEachChild(n,visit);}visit(ast);
+try {
+ await db.exec(`create function public.can_edit_owner_screen(uuid,text) returns boolean language sql as $$select true$$;
+ create table clients_cloud(user_id uuid,id text,data jsonb);
+ create table cxc_v2_street_management_items_cloud(user_id uuid,client_id text,data jsonb,primary key(user_id,client_id));
+ create table cxc_v2_active_route_items_cloud(user_id uuid,client_id text,data jsonb,updated_at timestamptz,primary key(user_id,client_id));
+ create table active_route_items_cloud(user_id uuid,client_id text,data jsonb,updated_at timestamptz,primary key(user_id,client_id));insert into active_route_items_cloud values('${owner}','existing','{"original":"unchanged"}',now());`);
+ const migration=fs.readFileSync('supabase/migrations/20261124000100_cxc_v2_shared_route.sql','utf8');
+ const sql=migration.slice(migration.indexOf('CREATE OR REPLACE FUNCTION public.cxc_v2_publish_prepared_route_item'),migration.indexOf('CREATE OR REPLACE FUNCTION public.cxc_v2_remove_active_route_item_from_receivables'));
+ await db.exec(sql);
+ for(const [index,file] of ['PendingPromises','UnansweredUnits'].entries()) {
+  const id='c'+index,row={id,unitId:'A'+(12+index),name:'Test',overdueBalance:40,totalPending:40};
+  const history=[{result:'promise',promiseAmount:20},{result:'no_answer'}];
+  const prior={contactOutcomes:history,paymentPromiseAmount:20,supportNote:'Conservar nota'};
+  let state={[id]:prior},draft=null,closed=false;
+  const cursor={unit:'A14',draft:'Borrador actual'};const before=JSON.stringify(cursor);
+  const ctx={Date,isCollectionLocked:false,baseRows:[row],hasActiveOperationalClient:()=>true,essentialPriorityByClient:new Map(),latestCollectionStatusByClientRef:{current:state},ROUTE_ASSIGNMENT_OPTIONS:['PTY'],setManagementRouteDraft:v=>{draft=v;ctx.managementRouteDraft=v;},normalizeRouteAssignment:v=>v,normalizeFieldManagementComment:v=>v,normalizeRouteUrgency:v=>v,markClientStatusAsSaving(){},setCollectionStatusByClient:fn=>{state=fn(state);},optimisticStatusByClientRef:{current:{}},setRouteExportMessage(){},dialog:{current:{close(){closed=true;}}},row,item:{row}};
+  for(const name of ['handleOpenManagementRoute','handleSaveManagementRoute','handlePrioritySendToRoute','buildActiveRouteItem'])vm.runInNewContext(ts.transpile(functions[name],{target:9}),ctx);
+  ctx.onSendToRoute=ctx.handleOpenManagementRoute;
+  const comp=ts.createSourceFile('comp.tsx',fs.readFileSync('src/pages/receivablesV2/'+file+'.tsx','utf8'),99,true);let callback;
+  function find(n){if(ts.isJsxAttribute(n)&&n.name.text==='onClick'&&n.initializer?.getText(comp).includes('onSendToRoute?.'))callback=n.initializer.expression;ts.forEachChild(n,find);}find(comp);
+  vm.runInNewContext(ts.transpile('('+callback.getText(comp)+')()',{target:9}),ctx);
+  assert.ok(closed);assert.equal(draft.clientId,id);
+  Object.assign(draft,{amount:'40',routeAssignment:'PTY',managementType:'cobrar_o_quitar',urgency:'urgent',comment:'Revisar'});
+  ctx.handleSaveManagementRoute();
+  assert.equal(draft,null);assert.equal(state[id].contactOutcomes,history);assert.equal(state[id].supportNote,prior.supportNote);
+  await db.query('insert into clients_cloud values($1,$2,$3)',[owner,id,JSON.stringify({unitId:row.unitId,status:'activo'})]);
+  await db.query('insert into cxc_v2_street_management_items_cloud values($1,$2,$3)',[owner,id,JSON.stringify(state[id])]);
+  const route=ctx.buildActiveRouteItem(row,state[id],new Date().toISOString());
+  const publish=()=>db.query('select cxc_v2_publish_prepared_route_item($1,$2,$3) item',[owner,JSON.stringify(route),state[id].updatedAt]);
+  const published=(await publish()).rows[0].item;assert.equal(published.unitId,row.unitId);assert.equal(published.releaseAmount,40);assert.equal(published.routeAssignment,'PTY');
+  assert.deepEqual((await publish()).rows[0].item,published);
+  const stored=(await db.query('select data from cxc_v2_street_management_items_cloud where client_id=$1',[id])).rows[0].data;
+  assert.deepEqual(stored.contactOutcomes,history);assert.equal(stored.paymentPromiseAmount,20);
+  assert.equal(JSON.stringify(cursor),before);
+  console.log('PASS '+file+': actual button, preparation, save handler and V2 SQL publication; history retained, no navigation or storage setters, retry does not duplicate.');
+ }
+ assert.equal((await db.query('select count(*)::int n from active_route_items_cloud')).rows[0].n,3);
+ assert.deepEqual((await db.query("select data from active_route_items_cloud where client_id='existing'")).rows,[{data:{original:'unchanged'}}]);
+ assert.equal((await db.query('select count(*)::int n from cxc_v2_active_route_items_cloud')).rows[0].n,0);
+ console.log('PASS both units available in shared route; existing entry untouched and no separate V2 route writes. Entire database isolated in memory.');
+} finally {await db.close();}

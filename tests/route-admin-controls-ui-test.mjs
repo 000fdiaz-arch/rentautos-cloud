@@ -6,7 +6,7 @@ try {
   const page=await browser.newPage({viewport:{width:1280,height:900}});
   const errors=[]; page.on('pageerror',e=>errors.push(e.message));
   await page.route('**/*',r=>new URL(r.request().url()).origin===base?r.continue():r.abort());
-  for(const mode of ['']) {
+  for(const mode of ['', '&legacy', '&version=v2']) {
     await page.goto(`${base}/tests/fixtures/outside-route-cash.html?zones${mode}`);
     await page.getByRole('button',{name:'Trabajo (5)',exact:true}).waitFor();
     assert.equal(await page.getByRole('button',{name:/^Declarar /}).count(),0);

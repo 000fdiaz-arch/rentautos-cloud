@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
 import { inlineComputedStylesForCanvas } from "../../canvasExportStyles";
 import { formatCurrency, formatDate } from "../../format";
-import { PLAN_LABEL, STATE_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivables";
+import { PLAN_LABEL, STATE_LABEL, WEEKDAY_LABEL, type ReceivableRow } from "../../receivablesLegacy";
 import type {
   CollectionStatus,
   CollectionStatusRecord,

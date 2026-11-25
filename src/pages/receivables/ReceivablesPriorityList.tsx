@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { PLAN_LABEL, type ReceivableRow } from "../../receivables";
+import { PLAN_LABEL, type ReceivableRow } from "../../receivablesLegacy";
 import type { BillingFrequency, Client, Payment } from "../../types";
 import { ROUTE_ASSIGNMENT_OPTIONS, ROUTE_URGENCY_OPTIONS } from "./receivablesPageRules";
 import type { CollectionStatusRecord, FieldManagementType, RouteUrgency } from "./receivablesTypes";

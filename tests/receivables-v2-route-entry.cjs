@@ -1,0 +1,13 @@
+const fs=require('fs'),ts=require('typescript'),vm=require('vm'),assert=require('assert/strict');
+const text=fs.readFileSync('src/pages/ReceivablesV2Page.tsx','utf8'),source=ts.createSourceFile('page.tsx',text,99,true);let handler;
+function visit(n){if(ts.isFunctionDeclaration(n)&&n.name?.text==='handlePrioritySendToRoute')handler=n;ts.forEachChild(n,visit);}visit(source);
+const prior={status:'unassigned',contactOutcomes:[{result:'promise',promiseAmount:20},{result:'no_answer'}],supportNote:'Nota importante',paymentPromiseAmount:20,paymentPromiseDate:'2026-11-25'};
+let state={A12:prior,A14:{comment:'Borrador'}},message='';
+const ctx={isCollectionLocked:false,baseRows:[{id:'A12',unitId:'A12'}],hasActiveOperationalClient:()=>true,normalizeRouteAssignment:s=>s.trim(),normalizeFieldManagementComment:s=>s,normalizeRouteUrgency:s=>s,markClientStatusAsSaving(){},setCollectionStatusByClient:fn=>state=fn(state),optimisticStatusByClientRef:{current:{}},setRouteExportMessage:s=>message=s,Date};
+vm.runInNewContext(ts.transpile(handler.getText(source),{target:9}),ctx);
+ctx.handlePrioritySendToRoute({clientId:'A12',releaseAmount:20,routeAssignment:'R1',managementType:'cobrar_o_quitar',urgency:'urgent',comment:'Llamar al llegar'});
+assert.equal(state.A12.contactOutcomes,prior.contactOutcomes);assert.equal(state.A12.supportNote,prior.supportNote);assert.equal(state.A12.paymentPromiseAmount,20);assert.equal(state.A12.isRouteTagged,true);assert.equal(state.A12.routeAssignment,'R1');assert.equal(state.A14.comment,'Borrador');assert.ok(message.includes('A12'));
+assert.ok(text.includes('cxc_v2_publish_prepared_route_item'));
+assert.equal((text.match(/onSendToRoute=\{handleOpenManagementRoute\}/g)||[]).length,2);
+for(const file of ['PendingPromises','UnansweredUnits'])assert.ok(fs.readFileSync('src/pages/receivablesV2/'+file+'.tsx','utf8').includes('dialog.current?.close();onSendToRoute?.('));
+console.log('PASS route preparation retains history, promise, note and other unit; both windows close before opening preparation; V2 publication endpoint. No real writes.');

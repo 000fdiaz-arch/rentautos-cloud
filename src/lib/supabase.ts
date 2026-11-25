@@ -1,4 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { diagnosticFetch } from "./startupDiagnostics";
+import { createSupabaseReadQueue } from "./supabaseReadQueue";
 
 export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() ?? "";
 export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? "";
@@ -12,6 +14,7 @@ export const isSupabaseConfigured =
 
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
+      global: { fetch: createSupabaseReadQueue(diagnosticFetch ?? fetch, new URL(supabaseUrl).origin) },
       auth: {
         persistSession: true,
         autoRefreshToken: true,

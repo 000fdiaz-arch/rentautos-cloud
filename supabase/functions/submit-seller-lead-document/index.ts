@@ -41,7 +41,7 @@ Deno.serve(async request => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const serviceKey = Deno.env.get("RENTAUTOS_SECRET_KEY");
     if (!supabaseUrl || !serviceKey) throw new Error("Servicio no configurado");
     const client = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
     const payload = await request.json();

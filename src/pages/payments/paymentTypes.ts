@@ -222,7 +222,11 @@ export type CollectionStatusRecord = {
   whatsAppMessageSentAt?: string;
   whatsAppMessageText?: string;
   paymentPromiseDate?: string;
+  paymentPromiseTime?: string;
+  paymentPromiseAmount?: number;
   paymentPromiseUpdatedAt?: string;
+  gpsLocationNote?: string;
+  gpsLocationReviewedAt?: string;
 };
 
 export type CollectionClosureItem = {

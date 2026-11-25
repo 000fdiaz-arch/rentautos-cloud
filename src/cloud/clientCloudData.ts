@@ -1,5 +1,6 @@
 import type { Client, ClientStatus } from "../types";
 import { withResolvedInstallmentIssuance } from "../billing";
+import { loadValidatedClientsSnapshot } from "./validatedClientsSnapshot";
 import { dedupeLoad, getCloudClient, hasRowChanged, PAGE_SIZE, withCloudRetry, type DataRow } from "./cloudClient";
 
 function normalizeClientStatus(rawStatus: unknown, archivedAt: unknown): ClientStatus {
@@ -55,6 +56,18 @@ export async function loadCloudClient(userId: string, clientId: string): Promise
 }
 
 async function loadCloudClientsUncached(userId: string): Promise<Client[]> {
+  const snapshot = await loadValidatedClientsSnapshot(userId);
+  if (snapshot) return snapshot.map(row => normalizeCloudClient(row.data));
+  // UUIDs are spread across both halves. These disjoint text ranges also cover
+  // legacy IDs, retain database ordering, and paginate independently as needed.
+  const ranges = await Promise.all([
+    loadCloudClientRange(userId, "lower"),
+    loadCloudClientRange(userId, "upper")
+  ]);
+  return ranges.flat().map((row) => normalizeCloudClient(row.data));
+}
+
+async function loadCloudClientRange(userId: string, range: "lower" | "upper"): Promise<DataRow<Client>[]> {
   const client = getCloudClient();
   const allRows: DataRow<Client>[] = [];
   let lastId = "";
@@ -65,6 +78,7 @@ async function loadCloudClientsUncached(userId: string): Promise<Client[]> {
       .eq("user_id", userId)
       .order("id", { ascending: true })
       .limit(PAGE_SIZE);
+    query = range === "lower" ? query.lt("id", "8") : query.gte("id", "8");
     if (lastId) query = query.gt("id", lastId);
     const { data, error } = await query;
     if (error) throw error;
@@ -74,7 +88,7 @@ async function loadCloudClientsUncached(userId: string): Promise<Client[]> {
     lastId = batch[batch.length - 1]?.id ?? lastId;
     if (!lastId) break;
   }
-  return allRows.map((row) => normalizeCloudClient(row.data));
+  return allRows;
 }
 
 export async function loadCloudClientsPage(

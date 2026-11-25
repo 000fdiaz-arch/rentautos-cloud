@@ -2,6 +2,8 @@ import { memo, useState } from "react";
 import type { ControlUnitRow } from "../../cloudData";
 import { effectiveStatus, normalizeText, optionalString, statusBadgeClass, statusLabel } from "./controlUnitsRules";
 
+const moneyFormatter = new Intl.NumberFormat("es-PA", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+
 type Props = {
   rows: ControlUnitRow[];
   readOnly: boolean;
@@ -15,7 +17,7 @@ function money(value: unknown): string {
   if (value === null || value === undefined || value === "") return "Por definir";
   const number = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(number) || number < 0) return "Por definir";
-  return new Intl.NumberFormat("es-PA", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(number);
+  return moneyFormatter.format(number);
 }
 
 function numberValue(value: unknown): number | null {

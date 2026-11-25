@@ -1,0 +1,36 @@
+.receivables-access-page {
+  display: grid;
+  min-height: calc(100vh - 150px);
+  place-items: start center;
+}
+
+.receivables-access-card {
+  width: min(520px, 100%);
+  padding: 28px;
+  border: 1px solid #dce5eb;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 16px 42px rgba(15, 23, 42, .09);
+}
+
+.receivables-access-eyebrow { color: #0f766e; font-size: .72rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+.receivables-access-card h1 { margin: 5px 0 7px; color: #0f172a; font-size: 1.75rem; letter-spacing: -.035em; }
+.receivables-access-card > p { margin: 0; color: #64748b; font-size: .9rem; }
+.receivables-access-form { display: grid; gap: 14px; margin-top: 24px; }
+.receivables-access-form .button { min-height: 44px; margin-top: 4px; }
+
+.receivables-access-alert {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 9px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: .8rem;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .receivables-access-card { padding: 20px; }
+  .receivables-access-form .button { width: 100%; }
+}

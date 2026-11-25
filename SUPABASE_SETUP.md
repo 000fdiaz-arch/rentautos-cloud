@@ -56,7 +56,12 @@ Para instalaciones existentes que ya ejecutaron las migraciones de cuentas por c
 - `supabase/116-payment-deletion-fast-paths.sql` (evita reconstrucciones de historial y retencion cuando la factura eliminada no puede afectar esos caches)
 - `supabase/117-client-portal.sql` (habilita acceso por cedula y PIN, sesiones privadas, multiples unidades y comprobantes de pago del portal del cliente)
 - `supabase/119-active-route-delta-availability.sql` (evita asignar carros a cuentas Delta inactivas y reasigna sus rutas pendientes al desactivarlas)
+- `supabase/127-route-delta-removal-guard.sql` (impide que las cuentas Delta saquen autos de Ruta y registra al editor responsable de cada retiro manual)
+- `supabase/128-route-delta-by-route.sql` (sincroniza WC con Delta 2 y PTY con Delta 1 al cambiar la ruta, conservando la reasignacion manual posterior)
+- `supabase/129-receivables-collector-workday.sql` (configura los PIN de Cobrador 1 y 2 para separar las carteras ACE y BDT durante la jornada)
+- `supabase/130-remove-receivables-daily-fleet-review.sql` (solo si aplicaste una versión anterior de la 129; elimina la tabla de revisión diaria que ya no utiliza la aplicación)
 - `supabase/120-seller-consultation-attribution.sql` (identifica al vendedor, conserva al responsable original y registra los seguimientos de cada cedula consultada)
+- `supabase/132-allow-fleet-retirement-with-open-incidents.sql` (permite dar de baja autos con reclamos de seguro o expedientes de colision abiertos; conserva los datos y estados de siniestros y mantiene los bloqueos por clientes, alquileres, rutas y promesas pendientes)
 
 Despues de aplicar la 117, despliega la funcion que atiende el portal sin exponer la
 clave de servicio en el navegador:
@@ -93,3 +98,16 @@ from public.user_profiles admin
 where ambar.email = 'ambar@auth.rentautos.local'
   and admin.email = 'admin@auth.rentautos.local';
 ```
+
+## Cuentas por cobrar 2.0 — separación (18 nov 2026)
+
+- `/cuentas-por-cobrar`: vista del despliegue `e4541d2`, con sus tablas y claves de gestión originales. Los componentes y cálculos de esa versión se conservan por separado; el CSS de producción queda limitado a `.cxc-production`.
+- `/cuentas-por-cobrar-2`: nuevo flujo individual, cobradores, PIN, GPS/estados, promesas, dos intentos, seguimiento, pagos recibidos y resumen. En navegación móvil está en **Más → Cuentas 2.0**.
+- Los clientes, autos, saldos y pagos contables siguen siendo comunes. Corregir el estado real de un auto o registrar un pago real actualiza ese dato compartido. Las promesas, intentos, revisiones, cierres y rutas de gestión son independientes.
+- Migración `20261118000300_cxc_v2_isolated_management.sql`: tablas/RPC de gestión con prefijo `cxc_v2_`, RLS y permisos equivalentes a los originales. No copia ni borra registros previos.
+- Migración `20261118000400_cxc_v2_payment_observer_isolation.sql`: reconcilia pagos reales con las rutas 2.0 a petición de la pantalla. No deja observadores 2.0 sobre la tabla original de pagos; utiliza `cxc_v2_payment_observations`. El acceso al RPC comprueba propietario y permiso de pantalla.
+- Borradores/progreso: `cxc.v2.workday.v1:*`; sesión del cobrador: `rentautos.receivables-v2.collector-session.v1:*`; almacenamiento de gestión: `cobrapp.cxc-v2.*`. El guardado 2.0 no encola el espejo de sincronización de gestión original.
+- Las tablas 2.0 empiezan vacías. No se migran registros mezclados de las pruebas anteriores. La demostración sigue siendo únicamente en memoria.
+- Ambas migraciones fueron aplicadas a la base conectada. No se desplegó el sitio a producción. Se comprobaron los mismos conteos y huellas de las 11 tablas originales antes/después de la separación.
+- Verificaciones: `node tests/receivables-v2-isolation.mjs`, pruebas de historial/seguimiento/progreso/pagos y `npm run build`. Las pruebas con datos simulados se ejecutan fuera de la base real.
+- Pendiente obligatorio antes del lanzamiento de 2.0: reactivar `ENFORCE_REQUIRED_NAVIGATION` en `src/pages/receivablesV2/ReceivablesLedgerTable.tsx`, como pidió el usuario. Continúa desactivado durante esta iteración local.

@@ -1,5 +1,5 @@
 import { memo } from "react";
-import type { ReceivableRow } from "../../receivables";
+import type { ReceivableRow } from "../../receivablesLegacy";
 import type { Client } from "../../types";
 
 type Props = {
