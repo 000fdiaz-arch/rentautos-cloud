@@ -2370,6 +2370,9 @@ export default function ReceivablesPage({
   }
 
   async function handleContactOutcome(clientId: string, result: ContactOutcomeResult, followup?: PromiseFollowupInput, promise?: PaymentPromiseDraft): Promise<void> {
+    if (mustAttendOverduePromises && !pendingPromiseItems.some(item => item.row.id === clientId && item.followup.overdue && item.followup.promise.at === followup?.promiseAt)) {
+      throw new Error("Atiende primero las promesas vencidas.");
+    }
     if (isCollectionLocked || !activeCollector || !dataOwnerUserId || !supabase) {
       throw new Error("No hay una sesión habilitada para guardar en la base de datos.");
     }
@@ -3830,6 +3833,9 @@ export default function ReceivablesPage({
     filters.state.length > 0 ? "state" : ""
   ].filter(Boolean).length;
 
+  const firstContactEntries = firstContactSummary({rows:baseRows,records:collectionStatusByClient,collector:activeCollector ?? "",today:todayDateKey,reviews:operationalReviews}).entries;
+  const pendingPromiseItems = orderedPendingPromises(baseRows.map(row=>({row,followup:promiseFollowup(collectionStatusByClient[row.id],activeCollector ?? "",receivablePayments.filter(payment=>payment.clientId===row.id),now)})),now);
+  const mustAttendOverduePromises = firstContactEntries.length > 0 && firstContactEntries.every(entry=>entry.category!=="pending") && pendingPromiseItems.some(item=>item.followup.overdue);
   const adminOverview = routePermissions?.isAdmin ? <AdminCollectionOverview owner={dataOwnerUserId} rows={allCollectorRows} records={collectionStatusByClient} payments={receivablePayments} routeIds={new Set(activeRouteItems.filter(item=>!item.removedAt && !activeRouteItemReleasedByPayment(item,payments)).map(item=>item.clientId))} today={todayDateKey} now={now} onRefresh={async()=>{await Promise.all([loadStreetManagementFromCloud(),loadActiveRouteFromCloud()]);}} /> : null;
   if (!activeCollector) {
     return (
@@ -3900,8 +3906,8 @@ export default function ReceivablesPage({
               Ruta en calle
             </button>
             {adminOverview}
-            <PendingPromises key={`${dataOwnerUserId}:${activeCollector}:${todayDateKey}`} items={orderedPendingPromises(baseRows.map(row => ({row, followup: promiseFollowup(collectionStatusByClient[row.id], activeCollector, receivablePayments.filter(payment => payment.clientId === row.id), now)})), now)} now={now} today={todayDateKey} scope={`cxc.v2.workday.v1:${dataOwnerUserId ?? "local"}:${activeCollector}:${todayDateKey}`} disabled={isCollectionLocked} onSave={handleContactOutcome} onSendToRoute={handleOpenManagementRoute} activeRouteClientIds={activeVisibleRouteClientIds} onOpenRoute={()=>setWorkflowTab("route")} />
-            <UnansweredUnits key={`${dataOwnerUserId}:${activeCollector}:${todayDateKey}`} rows={baseRows} records={collectionStatusByClient} collector={activeCollector} today={todayDateKey} scope={`cxc.v2.workday.v1:${dataOwnerUserId ?? "local"}:${activeCollector}:${todayDateKey}`} disabled={isCollectionLocked} onSave={handleContactOutcome} onSendToRoute={handleOpenManagementRoute} activeRouteClientIds={activeVisibleRouteClientIds} onOpenRoute={()=>setWorkflowTab("route")} />
+            <PendingPromises key={`${dataOwnerUserId}:${activeCollector}:${todayDateKey}`} required={mustAttendOverduePromises} items={pendingPromiseItems} now={now} today={todayDateKey} scope={`cxc.v2.workday.v1:${dataOwnerUserId ?? "local"}:${activeCollector}:${todayDateKey}`} disabled={isCollectionLocked} onSave={handleContactOutcome} onSendToRoute={handleOpenManagementRoute} activeRouteClientIds={activeVisibleRouteClientIds} onOpenRoute={()=>setWorkflowTab("route")} />
+            <UnansweredUnits blocked={mustAttendOverduePromises} key={`${dataOwnerUserId}:${activeCollector}:${todayDateKey}`} rows={baseRows} records={collectionStatusByClient} collector={activeCollector} today={todayDateKey} scope={`cxc.v2.workday.v1:${dataOwnerUserId ?? "local"}:${activeCollector}:${todayDateKey}`} disabled={isCollectionLocked} onSave={handleContactOutcome} onSendToRoute={handleOpenManagementRoute} activeRouteClientIds={activeVisibleRouteClientIds} onOpenRoute={()=>setWorkflowTab("route")} />
           </div>
 
           {viewMode === "cartera" ? (

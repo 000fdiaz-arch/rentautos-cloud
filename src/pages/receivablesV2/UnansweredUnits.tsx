@@ -15,15 +15,16 @@ export function unansweredUnits(rows:ReceivableRow[],records:Record<string,Colle
   return [{row,last,attempts}];
  }).sort((a,b)=>a.row.unitId.localeCompare(b.row.unitId,undefined,{numeric:true}));
 }
-export function UnansweredUnits({rows,records,collector,today,scope,disabled,onSave,onSendToRoute,activeRouteClientIds,onOpenRoute}:{activeRouteClientIds?:Set<string>;onOpenRoute?:()=>void;onSendToRoute?:(id:string)=>void;scope:string;disabled:boolean;onSave:(id:string,result:ContactOutcomeResult,followup?:PromiseFollowupInput,promise?:PaymentPromiseDraft)=>Promise<void>;rows:ReceivableRow[];records:Record<string,CollectionStatusRecord>;collector:string;today:string}) {
+export function UnansweredUnits({blocked=false,rows,records,collector,today,scope,disabled,onSave,onSendToRoute,activeRouteClientIds,onOpenRoute}:{blocked?:boolean;activeRouteClientIds?:Set<string>;onOpenRoute?:()=>void;onSendToRoute?:(id:string)=>void;scope:string;disabled:boolean;onSave:(id:string,result:ContactOutcomeResult,followup?:PromiseFollowupInput,promise?:PaymentPromiseDraft)=>Promise<void>;rows:ReceivableRow[];records:Record<string,CollectionStatusRecord>;collector:string;today:string}) {
  const [open,setOpen]=useState(false);
  const [selected,setSelected]=useState<string|null>(null),[saving,setSaving]=useState(false);
  const dialog=useRef<HTMLDialogElement>(null);
  const items=unansweredUnits(rows,records,collector,today);
+ useEffect(()=>{if(blocked){dialog.current?.close();setOpen(false);setSelected(null);}},[blocked]);
  const active=items.find(item=>item.row.id===selected);
  useEffect(()=>{if(open)dialog.current?.showModal();},[open]);
  return <>
-  <button type="button" className={`cxc-unanswered-tab ${items.length?'has-pending':''} ${open?'is-active':''}`} aria-haspopup="dialog" onClick={()=>setOpen(true)}>Sin respuesta <strong>{items.length}</strong></button>
+  <button type="button" className={`cxc-unanswered-tab ${items.length?'has-pending':''} ${open?'is-active':''}`} aria-haspopup="dialog" disabled={blocked} onClick={()=>setOpen(true)}>Sin respuesta <strong>{items.length}</strong></button>
   {open && createPortal(<dialog ref={dialog} className="cxc-promises-dialog" onCancel={event=>{if(saving)event.preventDefault();else setOpen(false);}} onClose={()=>{setOpen(false);setSelected(null);}}>
    <header><h2>Sin respuesta · {items.length}</h2><button type="button" className="button ghost" disabled={saving} onClick={()=>dialog.current?.close()}>Cerrar ×</button></header>
    {active ? <><button type="button" className="button ghost" disabled={saving} onClick={()=>setSelected(null)}>← Sin respuesta</button><h3>{active.row.unitId} · {active.row.name}</h3><ManagementComment key={active.row.id} scope={scope} clientId={active.row.id} disabled={disabled || saving}/><UnansweredActionForm key={active.row.id+active.last.at} draftKey={scope+":unanswered:"+active.row.id+":"+active.last.at} today={today} disabled={disabled} onSave={async(result,promise)=>{setSaving(true);try{if(active.last.followupOf)await onSave(active.row.id,result,{promiseAt:active.last.followupOf,...(promise?{nextDate:promise.date,nextTime:promise.time,amount:promise.amount}:{})});else await onSave(active.row.id,result,undefined,promise);setSelected(null);}finally{setSaving(false);}}}/></> : <>

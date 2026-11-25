@@ -19,5 +19,5 @@ export function promiseFollowup(
   const nextDue = response?.nextContactAt ? Date.parse(response.nextContactAt) : due.getTime();
   const alertKey = promise.at + "|" + (response?.at ?? "");
   const waitingForRetry = response?.result === "no_answer" && response.date === getBusinessDateKey(now);
-  return { promise, paid, remaining, alertKey, overdue: !waitingForRetry && response?.result !== "escalated" && nextDue <= now.getTime() && remaining > 0 };
+  return { promise, paid, remaining, alertKey, waitingForRetry, overdue: !waitingForRetry && response?.result !== "escalated" && nextDue <= now.getTime() && remaining > 0 };
 }

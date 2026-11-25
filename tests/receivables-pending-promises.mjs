@@ -8,11 +8,11 @@ const compiled=await build({entryPoints:['src/pages/receivablesV2/PendingPromise
 const module={exports:{}};vm.runInNewContext(compiled.outputFiles[0].text,{module,exports:module.exports,require,Date,Intl,process,console,setTimeout,clearTimeout});
 const {orderedPendingPromises,pendingPromiseOverdue}=module.exports;
 const now=new Date('2026-11-24T15:00:00-05:00');
-const item=(id,date,time,remaining)=>({row:{id,unitId:id},followup:{promise:{promiseDate:date,promiseTime:time},remaining,overdue:false}});
+const item=(id,date,time,remaining)=>({row:{id,unitId:id},followup:{promise:{promiseDate:date,promiseTime:time},remaining,overdue:date+'T'+time<='2026-11-24T15:00'}});
 const rows=[item('A02','2026-11-25','06:00',180),item('B10','2026-11-24','14:00',43),item('A41','2026-11-24','19:00',20),item('A06','2026-11-24','12:00',0)];
 const before=JSON.stringify(rows);
 assert.deepEqual(Array.from(orderedPendingPromises(rows,now),x=>x.row.id),['B10','A41','A02']);
-assert.equal(pendingPromiseOverdue(rows[1],now),true,'No-answer suppression does not hide an overdue promise from this window');
+assert.equal(pendingPromiseOverdue(rows[1],now),true,'Unattended elapsed promises are overdue');
 assert.equal(pendingPromiseOverdue(rows[0],now),false);
 assert.equal(JSON.stringify(rows),before);
 const ledger=fs.readFileSync('src/pages/receivablesV2/ReceivablesLedgerTable.tsx','utf8');
