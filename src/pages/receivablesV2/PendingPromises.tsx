@@ -23,6 +23,15 @@ export function PendingPromises({required=false,items,now,today,scope,onSave,dis
   const overdue=(item:PendingPromise)=>pendingPromiseOverdue(item,now);
   const sorted=orderedPendingPromises(items,now);
   useEffect(()=>{if(open)dialog.current?.showModal();},[open]);
+  useEffect(()=>{
+    const element=dialog.current;
+    if(!open || !required || !element) return;
+    const preventCancel=(event:Event)=>event.preventDefault();
+    const keepOpen=()=>{if(!element.open)element.showModal();};
+    element.addEventListener("cancel",preventCancel);
+    element.addEventListener("close",keepOpen);
+    return ()=>{element.removeEventListener("cancel",preventCancel);element.removeEventListener("close",keepOpen);};
+  },[open,required]);
   const wasRequired=useRef(false);
   useEffect(()=>{
     if(required){setOpen(true);setEditing(false);}
