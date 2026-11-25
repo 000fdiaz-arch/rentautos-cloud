@@ -1,3 +1,4 @@
+import { pendingRentLettersLabel } from "./rentLetters";
 import { collectionAction } from "./collectionAction";
 import { ReminderForm } from "./ReminderForm";
 import { DayMonthYearInput } from "./DayMonthYearInput";
@@ -32,6 +33,7 @@ export function PaymentReviewForm({tenureDays,draftKey,unit,name,row,today,revie
         ["Otros cargos", row.outstandingOtherChargeAmount ?? 0, "other-charge"]
       ].map(([label,value,tone])=><div key={label} className={`ar-essential-value ar-essential-value--${tone} ${Number(value)>0?'has-balance':''}`}>
         <span>{label}</span><strong>{formatCurrency(Number(value))}</strong>
+        {(tone === "balance" || tone === "rent" || tone === "total") && <small>{pendingRentLettersLabel(Number(value), row.rentAmount)}</small>}
       </div>)}
     </div>
     {action === 'call' && <strong className="cxc-call-required">Llamar al cliente · Renta vencida</strong>}

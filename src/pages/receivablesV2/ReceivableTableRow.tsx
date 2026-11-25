@@ -1,3 +1,4 @@
+import { pendingRentLettersLabel } from "./rentLetters";
 import { PaidUpNotice } from "./PaidUpNotice";
 import { ReminderForm } from "./ReminderForm";
 import { collectionAction } from "./collectionAction";
@@ -137,6 +138,7 @@ type Props = {
   dailyContactSaveStates?: DailyContactSaveStates;
   onDailyContactAttemptChange: (clientId: string, shift: DailyContactShift, result: DailyContactResult | "pending") => void;
   onOperationalReviewChange: (clientId: string, operationalStatus: string, reviewed: boolean) => void;
+  isInSharedRoute?: boolean;
   onOpenRoutePreparation: (clientId: string) => void;
   onOpenRoute: () => void;
 };
@@ -518,13 +520,6 @@ function contactTimeMeta(value: string | undefined, now: Date): { tone: "missing
   return { tone: "scheduled", label: "Llamada" };
 }
 
-function pendingRentLettersLabel(amount: number, rentAmount: number): string {
-  const amountCents = Math.max(0, Math.round(amount * 100));
-  const rentCents = Math.round(rentAmount * 100);
-  if (!(amountCents > 0) || !(rentCents > 0)) return "0 letras";
-  const letters = Math.ceil(amountCents / rentCents);
-  return `${letters} ${letters === 1 ? "letra" : "letras"}`;
-}
 
 function ReceivableTableRowComponent({
   row,
@@ -568,6 +563,7 @@ function ReceivableTableRowComponent({
   dailyContactSaveStates,
   onDailyContactAttemptChange,
   onOperationalReviewChange,
+  isInSharedRoute = false,
   onOpenRoutePreparation,
   onOpenRoute
 }: Props) {
@@ -602,7 +598,7 @@ function ReceivableTableRowComponent({
     ? COLLECTION_CUT_OPTIONS
     : COLLECTION_CUT_OPTIONS.filter((option) => option.key === visibleCutKey);
   const totalDue = row.overdueBalance + row.totalOtherCharges;
-  const isRouteHighlighted = !!statusRecord?.isRouteTagged;
+  const isRouteHighlighted = isInSharedRoute || !!statusRecord?.isRouteTagged;
   const isRouteWorkflow = workflowTab === "route";
   const groupedWhatsAppRows = whatsAppGroupRows?.filter((item) => item.id !== row.id) ?? [];
   const groupedWhatsAppUnits = groupedWhatsAppRows.map((item) => item.unitId).filter(Boolean);
@@ -913,7 +909,7 @@ function ReceivableTableRowComponent({
                 </span>
               </div>
               <strong className="ar-essential-client-name" title={row.name}>{row.name}</strong>
-              {isOperationallyActive && <button type="button" className="button cxc-send-route" disabled={isTodayCollectionClosed} onClick={()=>onOpenRoutePreparation(row.id)}>Enviar a ruta en calle <span aria-hidden="true">↗</span></button>}
+              {isInSharedRoute ? <button type="button" className="button cxc-send-route is-in-route" onClick={onOpenRoute}><span>✓ En ruta en calle</span><span>Ver ruta ↗</span></button> : isOperationallyActive && <button type="button" className="button cxc-send-route" disabled={isTodayCollectionClosed} onClick={()=>onOpenRoutePreparation(row.id)}>Enviar a ruta en calle <span aria-hidden="true">↗</span></button>}
               <div className="ar-essential-plan">
                 <span>Tipo de plan</span>
                 <strong>{planLabel}</strong>
@@ -1798,6 +1794,7 @@ export const ReceivableTableRow = memo(ReceivableTableRowComponent, (previous, n
   && previous.dailyContactSaveStates === next.dailyContactSaveStates
   && previous.onDailyContactAttemptChange === next.onDailyContactAttemptChange
   && previous.onOperationalReviewChange === next.onOperationalReviewChange
+  && previous.isInSharedRoute === next.isInSharedRoute
   && previous.onOpenRoutePreparation === next.onOpenRoutePreparation
   && previous.onOpenRoute === next.onOpenRoute
 ));

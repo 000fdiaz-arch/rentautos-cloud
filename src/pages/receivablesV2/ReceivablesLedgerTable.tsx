@@ -52,6 +52,7 @@ export type ReceivablesHistoryRow = {
 };
 
 type Props = {
+  activeRouteClientIds?: Set<string>;
   loadPaymentReviewRow?: (row: ReceivableRow) => Promise<ReceivableRow>;
   initialProgress?: { selectedRowId: string | null; retryIds: string[] | null };
   onValidateUnitStatus?: (row: ReceivableRow, status: string) => Promise<void>;
@@ -167,6 +168,7 @@ function useStableEvent<T extends (...args: any[]) => any>(handler: T): T {
 }
 
 export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
+  activeRouteClientIds,
   loadPaymentReviewRow,
   progressScope = "preview",
   initialProgress,
@@ -412,7 +414,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
     if(activePaymentReview){
       if(position==='bottom')return null;
       const {row,review}=activePaymentReview;
-      return <><div className="cxc-route-review-action">{hasActiveOperationalClient(row) && <button type="button" className="button cxc-send-route" disabled={isTodayCollectionClosed || outcomeSaving} onClick={()=>onOpenRoutePreparation(row.id)}>Enviar {row.unitId} a ruta en calle <span aria-hidden="true">↗</span></button>}</div><VerifiedPaymentReview tenureDays={tenureByClient.get(row.id)?.days} loadRow={loadPaymentReviewRow} key={row.id+review!.key} draftKey={progressKey+':payment:'+row.id+':'+review!.key} unit={row.unitId} name={row.name}
+      return <><div className="cxc-route-review-action">{activeRouteClientIds?.has(row.id) ? <button type="button" className="button cxc-send-route is-in-route" onClick={onOpenRoute}><span>✓ En ruta en calle</span><span>Ver ruta ↗</span></button> : hasActiveOperationalClient(row) && <button type="button" className="button cxc-send-route" disabled={isTodayCollectionClosed || outcomeSaving} onClick={()=>onOpenRoutePreparation(row.id)}>Enviar {row.unitId} a ruta en calle <span aria-hidden="true">↗</span></button>}</div><VerifiedPaymentReview tenureDays={tenureByClient.get(row.id)?.days} loadRow={loadPaymentReviewRow} key={row.id+review!.key} draftKey={progressKey+':payment:'+row.id+':'+review!.key} unit={row.unitId} name={row.name}
         row={row} today={todayDateKey} review={review!}
         onSave={async(result,input)=>{
           // Capture the position before closing today's client removes it from roundRows.
@@ -935,6 +937,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               onPersistPendingChanges={stableOnPersistPendingChanges}
               onDailyContactAttemptChange={stableOnDailyContactAttemptChange}
               onOperationalReviewChange={stableOnOperationalReviewChange}
+              isInSharedRoute={activeRouteClientIds?.has(row.id) ?? false}
               onOpenRoutePreparation={stableOnOpenRoutePreparation}
               onOpenRoute={stableOnOpenRoute}
             />

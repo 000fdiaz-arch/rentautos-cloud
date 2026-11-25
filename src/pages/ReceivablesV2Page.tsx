@@ -3892,8 +3892,8 @@ export default function ReceivablesPage({
             >
               Ruta en calle
             </button>
-            <PendingPromises key={`${dataOwnerUserId}:${activeCollector}:${todayDateKey}`} items={orderedPendingPromises(baseRows.map(row => ({row, followup: promiseFollowup(collectionStatusByClient[row.id], activeCollector, receivablePayments.filter(payment => payment.clientId === row.id), now)})), now)} now={now} today={todayDateKey} scope={`cxc.v2.workday.v1:${dataOwnerUserId ?? "local"}:${activeCollector}:${todayDateKey}`} disabled={isCollectionLocked} onSave={handleContactOutcome} onSendToRoute={handleOpenManagementRoute} />
-            <UnansweredUnits key={`${dataOwnerUserId}:${activeCollector}:${todayDateKey}`} rows={baseRows} records={collectionStatusByClient} collector={activeCollector} today={todayDateKey} scope={`cxc.v2.workday.v1:${dataOwnerUserId ?? "local"}:${activeCollector}:${todayDateKey}`} disabled={isCollectionLocked} onSave={handleContactOutcome} onSendToRoute={handleOpenManagementRoute} />
+            <PendingPromises key={`${dataOwnerUserId}:${activeCollector}:${todayDateKey}`} items={orderedPendingPromises(baseRows.map(row => ({row, followup: promiseFollowup(collectionStatusByClient[row.id], activeCollector, receivablePayments.filter(payment => payment.clientId === row.id), now)})), now)} now={now} today={todayDateKey} scope={`cxc.v2.workday.v1:${dataOwnerUserId ?? "local"}:${activeCollector}:${todayDateKey}`} disabled={isCollectionLocked} onSave={handleContactOutcome} onSendToRoute={handleOpenManagementRoute} activeRouteClientIds={activeVisibleRouteClientIds} onOpenRoute={()=>setWorkflowTab("route")} />
+            <UnansweredUnits key={`${dataOwnerUserId}:${activeCollector}:${todayDateKey}`} rows={baseRows} records={collectionStatusByClient} collector={activeCollector} today={todayDateKey} scope={`cxc.v2.workday.v1:${dataOwnerUserId ?? "local"}:${activeCollector}:${todayDateKey}`} disabled={isCollectionLocked} onSave={handleContactOutcome} onSendToRoute={handleOpenManagementRoute} activeRouteClientIds={activeVisibleRouteClientIds} onOpenRoute={()=>setWorkflowTab("route")} />
           </div>
 
           {viewMode === "cartera" ? (
@@ -4405,6 +4405,7 @@ export default function ReceivablesPage({
           />
         ) : (
           <ReceivablesLedgerTable
+            activeRouteClientIds={activeVisibleRouteClientIds}
             key={`${dataOwnerUserId ?? "local"}:${activeCollector}:${todayDateKey}:${Boolean(baseRows.length)}`}
             progressScope={dataOwnerUserId ?? "local"}
             tableScrollRef={tableScrollRef}

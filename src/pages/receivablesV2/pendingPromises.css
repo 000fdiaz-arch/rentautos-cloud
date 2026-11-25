@@ -69,3 +69,7 @@ button.cxc-send-route:focus-visible { outline:3px solid #fb923c; outline-offset:
 button.cxc-send-route:disabled { opacity:.5; }
 .cxc-promises-actions button.cxc-send-route { flex-basis:100%; min-height:44px; padding:10px 12px; }
 .cxc-route-review-action { width:min(900px,100%); margin:0 auto 12px; padding:0 16px; box-sizing:border-box; }
+
+.cxc-send-route.is-in-route { background:#0f766e; border-color:#115e59; color:#fff; }
+.cxc-send-route.is-in-route:hover { background:#115e59; }
+.cxc-send-route.is-in-route > span:last-child { font-size:12px; white-space:nowrap; }
