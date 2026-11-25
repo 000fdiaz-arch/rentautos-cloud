@@ -1,3 +1,4 @@
+import { ManagementComment } from "./ManagementComment";
 import { hasActiveOperationalClient } from "./receivablesPageRules";
 import { EditPendingPromise } from "./EditPendingPromise";
 import { useEffect, useRef, useState } from "react";
@@ -27,7 +28,7 @@ export function PendingPromises({items,now,today,scope,onSave,disabled,onSendToR
     <button type="button" className={`cxc-promises-tab ${items.some(overdue) ? "has-overdue" : items.length ? "has-pending" : ""} ${open ? "is-active" : ""}`} aria-haspopup="dialog" disabled={disabled} onClick={()=>setOpen(true)}>Promesas <strong>{items.length}</strong>{items.some(overdue) && <span className="cxc-promises-dot" role="img" aria-label={`${items.filter(overdue).length} vencidas`}/>}</button>
     {open && createPortal(<dialog ref={dialog} className="cxc-promises-dialog" onCancel={event=>{if(saving)event.preventDefault();else setOpen(false);}} onClose={()=>{setOpen(false);setSelected(null);}}>
       <header><h2>Promesas pendientes</h2><button type="button" className="button ghost" disabled={saving} onClick={()=>dialog.current?.close()}>Cerrar ×</button></header>
-      {active ? <><button type="button" className="button ghost" disabled={saving} onClick={()=>setSelected(null)}>← Todas las promesas</button><h3>{active.row.unitId} · {active.row.name}</h3>
+      {active ? <><button type="button" className="button ghost" disabled={saving} onClick={()=>setSelected(null)}>← Todas las promesas</button><h3>{active.row.unitId} · {active.row.name}</h3><ManagementComment key={active.row.id} scope={scope} clientId={active.row.id} disabled={disabled || saving}/>
         {editing ? <EditPendingPromise key={active.row.id+active.followup.promise.at} item={active} today={today} draftKey={scope+":edit-promise:"+active.row.id+":"+active.followup.promise.at} onSave={async input=>{setSaving(true);try{await onSave(active.row.id,"promise",input);setSelected(null);}finally{setSaving(false);}}}/> : <PromiseFollowupForm key={active.row.id+active.followup.alertKey} draftKey={scope+':followup:'+active.row.id+':'+active.followup.alertKey} today={today} followup={active.followup} onSave={async(result,input)=>{setSaving(true);try{await onSave(active.row.id,result,input);setSelected(null);}finally{setSaving(false);}}}/>}</> : <>
         {!sorted.length && <p>No hay promesas pendientes.</p>}
         {sorted.length > 0 && <div className="cxc-promises-list"><table><thead><tr><th>Unidad / cliente</th><th>Fecha y hora</th><th>Prometió</th><th>Falta</th></tr></thead><tbody>

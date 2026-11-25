@@ -383,7 +383,7 @@ function parseStoredCollectionRecord(value: unknown): CollectionStatusRecord | n
       : undefined;
   const messageAudit = { whatsAppMessageCopiedAt, whatsAppMessageSentAt, whatsAppMessageText, supportNote, supportNoteUpdatedAt, contactTime, contactTimeUpdatedAt, paymentPromiseDate, paymentPromiseTime, paymentPromiseAmount, paymentPromiseUpdatedAt, gpsLocationNote, gpsLocationReviewedAt, operationalReviewStatus, operationalReviewedAt, dailyContactAttemptsByDate, routeReleaseAmount, routeReleaseUpdatedAt, routeAssignment, routeAssignmentUpdatedAt, routeUrgency, routeUrgencyUpdatedAt, priorityDebtCap, priorityDebtCapUpdatedAt };
   const contactOutcomes = Array.isArray(row.contactOutcomes)
-    ? row.contactOutcomes.filter((item: any) => item && typeof item.date === "string" && typeof item.at === "string" && typeof item.collector === "string" && ["no_answer", "promise", "reported_paid", "escalated", "closed_today", "paid_up", "reminder_today", "reminder_tomorrow"].includes(item.result))
+    ? row.contactOutcomes.filter((item: any) => item && typeof item.date === "string" && typeof item.at === "string" && typeof item.collector === "string" && ["validation", "no_answer", "promise", "reported_paid", "escalated", "closed_today", "paid_up", "reminder_today", "reminder_tomorrow"].includes(item.result))
     : [];
   Object.assign(messageAudit, { contactOutcomes });
   if (

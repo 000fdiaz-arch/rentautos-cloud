@@ -4,8 +4,9 @@ import {createRequire} from 'node:module';
 import vm from 'node:vm';
 import fs from 'node:fs';
 import ts from 'typescript';
-const compiled=await build({stdin:{contents:'export * from "./src/pages/receivablesV2/paymentReview"; export {parseCollectionStatusMapFromStorage} from "./src/pages/receivablesV2/receivablesPageRules";',resolveDir:process.cwd(),loader:'ts'},bundle:true,platform:'node',format:'cjs',write:false,external:['react'],define:{'import.meta.env.DEV':'false'}});
-const module={exports:{}};vm.runInNewContext(compiled.outputFiles[0].text,{module,exports:module.exports,require:createRequire(import.meta.url),Date,Intl,console});
+const commentStorage=new Map();const localStorage={getItem:key=>commentStorage.get(key)??null,removeItem:key=>commentStorage.delete(key)};
+const compiled=await build({stdin:{contents:'export {managementCommentKey,readManagementComment} from "./src/pages/receivablesV2/ManagementComment"; export * from "./src/pages/receivablesV2/paymentReview"; export {parseCollectionStatusMapFromStorage} from "./src/pages/receivablesV2/receivablesPageRules";',resolveDir:process.cwd(),loader:'ts'},bundle:true,platform:'node',format:'cjs',write:false,external:['react'],jsx:'automatic',define:{'import.meta.env.DEV':'false'}});
+const module={exports:{}};vm.runInNewContext(compiled.outputFiles[0].text,{module,exports:module.exports,require:createRequire(import.meta.url),Date,Intl,console,localStorage});
 const {alreadyManagedToday,collectionPaymentReview,paymentReview,closedForToday,hasReviewedPaymentPromise,parseCollectionStatusMapFromStorage}=module.exports;
 const now=new Date('2026-11-18T16:00:00Z');
 const promise={date:'2026-11-18',at:'2026-11-18T14:00:00Z',collector:'collector-1',result:'promise',promiseDate:'2026-11-18',promiseTime:'12:00',promiseAmount:100};
@@ -31,7 +32,7 @@ assert.ok(paymentReview(renewed,'collector-1',[{...payment,amountReceived:45}],n
 // Execute the actual persistence handler with an isolated storage adapter: never contacts the real database.
 const source=ts.createSourceFile('page.tsx',fs.readFileSync('src/pages/ReceivablesV2Page.tsx','utf8'),ts.ScriptTarget.Latest,true);
 let handler;function visit(node){if(ts.isFunctionDeclaration(node)&&node.name?.text==='handleContactOutcome')handler=node;ts.forEachChild(node,visit);}visit(source);
-const context={isCollectionLocked:false,activeCollector:'collector-1',dataOwnerUserId:'test-owner',todayDateKey:'2026-11-18',payments:[payment],latestCollectionStatusByClientRef:{current:{A02:record}},optimisticStatusByClientRef:{current:{}},streetPersistQueueRef:{current:Promise.resolve()},parseCollectionStatusMapFromStorage,paymentReview,
+const context={managementCommentKey:module.exports.managementCommentKey,readManagementComment:module.exports.readManagementComment,localStorage,isCollectionLocked:false,activeCollector:'collector-1',dataOwnerUserId:'test-owner',todayDateKey:'2026-11-18',payments:[payment],latestCollectionStatusByClientRef:{current:{A02:record}},optimisticStatusByClientRef:{current:{}},streetPersistQueueRef:{current:Promise.resolve()},parseCollectionStatusMapFromStorage,paymentReview,
  Date:class extends Date{constructor(...args){super(...(args.length?args:[now.toISOString()]));}static now(){return now.getTime();}},saved:null,published:null,
  setCollectionStatusByClient(fn){context.published=fn({});},
  async syncCloudStreetManagementDelta(owner,old,patch){context.saved=JSON.parse(JSON.stringify(patch.A02));},
@@ -287,3 +288,17 @@ console.log('PASS B10 no-answer stops hourly promise alerts, including legacy sc
  assert.equal(again.agreement.remaining,10);
  console.log('PASS promise edits preserve original history and payment baseline across reload and repeated edits.');
 }
+// Comments use the actual persistence handler and remain scoped to each unit.
+const commentKey=module.exports.managementCommentKey('cxc.v2.workday.v1:test-owner:collector-1:2026-11-18','A02');
+const otherKey=module.exports.managementCommentKey('cxc.v2.workday.v1:test-owner:collector-1:2026-11-18','A03');
+context.activeCollector='collector-1';context.todayDateKey='2026-11-18';context.latestCollectionStatusByClientRef.current={A02:record};context.streetPersistQueueRef.current=Promise.resolve();context.published=null;
+context.syncCloudStreetManagementDelta=async(owner,old,patch)=>{context.saved=JSON.parse(JSON.stringify(patch.A02));};
+context.supabase.from=()=>({select(){return this},eq(){return this},async single(){return {data:{data:context.saved},error:null}}});
+commentStorage.set(commentKey,JSON.stringify('Solicitó llamada por la tarde'));commentStorage.set(otherKey,JSON.stringify('Comentario de otra unidad'));
+await context.handleContactOutcome('A02','no_answer');
+assert.equal(context.saved.contactOutcomes.at(-1).comment,'Solicitó llamada por la tarde');assert.equal(context.saved.contactOutcomes[0].promiseAmount,100);assert.equal(commentStorage.has(commentKey),false);assert.equal(commentStorage.has(otherKey),true);
+assert.equal(parseCollectionStatusMapFromStorage(JSON.stringify({A02:context.saved})).A02.contactOutcomes.at(-1).comment,'Solicitó llamada por la tarde');
+commentStorage.set(commentKey,JSON.stringify('Conservar si falla'));context.published=null;
+context.supabase.from=()=>({select(){return this},eq(){return this},async single(){return {data:{data:record},error:null}}});
+await assert.rejects(()=>context.handleContactOutcome('A02','reminder_today'));assert.equal(commentStorage.has(commentKey),true);assert.equal(context.published,null);
+console.log('PASS comments: saved and read back in history, isolated by unit, prior history retained, failed save keeps draft and prevents success.');

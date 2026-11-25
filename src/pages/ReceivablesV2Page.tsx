@@ -1,3 +1,5 @@
+import { managementCommentKey, readManagementComment } from "./receivablesV2/ManagementComment";
+import { AdminCollectionOverview } from "./receivablesV2/AdminCollectionOverview";
 import { FirstContactSummary } from "./receivablesV2/FirstContactSummary";
 import { UnansweredUnits } from "./receivablesV2/UnansweredUnits";
 import { PendingPromises, orderedPendingPromises } from "./receivablesV2/PendingPromises";
@@ -1082,6 +1084,7 @@ export default function ReceivablesPage({
     if (!unit || (status !== "provisional_rental" && unit.operational_status !== status)) {
       throw new Error("El estado actual no coincide con el guardado. Recarga y verifica antes de continuar.");
     }
+    await handleContactOutcome(row.id, "validation");
     onFleetClientStatusSync?.({ unitId: row.unitId, status: status as FleetClientStatusSyncPayload["status"],
       archivedClientIds: saved.archivedIds, updatedClientIds: saved.updatedIds,
       archivedAt: saved.review.reviewed_at, statusComment: "Estado validado desde Cuentas por cobrar." });
@@ -1238,20 +1241,20 @@ export default function ReceivablesPage({
       todayDateKey, otherChargesRetentionCheckpointsByClient[client.id]) };
   }, [onClientSnapshot, dataOwnerUserId, receivablePayments, receivablesDate, lateFeeSettings, otherChargesRetentionByClient, todayDateKey, otherChargesRetentionCheckpointsByClient]);
 
-  const baseRows = useMemo(() => {
-    if (!activeCollector) return [];
+  const allCollectorRows = useMemo(() => {
     const calculatedRows = measureReceivablesSync(
       "ledger calculation",
       () => buildReceivableRows(clients, receivablePayments, receivablesDate, fleetUnits, lateFeeSettings)
     );
     const byId = new Map(clients.map(client => [client.id, client]));
-    return calculatedRows.filter((row) => receivablesCollectorForUnit(row.unitId) === activeCollector).map(row => {
+    return calculatedRows.filter((row) => receivablesCollectorForUnit(row.unitId) !== null).map(row => {
       const client = byId.get(row.id);
       return client ? { ...row, otherChargeAmountDue: otherChargeAmountDue(client,
         row.outstandingOtherChargeAmount ?? 0, otherChargesRetentionByClient, receivablePayments,
         todayDateKey, otherChargesRetentionCheckpointsByClient[client.id]) } : row;
     });
-  }, [activeCollector, clients, fleetUnits, lateFeeSettings, receivablePayments, receivablesDate, todayDateKey, otherChargesRetentionByClient, otherChargesRetentionCheckpointsByClient]);
+  }, [clients, fleetUnits, lateFeeSettings, receivablePayments, receivablesDate, todayDateKey, otherChargesRetentionByClient, otherChargesRetentionCheckpointsByClient]);
+  const baseRows = useMemo(() => allCollectorRows.filter(row => receivablesCollectorForUnit(row.unitId) === activeCollector), [allCollectorRows, activeCollector]);
 
   useEffect(() => {
     setSupplementalLastPayments([]);
@@ -2372,6 +2375,8 @@ export default function ReceivablesPage({
     }
     const at = new Date().toISOString();
     const previous = latestCollectionStatusByClientRef.current[clientId];
+    const commentKey = managementCommentKey(`cxc.v2.workday.v1:${dataOwnerUserId}:${activeCollector}:${todayDateKey}`, clientId);
+    const managementComment = readManagementComment(commentKey);
     const promiseDate = followup?.nextDate ?? promise?.date ?? previous?.paymentPromiseDate ?? todayDateKey;
     const promiseTime = followup?.nextTime ?? promise?.time ?? previous?.paymentPromiseTime;
     const promiseAmount = followup?.amount ?? promise?.amount ?? previous?.paymentPromiseAmount;
@@ -2404,7 +2409,7 @@ export default function ReceivablesPage({
         ...(result === "reminder_today" || result === "reminder_tomorrow" ? { whatsAppMessageSentAt: at } : {}),
         ...(followup?.sendToRoute && result === "escalated" ? { isRouteTagged: true, routeTaggedAt: at, managementComment: followup.note, managementUpdatedAt: at } : {}),
         contactOutcomes: [...(previous?.contactOutcomes ?? []), {
-          date: todayDateKey, at, collector: activeCollector, result,
+          date: todayDateKey, at, collector: activeCollector, result, comment: managementComment || undefined,
           followupOf: followup?.promiseAt, note: result === "reminder_today" ? "Mensaje de recordatorio del pago de hoy enviado." : result === "reminder_tomorrow" ? "Mensaje de recordatorio del pago de mañana enviado." : followup?.note, sendToRoute: followup?.sendToRoute, paymentReviewKey: followup?.paymentReviewKey,
           nextContactAt: followup && !followup.paymentReviewKey && result === "reported_paid" ? followup.nextDate + "T" + followup.nextTime + ":00-05:00" : undefined
           , promiseDate: result === "promise" ? promiseDate : undefined,
@@ -2431,6 +2436,7 @@ export default function ReceivablesPage({
       if (!confirmed?.contactOutcomes?.some(item => item.at === at && item.collector === activeCollector && item.result === result && item.followupOf === followup?.promiseAt && item.promisePaymentSince === promisePaymentSince && (!followup || ((result === "reminder_today" || result === "reminder_tomorrow" || item.note === followup.note) && (result !== "promise" || (item.promiseAmount === followup.amount && item.promiseDate === followup.nextDate && item.promiseTime === followup.nextTime)))))) {
         throw new Error("La base de datos no confirmó el intento. Intenta guardar nuevamente.");
       }
+      if (readManagementComment(commentKey) === managementComment) localStorage.removeItem(commentKey);
       optimisticStatusByClientRef.current[clientId] = confirmed;
       latestCollectionStatusByClientRef.current = { ...latestCollectionStatusByClientRef.current, [clientId]: confirmed };
       setCollectionStatusByClient(current => ({ ...current, [clientId]: confirmed }));
@@ -3824,15 +3830,16 @@ export default function ReceivablesPage({
     filters.state.length > 0 ? "state" : ""
   ].filter(Boolean).length;
 
+  const adminOverview = routePermissions?.isAdmin ? <AdminCollectionOverview owner={dataOwnerUserId} rows={allCollectorRows} records={collectionStatusByClient} payments={receivablePayments} routeIds={new Set(activeRouteItems.filter(item=>!item.removedAt && !activeRouteItemReleasedByPayment(item,payments)).map(item=>item.clientId))} today={todayDateKey} now={now} onRefresh={async()=>{await Promise.all([loadStreetManagementFromCloud(),loadActiveRouteFromCloud()]);}} /> : null;
   if (!activeCollector) {
     return (
-      <ReceivablesCollectorAccess
+      <><div style={{display:"flex",justifyContent:"flex-end",padding:16}}>{adminOverview}</div><ReceivablesCollectorAccess
         dataOwnerUserId={dataOwnerUserId}
         dateKey={todayDateKey}
         onSessionStarted={(nextSession) => {
           setCollectorSession(nextSession);
         }}
-      />
+      /></>
     );
   }
 
@@ -3892,6 +3899,7 @@ export default function ReceivablesPage({
             >
               Ruta en calle
             </button>
+            {adminOverview}
             <PendingPromises key={`${dataOwnerUserId}:${activeCollector}:${todayDateKey}`} items={orderedPendingPromises(baseRows.map(row => ({row, followup: promiseFollowup(collectionStatusByClient[row.id], activeCollector, receivablePayments.filter(payment => payment.clientId === row.id), now)})), now)} now={now} today={todayDateKey} scope={`cxc.v2.workday.v1:${dataOwnerUserId ?? "local"}:${activeCollector}:${todayDateKey}`} disabled={isCollectionLocked} onSave={handleContactOutcome} onSendToRoute={handleOpenManagementRoute} activeRouteClientIds={activeVisibleRouteClientIds} onOpenRoute={()=>setWorkflowTab("route")} />
             <UnansweredUnits key={`${dataOwnerUserId}:${activeCollector}:${todayDateKey}`} rows={baseRows} records={collectionStatusByClient} collector={activeCollector} today={todayDateKey} scope={`cxc.v2.workday.v1:${dataOwnerUserId ?? "local"}:${activeCollector}:${todayDateKey}`} disabled={isCollectionLocked} onSave={handleContactOutcome} onSendToRoute={handleOpenManagementRoute} activeRouteClientIds={activeVisibleRouteClientIds} onOpenRoute={()=>setWorkflowTab("route")} />
           </div>

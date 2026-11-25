@@ -1,3 +1,5 @@
+import { previousPortfolioRow } from "./PreviousUnitReview";
+import { ManagementComment } from "./ManagementComment";
 import { hasActiveOperationalClient } from "./receivablesPageRules";
 import { ImportantClientNote } from "./ImportantClientNote";
 import { requiresCollectionPayment } from "./collectionAmountDue";
@@ -227,6 +229,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   const [routeAmountDraftByClient, setRouteAmountDraftByClient] = useState<Record<string, string>>({});
   const [selectedRowId, setSelectedRowId] = useWorkdayValue<string | null>(progressKey + ":unit", initialProgress?.selectedRowId ?? null);
   const [outcomeSaving, setOutcomeSaving] = useState(false);
+  const [inspectionId,setInspectionId] = useState<string|null>(null);
   const saveContactOutcome = useStableEvent(async (clientId: string, result: "no_answer" | "promise" | "paid_up" | "reminder_today" | "reminder_tomorrow", promise?: PaymentPromiseDraft) => {
     const advance = advanceAfterManagement;
     setOutcomeSaving(true);
@@ -287,6 +290,8 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   function setSelectedRowIndex(index: number) { setSelectedRowId(roundRows[index]?.id ?? null); }
   const visibleRows = roundFinished ? [] : roundRows.slice(currentRowIndex, currentRowIndex + 1);
   const visibleRow = visibleRows[0];
+  const inspectedRow = rows.find(row=>row.id===inspectionId);
+  const previousRow = previousPortfolioRow(rows,inspectedRow?.id ?? visibleRow?.id);
   // Old sessions may have restored a payment taken from the former global queue.
   // Only the unit at the current cursor can open a receipt review now.
   const activePaymentReview = paymentReviews.find(item => item.row.id === paymentReviewId && item.row.id === visibleRow?.id && !hotClientId && !roundFinished);
@@ -403,14 +408,15 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   }
 
   function renderImportantNote() {
-    const row = activePaymentReview?.row ?? rows.find(item => item.id === hotClientId) ?? visibleRow;
+    const row = inspectedRow ?? activePaymentReview?.row ?? rows.find(item => item.id === hotClientId) ?? visibleRow;
     if (!row || viewMode !== "cartera" || roundFinished) return null;
     return <><ImportantClientNote key={row.id} unit={row.unitId} name={row.name}
-      value={collectionStatusByClient[row.id]?.supportNote ?? ""} disabled={isTodayCollectionClosed || !onSaveImportantNote}
-      onSave={note => onSaveImportantNote!(row.id, note)} /></>;
+      value={collectionStatusByClient[row.id]?.supportNote ?? ""} disabled={!!inspectedRow || isTodayCollectionClosed || !onSaveImportantNote}
+      onSave={note => onSaveImportantNote!(row.id, note)} /><ManagementComment key={row.id+":"+(collectionStatusByClient[row.id]?.contactOutcomes?.slice(-1)[0]?.at??"")} scope={progressKey} clientId={row.id} disabled={!!inspectedRow || isTodayCollectionClosed || outcomeSaving}/></>;
   }
 
   function renderRowsNavigation(position: "top" | "bottom") {
+    if (inspectedRow) return position === "bottom" ? null : <nav className="ar-ledger-pagination"><button type="button" className="button ghost ar-ledger-pagination-button" disabled={!previousRow} onClick={()=>{if(previousRow)setInspectionId(previousRow.id);}}>← Anterior</button><span className="ar-ledger-pagination-status"><strong>{inspectedRow.unitId}</strong><small>Consulta de unidad anterior</small></span><button type="button" className="button ghost ar-ledger-pagination-button" onClick={()=>setInspectionId(null)}>Volver a gestionar {visibleRow?.unitId} →</button></nav>;
     if(activePaymentReview){
       if(position==='bottom')return null;
       const {row,review}=activePaymentReview;
@@ -454,8 +460,8 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
         <button
           type="button"
           className="button ghost ar-ledger-pagination-button"
-          onClick={() => changeSelectedRow(currentRowIndex - 1)}
-          disabled={currentRowIndex === 0 || outcomeSaving || hotClientId !== null || navigationBlockedByStatus}
+          onClick={() => {if(previousRow && !outcomeSaving)setInspectionId(previousRow.id);}}
+          disabled={!previousRow || outcomeSaving || hotClientId !== null}
         >
           <span aria-hidden="true">←</span> Anterior
         </button>
@@ -868,18 +874,18 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                 </td>
               </tr>
             ))
-          ) : (activePaymentReview ? [] : [...visibleRows, ...rows.filter(row => row.id === hotClientId && !visibleRows.some(current => current.id === row.id))]).map((row) => (
+          ) : (inspectedRow ? [inspectedRow] : activePaymentReview ? [] : [...visibleRows, ...rows.filter(row => row.id === hotClientId && !visibleRows.some(current => current.id === row.id))]).map((row) => (
             <ReceivableTableRow
               key={row.id + (retryIds === null ? "-first" : "-retry")}
               draftKey={progressKey + ":draft:" + row.id + (retryIds === null ? "" : ":second")}
               isSecondRound={retryIds !== null && hotClientId !== row.id}
               row={row}
-              hidden={hotClientId !== null && hotClientId !== row.id}
+              hidden={!inspectedRow && hotClientId !== null && hotClientId !== row.id}
               followupForm={needsOperationalReview(row.operationalStatus ?? "activo") ? <>
                 <OperationalReviewForm key={`${row.unitId}:${row.operationalStatus}`} unit={row.unitId} status={row.operationalStatus ?? ""}
                   loadError={operationalReviewError}
                   draftKey={`${progressKey}:operational:${row.unitId}:${row.operationalStatus}`}
-                  confirmed={!!isUnitStatusConfirmed?.(row)} disabled={isTodayCollectionClosed || outcomeSaving}
+                  confirmed={!!isUnitStatusConfirmed?.(row)} disabled={!!inspectedRow || isTodayCollectionClosed || outcomeSaving}
                   onPendingChange={setOperationalPending} onSave={async status => {
                     if (!onValidateUnitStatus) throw new Error("La validación de estado no está disponible.");
                     // Preserve the cursor before a status change can replace the client row with a fleet row.
@@ -908,7 +914,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               tenureDays={tenureByClient.get(row.id)?.days ?? null}
               todayDateKey={todayDateKey}
               now={now}
-              isTodayCollectionClosed={isTodayCollectionClosed}
+              isTodayCollectionClosed={isTodayCollectionClosed || !!inspectedRow}
               workflowTab={workflowTab}
               collectionCutItems={collectionCutItemsByClient.get(row.id) ?? {}}
               visibleCutKey={visibleCollectionCut}
@@ -930,7 +936,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
               onPaymentPromiseDateChange={stableOnPaymentPromiseDateChange}
               onPaymentPromiseTimeChange={stableOnPaymentPromiseTimeChange}
               onPaymentPromiseAmountChange={stableOnPaymentPromiseAmountChange}
-              onContinuePaidUp={() => saveContactOutcome(row.id, "paid_up")}
+              onContinuePaidUp={inspectedRow ? undefined : () => saveContactOutcome(row.id, "paid_up")}
               onGpsLocationReview={stableOnGpsLocationReview}
               onContactOutcome={saveContactOutcome}
               collectorKey={collectorKey}

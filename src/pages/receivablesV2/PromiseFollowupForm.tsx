@@ -46,7 +46,7 @@ export function PromiseFollowupForm({ draftKey = "cxc.v2.preview.followup", foll
       {result !== "escalated" && result !== "no_answer" && <><label className="ar-deposit-promise-field"><span>{result === "promise" ? "Fecha del nuevo pago" : "Volver a contactar / verificar el"}</span><DayMonthYearInput required min={today} value={date} onChange={setDate}/></label>
       <FixedHourField value={time} onChange={setTime}/></>}
       {result === "promise" && <label className="ar-deposit-promise-field"><span>Monto acordado</span><input required type="number" min="0.01" step="0.01" value={amount} onChange={e => setAmount(e.target.value)}/></label>}
-      <label className="ar-deposit-promise-field ar-followup-note"><span>{result === "escalated" ? "Motivo (obligatorio)" : "Nota"}</span><textarea required={result === "escalated"} value={note} onChange={e => setNote(e.target.value)}/></label>
+      {result === "escalated" && <label className="ar-deposit-promise-field ar-followup-note"><span>Motivo (obligatorio)</span><textarea required value={note} onChange={e => setNote(e.target.value)}/></label>}
       {result === "escalated" && <label className="ar-followup-route"><input type="checkbox" checked={route} onChange={e => setRoute(e.target.checked)}/>Enviar a ruta</label>}
       <button type="submit" className="ar-deposit-promise-save">{saving ? "Guardando en la base de datos…" : "Guardar seguimiento y continuar"}</button>
     </fieldset>

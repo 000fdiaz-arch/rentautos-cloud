@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';import {build} from 'esbuild';import {createRequire} from 'node:module';const require=createRequire(import.meta.url),module={exports:{}};
+const compiled=await build({entryPoints:['src/pages/receivablesV2/PreviousUnitReview.tsx'],bundle:true,jsx:'automatic',platform:'node',format:'cjs',write:false,packages:'external',loader:{'.css':'empty'}});vm.runInNewContext(compiled.outputFiles[0].text,{module,exports:module.exports,require,Date,Intl});
+const rows=['D01','D38','D39','D40','D41'].map(id=>({id,unitId:id,name:id,totalPending:0,operationalStatus:'activo'}));
+assert.equal(module.exports.previousPortfolioRow(rows,'D40').id,'D39');assert.equal(module.exports.previousPortfolioRow(rows,'D39').id,'D38');assert.equal(module.exports.previousPortfolioRow(rows,'D01'),undefined);
+const source=fs.readFileSync('src/pages/receivablesV2/ReceivablesLedgerTable.tsx','utf8');const handler=source.match(/onClick=\{\(\) => \{if\(previousRow && !outcomeSaving\)[^}]+\}\}/)[0];let inspection=null;vm.runInNewContext('('+handler.slice('onClick={'.length,-1)+')()', {previousRow:rows[2],outcomeSaving:false,setInspectionId:id=>inspection=id});assert.equal(inspection,'D39');
+assert.ok(!handler.includes('changeSelectedRow'));assert.match(source,/if \(navigationBlocked \|\| outcomeSaving\) return;/);
+assert.match(source,/inspectedRow \? \[inspectedRow\] : activePaymentReview \? \[\] :/);
+assert.match(source,/isTodayCollectionClosed=\{isTodayCollectionClosed \|\| !!inspectedRow\}/);
+assert.match(source,/onContinuePaidUp=\{inspectedRow \? undefined/);
+assert.ok(!source.includes('<PreviousUnitReview'));
+console.log('PASS previous navigation preserves pending cursor, renders original ReceivableTableRow in consultation mode and retains Next guard.');

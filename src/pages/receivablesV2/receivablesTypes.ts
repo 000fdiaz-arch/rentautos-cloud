@@ -1,5 +1,5 @@
 export type PromiseFollowupInput = { editPromise?: boolean; promiseAt: string; nextDate?: string; nextTime?: string; amount?: number; note?: string; sendToRoute?: boolean; paymentReviewKey?: string };
-export type ContactOutcomeResult = "no_answer" | "promise" | "reported_paid" | "escalated" | "closed_today" | "paid_up" | "reminder_today" | "reminder_tomorrow";
+export type ContactOutcomeResult = "validation" | "no_answer" | "promise" | "reported_paid" | "escalated" | "closed_today" | "paid_up" | "reminder_today" | "reminder_tomorrow";
 export type PaymentPromiseDraft = { date: string; time: string; amount: number };
 export type CollectionStatus =
   | "unassigned"
@@ -68,7 +68,7 @@ export type CollectionStatusRecord = {
   contactTime?: string;
   contactTimeUpdatedAt?: string;
   paymentPromiseDate?: string;
-  contactOutcomes?: Array<{ date: string; at: string; collector: string; result: ContactOutcomeResult; followupOf?: string; nextContactAt?: string; note?: string; sendToRoute?: boolean; promiseDate?: string; promiseTime?: string; promiseAmount?: number; promiseCancelledAt?: string; promisePaymentSince?: string; paymentReviewKey?: string }>;
+  contactOutcomes?: Array<{ date: string; at: string; collector: string; result: ContactOutcomeResult; comment?: string; followupOf?: string; nextContactAt?: string; note?: string; sendToRoute?: boolean; promiseDate?: string; promiseTime?: string; promiseAmount?: number; promiseCancelledAt?: string; promisePaymentSince?: string; paymentReviewKey?: string }>;
   paymentPromiseTime?: string;
   paymentPromiseAmount?: number;
   paymentPromiseUpdatedAt?: string;
