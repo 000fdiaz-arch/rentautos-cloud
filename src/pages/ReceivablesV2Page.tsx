@@ -1,6 +1,6 @@
 import { managementCommentKey, readManagementComment } from "./receivablesV2/ManagementComment";
 import { AdminCollectionOverview } from "./receivablesV2/AdminCollectionOverview";
-import { FirstContactSummary } from "./receivablesV2/FirstContactSummary";
+import { FirstContactSummary, firstContactSummary } from "./receivablesV2/FirstContactSummary";
 import { UnansweredUnits } from "./receivablesV2/UnansweredUnits";
 import { PendingPromises, orderedPendingPromises } from "./receivablesV2/PendingPromises";
 import { promiseFollowup } from "./receivablesV2/promiseFollowup";
@@ -4413,6 +4413,7 @@ export default function ReceivablesPage({
           />
         ) : (
           <ReceivablesLedgerTable
+            firstContactManagedIds={new Set(firstContactSummary({rows: baseRows, records: collectionStatusByClient, collector: activeCollector ?? "", today: todayDateKey, reviews: operationalReviews}).entries.filter(entry => entry.category !== "pending").map(entry => entry.row.id))}
             activeRouteClientIds={activeVisibleRouteClientIds}
             key={`${dataOwnerUserId ?? "local"}:${activeCollector}:${todayDateKey}:${Boolean(baseRows.length)}`}
             progressScope={dataOwnerUserId ?? "local"}

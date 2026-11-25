@@ -54,6 +54,7 @@ export type ReceivablesHistoryRow = {
 };
 
 type Props = {
+  firstContactManagedIds?: Set<string>;
   activeRouteClientIds?: Set<string>;
   loadPaymentReviewRow?: (row: ReceivableRow) => Promise<ReceivableRow>;
   initialProgress?: { selectedRowId: string | null; retryIds: string[] | null };
@@ -170,6 +171,7 @@ function useStableEvent<T extends (...args: any[]) => any>(handler: T): T {
 }
 
 export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
+  firstContactManagedIds,
   activeRouteClientIds,
   loadPaymentReviewRow,
   progressScope = "preview",
@@ -239,8 +241,12 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
     }
     finally { setOutcomeSaving(false); }
   });
-  const [retryIds, setRetryIds] = useWorkdayValue<string[] | null>(progressKey + ":retryIds", initialProgress?.retryIds ?? null);
-  const [roundFinished, setRoundFinished] = useWorkdayValue<boolean>(progressKey + ":roundFinished", false);
+  // Retries are an explicit choice for this visit, never an automatic restored queue.
+  // Confirmed first contacts, not browser progress flags, determine completion.
+  const [retryIds, setRetryIds] = useState<string[] | null>(null);
+  const [explicitlyFinished, setRoundFinished] = useState(false);
+  const firstRoundComplete = rows.length > 0 && rows.every(row => firstContactManagedIds?.has(row.id));
+  const roundFinished = explicitlyFinished || (retryIds === null && firstRoundComplete);
   const [hotClientId, setHotClientId] = useWorkdayValue<string | null>(progressKey + ":hotClientId", null);
   const [automaticFollowup, setAutomaticFollowup] = useWorkdayValue<boolean>(progressKey + ":automaticFollowup", false);
   const [shownPromises, setShownPromises] = useWorkdayValue<string[]>(progressKey + ":shownPromises", []);
@@ -275,7 +281,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
     const record = collectionStatusByClient[row.id];
     // The first round contains only units without a confirmed management today.
     // No-answer retries and overdue promises keep their own follow-up flows.
-    if (retryIds === null && (alreadyManagedToday(record, collectorKey, now) || isUnitStatusConfirmed?.(row))) return false;
+    if (retryIds === null && (firstContactManagedIds?.has(row.id) || alreadyManagedToday(record, collectorKey, now) || isUnitStatusConfirmed?.(row))) return false;
     const last = latestContact(record, collectorKey, todayDateKey);
     const waitingForCallback = last?.result === "no_answer"
       && (retryIds === null || !contactIsDue(record, collectorKey, todayDateKey, now));

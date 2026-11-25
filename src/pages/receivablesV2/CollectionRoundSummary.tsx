@@ -14,7 +14,7 @@ export function CollectionRoundSummary({collector,date,promises,pending}: {colle
   const remaining=promises.reduce((sum,item)=>sum+item.remaining,0);
   const fulfilled=promises.filter(item=>item.remaining===0).length;
   return <section className="cxc-round-summary" aria-label="Resumen de la gestión">
-    <header className="cxc-summary-heading"><div><small>RESULTADO DE LA GESTIÓN</small><h3>Resumen de la cartera</h3><p>Promesas registradas hoy y clientes pendientes de respuesta.</p></div><span>{collector} · {day(date)}</span></header>
+    <header className="cxc-summary-heading"><div><small>RESULTADO DE LA GESTIÓN</small><h3>Primera vuelta completada</h3><p>Elige Promesas o Sin respuesta para continuar cuando lo decidas.</p></div><span>{collector} · {day(date)}</span></header>
     <div className="cxc-summary-totals">
       <div><span>Prometieron pagar</span><strong>{promises.length}</strong><small>{fulfilled} promesas cumplidas</small></div>
       <div className="is-pending"><span>Siguen sin contestar</span><strong>{pending.length}</strong><small>Clientes por contactar nuevamente</small></div>
