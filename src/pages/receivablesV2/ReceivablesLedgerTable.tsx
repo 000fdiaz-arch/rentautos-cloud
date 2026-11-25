@@ -282,6 +282,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
     return !waitingForCallback && !hasReviewedPaymentPromise(record, collectorKey, todayDateKey);
   });
   const roundRows = retryIds === null ? eligibleRows : retryIds.flatMap((id) => eligibleRows.filter((row) => row.id === id));
+  const roundRowsKey = JSON.stringify(roundRows.map(row => row.id));
   const pendingIds = openRows.filter(row => latestContact(collectionStatusByClient[row.id], collectorKey, todayDateKey)?.result === "no_answer").map(row => row.id);
   const readyPendingIds = pendingIds.filter(id => contactIsDue(collectionStatusByClient[id], collectorKey, todayDateKey, now));
   const scheduledIds = pendingIds.filter(id => !readyPendingIds.includes(id));
@@ -351,9 +352,8 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
     // Never reset a restored position while cloud rows are still loading.
     if (rows.length && !roundFinished && retryIds === null && currentRowIndex >= roundRows.length && !hotClientId && !paymentReviewId && !outcomeSaving) {
       setDeferredIds(scheduledIds);
-      setRetryIds(readyPendingIds);
-      if (readyPendingIds.length) setSelectedRowId(readyPendingIds[0]);
-      else setRoundFinished(true);
+      setRetryIds([]);
+      setRoundFinished(true);
       return;
     }
     if (rows.length && selectedRowId && hasReviewedPaymentPromise(collectionStatusByClient[selectedRowId], collectorKey, todayDateKey)) {
@@ -362,15 +362,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
     }
     if (!selectedRowId && roundRows.length) setSelectedRowId(roundRows[0].id);
     if (hotClientId && rows.length && !rows.some(row => row.id === hotClientId)) setHotClientId(null);
-    if (roundFinished) {
-      const due = deferredIds.filter(id => readyPendingIds.includes(id));
-      if (due.length) {
-        setRetryIds(due); setSelectedRowId(due[0]);
-        setDeferredIds(current => current.filter(id => !due.includes(id)));
-        setRoundFinished(false);
-      }
-    }
-  }, [roundFinished, now, rows, selectedRowId, hotClientId]);
+  }, [roundFinished, now, rows, selectedRowId, hotClientId, roundRowsKey, outcomeSaving, paymentReviewId]);
 
   const collectionCutItemsByClient = useMemo(() => {
     const byClient = new Map<string, Partial<Record<CollectionCutKey, CollectionClosureItem>>>();
@@ -398,12 +390,10 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
     const resumeIndex = reviewedPaymentId ? roundRows.findIndex((row,index)=>index>currentRowIndex && row.id!==reviewedPaymentId && !hasReviewedPaymentPromise(collectionStatusByClient[row.id],collectorKey,todayDateKey) && (retryIds===null || contactIsDue(collectionStatusByClient[row.id],collectorKey,todayDateKey,now))) : nextRowIndex;
     if (resumeIndex >= 0) changeSelectedRow(resumeIndex);
     else if (retryIds === null) {
-      // Include the just-confirmed answer even if React has not rendered the new record yet.
-      const ready = (completed ? [...readyPendingIds.filter(id => id !== completed.clientId),
-        ...(completed.result === "no_answer" ? [completed.clientId] : [])] : readyPendingIds).filter(id=>id!==reviewedPaymentId || completed?.result === "no_answer");
       setDeferredIds((completed ? scheduledIds.filter(id => id !== completed.clientId) : scheduledIds).filter(id=>id!==reviewedPaymentId));
-      if (ready.length) { setRetryIds(ready); setSelectedRowId(ready[0]); }
-      else { setRetryIds([]); setRoundFinished(true); }
+      // Finish visibly. A second attempt starts only through its explicit action.
+      setRetryIds([]);
+      setRoundFinished(true);
     } else setRoundFinished(true);
   }
 

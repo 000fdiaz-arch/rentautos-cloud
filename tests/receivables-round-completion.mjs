@@ -1,0 +1,12 @@
+import fs from 'node:fs';import assert from 'node:assert/strict';import vm from 'node:vm';import ts from 'typescript';import {build} from 'esbuild';import {createRequire} from 'node:module';
+const out=await build({entryPoints:['src/pages/receivablesV2/operationalReview.ts'],bundle:true,platform:'node',format:'cjs',write:false,define:{'import.meta.env':'{}'}});const m={exports:{}};vm.runInNewContext(out.outputFiles[0].text,{module:m,exports:m.exports,require:createRequire(import.meta.url),Date,Intl});const {operationalReviewConfirmed:confirmed}=m.exports;
+const review={status:'libre',collector:'collector-2',reviewed_at:'2026-11-25T16:50:38.684027+00:00',fleet_updated_at:'2026-11-25T16:50:38.684027+00:00'};
+assert.equal(confirmed(review,'libre','collector-2','2026-11-25','2026-11-25T16:50:38.632542+00:00'),true,'D40 transaction timestamp must remain valid');
+assert.equal(confirmed(review,'libre','collector-2','2026-11-25','2026-11-25T16:50:39Z'),false,'Later updates still require review');
+assert.equal(confirmed(review,'taller','collector-2','2026-11-25'),false);assert.equal(confirmed(review,'libre','collector-1','2026-11-25'),false);assert.equal(confirmed(review,'libre','collector-2','2026-11-26'),false);
+const source=fs.readFileSync('src/pages/receivablesV2/ReceivablesLedgerTable.tsx','utf8');const tree=ts.createSourceFile('ledger.tsx',source,99,true);let advance;function walk(n){if(ts.isFunctionDeclaration(n)&&n.name?.text==='advanceAfterManagement')advance=n;ts.forEachChild(n,walk);}walk(tree);
+let finished=false,retry=null,moved=false;const ctx={hotClientId:null,automaticFollowup:false,nextRowIndex:-1,retryIds:null,readyPendingIds:['D01'],scheduledIds:[],setHotClientId:()=>{},setAutomaticFollowup:()=>{},setDeferredIds:()=>{},setRetryIds:v=>retry=v,setRoundFinished:v=>finished=v,changeSelectedRow:()=>moved=true,setSelectedRowId:()=>moved=true};vm.runInNewContext(ts.transpile(advance.getText(tree),{target:9})+';advanceAfterManagement();',ctx);
+assert.equal(finished,true,'Finish must show completion');assert.equal(retry.length,0,'No automatic second round');assert.equal(moved,false,'Must not jump to no-answer clients');
+const effect=source.slice(source.indexOf('    // Never reset a restored position'),source.indexOf('  const collectionCutItemsByClient'));
+assert.match(effect,/roundRowsKey/,'Loaded validations rerun the completion effect');
+console.log('PASS D40 timestamp, later state changes, collector/day isolation, finish with unanswered units and refresh dependency');

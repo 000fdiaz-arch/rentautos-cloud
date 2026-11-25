@@ -11,7 +11,9 @@ export function needsOperationalReview(status: string) {
 export function operationalReviewConfirmed(review: OperationalReview | undefined, status: string, collector: string, today: string, fleetUpdatedAt?: string) {
   return !!review && review.status === status.trim().toLowerCase() && review.collector === collector
     && getBusinessDateKey(new Date(review.reviewed_at)) === today
-    && (!fleetUpdatedAt || Date.parse(review.fleet_updated_at) === Date.parse(fleetUpdatedAt));
+    // The fleet trigger may stamp the row at transaction start, before the RPC
+    // records its review. Only a newer fleet update invalidates that review.
+    && (!fleetUpdatedAt || Date.parse(fleetUpdatedAt) <= Date.parse(review.fleet_updated_at));
 }
 export async function saveOperationalReview(owner: string, unit: string, expected: string, status: string, collector: string) {
   if (!supabase) throw new Error("No hay conexión con la base de datos.");
