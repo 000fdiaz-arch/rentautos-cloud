@@ -1,3 +1,4 @@
+import { clientTenurePresentation, compactClientTenureLabel } from "./ClientTenureBanner";
 import { pendingRentLettersLabel } from "./rentLetters";
 import { PaidUpNotice } from "./PaidUpNotice";
 import { ReminderForm } from "./ReminderForm";
@@ -73,28 +74,6 @@ function fixedDepositTimeLabel(value: string): string {
   return `${hour}:00 ${period === "AM" ? "a. m." : "p. m."}`;
 }
 
-function clientTenurePresentation(days: number | null): {
-  tone: "new" | "semi-new" | "established" | "unknown";
-  detail: string;
-} {
-  if (days === null) return { tone: "unknown", detail: "Antigüedad no disponible." };
-  if (days < 90) return { tone: "new", detail: "Menos de 90 días como cliente." };
-  if (days <= 180) return { tone: "semi-new", detail: "Entre 90 y 180 días como cliente." };
-  return { tone: "established", detail: "Más de 180 días como cliente." };
-}
-
-function compactClientTenureLabel(days: number | null, fallback: string): string {
-  if (days === null) return fallback;
-  if (days >= 365) {
-    const years = Math.floor(days / 365);
-    return `+ ${years} ${years === 1 ? "año" : "años"}`;
-  }
-  if (days >= 30) {
-    const months = Math.floor(days / 30);
-    return `+ ${months} ${months === 1 ? "mes" : "meses"}`;
-  }
-  return fallback;
-}
 type Props = {
   isSecondRound?: boolean;
   draftKey?: string;

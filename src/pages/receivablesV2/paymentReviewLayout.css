@@ -54,3 +54,15 @@
   .cxc-payment-received-notice { padding: 16px; gap: 12px; }
   .cxc-payment-received-notice h3 { font-size: 18px; }
 }
+.cxc-payment-review-account > .ar-client-tenure-banner { margin-bottom: 16px; }
+.cxc-payment-review-layout {
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  grid-template-areas: none;
+  grid-template-rows: auto;
+}
+.cxc-payment-review-layout > section { grid-area: auto; }
+@media (min-width: 651px) and (max-width: 1100px) {
+  .cxc-payment-review-layout > .cxc-payment-review-actions { grid-column: 1 / -1; }
+}

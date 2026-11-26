@@ -1,3 +1,4 @@
+import { ClientTenureBanner } from "./ClientTenureBanner";
 import type { ReactNode } from "react";
 import { PLAN_LABEL, WEEKDAY_LABEL } from "../../receivablesV2";
 import { clientOperationalStatusLabel, clientOperationalStatusTone } from "./receivablesPageRules";
@@ -14,8 +15,8 @@ import { formatCurrency } from "../../format";
 import type { ReceivableRow } from "../../receivablesV2";
 import type { paymentReview } from "./paymentReview";
 import type { PromiseFollowupInput } from "./receivablesTypes";
-export type PaymentReviewFormProps={routeAction?:ReactNode;tenureDays?:number|null;draftKey:string;unit:string;name:string;row:ReceivableRow;today:string;review:NonNullable<ReturnType<typeof paymentReview>>;onSave:(result:'promise'|'closed_today'|'no_answer'|'reminder_today'|'reminder_tomorrow',input:PromiseFollowupInput)=>Promise<void>};
-export function PaymentReviewForm({routeAction,tenureDays,draftKey,unit,name,row,today,review,onSave}:PaymentReviewFormProps){
+export type PaymentReviewFormProps={tenureLabel?:string;routeAction?:ReactNode;tenureDays?:number|null;draftKey:string;unit:string;name:string;row:ReceivableRow;today:string;review:NonNullable<ReturnType<typeof paymentReview>>;onSave:(result:'promise'|'closed_today'|'no_answer'|'reminder_today'|'reminder_tomorrow',input:PromiseFollowupInput)=>Promise<void>};
+export function PaymentReviewForm({routeAction,tenureLabel,tenureDays,draftKey,unit,name,row,today,review,onSave}:PaymentReviewFormProps){
   const [decision,setDecision]=useWorkdayValue<''|'promise'|'closed_today'|'no_answer'>(draftKey+':decision','');
   const {date,setDate,time,setTime}=usePromiseSchedule(draftKey,today);
   const [amount,setAmount]=useWorkdayValue(draftKey+':amount',review.agreement ? String(review.agreement.remaining) : "");
@@ -33,6 +34,7 @@ export function PaymentReviewForm({routeAction,tenureDays,draftKey,unit,name,row
     </section>
     <section className="cxc-payment-review-account" aria-label="Pago recibido y saldos">
     <div className="cxc-payment-received-notice" role="status"><span className="cxc-payment-received-check" aria-hidden="true">✓</span><div><h3>El cliente realizó un pago</h3><strong>{formatCurrency(review.total)}</strong><span>{review.received.length} {review.received.length === 1 ? "recibo por revisar" : "recibos por revisar"}</span></div></div>
+    <ClientTenureBanner days={tenureDays ?? null} label={tenureLabel ?? (tenureDays == null ? "Sin antigüedad" : `${tenureDays} días`)} name={name}/>
     <div className="cxc-summary-totals cxc-payment-review-totals cxc-payment-agreement"><div><span>Falta de la promesa</span><strong>{review.agreement?formatCurrency(review.agreement.remaining):'Sin promesa'}</strong><small>{review.agreement?`Prometió ${formatCurrency(review.agreement.promise.promiseAmount!)} · abonó ${formatCurrency(review.agreement.paid)}`:'No hay una promesa anterior registrada.'}</small></div></div>
     <div className="cxc-payment-balances" aria-label="Saldos por concepto">
       {[
