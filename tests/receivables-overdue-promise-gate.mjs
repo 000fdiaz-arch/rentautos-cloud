@@ -11,7 +11,7 @@ const gate=source.match(/const mustAttendOverduePromises = ([^;]+);/)[1];
 const pending=()=>orderedPendingPromises(rows.map(row=>({row,followup:promiseFollowup(records[row.id],collector,[],now)})),now);
 const entries=()=>firstContactSummary({rows,records,collector,today,reviews:{}}).entries;
 const blocked=(firstContactEntries=entries())=>vm.runInNewContext(gate,{firstContactEntries,pendingPromiseItems:pending()});
-assert.equal(blocked([{category:'pending'}]),false,'Never interrupt first round');assert.equal(blocked(),true);
+assert.equal(blocked([{category:'pending'}]),true,'Overdue promises block even with unfinished first contacts');assert.equal(blocked(),true);
 const original=JSON.stringify(records.D01.contactOutcomes[0]);
 records.D01.contactOutcomes.push({collector,date:today,at:'2026-11-25T20:01:00Z',result:'no_answer',followupOf:records.D01.contactOutcomes[0].at,comment:'Se dejó mensaje'});
 assert.equal(pending().length,1);assert.equal(unansweredUnits(rows,records,collector,today)[0].row.id,'D01');assert.equal(blocked(),true,'Other overdue promises still block');

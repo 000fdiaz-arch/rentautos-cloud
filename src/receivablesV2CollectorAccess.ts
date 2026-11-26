@@ -16,8 +16,8 @@ export type ReceivablesCollectorSession = {
 export const RECEIVABLES_COLLECTOR_PIN_LENGTH = 4;
 
 export const RECEIVABLES_COLLECTORS: Record<ReceivablesCollectorKey, { label: string; groups: string[]; portfolio: "portfolio-1" | "portfolio-2" }> = {
-  "collector-1": { label: "Cobrador 1", groups: ["C"], portfolio: "portfolio-1" },
-  "collector-2": { label: "Cobrador 2", groups: ["D"], portfolio: "portfolio-2" }
+  "collector-1": { label: "Cobrador 1", groups: ["C", "E"], portfolio: "portfolio-1" },
+  "collector-2": { label: "Cobrador 2", groups: ["D", "T"], portfolio: "portfolio-2" }
 };
 
 function bytesToBase64(bytes: Uint8Array): string {

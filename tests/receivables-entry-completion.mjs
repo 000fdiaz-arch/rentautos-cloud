@@ -15,7 +15,7 @@ const statements=[];
 function walk(node){if(ts.isVariableStatement(node) && node.declarationList.declarations.some(d=>names.some(name=>d.name.getText(tree)===name || d.name.getText(tree).startsWith('['+name+','))))statements.push(node.getText(tree));ts.forEachChild(node,walk);}
 walk(tree);
 function enter(rows,managed){return vm.runInNewContext(ts.transpile(statements.join('\n'),{target:9})+';({retryIds,roundFinished})',{
- rows,firstContactManagedIds:managed,useState:value=>[value,()=>{}],
+ rows,firstContactManagedIds:managed,reviewedFollowupIds:[],collectionStatusByClient:{},collectorKey:'collector-1',todayDateKey:'2026-11-25',portfolioFollowupToday:()=>null,useState:value=>[value,()=>{}],
  // A previous browser session had already entered automatic retries.
  initialProgress:{retryIds:rows.map(r=>r.id)},
  useWorkdayValue:()=>{throw Error('Must not restore legacy automatic retry state');}

@@ -24,6 +24,12 @@ export function latestContact(record: CollectionStatusRecord | undefined, collec
     .sort((a,b) => a.at.localeCompare(b.at)).slice(-1)[0];
 }
 
+// A priority follow-up does not consume the unit's place in the normal portfolio.
+export function portfolioFollowupToday(record: CollectionStatusRecord | undefined, collector: string, date: string) {
+  const latest = latestContact(record, collector, date);
+  return latest?.followupOf ? latest : null;
+}
+
 export function restoredRoundIndex(roundRows: Array<{id:string}>, rows: Array<{id:string}>, selectedId: string | null) {
   const exact = roundRows.findIndex(row => row.id === selectedId);
   if (exact >= 0) return exact;

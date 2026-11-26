@@ -6,7 +6,8 @@ import { requiresCollectionPayment } from "./collectionAmountDue";
 import { CollectionRoundSummary } from "./CollectionRoundSummary";
 import { alreadyManagedToday, collectionPaymentReview, paymentReview, closedForToday, hasReviewedPaymentPromise } from "./paymentReview";
 import { VerifiedPaymentReview } from "./VerifiedPaymentReview";
-import { useWorkdayValue, latestContact, contactIsDue, restoredRoundIndex } from "./workdayProgress";
+import { useWorkdayValue, latestContact, contactIsDue, restoredRoundIndex, portfolioFollowupToday } from "./workdayProgress";
+import { PortfolioAgreement } from "./PortfolioAgreement";
 import { OperationalReviewForm } from "./OperationalReviewForm";
 import { needsOperationalReview } from "./operationalReview";
 import { PromiseFollowupForm } from "./PromiseFollowupForm";
@@ -242,10 +243,12 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
     finally { setOutcomeSaving(false); }
   });
   // Retries are an explicit choice for this visit, never an automatic restored queue.
-  // Confirmed first contacts, not browser progress flags, determine completion.
+  // Confirmed contacts determine completion; priority agreements also need to be seen in order.
   const [retryIds, setRetryIds] = useState<string[] | null>(null);
   const [explicitlyFinished, setRoundFinished] = useState(false);
-  const firstRoundComplete = rows.length > 0 && rows.every(row => firstContactManagedIds?.has(row.id));
+  const [reviewedFollowupIds, setReviewedFollowupIds] = useWorkdayValue<string[]>(progressKey + ":reviewed-followups", []);
+  const firstRoundComplete = rows.length > 0 && rows.every(row => firstContactManagedIds?.has(row.id)
+    && (!portfolioFollowupToday(collectionStatusByClient[row.id], collectorKey, todayDateKey) || reviewedFollowupIds.includes(row.id)));
   const roundFinished = explicitlyFinished || (retryIds === null && firstRoundComplete);
   const [hotClientId, setHotClientId] = useWorkdayValue<string | null>(progressKey + ":hotClientId", null);
   const [automaticFollowup, setAutomaticFollowup] = useWorkdayValue<boolean>(progressKey + ":automaticFollowup", false);
@@ -279,9 +282,12 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   }, [hotClientId, outcomeSaving, collectionStatusByClient, collectorKey, todayDateKey]);
   const eligibleRows = openRows.filter(row => {
     const record = collectionStatusByClient[row.id];
-    // The first round contains only units without a confirmed management today.
-    // No-answer retries and overdue promises keep their own follow-up flows.
-    if (retryIds === null && (firstContactManagedIds?.has(row.id) || alreadyManagedToday(record, collectorKey, now) || isUnitStatusConfirmed?.(row))) return false;
+    // Priority follow-ups are shown again at their normal position, as saved agreements.
+    if (retryIds === null) {
+      if (isUnitStatusConfirmed?.(row)) return false;
+      if (portfolioFollowupToday(record, collectorKey, todayDateKey)) return !reviewedFollowupIds.includes(row.id);
+      if (firstContactManagedIds?.has(row.id) || alreadyManagedToday(record, collectorKey, now)) return false;
+    }
     const last = latestContact(record, collectorKey, todayDateKey);
     const waitingForCallback = last?.result === "no_answer"
       && (retryIds === null || !contactIsDue(record, collectorKey, todayDateKey, now));
@@ -293,7 +299,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
   const readyPendingIds = pendingIds.filter(id => contactIsDue(collectionStatusByClient[id], collectorKey, todayDateKey, now));
   const scheduledIds = pendingIds.filter(id => !readyPendingIds.includes(id));
   const currentRowIndex = restoredRoundIndex(roundRows, rows, selectedRowId);
-  const nextRowIndex = roundRows.findIndex((row, index) => index > currentRowIndex && !hasReviewedPaymentPromise(collectionStatusByClient[row.id], collectorKey, todayDateKey) && (retryIds === null || contactIsDue(collectionStatusByClient[row.id], collectorKey, todayDateKey, now)));
+  const nextRowIndex = roundRows.findIndex((row, index) => index > currentRowIndex);
   function setSelectedRowIndex(index: number) { setSelectedRowId(roundRows[index]?.id ?? null); }
   const visibleRows = roundFinished ? [] : roundRows.slice(currentRowIndex, currentRowIndex + 1);
   const visibleRow = visibleRows[0];
@@ -362,7 +368,8 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
       setRoundFinished(true);
       return;
     }
-    if (rows.length && selectedRowId && hasReviewedPaymentPromise(collectionStatusByClient[selectedRowId], collectorKey, todayDateKey)) {
+    if (rows.length && selectedRowId && hasReviewedPaymentPromise(collectionStatusByClient[selectedRowId], collectorKey, todayDateKey)
+      && !portfolioFollowupToday(collectionStatusByClient[selectedRowId], collectorKey, todayDateKey)) {
       if (roundRows[currentRowIndex]) setSelectedRowId(roundRows[currentRowIndex].id);
       else if (!hotClientId && !paymentReviewId) setRoundFinished(true);
     }
@@ -393,7 +400,7 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
     if (hotClientId && !automaticFollowup) { setHotClientId(null); return; }
     setHotClientId(null);
     setAutomaticFollowup(false);
-    const resumeIndex = reviewedPaymentId ? roundRows.findIndex((row,index)=>index>currentRowIndex && row.id!==reviewedPaymentId && !hasReviewedPaymentPromise(collectionStatusByClient[row.id],collectorKey,todayDateKey) && (retryIds===null || contactIsDue(collectionStatusByClient[row.id],collectorKey,todayDateKey,now))) : nextRowIndex;
+    const resumeIndex = reviewedPaymentId ? roundRows.findIndex((row,index)=>index>currentRowIndex && row.id!==reviewedPaymentId) : nextRowIndex;
     if (resumeIndex >= 0) changeSelectedRow(resumeIndex);
     else if (retryIds === null) {
       setDeferredIds((completed ? scheduledIds.filter(id => id !== completed.clientId) : scheduledIds).filter(id=>id!==reviewedPaymentId));
@@ -475,6 +482,9 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
           className="button ghost ar-ledger-pagination-button"
           onClick={() => {
             if (navigationBlocked || outcomeSaving) return;
+            if (retryIds === null && visibleRow && portfolioFollowupToday(collectionStatusByClient[visibleRow.id], collectorKey, todayDateKey)) {
+              setReviewedFollowupIds(current => current.includes(visibleRow.id) ? current : [...current, visibleRow.id]);
+            }
             advanceAfterManagement();
           }}
           disabled={navigationBlocked || outcomeSaving || hotClientId !== null}
@@ -893,7 +903,10 @@ export const ReceivablesLedgerTable = memo(function ReceivablesLedgerTable({
                       advance();
                     } finally { setOutcomeSaving(false); }
                   }}/>
-              </> : hotClientId === row.id && followups.find(item => item.row.id === row.id)?.followup ? <PromiseFollowupForm draftKey={progressKey + ":followup:" + row.id + ":" + followups.find(item => item.row.id === row.id)!.followup!.alertKey} key={row.id} today={todayDateKey} followup={followups.find(item => item.row.id === row.id)!.followup!} onSave={async (result, input) => {
+              </> : retryIds === null && portfolioFollowupToday(collectionStatusByClient[row.id], collectorKey, todayDateKey) ? <PortfolioAgreement
+                latest={portfolioFollowupToday(collectionStatusByClient[row.id], collectorKey, todayDateKey)!}
+                followup={followups.find(item => item.row.id === row.id)?.followup ?? null}
+              /> : hotClientId === row.id && followups.find(item => item.row.id === row.id)?.followup ? <PromiseFollowupForm draftKey={progressKey + ":followup:" + row.id + ":" + followups.find(item => item.row.id === row.id)!.followup!.alertKey} key={row.id} today={todayDateKey} followup={followups.find(item => item.row.id === row.id)!.followup!} onSave={async (result, input) => {
                 setOutcomeSaving(true);
                 try {
                   await onContactOutcome(row.id, result, input);

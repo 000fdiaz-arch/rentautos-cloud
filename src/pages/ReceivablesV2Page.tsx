@@ -1880,7 +1880,7 @@ export default function ReceivablesPage({
     return Array.from(values).sort((a, b) => b - a);
   }, [baseRows, essentialPaymentDaysFilter, matchesEssentialFilters, now]);
   const essentialRows = useMemo(() => (
-    [...baseRows].sort((a, b) => a.unitId.localeCompare(b.unitId, undefined, { numeric: true }))
+    [...baseRows].sort((a, b) => a.unitId.localeCompare(b.unitId, undefined, { numeric: true }) || a.id.localeCompare(b.id))
   ), [baseRows]);
   const selectedHistoryCuts = useMemo(
     () => selectedHistoryDate ? getCollectionClosureCuts(collectionClosuresByDate[selectedHistoryDate]) : {},
@@ -3833,9 +3833,8 @@ export default function ReceivablesPage({
     filters.state.length > 0 ? "state" : ""
   ].filter(Boolean).length;
 
-  const firstContactEntries = firstContactSummary({rows:baseRows,records:collectionStatusByClient,collector:activeCollector ?? "",today:todayDateKey,reviews:operationalReviews}).entries;
   const pendingPromiseItems = orderedPendingPromises(baseRows.map(row=>({row,followup:promiseFollowup(collectionStatusByClient[row.id],activeCollector ?? "",receivablePayments.filter(payment=>payment.clientId===row.id),now)})),now);
-  const mustAttendOverduePromises = firstContactEntries.length > 0 && firstContactEntries.every(entry=>entry.category!=="pending") && pendingPromiseItems.some(item=>item.followup.overdue);
+  const mustAttendOverduePromises = pendingPromiseItems.some(item=>item.followup.overdue);
   const adminOverview = routePermissions?.isAdmin ? <AdminCollectionOverview owner={dataOwnerUserId} rows={allCollectorRows} records={collectionStatusByClient} payments={receivablePayments} routeIds={new Set(activeRouteItems.filter(item=>!item.removedAt && !activeRouteItemReleasedByPayment(item,payments)).map(item=>item.clientId))} today={todayDateKey} now={now} onRefresh={async()=>{await Promise.all([loadStreetManagementFromCloud(),loadActiveRouteFromCloud()]);}} /> : null;
   if (!activeCollector) {
     return (
