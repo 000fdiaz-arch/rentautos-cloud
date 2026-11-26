@@ -1,0 +1,56 @@
+.cxc-payment-review-layout {
+  width: 100%;
+  box-sizing: border-box;
+  grid-template-columns: minmax(220px, .8fr) minmax(0, 2.5fr) minmax(300px, 1.2fr);
+  align-items: stretch;
+}
+.cxc-payment-review-layout > section { min-width: 0; }
+.cxc-payment-review-account { padding: 20px; background: #f5f7fa; }
+.cxc-payment-review-account h3 { margin: 0 0 16px; color: #0f766e; }
+.cxc-payment-review-account .cxc-summary-totals { margin-bottom: 16px; }
+.cxc-payment-review-actions { padding: 20px; background: #fff7ed; border-left: 1px solid #dce4eb; display: flex; flex-direction: column; justify-content: center; gap: 16px; }
+.cxc-payment-review-actions .ar-promise-followup-form { padding: 0; margin: 0; }
+.cxc-payment-review-actions .ar-deposit-promise-form { grid-template-columns: minmax(0, 1fr) !important; }
+.cxc-payment-review-layout :is(strong, small, p, span) { overflow-wrap: anywhere; }
+.cxc-payment-review-layout .ar-essential-identity { padding: 24px; gap: 18px; }
+@media (max-width: 1100px) {
+  .cxc-payment-review-layout { grid-template-columns: minmax(210px, 1fr) minmax(0, 2fr); }
+  .cxc-payment-review-actions { grid-column: 1 / -1; border-left: 0; border-top: 1px solid #dce4eb; }
+}
+@media (max-width: 650px) {
+  .cxc-payment-review-layout { grid-template-columns: minmax(0, 1fr); }
+  .cxc-payment-review-layout .ar-essential-identity { border-right: 0; }
+  .cxc-payment-review-account, .cxc-payment-review-actions { padding: 16px; }
+}
+.cxc-payment-received-notice {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  margin-bottom: 16px;
+  border: 2px solid #15803d;
+  border-radius: 12px;
+  background: #dcfce7;
+  color: #14532d;
+}
+.cxc-payment-received-check {
+  display: grid;
+  place-items: center;
+  flex: 0 0 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #15803d;
+  color: white;
+  font-size: 28px;
+  font-weight: 900;
+}
+.cxc-payment-received-notice > div { display: grid; gap: 6px; min-width: 0; }
+.cxc-payment-received-notice h3 { margin: 0; color: #14532d; font-size: 20px; }
+.cxc-payment-received-notice strong { font-size: 34px; line-height: 1.15; color: #166534; }
+.cxc-payment-received-notice span { font-size: 14px; }
+.cxc-payment-received-notice .cxc-payment-received-check { font-size: 28px; }
+.cxc-payment-agreement { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 650px) {
+  .cxc-payment-received-notice { padding: 16px; gap: 12px; }
+  .cxc-payment-received-notice h3 { font-size: 18px; }
+}
