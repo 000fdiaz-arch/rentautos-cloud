@@ -4216,9 +4216,29 @@ select.control-op-badge {
   padding: 0 12px 8px;
 }
 
-.app-nav-brand-compact,
-.nav-tab-icon {
+.app-nav-brand-compact {
   display: none;
+}
+
+.app-navigation-icon {
+  display: block;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.nav-tab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+}
+
+.app-nav-collapse-button .app-navigation-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .app-nav-collapse-button {
@@ -4323,6 +4343,13 @@ select.control-op-badge {
 
 .auth-nav-zone .hint {
   overflow-wrap: anywhere;
+}
+
+.auth-nav-zone .nav-backup-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .nav-backup-btn {
@@ -4469,14 +4496,10 @@ select.control-op-badge {
     height: 38px;
     padding: 0;
     overflow: hidden;
-    color: transparent;
-    font-size: 0;
   }
 
-  .app-nav--collapsed .auth-nav-zone .nav-backup-btn::after {
-    content: "↪";
-    color: #0f766e;
-    font-size: 1rem;
+  .app-nav--collapsed .app-nav-signout-label {
+    display: none;
   }
 
   .app-nav-collapsed .page {

@@ -1,6 +1,7 @@
 import { useEffect, useState, type MouseEvent } from "react";
 import type { AppPage } from "./appRoutes";
 import { appPagePath } from "./appRoutes";
+import { NavigationIcon } from "./NavigationIcon";
 
 export type { AppPage } from "./appRoutes";
 
@@ -54,16 +55,16 @@ export default function AppNavigation({
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("rentautos-nav-collapsed") === "true";
   });
-  const tabs: Array<{ page: AppPage; label: string; mobileLabel: string; mobileIcon: string; visible: boolean; badge?: number }> = [
-    { page: "leads", label: "Leads", mobileLabel: "Leads", mobileIcon: "◎", visible: canViewLeads, badge: pendingLeadReviewCount },
-    { page: "control_units", label: "Autos", mobileLabel: "Autos", mobileIcon: "◆", visible: canViewControlUnits },
-    { page: "clients", label: "Clientes", mobileLabel: "Clientes", mobileIcon: "●", visible: canViewClients },
-    { page: "payments", label: "Pagos", mobileLabel: "Pagos", mobileIcon: "$", visible: canViewPayments },
-    { page: "receivables", label: "Cuentas por cobrar", mobileLabel: "Cuentas", mobileIcon: "≡", visible: canViewReceivables },
-    { page: "receivables_v2", label: "Cuentas por cobrar 2.0", mobileLabel: "Cuentas 2.0", mobileIcon: "≡", visible: canViewReceivables },
-    { page: "route_search", label: "Ruta en calle", mobileLabel: "Ruta", mobileIcon: "↗", visible: canViewRouteSearch, badge: routeAlertCount },
-    { page: "incidents", label: "Control de siniestros", mobileLabel: "Siniestros", mobileIcon: "!", visible: canViewIncidents, badge: incidentAlertCount },
-    { page: "settings", label: "Configuraciones", mobileLabel: "Config.", mobileIcon: "⚙", visible: canViewSettings }
+  const tabs: Array<{ page: AppPage; label: string; mobileLabel: string; visible: boolean; badge?: number }> = [
+    { page: "leads", label: "Leads", mobileLabel: "Leads", visible: canViewLeads, badge: pendingLeadReviewCount },
+    { page: "control_units", label: "Autos", mobileLabel: "Autos", visible: canViewControlUnits },
+    { page: "clients", label: "Clientes", mobileLabel: "Clientes", visible: canViewClients },
+    { page: "payments", label: "Pagos", mobileLabel: "Pagos", visible: canViewPayments },
+    { page: "receivables", label: "Cuentas por cobrar", mobileLabel: "Cuentas", visible: canViewReceivables },
+    { page: "receivables_v2", label: "Cuentas por cobrar 2.0", mobileLabel: "Cuentas 2.0", visible: canViewReceivables },
+    { page: "route_search", label: "Ruta en calle", mobileLabel: "Ruta", visible: canViewRouteSearch, badge: routeAlertCount },
+    { page: "incidents", label: "Control de siniestros", mobileLabel: "Siniestros", visible: canViewIncidents, badge: incidentAlertCount },
+    { page: "settings", label: "Configuraciones", mobileLabel: "Config.", visible: canViewSettings }
   ];
   const visibleTabs = tabs.filter((tab) => tab.visible);
   function badgeLabel(tab: (typeof tabs)[number]): string {
@@ -122,7 +123,7 @@ export default function AppNavigation({
             aria-expanded={!desktopCollapsed}
             onClick={() => setDesktopCollapsed((current) => !current)}
           >
-            <span aria-hidden="true">{desktopCollapsed ? "›" : "‹"}</span>
+            <NavigationIcon name={desktopCollapsed ? "expand" : "collapse"} />
           </button>
         </div>
         <div className="app-nav-tabs">
@@ -136,7 +137,7 @@ export default function AppNavigation({
               title={desktopCollapsed ? tab.label : undefined}
               onClick={(event) => handlePageClick(event, tab.page)}
             >
-              <span className="nav-tab-icon" aria-hidden="true">{tab.mobileIcon}</span>
+              <span className="nav-tab-icon" aria-hidden="true"><NavigationIcon name={tab.page} /></span>
               <span className="nav-tab-label-full">{tab.label}</span>
               <span className="nav-tab-label-mobile">{tab.mobileLabel}</span>
               {Boolean(tab.badge) && (
@@ -163,7 +164,7 @@ export default function AppNavigation({
                   aria-current={page === tab.page ? "page" : undefined}
                   onClick={(event) => handlePageClick(event, tab.page)}
                 >
-                  <span aria-hidden="true">{tab.mobileIcon}</span>
+                  <span aria-hidden="true"><NavigationIcon name={tab.page} /></span>
                   <b>{tab.mobileLabel}</b>
                   {Boolean(tab.badge) ? <em aria-label={badgeLabel(tab)} title={badgeLabel(tab)}>{tab.badge! > 99 ? "99+" : tab.badge}</em> : null}
                 </a>
@@ -183,7 +184,7 @@ export default function AppNavigation({
               aria-current={page === tab.page ? "page" : undefined}
               onClick={(event) => handlePageClick(event, tab.page)}
             >
-              <span className="app-nav-mobile-icon" aria-hidden="true">{tab.mobileIcon}</span>
+              <span className="app-nav-mobile-icon" aria-hidden="true"><NavigationIcon name={tab.page} /></span>
               <b>{tab.mobileLabel}</b>
               {Boolean(tab.badge) ? <em aria-label={badgeLabel(tab)} title={badgeLabel(tab)}>{tab.badge! > 99 ? "99+" : tab.badge}</em> : null}
             </a>
@@ -195,7 +196,7 @@ export default function AppNavigation({
               aria-expanded={mobileMenuOpen}
               onClick={() => setMobileMenuOpen((current) => !current)}
             >
-              <span className="app-nav-mobile-icon" aria-hidden="true">•••</span>
+              <span className="app-nav-mobile-icon" aria-hidden="true"><NavigationIcon name="more" /></span>
               <b>Más</b>
             </button>
           ) : null}
@@ -210,8 +211,9 @@ export default function AppNavigation({
         {canSignOut && (
           <div className="backup-nav-zone auth-nav-zone">
             {userEmail && <span className="hint">{userEmail}</span>}
-            <button type="button" className="nav-backup-btn nav-backup-btn--setup" onClick={onSignOut} title="Cerrar sesion">
-              Cerrar sesion
+            <button type="button" className="nav-backup-btn nav-backup-btn--setup" onClick={onSignOut} title="Cerrar sesión" aria-label="Cerrar sesión">
+              <NavigationIcon name="sign-out" />
+              <span className="app-nav-signout-label">Cerrar sesión</span>
             </button>
           </div>
         )}
